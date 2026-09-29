@@ -151,9 +151,8 @@ func TestCreateTask(t *testing.T) {
 	}, protocmp.Transform())
 }
 
-// A draft task is born completed with no command: no runner picks it up, and
-// the first instruction from the task page's composer starts it like it would
-// any completed task.
+// A draft task carries no command, so no runner picks it up, and the first
+// instruction from the task page's composer starts it.
 func TestCreateTask_Draft(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -169,17 +168,17 @@ func TestCreateTask_Draft(t *testing.T) {
 		Draft:     true,
 	})
 
-	// Assert: completed, no command, and startable + archivable (but not
-	// cancellable — there is nothing to cancel).
+	// Assert: draft, no command, and startable + archivable. Not cancellable and
+	// not restartable — there is nothing to cancel, and nothing to restart.
 	assert.NilError(t, err)
 	expected := &gritzv1.Task{
 		Id:          resp.Task.Id,
 		Name:        "Draft Task",
 		Runner:      "test-runner",
 		Workspace:   "test-workspace",
-		Status:      gritzv1.TaskStatus_COMPLETED,
+		Status:      gritzv1.TaskStatus_DRAFT,
 		Command:     gritzv1.TaskCommand_NONE,
-		Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Archive: true},
+		Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
 		Version:     0,
 		CreatedAt:   resp.Task.CreatedAt,
 		UpdatedAt:   resp.Task.UpdatedAt,

@@ -11,6 +11,7 @@ const statusStyles: Record<TaskStatus, string> = {
   [TaskStatus.COMPLETED]: 'bg-green-100 text-green-800 border-green-200',
   [TaskStatus.FAILED]: 'bg-red-100 text-red-800 border-red-200',
   [TaskStatus.CANCELLED]: 'bg-amber-100 text-amber-800 border-amber-200',
+  [TaskStatus.DRAFT]: 'bg-purple-100 text-purple-800 border-purple-200',
 }
 
 const statusLabels: Record<TaskStatus, string> = {
@@ -22,6 +23,7 @@ const statusLabels: Record<TaskStatus, string> = {
   [TaskStatus.COMPLETED]: 'completed',
   [TaskStatus.FAILED]: 'failed',
   [TaskStatus.CANCELLED]: 'cancelled',
+  [TaskStatus.DRAFT]: 'draft',
 }
 
 const activeStatuses = new Set([TaskStatus.RUNNING, TaskStatus.RESTARTING, TaskStatus.CANCELLING])
@@ -36,6 +38,7 @@ const dotStyles: Record<TaskStatus, { halo: string; dot: string }> = {
   [TaskStatus.COMPLETED]: { halo: 'bg-green-100', dot: 'bg-green-500' },
   [TaskStatus.FAILED]: { halo: 'bg-red-100', dot: 'bg-red-500' },
   [TaskStatus.CANCELLED]: { halo: 'bg-amber-100', dot: 'bg-amber-500' },
+  [TaskStatus.DRAFT]: { halo: 'bg-purple-100', dot: 'bg-purple-500' },
 }
 
 // StatusDot is the compact form of StatusBadge for places with no room for a

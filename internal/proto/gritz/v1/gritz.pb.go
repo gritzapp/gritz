@@ -34,6 +34,7 @@ const (
 	TaskStatus_COMPLETED   TaskStatus = 5
 	TaskStatus_FAILED      TaskStatus = 6
 	TaskStatus_CANCELLED   TaskStatus = 7
+	TaskStatus_DRAFT       TaskStatus = 8
 )
 
 // Enum value maps for TaskStatus.
@@ -47,6 +48,7 @@ var (
 		5: "COMPLETED",
 		6: "FAILED",
 		7: "CANCELLED",
+		8: "DRAFT",
 	}
 	TaskStatus_value = map[string]int32{
 		"UNSPECIFIED": 0,
@@ -57,6 +59,7 @@ var (
 		"COMPLETED":   5,
 		"FAILED":      6,
 		"CANCELLED":   7,
+		"DRAFT":       8,
 	}
 )
 
@@ -1042,7 +1045,7 @@ type CreateTaskRequest struct {
 	// Optional namespace for the created task. Empty (default) is the default
 	// namespace. See Task.namespace.
 	Namespace string `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// Create the task without starting it: no command is set, so no runner picks
+	// Create the task in TaskStatus.DRAFT: no command is set, so no runner picks
 	// it up and no sandbox is launched. The first UpdateTask with start (e.g. the
 	// first instruction from the task page composer) is what starts it. Defaults
 	// to false — an ordinary create, started immediately.
@@ -7997,7 +8000,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x12RunScheduleRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"9\n" +
 	"\x13RunScheduleResponse\x12\"\n" +
-	"\x04task\x18\x01 \x01(\v2\x0e.gritz.v1.TaskR\x04task*\x81\x01\n" +
+	"\x04task\x18\x01 \x01(\v2\x0e.gritz.v1.TaskR\x04task*\x8c\x01\n" +
 	"\n" +
 	"TaskStatus\x12\x0f\n" +
 	"\vUNSPECIFIED\x10\x00\x12\v\n" +
@@ -8010,7 +8013,8 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\tCOMPLETED\x10\x05\x12\n" +
 	"\n" +
 	"\x06FAILED\x10\x06\x12\r\n" +
-	"\tCANCELLED\x10\a*9\n" +
+	"\tCANCELLED\x10\a\x12\t\n" +
+	"\x05DRAFT\x10\b*9\n" +
 	"\vTaskCommand\x12\b\n" +
 	"\x04NONE\x10\x00\x12\v\n" +
 	"\aRESTART\x10\x01\x12\b\n" +
