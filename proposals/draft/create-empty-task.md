@@ -20,117 +20,77 @@ instruction after it.
 The field cannot simply be deleted. `CreateTask` hardcodes `Command: TaskCommandStart`
 (`internal/server/apiserver/task.go:97`), so a task created with no instructions is
 immediately picked up by the runner and a container is launched for an agent that has
-nothing to do. It would produce a completed run before the user has said a word.
+nothing to do.
 
-So the real change is a **task that exists but has not been asked to do anything yet**,
-and a first instruction that starts it.
+So the task has to be born in a state the runner ignores and the composer can start.
+**That state already exists: completed.**
 
-### The idle state: `PENDING` + `TaskCommand.NONE`
+### An empty task is born completed
 
-No new status is needed. The runner's work queue is
-`WHERE runner = $1 AND org_id = $2 AND command != 0 AND archived = FALSE`
-(`internal/store/sql/queries/task.sql:38`) — a task with no command is invisible to the
-runner. And `(PENDING, NONE)` is currently unreachable: every transition in
-`internal/model/task.go` that lands on `PENDING` sets a command with it (`Start`,
-`Restart`, and the `Running`+start run boundary in `applyRunnerEventStopped`), and every
-transition that clears the command lands on `RUNNING`, `CANCELLED`, or `FAILED`. The pair
-is free, and it already means exactly what we want: *pending, with nothing pending*.
+A task with nothing to do has, trivially, nothing left to do. Creating it `COMPLETED`
+with no command means:
 
-Call it **idle**. An idle task is a normal row — org, runner, workspace, namespace,
-auto-archive, version 1 — with a `Created` lifecycle event in its stream and nothing else.
+- The runner's work queue is `WHERE runner = $1 AND org_id = $2 AND command != 0 AND
+  archived = FALSE` (`internal/store/sql/queries/task.sql:38`) — no command, so no runner
+  ever sees it and no container is launched.
+- `CanStart()` already returns `true` for `COMPLETED`, and `Start()` already does the
+  right thing: `PENDING` + `TaskCommandStart` + a version bump.
+- The composer already sends `start: true` with the instruction
+  (`webui/src/routes/tasks.$id.tsx:142`), and `UpdateTask` already appends the instruction
+  event with `Wake: req.Start && task.CanStart()` and then calls `task.Start()`
+  (`internal/server/apiserver/task.go:218-234`).
 
-```go
-// IsIdle reports whether the task has never been asked to run: created, but
-// with no command for the runner to pick up. This is the state a task created
-// with no instructions starts in.
-func (t *Task) IsIdle() bool {
-	return t.Status == TaskStatusPending && t.Command == TaskCommandNone
-}
-```
-
-### Starting an idle task
-
-`CanStart` today excludes `PENDING` outright; it must admit the idle case, and `Start`
-must not bump the version for it — version 1 is still the first run, unlike a start from a
-terminal status which provisions run N+1.
-
-```go
-func (t *Task) CanStart() bool {
-	if t.Archived {
-		return false
-	}
-	switch t.Status {
-	case TaskStatusRunning, TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
-		return true
-	case TaskStatusPending:
-		// Idle: created but never asked to run. Pending *with* a command is
-		// already provisioned — starting it again is a no-op.
-		return t.Command == TaskCommandNone
-	default:
-		return false
-	}
-}
-
-func (t *Task) Start() bool {
-	if !t.CanStart() {
-		return false
-	}
-	// Running: the wake is queued and the bump happens at the run boundary.
-	// Idle: run 1 was never started, so version 1 is still the run to start.
-	// Terminal: provision the next run now.
-	if t.Status != TaskStatusRunning && !t.IsIdle() {
-		t.Status = TaskStatusPending
-		t.Version++
-	}
-	t.Command = TaskCommandStart
-	return true
-}
-```
-
-Nothing downstream changes. `UpdateTask` already appends the instruction event with
-`Wake: req.Start && task.CanStart()` and calls `task.Start()`
-(`internal/server/apiserver/task.go:218-232`), and the composer already sends
-`start: true`. Once `CanStart()` is true for an idle task, the first instruction wakes it,
-the update publishes with `Runner: task.PendingRunner()`, and the runner sees a
-`PENDING`/`START` task at version 1 — byte-identical to what it sees today for a
-freshly created task. **The runner, driver, and agent prompt need no changes at all.**
-
-### Creating without instructions
-
-`CreateTask` starts the task only when it was given something to do:
+So the first instruction from the composer produces a `PENDING`/`START` row that the
+runner picks up — the same row a freshly created task presents today. **No model change,
+no proto change, no runner, driver or agent change.** The whole backend diff is the
+condition in `CreateTask`:
 
 ```go
 task := &model.Task{
-	...
-	Status: model.TaskStatusPending,
-	// An empty task is idle: no command, so no runner picks it up. The first
-	// instruction (UpdateTask with start) is what starts it.
-	Version: 1,
-	OrgID:   caller.OrgID,
+	Name:      req.Name,
+	Runner:    req.Runner,
+	Workspace: req.Workspace,
+	Namespace: req.Namespace,
+	Status:    model.TaskStatusPending,
+	Command:   model.TaskCommandStart,
+	Version:   1,
+	OrgID:     caller.OrgID,
 }
-if len(req.Instructions) > 0 {
-	task.Command = model.TaskCommandStart
+// A task created with nothing to do has nothing to do: born completed, with no
+// command for a runner to pick up. The first instruction from the composer
+// (UpdateTask with start) is what starts it, exactly as it would resume any
+// other completed task.
+if len(req.Instructions) == 0 {
+	task.Status = model.TaskStatusCompleted
+	task.Command = model.TaskCommandNone
 }
 ```
 
-The rule is implicit — *instructions ⇒ start* — which is what every existing caller
-already means. `CreateTaskRequest` is unchanged, so the scheduler
-(`internal/model/schedule.go:77`) and the event router
-(`internal/eventrouter/eventrouter.go:406`), which build their task rows directly and
-always have instructions or events, are untouched. `gritz task create` without `-i` and
-MCP `create_task` become able to create an idle task for free.
+The rule is implicit — *no instructions ⇒ nothing to start* — which is what every
+existing caller already means. `CreateTaskRequest` is unchanged, so the scheduler
+(`internal/model/schedule.go:76-78`) and the event router
+(`internal/eventrouter/eventrouter.go:405-406`), which build their task rows directly and
+always have instructions or events, are untouched. `gritz task create` without
+instructions and MCP `create_task` get empty tasks for free.
 
-The `Created` lifecycle event is still written, so the timeline is not empty. The
-create notification carries `Runner: task.PendingRunner()` — `""` for an idle task, which
-the SSE runner filter (`internal/server/notifyserver/sse.go:85`) drops for runner
-subscribers and delivers to UI subscribers. Exactly right: the UI should see the new
-task, no runner should be woken for it.
+The `Created` lifecycle event is still written, so the timeline is not empty; its
+`ToStatus` reads `Completed`. The create notification carries `Runner:
+task.PendingRunner()` — `""` for an empty task, which the SSE runner filter
+(`internal/server/notifyserver/sse.go:85`) drops for runner subscribers and delivers to
+UI subscribers. Exactly right: the UI should see the new task, no runner should be woken
+for it.
 
-### Disposing of an idle task
+### What falls out for free
 
-`Cancel()` already accepts `PENDING` and takes it straight to `CANCELLED` with no runner
-round trip, and a cancelled task can be archived. So an abandoned empty task is two
-clicks from gone, with no new operation.
+Everything a completed task can do, an empty task can do, with no new arms in any switch:
+
+- **Archive.** `CanArchive()` is `IsDone() && command == NONE` — true. An abandoned empty
+  task is one click from gone, with no cancel-then-archive dance.
+- **Auto-archive.** `ListTasksDueForArchive` matches `status IN (5,6,7) AND command = 0`,
+  so an empty task created with an auto-archive delay is reaped if it is never used. The
+  create page's shortest option is 1 hour, so this can't race the user; and reaping
+  abandoned empty tasks is the behavior you'd want anyway.
+- **Restart** and **start** are both offered; **cancel** is not (nothing to cancel).
 
 ### Web UI
 
@@ -138,64 +98,68 @@ clicks from gone, with no new operation.
 `!instruction.trim()` guard in `handleSubmit`; `createTask` is called with no
 `instructions`. The page keeps name, runner, workspace, namespace and auto-archive, and
 still navigates to `/tasks/$id` on success — which now lands on a task whose composer is
-the next thing the user touches.
+the next thing the user touches. Autofocus the composer there, so arriving from the create
+page puts the cursor where the instruction goes.
 
-Two small renderings of the new state:
-
-- **Status badge** (`webui/src/components/status-badge.tsx`): `PENDING` with
-  `command === NONE` reads **draft**, not **pending**. Both badges derive from the same
-  helper so the tasks list, the sidebar and the compact `StatusDot` agree. A
-  `isIdleTask(task)` helper in `webui/src/lib/task.ts` mirrors `model.Task.IsIdle`.
-- **Composer placeholder** (`webui/src/routes/tasks.$id.tsx`): "Send the first
-  instruction to start the task…" while the task is idle, and autofocus the composer so
-  arriving from the create page puts the cursor where the instruction goes.
+The new task renders with the green **completed** badge. That is the honest projection of
+the row and needs no code, but it is a slightly odd first impression for a task that has
+never run. If we want to soften it, "never ran" is exactly `status == COMPLETED &&
+version == 1`: the first `Start()` bumps to 2, so the condition is self-clearing and one
+helper in `webui/src/lib/task.ts` can relabel the badge **draft** in the list, the sidebar
+and the `StatusDot`. This is cosmetic and deliberately kept as the last, optional slice —
+`version` is otherwise unused by the UI.
 
 ## Implementation Plan
 
-1. **Model: the idle state** — Delivers: `Task.IsIdle`, and `CanStart`/`Start` accepting
-   an idle task without bumping the version. Depends on: nothing. Verifiable by: unit
-   tests in `internal/model/task_test.go` — idle is startable, idle start keeps version 1
-   and sets `START`, `PENDING`+`START` is *not* startable, idle is cancellable.
-   Safe to merge alone: nothing constructs an idle task yet, so every transition is
-   unreachable in production.
+1. **Server: create without instructions leaves the task completed** — Delivers: the
+   conditional in `CreateTask`. Depends on: nothing. Verifiable by: an apiserver test that
+   creates a task with no instructions and asserts `status == COMPLETED`, `command ==
+   NONE`, `actions.start == true`, `actions.archive == true`, that `ListRunnerTasks` does
+   not return it, and that a subsequent `UpdateTask{start: true, add_instructions: [...]}`
+   flips it to `PENDING`/`START` with a waking instruction event. Safe to merge alone:
+   no existing caller creates an instruction-less task in production.
 
-2. **Server: create without instructions leaves the task idle** — Delivers: the
-   conditional `Command` in `CreateTask`. Depends on: (1). Verifiable by: an apiserver
-   test that creates a task with no instructions and asserts `command == NONE`,
-   `actions.start == true`, that `ListRunnerTasks` does not return it, and that a
-   subsequent `UpdateTask{start: true, add_instructions: [...]}` flips it to
-   `PENDING`/`START` at version 1 with a waking instruction event. Also update the
-   existing tests that create instruction-less tasks incidentally
-   (`internal/server/apiserver/task_test.go:188,218,288`) — they now get idle tasks.
+   Note the test-fixture fallout: `createTestTask` (`internal/server/apiserver/event_test.go:27`)
+   and most of the ~66 `CreateTaskRequest` literals across the apiserver tests pass no
+   instructions. The ones that only need a row to hang events or links on are unaffected;
+   the ones that assert `PENDING`/`START` or exercise the runner queue must now pass an
+   instruction. This is a mechanical sweep and belongs in this slice.
 
-3. **Web UI: drop the instructions field** — Delivers: the create page without the
-   textarea. Depends on: (2). Verifiable by: create a task, land on the task page, send
-   an instruction from the composer, watch the container come up — and confirm no
-   container is launched before that.
+2. **Web UI: drop the instructions field** — Delivers: the create page without the
+   textarea, and composer autofocus on the task page. Depends on: (1). Verifiable by:
+   create a task, land on the task page, send an instruction from the composer, watch the
+   container come up — and confirm no container is launched before that.
 
-4. **Web UI: render the idle state** — Delivers: the "draft" badge label, `isIdleTask`,
-   the idle composer placeholder and autofocus. Depends on: (2). Verifiable by: an idle
-   task renders as draft in the list and the sidebar and reads as "send the first
-   instruction"; a pending-with-command task still reads as pending.
+3. **Web UI: "draft" badge (optional)** — Delivers: `isDraftTask(task)` in
+   `webui/src/lib/task.ts` and the relabelled badge/dot. Depends on: (1). Verifiable by:
+   a freshly created empty task reads as draft in the list and the sidebar; it reads as
+   completed again after its first run.
 
 ## Trade-offs
 
-**Implicit "instructions ⇒ start" vs. an explicit flag.** A `start` field on
-`CreateTaskRequest` would be explicit, but proto3 bools default to `false`, so every
-existing client would silently stop starting its tasks; `optional bool` avoids that at the
-cost of three-valued logic for a distinction no caller has ever wanted. The implicit rule
-needs no proto change and preserves every current caller's behavior exactly.
+**Completed vs. a dedicated idle state.** The first version of this proposal (#1607)
+introduced an *idle* state — `PENDING` + `TaskCommand.NONE`, a pair that is currently
+unreachable — plus `Task.IsIdle`, a new arm in `CanStart`, and a version-bump exception in
+`Start`. It buys an honest status ("pending, with nothing pending") and a first run at
+version 1. It costs a model change with two new transitions to test, and it leaves an
+empty task un-archivable without cancelling it first. Being born completed costs three
+lines in one handler and zero new transitions, so the entire risk surface is the create
+path. The price is a "completed" badge on a task that never ran, and a first run numbered
+version 2 — neither of which the UI surfaces today.
 
-**Reusing `(PENDING, NONE)` vs. a new `IDLE` status.** A new `TaskStatus` would be
+**Reusing `COMPLETED` vs. a new `IDLE` status.** A new `TaskStatus` would be
 self-describing, but it is a proto enum change plus a DB value plus an arm in every status
 switch (`IsTerminal`, `CanCancel`, `CanArchive`, `CanRestart`, the three runner-event
-folds), and older clients would render it as "unknown". The unused pair costs one helper
-and is already exactly the semantics the runner query enforces.
+folds), and older clients would render it as "unknown".
+
+**Implicit "no instructions ⇒ don't start" vs. an explicit flag.** A `start` field on
+`CreateTaskRequest` would be explicit, but proto3 bools default to `false`, so every
+existing client would silently stop starting its tasks; `optional bool` avoids that at the
+cost of three-valued logic for a distinction no caller has ever wanted.
 
 **Not starting at all vs. starting an empty agent.** Letting the empty task start and the
 agent sit idle needs no backend change, but it burns a container and an agent session to
-produce a run that ends before the user's first instruction — and that run's exit would
-have to be un-completed when the instruction lands.
+produce a run that ends before the user's first instruction.
 
 **Removing the field vs. making it optional.** Keeping an optional textarea would be a
 one-line variant on top of the same backend work, since `CreateTask` would still have to
@@ -204,9 +168,11 @@ than two.
 
 ## Open Questions
 
-- Should an idle task be archivable directly? `CanArchive` requires a terminal status, so
-  today the flow is cancel-then-archive. Allowing archive on idle (nothing to reclaim) is
-  a one-line relaxation but adds a third arm to `CanArchive`.
-- Wording for the badge: **draft**, **idle**, or **new**?
+- Is the green **completed** badge on a brand-new task acceptable, or is slice (3) part of
+  the deal? If it is, is the label **draft**, **empty**, or **new**?
+- Should the version bump be avoided by creating empty tasks at `Version: 0`, so the first
+  real run is version 1? It is one more line and makes "never ran" a single-field test,
+  but `taskstate` treats version 0 as a legacy record (`internal/runner/taskstate/taskstate.go:30`)
+  — harmless, since a task with no command never reaches the runner, but worth a look.
 - Should MCP `create_task` make `instruction` optional, so an agent can hand a prepared
   empty task to a human? Nothing needs it yet.
