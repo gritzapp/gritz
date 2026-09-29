@@ -201,3 +201,5 @@ tool (
 	golang.org/x/tools/cmd/stringer
 	gotest.tools/gotestsum
 )
+
+replace github.com/zitadel/zitadel-go/v3 => github.com/icholy/zitadel-go/v3 v3.28.1-0.20260929182302-513520092b41

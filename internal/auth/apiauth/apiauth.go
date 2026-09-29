@@ -162,7 +162,9 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		}, nil
 	}
 	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail}
+		// offline_access makes ZITADEL issue a refresh token, which WithRefresh
+		// uses to renew expired sessions.
+		cfg.Scopes = []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail, oidc.ScopeOfflineAccess}
 	}
 	authN, err := authentication.New(ctx,
 		// my zitadel instance domain
@@ -170,17 +172,21 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		// not sure?
 		string(cfg.EncryptionKey),
 		// Initialize cookie-based authentication (for web UI)
-		openid.WithCodeFlow[*openid.DefaultContext](openid.ClientIDSecretAuthentication(
-			// credentials to access our zitadel instance
-			cfg.ClientID,
-			cfg.ClientSecret,
-			// where to redirect the browswer after login
-			cfg.RedirectURI,
-			// what jwt claims we want
-			cfg.Scopes,
-			// used to store the encrypted token & refresh token & state in cookies
-			httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey),
-		)),
+		openid.WithCodeFlow[*openid.DefaultContext](
+			openid.ClientIDSecretAuthentication(
+				// credentials to access our zitadel instance
+				cfg.ClientID,
+				cfg.ClientSecret,
+				// where to redirect the browswer after login
+				cfg.RedirectURI,
+				// what jwt claims we want
+				cfg.Scopes,
+				// used to store the encrypted token & refresh token & state in cookies
+				httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey),
+			),
+			// renew expired sessions with the refresh token
+			openid.WithRefresh(),
+		),
 		// tell zitadel where to redirect to after logout
 		authentication.WithPostLogoutRedirectURI[*openid.DefaultContext](cfg.PostLogoutURI),
 		// store session in cookie instead of in-memory (survives server restarts)
