@@ -151,6 +151,109 @@ func TestCreateTask(t *testing.T) {
 	}, protocmp.Transform())
 }
 
+// A draft task is born completed with no command: no runner picks it up, and
+// the first instruction from the task page's composer starts it like it would
+// any completed task.
+func TestCreateTask_Draft(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	ctx := createCtx(t, org)
+
+	// Act
+	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "Draft Task",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+		Draft:     true,
+	})
+
+	// Assert: completed, no command, and startable + archivable (but not
+	// cancellable — there is nothing to cancel).
+	assert.NilError(t, err)
+	expected := &gritzv1.Task{
+		Id:          resp.Task.Id,
+		Name:        "Draft Task",
+		Runner:      "test-runner",
+		Workspace:   "test-workspace",
+		Status:      gritzv1.TaskStatus_COMPLETED,
+		Command:     gritzv1.TaskCommand_NONE,
+		Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Archive: true},
+		Version:     0,
+		CreatedAt:   resp.Task.CreatedAt,
+		UpdatedAt:   resp.Task.UpdatedAt,
+		AutoArchive: durationpb.New(0),
+	}
+	assert.DeepEqual(t, resp.Task, expected, protocmp.Transform())
+
+	// No instruction events, but the Created lifecycle event is still there so
+	// the timeline is not empty.
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	assert.NilError(t, err)
+	assert.Equal(t, len(instructionPayloads(eventsResp.Events)), 0)
+	assert.Equal(t, len(eventsResp.Events), 1)
+	assert.Equal(t, eventsResp.Events[0].GetLifecycle().Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
+
+	// No command, so no runner ever sees it: nothing is launched.
+	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: "test-runner"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runnerResp.Tasks), 0)
+}
+
+// The first instruction from the composer starts a draft task: it lands on
+// PENDING/START — the row an ordinary create presents — and the instruction
+// event wakes.
+func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	ctx := createCtx(t, org)
+	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "Draft Task",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+		Draft:     true,
+	})
+	assert.NilError(t, err)
+
+	// Act: exactly what the task page composer sends.
+	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
+		Id:              resp.Task.Id,
+		Start:           true,
+		AddInstructions: []*gritzv1.Instruction{{Text: "Do something"}},
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: resp.Task.Id})
+	assert.NilError(t, err)
+	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_PENDING)
+	assert.Equal(t, getResp.Task.Command, gritzv1.TaskCommand_START)
+	// The draft was never provisioned (version 0), so its first run is run 1 —
+	// the same run number an ordinary create starts at.
+	assert.Equal(t, getResp.Task.Version, int64(1))
+
+	// The runner now has work for it.
+	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: "test-runner"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runnerResp.Tasks), 1)
+	assert.Equal(t, runnerResp.Tasks[0].Id, resp.Task.Id)
+
+	// The instruction is in the stream and woke the task.
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
+		{Text: "Do something"},
+	}, protocmp.Transform())
+	for _, e := range eventsResp.Events {
+		if e.GetInstruction() != nil {
+			assert.Assert(t, e.Wake, "the first instruction must wake the task")
+		}
+	}
+}
+
 func TestListTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange

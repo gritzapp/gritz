@@ -98,6 +98,13 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		Version:   1,
 		OrgID:     caller.OrgID,
 	}
+	// A draft is born completed with no command and no run — no runner picks it
+	// up and nothing is launched.
+	if req.Draft {
+		task.Status = model.TaskStatusCompleted
+		task.Command = model.TaskCommandNone
+		task.Version = 0
+	}
 	if req.AutoArchive != nil {
 		task.AutoArchive = req.AutoArchive.AsDuration()
 	}
@@ -121,9 +128,8 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 			return err
 		}
 		// Seed the stream with the initial instructions as instruction events
-		// instead of a tasks.instructions column. The task already starts via
-		// Command=Start above; instruction events always wake (per the proposal's
-		// type semantics).
+		// instead of a tasks.instructions column. Unless this is a draft, the task
+		// already starts via Command=Start above; instruction events always wake.
 		for _, inst := range req.Instructions {
 			if err := s.store.CreateEvent(ctx, tx, &model.Event{
 				TaskID: task.ID,

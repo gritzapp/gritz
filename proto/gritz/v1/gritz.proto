@@ -183,6 +183,11 @@ message CreateTaskRequest {
   // Optional namespace for the created task. Empty (default) is the default
   // namespace. See Task.namespace.
   string namespace = 7;
+  // Create the task without starting it: no command is set, so no runner picks
+  // it up and no sandbox is launched. The first UpdateTask with start (e.g. the
+  // first instruction from the task page composer) is what starts it. Defaults
+  // to false — an ordinary create, started immediately.
+  bool draft = 8;
 }
 
 message CreateTaskResponse {

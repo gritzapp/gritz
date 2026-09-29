@@ -42,6 +42,35 @@ func TestCreateTask_Publishes(t *testing.T) {
 	}}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
 }
 
+// A draft has no command, so PendingRunner() is empty and the notification
+// carries no runner: the UI sees the new task, no runner is woken for it.
+func TestCreateTask_Draft_PublishesWithoutRunner(t *testing.T) {
+	t.Parallel()
+
+	pub := &pubsub.PublisherMock{
+		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
+	}
+	st := teststore.New(t)
+	srv := New(Options{Store: st, Publisher: pub})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	ctx := createCtx(t, org)
+
+	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name: "test", Runner: "r", Workspace: "w", Draft: true,
+	})
+	assert.NilError(t, err)
+
+	assert.DeepEqual(t, pub.PublishedNotifications(), []model.Notification{{
+		Type: "change",
+		Resources: []model.NotificationResource{
+			{Action: "created", Type: "task", ID: resp.Task.Id},
+			{Action: "appended", Type: "task_events", ID: resp.Task.Id},
+		},
+		OrgID:  org.OrgID,
+		UserID: org.UserID,
+	}}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
+}
+
 func TestUpdateTask_Publishes(t *testing.T) {
 	t.Parallel()
 
