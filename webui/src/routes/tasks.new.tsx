@@ -7,7 +7,6 @@ import { useOrgLocalStorage } from '@/hooks/use-org-local-storage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   Select,
@@ -29,7 +28,6 @@ function NewTaskPage() {
   const [name, setName] = useState('')
   const [runner, setRunner] = useOrgLocalStorage('gritz-last-runner', '')
   const [workspace, setWorkspace] = useOrgLocalStorage('gritz-last-workspace', '')
-  const [instruction, setInstruction] = useState('')
   const [namespace, setNamespace] = useState('')
   const [autoArchive, setAutoArchive] = useState<string>('') // empty = never
 
@@ -62,13 +60,16 @@ function NewTaskPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!runner.trim() || !workspace.trim() || !instruction.trim()) return
+    if (!runner.trim() || !workspace.trim()) return
 
+    // No instructions: the task is created empty (completed, with no command)
+    // and nothing is launched for it. The first instruction is sent from the
+    // composer on the task page, which is where every instruction after it goes
+    // anyway. See proposals/draft/create-empty-task.md.
     await mutation.mutateAsync({
       name: name.trim(),
       runner: runner.trim(),
       workspace: workspace.trim(),
-      instructions: [{ text: instruction.trim(), url: '' }],
       namespace: namespace.trim(),
       autoArchive: durationFromHours(autoArchive),
     })
@@ -126,18 +127,6 @@ function NewTaskPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="instruction">Instructions</Label>
-              <Textarea
-                id="instruction"
-                placeholder="Enter the initial instruction for the task..."
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                rows={4}
-                required
-              />
             </div>
 
             <div className="space-y-2">
