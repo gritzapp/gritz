@@ -14,6 +14,7 @@ import (
 	"github.com/icholy/gritz/internal/auth/authscope"
 	"github.com/icholy/gritz/internal/model"
 	"github.com/icholy/gritz/internal/x/logctx"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/zitadel-go/v3/pkg/authentication"
@@ -21,6 +22,7 @@ import (
 	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/singleflight"
 )
 
 // Auth type labels for UserInfo.Type.
@@ -138,6 +140,14 @@ type Auth struct {
 	handler http.Handler
 	// appKey is the Ed25519 private key for signing/verifying app JWTs
 	appKey ed25519.PrivateKey
+	// relyingParty talks to the IdP's token endpoint for session renewal.
+	// Nil in dev-user mode, where there is no IdP.
+	relyingParty rp.RelyingParty
+	// encryptionKey encrypts the session cookie, matching zitadel-go's codec
+	encryptionKey string
+	// renewals collapses concurrent renewals of the same refresh token, so
+	// rotation cannot produce a loser (see session.go)
+	renewals singleflight.Group
 }
 
 // New creates a new Auth instance with both cookie and bearer token support.
@@ -162,7 +172,33 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		}, nil
 	}
 	if len(cfg.Scopes) == 0 {
-		cfg.Scopes = []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail}
+		// offline_access is what makes ZITADEL issue a refresh token. Without it
+		// the session cookie's refresh_token field is empty and renewSession is a
+		// no-op, so sessions still die at the ID token's exp (see session.go).
+		cfg.Scopes = []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail, oidc.ScopeOfflineAccess}
+	}
+	// zitadel-go builds the relying party inside openid.WithCodeFlow and never
+	// exposes it, but renewSession needs it to call the token endpoint. The
+	// ClientAuthentication hook is the only seam: build the party ourselves
+	// (identically to openid.ClientIDSecretAuthentication) and keep the pointer.
+	var relyingParty rp.RelyingParty
+	clientAuth := func(ctx context.Context, domain string) (rp.RelyingParty, error) {
+		party, err := rp.NewRelyingPartyOIDC(ctx, domain,
+			// credentials to access our zitadel instance
+			cfg.ClientID,
+			cfg.ClientSecret,
+			// where to redirect the browser after login
+			cfg.RedirectURI,
+			// what jwt claims we want
+			cfg.Scopes,
+			// used to store the encrypted token & refresh token & state in cookies
+			rp.WithCookieHandler(httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey)),
+		)
+		if err != nil {
+			return nil, err
+		}
+		relyingParty = party
+		return party, nil
 	}
 	authN, err := authentication.New(ctx,
 		// my zitadel instance domain
@@ -170,17 +206,10 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		// not sure?
 		string(cfg.EncryptionKey),
 		// Initialize cookie-based authentication (for web UI)
-		openid.WithCodeFlow[*openid.DefaultContext](openid.ClientIDSecretAuthentication(
-			// credentials to access our zitadel instance
-			cfg.ClientID,
-			cfg.ClientSecret,
-			// where to redirect the browswer after login
-			cfg.RedirectURI,
-			// what jwt claims we want
-			cfg.Scopes,
-			// used to store the encrypted token & refresh token & state in cookies
-			httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey),
-		)),
+		openid.WithCodeFlow[*openid.DefaultContext](clientAuth),
+		// Pin the name renewSession reads and writes. This is zitadel-go's own
+		// default; setting it explicitly keeps the two from drifting apart.
+		authentication.WithSessionCookieName[*openid.DefaultContext](sessionCookieName),
 		// tell zitadel where to redirect to after logout
 		authentication.WithPostLogoutRedirectURI[*openid.DefaultContext](cfg.PostLogoutURI),
 		// store session in cookie instead of in-memory (survives server restarts)
@@ -199,11 +228,13 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		return nil, err
 	}
 	return &Auth{
-		cookie:    authentication.Middleware(authN),
-		validator: cfg.KeyValidator,
-		resolver:  cfg.UserResolver,
-		handler:   authN,
-		appKey:    appKey,
+		cookie:        authentication.Middleware(authN),
+		validator:     cfg.KeyValidator,
+		resolver:      cfg.UserResolver,
+		handler:       authN,
+		appKey:        appKey,
+		relyingParty:  relyingParty,
+		encryptionKey: string(cfg.EncryptionKey),
 	}, nil
 }
 
@@ -267,6 +298,14 @@ func (a *Auth) RequireAuth() func(http.Handler) http.Handler {
 				return
 			}
 			if !a.useDevUser(w, r, next) {
+				// Renew here too, not just in HandleToken: /ui/ is behind this
+				// middleware, so a user returning to an expired-but-renewable
+				// session would otherwise be bounced to the IdP before any
+				// JavaScript ran to call /auth/token.
+				if renewed := a.renewSessionQuietly(w, r); renewed != nil {
+					next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), cookieUserInfo(renewed, r))))
+					return
+				}
 				a.cookie.RequireAuthentication()(a.attachUserInfo(next)).ServeHTTP(w, r)
 			}
 		})
@@ -290,6 +329,10 @@ func (a *Auth) CheckAuth() func(http.Handler) http.Handler {
 				return
 			}
 			if !a.useDevUser(w, r, next) {
+				if renewed := a.renewSessionQuietly(w, r); renewed != nil {
+					next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), cookieUserInfo(renewed, r))))
+					return
+				}
 				a.cookie.CheckAuthentication()(a.attachUserInfo(next)).ServeHTTP(w, r)
 			}
 		})
@@ -350,7 +393,27 @@ func (a *Auth) HandleToken() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		// Renew the cookie session before minting an app JWT. The web UI refetches
+		// from here whenever its app JWT lapses, which makes this the call that
+		// periodically reconfirms a long-lived session against the IdP. CheckAuth
+		// may already have renewed on the way in, in which case this is a no-op:
+		// the session is no longer near expiry.
+		renewed, err := a.renewSession(w, r)
+		if errors.Is(err, errSessionExpired) {
+			a.clearSession(w)
+			http.Error(w, "session expired", http.StatusUnauthorized)
+			return
+		} else if err != nil {
+			// The tokens are fine; only persisting them failed. Serve the request
+			// and let the next call retry the renewal.
+			slog.Error("failed to persist renewed session", "err", err)
+		}
 		user := a.User(r)
+		if user == nil && renewed != nil {
+			// The session had already expired, so the middleware did not populate
+			// the request context — but renewal just revived it.
+			user = cookieUserInfo(renewed, r)
+		}
 		if user == nil {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
@@ -403,17 +466,24 @@ func (a *Auth) User(r *http.Request) *UserInfo {
 		return user
 	}
 	if ctx := a.cookie.Context(r.Context()); ctx != nil {
-		return &UserInfo{
-			ID:       ctx.UserInfo.Subject,
-			Email:    ctx.UserInfo.Email,
-			Name:     ctx.UserInfo.Name,
-			Type:     AuthTypeCookie,
-			ClientID: r.Header.Get("X-Client-ID"),
-			// TODO: revisit permissions for cookie auth. Cookie sessions are
-			// omnipotent within their org today, so grant the admin wildcard for
-			// now to keep behavior unchanged once enforcement lands.
-			Scopes: authscope.Admin(),
-		}
+		return cookieUserInfo(ctx, r)
 	}
 	return nil
+}
+
+// cookieUserInfo builds the UserInfo for a cookie session. Both the middleware
+// path and session renewal go through here so a renewed session is authenticated
+// identically to one the middleware accepted.
+func cookieUserInfo(authCtx *openid.DefaultContext, r *http.Request) *UserInfo {
+	return &UserInfo{
+		ID:       authCtx.UserInfo.Subject,
+		Email:    authCtx.UserInfo.Email,
+		Name:     authCtx.UserInfo.Name,
+		Type:     AuthTypeCookie,
+		ClientID: r.Header.Get("X-Client-ID"),
+		// TODO: revisit permissions for cookie auth. Cookie sessions are
+		// omnipotent within their org today, so grant the admin wildcard for
+		// now to keep behavior unchanged once enforcement lands.
+		Scopes: authscope.Admin(),
+	}
 }
