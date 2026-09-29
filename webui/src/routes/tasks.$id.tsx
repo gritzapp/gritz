@@ -224,6 +224,10 @@ function TaskDetail() {
                 <form onSubmit={handleAddInstruction} className="flex items-end gap-2">
                   <Textarea
                     ref={textareaRef}
+                    // The create page no longer takes an instruction, so landing
+                    // on a task is landing on the thing you type the first one
+                    // into: put the cursor there.
+                    autoFocus
                     placeholder="Send an instruction…  (Enter to send, Shift+Enter for newline)"
                     value={instruction}
                     onChange={(e) => setInstruction(e.target.value)}
