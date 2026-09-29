@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.8.0](https://github.com/icholy/gritz/compare/v3.7.0...v3.8.0) (2026-09-29)
+
+
+### Features
+
+* **auth:** refresh expired cookie sessions with the refresh token ([c75e726](https://github.com/icholy/gritz/commit/c75e7265082669217a55ad6efc94ca8d4cbd4490))
+
+
+### Miscellaneous
+
+* **deps:** update dependency age to v1.3.2 ([f8001d6](https://github.com/icholy/gritz/commit/f8001d6ff05b6b1dbf918cda09b9360dc70becad))
+* **deps:** update dependency eslint-plugin-react-refresh to v0.5.7 ([e5df6a2](https://github.com/icholy/gritz/commit/e5df6a26a170855f92fe1498028624760d9a8bbb))
+
 ## [3.7.0](https://github.com/icholy/gritz/compare/v3.6.0...v3.7.0) (2026-09-29)
 
 
