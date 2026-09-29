@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { taskLabel, taskSearchValue, toTaskTab } from './task'
+import { isDraftTask, taskLabel, taskSearchValue, toTaskTab } from './task'
 
 describe('taskLabel', () => {
   it('uses the name when the agent has set one', () => {
@@ -38,5 +38,18 @@ describe('toTaskTab', () => {
     expect(toTaskTab('bogus')).toBe('timeline')
     expect(toTaskTab(undefined)).toBe('timeline')
     expect(toTaskTab(42)).toBe('timeline')
+  })
+})
+
+describe('isDraftTask', () => {
+  it('is true for a task that has never been provisioned', () => {
+    expect(isDraftTask({ version: 0n })).toBe(true)
+  })
+
+  it('is false once the first instruction has started it', () => {
+    // The version is what separates an empty task from one that ran once and
+    // completed — both are COMPLETED in the row.
+    expect(isDraftTask({ version: 1n })).toBe(false)
+    expect(isDraftTask({ version: 3n })).toBe(false)
   })
 })

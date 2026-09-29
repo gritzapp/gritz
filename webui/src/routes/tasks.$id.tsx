@@ -12,7 +12,7 @@ import {
 import { useState, useRef, useLayoutEffect } from 'react'
 import type { TaskTab } from '@/lib/task'
 import { toTaskTab } from '@/lib/task'
-import { canOpenShell, isArchivedTask, isTerminalTask } from '@/lib/task'
+import { canOpenShell, isArchivedTask, isDraftTask, isTerminalTask } from '@/lib/task'
 import { useTaskTimeline } from '@/hooks/use-task-timeline'
 import { useOrgId } from '@/hooks/use-org-id'
 import { useShellState } from '@/hooks/use-shell-state'
@@ -228,7 +228,11 @@ function TaskDetail() {
                     // on a task is landing on the thing you type the first one
                     // into: put the cursor there.
                     autoFocus
-                    placeholder="Send an instruction…  (Enter to send, Shift+Enter for newline)"
+                    placeholder={
+                      isDraftTask(task)
+                        ? 'Send the first instruction to start the task…'
+                        : 'Send an instruction…  (Enter to send, Shift+Enter for newline)'
+                    }
                     value={instruction}
                     onChange={(e) => setInstruction(e.target.value)}
                     onKeyDown={handleInstructionKeyDown}

@@ -25,6 +25,18 @@ export function isArchivedTask(task: TaskLike): boolean {
   return task.archived
 }
 
+// isDraftTask reports whether the task has never run — a task created with no
+// instructions, which the server stores as COMPLETED with no command so no
+// runner picks it up (see proposals/draft/create-empty-task.md).
+//
+// The status alone can't tell it apart from a task that ran once and finished:
+// both are COMPLETED. The version can — 0 is "never provisioned"
+// (proposals/implemented/task-run-versions.md), and the first instruction
+// starts the task and bumps it to 1, so this self-clears.
+export function isDraftTask(task: Pick<Task, 'version'>): boolean {
+  return task.version === 0n
+}
+
 // isTerminalTask reports whether the task has reached a terminal status — no
 // driver is running (or scheduled to run) for it.
 //
