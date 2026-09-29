@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.6.0](https://github.com/icholy/gritz/compare/v3.5.1...v3.6.0) (2026-09-29)
+
+
+### Features
+
+* **server:** add a draft flag to CreateTask ([c08eb63](https://github.com/icholy/gritz/commit/c08eb637c532f8da80a9384709694d0c50b2a4b8))
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/zitadel/zitadel-go/v3 to v3.30.0 ([0aa90cf](https://github.com/icholy/gritz/commit/0aa90cfb104ce8a71da90110f396748d339adc8e))
+
+
+### Miscellaneous
+
+* **deps:** update dependency @types/node to v24.13.6 ([44e68b4](https://github.com/icholy/gritz/commit/44e68b485086800cb096c710dbea9239ee826f54))
+* **deps:** update dependency vitest to v4.1.11 [security] ([7635b11](https://github.com/icholy/gritz/commit/7635b116328d5b8509d7bfdd7f2b3025bf7ddbd4))
+
 ## [3.5.1](https://github.com/icholy/gritz/compare/v3.5.0...v3.5.1) (2026-09-25)
 
 
