@@ -1041,7 +1041,12 @@ type CreateTaskRequest struct {
 	AutoArchive  *durationpb.Duration   `protobuf:"bytes,6,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
 	// Optional namespace for the created task. Empty (default) is the default
 	// namespace. See Task.namespace.
-	Namespace     string `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Namespace string `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// Create the task without starting it: no command is set, so no runner picks
+	// it up and no sandbox is launched. The first UpdateTask with start (e.g. the
+	// first instruction from the task page composer) is what starts it. Defaults
+	// to false — an ordinary create, started immediately.
+	Draft         bool `protobuf:"varint,8,opt,name=draft,proto3" json:"draft,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1116,6 +1121,13 @@ func (x *CreateTaskRequest) GetNamespace() string {
 		return x.Namespace
 	}
 	return ""
+}
+
+func (x *CreateTaskRequest) GetDraft() bool {
+	if x != nil {
+		return x.Draft
+	}
+	return false
 }
 
 type CreateTaskResponse struct {
@@ -7570,14 +7582,15 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x16ListRunnerTasksRequest\x12\x16\n" +
 	"\x06runner\x18\x01 \x01(\tR\x06runner\"?\n" +
 	"\x17ListRunnerTasksResponse\x12$\n" +
-	"\x05tasks\x18\x01 \x03(\v2\x0e.gritz.v1.TaskR\x05tasks\"\xfa\x01\n" +
+	"\x05tasks\x18\x01 \x03(\v2\x0e.gritz.v1.TaskR\x05tasks\"\x90\x02\n" +
 	"\x11CreateTaskRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tworkspace\x18\x03 \x01(\tR\tworkspace\x129\n" +
 	"\finstructions\x18\x04 \x03(\v2\x15.gritz.v1.InstructionR\finstructions\x12\x16\n" +
 	"\x06runner\x18\x05 \x01(\tR\x06runner\x12<\n" +
 	"\fauto_archive\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\vautoArchive\x12\x1c\n" +
-	"\tnamespace\x18\a \x01(\tR\tnamespaceJ\x04\b\x02\x10\x03\"8\n" +
+	"\tnamespace\x18\a \x01(\tR\tnamespace\x12\x14\n" +
+	"\x05draft\x18\b \x01(\bR\x05draftJ\x04\b\x02\x10\x03\"8\n" +
 	"\x12CreateTaskResponse\x12\"\n" +
 	"\x04task\x18\x01 \x01(\v2\x0e.gritz.v1.TaskR\x04task\" \n" +
 	"\x0eGetTaskRequest\x12\x0e\n" +

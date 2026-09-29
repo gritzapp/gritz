@@ -25,7 +25,7 @@ nothing to do.
 So the task has to be born in a state the runner ignores and the composer can start.
 **That state already exists: completed.**
 
-### An empty task is born completed
+### A draft is born completed
 
 A task with nothing to do has, trivially, nothing left to do. Creating it `COMPLETED`
 with no command means:
@@ -42,8 +42,19 @@ with no command means:
 
 So the first instruction from the composer produces a `PENDING`/`START` row that the
 runner picks up — the same row a freshly created task presents today. **No model change,
-no proto change, no runner, driver or agent change.** The whole backend diff is the
-condition in `CreateTask`:
+no runner, driver or agent change.** The whole backend diff is one new request field and
+the condition it drives in `CreateTask`:
+
+```protobuf
+message CreateTaskRequest {
+  // ...
+  // Create the task without starting it: no command is set, so no runner picks
+  // it up and no sandbox is launched. The first UpdateTask with start (e.g. the
+  // first instruction from the task page composer) is what starts it. Defaults
+  // to false — an ordinary create, started immediately.
+  bool draft = 8;
+}
+```
 
 ```go
 task := &model.Task{
@@ -56,38 +67,49 @@ task := &model.Task{
 	Version:   1,
 	OrgID:     caller.OrgID,
 }
-// A task created with nothing to do has nothing to do: born completed, with no
-// command for a runner to pick up. The first instruction from the composer
-// (UpdateTask with start) is what starts it, exactly as it would resume any
-// other completed task.
-if len(req.Instructions) == 0 {
+// A draft is born completed with no command and no run — no runner picks it
+// up and nothing is launched.
+if req.Draft {
 	task.Status = model.TaskStatusCompleted
 	task.Command = model.TaskCommandNone
+	task.Version = 0
 }
 ```
 
-The rule is implicit — *no instructions ⇒ nothing to start* — which is what every
-existing caller already means. `CreateTaskRequest` is unchanged, so the scheduler
+`draft` is the whole rule: it alone decides whether the task starts. The polarity is what
+makes the field safe to add — proto3 bools default to `false`, and `false` is *"not a
+draft, start it"*, so every existing client keeps today's behavior byte for byte. (A
+`start bool` would have had the opposite default and silently stopped every caller's tasks;
+that is why the earlier draft of this proposal rejected an explicit flag and used the
+implicit *no instructions ⇒ don't start* rule instead. Inverting the polarity removes the
+objection.)
+
+`CreateTaskRequest` is otherwise unchanged, so the scheduler
 (`internal/model/schedule.go:76-78`) and the event router
-(`internal/eventrouter/eventrouter.go:405-406`), which build their task rows directly and
-always have instructions or events, are untouched. `gritz task create` without
-instructions and MCP `create_task` get empty tasks for free.
+(`internal/eventrouter/eventrouter.go:405-406`), which build their task rows directly,
+are untouched — as are every apiserver test fixture and `gritz task create`.
+
+Version 0 is "never provisioned" — the value
+`proposals/implemented/task-run-versions.md` reserved for *"any future
+create-without-start flow"*. `Start()` bumps it to 1, so the first real run is run 1 just
+as it is for an ordinary create; seeding at 1 instead would number the first run 2, with
+no run 1 having existed.
 
 The `Created` lifecycle event is still written, so the timeline is not empty; its
 `ToStatus` reads `Completed`. The create notification carries `Runner:
-task.PendingRunner()` — `""` for an empty task, which the SSE runner filter
+task.PendingRunner()` — `""` for a draft, which the SSE runner filter
 (`internal/server/notifyserver/sse.go:85`) drops for runner subscribers and delivers to
 UI subscribers. Exactly right: the UI should see the new task, no runner should be woken
 for it.
 
 ### What falls out for free
 
-Everything a completed task can do, an empty task can do, with no new arms in any switch:
+Everything a completed task can do, a draft can do, with no new arms in any switch:
 
-- **Archive.** `CanArchive()` is `IsDone() && command == NONE` — true. An abandoned empty
-  task is one click from gone, with no cancel-then-archive dance.
+- **Archive.** `CanArchive()` is `IsDone() && command == NONE` — true. An abandoned draft
+  is one click from gone, with no cancel-then-archive dance.
 - **Auto-archive.** `ListTasksDueForArchive` matches `status IN (5,6,7) AND command = 0`,
-  so an empty task created with an auto-archive delay is reaped if it is never used. The
+  so a draft created with an auto-archive delay is reaped if it is never used. The
   create page's shortest option is 1 hour, so this can't race the user; and reaping
   abandoned empty tasks is the behavior you'd want anyway.
 - **Restart** and **start** are both offered; **cancel** is not (nothing to cancel).
@@ -102,38 +124,26 @@ the next thing the user touches. Autofocus the composer there, so arriving from 
 page puts the cursor where the instruction goes.
 
 The new task renders with the green **completed** badge. That is the honest projection of
-the row and needs no code, but it is a slightly odd first impression for a task that has
-never run. If we want to soften it, "never ran" is exactly `status == COMPLETED &&
-version == 1`: the first `Start()` bumps to 2, so the condition is self-clearing and one
-helper in `webui/src/lib/task.ts` can relabel the badge **draft** in the list, the sidebar
-and the `StatusDot`. This is cosmetic and deliberately kept as the last, optional slice —
-`version` is otherwise unused by the UI.
+the row and needs no code. It is a slightly odd first impression for a task that has never
+run, and an earlier draft of this proposal relabelled it **draft**; that was dropped as
+unnecessary for the first pass. The badge stays as-is.
 
 ## Implementation Plan
 
-1. **Server: create without instructions leaves the task completed** — Delivers: the
+1. **Server: `draft` on `CreateTaskRequest`** — Delivers: the proto field and the
    conditional in `CreateTask`. Depends on: nothing. Verifiable by: an apiserver test that
-   creates a task with no instructions and asserts `status == COMPLETED`, `command ==
-   NONE`, `actions.start == true`, `actions.archive == true`, that `ListRunnerTasks` does
-   not return it, and that a subsequent `UpdateTask{start: true, add_instructions: [...]}`
-   flips it to `PENDING`/`START` with a waking instruction event. Safe to merge alone:
-   no existing caller creates an instruction-less task in production.
-
-   Note the test-fixture fallout: `createTestTask` (`internal/server/apiserver/event_test.go:27`)
-   and most of the ~66 `CreateTaskRequest` literals across the apiserver tests pass no
-   instructions. The ones that only need a row to hang events or links on are unaffected;
-   the ones that assert `PENDING`/`START` or exercise the runner queue must now pass an
-   instruction. This is a mechanical sweep and belongs in this slice.
+   creates a task with `draft: true` and asserts `status == COMPLETED`, `command == NONE`,
+   `version == 0`, `actions.start == true`, `actions.archive == true`, that
+   `ListRunnerTasks` does not return it, and that a subsequent `UpdateTask{start: true,
+   add_instructions: [...]}` flips it to `PENDING`/`START` at version 1 with a waking
+   instruction event. Safe to merge alone: `draft` defaults to false, so every existing
+   caller — and every existing test fixture — is untouched.
 
 2. **Web UI: drop the instructions field** — Delivers: the create page without the
-   textarea, and composer autofocus on the task page. Depends on: (1). Verifiable by:
-   create a task, land on the task page, send an instruction from the composer, watch the
-   container come up — and confirm no container is launched before that.
-
-3. **Web UI: "draft" badge (optional)** — Delivers: `isDraftTask(task)` in
-   `webui/src/lib/task.ts` and the relabelled badge/dot. Depends on: (1). Verifiable by:
-   a freshly created empty task reads as draft in the list and the sidebar; it reads as
-   completed again after its first run.
+   textarea, passing `draft: true`, and composer autofocus on the task page. Depends on:
+   (1). Verifiable by: create a task, land on the task page, send an instruction from the
+   composer, watch the container come up — and confirm no container is launched before
+   that.
 
 ## Trade-offs
 
@@ -141,21 +151,26 @@ and the `StatusDot`. This is cosmetic and deliberately kept as the last, optiona
 introduced an *idle* state — `PENDING` + `TaskCommand.NONE`, a pair that is currently
 unreachable — plus `Task.IsIdle`, a new arm in `CanStart`, and a version-bump exception in
 `Start`. It buys an honest status ("pending, with nothing pending") and a first run at
-version 1. It costs a model change with two new transitions to test, and it leaves an
-empty task un-archivable without cancelling it first. Being born completed costs three
-lines in one handler and zero new transitions, so the entire risk surface is the create
-path. The price is a "completed" badge on a task that never ran, and a first run numbered
-version 2 — neither of which the UI surfaces today.
+version 1. It costs a model change with two new transitions to test, and it leaves a draft
+un-archivable without cancelling it first. Being born completed costs one request field
+and a branch in one handler, with zero new transitions, so the entire risk surface is the
+create path. The price is a "completed" badge on a task that never ran, which the UI shows
+as-is.
 
 **Reusing `COMPLETED` vs. a new `IDLE` status.** A new `TaskStatus` would be
 self-describing, but it is a proto enum change plus a DB value plus an arm in every status
 switch (`IsTerminal`, `CanCancel`, `CanArchive`, `CanRestart`, the three runner-event
 folds), and older clients would render it as "unknown".
 
-**Implicit "no instructions ⇒ don't start" vs. an explicit flag.** A `start` field on
-`CreateTaskRequest` would be explicit, but proto3 bools default to `false`, so every
-existing client would silently stop starting its tasks; `optional bool` avoids that at the
-cost of three-valued logic for a distinction no caller has ever wanted.
+**An explicit `draft` flag vs. the implicit "no instructions ⇒ don't start" rule.** The
+implicit rule needs no proto change, and it is close to tautological — a task with no
+instructions has nothing to start. But it couples two independent things, it cannot
+express "load these instructions but don't run yet", and it forces every existing test
+fixture that creates an instruction-less task to start passing one. The flag costs a proto
+field and buys a rule you can read at the call site. A `start bool` would have been the
+obvious spelling and is the wrong one: proto3 bools default to `false`, so it would
+silently stop every existing caller's tasks. `draft` has the safe polarity — `false` is
+today's behavior.
 
 **Not starting at all vs. starting an empty agent.** Letting the empty task start and the
 agent sit idle needs no backend change, but it burns a container and an agent session to
@@ -168,11 +183,18 @@ than two.
 
 ## Open Questions
 
-- Is the green **completed** badge on a brand-new task acceptable, or is slice (3) part of
-  the deal? If it is, is the label **draft**, **empty**, or **new**?
-- Should the version bump be avoided by creating empty tasks at `Version: 0`, so the first
-  real run is version 1? It is one more line and makes "never ran" a single-field test,
-  but `taskstate` treats version 0 as a legacy record (`internal/runner/taskstate/taskstate.go:30`)
-  — harmless, since a task with no command never reaches the runner, but worth a look.
-- Should MCP `create_task` make `instruction` optional, so an agent can hand a prepared
-  empty task to a human? Nothing needs it yet.
+- ~~Is the green **completed** badge on a brand-new task acceptable?~~ Yes — settled. A
+  "draft" relabel was considered and dropped as unnecessary for the first pass.
+- ~~Should drafts be created at `Version: 0`?~~ Yes — settled while writing slice (1).
+  It is what `task-run-versions.md` reserved 0 for, and it keeps the first real run at
+  version 1 rather than numbering it 2 with no run 1 having existed. `taskstate` treats
+  version 0 as a legacy record (`internal/runner/taskstate/taskstate.go:30`), which is
+  moot: a task with no command never reaches the runner, and `Start()` bumps it to 1
+  before it does.
+- Should MCP `create_task` expose `draft`, so an agent can hand a prepared task to a human
+  without running it? Nothing needs it yet.
+- `draft` alone decides, so `draft: false` with no instructions still starts a sandbox for
+  an agent with nothing to do — exactly today's behavior, and reachable via `gritz task
+  create` and MCP `create_task`. Left as-is to keep the flag the single source of truth;
+  rejecting it with `InvalidArgument`, or falling back to the implicit rule, are both
+  one-liners if the footgun is worth closing.
