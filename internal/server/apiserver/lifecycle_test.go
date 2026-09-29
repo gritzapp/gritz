@@ -39,9 +39,10 @@ func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
 	srv, ctx := lifecycleTestServer(t)
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 
@@ -59,9 +60,10 @@ func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 	srv, ctx := lifecycleTestServer(t)
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := resp.Task.Id
@@ -85,9 +87,10 @@ func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
 	srv, ctx := lifecycleTestServer(t)
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := resp.Task.Id
@@ -134,9 +137,10 @@ func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 	srv, ctx := lifecycleTestServer(t)
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := resp.Task.Id
@@ -177,9 +181,10 @@ func TestLifecycle_RunnerFailedFallsBackWhenNoReason(t *testing.T) {
 	srv, ctx := lifecycleTestServer(t)
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := resp.Task.Id

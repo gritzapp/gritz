@@ -63,8 +63,16 @@ task := &model.Task{
 if len(req.Instructions) == 0 {
 	task.Status = model.TaskStatusCompleted
 	task.Command = model.TaskCommandNone
+	task.Version = 0
 }
 ```
+
+Version 0 is "never provisioned" — the value
+`proposals/implemented/task-run-versions.md` reserved for *"any future
+create-without-start flow"*, noting that it makes "has this task ever run?" a column
+predicate for free. That predicate is load-bearing here: `COMPLETED` at version 1 is what
+a task that ran once and finished looks like, so nothing else distinguishes an empty task.
+`Start()` bumps it to 1, so the first real run is run 1 either way.
 
 The rule is implicit — *no instructions ⇒ nothing to start* — which is what every
 existing caller already means. `CreateTaskRequest` is unchanged, so the scheduler
@@ -103,11 +111,13 @@ page puts the cursor where the instruction goes.
 
 The new task renders with the green **completed** badge. That is the honest projection of
 the row and needs no code, but it is a slightly odd first impression for a task that has
-never run. If we want to soften it, "never ran" is exactly `status == COMPLETED &&
-version == 1`: the first `Start()` bumps to 2, so the condition is self-clearing and one
-helper in `webui/src/lib/task.ts` can relabel the badge **draft** in the list, the sidebar
-and the `StatusDot`. This is cosmetic and deliberately kept as the last, optional slice —
-`version` is otherwise unused by the UI.
+never run. To soften it, an `isDraftTask` helper in `webui/src/lib/task.ts` relabels the
+badge **draft** in the list, the sidebar and the `StatusDot`.
+
+The predicate is `version == 0`, not the status: a task that ran once and finished is
+*also* `COMPLETED` at version 1, so the status cannot tell the two apart — which is why an
+empty task is created at version 0 (see above). The first `Start()` bumps it to 1, so the
+label self-clears. This is cosmetic and deliberately kept as the last, optional slice.
 
 ## Implementation Plan
 
@@ -170,9 +180,11 @@ than two.
 
 - Is the green **completed** badge on a brand-new task acceptable, or is slice (3) part of
   the deal? If it is, is the label **draft**, **empty**, or **new**?
-- Should the version bump be avoided by creating empty tasks at `Version: 0`, so the first
-  real run is version 1? It is one more line and makes "never ran" a single-field test,
-  but `taskstate` treats version 0 as a legacy record (`internal/runner/taskstate/taskstate.go:30`)
-  — harmless, since a task with no command never reaches the runner, but worth a look.
+- ~~Should empty tasks be created at `Version: 0`?~~ Yes — settled while writing slice (1).
+  It is what `task-run-versions.md` reserved 0 for, it keeps the first real run at
+  version 1, and it is the only thing that distinguishes an empty task from one that ran
+  once and completed, which slice (3) needs. `taskstate` treats version 0 as a legacy
+  record (`internal/runner/taskstate/taskstate.go:30`), which is moot: a task with no
+  command never reaches the runner, and `Start()` bumps it to 1 before it does.
 - Should MCP `create_task` make `instruction` optional, so an agent can hand a prepared
   empty task to a human? Nothing needs it yet.

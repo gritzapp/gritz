@@ -27,6 +27,7 @@ func TestCreateTask_Publishes(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 
@@ -38,6 +39,36 @@ func TestCreateTask_Publishes(t *testing.T) {
 		},
 		OrgID:  org.OrgID,
 		Runner: "r",
+		UserID: org.UserID,
+	}}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
+}
+
+// An empty task has no command, so PendingRunner() is empty and the
+// notification carries no runner: the UI sees the new task, no runner is woken
+// for it. See proposals/draft/create-empty-task.md.
+func TestCreateTask_NoInstructions_PublishesWithoutRunner(t *testing.T) {
+	t.Parallel()
+
+	pub := &pubsub.PublisherMock{
+		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
+	}
+	st := teststore.New(t)
+	srv := New(Options{Store: st, Publisher: pub})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	ctx := createCtx(t, org)
+
+	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name: "test", Runner: "r", Workspace: "w",
+	})
+	assert.NilError(t, err)
+
+	assert.DeepEqual(t, pub.PublishedNotifications(), []model.Notification{{
+		Type: "change",
+		Resources: []model.NotificationResource{
+			{Action: "created", Type: "task", ID: resp.Task.Id},
+			{Action: "appended", Type: "task_events", ID: resp.Task.Id},
+		},
+		OrgID:  org.OrgID,
 		UserID: org.UserID,
 	}}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
 }
@@ -55,6 +86,7 @@ func TestUpdateTask_Publishes(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	pub.ResetCalls()
@@ -89,6 +121,7 @@ func TestCancelTask_Publishes(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	pub.ResetCalls()
@@ -120,6 +153,7 @@ func TestArchiveTask_Publishes(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	// Archive requires a terminal status; mark the task COMPLETED first.
@@ -160,6 +194,7 @@ func TestUploadLogs_Publishes(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	pub.ResetCalls()
@@ -193,6 +228,7 @@ func TestCreateLink_Publishes(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	pub.ResetCalls()
@@ -228,6 +264,7 @@ func TestUpdateTask_ChannelMessage_QueuedOnStart(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	// Move past the queued/start state so the next UpdateTask works from
@@ -265,6 +302,7 @@ func TestUpdateTask_NoChannelMessage_NameOnly(t *testing.T) {
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	// Transition to Running so PendingRunner == "" and the helper stays silent
@@ -300,6 +338,7 @@ func TestSubmitRunnerEvents_Publishes(t *testing.T) {
 
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	pub.ResetCalls()
@@ -339,6 +378,7 @@ func TestSubmitRunnerEvents_NotApplied_DoesNotPublish(t *testing.T) {
 
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	pub.ResetCalls()

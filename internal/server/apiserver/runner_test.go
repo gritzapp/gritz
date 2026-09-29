@@ -14,11 +14,14 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
 	ctx := createCtx(t, org)
 
-	// Create a task (starts as pending with start command)
+	// Create a task (starts as pending with start command). The instruction is
+	// what starts it: an instruction-less task is created completed, with no
+	// command for a runner to pick up.
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Test Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Test Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := createResp.Task.Id
@@ -105,15 +108,17 @@ func TestListRunnerTasks(t *testing.T) {
 	})
 	ctx := createCtx(t, org)
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task for runner-1",
-		Workspace: "test-workspace",
-		Runner:    "runner-1",
+		Name:         "Task for runner-1",
+		Workspace:    "test-workspace",
+		Runner:       "runner-1",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task for runner-2",
-		Workspace: "test-workspace",
-		Runner:    "runner-2",
+		Name:         "Task for runner-2",
+		Workspace:    "test-workspace",
+		Runner:       "runner-2",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 
@@ -139,9 +144,10 @@ func TestListRunnerTasks_OnlyWithCommand(t *testing.T) {
 	})
 	ctx := createCtx(t, org)
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with command",
-		Workspace: "test-workspace",
-		Runner:    "runner-1",
+		Name:         "Task with command",
+		Workspace:    "test-workspace",
+		Runner:       "runner-1",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
@@ -175,15 +181,17 @@ func TestListRunnerTasks_Permissions(t *testing.T) {
 	orgB := teststore.CreateOrg(t, srv.store, runnerWorkspaces)
 	ctxB := createCtx(t, orgB)
 	_, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Workspace: "test-workspace",
-		Runner:    "runner-1",
+		Name:         "User A's Task",
+		Workspace:    "test-workspace",
+		Runner:       "runner-1",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	_, err = srv.CreateTask(ctxB, &gritzv1.CreateTaskRequest{
-		Name:      "User B's Task",
-		Workspace: "test-workspace",
-		Runner:    "runner-1",
+		Name:         "User B's Task",
+		Workspace:    "test-workspace",
+		Runner:       "runner-1",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 

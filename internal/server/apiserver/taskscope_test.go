@@ -65,12 +65,17 @@ func newOrgWithTasks(t *testing.T, srv *Server) (context.Context, *teststore.Org
 		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
 	})
 	adminCtx := createCtx(t, org)
+	// The instruction is what starts the task — these fixtures are submitted
+	// runner events against, so they have to be pending with a start command
+	// rather than the completed row an instruction-less create produces.
 	taskA, err := srv.CreateTask(adminCtx, &gritzv1.CreateTaskRequest{
 		Name: "A", Runner: "test-runner", Workspace: "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskB, err := srv.CreateTask(adminCtx, &gritzv1.CreateTaskRequest{
 		Name: "B", Runner: "test-runner", Workspace: "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	return adminCtx, org, taskA.Task, taskB.Task

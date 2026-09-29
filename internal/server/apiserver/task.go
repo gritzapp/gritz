@@ -98,6 +98,24 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		Version:   1,
 		OrgID:     caller.OrgID,
 	}
+	// A task created with nothing to do has nothing to do: it is born completed,
+	// with no command for a runner to pick up. The first instruction from the task
+	// page's composer (UpdateTask with start) is what starts it, exactly as it
+	// would resume any other completed task — CanStart already admits COMPLETED,
+	// and Start lands it on PENDING/START, the row a task created *with*
+	// instructions presents here.
+	//
+	// Version 0 is "never provisioned", the value
+	// proposals/implemented/task-run-versions.md reserved for exactly this
+	// create-without-start flow. Start() bumps it to 1, so the first real run is
+	// run 1 either way, and "has this task ever run?" stays a column predicate.
+	//
+	// See proposals/draft/create-empty-task.md.
+	if len(req.Instructions) == 0 {
+		task.Status = model.TaskStatusCompleted
+		task.Command = model.TaskCommandNone
+		task.Version = 0
+	}
 	if req.AutoArchive != nil {
 		task.AutoArchive = req.AutoArchive.AsDuration()
 	}

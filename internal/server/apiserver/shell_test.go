@@ -20,9 +20,10 @@ func TestOpenShell(t *testing.T) {
 	// Create a task and drive it to a terminal (completed) status so it can be
 	// shelled. Runner events use version 0 to bypass the version check.
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := createResp.Task.Id
@@ -66,11 +67,12 @@ func TestOpenShell_RejectsPending(t *testing.T) {
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
 	ctx := createCtx(t, org)
 
-	// A freshly created task is PENDING (non-terminal).
+	// A task created with an instruction is PENDING (non-terminal).
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 
@@ -94,9 +96,10 @@ func TestOpenShell_RejectsRunning(t *testing.T) {
 
 	// Drive the task to RUNNING: opening a shell must not displace a live run.
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := createResp.Task.Id
@@ -127,9 +130,10 @@ func TestOpenShell_CrossOrgDenied(t *testing.T) {
 
 	// Completed task owned by orgA.
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Name:         "Task",
+		Runner:       "test-runner",
+		Workspace:    "test-workspace",
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	assert.NilError(t, err)
 	taskID := createResp.Task.Id
