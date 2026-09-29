@@ -16,11 +16,12 @@ func _() {
 	_ = x[TaskStatusCompleted-5]
 	_ = x[TaskStatusFailed-6]
 	_ = x[TaskStatusCancelled-7]
+	_ = x[TaskStatusDraft-8]
 }
 
-const _TaskStatus_name = "UnspecifiedPendingRunningRestartingCancellingCompletedFailedCancelled"
+const _TaskStatus_name = "UnspecifiedPendingRunningRestartingCancellingCompletedFailedCancelledDraft"
 
-var _TaskStatus_index = [...]uint8{0, 11, 18, 25, 35, 45, 54, 60, 69}
+var _TaskStatus_index = [...]uint8{0, 11, 18, 25, 35, 45, 54, 60, 69, 74}
 
 func (i TaskStatus) String() string {
 	idx := int(i) - 0

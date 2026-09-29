@@ -98,10 +98,10 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		Version:   1,
 		OrgID:     caller.OrgID,
 	}
-	// A draft is born completed with no command and no run — no runner picks it
-	// up and nothing is launched.
+	// A draft has no command and no run — no runner picks it up and nothing is
+	// launched. Version 0 is "never provisioned", so its first start is run 1.
 	if req.Draft {
-		task.Status = model.TaskStatusCompleted
+		task.Status = model.TaskStatusDraft
 		task.Command = model.TaskCommandNone
 		task.Version = 0
 	}

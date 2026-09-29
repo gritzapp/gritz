@@ -516,6 +516,7 @@ func TestTask_IsDone(t *testing.T) {
 		{TaskStatusCompleted, true},
 		{TaskStatusFailed, true},
 		{TaskStatusCancelled, true},
+		{TaskStatusDraft, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status.String(), func(t *testing.T) {
@@ -538,6 +539,7 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 		{TaskStatusCompleted, true},
 		{TaskStatusFailed, true},
 		{TaskStatusCancelled, true},
+		{TaskStatusDraft, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status.String(), func(t *testing.T) {
@@ -553,6 +555,12 @@ func TestTask_Archive(t *testing.T) {
 		after  Task
 		want   bool
 	}{
+		{
+			name:   "from draft succeeds",
+			before: Task{Status: TaskStatusDraft},
+			after:  Task{Status: TaskStatusDraft, Archived: true},
+			want:   true,
+		},
 		{
 			name:   "from completed succeeds",
 			before: Task{Status: TaskStatusCompleted},
@@ -676,6 +684,12 @@ func TestTask_Cancel(t *testing.T) {
 			want:   false,
 		},
 		{
+			name:   "from draft fails",
+			before: Task{Status: TaskStatusDraft},
+			after:  Task{Status: TaskStatusDraft},
+			want:   false,
+		},
+		{
 			name:   "archived fails",
 			before: Task{Status: TaskStatusRunning, Archived: true},
 			after:  Task{Status: TaskStatusRunning, Archived: true},
@@ -749,6 +763,12 @@ func TestTask_Restart(t *testing.T) {
 			after:  Task{Status: TaskStatusCompleted, Archived: true},
 			want:   false,
 		},
+		{
+			name:   "from draft fails",
+			before: Task{Status: TaskStatusDraft},
+			after:  Task{Status: TaskStatusDraft},
+			want:   false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -810,6 +830,18 @@ func TestTask_Start(t *testing.T) {
 			before: Task{Status: TaskStatusCancelled},
 			after:  Task{Status: TaskStatusPending, Command: TaskCommandStart, Version: 1},
 			want:   true,
+		},
+		{
+			name:   "from draft succeeds and provisions run 1",
+			before: Task{Status: TaskStatusDraft, Version: 0},
+			after:  Task{Status: TaskStatusPending, Command: TaskCommandStart, Version: 1},
+			want:   true,
+		},
+		{
+			name:   "archived draft fails",
+			before: Task{Status: TaskStatusDraft, Archived: true},
+			after:  Task{Status: TaskStatusDraft, Archived: true},
+			want:   false,
 		},
 		{
 			name:   "archived fails",

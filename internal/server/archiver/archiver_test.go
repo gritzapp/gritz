@@ -31,6 +31,24 @@ func TestArchiver_Tick_ArchivesEligibleTask(t *testing.T) {
 	assert.Assert(t, got.Archived, "task should be archived after tick")
 }
 
+// A draft is not terminal, but it is archivable, so the query admits it.
+func TestArchiver_Tick_ArchivesDraft(t *testing.T) {
+	t.Parallel()
+	st := teststore.New(t)
+	org := teststore.CreateOrg(t, st, nil)
+
+	task := teststore.CreateTask(t, st, org, &teststore.TaskOptions{Status: model.TaskStatusDraft})
+	task.AutoArchive = -time.Hour
+	assert.NilError(t, st.UpdateTask(t.Context(), nil, task))
+
+	a := New(Options{Store: st})
+	assert.NilError(t, a.Tick(t.Context()))
+
+	got, err := st.GetTask(t.Context(), nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Assert(t, got.Archived, "draft should be archived after tick")
+}
+
 func TestArchiver_Tick_SkipsTaskWithoutAutoArchive(t *testing.T) {
 	t.Parallel()
 	st := teststore.New(t)

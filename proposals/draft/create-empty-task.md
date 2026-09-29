@@ -23,36 +23,40 @@ immediately picked up by the runner and a container is launched for an agent tha
 nothing to do.
 
 So the task has to be born in a state the runner ignores and the composer can start.
-**That state already exists: completed.**
 
-### A draft is born completed
+### The draft status
 
-A task with nothing to do has, trivially, nothing left to do. Creating it `COMPLETED`
-with no command means:
+`TaskStatus.DRAFT` is a task that exists but has never been asked to run. It is
+deliberately **not terminal** — nothing has finished, because nothing has started. What
+makes it work is that it carries no command:
 
 - The runner's work queue is `WHERE runner = $1 AND org_id = $2 AND command != 0 AND
   archived = FALSE` (`internal/store/sql/queries/task.sql:38`) — no command, so no runner
   ever sees it and no container is launched.
-- `CanStart()` already returns `true` for `COMPLETED`, and `Start()` already does the
-  right thing: `PENDING` + `TaskCommandStart` + a version bump.
+- `CanStart()` admits `DRAFT`, and `Start()` already does the right thing:
+  `PENDING` + `TaskCommandStart` + a version bump.
 - The composer already sends `start: true` with the instruction
   (`webui/src/routes/tasks.$id.tsx:142`), and `UpdateTask` already appends the instruction
   event with `Wake: req.Start && task.CanStart()` and then calls `task.Start()`
   (`internal/server/apiserver/task.go:218-234`).
 
 So the first instruction from the composer produces a `PENDING`/`START` row that the
-runner picks up — the same row a freshly created task presents today. **No model change,
-no runner, driver or agent change.** The whole backend diff is one new request field and
-the condition it drives in `CreateTask`:
+runner picks up — the same row a freshly created task presents today. **No runner, driver
+or agent change.**
 
 ```protobuf
 message CreateTaskRequest {
   // ...
-  // Create the task without starting it: no command is set, so no runner picks
+  // Create the task in TaskStatus.DRAFT: no command is set, so no runner picks
   // it up and no sandbox is launched. The first UpdateTask with start (e.g. the
   // first instruction from the task page composer) is what starts it. Defaults
   // to false — an ordinary create, started immediately.
   bool draft = 8;
+}
+
+enum TaskStatus {
+  // ...
+  DRAFT = 8;
 }
 ```
 
@@ -67,10 +71,10 @@ task := &model.Task{
 	Version:   1,
 	OrgID:     caller.OrgID,
 }
-// A draft is born completed with no command and no run — no runner picks it
-// up and nothing is launched.
+// A draft has no command and no run — no runner picks it up and nothing is
+// launched. Version 0 is "never provisioned", so its first start is run 1.
 if req.Draft {
-	task.Status = model.TaskStatusCompleted
+	task.Status = model.TaskStatusDraft
 	task.Command = model.TaskCommandNone
 	task.Version = 0
 }
@@ -102,17 +106,24 @@ task.PendingRunner()` — `""` for a draft, which the SSE runner filter
 UI subscribers. Exactly right: the UI should see the new task, no runner should be woken
 for it.
 
-### What falls out for free
+### What a draft can do
 
-Everything a completed task can do, a draft can do, with no new arms in any switch:
+- **Start.** The point of the status. `CanStart()` admits `DRAFT`; `Start()` takes it to
+  `PENDING`/`START` at version 1.
+- **Archive.** `CanArchive()` gains a `DRAFT` arm beside `IsDone()`. A draft isn't done,
+  but it holds no sandbox and never will unless started, so archiving is how an abandoned
+  one is disposed of — one click, no cancel-then-archive dance.
+- **Auto-archive.** `ListTasksDueForArchive` becomes `status IN (5,6,7,8)`, so a draft
+  created with an auto-archive delay is reaped if it is never used. The create page's
+  shortest option is 1 hour, so this can't race the user.
+- **Cancel** is not offered: nothing was ever handed to a runner, so there is nothing to
+  cancel. Archive covers disposal.
+- **Restart** is not offered either: a draft has no run to replace. `Start` is the
+  transition that gives it one. (Reusing `COMPLETED` had offered Restart, which was
+  wrong — a draft has never run.)
 
-- **Archive.** `CanArchive()` is `IsDone() && command == NONE` — true. An abandoned draft
-  is one click from gone, with no cancel-then-archive dance.
-- **Auto-archive.** `ListTasksDueForArchive` matches `status IN (5,6,7) AND command = 0`,
-  so a draft created with an auto-archive delay is reaped if it is never used. The
-  create page's shortest option is 1 hour, so this can't race the user; and reaping
-  abandoned empty tasks is the behavior you'd want anyway.
-- **Restart** and **start** are both offered; **cancel** is not (nothing to cancel).
+The three runner-event folds keep their `default: return false` arms, so a stray runner
+event cannot move a draft. It has no command, so none should arrive in the first place.
 
 ### Web UI
 
@@ -130,8 +141,8 @@ unnecessary for the first pass. The badge stays as-is.
 
 ## Implementation Plan
 
-1. **Server: `draft` on `CreateTaskRequest`** — Delivers: the proto field and the
-   conditional in `CreateTask`. Depends on: nothing. Verifiable by: an apiserver test that
+1. **Server: `draft` on `CreateTaskRequest`** — Delivers: `TaskStatus.DRAFT`, the model
+   transitions, the proto field and the conditional in `CreateTask`. Depends on: nothing. Verifiable by: an apiserver test that
    creates a task with `draft: true` and asserts `status == COMPLETED`, `command == NONE`,
    `version == 0`, `actions.start == true`, `actions.archive == true`, that
    `ListRunnerTasks` does not return it, and that a subsequent `UpdateTask{start: true,
@@ -147,20 +158,23 @@ unnecessary for the first pass. The badge stays as-is.
 
 ## Trade-offs
 
-**Completed vs. a dedicated idle state.** The first version of this proposal (#1607)
+**`DRAFT` vs. a dedicated idle state.** The first version of this proposal (#1607)
 introduced an *idle* state — `PENDING` + `TaskCommand.NONE`, a pair that is currently
 unreachable — plus `Task.IsIdle`, a new arm in `CanStart`, and a version-bump exception in
 `Start`. It buys an honest status ("pending, with nothing pending") and a first run at
-version 1. It costs a model change with two new transitions to test, and it leaves a draft
-un-archivable without cancelling it first. Being born completed costs one request field
-and a branch in one handler, with zero new transitions, so the entire risk surface is the
-create path. The price is a "completed" badge on a task that never ran, which the UI shows
-as-is.
+version 1. `DRAFT` gets both of those without reusing a pair that already means something
+else: `PENDING` + `NONE` would have been indistinguishable from a bug (a pending task the
+runner never picks up), where an explicit status says what it is.
 
-**Reusing `COMPLETED` vs. a new `IDLE` status.** A new `TaskStatus` would be
-self-describing, but it is a proto enum change plus a DB value plus an arm in every status
-switch (`IsTerminal`, `CanCancel`, `CanArchive`, `CanRestart`, the three runner-event
-folds), and older clients would render it as "unknown".
+**A `DRAFT` status vs. reusing `COMPLETED`.** The first cut of the flag stored a draft as
+`COMPLETED` at version 0, which needed no enum change and no new switch arms. It was
+cheap, but it lied: the list showed a green "completed" badge on a task that had never
+run, Restart was offered for a run that never happened, and "is this a draft?" was a
+two-field predicate (`COMPLETED && version == 0`) rather than a status. A real status
+costs a proto value, a `CanArchive` arm, and one more row in each model table test. The
+status column has no CHECK constraint and no enum type, so there is no schema change at
+all. Older clients render an unknown enum value as "unknown", which is the usual proto3
+trade and acceptable here.
 
 **An explicit `draft` flag vs. the implicit "no instructions ⇒ don't start" rule.** The
 implicit rule needs no proto change, and it is close to tautological — a task with no
@@ -183,8 +197,8 @@ than two.
 
 ## Open Questions
 
-- ~~Is the green **completed** badge on a brand-new task acceptable?~~ Yes — settled. A
-  "draft" relabel was considered and dropped as unnecessary for the first pass.
+- ~~Is the green **completed** badge on a brand-new task acceptable?~~ Moot — a draft now
+  has its own status and renders as a neutral **draft** badge.
 - ~~Should drafts be created at `Version: 0`?~~ Yes — settled while writing slice (1).
   It is what `task-run-versions.md` reserved 0 for, and it keeps the first real run at
   version 1 rather than numbering it 2 with no run 1 having existed. `taskstate` treats
@@ -198,3 +212,5 @@ than two.
   create` and MCP `create_task`. Left as-is to keep the flag the single source of truth;
   rejecting it with `InvalidArgument`, or falling back to the implicit rule, are both
   one-liners if the footgun is worth closing.
+- Should a draft be editable before it starts (rename, change workspace/runner)? `Name` is
+  already updatable; runner and workspace are read-only after create for every task.

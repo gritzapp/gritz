@@ -25,6 +25,7 @@ const (
 	TaskStatusCompleted   TaskStatus = TaskStatus(gritzv1.TaskStatus_COMPLETED)
 	TaskStatusFailed      TaskStatus = TaskStatus(gritzv1.TaskStatus_FAILED)
 	TaskStatusCancelled   TaskStatus = TaskStatus(gritzv1.TaskStatus_CANCELLED)
+	TaskStatusDraft       TaskStatus = TaskStatus(gritzv1.TaskStatus_DRAFT)
 )
 
 // Label renders a TaskStatus for a lifecycle payload, mapping the zero
@@ -38,7 +39,8 @@ func (s TaskStatus) Label() string {
 }
 
 // IsTerminal reports whether the status is a finished run state:
-// completed, failed, or cancelled.
+// completed, failed, or cancelled. Draft is not terminal — a draft has never
+// run, so nothing has finished.
 func (s TaskStatus) IsTerminal() bool {
 	return s == TaskStatusCompleted ||
 		s == TaskStatusFailed ||
@@ -355,12 +357,14 @@ func (t *Task) IsDone() bool {
 	return t.Status.IsTerminal()
 }
 
-// CanArchive returns true if the task can be archived.
+// CanArchive returns true if the task can be archived. A draft is archivable
+// even though it is not done: it holds no sandbox, so archiving is how an
+// abandoned one is disposed of.
 func (t *Task) CanArchive() bool {
 	if t.Archived || t.Command != TaskCommandNone {
 		return false
 	}
-	return t.IsDone()
+	return t.IsDone() || t.Status == TaskStatusDraft
 }
 
 // Archive marks the task as archived.
@@ -464,7 +468,7 @@ func (t *Task) CanStart() bool {
 		return false
 	}
 	switch t.Status {
-	case TaskStatusRunning, TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled:
+	case TaskStatusRunning, TaskStatusCompleted, TaskStatusFailed, TaskStatusCancelled, TaskStatusDraft:
 		return true
 	default:
 		return false
@@ -477,8 +481,9 @@ func (t *Task) CanStart() bool {
 // after exit). Nothing is provisioned yet — the wake is queued and the version
 // stays with the live run; the bump happens at the run boundary when the exit
 // stopped folds Running+start back to Pending (see applyRunnerEventStopped).
-// For completed, failed, or cancelled tasks: sets status to pending, command to
-// start, increments version — this provisions the next run now.
+// For draft, completed, failed, or cancelled tasks: sets status to pending,
+// command to start, increments version — this provisions the next run now. A
+// draft sits at version 0 ("never provisioned"), so its first run is run 1.
 func (t *Task) Start() bool {
 	if !t.CanStart() {
 		return false
