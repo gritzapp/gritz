@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.7.0](https://github.com/icholy/gritz/compare/v3.6.0...v3.7.0) (2026-09-29)
+
+
+### Features
+
+* add a draft task status ([1e6b81e](https://github.com/icholy/gritz/commit/1e6b81e31bd4f0a6f0f660bbb3651935b0d05d2f))
+* **webui:** create a draft task from the new task page ([18851a8](https://github.com/icholy/gritz/commit/18851a8a09673c03a35c3e523fc0393f288c00bd))
+
+
+### Miscellaneous
+
+* **deps:** update dependency pnpm to v11.27.1 ([540d166](https://github.com/icholy/gritz/commit/540d16607089921f278afb86b19bded8b4be79b6))
+* **deps:** update radix-ui-primitives monorepo ([5b36f2e](https://github.com/icholy/gritz/commit/5b36f2e48209cb9d4c7aac752fe39de0c048a75c))
+
 ## [3.6.0](https://github.com/icholy/gritz/compare/v3.5.1...v3.6.0) (2026-09-29)
 
 
