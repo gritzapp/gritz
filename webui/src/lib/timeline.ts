@@ -90,9 +90,9 @@ export function sourceFromUrl(url: string): string {
 }
 
 // lifecycleSummary turns a lifecycle event into a readable activity line, e.g.
-// "Created by icholy", "Created by routing rule", "Cancelled", "Sandbox exited
-// (running -> completed)", "Sandbox failed: <message>". It mirrors the Go-side
-// LifecyclePayload.Summary.
+// "Created by icholy", "Created by routing rule", "Cancelled", "Sandbox exited",
+// "Sandbox failed: <message>". It mirrors the Go-side LifecyclePayload.Summary,
+// minus the status transition the Go side appends to "Sandbox exited".
 export function lifecycleSummary(p: LifecyclePayload): string {
   let s: string
   switch (p.kind) {
@@ -123,7 +123,6 @@ export function lifecycleSummary(p: LifecyclePayload): string {
       break
     case LifecycleKind.SANDBOX_EXITED:
       s = 'Sandbox exited'
-      if (p.fromStatus && p.toStatus) s += ` (${p.fromStatus} -> ${p.toStatus})`
       break
     case LifecycleKind.SANDBOX_FAILED:
       s = 'Sandbox failed'
