@@ -39,28 +39,12 @@ export function TaskTimeline({ items }: { items: TimelineItem[] }) {
   )
 }
 
-// ----- marker + row scaffolding ----------------------------------------------
+// ----- row scaffolding ------------------------------------------------------
 
-function Marker({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={cn(
-        'relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  )
-}
-
-function Row({ marker, children }: { marker: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <li className="relative flex gap-3">
-      {marker}
-      <div className="min-w-0 flex-1 pt-0.5">{children}</div>
-    </li>
-  )
+// Card rows span the full width and sit on top of the rail; their icon lives in
+// the card header rather than in a marker on the rail.
+function Row({ children }: { children: React.ReactNode }) {
+  return <li className="relative z-10 min-w-0 bg-background">{children}</li>
 }
 
 function TimelineRow({ item }: { item: TimelineItem }) {
@@ -82,15 +66,10 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 
 function InstructionRow({ item }: { item: Extract<TimelineItem, { kind: 'instruction' }> }) {
   return (
-    <Row
-      marker={
-        <Marker className="border-primary/30 bg-primary/10 text-primary">
-          <MessageSquarePlus className="h-4 w-4" />
-        </Marker>
-      }
-    >
+    <Row>
       <div className="rounded-lg border border-primary/30 bg-primary/5">
         <div className="flex items-center gap-2 px-4 py-2 text-xs">
+          <MessageSquarePlus className="h-4 w-4 shrink-0 text-primary" />
           <span className="font-medium text-foreground">Instruction</span>
           {item.wakes && <WakeBadge />}
           <span className="ml-auto text-muted-foreground">
@@ -109,9 +88,10 @@ function InstructionRow({ item }: { item: Extract<TimelineItem, { kind: 'instruc
 function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' }> }) {
   const src = externalSourceStyle(item.source)
   return (
-    <Row marker={<Marker className={src.marker}>{src.icon}</Marker>}>
+    <Row>
       <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20">
         <div className="flex items-center gap-2 px-4 py-2 text-xs">
+          <span className="shrink-0 text-foreground">{src.icon}</span>
           <span className="font-medium text-foreground">Event</span>
           <span className="text-muted-foreground">· {src.label}</span>
           {item.wakes && <WakeBadge />}
@@ -195,9 +175,10 @@ function LifecycleRow({ item }: { item: Extract<TimelineItem, { kind: 'lifecycle
 function LinkRow({ item }: { item: Extract<TimelineItem, { kind: 'link' }> }) {
   const { icon } = externalSourceStyle(item.source)
   return (
-    <Row marker={<Marker className="border-border bg-muted text-foreground">{icon}</Marker>}>
+    <Row>
       <div className="rounded-lg border bg-card px-4 py-3">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="shrink-0 text-foreground">{icon}</span>
           <span className="font-medium text-foreground">Link created</span>
           {item.subscribed && (
             <Badge
@@ -231,15 +212,10 @@ function LinkRow({ item }: { item: Extract<TimelineItem, { kind: 'link' }> }) {
 // renders as its own entry.
 function ReportRow({ item }: { item: Extract<TimelineItem, { kind: 'report' }> }) {
   return (
-    <Row
-      marker={
-        <Marker className="border-violet-300 bg-violet-100 text-violet-700">
-          <Bot className="h-4 w-4" />
-        </Marker>
-      }
-    >
+    <Row>
       <div className="rounded-lg border bg-card shadow-sm">
-        <div className="flex items-center gap-2 px-3 py-2 text-xs">
+        <div className="flex items-center gap-2 px-4 py-2 text-xs">
+          <Bot className="h-4 w-4 shrink-0 text-violet-700" />
           <span className="font-medium text-foreground">Agent output</span>
           <span className="ml-auto text-muted-foreground">
             <RelativeTime date={item.at} />
