@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types/network"
-	"github.com/icholy/gritz/internal/agent"
 	"github.com/icholy/gritz/internal/auth/agentauth"
 	"github.com/icholy/gritz/internal/configfile"
+	"github.com/icholy/gritz/internal/runner/agent"
 	"github.com/icholy/gritz/internal/x/expandvar"
 	"gopkg.in/yaml.v3"
 )

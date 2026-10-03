@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v88/github"
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 	"github.com/icholy/gritz/internal/x/githubx"
 )
 

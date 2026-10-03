@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/icholy/gritz/internal/pubsub"
+	"github.com/icholy/gritz/internal/server/pubsub"
 )
 
 // OrgResolver validates that a user can subscribe to the requested org and

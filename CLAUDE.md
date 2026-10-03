@@ -30,7 +30,7 @@ GRITZ is an async agent orchestrator using a central control plane architecture 
 
 - **Server** (`internal/server/`) - Connect RPC API + Web UI, stores tasks and logs in PostgreSQL
 - **Runner** (`internal/runner/`) - Polls for pending tasks, manages Docker container lifecycle, creates Unix socket proxy for container-to-server communication
-- **Agent** (`internal/agent/`) - Runs inside containers, executes Claude Code CLI (`claude --print`)
+- **Agent** (`internal/runner/agent/`) - Runs inside containers, executes Claude Code CLI (`claude --print`)
 - **Store** (`internal/store/`) - PostgreSQL persistence layer using pgx driver
 
 ### Key Concepts
@@ -48,7 +48,7 @@ A workspace's `secrets:` map declares credentials for the sandbox. Each entry be
 
 - The runner injects the `NAME=value` pairs into `Spec.Env` and lists the names in `GRITZ_SECRETS` (`internal/runner/runner.go`). The names travel by env rather than in the agent config because the driver opens its log before reading that config — the mask has to exist before the first shipped byte.
 - `command/driver.go` reads those names back out of its own environment, adds its `--token` (the task JWT, masked as `token`), and hands the map to the log shipper.
-- `internal/redact` replaces every occurrence of a declared value with `[gritz:masked NAME]`. It performs no detection — callers supply exact values — and matches leftmost-longest through a byte trie, so a value that is a prefix of another cannot mask partially. `internal/logship.Shipper` owns a `redact.Writer` and masks before chunks are cut, so chunk boundaries and a value straddling two writes are both handled; only bytes that are still a live prefix of some secret are held back, and `Flush` drains that tail.
+- `internal/x/redact` replaces every occurrence of a declared value with `[gritz:masked NAME]`. It performs no detection — callers supply exact values — and matches leftmost-longest through a byte trie, so a value that is a prefix of another cannot mask partially. `internal/runner/logship.Shipper` owns a `redact.Writer` and masks before chunks are cut, so chunk boundaries and a value straddling two writes are both handled; only bytes that are still a live prefix of some secret are held back, and `Flush` drains that tail.
 - Only the shipped branch is masked. `/gritz/log` and stderr stay raw — same trust boundary as `gritz shell`, and full fidelity for post-mortems.
 
 When adding workspace config examples or docs, put credentials under `secrets:` and reference them from `commands:` by variable (`${GH_TOKEN}`), so the logged command string carries the name, not the value.

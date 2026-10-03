@@ -3,9 +3,9 @@ package command
 import (
 	"context"
 
-	"github.com/icholy/gritz/internal/agentmcp"
-	"github.com/icholy/gritz/internal/model"
 	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/icholy/gritz/internal/model"
+	"github.com/icholy/gritz/internal/runner/agentmcp"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/urfave/cli/v3"
 )

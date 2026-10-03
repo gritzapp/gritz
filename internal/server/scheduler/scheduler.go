@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/pubsub"
+	"github.com/icholy/gritz/internal/server/pubsub"
 	"github.com/icholy/gritz/internal/store"
 )
 

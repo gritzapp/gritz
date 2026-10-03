@@ -11,7 +11,7 @@ import (
 
 	"github.com/icholy/gritz/internal/auth/apiauth"
 	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/pubsub"
+	"github.com/icholy/gritz/internal/server/pubsub"
 	"github.com/icholy/gritz/internal/x/sse"
 	"gotest.tools/v3/assert"
 )

@@ -5,7 +5,7 @@ package atlassianserver
 import (
 	"context"
 
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 )
 
 // Router routes events to subscribed tasks.

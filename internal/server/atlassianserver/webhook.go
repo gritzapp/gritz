@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 	"github.com/icholy/gritz/internal/x/atlassian"
 )
 

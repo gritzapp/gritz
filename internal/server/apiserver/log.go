@@ -11,9 +11,9 @@ import (
 	"github.com/icholy/gritz/internal/auth/apiauth"
 	"github.com/icholy/gritz/internal/auth/authscope"
 	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/pagination"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
 	"github.com/icholy/gritz/internal/store"
+	"github.com/icholy/gritz/internal/x/pagination"
 )
 
 // reportLogType is the legacy logs.type value the agent's report tool uploads.

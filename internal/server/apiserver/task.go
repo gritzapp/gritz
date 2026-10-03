@@ -12,9 +12,9 @@ import (
 	"github.com/icholy/gritz/internal/auth/apiauth"
 	"github.com/icholy/gritz/internal/auth/authscope"
 	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/pagination"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
 	"github.com/icholy/gritz/internal/store"
+	"github.com/icholy/gritz/internal/x/pagination"
 )
 
 func (s *Server) ListTasks(ctx context.Context, req *gritzv1.ListTasksRequest) (*gritzv1.ListTasksResponse, error) {

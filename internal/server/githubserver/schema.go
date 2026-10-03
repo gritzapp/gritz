@@ -1,7 +1,7 @@
 package githubserver
 
 import (
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 )
 
 // init registers githubserver's schemas on the process-wide default registry.

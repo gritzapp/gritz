@@ -13,16 +13,16 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/agent"
+	"github.com/icholy/gritz/internal/gritzclient"
 	"github.com/icholy/gritz/internal/model"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	"github.com/icholy/gritz/internal/runner/agent"
 	"github.com/icholy/gritz/internal/runner/backend"
 	"github.com/icholy/gritz/internal/runner/taskstate"
 	"github.com/icholy/gritz/internal/runner/workspace"
 	"github.com/icholy/gritz/internal/x/outbox"
 	"github.com/icholy/gritz/internal/x/safesem"
 	"github.com/icholy/gritz/internal/x/wakeup"
-	"github.com/icholy/gritz/internal/gritzclient"
 	"golang.org/x/sync/errgroup"
 )
 

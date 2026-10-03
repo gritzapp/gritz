@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/icholy/gritz/internal/githubmcp"
 	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/icholy/gritz/internal/x/githubmcp"
 	"github.com/urfave/cli/v3"
 )
 

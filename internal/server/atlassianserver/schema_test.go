@@ -3,7 +3,7 @@ package atlassianserver
 import (
 	"testing"
 
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 	"gotest.tools/v3/assert"
 )
 

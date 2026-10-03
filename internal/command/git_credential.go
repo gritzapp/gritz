@@ -3,8 +3,8 @@ package command
 import (
 	"context"
 
-	"github.com/icholy/gritz/internal/gitcredential"
 	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/icholy/gritz/internal/x/gitcredential"
 	"github.com/urfave/cli/v3"
 )
 

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/icholy/gritz/internal/gritzclient"
-	"github.com/icholy/gritz/internal/pagination"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	"github.com/icholy/gritz/internal/x/pagination"
 	"gotest.tools/v3/assert"
 )
 

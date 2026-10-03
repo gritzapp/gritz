@@ -5,7 +5,7 @@ import (
 
 	"github.com/shurcooL/githubv4"
 
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 	"github.com/icholy/gritz/internal/x/githubx"
 )
 

@@ -8,12 +8,12 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/eventrouter"
 	"github.com/icholy/gritz/internal/model"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
 	"github.com/icholy/gritz/internal/proto/gritz/v1/gritzv1connect"
-	"github.com/icholy/gritz/internal/pubsub"
 	"github.com/icholy/gritz/internal/server/atlassianserver"
+	"github.com/icholy/gritz/internal/server/eventrouter"
+	"github.com/icholy/gritz/internal/server/pubsub"
 	"github.com/icholy/gritz/internal/store"
 	"github.com/icholy/gritz/internal/version"
 )

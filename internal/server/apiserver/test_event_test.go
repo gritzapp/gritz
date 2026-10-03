@@ -6,9 +6,9 @@ import (
 
 	"github.com/icholy/gritz/internal/auth/apiauth"
 	"github.com/icholy/gritz/internal/auth/authscope"
-	"github.com/icholy/gritz/internal/eventrouter"
 	"github.com/icholy/gritz/internal/model"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 	"github.com/icholy/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"

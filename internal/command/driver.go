@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/icholy/gritz/internal/agent"
 	"github.com/icholy/gritz/internal/gritzclient"
-	"github.com/icholy/gritz/internal/logship"
+	"github.com/icholy/gritz/internal/runner/agent"
+	"github.com/icholy/gritz/internal/runner/logship"
 	"github.com/urfave/cli/v3"
 )
 

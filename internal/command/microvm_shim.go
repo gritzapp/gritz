@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/icholy/gritz/internal/microvmshim"
+	"github.com/icholy/gritz/internal/runner/microvmshim"
 	"github.com/icholy/gritz/internal/x/awsmicrovm"
 	"github.com/urfave/cli/v3"
 )

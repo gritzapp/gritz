@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/pagination"
 	"github.com/icholy/gritz/internal/store/sqlc"
+	"github.com/icholy/gritz/internal/x/pagination"
 )
 
 func (s *Store) CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event) error {

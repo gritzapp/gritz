@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/pagination"
 	"github.com/icholy/gritz/internal/store/sqlc"
+	"github.com/icholy/gritz/internal/x/pagination"
 )
 
 func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error {

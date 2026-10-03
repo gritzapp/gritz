@@ -5,7 +5,7 @@ package githubserver
 
 import (
 	"context"
-	"github.com/icholy/gritz/internal/eventrouter"
+	"github.com/icholy/gritz/internal/server/eventrouter"
 	"sync"
 )
 

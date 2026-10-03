@@ -11,11 +11,11 @@ import (
 	"net/http"
 
 	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/x/atlassian"
-	"github.com/icholy/gritz/internal/eventrouter"
 	"github.com/icholy/gritz/internal/auth/oauthlink"
-	"github.com/icholy/gritz/internal/pubsub"
+	"github.com/icholy/gritz/internal/server/eventrouter"
+	"github.com/icholy/gritz/internal/server/pubsub"
 	"github.com/icholy/gritz/internal/store"
+	"github.com/icholy/gritz/internal/x/atlassian"
 	"golang.org/x/oauth2"
 )
 
