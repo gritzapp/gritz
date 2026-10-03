@@ -1,5 +1,32 @@
 # Changelog
 
+## [3.9.0](https://github.com/icholy/gritz/compare/v3.8.0...v3.9.0) (2026-10-03)
+
+
+### Features
+
+* **webui:** drop status transition from sandbox exited timeline entry ([17c8754](https://github.com/icholy/gritz/commit/17c8754cdca19fd6f3c3e4ae7b4c691274c129e3))
+* **webui:** move timeline card icons into card headers ([f9877fb](https://github.com/icholy/gritz/commit/f9877fb45d3deb4a81ab60adb15b0a1852b9086e))
+
+
+### Bug Fixes
+
+* **driver:** interrupt setup commands on cancellation ([3eda9e4](https://github.com/icholy/gritz/commit/3eda9e449709f7518daf79dad7d55cf92ca6b18c))
+* **shell:** spawn non-login shell so image PATH is preserved ([089c6ac](https://github.com/icholy/gritz/commit/089c6ac2b8af4acfe3534367cd2d3020bf568b64))
+
+
+### Miscellaneous
+
+* **deps:** update dependency @bufbuild/buf to v1.73.0 ([4700d4b](https://github.com/icholy/gritz/commit/4700d4be1fa809f1cfebb2427c554f6371592961))
+* **deps:** update dependency @bufbuild/protobuf to v2.15.0 ([24e5211](https://github.com/icholy/gritz/commit/24e521120aa58d6230c1a8932a60a9b25057c149))
+* **deps:** update dependency @bufbuild/protoc-gen-es to v2.15.0 ([a967442](https://github.com/icholy/gritz/commit/a96744290263d254d91d117a1c5b4318d6b6b00c))
+* **deps:** update dependency @types/node to v24.19.0 ([a1c3f62](https://github.com/icholy/gritz/commit/a1c3f621d5ae3b17cf6d4f35362e32c67c2c58c8))
+* **deps:** update dependency prettier to v3.9.8 ([4fc47a1](https://github.com/icholy/gritz/commit/4fc47a178f03dbfdbc7b9b2a1423f567715817ad))
+* **deps:** update dependency sops to v3.13.3 ([3af82bd](https://github.com/icholy/gritz/commit/3af82bd936ad9481147ae058abed40602fc8474a))
+* **deps:** update tailwindcss monorepo to v4.3.3 ([863af03](https://github.com/icholy/gritz/commit/863af03fa76d43fe7e1df06f9831fa782b09dbec))
+* **deps:** update tanstack-router monorepo ([42b1622](https://github.com/icholy/gritz/commit/42b1622fec849da27678c19473077e16ff96b0cf))
+* reorganize internal packages under runner, server, and x ([ea7ad7a](https://github.com/icholy/gritz/commit/ea7ad7a981ba69e225363a2f4437336f3c345e77))
+
 ## [3.8.0](https://github.com/icholy/gritz/compare/v3.7.0...v3.8.0) (2026-09-29)
 
 
