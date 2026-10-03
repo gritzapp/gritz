@@ -443,7 +443,7 @@ func TestServe_ContextCancelForceKillsUnresponsiveShell(t *testing.T) {
 
 	op := runOperator(t, dialAttach(t, srv, "s5"))
 
-	// Make the login shell itself impervious to SIGTERM and SIGHUP, then keep it
+	// Make the shell itself impervious to SIGTERM and SIGHUP, then keep it
 	// busy in the foreground so it never reads EOF. SIGTERM to the group can't stop
 	// it and closing the PTY can't either — only the WaitDelay SIGKILL will. The
 	// short inner sleep keeps the lone orphaned child (the caveat) short-lived.

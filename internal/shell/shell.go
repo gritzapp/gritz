@@ -4,7 +4,7 @@
 // server route registration use. The server-side rendezvous relay lives in the
 // shellrelay sub-package, and the wire framing lives in internal/shell/shellwire.
 //
-// Serve allocates a PTY, spawns a login shell, dials the server's shell relay
+// Serve allocates a PTY, spawns a shell, dials the server's shell relay
 // WebSocket for a rendezvous session, and pipes the PTY over it using the
 // shellwire framing. Attach is its operator-side counterpart: it dials the
 // attach leg, drives the local terminal, and returns the shell's exit code. Both
@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -65,7 +64,7 @@ type ServeOptions struct {
 }
 
 // Serve runs an interactive debug shell for a rendezvous session. It allocates a
-// PTY, spawns a login shell ($SHELL, else /bin/sh), dials the server's shell
+// PTY, spawns a shell ($SHELL, else /bin/sh), dials the server's shell
 // relay WebSocket at GET {ServerURL}/shell/driver?session={Session} authenticating with
 // Token as a Bearer header, negotiates the gritz-shell.v1 subprotocol, and
 // pipes the PTY over the WebSocket using the shellwire framing.
@@ -94,10 +93,10 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	// exec.CommandContext (not exec.Command) installs the cmdCtx watchdog that
 	// auto-invokes cmd.Cancel when cmdCtx is canceled. pty.Start calls cmd.Start
 	// under the hood, so the watchdog still gets wired up — they compose.
+	// Deliberately not a login shell: /etc/profile resets PATH, which would
+	// drop entries the image sets via ENV (e.g. /root/.local/bin for claude).
+	// A plain shell inherits the driver's environment as-is.
 	cmd := exec.CommandContext(cmdCtx, shell)
-	// A leading "-" in argv[0] is the conventional signal for a login shell,
-	// so it sources the profile files an operator would expect.
-	cmd.Args[0] = "-" + filepath.Base(shell)
 
 	url, err := DriverURL(opts.ServerURL, session)
 	if err != nil {
