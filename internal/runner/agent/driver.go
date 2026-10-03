@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/icholy/gritz/internal/gritzclient"
 	"github.com/icholy/gritz/internal/model"
@@ -291,6 +292,14 @@ func (d *Driver) setup(ctx context.Context, cfg *Config) error {
 		// docker logs is unchanged.
 		c.Stdout = d.Log.Stdout()
 		c.Stderr = d.Log.Stderr()
+		// Run the command in its own process group so cancellation reaches the
+		// processes sh spawns, not just sh itself. Otherwise the children keep
+		// the output pipes open and Run blocks until they finish on their own.
+		c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		c.Cancel = func() error {
+			return syscall.Kill(-c.Process.Pid, syscall.SIGTERM)
+		}
+		c.WaitDelay = 5 * time.Second
 		if err := c.Run(); err != nil {
 			return fmt.Errorf("setup command %d failed: %w", i, err)
 		}

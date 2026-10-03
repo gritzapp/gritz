@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/icholy/gritz/internal/gritzclient"
 	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
@@ -538,4 +539,26 @@ func TestDriverRun_MasksTokenInShippedLog(t *testing.T) {
 	assert.Assert(t, cmp.Contains(shipped, "mcp config"))
 	assert.Assert(t, cmp.Contains(shipped, "[gritz:masked token]"))
 	assert.Assert(t, !strings.Contains(shipped, token), "shipped log leaked the task token")
+}
+
+func TestDriverSetup_Cancel(t *testing.T) {
+	t.Parallel()
+	// Arrange - the trailing "true" keeps sh from exec'ing sleep directly, so
+	// the sleep is a child of sh holding the stdout pipe open.
+	driver, _ := setupDriver(t, &Config{
+		Type:     TypeDummy,
+		Commands: []string{"sleep 30; true"},
+	})
+	cfg, err := driver.Config.Load(1)
+	assert.NilError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+
+	// Act
+	start := time.Now()
+	err = driver.setup(ctx, cfg)
+
+	// Assert - the setup command was interrupted rather than run to completion
+	assert.ErrorContains(t, err, "setup command 0 failed")
+	assert.Assert(t, time.Since(start) < 10*time.Second, "setup took %s", time.Since(start))
 }
