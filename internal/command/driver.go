@@ -73,7 +73,6 @@ var DriverCommand = &cli.Command{
 			Config:    agent.DefaultConfigStore,
 			ServerURL: cmd.String("server"),
 			Token:     cmd.String("token"),
-			Env:       os.Environ(),
 		}
 		return driver.Run(ctx)
 	},

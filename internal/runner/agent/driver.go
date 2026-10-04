@@ -35,10 +35,10 @@ type Driver struct {
 	ServerURL string
 	Token     string
 
-	// Env is the run's environment: the complete environment of the agent CLI
-	// and the setup commands, and what $VARs in the config's cwd expand against.
-	// Nothing is inherited from the driver's own environment, so a nil Env is an
-	// empty one. `gritz driver` sets it to os.Environ().
+	// Env holds the run's own KEY=value pairs, layered over the driver's
+	// environment (os.Environ()) for the agent CLI and the setup commands, and
+	// for what $VARs in the config's cwd expand against. When a name is in both,
+	// the run's value wins. A nil Env adds nothing.
 	Env []string
 }
 
@@ -229,7 +229,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// Start agent
 	a, err := NewAgent(Options{
 		Type:       cfg.Type,
-		Cwd:        os.Expand(cfg.Cwd, func(key string) string { return envLookup(d.Env, key) }),
+		Cwd:        os.Expand(cfg.Cwd, func(key string) string { return envLookup(cmdEnv(d.Env), key) }),
 		Env:        d.Env,
 		Verbose:    cfg.Verbose,
 		McpServers: cfg.McpServers,

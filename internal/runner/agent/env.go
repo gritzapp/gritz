@@ -1,12 +1,17 @@
 package agent
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
-// cmdEnv returns env followed by extra, for use as an exec.Cmd's Env. The result
-// is never nil: a nil Env makes the child inherit the driver's own environment,
-// and nothing a run starts may do that (see Driver.Env).
+// cmdEnv returns the driver's environment, then env, then extra, for use as an
+// exec.Cmd's Env. As with exec.Cmd, a later entry for a name wins, so the run's
+// values override the driver's (see Driver.Env).
 func cmdEnv(env []string, extra ...string) []string {
-	out := make([]string, 0, len(env)+len(extra))
+	base := os.Environ()
+	out := make([]string, 0, len(base)+len(env)+len(extra))
+	out = append(out, base...)
 	out = append(out, env...)
 	return append(out, extra...)
 }
