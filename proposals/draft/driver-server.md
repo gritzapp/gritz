@@ -52,17 +52,18 @@ Key properties:
   server. Everything it used to fetch arrives in `Run`; everything it used to
   report (runner events, log chunks) goes back on the `Run` stream, and the runner
   delivers it.
-- **The driver has an outbox.** Every message it emits is appended to a durable
-  outbox on the sandbox's disk with a sequence number. `Run` streams the outbox
-  from the last acknowledged entry, so a runner that crashes and reconnects gets
-  everything it missed. The runner acknowledges an entry only once it is durable
-  on its side.
+- **The driver keeps a response log.** Every message it reports is appended to a
+  durable log on the sandbox's disk with a sequence number. The runner owns its
+  position in that log: `Run` takes the last sequence number the runner has made
+  durable on its side, and replays everything after it, so a runner that crashes
+  or loses its stream and reconnects gets everything it missed. The driver
+  tracks no delivery state.
 - **One `Backend` interface.** The backend manages sandboxes only; it never speaks
   the driver protocol beyond handing out a client. `Start` returns the handle
   alongside any error whenever a sandbox exists, and the runner persists a
   returned handle before looking at the error. The handle is recorded before the
   run starts, even when the sandbox fails to come up.
-- **The runner owns the driver protocol.** `runner.go` calls `Run`, `Ack` and
+- **The runner owns the driver protocol.** `runner.go` calls `Status`, `Run` and
   `Stop`, consumes the stream and parks idle sandboxes.
 - **Runs execute in-process**, one at a time. Everything per-process today becomes
   per-run.
@@ -92,31 +93,30 @@ option go_package = "github.com/icholy/gritz/internal/proto/driver/v1;driverv1";
 
 // DriverService is served by `gritz driver --serve` inside the sandbox and
 // called by the runner. Runs execute in-process, one at a time. The driver
-// never calls the gritz server; it reports through its outbox, which Run
-// streams and Ack trims.
+// never calls the gritz server; it reports through its response log, which
+// Run streams from the caller's position.
 service DriverService {
-  // Health reports that the server is up, plus the current run record and the
+  // Status reports that the server is up, plus the current run record and the
   // event cursor the runner fetches the next run's events from.
-  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
 
   // Run is attach-or-start, keyed on version:
+  //   another Run stream already open      -> Unavailable (retry)
   //   record.version > version             -> FailedPrecondition (stale)
   //   record.version == version            -> attach, spec ignored
   //   no record / older version, idle      -> start the run (spec required,
   //                                           NotFound without one)
   //   another version running              -> Aborted (busy)
-  // The stream first replays every outbox entry after the acknowledged
-  // sequence, then follows new entries live. It ends after the run's Finished
-  // entry has been sent. Closing it detaches; it does not cancel the run.
+  // At most one Run stream is open at a time. The stream first replays every
+  // logged response with seq > after_seq, then follows new ones live. It ends
+  // after the run's Finished has been sent. A dropped or closed stream detaches
+  // and nothing else: the run keeps going, responses keep being logged, and the
+  // next Run continues from whatever after_seq it brings.
   rpc Run(RunRequest) returns (stream RunResponse);
-
-  // Ack acknowledges every outbox entry up to and including seq. The driver
-  // drops them from the outbox and will not replay them.
-  rpc Ack(AckRequest) returns (AckResponse);
 
   // Stop gracefully stops the run with the given version: cancel the run
   // context with ErrStop (agents and setup commands SIGTERM their process
-  // groups); the run's terminal event and Finished land in the outbox as usual.
+  // groups); the run's terminal event and Finished are logged as usual.
   // A no-op if that version is not the active run.
   rpc Stop(StopRequest) returns (StopResponse);
 }
@@ -133,11 +133,13 @@ message RunRecord {
   google.protobuf.Timestamp finished_at = 3;
 }
 
-message HealthRequest {}
+message StatusRequest {}
 
-message HealthResponse {
+message StatusResponse {
   // Absent if this sandbox has never started a run.
   optional RunRecord run = 1;
+  // Sequence number of the last logged response. Zero if none.
+  uint64 last_seq = 3;
   // ListEventsByTask page token after the last events delivered to the agent.
   // Empty before the first successful run.
   string event_token = 2;
@@ -148,7 +150,7 @@ message HealthResponse {
 message RunSpec {
   // The task as of this run: id, name, version, prompt, shell_session.
   gritz.v1.Task task = 1;
-  // Instruction and external events after HealthResponse.event_token, fetched
+  // Instruction and external events after StatusResponse.event_token, fetched
   // by the runner.
   repeated gritz.v1.Event events = 2;
   // The page token after the last event above. Persisted by the driver once
@@ -176,35 +178,34 @@ message File {
 
 message RunRequest {
   int64 version = 1;
+  // The last seq the runner has made durable on its side (taskstate's Seq).
+  // Responses up to it are not replayed, and the driver may delete them.
+  uint64 after_seq = 3;
   // Set to start a run. Omitted to attach.
   RunSpec spec = 2;
 }
 
 message RunResponse {
+  // Response log sequence number. Set on runner_event, log_chunk and
+  // finished, which are logged; zero on accepted and keep_alive, which are
+  // per-stream and never stored.
+  uint64 seq = 1;
   oneof event {
     // First message on every stream.
-    Accepted accepted = 1;
-    // Outbox entries, in sequence order.
-    Entry entry = 2;
+    Accepted accepted = 2;
     KeepAlive keep_alive = 3;
+    // started / stopped / failed, stamped with the run's version.
+    gritz.v1.RunnerEvent runner_event = 4;
+    // A masked chunk of the run's log, cut at 32 KiB as today.
+    LogChunk log_chunk = 5;
+    // Last logged response of a run. Written after its terminal runner event.
+    Finished finished = 6;
   }
 }
 
 message Accepted {
   // True if the call attached to an existing run rather than starting one.
   bool attached = 1;
-}
-
-message Entry {
-  uint64 seq = 1;
-  oneof payload {
-    // started / stopped / failed, stamped with the run's version.
-    gritz.v1.RunnerEvent runner_event = 2;
-    // A masked chunk of the run's log, cut at 32 KiB as today.
-    LogChunk log_chunk = 3;
-    // Last entry of a run. Written after its terminal runner event.
-    Finished finished = 4;
-  }
 }
 
 message LogChunk {
@@ -218,12 +219,6 @@ message Finished {
 
 message KeepAlive {}
 
-message AckRequest {
-  uint64 seq = 1;
-}
-
-message AckResponse {}
-
 message StopRequest {
   int64 version = 1;
 }
@@ -234,9 +229,10 @@ message StopResponse {
 }
 ```
 
-`Run` is server streaming and `Ack` is a separate unary call, rather than a
-single bidirectional stream, because Connect bidi needs HTTP/2 end to end and
-Lambda's managed proxy is HTTP/1.1. Connect handlers serve the Connect, gRPC and
+Everything from the runner to the driver is a unary call or the `Run` request
+itself, and everything back is the `Run` stream, rather than a single
+bidirectional stream, because Connect bidi needs HTTP/2 end to end and Lambda's
+managed proxy is HTTP/1.1. Connect handlers serve the Connect, gRPC and
 gRPC-Web protocols on a plain `net/http` server.
 
 ### The driver server
@@ -252,18 +248,18 @@ process today moves into the `Run` handler, and the server calls go away:
 |---|---|
 | `--server` / `--task` / `--token` flags | `RunSpec.task`; no `gritzclient` |
 | `GetTask` at the top of `Driver.Run` | `RunSpec.task` (the runner already holds it from its poll) |
-| `drainEvents` (`ListEventsByTask` from `cfg.NextEventToken`) | `RunSpec.events`, fetched by the runner from `HealthResponse.event_token` |
+| `drainEvents` (`ListEventsByTask` from `cfg.NextEventToken`) | `RunSpec.events`, fetched by the runner from `StatusResponse.event_token` |
 | `ListLinks` on the first run | `RunSpec.links` |
-| `SubmitRunnerEvents` for started / stopped / failed | `runner_event` outbox entries |
-| `logship.Shipper` calling `AppendLogChunk` | the shipper's sender appends `log_chunk` outbox entries; masking and chunk cutting are unchanged |
+| `SubmitRunnerEvents` for started / stopped / failed | logged `runner_event` responses |
+| `logship.Shipper` calling `AppendLogChunk` | the shipper's sender logs `log_chunk` responses; masking and chunk cutting are unchanged |
 | `driverSecrets()` reads `GRITZ_SECRETS` via `os.Getenv` | `RunSpec.secrets`; the `redact.Writer` is built per run before the first byte |
 | `agent.OpenDriverLog` once | opened per run, still appending to `/gritz/log` |
 | SIGTERM handler in `Driver.Run` | run context cancelled with `ErrStop` by `Stop`; SIGTERM to the server process means shut down (stopping an active run first) |
-| exit code means "did the driver report?" | the outbox: the terminal event is durable in the sandbox before `Finished` |
+| exit code means "did the driver report?" | the response log: the terminal event is durable in the sandbox before `Finished` |
 
 The event cursor stays in the driver's config (`cfg.NextEventToken`). The driver
 saves `RunSpec.event_token` there after `a.Prompt` returns, as `drainEvents`'
-result is saved today, and reports it in `Health`. The at-least-once delivery of
+result is saved today, and reports it in `Status`. The at-least-once delivery of
 events to the agent is unchanged.
 
 **Per-run environment.** Nothing may inherit the process environment, because
@@ -277,30 +273,44 @@ to:
 - `os.ExpandEnv(cfg.Cwd)`, `agent/driver.go:226`, which becomes `os.Expand` over
   the run env
 
-**Outbox.** `/gritz/outbox/`, one file per entry, using the `internal/x/outbox`
-`FileStore` with a `ReadFrom(seq)` added for replay. Entries are appended in the
-order the driver produces them, so a run's log chunks and runner events
-interleave as they happened. `Ack(seq)` drops every entry up to `seq`. Sequence
-numbers are monotonic for the life of the sandbox, not per run, so an
-unacknowledged tail from an earlier run is replayed before a new run's entries.
+**Response log.** `/gritz/responses/<version>.log`, one append-only file per
+run of length-delimited `RunResponse` messages, each fsynced before it is
+streamed. Responses are appended in the order the driver produces them, so a
+run's log chunks and runner events interleave as they happened. Sequence numbers
+are monotonic for the life of the sandbox, not per run, so a tail of an earlier
+run that the runner has not yet stored is replayed before a new run's responses.
+The driver deletes a version's file once a `Run` arrives with an `after_seq` at
+or past that version's `Finished`; in practice, the previous run's file goes
+when the next run starts.
 
 **Run record.** `/gritz/run.json`, written atomically with
 `internal/x/atomicio`:
 
 - `{version, running}` before a run starts;
-- `{version, finished, finished_at}` after the run's `Finished` entry is in the
-  outbox.
+- `{version, finished, finished_at}` after the run's `Finished` is logged.
 
 On boot, a record still `running` means the process died mid-run. Before
-serving, the driver appends a `failed` runner event ("driver restarted mid-run")
-and a `Finished` entry for that version, and rewrites the record as finished.
-The runner learns about the crash through the outbox like any other outcome. The
-record and the outbox live on the sandbox's disk, so they survive driver
+serving, the driver logs a `failed` runner event ("driver restarted mid-run")
+and a `Finished` for that version, and rewrites the record as finished. The
+runner learns about the crash through the log like any other outcome. The record
+and the response log live on the sandbox's disk, so they survive driver
 restarts and parking, but not sandbox loss.
 
-**Server rules.** At most one run at a time. A `Run` that starts a new version
-while the outbox still holds unacknowledged entries from an older run is allowed;
-the stream replays them first.
+**Server rules.**
+
+- At most one run at a time. A `Run` that starts a new version while an older
+  run has responses after `after_seq` is allowed; the stream replays them
+  first.
+- At most one `Run` stream at a time. A second `Run` while one is open is
+  rejected with `Unavailable`, so there is only ever one reader of the log.
+- A dropped stream is routine, not a failure. Proxies time out, tokens expire,
+  runners restart. The run's context is independent of any request's context:
+  the driver detaches the stream, keeps running the agent, keeps logging
+  responses, and serves the next `Run` exactly as if it had stayed connected.
+  Only `Stop` and the server's own shutdown cancel a run.
+- The driver notices a dead stream when a write to it fails. `KeepAlive` is sent
+  every 15 seconds, so a stream whose runner has gone away is released within
+  that interval and the next `Run` is accepted.
 
 **Authentication.** The driver takes an optional runner public key from
 `GRITZ_RUNNER_PUBLIC_KEY` or `/gritz/runner.pub`, read on boot. The key is a
@@ -334,14 +344,17 @@ key through a channel only it controls:
 The key is public, so an agent that reads it gains nothing. The runner keeps
 one Ed25519 key pair in its state directory and puts the public half in every
 `Spec` (`RunnerPublicKey`); the backend installs it or ignores it. The runner
-attaches a fresh JWT to every call regardless of backend: a driver with no key
+signs a JWT and passes it to `Dial` regardless of backend: a driver with no key
 ignores the header, so the runner never needs to know which kind of sandbox it
-is talking to, and the backend never holds the signing key.
+is talking to, and the backend never holds the signing key. The JWT's expiry
+bounds the client's lifetime; the runner dials again when it expires or when a
+call returns `Unauthenticated`. A `Run` stream is checked once, when it opens,
+so a long run keeps its stream.
 
 On every backend the agent inside the sandbox can reach the driver on
 localhost without going through the platform's path, and with no key the
 driver does not stop it. That is the same trust boundary as the agent's
-existing ability to rewrite the outbox or kill the driver.
+existing ability to rewrite the response log or kill the driver.
 
 ```mermaid
 sequenceDiagram
@@ -352,7 +365,7 @@ sequenceDiagram
     P->>D: start process
     D->>F: read /gritz/run.json
     alt state = running (process died mid-run)
-        D->>F: outbox += failed(version), Finished(version)
+        D->>F: log += failed(version), Finished(version)
         D->>F: write {version, finished, finished_at: now}
     else finished / absent
         Note over D,F: keep as is
@@ -363,8 +376,8 @@ sequenceDiagram
 ### Backend interface
 
 `Backend` and the earlier `Sandbox` split are merged into one interface. It
-manages sandboxes; the runner speaks the driver protocol over the connection
-`Dial` returns.
+manages sandboxes; the runner speaks the driver protocol over the client `Dial`
+returns.
 
 ```go
 // Backend runs task sandboxes on a concrete runtime. It manages the sandbox
@@ -384,12 +397,12 @@ type Backend interface {
 	// transitional state (SUSPENDING, pausing) returns (reuse, error).
 	Start(ctx context.Context, spec *Spec, reuse *Handle) (*Handle, error)
 
-	// Dial returns a connection to the sandbox's driver server: a base URL and
-	// an HTTP client carrying any platform credentials (Lambda's port-scoped
-	// proxy token). The runner builds the DriverService client on it and adds
-	// its own JWT. Dial does not wait for the driver; readiness is the runner's
-	// Health polling.
-	Dial(ctx context.Context, h Handle) (Conn, error)
+	// Dial returns a client for the sandbox's driver server. Every call it makes
+	// carries jwt as a bearer token, plus any platform credentials (Lambda's
+	// port-scoped proxy token). A driver with no runner key ignores the JWT.
+	// Dial does not wait for the driver; readiness is the runner's Status
+	// polling.
+	Dial(ctx context.Context, h Handle, jwt string) (driverv1connect.DriverServiceClient, error)
 
 	// Status reports the platform's view of the sandbox: Up, Parked or Gone.
 	// Transitional states (SUSPENDING, pausing) report Parked.
@@ -425,14 +438,6 @@ if err != nil {
 }
 ```
 
-```go
-// Conn is how the runner reaches a sandbox's driver server.
-type Conn struct {
-	BaseURL    string
-	HTTPClient connect.HTTPClient
-}
-```
-
 `Spec` shrinks to what the platform needs to create the sandbox: `TaskID`,
 `Workspace`, and `RunnerPublicKey`, which the backend installs in the sandbox
 only if its platform does not authenticate the path (see Authentication). `Cmd`, `Env` and `Files` move into `RunSpec`. `Launch`, `Probe`,
@@ -445,31 +450,36 @@ only if its platform does not authenticate the path (see Authentication). `Cmd`,
 
 | Runner method | With the driver server |
 |---|---|
-| `Start(task)` | Under the lock. `backend.Start(spec, reuse)` with the recorded handle, if any; write any returned handle to `taskstate/`, then return the error, if any. Then `Dial`, poll `Health` with backoff (timeout → error). A running record for this version: a no-op. Otherwise fetch events after `Health.event_token` (and links on the first run), mint the task token, `Run(version, spec)` until `Accepted`, cancel any idle timer, and hand the stream to `supervise`. |
-| `supervise` | Reads the stream. `runner_event` → enqueue on the runner event outbox; `log_chunk` → `AppendLogChunk`; then `Ack(seq)` (batched). `Finished` for the task's current version → release the slot, arm the idle timer, return. On a stream drop: `Status`; gone → failed backstop and remove the record; parked → failed backstop; up → re-dial, `Health` with backoff (timeout → failed backstop), then `Run(version)` to attach and replay. |
-| `Load` | For each record: `Status`; gone → as today; parked → `failIfTaskRunning`; up → `Dial`, `Run(version)` to attach. The replay delivers whatever the previous runner process missed, including a `Finished` it never saw. |
-| `Running` | `Status` up and `Health` reports a running record for this version. |
+| `Start(task)` | Under the lock. `backend.Start(spec, reuse)` with the recorded handle, if any; write any returned handle to `taskstate/`, then return the error, if any. Then `Dial`, poll `Status` with backoff (timeout → error). A running record for this version: a no-op. Otherwise fetch events after `Status.event_token` (and links on the first run), mint the task token, `Run(version, spec, after_seq: record.Seq)` until `Accepted`, cancel any idle timer, and hand the stream to `supervise`. |
+| `supervise` | Reads the stream. `runner_event` → enqueue on the runner event outbox; `log_chunk` → `AppendLogChunk`; then advance the record's `Seq` (batched). `Finished` for the task's current version → release the slot, arm the idle timer, return. A dropped stream is expected: re-dial and `Run(version, after_seq: Seq)` straight away, no recovery check, retrying `Unavailable` (the driver has not yet released the old stream) with backoff. Only when reconnecting keeps failing: `backend.Status`; gone → failed backstop and remove the record; parked → failed backstop; up → keep retrying until the readiness timeout (timeout → failed backstop). |
+| `Load` | For each record: `backend.Status`; gone → as today; parked → `failIfTaskRunning`; up → `Dial`, `Run(version, after_seq: record.Seq)` to attach. The replay delivers whatever the previous runner process missed, including a `Finished` it never saw. |
+| `Running` | `backend.Status` up and `Status` reports a running record for this version. |
 | `Kill(task)` | Under the lock: `Stop(version)`; `signalled = stopped`. The terminal event arrives through the stream. |
 | `Remove(task)` | Under the lock: cancel the idle timer, `Destroy`, remove the record. |
-| `Prune` | Unchanged, on top of `Status`. |
+| `Prune` | Unchanged, on top of `backend.Status`. |
 
 The failed backstop is now only for sandbox loss and an unreachable driver. A
-driver crash is reported by the restarted driver through its outbox, and a run
+driver crash is reported by the restarted driver through its response log, and a run
 that finished while the runner was down is reported when the runner reattaches.
 
-**Acknowledgement.** An entry is acknowledged once it is durable on the runner's
-side: a runner event once `Enqueue` returns (the runner's outbox delivers it to
-the server), a log chunk once `AppendLogChunk` succeeds. Entries are processed in
-order, so a failed `AppendLogChunk` is retried with backoff before later entries;
-a permanent failure drops the chunk and moves on. A runner that crashes after
-delivering an entry but before acknowledging it delivers it again on reattach.
+**Position.** The runner's position in a sandbox's response log is a `Seq` field
+on its `taskstate/` record: the last sequence number that is durable on the
+runner's side. A runner event is durable once `Enqueue` returns (the runner's
+outbox delivers it to the server), a log chunk once `AppendLogChunk` succeeds.
+Responses are processed in order, so a failed `AppendLogChunk` is retried with
+backoff before later responses; a permanent failure drops the chunk and moves
+on. `supervise` writes `Seq` in batches and after every runner event, under the
+task's lock, rewriting the record it read so a concurrent `Start` and
+`supervise` never lose each other's fields. A runner that crashes after
+delivering a response but before writing `Seq` delivers it again on reattach.
 The server's version guard already absorbs a repeated runner event. Repeated log
-chunks are an open question.
+chunks are an open question. A record from before this change has no `Seq`,
+which reads as 0: replay everything the driver still has.
 
 **Event fetching.** The runner fetches the run's events with
-`ListEventsByTask` from `Health.event_token`, filtered to the instruction and
+`ListEventsByTask` from `Status.event_token`, filtered to the instruction and
 external types, exactly as `drainEvents` does today, and the links with
-`ListLinks` on the first run (`Health.event_token` empty and no run record).
+`ListLinks` on the first run (`Status.event_token` empty and no run record).
 
 ### Idle parking
 
@@ -482,9 +492,10 @@ workspaces:
 ```
 
 When `supervise` sees `Finished`, the runner arms a timer for `idle_timeout`.
-When it fires, it takes the task's lock and checks `Health`: it parks only if the
-record is finished, `finished_at + idle_timeout` has passed, and the outbox has
-been drained, so a `Start` that won the lock in between is never undone. With an
+When it fires, it takes the task's lock and checks `Status`: it parks only if the
+record is finished, `finished_at + idle_timeout` has passed, and the record's
+`Seq` has reached `Status.last_seq`, so everything the driver logged is stored
+on the runner's side. A `Start` that won the lock in between is never undone. With an
 idle timeout of 0 this is today's behavior. `Load` re-derives timers from
 `finished_at` for sandboxes that are up and idle.
 
@@ -502,7 +513,7 @@ taskstate record is kept, and a later start or archive proceeds normally.
 |---|---|---|
 | `Start`, fresh | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary; `ContainerStart`. Any failure after `ContainerCreate` returns the handle with the error. | `RunMicrovm` with no run-hook payload, then poll until `RUNNING`. Any failure after `RunMicrovm` returns the handle with the error. |
 | `Start`, reuse | `ContainerStart` | `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll; `SUSPENDING` → plain error; terminal → `ErrGone` |
-| `Dial` | `http://<container IP>:8080` on its network, plain HTTP client | managed proxy endpoint, HTTP client that adds a minted port-scoped token |
+| `Dial` | client for `http://<container IP>:8080` on its network, adding the JWT | client for the managed proxy endpoint, adding a minted port-scoped token and the JWT |
 | `Status` | inspect: running → Up, exited → Parked, not found → Gone | `GetMicrovm` |
 | `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown | `SuspendMicrovm`, then poll until `SUSPENDED` |
 | `Destroy` | `ContainerRemove` (force) | `TerminateMicrovm` |
@@ -543,13 +554,13 @@ sequenceDiagram
     P-->>R: handle, nil
     R->>T: write {version, handle}
     R->>P: Dial(handle)
-    loop until healthy (backoff, timeout -> error)
-        R->>D: Health()
+    loop until the driver answers (backoff, timeout -> error)
+        R->>D: Status()
     end
     D-->>R: {run, event_token}
     R->>S: ListEventsByTask(event_token), ListLinks (first run)
     R->>S: CreateTaskToken
-    R->>D: Run(version, spec)
+    R->>D: Run(version, spec, after_seq: Seq)
     alt record.version > version
         D-->>R: FailedPrecondition (stale)
     else record.version == version
@@ -559,7 +570,7 @@ sequenceDiagram
         D->>D: provision files (marker-gated)
         D->>D: build log, shipper, secret mask
         D-->>R: Accepted{attached: false}
-        D->>F: outbox += started(version)
+        D->>F: log += started(version)
     else another version running
         D-->>R: Aborted (busy)
     end
@@ -572,29 +583,36 @@ Supervise:
 sequenceDiagram
     participant S as gritz Server
     participant O as Runner outbox
+    participant T as taskstate/
     participant R as Runner
     participant P as Backend / Platform
     participant D as Driver server
     participant F as Sandbox disk
 
     loop until Finished(version)
-        D->>F: outbox += entry
-        D-->>R: Entry{seq, ...}
+        D->>F: log += response
+        D-->>R: RunResponse{seq, ...}
         alt runner_event
             R->>O: Enqueue
             O->>S: SubmitRunnerEvents
         else log_chunk
             R->>S: AppendLogChunk
         end
-        R->>D: Ack(seq)
-        D->>F: drop entries <= seq
-        opt stream dropped
-            R->>P: Status
-            alt gone / parked
-                R->>O: Enqueue failed (backstop)
-            else up
-                R->>D: Health() (backoff, timeout -> backstop)
-                R->>D: Run(version) (attach, replay after ack)
+        R->>T: Seq = seq (batched)
+        opt stream dropped (routine)
+            Note over D: run continues, responses keep being logged
+            R->>P: Dial(handle, jwt)
+            R->>D: Run(version, after_seq: Seq) (attach, replay)
+            opt Unavailable (old stream not yet released)
+                R->>D: retry Run with backoff
+            end
+            opt reconnecting keeps failing
+                R->>P: Status
+                alt gone / parked
+                    R->>O: Enqueue failed (backstop)
+                else up
+                    R->>D: keep retrying (readiness timeout -> backstop)
+                end
             end
         end
     end
@@ -611,16 +629,16 @@ sequenceDiagram
     participant D as Driver server
     participant F as Sandbox disk
 
-    Note over D,F: run continued; entries accumulated unacknowledged
-    R->>T: list records
+    Note over D,F: run continued; responses logged past the runner's Seq
+    R->>T: list records {version, handle, Seq: n}
     R->>P: Status(handle)
     P-->>R: Up
     R->>P: Dial(handle)
-    R->>D: Run(version)
-    D->>F: read outbox after last ack
+    R->>D: Run(version, after_seq: n)
+    D->>F: read log after n
     D-->>R: Accepted{attached: true}
-    D-->>R: Entry{seq: n+1}, Entry{seq: n+2}, ...
-    Note over R,D: then live entries, as in Supervise
+    D-->>R: RunResponse{seq: n+1}, RunResponse{seq: n+2}, ...
+    Note over R,D: then live responses, as in Supervise
 ```
 
 Kill:
@@ -636,7 +654,7 @@ sequenceDiagram
     alt version is the active run
         D->>D: cancel run context (ErrStop)
         D->>D: agent / setup process groups get SIGTERM, then SIGKILL after WaitDelay
-        D->>F: outbox += stopped(version), Finished(version)
+        D->>F: log += stopped(version), Finished(version)
         D-->>R: stopped: true
     else not running / other version / unreachable
         D-->>R: stopped: false
@@ -655,8 +673,8 @@ sequenceDiagram
 
     Note over R: timer armed on Finished, or re-derived by Load from finished_at
     R->>R: timer fires, lock(task)
-    R->>D: Health()
-    alt run active, outbox not drained, or idle_timeout not elapsed
+    R->>D: Status()
+    alt run active, Seq < last_seq, or idle_timeout not elapsed
         Note over R: skip
     else finished and idle long enough
         R->>P: Park (blocks until stable)
@@ -671,11 +689,11 @@ sequenceDiagram
 
 ### What doesn't change
 
-The taskstate store, the runner event outbox, the server, the database schema,
-the task state machine, and `gritz.proto`. The terminal event's meaning is
+The runner event outbox, the server, the database schema, the task state
+machine, and `gritz.proto`. The taskstate store gains only the `Seq` field. The terminal event's meaning is
 unchanged: the driver decides `started`, `stopped` and `failed`, and the server's
 version guard drops a stale one. Only the path changes, from driver → server to
-driver outbox → runner outbox → server.
+driver response log → runner outbox → server.
 
 ## Implementation Plan
 
@@ -695,19 +713,21 @@ driver outbox → runner outbox → server.
    chunks through a sink interface. `gritz driver` (one-shot) implements both with
    `gritzclient`, so behavior is unchanged. Depends on: nothing. Verifiable by:
    existing driver tests with a fake sink.
-5. **Outbox replay and run record** — Delivers: `FileStore.ReadFrom(seq)` and
-   ack-up-to-seq; a package reading/writing `/gritz/run.json` with boot
-   reconciliation (`running` → `failed` + `Finished` in the outbox). Depends on:
+5. **Response log and run record** — Delivers: an append-only, per-version
+   `RunResponse` log with read-after-seq and deletion of versions behind a
+   position; a package reading/writing `/gritz/run.json` with boot
+   reconciliation (`running` → `failed` + `Finished` in the log). Depends on:
    nothing. Verifiable by: unit tests in a temp dir.
 6. **Driver server** — Delivers: `gritz driver --serve` implementing
-   `DriverService` over `agent.Driver` with the outbox sink, per-run log and
+   `DriverService` over `agent.Driver` with the response-log sink, per-run log and
    secret mask, optional JWT verification against the runner public key,
    `--aws-lambda-hooks`. `gritz driver` (one-shot)
    stays. Depends on: (2), (3), (4), (5). Verifiable by: in-memory Connect client
-   tests with a dummy agent: start, attach, replay after a dropped stream, `Ack`
-   trimming, stale/busy/not-found, `Stop`, restart reconciliation.
+   tests with a dummy agent: start, attach, replay after a dropped stream from
+   `after_seq`, log deletion, a second concurrent `Run`, stale/busy/not-found, `Stop`, restart reconciliation.
 7. **Backend interface and runner** — Delivers: the merged `Backend` interface,
-   the runner's driver protocol (`Start`, `supervise`, `Load`, `Kill`), the
+   the runner's driver protocol (`Start`, `supervise`, `Load`, `Kill`),
+   `taskstate.Record.Seq`, the
    per-task lock, idle-park timers, `Workspace.IdleTimeout`. Depends on: (2),
    (6). Verifiable by: runner tests against a fake `Backend` and an in-memory
    driver server, including a runner restart mid-run and a park racing a start.
@@ -751,15 +771,19 @@ the server's inputs come from one component. The cost is that the runner is now
 on the path of every log byte, and a runner that is down delays (but does not
 lose) the driver's reports until it reattaches.
 
-**Driver outbox vs. runner-side cursor.** The driver holds the acknowledgement
-cursor, so the runner persists nothing new per entry and a reattach is just
-`Run(version)`. The cost is at-least-once delivery for the entry in flight when
-the runner crashes.
+**Runner-held position vs. driver-held acks.** With an outbox and an `Ack` RPC
+the driver would track delivery, and the runner would persist nothing per
+message. With the position in `taskstate/`, the driver keeps no state about its
+reader, there is one RPC fewer, every reconnect is the same `Run(version,
+after_seq)`, and the log is an exact history of the run that any reader can
+replay. The cost is a `taskstate/` write per batch, the coordination between
+`Start` and `supervise` on the record, and at-least-once delivery for whatever
+was delivered after the last `Seq` write when the runner crashes.
 
 **Runner owns the driver protocol vs. a `DriverBackend` adapter.** An adapter
 would keep `runner.go` unchanged behind the old `Launch`/`Wait`/`Probe`
 interface, but `Launch` could only return the handle after the run started, and
-the outbox replay would be hidden behind `Wait`. With one sandbox-only `Backend`,
+the log replay would be hidden behind `Wait`. With one sandbox-only `Backend`,
 the handle is persisted as soon as `Start` returns, before the run starts, and
 the runner deals with runs directly. The cost is a larger change to `runner.go` and its tests.
 
@@ -768,7 +792,7 @@ idleness exactly but holds no platform credentials, and on Lambda or DigitalOcea
 a process exit does not park. Platform idle policies (Lambda `idlePolicy`,
 DigitalOcean `auto_pause`) judge idleness by activity, not by "no active run", so
 a quiet agent could be parked mid-run; Lambda's minimum is also 600s. The runner
-has both the knowledge (`Health`) and the credentials (via the backend).
+has both the knowledge (`Status`) and the credentials (via the backend).
 
 **One `Start` returning a handle with its error vs. separate `Create` and
 `Start`.** A separate `Create` would let the runner persist the handle before
@@ -778,9 +802,9 @@ could not be implemented as specified there. Returning the handle alongside the
 error covers every failure the backend can observe on all platforms; only a
 runner crash during `Start` is left uncovered, which is open question 10.
 
-**Server streaming plus `Ack` vs. bidirectional streaming.** A bidi `Run` would
-carry acknowledgements on the same stream, but needs HTTP/2 end to end, which
-Lambda's managed proxy does not provide.
+**Server streaming plus unary calls vs. bidirectional streaming.** A bidi `Run`
+would carry `Stop` and the runner's position on the same stream, but needs
+HTTP/2 end to end, which Lambda's managed proxy does not provide.
 
 **Connect vs. grpc-go.** Connect handlers are plain `net/http`, already used
 throughout the codebase, and speak gRPC as well as protocols that pass HTTP/1.1
@@ -793,8 +817,8 @@ proxies. grpc-go requires HTTP/2 end to end.
    token. Are they in scope? The MCP tools are request/response, which the `Run`
    stream cannot carry; they would need their own RPC on the driver that the
    runner proxies, or keep going direct.
-2. **Duplicate log chunks.** A chunk delivered but not acknowledged before a
-   runner crash is appended twice. Should `AppendLogChunkRequest` gain a sequence
+2. **Duplicate log chunks.** A chunk delivered after the last `Seq` write
+   before a runner crash is appended twice. Should `AppendLogChunkRequest` gain a sequence
    number the server deduplicates on, or is a rare repeated chunk acceptable?
 3. **Docker reachability.** The runner dials the container's IP. That works when
    the runner is on the host or shares a network with the container. Is that
@@ -805,17 +829,18 @@ proxies. grpc-go requires HTTP/2 end to end.
    `Handle.Type` or a container label) and keep the old path until those tasks
    are archived, or fail them with a clear error?
 5. **Driver revalidation.** A sandbox that stays up across a gritz release keeps
-   serving with the old driver. Should `Health` report the driver version so the
+   serving with the old driver. Should `Status` report the driver version so the
    runner can park and restart stale drivers between runs?
 6. **Lambda process exit.** What does Lambda do when the main process of a running
    MicroVM exits (a driver crash)? If the VM stays `RUNNING`, the health timeout
    covers it, but `Start` has no way to restart the process; should the runner
    destroy it and treat it as gone?
-7. **Outbox size.** A runner that stays down for a long run leaves the outbox
-   growing with log chunks. Should the driver cap it (dropping the oldest log
+7. **Response log size.** A version's log is only deleted when the next run
+   starts, so a long run, or a runner that stays down, leaves it growing with
+   log chunks. Should the driver cap it (dropping the oldest log
    chunks, never runner events)?
-8. **Health timeout values.** How long should `Start` and `supervise` wait for a
-   healthy driver before failing? Docker boots in seconds; a fresh Lambda VM may
+8. **Status timeout values.** How long should `Start` and `supervise` wait for a
+   ready driver before failing? Docker boots in seconds; a fresh Lambda VM may
    take longer.
 9. **Idle-timeout limits.** Should the runner cap `idle_timeout` (warm sandboxes
    hold host memory or account quota outside the concurrency semaphore), and
@@ -828,3 +853,8 @@ proxies. grpc-go requires HTTP/2 end to end.
     with. Should a runner that rotates its key re-deliver the new one through
     the backend's channel, or keep old keys around until those sandboxes are
     destroyed?
+12. **Half-open streams.** The driver releases a stream only when a write to it
+    fails. A proxy that accepts writes for a client that is already gone would
+    keep the old stream "open" and make every new `Run` return `Unavailable`.
+    Should streams also have a maximum lifetime, or should a new `Run` from the
+    same runner replace the old stream instead of being rejected?

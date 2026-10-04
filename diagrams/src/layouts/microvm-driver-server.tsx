@@ -27,7 +27,7 @@ export interface MicrovmDriverServerLayout extends Scaffold {
   driver: Service;
   record: StateTable;
   config: StateTable;
-  driverOutbox: StateTable;
+  driverLog: StateTable;
 
   links: {
     runnerApi: Link;
@@ -57,7 +57,7 @@ export function microvmDriverServerLayout(
   const driver = createRef<Service>();
   const record = createRef<StateTable>();
   const config = createRef<StateTable>();
-  const driverOutbox = createRef<StateTable>();
+  const driverLog = createRef<StateTable>();
 
   view.add(
     <>
@@ -188,8 +188,8 @@ export function microvmDriverServerLayout(
             offset={[0, -1]}
           />
           <StateTable
-            ref={driverOutbox}
-            title={'/gritz/outbox/'}
+            ref={driverLog}
+            title={'/gritz/responses/1.log'}
             accent={Colors.driver}
             width={340}
             x={-40}
@@ -219,7 +219,7 @@ export function microvmDriverServerLayout(
     driver: driver(),
     record: record(),
     config: config(),
-    driverOutbox: driverOutbox(),
+    driverLog: driverLog(),
     links: {
       runnerApi: link(runner(), api(), 'Connect RPC'),
       runnerBackend: link(runner(), backend(), 'in-process'),
