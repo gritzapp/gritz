@@ -47,6 +47,10 @@ description = "Start docker dev server (detached) and the vite dev server"
 depends = ["build:webui"]
 run = "cd webui && pnpm install --frozen-lockfile && pnpm dev"
 
+[tasks.motioncanvas]
+description = "Start the Motion Canvas editor for the flow diagrams in diagrams/"
+run = "cd diagrams && pnpm install --frozen-lockfile && pnpm start"
+
 [tasks.install]
 description = "Build and install gritz bin"
 run = [
