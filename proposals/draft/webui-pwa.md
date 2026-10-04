@@ -21,7 +21,7 @@ Push notifications when the app is closed are **out of scope** for this proposal
   - Precache the built JS/CSS/HTML hash-named assets so the app shell loads instantly on launch.
   - Network-first for `index.html` so deploys are picked up.
   - Pass-through (do not intercept) for `/gritz.v1.GritzService/*`, `/events`, `/auth/*`, and `/webhook/*`. These are live, authenticated, and Connect-RPC framed — the SW must not cache or interfere.
-- **App icons & splash** — generate maskable PNGs from the existing `webui/public/icon.png`. iOS-specific `apple-touch-icon` link tags are added to `index.html`.
+- **App icons & splash** — generate maskable PNGs from the existing `webui/src/assets/icon.png`. iOS-specific `apple-touch-icon` link tags are added to `index.html`.
 - **Install prompt** — render the browser's `beforeinstallprompt` (Android/Desktop Chrome) behind a small "Install" affordance. iOS does not fire this event; document the manual "Share → Add to Home Screen" path in a settings hint.
 - **Theme color & viewport meta** updates in `webui/index.html` so the standalone window chrome and status bar match the app.
 
@@ -100,7 +100,7 @@ Total: about a day and a half. Almost all of the cost is wiring and asset genera
 
 3. **Start URL.** `/ui/tasks` is the most useful landing surface for a returning user. Alternatives are `/ui/` (which redirects to `/ui/tasks/new` or similar depending on routing). Worth a quick decision before shipping but not blocking.
 
-4. **Icon sourcing.** The current `webui/public/icon.png` is a single PNG. For proper maskable support we need an icon with safe-zone padding so it doesn't get cropped on Android. Either regenerate from the source artwork or accept that the maskable variant is the same PNG (which will work but may crop awkwardly).
+4. **Icon sourcing.** The current `webui/src/assets/icon.png` is a single PNG. For proper maskable support we need an icon with safe-zone padding so it doesn't get cropped on Android. Either regenerate from the source artwork or accept that the maskable variant is the same PNG (which will work but may crop awkwardly).
 
 5. **SPA fallback and `navigateFallback`.** The service worker's offline navigation fallback must return `index.html`. The existing `static.go` already does the equivalent server-side for non-SW requests. Both layers need to agree on what counts as a navigation request; the denylist for API paths handles the obvious cases.
 
