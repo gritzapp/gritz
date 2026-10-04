@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.9.2](https://github.com/icholy/gritz/compare/v3.9.1...v3.9.2) (2026-10-04)
+
+
+### Miscellaneous
+
+* disable build cache for debian workspace image ([2e8dcd5](https://github.com/icholy/gritz/commit/2e8dcd590199482cbb6c0d9833c0a50d0a7c0def))
+* **webui:** ignore tanstack router temp dir ([66bd141](https://github.com/icholy/gritz/commit/66bd1412af42c85a8da33cb7e76bd892b8a075e3))
+* **webui:** regenerate route tree ([d487f5d](https://github.com/icholy/gritz/commit/d487f5d7a8abe686c12a56d446858ffca824e94f))
+
 ## [3.9.1](https://github.com/icholy/gritz/compare/v3.9.0...v3.9.1) (2026-10-04)
 
 
