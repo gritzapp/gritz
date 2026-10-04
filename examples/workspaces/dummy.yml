@@ -1,7 +1,0 @@
-workspaces:
-  dummy:
-    description: Dummy workspace for testing
-    container:
-      image: alpine:3.21
-    agent:
-      type: dummy

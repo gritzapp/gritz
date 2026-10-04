@@ -50,15 +50,9 @@ Open: https://gritz.dev/
 
 ## Workspace Examples
 
-See [examples/workspaces/](examples/workspaces/) for workspace configuration examples:
-
-- [claude.yml](examples/workspaces/claude.yml) - Claude Code
-- [codex.yml](examples/workspaces/codex.yml) - OpenAI Codex
-- [cursor.yml](examples/workspaces/cursor.yml) - Cursor Agent
-- [copilot.yml](examples/workspaces/copilot.yml) - GitHub Copilot
-- [mcp-server.yml](examples/workspaces/mcp-server.yml) - MCP server configuration
-- [private-repo.yml](examples/workspaces/private-repo.yml) - Cloning private repositories
-- [dummy.yml](examples/workspaces/dummy.yml) - Dummy agent for testing
+See [gritzapp/workspaces](https://github.com/gritzapp/workspaces) for workspace
+configuration examples (Claude Code, Codex, Cursor, Copilot, MCP servers,
+private repositories) and the source of the `gritz-workspace-*` images.
 
 ## Secrets
 
@@ -99,7 +93,7 @@ fragment the mask cannot match.
 
 ## Docker Compose Runner
 
-See [examples/runner/](examples/runner/) for running the runner as a Docker Compose service with a pull-through registry cache.
+See [gritzapp/workspaces](https://github.com/gritzapp/workspaces/tree/main/runner) for running the runner as a Docker Compose service with a pull-through registry cache.
 
 ## Debugging
 
