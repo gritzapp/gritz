@@ -226,3 +226,27 @@ jobs:
           # The mise install layer never changes textually, so a cached
           # layer would pin mise at whatever version the first build fetched.
           no-cache: true
+
+  # Deploys live in gritzapp/infra. Waiting on every release job keeps the old
+  # behaviour of deploying only releases that published completely.
+  trigger-deploy:
+    needs: [release-please, release, docker, workspace-debian, workspace-mise]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.DEPLOY_APP_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: gritzapp
+          repositories: infra
+
+      - name: Dispatch deploy
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          gh api repos/gritzapp/infra/dispatches \
+            -f event_type=release \
+            -f "client_payload[version]=${TAG#v}"
