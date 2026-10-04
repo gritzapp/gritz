@@ -302,12 +302,46 @@ restarts and parking, but not sandbox loss.
 while the outbox still holds unacknowledged entries from an older run is allowed;
 the stream replays them first.
 
-**Authentication.** The server requires `Authorization: Bearer <token>` with a
-constant-time compare against `GRITZ_DRIVER_TOKEN` from its environment. The
-backend generates 32 random bytes per sandbox when it creates it and stores them in
-`Handle.Data`. Lambda cannot inject a per-sandbox value into a snapshot, so on
-Lambda the variable is unset and the server relies on the managed proxy's
-port-scoped auth tokens, as the shim does today.
+**Authentication.** The driver takes an optional runner public key from
+`GRITZ_RUNNER_PUBLIC_KEY` or `/gritz/runner.pub`, read on boot. The key is a
+raw 32-byte Ed25519 public key encoded as unpadded base64url, 43 characters, so
+it fits any channel a backend has. JWTs are signed with EdDSA.
+
+- **Key present:** every request must carry `Authorization: Bearer <jwt>`,
+  signed by the runner's key, with `sub` set to the task id and a short expiry.
+  The driver verifies it against the key and rejects a `sub` other than the task
+  of its first `Run`.
+- **No key:** the API is unauthenticated.
+
+Whether a sandbox needs the driver's own auth is the backend's decision, and
+setting it up is part of `Start` creating the sandbox. A backend whose platform
+authenticates the path to the sandbox per sandbox or per port (Lambda's
+IAM-gated managed proxy, AgentCore) installs no key. A backend whose platform
+does not, or only with an account-wide credential, writes the runner's public
+key through a channel only it controls:
+
+| Backend | Platform auth on the path | Key delivery |
+|---|---|---|
+| Lambda MicroVMs | IAM, per VM and port | none |
+| AgentCore | IAM | none |
+| Docker | none | env at create |
+| DigitalOcean | none documented | env at create |
+| Nomad | none without Consul mTLS | job env |
+| Firecracker | none | MMDS or `config.tar` |
+| Fly Sprites | the org-wide API token | fs API, right after create |
+| exe.dev | SSH (port-forward) | SFTP |
+
+The key is public, so an agent that reads it gains nothing. The runner keeps
+one Ed25519 key pair in its state directory and puts the public half in every
+`Spec` (`RunnerPublicKey`); the backend installs it or ignores it. The runner
+attaches a fresh JWT to every call regardless of backend: a driver with no key
+ignores the header, so the runner never needs to know which kind of sandbox it
+is talking to, and the backend never holds the signing key.
+
+On every backend the agent inside the sandbox can reach the driver on
+localhost without going through the platform's path, and with no key the
+driver does not stop it. That is the same trust boundary as the agent's
+existing ability to rewrite the outbox or kill the driver.
 
 ```mermaid
 sequenceDiagram
@@ -329,12 +363,12 @@ sequenceDiagram
 ### Backend interface
 
 `Backend` and the earlier `Sandbox` split are merged into one interface. It
-manages sandboxes; the runner speaks the driver protocol over the client `Dial`
-returns.
+manages sandboxes; the runner speaks the driver protocol over the connection
+`Dial` returns.
 
 ```go
 // Backend runs task sandboxes on a concrete runtime. It manages the sandbox
-// itself and never speaks the driver protocol beyond Dial.
+// itself and never speaks the driver protocol.
 type Backend interface {
 	ValidateWorkspace(ws *workspace.Workspace) error
 
@@ -350,8 +384,12 @@ type Backend interface {
 	// transitional state (SUSPENDING, pausing) returns (reuse, error).
 	Start(ctx context.Context, spec *Spec, reuse *Handle) (*Handle, error)
 
-	// Dial returns an authenticated client for the sandbox's driver server.
-	Dial(ctx context.Context, h Handle) (driverv1connect.DriverServiceClient, error)
+	// Dial returns a connection to the sandbox's driver server: a base URL and
+	// an HTTP client carrying any platform credentials (Lambda's port-scoped
+	// proxy token). The runner builds the DriverService client on it and adds
+	// its own JWT. Dial does not wait for the driver; readiness is the runner's
+	// Health polling.
+	Dial(ctx context.Context, h Handle) (Conn, error)
 
 	// Status reports the platform's view of the sandbox: Up, Parked or Gone.
 	// Transitional states (SUSPENDING, pausing) report Parked.
@@ -387,8 +425,17 @@ if err != nil {
 }
 ```
 
-`Spec` shrinks to what the platform needs to create the sandbox: `TaskID` and
-`Workspace`. `Cmd`, `Env` and `Files` move into `RunSpec`. `Launch`, `Probe`,
+```go
+// Conn is how the runner reaches a sandbox's driver server.
+type Conn struct {
+	BaseURL    string
+	HTTPClient connect.HTTPClient
+}
+```
+
+`Spec` shrinks to what the platform needs to create the sandbox: `TaskID`,
+`Workspace`, and `RunnerPublicKey`, which the backend installs in the sandbox
+only if its platform does not authenticate the path (see Authentication). `Cmd`, `Env` and `Files` move into `RunSpec`. `Launch`, `Probe`,
 `Signal`, `Wait` and `ExitCode` are removed.
 
 ### Runner
@@ -453,9 +500,9 @@ taskstate record is kept, and a later start or archive proceeds normally.
 
 | | Docker | Lambda MicroVMs |
 |---|---|---|
-| `Start`, fresh | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_DRIVER_TOKEN` in `Env`, labels as today; tar-copy the prebuilt binary; `ContainerStart`. Any failure after `ContainerCreate` returns the handle with the error. | `RunMicrovm` with no run-hook payload, then poll until `RUNNING`. Any failure after `RunMicrovm` returns the handle with the error. |
+| `Start`, fresh | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary; `ContainerStart`. Any failure after `ContainerCreate` returns the handle with the error. | `RunMicrovm` with no run-hook payload, then poll until `RUNNING`. Any failure after `RunMicrovm` returns the handle with the error. |
 | `Start`, reuse | `ContainerStart` | `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll; `SUSPENDING` → plain error; terminal → `ErrGone` |
-| `Dial` | container IP on its network, port 8080, bearer from `Handle.Data` | managed proxy endpoint, minted port-scoped token |
+| `Dial` | `http://<container IP>:8080` on its network, plain HTTP client | managed proxy endpoint, HTTP client that adds a minted port-scoped token |
 | `Status` | inspect: running → Up, exited → Parked, not found → Gone | `GetMicrovm` |
 | `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown | `SuspendMicrovm`, then poll until `SUSPENDED` |
 | `Destroy` | `ContainerRemove` (force) | `TerminateMicrovm` |
@@ -654,7 +701,8 @@ driver outbox → runner outbox → server.
    nothing. Verifiable by: unit tests in a temp dir.
 6. **Driver server** — Delivers: `gritz driver --serve` implementing
    `DriverService` over `agent.Driver` with the outbox sink, per-run log and
-   secret mask, bearer auth, `--aws-lambda-hooks`. `gritz driver` (one-shot)
+   secret mask, optional JWT verification against the runner public key,
+   `--aws-lambda-hooks`. `gritz driver` (one-shot)
    stays. Depends on: (2), (3), (4), (5). Verifiable by: in-memory Connect client
    tests with a dummy agent: start, attach, replay after a dropped stream, `Ack`
    trimming, stale/busy/not-found, `Stop`, restart reconciliation.
@@ -776,3 +824,7 @@ proxies. grpc-go requires HTTP/2 end to end.
     blocking never receives the handle, so a sandbox the platform created is not
     recorded. Should `Prune` find such sandboxes by the gritz labels or tags the
     backend sets on create and destroy those with no taskstate record?
+11. **Runner key rotation.** Sandboxes hold the public key they were created
+    with. Should a runner that rotates its key re-deliver the new one through
+    the backend's channel, or keep old keys around until those sandboxes are
+    destroyed?
