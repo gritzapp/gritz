@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 )
@@ -48,7 +49,7 @@ func (a *SloppyAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = a.cwd
-	cmd.Env = cmdEnv(a.env)
+	cmd.Env = slices.Concat(os.Environ(), a.env)
 	cmd.Stderr = os.Stderr
 
 	// Create a new process group so we can kill all child processes

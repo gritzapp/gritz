@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -229,7 +230,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// Start agent
 	a, err := NewAgent(Options{
 		Type:       cfg.Type,
-		Cwd:        os.Expand(cfg.Cwd, func(key string) string { return envLookup(cmdEnv(d.Env), key) }),
+		Cwd:        os.Expand(cfg.Cwd, func(key string) string { return envLookup(slices.Concat(os.Environ(), d.Env), key) }),
 		Env:        d.Env,
 		Verbose:    cfg.Verbose,
 		McpServers: cfg.McpServers,
@@ -293,7 +294,7 @@ func (d *Driver) setup(ctx context.Context, cfg *Config) error {
 		command := cfg.Commands[i]
 		d.Log.Info("Running setup command", "index", i, "command", command)
 		c := exec.CommandContext(ctx, "sh", "-c", command)
-		c.Env = cmdEnv(d.Env)
+		c.Env = slices.Concat(os.Environ(), d.Env)
 		// Tee the command's output into the log sink so an opaque setup failure
 		// ("setup command N failed") has the command's actual stdout/stderr
 		// sitting next to it in /gritz/log. os.Stdout/os.Stderr stay wired so
