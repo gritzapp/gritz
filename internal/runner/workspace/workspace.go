@@ -23,7 +23,7 @@ var defaultYAML = `workspaces:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${env:CLAUDE_CODE_OAUTH_TOKEN}
     container:
-      image: ghcr.io/gritzapp/gritz-workspace-debian:latest
+      image: ghcr.io/gritzapp/workspace-debian:latest
       working_dir: /root
     commands:
       - git clone https://github.com/github-samples/pets-workshop
