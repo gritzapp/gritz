@@ -127,8 +127,6 @@ func (a *DummyAgent) connectMCP(ctx context.Context, name string) (*mcp.ClientSe
 
 	cmd := exec.CommandContext(ctx, mcpConfig.Command, mcpConfig.Args...)
 	cmd.Dir = a.cwd
-	// Like a real agent CLI spawning its MCP servers, layer the server's own env
-	// over the agent's.
 	cmd.Env = slices.Concat(a.env, envx.FromMap(mcpConfig.Env))
 
 	client := mcp.NewClient(&mcp.Implementation{
