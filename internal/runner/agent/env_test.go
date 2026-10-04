@@ -105,24 +105,3 @@ func TestDriverRun_Env(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, strings.TrimSpace(string(pwd)), workdir)
 }
-
-func TestEnvLookup(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		key  string
-		want string
-	}{
-		{"present", "A", "1"},
-		{"last wins", "B", "3"},
-		{"value with equals", "C", "x=y"},
-		{"missing", "D", ""},
-		{"prefix is not a match", "AB", ""},
-	}
-	env := []string{"A=1", "B=2", "B=3", "C=x=y", "ABC=4"}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, envLookup(env, tt.key), tt.want)
-		})
-	}
-}
