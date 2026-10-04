@@ -63,7 +63,7 @@ gritz tasks get auto-archived.
 
 The GitHub Project board is the orchestrator's **durable index** — the one place a fresh
 session reads to reconstruct what's in flight, no matter which gritz tasks have since been
-auto-archived. It is `icholy`'s Project **#2 ("Kanban")**, a single-select **Status** field
+auto-archived. It is the `gritzapp` org's Project **#1 ("Kanban")**, a single-select **Status** field
 with five columns:
 
 ```
@@ -108,18 +108,18 @@ run `gh auth refresh -s read:project,project`):
 
 ```bash
 # Read the board (raise --limit past the default 30 or new cards get truncated)
-gh project item-list 2 --owner icholy --limit 100 --format json
+gh project item-list 1 --owner gritzapp --limit 100 --format json
 
 # Move a card to a column (get <itemId> from item-list; ids below can drift — rediscover
-# with `gh project field-list 2 --owner icholy` and a Status field-options query)
+# with `gh project field-list 1 --owner gritzapp` and a Status field-options query)
 gh project item-edit --id <itemId> \
-  --project-id PVT_kwHOAA5l7c4BdMmV \
-  --field-id  PVTSSF_lAHOAA5l7c4BdMmVzhXv0o0 \
+  --project-id PVT_kwDOER-xXM4Bltlv \
+  --field-id  PVTSSF_lADOER-xXM4BltlvzhkZUGc \
   --single-select-option-id <optionId>
 #   Backlog f75ad846 · Ready 61e4505c · In progress 47fc9ee4 · In review df73e18b · Done 98236657
 
 # Add an issue to the board
-gh project item-add 2 --owner icholy --url https://github.com/gritzapp/gritz/issues/<n>
+gh project item-add 1 --owner gritzapp --url https://github.com/gritzapp/gritz/issues/<n>
 
 # Link a sub-issue under a parent (node ids from `gh issue view <n> --json id`)
 gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \
