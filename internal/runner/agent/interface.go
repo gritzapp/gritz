@@ -45,6 +45,9 @@ type Agent interface {
 type Options struct {
 	Type string
 	Cwd  string
+	// Env is the complete environment of every process the agent starts. Nothing
+	// is inherited from the driver's own environment; see Driver.Env.
+	Env []string
 	// Log carries both the structured logger the agent writes to and the raw
 	// sink the Claude CLI's stderr is teed into. It defaults to
 	// DiscardDriverLog when unset.
@@ -117,6 +120,7 @@ func NewAgent(opts Options) (Agent, error) {
 		return &ClaudeAgent{
 			log:        log,
 			cwd:        cmp.Or(opts.Cwd, "."),
+			env:        opts.Env,
 			verbose:    opts.Verbose,
 			mcpServers: opts.McpServers,
 			options:    opts.Claude,
@@ -125,6 +129,7 @@ func NewAgent(opts Options) (Agent, error) {
 		return &Codegritz{
 			log:        log,
 			cwd:        cmp.Or(opts.Cwd, "."),
+			env:        opts.Env,
 			verbose:    opts.Verbose,
 			mcpServers: opts.McpServers,
 			options:    opts.Codex,
@@ -133,6 +138,7 @@ func NewAgent(opts Options) (Agent, error) {
 		return &CopilotAgent{
 			log:        log,
 			cwd:        cmp.Or(opts.Cwd, "."),
+			env:        opts.Env,
 			mcpServers: opts.McpServers,
 			options:    opts.Copilot,
 		}, nil
@@ -140,6 +146,7 @@ func NewAgent(opts Options) (Agent, error) {
 		return &CursorAgent{
 			log:        log,
 			cwd:        cmp.Or(opts.Cwd, "."),
+			env:        opts.Env,
 			verbose:    opts.Verbose,
 			mcpServers: opts.McpServers,
 			options:    opts.Cursor,
@@ -148,6 +155,7 @@ func NewAgent(opts Options) (Agent, error) {
 		return &SloppyAgent{
 			log:        log,
 			cwd:        cmp.Or(opts.Cwd, "."),
+			env:        opts.Env,
 			mcpServers: opts.McpServers,
 			options:    opts.Sloppy,
 		}, nil
@@ -155,6 +163,7 @@ func NewAgent(opts Options) (Agent, error) {
 		return &DummyAgent{
 			log:        log,
 			cwd:        cmp.Or(opts.Cwd, "."),
+			env:        opts.Env,
 			mcpServers: opts.McpServers,
 			options:    opts.Dummy,
 		}, nil

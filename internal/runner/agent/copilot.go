@@ -14,6 +14,7 @@ import (
 type CopilotAgent struct {
 	log        *DriverLog
 	cwd        string
+	env        []string
 	mcpServers map[string]McpServer
 	options    *CopilotOptions
 }
@@ -61,6 +62,7 @@ func (a *CopilotAgent) Prompt(ctx context.Context, prompt string, resume bool) e
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = a.cwd
+	cmd.Env = cmdEnv(a.env)
 	cmd.Stderr = os.Stderr
 
 	// Create a new process group so we can kill all child processes

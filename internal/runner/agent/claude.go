@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -16,6 +15,7 @@ import (
 type ClaudeAgent struct {
 	log        *DriverLog
 	cwd        string
+	env        []string
 	verbose    bool
 	mcpServers map[string]McpServer
 	options    *ClaudeOptions
@@ -69,7 +69,7 @@ func (a *ClaudeAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 	cmd.Stderr = a.log.Stderr()
 
 	// Prevent claude code from auto-updating & allow skipping permissions as root user
-	cmd.Env = append(os.Environ(), "IS_SANDBOX=1", "DISABLE_AUTOUPDATER=1")
+	cmd.Env = cmdEnv(a.env, "IS_SANDBOX=1", "DISABLE_AUTOUPDATER=1")
 
 	// Create a new process group so we can kill all child processes.
 	// When npx spawns node, we need to kill the entire process tree.

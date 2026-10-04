@@ -18,6 +18,7 @@ import (
 type CursorAgent struct {
 	log        *DriverLog
 	cwd        string
+	env        []string
 	verbose    bool
 	mcpServers map[string]McpServer
 	options    *CursorOptions
@@ -60,7 +61,7 @@ func (a *CursorAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = a.cwd
-	cmd.Env = os.Environ()
+	cmd.Env = cmdEnv(a.env)
 	cmd.Stderr = os.Stderr
 
 	// Create a new process group so we can kill all child processes
