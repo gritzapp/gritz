@@ -37,7 +37,6 @@ type Driver struct {
 
 	// Env is the run's environment: the complete environment of the agent CLI
 	// and the setup commands, and what $VARs in the config's cwd expand against.
-	// Callers set it; `gritz driver` sets it to os.Environ().
 	Env []string
 }
 
