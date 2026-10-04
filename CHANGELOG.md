@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.9.1](https://github.com/icholy/gritz/compare/v3.9.0...v3.9.1) (2026-10-04)
+
+
+### Miscellaneous
+
+* **deps:** update dependency pnpm to v11.28.0 ([f7b4ffb](https://github.com/icholy/gritz/commit/f7b4ffb066cce5819cfd3987941bfc633f92947f))
+* disable build cache for mise workspace image ([745154d](https://github.com/icholy/gritz/commit/745154d2889e17ff913a1b0e198b940b962e2491))
+
 ## [3.9.0](https://github.com/icholy/gritz/compare/v3.8.0...v3.9.0) (2026-10-03)
 
 
