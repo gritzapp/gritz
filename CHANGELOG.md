@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.9.3](https://github.com/gritzapp/gritz/compare/v3.9.2...v3.9.3) (2026-10-04)
+
+
+### Bug Fixes
+
+* **webui:** align timeline rail markers with card icons ([f822644](https://github.com/gritzapp/gritz/commit/f822644894dd23c3c6cd34863bc4190f3d61e6ca)), closes [#1649](https://github.com/gritzapp/gritz/issues/1649)
+
+
+### Miscellaneous
+
+* move deployment config and secrets to gritzapp/infra ([fceaa44](https://github.com/gritzapp/gritz/commit/fceaa44bad82078a54b9fbac68704103e4c150fd))
+* move repo references to gritzapp/gritz ([f1b702a](https://github.com/gritzapp/gritz/commit/f1b702a8f4d67d3c17f4f998aef79d87a84a0990))
+* **secrets:** drop stale fly-era values from sops.env.yml ([ae5ba27](https://github.com/gritzapp/gritz/commit/ae5ba2763328fcbf84bdd68e80cc8245fa8d4d3c))
+* **webui:** regenerate route tree ([a9aa5a5](https://github.com/gritzapp/gritz/commit/a9aa5a53defbceb6058c98a2d6520f88969d6680)), closes [#1655](https://github.com/gritzapp/gritz/issues/1655)
+
 ## [3.9.2](https://github.com/icholy/gritz/compare/v3.9.1...v3.9.2) (2026-10-04)
 
 
