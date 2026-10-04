@@ -9,94 +9,39 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as EventsIndexRouteImport } from './routes/events.index'
-import { Route as EventsIdRouteImport } from './routes/events.$id'
-import { Route as GithubSetupRouteImport } from './routes/github.setup'
-import { Route as KeysIndexRouteImport } from './routes/keys.index'
-import { Route as KeysNewRouteImport } from './routes/keys.new'
-import { Route as MembersIndexRouteImport } from './routes/members.index'
-import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
-import { Route as RoutingIndexRouteImport } from './routes/routing.$index'
-import { Route as RoutingNewRouteImport } from './routes/routing.new'
-import { Route as RoutingTesteventRouteImport } from './routes/routing.testevent'
-import { Route as SchedulesIndexRouteImport } from './routes/schedules.index'
-import { Route as SchedulesNewRouteImport } from './routes/schedules.new'
-import { Route as TasksIndexRouteImport } from './routes/tasks.index'
-import { Route as TasksIdRouteImport } from './routes/tasks.$id'
-import { Route as TasksNewRouteImport } from './routes/tasks.new'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspacesIndexRouteImport } from './routes/workspaces.index'
+import { Route as TasksIndexRouteImport } from './routes/tasks.index'
+import { Route as SchedulesIndexRouteImport } from './routes/schedules.index'
+import { Route as MembersIndexRouteImport } from './routes/members.index'
+import { Route as KeysIndexRouteImport } from './routes/keys.index'
+import { Route as EventsIndexRouteImport } from './routes/events.index'
+import { Route as TasksNewRouteImport } from './routes/tasks.new'
+import { Route as TasksIdRouteImport } from './routes/tasks.$id'
+import { Route as SchedulesNewRouteImport } from './routes/schedules.new'
+import { Route as RoutingTesteventRouteImport } from './routes/routing.testevent'
+import { Route as RoutingNewRouteImport } from './routes/routing.new'
+import { Route as RoutingIndexRouteImport } from './routes/routing.$index'
+import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
+import { Route as KeysNewRouteImport } from './routes/keys.new'
+import { Route as GithubSetupRouteImport } from './routes/github.setup'
+import { Route as EventsIdRouteImport } from './routes/events.$id'
 import { Route as SchedulesIdEditRouteImport } from './routes/schedules.$id.edit'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EventsIndexRoute = EventsIndexRouteImport.update({
-  id: '/events/',
-  path: '/events/',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const EventsIdRoute = EventsIdRouteImport.update({
-  id: '/events/$id',
-  path: '/events/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GithubSetupRoute = GithubSetupRouteImport.update({
-  id: '/github/setup',
-  path: '/github/setup',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KeysIndexRoute = KeysIndexRouteImport.update({
-  id: '/keys/',
-  path: '/keys/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KeysNewRoute = KeysNewRouteImport.update({
-  id: '/keys/new',
-  path: '/keys/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MembersIndexRoute = MembersIndexRouteImport.update({
-  id: '/members/',
-  path: '/members/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
-  id: '/oauth/authorize',
-  path: '/oauth/authorize',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RoutingIndexRoute = RoutingIndexRouteImport.update({
-  id: '/routing/$index',
-  path: '/routing/$index',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RoutingNewRoute = RoutingNewRouteImport.update({
-  id: '/routing/new',
-  path: '/routing/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RoutingTesteventRoute = RoutingTesteventRouteImport.update({
-  id: '/routing/testevent',
-  path: '/routing/testevent',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SchedulesIndexRoute = SchedulesIndexRouteImport.update({
-  id: '/schedules/',
-  path: '/schedules/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SchedulesNewRoute = SchedulesNewRouteImport.update({
-  id: '/schedules/new',
-  path: '/schedules/new',
+const WorkspacesIndexRoute = WorkspacesIndexRouteImport.update({
+  id: '/workspaces/',
+  path: '/workspaces/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TasksIndexRoute = TasksIndexRouteImport.update({
@@ -104,9 +49,24 @@ const TasksIndexRoute = TasksIndexRouteImport.update({
   path: '/tasks/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TasksIdRoute = TasksIdRouteImport.update({
-  id: '/tasks/$id',
-  path: '/tasks/$id',
+const SchedulesIndexRoute = SchedulesIndexRouteImport.update({
+  id: '/schedules/',
+  path: '/schedules/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MembersIndexRoute = MembersIndexRouteImport.update({
+  id: '/members/',
+  path: '/members/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KeysIndexRoute = KeysIndexRouteImport.update({
+  id: '/keys/',
+  path: '/keys/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventsIndexRoute = EventsIndexRouteImport.update({
+  id: '/events/',
+  path: '/events/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TasksNewRoute = TasksNewRouteImport.update({
@@ -114,9 +74,49 @@ const TasksNewRoute = TasksNewRouteImport.update({
   path: '/tasks/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WorkspacesIndexRoute = WorkspacesIndexRouteImport.update({
-  id: '/workspaces/',
-  path: '/workspaces/',
+const TasksIdRoute = TasksIdRouteImport.update({
+  id: '/tasks/$id',
+  path: '/tasks/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchedulesNewRoute = SchedulesNewRouteImport.update({
+  id: '/schedules/new',
+  path: '/schedules/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RoutingTesteventRoute = RoutingTesteventRouteImport.update({
+  id: '/routing/testevent',
+  path: '/routing/testevent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RoutingNewRoute = RoutingNewRouteImport.update({
+  id: '/routing/new',
+  path: '/routing/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RoutingIndexRoute = RoutingIndexRouteImport.update({
+  id: '/routing/$index',
+  path: '/routing/$index',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
+  id: '/oauth/authorize',
+  path: '/oauth/authorize',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KeysNewRoute = KeysNewRouteImport.update({
+  id: '/keys/new',
+  path: '/keys/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GithubSetupRoute = GithubSetupRouteImport.update({
+  id: '/github/setup',
+  path: '/github/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventsIdRoute = EventsIdRouteImport.update({
+  id: '/events/$id',
+  path: '/events/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SchedulesIdEditRoute = SchedulesIdEditRouteImport.update({
@@ -279,13 +279,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -293,88 +286,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/events/': {
-      id: '/events/'
-      path: '/events'
-      fullPath: '/events/'
-      preLoaderRoute: typeof EventsIndexRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/events/$id': {
-      id: '/events/$id'
-      path: '/events/$id'
-      fullPath: '/events/$id'
-      preLoaderRoute: typeof EventsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/github/setup': {
-      id: '/github/setup'
-      path: '/github/setup'
-      fullPath: '/github/setup'
-      preLoaderRoute: typeof GithubSetupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/keys/': {
-      id: '/keys/'
-      path: '/keys'
-      fullPath: '/keys/'
-      preLoaderRoute: typeof KeysIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/keys/new': {
-      id: '/keys/new'
-      path: '/keys/new'
-      fullPath: '/keys/new'
-      preLoaderRoute: typeof KeysNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/members/': {
-      id: '/members/'
-      path: '/members'
-      fullPath: '/members/'
-      preLoaderRoute: typeof MembersIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/oauth/authorize': {
-      id: '/oauth/authorize'
-      path: '/oauth/authorize'
-      fullPath: '/oauth/authorize'
-      preLoaderRoute: typeof OauthAuthorizeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/routing/$index': {
-      id: '/routing/$index'
-      path: '/routing/$index'
-      fullPath: '/routing/$index'
-      preLoaderRoute: typeof RoutingIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/routing/new': {
-      id: '/routing/new'
-      path: '/routing/new'
-      fullPath: '/routing/new'
-      preLoaderRoute: typeof RoutingNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/routing/testevent': {
-      id: '/routing/testevent'
-      path: '/routing/testevent'
-      fullPath: '/routing/testevent'
-      preLoaderRoute: typeof RoutingTesteventRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/schedules/': {
-      id: '/schedules/'
-      path: '/schedules'
-      fullPath: '/schedules/'
-      preLoaderRoute: typeof SchedulesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/schedules/new': {
-      id: '/schedules/new'
-      path: '/schedules/new'
-      fullPath: '/schedules/new'
-      preLoaderRoute: typeof SchedulesNewRouteImport
+    '/workspaces/': {
+      id: '/workspaces/'
+      path: '/workspaces'
+      fullPath: '/workspaces/'
+      preLoaderRoute: typeof WorkspacesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tasks/': {
@@ -384,11 +307,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tasks/$id': {
-      id: '/tasks/$id'
-      path: '/tasks/$id'
-      fullPath: '/tasks/$id'
-      preLoaderRoute: typeof TasksIdRouteImport
+    '/schedules/': {
+      id: '/schedules/'
+      path: '/schedules'
+      fullPath: '/schedules/'
+      preLoaderRoute: typeof SchedulesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/members/': {
+      id: '/members/'
+      path: '/members'
+      fullPath: '/members/'
+      preLoaderRoute: typeof MembersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/keys/': {
+      id: '/keys/'
+      path: '/keys'
+      fullPath: '/keys/'
+      preLoaderRoute: typeof KeysIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/events/': {
+      id: '/events/'
+      path: '/events'
+      fullPath: '/events/'
+      preLoaderRoute: typeof EventsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tasks/new': {
@@ -398,11 +342,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksNewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/workspaces/': {
-      id: '/workspaces/'
-      path: '/workspaces'
-      fullPath: '/workspaces/'
-      preLoaderRoute: typeof WorkspacesIndexRouteImport
+    '/tasks/$id': {
+      id: '/tasks/$id'
+      path: '/tasks/$id'
+      fullPath: '/tasks/$id'
+      preLoaderRoute: typeof TasksIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schedules/new': {
+      id: '/schedules/new'
+      path: '/schedules/new'
+      fullPath: '/schedules/new'
+      preLoaderRoute: typeof SchedulesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/routing/testevent': {
+      id: '/routing/testevent'
+      path: '/routing/testevent'
+      fullPath: '/routing/testevent'
+      preLoaderRoute: typeof RoutingTesteventRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/routing/new': {
+      id: '/routing/new'
+      path: '/routing/new'
+      fullPath: '/routing/new'
+      preLoaderRoute: typeof RoutingNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/routing/$index': {
+      id: '/routing/$index'
+      path: '/routing/$index'
+      fullPath: '/routing/$index'
+      preLoaderRoute: typeof RoutingIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/authorize': {
+      id: '/oauth/authorize'
+      path: '/oauth/authorize'
+      fullPath: '/oauth/authorize'
+      preLoaderRoute: typeof OauthAuthorizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/keys/new': {
+      id: '/keys/new'
+      path: '/keys/new'
+      fullPath: '/keys/new'
+      preLoaderRoute: typeof KeysNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/github/setup': {
+      id: '/github/setup'
+      path: '/github/setup'
+      fullPath: '/github/setup'
+      preLoaderRoute: typeof GithubSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/events/$id': {
+      id: '/events/$id'
+      path: '/events/$id'
+      fullPath: '/events/$id'
+      preLoaderRoute: typeof EventsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/schedules/$id/edit': {
