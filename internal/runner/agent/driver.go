@@ -15,6 +15,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent/agentprompt"
 	"github.com/gritzapp/gritz/internal/shell"
+	"github.com/gritzapp/gritz/internal/x/envx"
 )
 
 type Driver struct {
@@ -227,7 +228,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// Start agent
 	a, err := NewAgent(Options{
 		Type:       cfg.Type,
-		Cwd:        os.Expand(cfg.Cwd, func(key string) string { return envLookup(d.Env, key) }),
+		Cwd:        envx.Expand(cfg.Cwd, d.Env),
 		Env:        d.Env,
 		Verbose:    cfg.Verbose,
 		McpServers: cfg.McpServers,
