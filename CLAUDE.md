@@ -105,7 +105,7 @@ Allowed types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`, `perf`,
 
 Validation runs in CI on every PR via `siderolabs/conform`. To validate locally on each commit, install the opt-in hook once: `mise run install:hooks`.
 
-Releases are driven by [release-please](https://github.com/googleapis/release-please) — `.github/workflows/release-please.yml` continuously opens a "Release PR" against master based on the conventional commits since the last release. Merging that PR creates the version tag, which triggers `release.yml` to build binaries and publish images to GHCR. Deploys are manual: `mise run deploy VERSION=<tag>` pushes a released image to the dokku host (see `deploy/README.md`).
+Releases are driven by [release-please](https://github.com/googleapis/release-please) — `.github/workflows/release-please.yml` continuously opens a "Release PR" against master based on the conventional commits since the last release. Merging that PR creates the version tag, which triggers `release.yml` to build binaries and publish images to GHCR. Once a release's images are published, `release.yml` sends a `release` dispatch to the private `gritzapp/infra` repo, which deploys it to the dokku host. Deployment config and production secrets live there, not here.
 
 - `feat`, `fix`, `perf`, `revert` → visible in the generated CHANGELOG.md
 - All other types → hidden from the changelog

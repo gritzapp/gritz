@@ -1,17 +1,10 @@
 [settings]
 pin=true
 
-[env]
-# The dokku host. Override to target a different droplet.
-GRITZ_HOST = "gritz.dev"
-
 [tools]
 node = "25.9.0"
 go = "1.26.5"
-sops = "3.13.3"
-age = "1.3.2"
 "npm:pnpm" = "11.11.0"
-doctl = "1.167.0"
 dbmate = "2.33.0"
 "aqua:siderolabs/conform" = "0.1.0-alpha.31"
 "aqua:golangci/golangci-lint" = "2.12.2"
@@ -93,57 +86,9 @@ description = "Run golangci-lint"
 depends = ["build:webui"]
 run = "golangci-lint run"
 
-[tasks."droplet:create"]
-description = "Create the DigitalOcean droplet running dokku (see deploy/README.md)"
-env = { DROPLET_NAME = "gritz", DROPLET_REGION = "tor1", DROPLET_SIZE = "s-2vcpu-4gb", DROPLET_IMAGE = "ubuntu-24-04-x64" }
-run = """
-: "${DROPLET_SSH_KEYS:?set to a comma-separated list of fingerprints from: doctl compute ssh-key list}"
-doctl compute droplet create "$DROPLET_NAME" \
-	--region "$DROPLET_REGION" \
-	--size "$DROPLET_SIZE" \
-	--image "$DROPLET_IMAGE" \
-	--ssh-keys "$DROPLET_SSH_KEYS" \
-	--user-data-file deploy/cloud-init.yaml \
-	--enable-monitoring \
-	--wait
-"""
-
-[tasks.deploy]
-description = "Deploy a released image to the dokku host"
-run = '''
-: "${VERSION:?set VERSION to a released tag, e.g. VERSION=3.0.0}"
-ssh "root@$GRITZ_HOST" dokku git:from-image gritz "ghcr.io/gritzapp/gritz-server:$VERSION"
-'''
-
-# The default sops dotenv output format doesn't handle newlines correctly
-# See: https://github.com/getsops/sops/issues/1435
-[tasks.env]
-description = "Decrypt secrets.yml to .env"
-run = "sops --output-type json -d sops.env.yml | jq -r 'to_entries[] | \"\\(.key)=\\(.value | tostring | tojson)\"' > .env"
-
-# --encoded is what lets the multi-line GRITZ_GITHUB_APP_PRIVATE_KEY survive as
-# a single argument.
-[tasks.update_secrets]
-description = "Push secrets from sops to the dokku host"
-run = '''
-sops --output-type json -d sops.env.yml \
-  | jq -r 'to_entries[] | "\(.key)=\(.value | tostring | @base64)"' \
-  | xargs ssh "root@$GRITZ_HOST" dokku config:set --encoded gritz
-'''
-
 [tasks.psql]
 description = "Connect to the local database"
 run = "psql postgres://gritz:gritz@localhost:5433/gritz?sslmode=disable"
-
-[tasks.logs]
-description = "Tail production logs"
-run = 'ssh "root@$GRITZ_HOST" dokku logs gritz -t'
-
-# Bare `mise run ssh` opens a shell; extra args are appended, so
-# `mise run ssh -- dokku ps:report gritz` runs that remotely instead.
-[tasks.ssh]
-description = "SSH into the dokku host"
-run = 'ssh "root@$GRITZ_HOST"'
 
 [tasks.diagrams]
 description = "Render d2 diagrams to images/"
