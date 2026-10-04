@@ -697,55 +697,117 @@ driver response log → runner outbox → server.
 
 ## Implementation Plan
 
-1. **Lambda transitional-state fix** — Delivers: `tryResume` returns a plain error
-   for `SUSPENDING` (keeping `ErrGone` for `TERMINATING`/`TERMINATED`), and `Wait`
-   polls until `SUSPENDED` after `SuspendMicrovm`. Depends on: nothing.
-   Verifiable by: `lambdamicrovm` unit tests against the fake `Cloud`.
-2. **`driver.v1` proto** — Delivers: `proto/driver/v1/driver.proto` and generated
-   code. Depends on: nothing. Verifiable by: `mise run generate` produces a
-   compiling package.
-3. **Per-run environment** — Delivers: `agent.Driver.Env`, threaded to every agent
+The design lands in phases. Every step merges on its own and leaves a working
+system; the new path stays opt-in until it has replaced the old one.
+
+### Phase A: the driver server behind an experimental Docker backend
+
+The first pass changes the driver's process model and nothing else. The driver
+server still talks to the gritz server directly, exactly as the one-shot driver
+does, so today's `backend.Backend` interface (`Launch`, `Wait`, `Probe`,
+`Signal`, `Destroy`) keeps its meaning: `Wait` still answers "did the driver
+report?". Only Docker, no Lambda, no idle parking, no runner key.
+
+1. **Per-run environment** — Delivers: `agent.Driver.Env`, threaded to every agent
    CLI, setup commands and `Cwd` expansion; `gritz driver` sets it to
    `os.Environ()`, so behavior is unchanged. Depends on: nothing. Verifiable by:
    agent unit tests asserting the child env.
-4. **Driver inputs and outputs behind interfaces** — Delivers: `agent.Driver`
-   takes the task, events and links as inputs and reports runner events and log
-   chunks through a sink interface. `gritz driver` (one-shot) implements both with
-   `gritzclient`, so behavior is unchanged. Depends on: nothing. Verifiable by:
-   existing driver tests with a fake sink.
-5. **Response log and run record** — Delivers: an append-only, per-version
-   `RunResponse` log with read-after-seq and deletion of versions behind a
-   position; a package reading/writing `/gritz/run.json` with boot
-   reconciliation (`running` → `failed` + `Finished` in the log). Depends on:
-   nothing. Verifiable by: unit tests in a temp dir.
-6. **Driver server** — Delivers: `gritz driver --serve` implementing
-   `DriverService` over `agent.Driver` with the response-log sink, per-run log and
-   secret mask, optional JWT verification against the runner public key,
-   `--aws-lambda-hooks`. `gritz driver` (one-shot)
-   stays. Depends on: (2), (3), (4), (5). Verifiable by: in-memory Connect client
-   tests with a dummy agent: start, attach, replay after a dropped stream from
-   `after_seq`, log deletion, a second concurrent `Run`, stale/busy/not-found, `Stop`, restart reconciliation.
-7. **Backend interface and runner** — Delivers: the merged `Backend` interface,
-   the runner's driver protocol (`Start`, `supervise`, `Load`, `Kill`),
-   `taskstate.Record.Seq`, the
-   per-task lock, idle-park timers, `Workspace.IdleTimeout`. Depends on: (2),
-   (6). Verifiable by: runner tests against a fake `Backend` and an in-memory
-   driver server, including a runner restart mid-run and a park racing a start.
-8. **Docker on the new interface** — Delivers: Docker `Start`/`Dial`/
-   `Status`/`Park`/`Destroy` with the `driver --serve` entrypoint. Depends on:
-   (7). Verifiable by: the existing Docker e2e tests passing, plus idle-timeout,
-   reuse and runner-restart e2e cases.
-9. **Lambda on the new interface** — Delivers: the Lambda implementation, new
-   image entrypoint, README update. Depends on: (7). Verifiable by: an image built
-   per the README running a task end to end, including suspend/resume.
-10. **Remove the shim, staging and one-shot driver** — Delivers: deletion of
-    `internal/runner/microvmshim`, `gritz tool microvm-shim`, the `Stager`,
-    `awsmvm.S3Stager`, `LambdaMicroVM.StagingBucket`, and the flag-driven
-    `gritz driver`. Depends on: (8), (9), and the migration question below.
-    Verifiable by: build and tests.
+2. **`driver.v1` proto, first cut** — Delivers: `proto/driver/v1/driver.proto`
+   with `Status`, `Run` and `Stop`. `RunSpec` carries what the driver reads from
+   flags and its environment today (`task_id`, `server_url`, `token`, `env`,
+   `secrets`); `RunResponse` carries `accepted`, `keep_alive` and `finished`,
+   whose `Finished` gains a `reported` bool for this phase. Depends on: nothing.
+   Verifiable by: `mise run generate` produces a compiling package.
+3. **Run record** — Delivers: a package reading/writing `/gritz/run.json`
+   atomically, with boot reconciliation (`running` → `finished, reported:
+   false`). Depends on: nothing. Verifiable by: unit tests in a temp dir.
+4. **Driver server, reporting directly** — Delivers: `gritz driver --serve`. Each
+   `Run` builds its own gritz client, log shipper and secret mask from the
+   `RunSpec`; `Run` is attach-or-start keyed on version; one `Run` stream at a
+   time; a dropped stream leaves the run going; `Stop` cancels the run with
+   `ErrStop`; SIGTERM stops an active run and shuts down. The driver reports
+   `started`, `stopped` and `failed` to the server itself, and `Finished` says
+   whether that report was acknowledged. `gritz driver` (one-shot) stays.
+   Depends on: (1), (2), (3). Verifiable by: in-memory Connect client tests with
+   a dummy agent and a fake gritz server: start, attach, idempotent re-`Run`,
+   reconnect after a dropped stream, a second concurrent `Run`,
+   stale/busy/not-found, `Stop`, restart reconciliation.
+5. **`ExperimentalDocker` backend** — Delivers: a second Docker implementation of
+   today's `backend.Backend`, with its own handle `Type`
+   (`experimental-docker`), and `backend.Spec.Version`, set by `Runner.spec()`
+   from `task.Version` (the only change to `runner.go`). Depends on: (4).
+   Verifiable by: the existing Docker e2e suite run against it.
 
-Steps 7–9 land together or behind a flag: the old and new `Backend` interfaces
-cannot coexist in `runner.go`.
+   | Method | Behavior |
+   |---|---|
+   | `Launch` | Create the container with `Cmd: [BinaryPath, "driver", "--serve"]`, copy the binary and `spec.Files` as today, `ContainerStart` (fresh or reuse), dial the container's IP on :8080, poll `Status` until it answers, then `Run(version, spec)` until `Accepted`. |
+   | `Wait` | `Run(version)` with no spec, read until `Finished`. On a dropped stream: container gone or exited → `ExitLost`; running → reconnect. On `Finished`, `docker stop` the container, so between runs it is stopped exactly as today, then return 0 if `reported`, else `ExitLost`. |
+   | `Probe` | Container gone → `StateGone`; not running → `StateExited`; running → `Status`: this version running → `StateRunning`, otherwise `StateExited`. |
+   | `Signal` | `Stop(version)`; `signalled = stopped`. |
+   | `Destroy` | `ContainerRemove` (force). |
+
+6. **Opt-in** — Delivers: a runner flag that selects `ExperimentalDocker` instead
+   of `Docker`. A handle of any other `Type` is rejected with `ErrGone`, so the
+   flag is meant for a runner with no active Docker tasks. Depends on: (5).
+   Verifiable by: running a runner with the flag against a dev server.
+
+Phase A leaves open: the runner must reach the container's IP (open question 3);
+sibling containers on a shared bridge can reach `:8080` until phase C adds the
+runner key; and a container created before an upgrade keeps its old driver
+binary, so `driver.v1` changes in later phases must stay wire-compatible, or
+experimental containers be recreated.
+
+### Phase B: the runner forwards everything
+
+7. **Driver inputs and outputs behind interfaces** — Delivers: `agent.Driver`
+   takes the task, events and links as inputs and reports runner events and log
+   chunks through a sink. The one-shot driver and the phase A server implement
+   both with `gritzclient`, so behavior is unchanged. Depends on: (4).
+8. **Response log** — Delivers: the per-version `RunResponse` log with
+   read-after-seq and deletion behind a position; `RunRequest.after_seq`,
+   `StatusResponse.last_seq`, and the `runner_event` and `log_chunk` cases.
+   Depends on: (2).
+9. **Merged `Backend` interface and runner path** — Delivers: the interface from
+   the design (`Start`, `Dial`, `Status`, `Park`, `Destroy`), a second path in
+   `runner.go` for backends that implement it (`Start`, `supervise` forwarding and
+   advancing `Seq`, `Load`, `Kill`, `Remove`), `taskstate.Record.Seq`, and
+   `ExperimentalDocker` moved onto it with the driver server reporting through the
+   response log. The old path is untouched. Depends on: (7), (8). Verifiable by:
+   runner tests against a fake backend and an in-memory driver server, including
+   a runner restart mid-run; the Docker e2e suite against `ExperimentalDocker`.
+
+### Phase C: auth and idle parking
+
+10. **Runner key** — Delivers: the runner's key pair, `Spec.RunnerPublicKey`,
+    `Dial(jwt)`, and JWT verification in the driver when it has a key.
+    `ExperimentalDocker` installs the key. Depends on: (9).
+11. **Idle parking** — Delivers: `Workspace.IdleTimeout` (default 0, today's
+    behavior), the runner's idle timers and `Park`. `ExperimentalDocker` parks
+    with `docker stop` instead of stopping after every run. Depends on: (9).
+
+### Phase D: Lambda
+
+12. **Lambda transitional-state fix** — Delivers: `tryResume` returns a plain
+    error for `SUSPENDING` (keeping `ErrGone` for `TERMINATING`/`TERMINATED`),
+    and `Wait` polls until `SUSPENDED` after `SuspendMicrovm`. Depends on:
+    nothing; can land at any time. Verifiable by: `lambdamicrovm` unit tests
+    against the fake `Cloud`.
+13. **Lambda on the new interface** — Delivers: the Lambda implementation, the
+    `gritz driver --serve --aws-lambda-hooks` image entrypoint, README update, as
+    an opt-in backend type. Depends on: (9), (11). Verifiable by: an image built
+    per the README running a task end to end, including suspend/resume.
+
+### Phase E: switch over and remove the old path
+
+14. **New backends by default** — Delivers: the new Docker and Lambda backends as
+    the defaults. Existing records are dispatched by `Handle.Type`, so old
+    sandboxes stay on the old path until their tasks are archived (open
+    question 4). Depends on: (10), (11), (13).
+15. **Remove the old path** — Delivers: deletion of `Launch`, `Wait`, `Probe`,
+    `Signal`, `ExitCode`, the old Docker and Lambda backends, the one-shot
+    `gritz driver`, `internal/runner/microvmshim`, `gritz tool microvm-shim`, the
+    `Stager`, `awsmvm.S3Stager` and `LambdaMicroVM.StagingBucket`. Depends on:
+    (14), once no old records remain. Verifiable by: build and tests.
 
 ## Trade-offs
 

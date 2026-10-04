@@ -30,6 +30,7 @@ diagrams/src/
     docker.tsx              Docker backend: client, server, postgres, runner host, container
     microvm.tsx             Lambda MicroVM backend: runner host, AWS, S3, shim
     microvm-driver-server.tsx   proposals/draft/driver-server.md variant
+    experimental-docker.tsx     driver-server.md phase A: ExperimentalDocker
   scenes/<flow>.tsx         One flow per scene
   projects/<flow>.ts        One project per scene (what the editor lists)
   projects/proposals/       Projects for designs that only exist in a proposal
