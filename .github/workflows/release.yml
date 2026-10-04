@@ -222,5 +222,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-contexts: gritz-workspace-debian=docker-image://ghcr.io/${{ github.repository }}-workspace-debian:${{ steps.meta.outputs.version }}
-          cache-from: type=gha,scope=workspace-mise
-          cache-to: type=gha,mode=max,scope=workspace-mise
+          # The mise install layer never changes textually, so a cached
+          # layer would pin mise at whatever version the first build fetched.
+          no-cache: true
