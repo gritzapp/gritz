@@ -19,6 +19,7 @@ import (
 type Codegritz struct {
 	log        *DriverLog
 	cwd        string
+	env        []string
 	verbose    bool
 	mcpServers map[string]McpServer
 	options    *CodexOptions
@@ -78,6 +79,7 @@ func (a *Codegritz) Close() error {
 func (a *Codegritz) run(ctx context.Context, bin string, args []string) error {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = a.cwd
+	cmd.Env = cmdEnv(a.env)
 	cmd.Stderr = os.Stderr
 
 	// Create a new process group so we can kill all child processes

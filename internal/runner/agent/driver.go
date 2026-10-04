@@ -34,6 +34,12 @@ type Driver struct {
 	// the values passed to gritzclient.New for Client above.
 	ServerURL string
 	Token     string
+
+	// Env is the run's environment: the complete environment of the agent CLI
+	// and the setup commands, and what $VARs in the config's cwd expand against.
+	// Nothing is inherited from the driver's own environment, so a nil Env is an
+	// empty one. `gritz driver` sets it to os.Environ().
+	Env []string
 }
 
 // Run executes the task and reports its outcome to the server. The driver
@@ -223,7 +229,8 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// Start agent
 	a, err := NewAgent(Options{
 		Type:       cfg.Type,
-		Cwd:        os.ExpandEnv(cfg.Cwd),
+		Cwd:        os.Expand(cfg.Cwd, func(key string) string { return envLookup(d.Env, key) }),
+		Env:        d.Env,
 		Verbose:    cfg.Verbose,
 		McpServers: cfg.McpServers,
 		Claude:     cfg.Claude,
@@ -286,6 +293,7 @@ func (d *Driver) setup(ctx context.Context, cfg *Config) error {
 		command := cfg.Commands[i]
 		d.Log.Info("Running setup command", "index", i, "command", command)
 		c := exec.CommandContext(ctx, "sh", "-c", command)
+		c.Env = cmdEnv(d.Env)
 		// Tee the command's output into the log sink so an opaque setup failure
 		// ("setup command N failed") has the command's actual stdout/stderr
 		// sitting next to it in /gritz/log. os.Stdout/os.Stderr stay wired so
