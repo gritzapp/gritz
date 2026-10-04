@@ -1,15 +1,13 @@
-import {Node, Txt, View2D} from '@motion-canvas/2d';
+import {View2D} from '@motion-canvas/2d';
 import {createRef} from '@motion-canvas/core';
-import {Caption, Link, Panel, Service, StateTable} from './components';
-import {Colors, Fonts} from './theme';
+import {Link, Panel, Service, StateTable} from '../components';
+import {Colors} from '../theme';
+import {Scaffold, linker, scaffold} from './common';
 
-// Architecture is the standard gritz layout shared by every flow: client,
-// server, postgres, and a runner host with one task container. Flows start
-// from it, set the initial state they need, and script the messages.
-export interface Architecture {
-  title: Txt;
-  caption: Caption;
-
+// DockerLayout is the gritz layout for the Docker backend: client, server,
+// postgres, and a runner host with one task container. Flows start from it,
+// set the initial state they need, and script the messages.
+export interface DockerLayout extends Scaffold {
   client: Service;
 
   server: Panel;
@@ -41,11 +39,8 @@ export interface Architecture {
   };
 }
 
-export function architecture(view: View2D, title: string): Architecture {
-  view.fill(Colors.background);
-
-  const t = createRef<Txt>();
-  const caption = createRef<Caption>();
+export function dockerLayout(view: View2D, title: string): DockerLayout {
+  const frame = scaffold(view, title);
   const client = createRef<Service>();
   const server = createRef<Panel>();
   const api = createRef<Service>();
@@ -64,18 +59,6 @@ export function architecture(view: View2D, title: string): Architecture {
 
   view.add(
     <>
-      <Txt
-        ref={t}
-        text={title}
-        x={-900}
-        y={-488}
-        offset={[-1, 0]}
-        fill={Colors.text}
-        fontFamily={Fonts.sans}
-        fontWeight={800}
-        fontSize={40}
-      />
-
       <Panel
         ref={postgres}
         title={'Postgres'}
@@ -206,24 +189,13 @@ export function architecture(view: View2D, title: string): Architecture {
           />
         </Panel>
       </Panel>
-
-      <Caption ref={caption} y={478} />
     </>,
   );
 
-  // Links go in their own layer on top of the panels so they are never
-  // hidden behind a panel fill.
-  const layer = createRef<Node>();
-  view.add(<Node ref={layer} />);
-  const link = (from: Service | Panel, to: Service | Panel, label: string) => {
-    const l = new Link({from, to, label});
-    layer().add(l);
-    return l;
-  };
+  const link = linker(view);
 
   return {
-    title: t(),
-    caption: caption(),
+    ...frame,
     client: client(),
     server: server(),
     api: api(),

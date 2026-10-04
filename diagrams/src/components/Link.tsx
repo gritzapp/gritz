@@ -25,6 +25,8 @@ export interface LinkProps extends Omit<LineProps, 'points'> {
   to: Layout;
   // Protocol or channel name drawn at the midpoint, e.g. "Connect RPC".
   label?: string;
+  // Where the label sits along the line, from 0 (from) to 1 (to).
+  labelAt?: number;
   // Gap between the box edge and the line end.
   gap?: number;
 }
@@ -48,7 +50,14 @@ export class Link extends Line {
   @colorSignal()
   public declare readonly activeColor: ColorSignal<this>;
 
-  public constructor({from, to, label, gap = 8, ...props}: LinkProps) {
+  public constructor({
+    from,
+    to,
+    label,
+    labelAt = 0.5,
+    gap = 8,
+    ...props
+  }: LinkProps) {
     super({
       lineWidth: 2,
       lineDash: [8, 8],
@@ -67,7 +76,7 @@ export class Link extends Line {
       this.add(
         <Txt
           text={label}
-          position={() => this.labelPosition()}
+          position={() => this.labelPosition(labelAt)}
           fill={Colors.dim}
           fontFamily={Fonts.mono}
           fontSize={14}
@@ -119,7 +128,7 @@ export class Link extends Line {
     yield* this.send(response, {back: !back, color, duration});
   }
 
-  private labelPosition() {
+  private labelPosition(at: number) {
     const [a, b] = this.parsedPoints();
     if (!a || !b) {
       return Vector2.zero;
@@ -127,7 +136,7 @@ export class Link extends Line {
     const normal = b.sub(a).normalized.perpendicular;
     // Keep the label above the line regardless of direction.
     const side = normal.y > 0 ? -1 : 1;
-    return a.add(b).scale(0.5).add(normal.scale(16 * side));
+    return a.add(b.sub(a).scale(at)).add(normal.scale(16 * side));
   }
 
   // boxOf returns the node's center and half extents in this line's space.

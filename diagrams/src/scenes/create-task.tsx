@@ -1,6 +1,6 @@
 import {makeScene2D} from '@motion-canvas/2d';
 import {all, waitFor} from '@motion-canvas/core';
-import {architecture} from '../architecture';
+import {dockerLayout} from '../layouts/docker';
 import {Colors} from '../theme';
 
 // Happy path from CreateTask to the task completing:
@@ -11,7 +11,7 @@ import {Colors} from '../theme';
 //   internal/runner/agent/driver.go       Run (started, stopped)
 //   internal/model/task.go                ApplyRunnerEvent
 export default makeScene2D(function* (view) {
-  const a = architecture(view, 'Create Task');
+  const a = dockerLayout(view, 'Create Task');
   const {links} = a;
 
   // No sandbox exists until the runner launches one.
