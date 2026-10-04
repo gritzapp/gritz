@@ -60,7 +60,7 @@ func (a *DummyAgent) doCommands(ctx context.Context) error {
 		a.log.Info("Running dummy command", "command", command)
 		c := exec.CommandContext(ctx, "sh", "-c", command)
 		c.Dir = a.cwd
-		c.Env = slices.Concat(os.Environ(), a.env)
+		c.Env = a.env
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
 		if err := c.Run(); err != nil {
@@ -127,8 +127,8 @@ func (a *DummyAgent) connectMCP(ctx context.Context, name string) (*mcp.ClientSe
 	cmd := exec.CommandContext(ctx, mcpConfig.Command, mcpConfig.Args...)
 	cmd.Dir = a.cwd
 	// Like a real agent CLI spawning its MCP servers, layer the server's own env
-	// over the agent's.
-	cmd.Env = slices.Concat(os.Environ(), a.env)
+	// over the agent's. Clip so the appends can't write into the shared slice.
+	cmd.Env = slices.Clip(a.env)
 	for k, v := range mcpConfig.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

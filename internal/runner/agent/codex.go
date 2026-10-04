@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -80,7 +79,7 @@ func (a *Codegritz) Close() error {
 func (a *Codegritz) run(ctx context.Context, bin string, args []string) error {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = a.cwd
-	cmd.Env = slices.Concat(os.Environ(), a.env)
+	cmd.Env = a.env
 	cmd.Stderr = os.Stderr
 
 	// Create a new process group so we can kill all child processes

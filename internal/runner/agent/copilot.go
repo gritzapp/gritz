@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
-	"slices"
 	"syscall"
 	"time"
 )
@@ -63,7 +62,7 @@ func (a *CopilotAgent) Prompt(ctx context.Context, prompt string, resume bool) e
 
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = a.cwd
-	cmd.Env = slices.Concat(os.Environ(), a.env)
+	cmd.Env = a.env
 	cmd.Stderr = os.Stderr
 
 	// Create a new process group so we can kill all child processes
