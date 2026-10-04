@@ -31,7 +31,7 @@ export function TaskTimeline({ items }: { items: TimelineItem[] }) {
   return (
     <ol className="relative space-y-3">
       {/* the rail */}
-      <div className="absolute left-[17px] top-2 bottom-2 w-px bg-border" aria-hidden />
+      <div className="absolute left-[24px] top-2 bottom-2 w-px bg-border" aria-hidden />
       {items.map((item) => (
         <TimelineRow key={item.id} item={item} />
       ))}
@@ -156,7 +156,7 @@ function LifecycleRow({ item }: { item: Extract<TimelineItem, { kind: 'lifecycle
     <li className="relative flex items-center gap-3">
       <div
         className={cn(
-          'relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-muted',
+          'relative z-10 ml-[7px] flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-muted',
           cfg.tone,
         )}
       >
