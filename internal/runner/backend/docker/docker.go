@@ -18,10 +18,10 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
-	"github.com/icholy/gritz/internal/runner/backend"
-	"github.com/icholy/gritz/internal/runner/prebuilt"
-	"github.com/icholy/gritz/internal/runner/workspace"
-	"github.com/icholy/gritz/internal/x/dockerx"
+	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/prebuilt"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/x/dockerx"
 )
 
 // HandleType is the backend.Handle.Type the Docker backend stamps on the

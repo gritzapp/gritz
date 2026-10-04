@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/icholy/gritz/internal/command"
-	"github.com/icholy/gritz/internal/version"
+	"github.com/gritzapp/gritz/internal/command"
+	"github.com/gritzapp/gritz/internal/version"
 	"github.com/urfave/cli/v3"
 )
 

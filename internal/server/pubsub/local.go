@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/icholy/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/model"
 )
 
 const subscriberBufSize = 64

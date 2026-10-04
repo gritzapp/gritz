@@ -6,7 +6,7 @@ import (
 	"embed"
 
 	"github.com/XSAM/otelsql"
-	"github.com/icholy/gritz/internal/store/sqlc"
+	"github.com/gritzapp/gritz/internal/store/sqlc"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )

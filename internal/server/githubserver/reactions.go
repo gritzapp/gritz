@@ -5,8 +5,8 @@ import (
 
 	"github.com/shurcooL/githubv4"
 
-	"github.com/icholy/gritz/internal/server/eventrouter"
-	"github.com/icholy/gritz/internal/x/githubx"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/x/githubx"
 )
 
 // react adds a reaction to the resource that triggered the outcome.

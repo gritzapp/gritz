@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/x/common"
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/x/common"
+	"github.com/gritzapp/gritz/internal/x/sse"
 )
 
 // DefaultSSEReconnectInterval is the wait between reconnect attempts when

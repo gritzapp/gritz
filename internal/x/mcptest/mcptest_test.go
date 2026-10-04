@@ -6,7 +6,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/v3/assert"
 
-	"github.com/icholy/gritz/internal/x/mcptest"
+	"github.com/gritzapp/gritz/internal/x/mcptest"
 )
 
 func TestCallToolResultText(t *testing.T) {

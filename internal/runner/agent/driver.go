@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/icholy/gritz/internal/gritzclient"
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/runner/agent/agentprompt"
-	"github.com/icholy/gritz/internal/shell"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/agent/agentprompt"
+	"github.com/gritzapp/gritz/internal/shell"
 )
 
 type Driver struct {

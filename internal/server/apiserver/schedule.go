@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/authscope"
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/server/scheduler"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/server/scheduler"
 )
 
 // Schedules are org-owned objects; permissions gate the API surface, not the

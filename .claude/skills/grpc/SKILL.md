@@ -103,7 +103,7 @@ connect.CodePermissionDenied // Authorization failure
 ### Creating a client
 
 ```go
-import "github.com/icholy/gritz/internal/gritzclient"
+import "github.com/gritzapp/gritz/internal/gritzclient"
 
 // HTTP client
 client := gritzclient.New("http://localhost:6464")
@@ -115,7 +115,7 @@ client := gritzclient.New("unix:///gritz/socket")
 ### Making RPC calls
 
 ```go
-import gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+import gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 
 // Unary call
 resp, err := client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: 123})

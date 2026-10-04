@@ -112,7 +112,7 @@ doctl compute droplet create "$DROPLET_NAME" \
 description = "Deploy a released image to the dokku host"
 run = '''
 : "${VERSION:?set VERSION to a released tag, e.g. VERSION=3.0.0}"
-ssh "root@$GRITZ_HOST" dokku git:from-image gritz "ghcr.io/icholy/gritz-server:$VERSION"
+ssh "root@$GRITZ_HOST" dokku git:from-image gritz "ghcr.io/gritzapp/gritz-server:$VERSION"
 '''
 
 # The default sops dotenv output format doesn't handle newlines correctly

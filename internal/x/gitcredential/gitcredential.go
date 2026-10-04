@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/icholy/gritz/internal/gritzclient"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
 // Run executes the git credential helper logic for the given action.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
 // renderHeader renders the task header block: the `# Task {id} · {name}` title

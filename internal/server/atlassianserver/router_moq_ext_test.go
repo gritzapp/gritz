@@ -1,7 +1,7 @@
 package atlassianserver
 
 import (
-	"github.com/icholy/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
 // RoutedInputs returns the input event of every Route call, in call order.

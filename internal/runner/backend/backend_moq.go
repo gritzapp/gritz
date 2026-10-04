@@ -5,7 +5,7 @@ package backend
 
 import (
 	"context"
-	"github.com/icholy/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"sync"
 )
 

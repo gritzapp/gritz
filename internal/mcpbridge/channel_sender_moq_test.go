@@ -5,7 +5,7 @@ package mcpbridge
 
 import (
 	"context"
-	"github.com/icholy/gritz/internal/x/mcpchannel"
+	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"sync"
 )
 

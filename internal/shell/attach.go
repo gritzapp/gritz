@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"github.com/coder/websocket"
-	"github.com/icholy/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/shell/shellwire"
 	"golang.org/x/term"
 )
 

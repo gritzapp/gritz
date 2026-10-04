@@ -10,9 +10,9 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 
-	"github.com/icholy/gritz/internal/gritzclient"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/runner/logship"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/logship"
 )
 
 func TestOpenLogSink_CreatesFile(t *testing.T) {

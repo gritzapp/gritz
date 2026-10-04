@@ -3,7 +3,7 @@ package shellwire_test
 import (
 	"testing"
 
-	"github.com/icholy/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/shell/shellwire"
 	"gotest.tools/v3/assert"
 )
 

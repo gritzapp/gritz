@@ -15,9 +15,9 @@ import (
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 
-	"github.com/icholy/gritz/internal/gritzclient"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/x/testx"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/testx"
 )
 
 func TestShipper_Flush(t *testing.T) {

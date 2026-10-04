@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/oauthflow"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/oauthflow"
 	"golang.org/x/oauth2"
 	"gotest.tools/v3/assert"
 )

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/icholy/gritz/internal/shell/shellrelay"
+	"github.com/gritzapp/gritz/internal/shell/shellrelay"
 	"gotest.tools/v3/assert"
 )
 

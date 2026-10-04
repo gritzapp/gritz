@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/icholy/gritz/internal/gritzclient"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/x/pagination"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 	"gotest.tools/v3/assert"
 )
 

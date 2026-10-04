@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/store/sqlc"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/store/sqlc"
 )
 
 func (s *Store) CreateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {

@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/icholy/gritz/internal/auth/agentauth"
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/server/shellserver"
-	"github.com/icholy/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/auth/agentauth"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/server/shellserver"
+	"github.com/gritzapp/gritz/internal/shell/shellwire"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )

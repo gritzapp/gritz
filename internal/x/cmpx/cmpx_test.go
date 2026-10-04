@@ -6,7 +6,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"gotest.tools/v3/assert"
 
-	"github.com/icholy/gritz/internal/x/cmpx"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 )
 
 type flat struct {

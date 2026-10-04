@@ -7,7 +7,7 @@ services:
       - registry_data:/var/lib/registry
 
   runner:
-    image: ghcr.io/icholy/gritz-runner:latest
+    image: ghcr.io/gritzapp/gritz-runner:latest
     env_file: .env
     environment:
       GRITZ_SERVER: https://gritz.dev

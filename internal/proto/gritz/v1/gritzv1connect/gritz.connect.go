@@ -8,7 +8,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	v1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	http "net/http"
 	strings "strings"
 )

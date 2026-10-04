@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/icholy/gritz/internal/runner/agent/toollog"
+	"github.com/gritzapp/gritz/internal/runner/agent/toollog"
 )
 
 // CursorAgent implements Agent using the Cursor Agent CLI.

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/store/teststore"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )

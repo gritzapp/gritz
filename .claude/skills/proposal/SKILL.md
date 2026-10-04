@@ -19,7 +19,7 @@ GitHub issues describe problems. Proposals describe solutions. This skill turns 
 ```markdown
 # Title
 
-Issue: https://github.com/icholy/gritz/issues/NNN
+Issue: https://github.com/gritzapp/gritz/issues/NNN
 
 ## Problem
 

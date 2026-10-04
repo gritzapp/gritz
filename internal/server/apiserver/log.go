@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/authscope"
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/store"
-	"github.com/icholy/gritz/internal/x/pagination"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 )
 
 // reportLogType is the legacy logs.type value the agent's report tool uploads.

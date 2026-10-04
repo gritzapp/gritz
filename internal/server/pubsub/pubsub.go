@@ -5,7 +5,7 @@ package pubsub
 import (
 	"context"
 
-	"github.com/icholy/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/model"
 )
 
 // Publisher publishes notifications to subscribers of the notification's org.

@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/store"
 )
 
 // StoreKeyValidator implements apiauth.KeyValidator using the store.

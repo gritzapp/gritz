@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types/network"
-	"github.com/icholy/gritz/internal/auth/agentauth"
-	"github.com/icholy/gritz/internal/configfile"
-	"github.com/icholy/gritz/internal/runner/agent"
-	"github.com/icholy/gritz/internal/x/expandvar"
+	"github.com/gritzapp/gritz/internal/auth/agentauth"
+	"github.com/gritzapp/gritz/internal/configfile"
+	"github.com/gritzapp/gritz/internal/runner/agent"
+	"github.com/gritzapp/gritz/internal/x/expandvar"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,7 +23,7 @@ var defaultYAML = `workspaces:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${env:CLAUDE_CODE_OAUTH_TOKEN}
     container:
-      image: ghcr.io/icholy/gritz-workspace-debian:latest
+      image: ghcr.io/gritzapp/gritz-workspace-debian:latest
       working_dir: /root
     commands:
       - git clone https://github.com/github-samples/pets-workshop

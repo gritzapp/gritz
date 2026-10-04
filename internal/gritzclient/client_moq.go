@@ -5,7 +5,7 @@ package gritzclient
 
 import (
 	"context"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"sync"
 )
 

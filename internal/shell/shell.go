@@ -31,7 +31,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
-	"github.com/icholy/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/shell/shellwire"
 )
 
 // exitReportTimeout bounds the best-effort send of the final exit frame once the

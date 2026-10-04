@@ -8,8 +8,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/urfave/cli/v3"
 )
 

@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/auth/agentauth"
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/auth/agentauth"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
 )
 

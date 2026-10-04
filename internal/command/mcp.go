@@ -6,11 +6,11 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/icholy/gritz/internal/mcpbridge"
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/server/mcpserver"
-	"github.com/icholy/gritz/internal/x/mcpchannel"
-	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/mcpbridge"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/server/mcpserver"
+	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/urfave/cli/v3"
 )

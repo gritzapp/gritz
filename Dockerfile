@@ -16,7 +16,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=webui /app/internal/server/webui ./internal/server/webui
-ENV LDFLAGS="-X github.com/icholy/gritz/internal/version.Version=$VERSION"
+ENV LDFLAGS="-X github.com/gritzapp/gritz/internal/version.Version=$VERSION"
 RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -ldflags "$LDFLAGS" -o gritz ./cmd/gritz
 RUN CGO_ENABLED=0 GOARCH=amd64 go build -ldflags "$LDFLAGS" -o prebuilt/gritz-linux-amd64 ./cmd/gritz
 RUN CGO_ENABLED=0 GOARCH=arm64 go build -ldflags "$LDFLAGS" -o prebuilt/gritz-linux-arm64 ./cmd/gritz

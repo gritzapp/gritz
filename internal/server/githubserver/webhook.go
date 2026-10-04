@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v88/github"
-	"github.com/icholy/gritz/internal/server/eventrouter"
-	"github.com/icholy/gritz/internal/x/githubx"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/x/githubx"
 )
 
 // WebhookHandler handles incoming GitHub App webhook events.

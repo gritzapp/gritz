@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/store/teststore"
-	"github.com/icholy/gritz/internal/x/testx"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 )
 

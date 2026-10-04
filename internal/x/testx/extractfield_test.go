@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/icholy/gritz/internal/x/testx"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	acmp "gotest.tools/v3/assert/cmp"
 )

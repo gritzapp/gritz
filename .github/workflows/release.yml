@@ -58,14 +58,14 @@ jobs:
           CGO_ENABLED: '0'
           GOOS: linux
           GOARCH: amd64
-        run: go build -ldflags "-X github.com/icholy/gritz/internal/version.Version=${{ needs.release-please.outputs.tag_name }}" -o gritz-linux-amd64 ./cmd/gritz
+        run: go build -ldflags "-X github.com/gritzapp/gritz/internal/version.Version=${{ needs.release-please.outputs.tag_name }}" -o gritz-linux-amd64 ./cmd/gritz
 
       - name: Build linux/arm64
         env:
           CGO_ENABLED: '0'
           GOOS: linux
           GOARCH: arm64
-        run: go build -ldflags "-X github.com/icholy/gritz/internal/version.Version=${{ needs.release-please.outputs.tag_name }}" -o gritz-linux-arm64 ./cmd/gritz
+        run: go build -ldflags "-X github.com/gritzapp/gritz/internal/version.Version=${{ needs.release-please.outputs.tag_name }}" -o gritz-linux-arm64 ./cmd/gritz
 
       - name: Attach binaries to Release
         uses: softprops/action-gh-release@v3

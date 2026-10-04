@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/x/cmpx"
-	"github.com/icholy/gritz/internal/x/mcpchannel"
-	"github.com/icholy/gritz/internal/x/mcptest"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
+	"github.com/gritzapp/gritz/internal/x/mcpchannel"
+	"github.com/gritzapp/gritz/internal/x/mcptest"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )

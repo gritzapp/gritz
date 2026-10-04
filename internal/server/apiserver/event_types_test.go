@@ -3,8 +3,8 @@ package apiserver
 import (
 	"testing"
 
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/store/teststore"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 
@@ -12,7 +12,7 @@ import (
 	// handler serves. atlassianserver is already imported transitively by the
 	// apiserver package; githubserver is only referenced via an interface, so it
 	// must be pulled in explicitly here for its github/* types to be registered.
-	_ "github.com/icholy/gritz/internal/server/githubserver"
+	_ "github.com/gritzapp/gritz/internal/server/githubserver"
 )
 
 func TestGetEventTypes(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/icholy/gritz/internal/x/atomicio"
+	"github.com/gritzapp/gritz/internal/x/atomicio"
 )
 
 // DefaultConfigStore is the in-sandbox location of the task config file. The

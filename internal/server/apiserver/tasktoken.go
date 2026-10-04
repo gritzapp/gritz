@@ -7,10 +7,10 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/auth/agentauth"
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/authscope"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/auth/agentauth"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
 // CreateTaskToken mints a narrow app JWT for a task. The runner calls it instead

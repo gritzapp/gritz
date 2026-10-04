@@ -3,8 +3,8 @@ package store_test
 import (
 	"testing"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/store"
 	"gotest.tools/v3/assert"
 )
 

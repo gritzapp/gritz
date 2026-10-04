@@ -5,9 +5,9 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/x/notify"
-	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/x/notify"
 	"github.com/urfave/cli/v3"
 )
 

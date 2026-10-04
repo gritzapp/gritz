@@ -4,14 +4,14 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/store/teststore"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 
 	// Blank-imported so their init registers the eventrouter schemas that
 	// SetRoutingRules validates against (see event_types_test.go).
-	_ "github.com/icholy/gritz/internal/server/githubserver"
+	_ "github.com/gritzapp/gritz/internal/server/githubserver"
 )
 
 func TestGetRoutingRules_Default(t *testing.T) {

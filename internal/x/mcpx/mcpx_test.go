@@ -6,8 +6,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 
-	"github.com/icholy/gritz/internal/x/mcptest"
-	"github.com/icholy/gritz/internal/x/mcpx"
+	"github.com/gritzapp/gritz/internal/x/mcptest"
+	"github.com/gritzapp/gritz/internal/x/mcpx"
 )
 
 func TestErrorResult(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/x/sse"
 	"gotest.tools/v3/assert"
 )
 

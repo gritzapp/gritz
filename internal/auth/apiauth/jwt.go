@@ -9,7 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/icholy/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 )
 
 // AppClaims contains the JWT claims for an app-issued token.
