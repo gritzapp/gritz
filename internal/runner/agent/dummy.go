@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"time"
 
 	"github.com/gritzapp/gritz/internal/x/common"
@@ -59,7 +60,7 @@ func (a *DummyAgent) doCommands(ctx context.Context) error {
 		a.log.Info("Running dummy command", "command", command)
 		c := exec.CommandContext(ctx, "sh", "-c", command)
 		c.Dir = a.cwd
-		c.Env = cmdEnv(a.env)
+		c.Env = slices.Concat(os.Environ(), a.env)
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
 		if err := c.Run(); err != nil {
@@ -127,7 +128,7 @@ func (a *DummyAgent) connectMCP(ctx context.Context, name string) (*mcp.ClientSe
 	cmd.Dir = a.cwd
 	// Like a real agent CLI spawning its MCP servers, layer the server's own env
 	// over the agent's.
-	cmd.Env = cmdEnv(a.env)
+	cmd.Env = slices.Concat(os.Environ(), a.env)
 	for k, v := range mcpConfig.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
