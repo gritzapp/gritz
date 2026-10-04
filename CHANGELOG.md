@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.9.4](https://github.com/gritzapp/gritz/compare/v3.9.3...v3.9.4) (2026-10-04)
+
+
+### Miscellaneous
+
+* drop gritz- prefix from published image names ([ff815d4](https://github.com/gritzapp/gritz/commit/ff815d4aa4d6846bc7a7099b51fc5e0afc8898fb))
+* hardcode published image names ([99ef2d6](https://github.com/gritzapp/gritz/commit/99ef2d60335cec96fd4a6044201b1afa063f52eb))
+* move examples and workspace images to gritzapp/workspaces ([47f2e25](https://github.com/gritzapp/gritz/commit/47f2e25c64314681f22dc5e0fe20d69f88a82a68))
+* move github app manifest to gritzapp/infra ([b2e3802](https://github.com/gritzapp/gritz/commit/b2e3802cd7e8d8d1cb16f166391688a6e7d669a2))
+
 ## [3.9.3](https://github.com/gritzapp/gritz/compare/v3.9.2...v3.9.3) (2026-10-04)
 
 
