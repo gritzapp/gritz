@@ -64,27 +64,19 @@ ssh root@$IP 'dokku domains:set gritz <domain>'
 
 ## 3. Load the secrets
 
-`dokku postgres:link` in step 1 already set `GRITZ_DATABASE_URL` to the local
-service and owns that value, so the copy in `sops.env.yml` is excluded - it is a
-dead connection string and importing it would point the host at nothing:
+`dokku postgres:link` in step 1 already set `GRITZ_DATABASE_URL`, so
+`sops.env.yml` does not carry it:
 
 ```bash
 sops --output-type json -d sops.env.yml \
-  | jq -r 'del(.GRITZ_DATABASE_URL) | to_entries[] | "\(.key)=\(.value | tostring | @base64)"' \
+  | jq -r 'to_entries[] | "\(.key)=\(.value | tostring | @base64)"' \
   | xargs ssh root@$IP dokku config:set --no-restart --encoded gritz
 ```
 
 `--encoded` is what makes `GRITZ_GITHUB_APP_PRIVATE_KEY` survive: it is a
 multi-line PEM that does not round-trip through a plain `KEY=value` argument.
 
-Then fix up the values that still carry the old name:
-
-```bash
-ssh root@$IP 'dokku config:set --no-restart gritz \
-  GRITZ_BASE_URL=https://<domain> OTEL_SERVICE_NAME=gritz'
-```
-
-`GRITZ_GITHUB_APP_SLUG` is left alone - it names a registered GitHub App, and
+`GRITZ_GITHUB_APP_SLUG` still carries the old name - it names a registered GitHub App, and
 renaming that is a separate exercise with its own callback-URL churn.
 
 ## 4. Deploy the image
