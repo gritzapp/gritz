@@ -6,8 +6,9 @@ import {Scaffold, linker, scaffold} from './common';
 
 // MicrovmDriverServerLayout is the Lambda MicroVM layout under the driver
 // server proposal (proposals/draft/driver-server.md). There is no shim and no
-// S3 staging: the VM's main process is `gritz driver --serve`, and the runner's
-// DriverBackend talks to it over the managed proxy.
+// S3 staging: the VM's main process is `gritz driver --serve`. The runner
+// speaks the driver protocol itself over the managed proxy, the Backend only
+// manages the VM, and the driver never talks to the server.
 export interface MicrovmDriverServerLayout extends Scaffold {
   server: Panel;
   api: Service;
@@ -24,15 +25,16 @@ export interface MicrovmDriverServerLayout extends Scaffold {
 
   vm: Panel;
   driver: Service;
-  disk: StateTable;
+  record: StateTable;
+  config: StateTable;
+  driverOutbox: StateTable;
 
   links: {
     runnerApi: Link;
     runnerBackend: Link;
     backendLambda: Link;
-    backendDriver: Link;
+    runnerDriver: Link;
     lambdaDriver: Link;
-    driverApi: Link;
   };
 }
 
@@ -53,7 +55,9 @@ export function microvmDriverServerLayout(
   const lambda = createRef<Service>();
   const vm = createRef<Panel>();
   const driver = createRef<Service>();
-  const disk = createRef<StateTable>();
+  const record = createRef<StateTable>();
+  const config = createRef<StateTable>();
+  const driverOutbox = createRef<StateTable>();
 
   view.add(
     <>
@@ -81,43 +85,43 @@ export function microvmDriverServerLayout(
         title={'runner host'}
         accent={Colors.runner}
         x={330}
-        y={-240}
+        y={-245}
         width={1200}
-        height={400}
+        height={410}
       >
         <Service
           ref={runner}
           name={'Runner'}
-          role={'runner.go (unchanged)'}
+          role={'runner.go'}
           activity={'idle'}
           accent={Colors.runner}
           x={-440}
-          y={-75}
+          y={100}
         />
         <Service
           ref={backend}
-          name={'DriverBackend'}
-          role={'backend.Backend'}
+          name={'Backend'}
+          role={'sandbox lifecycle'}
           accent={Colors.runner}
-          x={-440}
-          y={95}
+          x={0}
+          y={100}
         />
         <StateTable
           ref={memory}
           title={'memory'}
           accent={Colors.runner}
-          width={250}
-          x={-130}
-          y={-140}
+          width={260}
+          x={-440}
+          y={-160}
           offset={[0, -1]}
         />
         <StateTable
           ref={outbox}
           title={'outbox/'}
           accent={Colors.runner}
-          width={180}
-          x={100}
-          y={-140}
+          width={240}
+          x={-120}
+          y={-160}
           offset={[0, -1]}
         />
         <StateTable
@@ -125,8 +129,8 @@ export function microvmDriverServerLayout(
           title={'taskstate/'}
           accent={Colors.runner}
           width={360}
-          x={390}
-          y={-140}
+          x={340}
+          y={-160}
           offset={[0, -1]}
         />
       </Panel>
@@ -145,16 +149,16 @@ export function microvmDriverServerLayout(
           name={'Lambda'}
           role={'MicroVMs control plane'}
           accent={Colors.client}
-          x={-500}
+          x={700}
           y={-20}
         />
         <Panel
           ref={vm}
           title={'microvm'}
           accent={Colors.driver}
-          x={330}
+          x={-235}
           y={15}
-          width={1060}
+          width={1320}
           height={340}
         >
           <Service
@@ -162,15 +166,33 @@ export function microvmDriverServerLayout(
             name={'Driver'}
             role={'gritz driver --serve'}
             accent={Colors.driver}
-            x={-360}
-            y={25}
+            x={320}
+            y={30}
           />
           <StateTable
-            ref={disk}
-            title={'disk'}
+            ref={record}
+            title={'/gritz/run.json'}
             accent={Colors.driver}
-            width={380}
-            x={150}
+            width={330}
+            x={-430}
+            y={-120}
+            offset={[0, -1]}
+          />
+          <StateTable
+            ref={config}
+            title={'/tmp/gritz/42.json'}
+            accent={Colors.driver}
+            width={330}
+            x={-430}
+            y={60}
+            offset={[0, -1]}
+          />
+          <StateTable
+            ref={driverOutbox}
+            title={'/gritz/outbox/'}
+            accent={Colors.driver}
+            width={340}
+            x={-40}
             y={-120}
             offset={[0, -1]}
           />
@@ -195,14 +217,15 @@ export function microvmDriverServerLayout(
     lambda: lambda(),
     vm: vm(),
     driver: driver(),
-    disk: disk(),
+    record: record(),
+    config: config(),
+    driverOutbox: driverOutbox(),
     links: {
       runnerApi: link(runner(), api(), 'Connect RPC'),
       runnerBackend: link(runner(), backend(), 'in-process'),
       backendLambda: link(backend(), lambda(), 'SigV4', 0.3),
-      backendDriver: link(backend(), driver(), 'managed proxy :8080', 0.45),
-      lambdaDriver: link(lambda(), driver(), 'hooks :9000 (ack)'),
-      driverApi: link(driver(), api(), 'Connect RPC', 0.8),
+      runnerDriver: link(runner(), driver(), 'managed proxy :8080', 0.22),
+      lambdaDriver: link(lambda(), driver(), 'hooks :9000 (ack)', 0.3),
     },
   };
 }

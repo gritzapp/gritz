@@ -147,6 +147,32 @@ export class StateTable extends Rect {
     yield* all(row.value.text(value, duration), this.flash(key));
   }
 
+  // dropRow fades a row out and removes it. The placeholder returns when the
+  // last row is dropped.
+  public *dropRow(key: string) {
+    const row = this.rows.get(key);
+    if (!row) {
+      return;
+    }
+    yield* this.flash(key, Colors.bad);
+    yield* row.rect.opacity(0, 0.3);
+    row.rect.remove();
+    this.rows.delete(key);
+    if (this.rows.size === 0) {
+      this.placeholder = (
+        <Txt
+          text={'(empty)'}
+          fill={Colors.dim}
+          fontFamily={Fonts.mono}
+          fontStyle={'italic'}
+          fontSize={17}
+          padding={[4, 8]}
+        />
+      ) as Txt;
+      this.body().add(this.placeholder);
+    }
+  }
+
   // flash highlights a row, or the whole table when no key is given.
   public *flash(key?: string, color: PossibleColor = Colors.highlight) {
     const target = key === undefined ? this : this.rows.get(key)?.rect;

@@ -45,7 +45,7 @@ only show up after restarting the editor.
 |---|---|---|
 | `Panel` | A boundary: host, process group, AWS account, container, VM. Title top-left, `subtitle` top-right (e.g. `mvm-7c1e · running`). Children are positioned relative to its center. | `pulse()` |
 | `Service` | Something that runs code and sends messages (API, Runner, Driver, Lambda). `activity` line shows what it is doing. | `pulse()`, `updateActivity(text)` |
-| `StateTable` | State a component owns: a DB row, a directory, in-memory counters, a file on disk. Anchor with `offset={[0, -1]}` so it grows downward. | `addRow`, `setRow` (adds if missing), `flash(key?)`; `putRow` sets rows without animating, for initial state |
+| `StateTable` | State a component owns: a DB row, a directory, in-memory counters, a file on disk. Anchor with `offset={[0, -1]}` so it grows downward. | `addRow`, `setRow` (adds if missing), `dropRow`, `flash(key?)`; `putRow` sets rows without animating, for initial state |
 | `Link` | A standing connection between two components, labelled with the protocol. Endpoints track the components. | `send(text, {back, color})`, `rpc(req, resp, opts)` |
 | `Caption` | The numbered narration bar at the bottom. | `show(step, text)` |
 
