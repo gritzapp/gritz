@@ -98,7 +98,7 @@ jobs:
         id: server-meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository }}-server
+          images: ghcr.io/${{ github.repository_owner }}/server
           tags: |
             type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag_name }}
@@ -108,7 +108,7 @@ jobs:
         id: runner-meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository }}-runner
+          images: ghcr.io/${{ github.repository_owner }}/runner
           tags: |
             type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag_name }}
