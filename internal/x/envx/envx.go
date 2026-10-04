@@ -3,7 +3,9 @@
 package envx
 
 import (
+	"maps"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -20,4 +22,14 @@ func Expand(s string, env []string) string {
 		}
 		return ""
 	})
+}
+
+// FromMap returns m as a list of KEY=value pairs, sorted by key so the result
+// is deterministic.
+func FromMap(m map[string]string) []string {
+	env := make([]string, 0, len(m))
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		env = append(env, k+"="+m[k])
+	}
+	return env
 }
