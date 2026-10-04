@@ -121,15 +121,13 @@ ssh "root@$GRITZ_HOST" dokku git:from-image gritz "ghcr.io/icholy/gritz-server:$
 description = "Decrypt secrets.yml to .env"
 run = "sops --output-type json -d sops.env.yml | jq -r 'to_entries[] | \"\\(.key)=\\(.value | tostring | tojson)\"' > .env"
 
-# GRITZ_DATABASE_URL is excluded on purpose: dokku postgres:link owns it and
-# points at the service on the droplet, so importing the copy here would send
-# the host at whatever this file happens to hold. --encoded is what lets the
-# multi-line GRITZ_GITHUB_APP_PRIVATE_KEY survive as a single argument.
+# --encoded is what lets the multi-line GRITZ_GITHUB_APP_PRIVATE_KEY survive as
+# a single argument.
 [tasks.update_secrets]
 description = "Push secrets from sops to the dokku host"
 run = '''
 sops --output-type json -d sops.env.yml \
-  | jq -r 'del(.GRITZ_DATABASE_URL) | to_entries[] | "\(.key)=\(.value | tostring | @base64)"' \
+  | jq -r 'to_entries[] | "\(.key)=\(.value | tostring | @base64)"' \
   | xargs ssh "root@$GRITZ_HOST" dokku config:set --encoded gritz
 '''
 
