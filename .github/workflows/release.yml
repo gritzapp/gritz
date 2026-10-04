@@ -180,8 +180,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=workspace-debian
-          cache-to: type=gha,mode=max,scope=workspace-debian
+          # The agent CLI install layers (Claude Code, Codex, Copilot, Cursor)
+          # never change textually, so cached layers would pin stale versions.
+          no-cache: true
 
   workspace-mise:
     needs: [release-please, workspace-debian]
