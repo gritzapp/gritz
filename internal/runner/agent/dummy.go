@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/x/common"
+	"github.com/gritzapp/gritz/internal/x/envx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -127,11 +128,8 @@ func (a *DummyAgent) connectMCP(ctx context.Context, name string) (*mcp.ClientSe
 	cmd := exec.CommandContext(ctx, mcpConfig.Command, mcpConfig.Args...)
 	cmd.Dir = a.cwd
 	// Like a real agent CLI spawning its MCP servers, layer the server's own env
-	// over the agent's. Clip so the appends can't write into the shared slice.
-	cmd.Env = slices.Clip(a.env)
-	for k, v := range mcpConfig.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	// over the agent's.
+	cmd.Env = slices.Concat(a.env, envx.FromMap(mcpConfig.Env))
 
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "dummy-agent",

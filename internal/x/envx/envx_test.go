@@ -29,3 +29,9 @@ func TestExpand(t *testing.T) {
 		})
 	}
 }
+
+func TestFromMap(t *testing.T) {
+	t.Parallel()
+	assert.DeepEqual(t, FromMap(map[string]string{"B": "2", "A": "x=y", "C": ""}), []string{"A=x=y", "B=2", "C="})
+	assert.DeepEqual(t, FromMap(nil), []string{})
+}
