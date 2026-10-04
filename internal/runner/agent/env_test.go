@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,10 +20,12 @@ func readEnv(t *testing.T, path string) []string {
 }
 
 // TestAgentPrompt_Env runs each agent against a fake CLI that dumps its
-// environment, and asserts the child sees the agent's Env and nothing the driver
-// process inherited. Not parallel: it sets a driver-only variable with t.Setenv.
+// environment, and asserts the child sees the driver's environment with the
+// agent's Env layered over it. Not parallel: it sets driver variables with
+// t.Setenv.
 func TestAgentPrompt_Env(t *testing.T) {
-	t.Setenv("GRITZ_TEST_INHERITED", "leaked")
+	t.Setenv("GRITZ_TEST_INHERITED", "inherited")
+	t.Setenv("GRITZ_TEST_OVERRIDE", "process-value")
 	tests := []struct {
 		typ   string
 		extra []string
@@ -41,7 +44,7 @@ func TestAgentPrompt_Env(t *testing.T) {
 			bin := filepath.Join(dir, tt.typ)
 			script := "#!/bin/sh\nenv > " + out + "\n"
 			assert.NilError(t, os.WriteFile(bin, []byte(script), 0o755))
-			env := []string{"PATH=" + os.Getenv("PATH"), "GRITZ_TEST_RUN=run-value"}
+			env := []string{"GRITZ_TEST_RUN=run-value", "GRITZ_TEST_OVERRIDE=run-value"}
 			a, err := NewAgent(Options{
 				Type:    tt.typ,
 				Cwd:     dir,
@@ -62,31 +65,34 @@ func TestAgentPrompt_Env(t *testing.T) {
 			for _, kv := range append(env, tt.extra...) {
 				assert.Assert(t, cmp.Contains(got, kv))
 			}
-			assert.Assert(t, !strings.Contains(strings.Join(got, "\n"), "GRITZ_TEST_INHERITED"))
+			assert.Assert(t, cmp.Contains(got, "GRITZ_TEST_INHERITED=inherited"))
+			assert.Assert(t, !slices.Contains(got, "GRITZ_TEST_OVERRIDE=process-value"))
 		})
 	}
 }
 
-// TestDriverRun_Env asserts the driver's Env reaches the setup commands and the
-// agent, and is what the config's cwd expands against. Not parallel: it sets
-// driver-only variables with t.Setenv.
+// TestDriverRun_Env asserts the driver's Env is layered over its own
+// environment for the setup commands and the agent, and for what the config's
+// cwd expands against. Not parallel: it sets driver variables with t.Setenv.
 func TestDriverRun_Env(t *testing.T) {
-	// Arrange - WORKDIR differs between the driver process and the run, so the
-	// agent's working directory says which one cwd expanded against.
-	t.Setenv("GRITZ_TEST_INHERITED", "leaked")
-	t.Setenv("WORKDIR", t.TempDir())
-	workdir := t.TempDir()
+	// Arrange - cwd uses a variable only the driver process sets and one the run
+	// overrides, so the agent's working directory says what cwd expanded against.
+	parent := t.TempDir()
+	assert.NilError(t, os.Mkdir(filepath.Join(parent, "run"), 0o755))
+	t.Setenv("GRITZ_TEST_INHERITED", "inherited")
+	t.Setenv("GRITZ_TEST_PARENT", parent)
+	t.Setenv("WORKDIR", "process")
 	out := t.TempDir()
 	driver, _ := setupDriver(t, &Config{
 		Type:     TypeDummy,
-		Cwd:      "$WORKDIR",
+		Cwd:      "$GRITZ_TEST_PARENT/$WORKDIR",
 		Commands: []string{"env > " + filepath.Join(out, "setup")},
 		Dummy: &DummyOptions{Commands: []string{
 			"env > " + filepath.Join(out, "agent"),
 			"pwd > " + filepath.Join(out, "pwd"),
 		}},
 	})
-	driver.Env = []string{"PATH=" + os.Getenv("PATH"), "GRITZ_TEST_RUN=run-value", "WORKDIR=" + workdir}
+	driver.Env = []string{"GRITZ_TEST_RUN=run-value", "WORKDIR=run"}
 
 	// Act
 	assert.NilError(t, driver.Run(t.Context()))
@@ -95,11 +101,13 @@ func TestDriverRun_Env(t *testing.T) {
 	for _, name := range []string{"setup", "agent"} {
 		got := readEnv(t, filepath.Join(out, name))
 		assert.Assert(t, cmp.Contains(got, "GRITZ_TEST_RUN=run-value"), name)
-		assert.Assert(t, !strings.Contains(strings.Join(got, "\n"), "GRITZ_TEST_INHERITED"), name)
+		assert.Assert(t, cmp.Contains(got, "GRITZ_TEST_INHERITED=inherited"), name)
+		assert.Assert(t, cmp.Contains(got, "WORKDIR=run"), name)
+		assert.Assert(t, !slices.Contains(got, "WORKDIR=process"), name)
 	}
 	pwd, err := os.ReadFile(filepath.Join(out, "pwd"))
 	assert.NilError(t, err)
-	assert.Equal(t, strings.TrimSpace(string(pwd)), workdir)
+	assert.Equal(t, strings.TrimSpace(string(pwd)), filepath.Join(parent, "run"))
 }
 
 func TestEnvLookup(t *testing.T) {
