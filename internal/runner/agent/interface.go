@@ -45,8 +45,8 @@ type Agent interface {
 type Options struct {
 	Type string
 	Cwd  string
-	// Env is layered over the driver's environment for every process the agent
-	// starts; see Driver.Env.
+	// Env is the complete environment of every process the agent starts; see
+	// Driver.Env.
 	Env []string
 	// Log carries both the structured logger the agent writes to and the raw
 	// sink the Claude CLI's stderr is teed into. It defaults to
