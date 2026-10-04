@@ -3,7 +3,7 @@ workspaces:
     secrets:
       CURSOR_API_KEY: ${env:CURSOR_API_KEY}
     container:
-      image: ghcr.io/icholy/gritz-workspace-debian:latest
+      image: ghcr.io/gritzapp/gritz-workspace-debian:latest
       working_dir: /root
     commands:
       - git clone https://github.com/github-samples/pets-workshop

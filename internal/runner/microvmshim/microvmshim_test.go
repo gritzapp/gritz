@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/icholy/gritz/internal/runner/backend/lambdamicrovm"
-	"github.com/icholy/gritz/internal/x/awsmicrovm"
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/sse"
 	"gotest.tools/v3/assert"
 )
 

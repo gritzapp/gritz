@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/server/pubsub"
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/server/pubsub"
+	"github.com/gritzapp/gritz/internal/x/sse"
 	"gotest.tools/v3/assert"
 )
 

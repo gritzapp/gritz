@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/authscope"
-	"github.com/icholy/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 )
 
 func createCtx(t *testing.T, org *teststore.Org) context.Context {

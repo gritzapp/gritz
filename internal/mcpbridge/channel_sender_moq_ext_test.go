@@ -1,7 +1,7 @@
 package mcpbridge
 
 import (
-	"github.com/icholy/gritz/internal/x/mcpchannel"
+	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 )
 
 // SentChannelParams returns the params of every SendChannel call, in call order.

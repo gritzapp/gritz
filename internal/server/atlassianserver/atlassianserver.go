@@ -10,12 +10,12 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/oauthlink"
-	"github.com/icholy/gritz/internal/server/eventrouter"
-	"github.com/icholy/gritz/internal/server/pubsub"
-	"github.com/icholy/gritz/internal/store"
-	"github.com/icholy/gritz/internal/x/atlassian"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/oauthlink"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/server/pubsub"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/x/atlassian"
 	"golang.org/x/oauth2"
 )
 

@@ -20,11 +20,11 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/icholy/gritz/internal/gritzclient"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/x/common"
-	"github.com/icholy/gritz/internal/x/redact"
-	"github.com/icholy/gritz/internal/x/wakeup"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/common"
+	"github.com/gritzapp/gritz/internal/x/redact"
+	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
 // Shipper defaults, applied by New to the zero-valued fields of Options.

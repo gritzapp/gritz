@@ -16,9 +16,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/server/pubsub"
-	"github.com/icholy/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/server/pubsub"
+	"github.com/gritzapp/gritz/internal/store"
 )
 
 // DefaultInterval is how often the archiver tick fires when no override is set.

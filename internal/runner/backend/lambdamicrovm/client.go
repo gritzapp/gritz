@@ -3,7 +3,7 @@ package lambdamicrovm
 import (
 	"context"
 
-	"github.com/icholy/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 )
 
 // Cloud is the subset of the AWS Lambda MicroVMs control plane the backend

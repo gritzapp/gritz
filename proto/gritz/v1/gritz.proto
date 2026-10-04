@@ -5,7 +5,7 @@ package gritz.v1;
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/icholy/gritz/internal/proto/gritz/v1;gritzv1";
+option go_package = "github.com/gritzapp/gritz/internal/proto/gritz/v1;gritzv1";
 
 service GritzService {
   rpc Ping(PingRequest) returns (PingResponse);

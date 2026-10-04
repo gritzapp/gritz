@@ -1,7 +1,7 @@
 package gritzclient
 
 import (
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
 // AppendedLogChunks returns every log chunk append request, in call order —

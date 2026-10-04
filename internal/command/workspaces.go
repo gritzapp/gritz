@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/icholy/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )

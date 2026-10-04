@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"connectrpc.com/connect"
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/authscope"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
 func (s *Server) LinkGitHubInstallation(ctx context.Context, req *gritzv1.LinkGitHubInstallationRequest) (*gritzv1.LinkGitHubInstallationResponse, error) {

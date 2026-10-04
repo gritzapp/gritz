@@ -24,10 +24,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/icholy/gritz/internal/runner/backend"
-	"github.com/icholy/gritz/internal/runner/workspace"
-	"github.com/icholy/gritz/internal/x/awsmicrovm"
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/sse"
 )
 
 // HandleType is the backend.Handle.Type the backend stamps on its handles

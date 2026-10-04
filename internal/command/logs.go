@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/icholy/gritz/internal/configfile"
-	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/configfile"
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/urfave/cli/v3"
 )
 

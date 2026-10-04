@@ -5,7 +5,7 @@ package atlassianserver
 
 import (
 	"context"
-	"github.com/icholy/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
 	"sync"
 )
 

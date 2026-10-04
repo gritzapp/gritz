@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/icholy/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
 )
 
 // HandleMetadata serves the OAuth 2.1 authorization server metadata.

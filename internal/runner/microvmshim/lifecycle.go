@@ -3,8 +3,8 @@ package microvmshim
 import (
 	"sync"
 
-	"github.com/icholy/gritz/internal/runner/backend/lambdamicrovm"
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
+	"github.com/gritzapp/gritz/internal/x/sse"
 )
 
 // lifecycle is the in-shim broadcaster for the /gritz/lifecycle SSE stream. It

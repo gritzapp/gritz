@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/server/pubsub"
-	"github.com/icholy/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/server/pubsub"
+	"github.com/gritzapp/gritz/internal/store"
 )
 
 // Attrs maps a dimension name to the event's values for that dimension.

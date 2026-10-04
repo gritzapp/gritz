@@ -1,6 +1,6 @@
 # n8n-nodes-gritz
 
-n8n community node for [gritz](https://github.com/icholy/gritz) task orchestration.
+n8n community node for [gritz](https://github.com/gritzapp/gritz) task orchestration.
 
 ## Operations
 

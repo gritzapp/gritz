@@ -23,9 +23,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/x/mcpchannel"
-	"github.com/icholy/gritz/internal/x/mcpx"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/x/mcpchannel"
+	"github.com/gritzapp/gritz/internal/x/mcpx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

@@ -21,9 +21,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/server/pubsub"
-	"github.com/icholy/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/server/pubsub"
+	"github.com/gritzapp/gritz/internal/store"
 )
 
 //go:generate go tool moq -out store_moq_test.go . Store

@@ -1,7 +1,7 @@
 package atlassianserver
 
 import (
-	"github.com/icholy/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
 // init registers atlassianserver's schemas on the process-wide default registry.

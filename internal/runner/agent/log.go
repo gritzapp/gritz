@@ -9,7 +9,7 @@ import (
 	"path"
 	"time"
 
-	"github.com/icholy/gritz/internal/runner/logship"
+	"github.com/gritzapp/gritz/internal/runner/logship"
 )
 
 // DefaultLogPath is the in-sandbox location of the driver's append-only log

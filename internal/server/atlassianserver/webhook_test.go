@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/server/eventrouter"
-	"github.com/icholy/gritz/internal/x/atlassian"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/x/atlassian"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )

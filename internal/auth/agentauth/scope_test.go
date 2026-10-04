@@ -3,7 +3,7 @@ package agentauth
 import (
 	"testing"
 
-	"github.com/icholy/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"gotest.tools/v3/assert"
 )
 

@@ -3,7 +3,7 @@ package eventrouter
 import (
 	"testing"
 
-	"github.com/icholy/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/model"
 	"gotest.tools/v3/assert"
 )
 

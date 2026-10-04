@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/icholy/gritz/internal/auth/agentauth"
-	"github.com/icholy/gritz/internal/gritzclient"
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/x/mcpx"
+	"github.com/gritzapp/gritz/internal/auth/agentauth"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/mcpx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -134,7 +134,7 @@ type updateMyTaskInput struct {
 func (s *Server) updateMyTask(ctx context.Context, _ *mcp.CallToolRequest, input updateMyTaskInput) (*mcp.CallToolResult, any, error) {
 	// Note: a task is intentionally not allowed to change its own auto_archive.
 	// The value set by the routing rule (or a human) is authoritative for the
-	// task's lifetime — see icholy/gritz#1094.
+	// task's lifetime — see gritzapp/gritz#1094.
 	if _, err := s.client.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
 		Id:   s.task.ID,
 		Name: input.Name,

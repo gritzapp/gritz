@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/icholy/gritz/internal/auth/authscope"
-	"github.com/icholy/gritz/internal/model"
-	"github.com/icholy/gritz/internal/store/sqlc"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/store/sqlc"
 )
 
 func (s *Store) CreateKey(ctx context.Context, tx *sql.Tx, key *model.Key) error {

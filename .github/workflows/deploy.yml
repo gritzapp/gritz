@@ -66,7 +66,7 @@ jobs:
           TAG: ${{ needs.check.outputs.tag }}
         run: |
           ssh dokku@gritz.dev git:from-image gritz \
-            "ghcr.io/icholy/gritz-server:${TAG#v}"
+            "ghcr.io/gritzapp/gritz-server:${TAG#v}"
 
       - uses: bobheadxi/deployments@v1
         if: always()

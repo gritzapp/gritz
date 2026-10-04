@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/icholy/gritz/internal/runner/prebuilt"
+	"github.com/gritzapp/gritz/internal/runner/prebuilt"
 	"github.com/urfave/cli/v3"
 )
 

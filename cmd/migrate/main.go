@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/icholy/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/store"
 )
 
 func main() {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/cenkalti/backoff/v5"
 
-	"github.com/icholy/gritz/internal/x/common"
-	"github.com/icholy/gritz/internal/x/wakeup"
+	"github.com/gritzapp/gritz/internal/x/common"
+	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
 // Options configures an Outbox.

@@ -8091,7 +8091,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x0eUpdateSchedule\x12\x1f.gritz.v1.UpdateScheduleRequest\x1a .gritz.v1.UpdateScheduleResponse\x12S\n" +
 	"\x0eDeleteSchedule\x12\x1f.gritz.v1.DeleteScheduleRequest\x1a .gritz.v1.DeleteScheduleResponse\x12_\n" +
 	"\x12SetScheduleEnabled\x12#.gritz.v1.SetScheduleEnabledRequest\x1a$.gritz.v1.SetScheduleEnabledResponse\x12J\n" +
-	"\vRunSchedule\x12\x1c.gritz.v1.RunScheduleRequest\x1a\x1d.gritz.v1.RunScheduleResponseB9Z7github.com/icholy/gritz/internal/proto/gritz/v1;gritzv1b\x06proto3"
+	"\vRunSchedule\x12\x1c.gritz.v1.RunScheduleRequest\x1a\x1d.gritz.v1.RunScheduleResponseB;Z9github.com/gritzapp/gritz/internal/proto/gritz/v1;gritzv1b\x06proto3"
 
 var (
 	file_gritz_v1_gritz_proto_rawDescOnce sync.Once

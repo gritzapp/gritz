@@ -8,10 +8,10 @@ import (
 	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/x/outbox"
-	"github.com/icholy/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/outbox"
 )
 
 // RunnerEventOutboxOptions configures the runner's durable event outbox.

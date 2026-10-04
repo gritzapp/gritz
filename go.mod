@@ -1,4 +1,4 @@
-module github.com/icholy/gritz
+module github.com/gritzapp/gritz
 
 go 1.26.0
 

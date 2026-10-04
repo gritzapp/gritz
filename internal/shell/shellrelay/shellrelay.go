@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/icholy/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/shell/shellwire"
 )
 
 // DefaultEstablishTimeout is the default connection-establishment timeout: if

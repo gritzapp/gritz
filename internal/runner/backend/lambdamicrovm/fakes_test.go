@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/icholy/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 )
 
 // fakeCloud is an in-memory Cloud for tests. All lifecycle verbs are recorded so

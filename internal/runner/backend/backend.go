@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/icholy/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
 
 // ErrGone means the sandbox a reuse handle refers to no longer exists. Launch

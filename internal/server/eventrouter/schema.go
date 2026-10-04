@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/icholy/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/model"
 )
 
 // AttrDef is a self-describing attribute dimension a rule may condition on. Key

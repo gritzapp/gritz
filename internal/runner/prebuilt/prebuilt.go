@@ -15,7 +15,7 @@ import (
 	"github.com/google/go-github/v88/github"
 )
 
-const DefaultRepo = "icholy/gritz"
+const DefaultRepo = "gritzapp/gritz"
 
 var BinaryNames = []string{
 	"gritz-linux-amd64",

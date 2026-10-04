@@ -10,7 +10,7 @@ import (
 	"github.com/migueleliasweb/go-github-mock/src/mock"
 	"gotest.tools/v3/assert"
 
-	"github.com/icholy/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/model"
 )
 
 func TestVerifyInstallationAccess_OrgMemberAllowed(t *testing.T) {

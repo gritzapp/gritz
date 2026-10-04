@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/icholy/gritz/internal/x/atomicio"
+	"github.com/gritzapp/gritz/internal/x/atomicio"
 )
 
 // Record is the persisted task→sandbox-handle mapping. Data is opaque,

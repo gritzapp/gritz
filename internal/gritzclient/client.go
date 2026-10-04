@@ -9,7 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/icholy/gritz/internal/proto/gritz/v1/gritzv1connect"
+	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 )
 
 // DefaultTimeout is the default timeout for RPC calls.

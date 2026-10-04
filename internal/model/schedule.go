@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
 // cronParser is the fixed 5-field parser (minute hour day-of-month month

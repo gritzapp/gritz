@@ -4,18 +4,18 @@ import (
 	"context"
 	"testing"
 
-	"github.com/icholy/gritz/internal/auth/apiauth"
-	"github.com/icholy/gritz/internal/auth/authscope"
-	"github.com/icholy/gritz/internal/model"
-	gritzv1 "github.com/icholy/gritz/internal/proto/gritz/v1"
-	"github.com/icholy/gritz/internal/server/eventrouter"
-	"github.com/icholy/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/model"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 
 	// Blank-imported so its init registers the eventrouter schemas TestEvent
 	// routes against (see event_types_test.go).
-	_ "github.com/icholy/gritz/internal/server/githubserver"
+	_ "github.com/gritzapp/gritz/internal/server/githubserver"
 )
 
 // TestTestEvent is a sanity check on the dry-run handler: it composes a

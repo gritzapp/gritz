@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/icholy/gritz/internal/runner/backend"
-	"github.com/icholy/gritz/internal/runner/workspace"
-	"github.com/icholy/gritz/internal/x/awsmicrovm"
-	"github.com/icholy/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/sse"
 	"gotest.tools/v3/assert"
 )
 

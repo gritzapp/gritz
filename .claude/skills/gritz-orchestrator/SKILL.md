@@ -119,7 +119,7 @@ gh project item-edit --id <itemId> \
 #   Backlog f75ad846 · Ready 61e4505c · In progress 47fc9ee4 · In review df73e18b · Done 98236657
 
 # Add an issue to the board
-gh project item-add 2 --owner icholy --url https://github.com/icholy/gritz/issues/<n>
+gh project item-add 2 --owner icholy --url https://github.com/gritzapp/gritz/issues/<n>
 
 # Link a sub-issue under a parent (node ids from `gh issue view <n> --json id`)
 gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,subIssueId:$c}){subIssue{number}}}' \

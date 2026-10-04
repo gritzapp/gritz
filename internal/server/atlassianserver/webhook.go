@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/icholy/gritz/internal/server/eventrouter"
-	"github.com/icholy/gritz/internal/x/atlassian"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/x/atlassian"
 )
 
 // WebhookHandler handles incoming Atlassian (Jira) webhook events.
