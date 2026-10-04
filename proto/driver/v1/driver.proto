@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package driver.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gritzapp/gritz/internal/proto/driver/v1;driverv1";
+
+// DriverService is served by `gritz driver --serve` inside the sandbox and
+// called by the runner. Runs execute in-process, one at a time.
+//
+// Field numbers follow proposals/draft/driver-server.md, so the fields later
+// steps add stay wire-compatible with drivers built from this cut.
+service DriverService {
+  // Status reports that the server is up, plus the current run record.
+  rpc Status(StatusRequest) returns (StatusResponse);
+
+  // Run is attach-or-start, keyed on version:
+  //   another Run stream already open      -> Unavailable (retry)
+  //   record.version > version             -> FailedPrecondition (stale)
+  //   record.version == version            -> attach, spec ignored
+  //   no record / older version, idle      -> start the run (spec required,
+  //                                           NotFound without one)
+  //   another version running              -> Aborted (busy)
+  // At most one Run stream is open at a time. The stream ends after the run's
+  // Finished has been sent. A dropped or closed stream detaches and nothing
+  // else: the run keeps going.
+  rpc Run(RunRequest) returns (stream RunResponse);
+
+  // Stop gracefully stops the run with the given version: cancel the run
+  // context with ErrStop (agents and setup commands SIGTERM their process
+  // groups); the run reports its terminal event and sends Finished as usual.
+  // A no-op if that version is not the active run.
+  rpc Stop(StopRequest) returns (StopResponse);
+}
+
+message RunRecord {
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    STATE_RUNNING = 1;
+    STATE_FINISHED = 2;
+  }
+  int64 version = 1;
+  State state = 2;
+  // When the run finished.
+  google.protobuf.Timestamp finished_at = 3;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  // Absent if this sandbox has never started a run.
+  optional RunRecord run = 1;
+}
+
+// RunSpec carries everything the driver reads from its flags and its
+// environment today.
+message RunSpec {
+  // Passed to setup commands and the agent CLI. Not set on the driver
+  // process itself.
+  map<string, string> env = 5;
+  // Workspace secrets. Added to the run's env and masked in shipped log
+  // chunks.
+  map<string, string> secrets = 6;
+  // The task to run. The driver fetches it from server_url.
+  int64 task_id = 8;
+  // The gritz server the driver reports to.
+  string server_url = 9;
+  // The task token used to call server_url. Masked in shipped log chunks.
+  string token = 10;
+}
+
+message RunRequest {
+  int64 version = 1;
+  // Set to start a run. Omitted to attach.
+  RunSpec spec = 2;
+}
+
+message RunResponse {
+  oneof event {
+    // First message on every stream.
+    Accepted accepted = 2;
+    KeepAlive keep_alive = 3;
+    // Last message of a run. Sent after its terminal runner event.
+    Finished finished = 6;
+  }
+}
+
+message Accepted {
+  // True if the call attached to an existing run rather than starting one.
+  bool attached = 1;
+}
+
+message Finished {
+  int64 version = 1;
+  // True if the server acknowledged the run's terminal runner event.
+  bool reported = 2;
+}
+
+message KeepAlive {}
+
+message StopRequest {
+  int64 version = 1;
+}
+
+message StopResponse {
+  // True if a running run with this version was stopped.
+  bool stopped = 1;
+}
