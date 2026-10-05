@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 )
 
 // ErrStop is a sentinel error used to signal graceful agent cancellation.
@@ -167,5 +169,25 @@ func NewAgent(opts Options) (Agent, error) {
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", opts.Type)
+	}
+}
+
+// StopOnSignal returns a copy of ctx that is cancelled with ErrStop as the
+// cause when one of sig arrives, so a run under it stops gracefully. Calling
+// the returned cancel stops listening for the signals and cancels the context.
+func StopOnSignal(ctx context.Context, sig ...os.Signal) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, sig...)
+	go func() {
+		select {
+		case <-ch:
+			cancel(ErrStop)
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, func() {
+		signal.Stop(ch)
+		cancel(context.Canceled)
 	}
 }

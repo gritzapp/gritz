@@ -3,6 +3,7 @@ package driverserver
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -523,4 +524,43 @@ func TestSecrets(t *testing.T) {
 	secrets := Secrets(spec)
 
 	assert.DeepEqual(t, secrets, map[string]string{"GH_TOKEN": "ghp", "token": "jwt"})
+}
+
+func TestListenAndServe(t *testing.T) {
+	t.Parallel()
+	// Arrange - serving on a free port
+	te := setup(t, sleepForever, testOptions{})
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NilError(t, err)
+	addr := l.Addr().String()
+	assert.NilError(t, l.Close())
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- te.srv.ListenAndServe(ctx, addr) }()
+	te.client = driverv1connect.NewDriverServiceClient(http.DefaultClient, "http://"+addr)
+	assert.Assert(t, poll(func() bool {
+		_, err := te.client.Status(t.Context(), &driverv1.StatusRequest{})
+		return err == nil
+	}), "server never came up")
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
+
+	// Act
+	cancel()
+
+	// Assert - the run was stopped and reported, its stream got Finished,
+	// and the server shut down cleanly
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.NilError(t, <-errCh)
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+}
+
+// poll reports whether cond became true within five seconds.
+func poll(cond func() bool) bool {
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if cond() {
+			return true
+		}
+	}
+	return false
 }

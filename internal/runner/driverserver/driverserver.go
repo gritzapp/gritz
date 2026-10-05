@@ -36,6 +36,10 @@ import (
 // how long a dead stream blocks the next Run.
 const DefaultKeepAlive = 15 * time.Second
 
+// httpShutdownTimeout bounds the HTTP server's shutdown once the active run
+// has finished, which leaves only streams sending their Finished.
+const httpShutdownTimeout = 5 * time.Second
+
 // Options configures a Server. Every field takes its default when zero.
 type Options struct {
 	// RecordPath is the run record. Defaults to runrecord.Path.
@@ -131,6 +135,40 @@ func New(opts Options) (*Server, error) {
 // Handler returns the path and handler to mount the service on.
 func (s *Server) Handler() (string, http.Handler) {
 	return driverv1connect.NewDriverServiceHandler(s)
+}
+
+// ListenAndServe serves the service on addr, over HTTP/1.1 and unencrypted
+// HTTP/2, until ctx is cancelled. It then stops the active run, waits for it to
+// stop and report, however long that takes (the platform's stop timeout bounds
+// it, as it does the one-shot driver), and shuts down the HTTP server.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	mux := http.NewServeMux()
+	mux.Handle(s.Handler())
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	hs := &http.Server{
+		Addr:      addr,
+		Handler:   mux,
+		Protocols: protocols,
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		s.log.Info("driver server listening", "addr", addr)
+		errCh <- hs.ListenAndServe()
+	}()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+	}
+	s.log.Info("shutting down driver server")
+	if err := s.Shutdown(context.Background()); err != nil {
+		return err
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+	defer cancel()
+	return hs.Shutdown(shutdownCtx)
 }
 
 // Status reports the current run record.
