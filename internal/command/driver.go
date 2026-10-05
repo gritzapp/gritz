@@ -2,11 +2,18 @@ package command
 
 import (
 	"context"
+	"errors"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/runner/agent"
+	"github.com/gritzapp/gritz/internal/runner/driverserver"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"github.com/urfave/cli/v3"
 )
@@ -22,17 +29,31 @@ var DriverCommand = &cli.Command{
 			Value:   gritzclient.DefaultURL,
 		},
 		&cli.Int64Flag{
-			Name:     "task",
-			Aliases:  []string{"t"},
-			Usage:    "Task ID to execute",
-			Required: true,
+			Name:    "task",
+			Aliases: []string{"t"},
+			Usage:   "Task ID to execute (required without --serve)",
 		},
 		&cli.StringFlag{
 			Name:  "token",
 			Usage: "Authentication token for the agent",
 		},
+		&cli.BoolFlag{
+			Name:  "serve",
+			Usage: "Serve driver.v1.DriverService and execute runs as they arrive, instead of one run for --task",
+		},
+		&cli.StringFlag{
+			Name:  "addr",
+			Usage: "Address to serve on with --serve",
+			Value: ":8080",
+		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		if cmd.Bool("serve") {
+			return serveDriver(ctx, cmd.String("addr"))
+		}
+		if !cmd.IsSet("task") {
+			return errors.New(`required flag "task" not set`)
+		}
 		taskID := cmd.Int64("task")
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL: cmd.String("server"),
@@ -75,8 +96,64 @@ var DriverCommand = &cli.Command{
 			Token:     cmd.String("token"),
 			Env:       os.Environ(),
 		}
+		// SIGTERM stops the run gracefully: it is reported as stopped.
+		ctx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+		go func() {
+			select {
+			case <-sigCh:
+				log.Info("received SIGTERM, stopping agent")
+				cancel(agent.ErrStop)
+			case <-ctx.Done():
+			}
+		}()
 		return driver.Run(ctx)
 	},
+}
+
+// serveDriver serves driver.v1.DriverService on addr until SIGTERM or SIGINT,
+// which stop the active run, wait for it to report, and shut down.
+func serveDriver(ctx context.Context, addr string) error {
+	srv, err := driverserver.New(driverserver.Options{Environ: os.Environ()})
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
+	mux.Handle(srv.Handler())
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	httpServer := &http.Server{
+		Addr:      addr,
+		Handler:   mux,
+		Protocols: protocols,
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("driver server listening", "addr", addr)
+		errCh <- httpServer.ListenAndServe()
+	}()
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+	}
+
+	slog.Info("shutting down driver server")
+	// Wait for the active run to stop and report, however long that takes:
+	// the platform's stop timeout bounds it, as it does the one-shot driver.
+	if err := srv.Shutdown(context.Background()); err != nil {
+		return err
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return httpServer.Shutdown(shutdownCtx)
 }
 
 // driverSecrets returns the values the driver masks in the log it ships: the

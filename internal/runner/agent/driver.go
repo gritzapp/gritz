@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -46,22 +45,14 @@ type Driver struct {
 // driver-owned-events proposal); it returns an error only when it could not
 // report the outcome itself, so the runner's monitor reads the exit code as
 // a single bit meaning "did the driver report?".
+//
+// Cancelling ctx with ErrStop as the cause stops the run gracefully: the agent
+// and setup commands get SIGTERM, and the run is reported as stopped.
 func (d *Driver) Run(ctx context.Context) error {
-	// Events are submitted on the parent context, which survives the SIGTERM
-	// cancellation below — the terminal events go out after the run context
-	// is torn down, bounded by the client's HTTP timeout.
-	eventCtx := ctx
-
-	// Set up SIGTERM handler to cancel with ErrStop
-	ctx, cancel := context.WithCancelCause(ctx)
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		d.Log.Info("received SIGTERM, stopping agent")
-		cancel(ErrStop)
-	}()
-	defer signal.Stop(sigCh)
+	// Events are submitted on a context detached from ctx's cancellation, so
+	// the terminal events still go out after the run context is torn down,
+	// bounded by the client's HTTP timeout.
+	eventCtx := context.WithoutCancel(ctx)
 
 	// Fetch the task once at the top of the run, before any event is emitted.
 	// task.Version is this run's version — stamped on every runner event below
@@ -113,7 +104,7 @@ func (d *Driver) Run(ctx context.Context) error {
 	// Ship the tail of the log last, after the terminal event, so the "task
 	// failed" / "agent stopped" lines written above are in the buffer and go
 	// out with it. eventCtx is deliberate for the same reason the events use
-	// it: it survives the SIGTERM cancellation.
+	// it: it survives the run context's cancellation.
 	d.flushLog(eventCtx)
 	if serr != nil {
 		return errors.Join(err, serr)
