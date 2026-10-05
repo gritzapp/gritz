@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -258,36 +257,26 @@ func TestDriverRun_SetupCommandError(t *testing.T) {
 	)
 }
 
-// TestDriverRun_Sigterm must not run in parallel: it delivers a process-wide
-// SIGTERM via syscall.Kill, which Go dispatches to every driver's signal
-// handler registered in Run. A parallel sibling would catch the stray signal
-// and stop gracefully instead of taking its own path. Left serial, it runs in
-// the sequential phase with no other Run active, so the signal reaches only its
-// own driver.
-func TestDriverRun_Sigterm(t *testing.T) {
+func TestDriverRun_Stop(t *testing.T) {
+	t.Parallel()
 	// Arrange - the dummy agent sleeps until the run context is cancelled
 	driver, mock := setupDriver(t, &Config{
 		Type:  TypeDummy,
 		Dummy: &DummyOptions{Sleep: -1},
 	})
-	started := make(chan struct{})
+	ctx, cancel := context.WithCancelCause(t.Context())
 	mock.SubmitRunnerEventsFunc = func(_ context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 		if req.Events[0].Event == "started" {
-			close(started)
+			cancel(ErrStop)
 		}
 		return &gritzv1.SubmitRunnerEventsResponse{}, nil
 	}
-	go func() {
-		// Run's SIGTERM handler is registered before the started event is
-		// submitted, so the signal cannot kill the test process.
-		<-started
-		_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-	}()
 
 	// Act
-	err := driver.Run(t.Context())
+	err := driver.Run(ctx)
 
-	// Assert - a graceful stop is reported as stopped
+	// Assert - a graceful stop is reported as stopped, on a context that
+	// outlives the cancelled run context
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		mock.SubmittedRunnerEvents(),
