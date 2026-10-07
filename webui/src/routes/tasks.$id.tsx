@@ -36,15 +36,17 @@ export const Route = createFileRoute('/tasks/$id')({
   component: TaskDetail,
 })
 
-// The sidebar collapse preference survives navigation and reloads. With nothing
-// stored yet, small screens start collapsed (an expanded sidebar would cover
-// the timeline) and larger ones expanded.
+// Small screens always start collapsed: the expanded sidebar overlays the
+// timeline, so it's opened on demand and not remembered. On larger screens the
+// collapse preference survives navigation and reloads, defaulting to expanded.
 const SIDEBAR_COLLAPSED_KEY = 'task-sidebar-collapsed'
+const SMALL_SCREEN_QUERY = '(max-width: 767px)'
+
+const isSmallScreen = () => window.matchMedia(SMALL_SCREEN_QUERY).matches
 
 function initialSidebarCollapsed(): boolean {
-  const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
-  if (stored !== null) return stored === 'true'
-  return window.matchMedia('(max-width: 767px)').matches
+  if (isSmallScreen()) return true
+  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
 }
 
 function TaskDetail() {
@@ -69,7 +71,7 @@ function TaskDetail() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed)
   const toggleSidebar = () =>
     setSidebarCollapsed((collapsed) => {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(!collapsed))
+      if (!isSmallScreen()) localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(!collapsed))
       return !collapsed
     })
   const textareaRef = useRef<HTMLTextAreaElement>(null)
