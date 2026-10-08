@@ -6,7 +6,16 @@ import {
   useNavigate,
   useMatches,
 } from '@tanstack/react-router'
-import { LogOut, Settings } from 'lucide-react'
+import {
+  Boxes,
+  CalendarClock,
+  KeyRound,
+  ListTodo,
+  LogOut,
+  Settings,
+  Users,
+  Zap,
+} from 'lucide-react'
 import { lazy, Suspense } from 'react'
 import { QueryClient } from '@tanstack/react-query'
 import { useQuery } from '@connectrpc/connect-query'
@@ -45,6 +54,17 @@ const ReactQueryDevtools = import.meta.env.DEV
       })),
     )
   : () => null
+
+// Top-level nav. Below md the labels collapse to icons so the bar fits on a
+// phone.
+const NAV_ITEMS = [
+  { to: '/tasks', label: 'Tasks', icon: ListTodo },
+  { to: '/schedules', label: 'Schedules', icon: CalendarClock },
+  { to: '/events', label: 'Events', icon: Zap },
+  { to: '/workspaces', label: 'Workspaces', icon: Boxes },
+  { to: '/members', label: 'Members', icon: Users },
+  { to: '/keys', label: 'Keys', icon: KeyRound },
+] as const
 
 type RootSearch = { org?: string }
 
@@ -119,49 +139,20 @@ function RootComponent() {
             <Link to="/tasks/new" search={{ org: currentOrgId }} className="hidden md:block">
               <img src={gritzIcon} alt="Gritz" className="h-8 w-8" />
             </Link>
-            <div className="flex gap-2 md:gap-4">
-              <Link
-                to="/tasks"
-                search={{ org: currentOrgId }}
-                className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
-              >
-                Tasks
-              </Link>
-              <Link
-                to="/schedules"
-                search={{ org: currentOrgId }}
-                className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
-              >
-                Schedules
-              </Link>
-              <Link
-                to="/events"
-                search={{ org: currentOrgId }}
-                className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
-              >
-                Events
-              </Link>
-              <Link
-                to="/workspaces"
-                search={{ org: currentOrgId }}
-                className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
-              >
-                Workspaces
-              </Link>
-              <Link
-                to="/members"
-                search={{ org: currentOrgId }}
-                className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
-              >
-                Members
-              </Link>
-              <Link
-                to="/keys"
-                search={{ org: currentOrgId }}
-                className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
-              >
-                Keys
-              </Link>
+            <div className="flex gap-4">
+              {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  search={{ org: currentOrgId }}
+                  className="text-muted-foreground hover:text-foreground transition-colors [&.active]:text-foreground"
+                  title={label}
+                  aria-label={label}
+                >
+                  <Icon className="h-5 w-5 md:hidden" />
+                  <span className="hidden md:inline">{label}</span>
+                </Link>
+              ))}
             </div>
             <div className="ml-auto flex items-center gap-4">
               {orgs.length > 0 && (
