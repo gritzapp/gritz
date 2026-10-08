@@ -1,5 +1,44 @@
 # Changelog
 
+## [3.10.0](https://github.com/gritzapp/gritz/compare/v3.9.4...v3.10.0) (2026-10-08)
+
+
+### Features
+
+* **driver:** add gritz driver --serve ([ae72f48](https://github.com/gritzapp/gritz/commit/ae72f48daa12ed61aafb35152d1e0ba763e8a2d1))
+* **proto:** add driver.v1 service, first cut ([e70ba70](https://github.com/gritzapp/gritz/commit/e70ba700be7a45293384ce922c6cfa9a03efa209))
+* **runrecord:** add the driver's run record ([4751326](https://github.com/gritzapp/gritz/commit/47513266a19a56d72515bea8e4e30e2bf5bf4897))
+
+
+### Bug Fixes
+
+* **webui:** always start the task sidebar collapsed on small screens ([c6aeb22](https://github.com/gritzapp/gritz/commit/c6aeb22ecee473ea061c3aedae6b87704b4ef12a))
+* **webui:** show nav items as icons on mobile ([cfd31b2](https://github.com/gritzapp/gritz/commit/cfd31b21be8dc6c03e379ad15b645364d022e8a1))
+
+
+### Miscellaneous
+
+* add driver server proposal diagram and split diagrams into projects ([5c0fd44](https://github.com/gritzapp/gritz/commit/5c0fd44486ece4c9da3c079db99bbc225202234f))
+* add motion canvas diagram of the lambda microvm start flow ([1108adf](https://github.com/gritzapp/gritz/commit/1108adffc5dae56e13a80484f3d539f969ec162c))
+* add motion canvas diagram of the task creation flow ([86c7c59](https://github.com/gritzapp/gritz/commit/86c7c59f7d9281efafb1c3bd3ae73d91fca9b665))
+* add motioncanvas mise task and skill ([3c44195](https://github.com/gritzapp/gritz/commit/3c44195fea26e9992cef89c2e62d59d462091f3c))
+* **agent:** build dummy MCP server envs with envx.FromMap ([03547b7](https://github.com/gritzapp/gritz/commit/03547b770b8730c24bdbe76283db5dd53cba9781))
+* **agent:** build run envs inline with slices.Concat ([17f7bba](https://github.com/gritzapp/gritz/commit/17f7bbaaff5f815f217435c8736ce901faf88369))
+* **agent:** describe Driver.Env without naming its callers ([2f8f148](https://github.com/gritzapp/gritz/commit/2f8f14811a46164f1a1020945ae79547865b91e8))
+* **agent:** drop the agent env tests in favor of envx.TestExpand ([4c0b28b](https://github.com/gritzapp/gritz/commit/4c0b28b36a56427dcfa45450977c775f65ec42dd))
+* **agent:** drop the dummy MCP env comment ([b988507](https://github.com/gritzapp/gritz/commit/b98850753b9d59983ce269101581e7a989c87907))
+* **agent:** drop the Options.Env comment ([cd68b4e](https://github.com/gritzapp/gritz/commit/cd68b4ed4842ff0f74567bd401dd498e3bc9adb7))
+* **agent:** layer the run environment over the driver's ([a776c7a](https://github.com/gritzapp/gritz/commit/a776c7a587aac181f5f586584aec05faefd2d41a))
+* **agent:** make the run env the complete child environment ([884ed9e](https://github.com/gritzapp/gritz/commit/884ed9e1bb65e3a171a690a2f7832a63b123dc01))
+* **agent:** move env expansion into x/envx as Expand ([e3e4080](https://github.com/gritzapp/gritz/commit/e3e408060bf08941848ce0619ceb9fc807bd9f55))
+* **agent:** thread a per-run environment through the driver ([5b789dd](https://github.com/gritzapp/gritz/commit/5b789ddd294d5f8cd07a33ad71010c2d1813ac7f))
+* authenticate the runner to the driver with an optional public key ([3f40df8](https://github.com/gritzapp/gritz/commit/3f40df874cb001c0be51f64348e118894aa257af))
+* **driver:** move serve and signal handling out of the command ([10106bb](https://github.com/gritzapp/gritz/commit/10106bb75b9a5f3c5db48d6ea7f2ff9a44d95105))
+* phase the driver server rollout behind an experimental Docker backend ([d137351](https://github.com/gritzapp/gritz/commit/d1373513cfa107b64d2e040751b686f4993d41e3))
+* point the orchestrator skill at the gritzapp org board ([5486a8e](https://github.com/gritzapp/gritz/commit/5486a8e0846ccff8db8d424a2ceaa3cb9f5222de))
+* replace the driver outbox with a response log read from a runner offset ([ef878d5](https://github.com/gritzapp/gritz/commit/ef878d5e2273ad66881cd1d9769f0a95d9bc0f7c))
+* route driver reports through the runner in the driver server proposal ([ebc2a05](https://github.com/gritzapp/gritz/commit/ebc2a05ebc3a76e9b0517b21647bbdae1ef223e5))
+
 ## [3.9.4](https://github.com/gritzapp/gritz/compare/v3.9.3...v3.9.4) (2026-10-04)
 
 
