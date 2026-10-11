@@ -64,7 +64,10 @@ type File struct {
 // everything in it; backends interpret the workspace's runtime-specific
 // config section (container: for Docker) and provision the rest.
 type Spec struct {
-	TaskID    int64
+	TaskID int64
+	// Version is the task version this run executes. Backends that start runs
+	// over the driver protocol key them on it.
+	Version   int64
 	Workspace *workspace.Workspace
 	Cmd       []string // driver invocation
 	Env       []string // GRITZ_TASK_ID / GRITZ_TOKEN / GRITZ_SERVER
