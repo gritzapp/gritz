@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.11.0](https://github.com/gritzapp/gritz/compare/v3.10.0...v3.11.0) (2026-10-11)
+
+
+### Features
+
+* **runner:** add ExperimentalDocker backend ([d321a71](https://github.com/gritzapp/gritz/commit/d321a712528d2345768c51ef04e1768c1f56dfcf))
+* **runner:** add flag to opt into the experimental docker backend ([83d309e](https://github.com/gritzapp/gritz/commit/83d309e58650180b49d4f3a1a3551f7caaa5c256))
+
+
+### Miscellaneous
+
+* **runner:** drop the experimental Docker e2e tests for now ([31d9367](https://github.com/gritzapp/gritz/commit/31d9367151290a932279fd2436c2b9c74d3904be))
+* **runner:** move the experimental Docker backend into its own package ([e743718](https://github.com/gritzapp/gritz/commit/e7437185e212939206ec54c7ce1c40201ea3538d))
+* **runner:** reject foreign handles inside the experimentaldocker backend ([0c746d0](https://github.com/gritzapp/gritz/commit/0c746d0dd0342f4b3e3aa7dcce613b70b14672c5))
+
 ## [3.10.0](https://github.com/gritzapp/gritz/compare/v3.9.4...v3.10.0) (2026-10-08)
 
 
