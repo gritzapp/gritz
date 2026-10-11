@@ -107,8 +107,13 @@ will be waiting there.
 run `gh auth refresh -s read:project,project`):
 
 ```bash
-# Read the board (raise --limit past the default 30 or new cards get truncated)
-gh project item-list 1 --owner gritzapp --limit 100 --format json
+# Read the active board (Ready / In progress / In review). Always filter server-side with
+# --query: Done cards accumulate and, unfiltered, eat the --limit and silently truncate
+# the live cards. --query takes the Projects filter syntax.
+gh project item-list 1 --owner gritzapp --limit 200 --query "-status:Done,Backlog" --format json
+
+# Include the Backlog (e.g. when triaging or looking for related issues)
+gh project item-list 1 --owner gritzapp --limit 200 --query "-status:Done" --format json
 
 # Move a card to a column (get <itemId> from item-list; ids below can drift — rediscover
 # with `gh project field-list 1 --owner gritzapp` and a Status field-options query)
@@ -131,8 +136,9 @@ gh api graphql -f query='mutation($p:ID!,$c:ID!){addSubIssue(input:{issueId:$p,s
 The board makes recovery possible: fresh context, or handed off from another agent, you
 reconstruct the whole state by reading it.
 
-1. **Read the board.** The **In progress** and **In review** columns are the live efforts.
-   *Ready* is the queue of what to start next.
+1. **Read the board** with the `-status:Done,Backlog` query above — never an unfiltered
+   list. The **In progress** and **In review** columns are the live efforts. *Ready* is the
+   queue of what to start next.
 2. **Open each in-progress parent and read its sub-issue tree.** The layer in *In review* has
    an open PR (awaiting the human's merge, or your relayed feedback); the layer in *In
    progress* is being built; the next layer sits in *Ready* under it. That is your resume
