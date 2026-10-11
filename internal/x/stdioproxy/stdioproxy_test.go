@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,4 +80,27 @@ func TestProxy_DialFails(t *testing.T) {
 	err = Run(t.Context(), addr, strings.NewReader(""), io.Discard)
 
 	assert.ErrorContains(t, err, "failed to connect")
+}
+
+// The proxy connects to a unix:///path address.
+func TestProxy_Unix(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "driver.sock")
+	ln, err := net.Listen("unix", path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	closed := make(chan string, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		data, _ := io.ReadAll(conn)
+		closed <- string(data)
+	}()
+
+	err = Run(t.Context(), "unix://"+path, strings.NewReader("hello"), io.Discard)
+
+	assert.NilError(t, err)
+	assert.Equal(t, <-closed, "hello")
 }

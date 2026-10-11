@@ -9,12 +9,12 @@ import (
 
 var ProxyCommand = &cli.Command{
 	Name:   "proxy",
-	Usage:  "Connect stdin and stdout to a TCP address",
+	Usage:  "Connect stdin and stdout to a TCP address or unix socket",
 	Hidden: true,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "addr",
-			Usage:    "TCP address to connect to",
+			Usage:    "TCP address or unix:///path to connect to",
 			Required: true,
 		},
 	},

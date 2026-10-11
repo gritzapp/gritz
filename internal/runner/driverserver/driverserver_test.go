@@ -3,6 +3,7 @@ package driverserver
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -664,6 +665,39 @@ func TestListenAndServe(t *testing.T) {
 	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
 	assert.NilError(t, <-errCh)
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+}
+
+// On a unix:///path address, ListenAndServe replaces a stale socket file and
+// removes the socket on shutdown.
+func TestListenAndServe_Unix(t *testing.T) {
+	t.Parallel()
+	// Arrange - a file left behind at the socket path
+	te := setup(t, sleepForever, testOptions{})
+	path := filepath.Join(t.TempDir(), "driver.sock")
+	assert.NilError(t, os.WriteFile(path, nil, 0o600))
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- te.srv.ListenAndServe(ctx, "unix://"+path) }()
+	client := driverv1connect.NewDriverServiceClient(&http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", path)
+		},
+	}}, "http://driver")
+
+	// Act
+	ok := poll(func() bool {
+		_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+		return err == nil
+	})
+
+	// Assert - the server answered on the socket, and removed it on shutdown
+	assert.Assert(t, ok, "server never came up")
+	cancel()
+	assert.NilError(t, <-errCh)
+	_, err := os.Stat(path)
+	assert.Assert(t, errors.Is(err, fs.ErrNotExist), "socket file not removed: %v", err)
 }
 
 // With a hook address, ListenAndServe also acknowledges the Lambda hooks.

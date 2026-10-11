@@ -21,7 +21,6 @@ import (
 	"net"
 	"net/http"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,9 +44,11 @@ import (
 // produces.
 const HandleType = "experimental-docker"
 
-// DriverPort is the port `gritz driver --serve` listens on inside a container.
-// Every container has its own network namespace, so it never collides.
-const DriverPort = 8080
+// DriverAddr is the unix socket `gritz driver --serve` listens on inside a
+// container. Each container has its own filesystem, so drivers sharing a
+// network namespace never collide, and nothing outside the container can reach
+// the driver over the network.
+const DriverAddr = "unix:///gritz/driver.sock"
 
 const (
 	// driverReadyTimeout bounds how long Launch waits for a started
@@ -109,19 +110,11 @@ func (b *Backend) Close() error {
 	return b.docker.Close()
 }
 
-// ValidateWorkspace reports whether the workspace's container config is usable:
-// it needs an image, and a network namespace of its own for the driver server
-// to listen on DriverPort in. Host and container: modes share a namespace in
-// which several drivers would collide; none is rejected as well.
+// ValidateWorkspace reports whether the workspace's container config is
+// usable. Any network mode is: the driver server listens on a unix socket in
+// the container's filesystem, not on a port.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
-	if err := ws.Container.Validate(); err != nil {
-		return err
-	}
-	mode := container.NetworkMode(ws.Container.NetworkMode)
-	if mode.IsNone() || mode.IsContainer() || mode.IsHost() {
-		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the driver server needs a network namespace of its own", ws.Container.NetworkMode)
-	}
-	return nil
+	return ws.Container.Validate()
 }
 
 // handleData is the backend-defined part of an experimental handle.
@@ -321,7 +314,7 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 				"gritz.task":   fmt.Sprint(spec.TaskID),
 				"gritz.runner": b.runnerID,
 			},
-			Cmd:        []string{backend.BinaryPath, "driver", "--serve"},
+			Cmd:        []string{backend.BinaryPath, "driver", "--serve", "--addr", DriverAddr},
 			Env:        wc.Environ(),
 			WorkingDir: wc.WorkingDir,
 		},
@@ -393,8 +386,8 @@ var errNotRunning = errors.New("container is not running")
 // errNotRunning.
 //
 // The client never connects to the container over the network: each
-// connection is tunnelled through a Docker exec of `gritz tool proxy`, so the
-// runner needs only Docker API access to reach the driver. Keep-alives are
+// connection is tunnelled through a Docker exec of `gritz tool proxy` to the
+// driver's socket, so the runner needs only Docker API access to reach it. Keep-alives are
 // off, so no idle connection holds an exec open.
 func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
 	info, err := b.docker.ContainerInspect(ctx, containerID)
@@ -420,7 +413,7 @@ func (b *Backend) execConn(ctx context.Context, containerID string) (net.Conn, e
 	exec, err := b.docker.ContainerExecCreate(ctx, containerID, container.ExecOptions{
 		AttachStdin:  true,
 		AttachStdout: true,
-		Cmd:          []string{backend.BinaryPath, "tool", "proxy", "--addr", net.JoinHostPort("127.0.0.1", strconv.Itoa(DriverPort))},
+		Cmd:          []string{backend.BinaryPath, "tool", "proxy", "--addr", DriverAddr},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create driver proxy exec: %w", err)

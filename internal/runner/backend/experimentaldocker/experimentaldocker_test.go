@@ -63,23 +63,23 @@ func TestNewRunSpec(t *testing.T) {
 
 func TestValidateWorkspace(t *testing.T) {
 	be := &Backend{}
-	for _, mode := range []string{"", "bridge", "gritz-net"} {
+	// The driver server listens on a unix socket, so any network mode works.
+	for _, mode := range []string{"", "bridge", "gritz-net", "host", "none", "container:abc"} {
 		t.Run("accepts "+cmp.Or(mode, "default"), func(t *testing.T) {
 			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
 			assert.NilError(t, be.ValidateWorkspace(ws))
 		})
 	}
-	// The driver server needs a network namespace of its own to listen in.
-	for _, mode := range []string{"host", "none", "container:abc"} {
-		t.Run("rejects "+mode, func(t *testing.T) {
-			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
-			assert.ErrorContains(t, be.ValidateWorkspace(ws), "not supported by the experimental docker backend")
-		})
-	}
+	t.Run("rejects missing image", func(t *testing.T) {
+		ws := &workspace.Workspace{Container: workspace.Container{NetworkMode: "host"}}
+		assert.ErrorContains(t, be.ValidateWorkspace(ws), "image is required")
+	})
 }
 
-// A container from create answers Status through the exec tunnel, and a
-// stopped one is reported as not running rather than dialed.
+// A container from create answers Status through the exec tunnel to the
+// driver's socket, whatever its network mode — including two sharing the
+// host's network namespace — and a stopped one is reported as not running
+// rather than dialed.
 func TestDial_TunnelsThroughExec(t *testing.T) {
 	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
 	assert.NilError(t, err)
@@ -87,24 +87,28 @@ func TestDial_TunnelsThroughExec(t *testing.T) {
 	be, err := New(Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = be.Close() })
-	id, err := be.create(t.Context(), &backend.Spec{
-		TaskID:    rand.Int64N(1 << 40),
-		Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest"}},
-	})
-	assert.NilError(t, err)
-	t.Cleanup(func() {
-		_ = be.docker.ContainerRemove(context.Background(), id, container.RemoveOptions{Force: true})
-	})
-	assert.NilError(t, be.docker.ContainerStart(t.Context(), id, container.StartOptions{}))
+	var ids []string
+	for _, mode := range []string{"", "none", "host", "host"} {
+		id, err := be.create(t.Context(), &backend.Spec{
+			TaskID:    rand.Int64N(1 << 40),
+			Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}},
+		})
+		assert.NilError(t, err)
+		t.Cleanup(func() {
+			_ = be.docker.ContainerRemove(context.Background(), id, container.RemoveOptions{Force: true})
+		})
+		assert.NilError(t, be.docker.ContainerStart(t.Context(), id, container.StartOptions{}))
 
-	client, err := be.dial(t.Context(), id)
-	assert.NilError(t, err)
-	assert.NilError(t, be.waitReady(t.Context(), client))
-	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
-	assert.NilError(t, err)
+		client, err := be.dial(t.Context(), id)
+		assert.NilError(t, err)
+		assert.NilError(t, be.waitReady(t.Context(), client), "network mode %q", mode)
+		_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
+		assert.NilError(t, err)
+		ids = append(ids, id)
+	}
 
-	assert.NilError(t, be.docker.ContainerStop(t.Context(), id, container.StopOptions{}))
-	_, err = be.dial(t.Context(), id)
+	assert.NilError(t, be.docker.ContainerStop(t.Context(), ids[0], container.StopOptions{}))
+	_, err = be.dial(t.Context(), ids[0])
 	assert.ErrorIs(t, err, errNotRunning)
 }
 
