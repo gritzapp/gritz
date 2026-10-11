@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/gritzapp/gritz/internal/configfile"
@@ -18,6 +19,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	dockerbackend "github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
+	"github.com/gritzapp/gritz/internal/runner/backend/experimentallambdamicrovm"
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm/awsmvm"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
@@ -78,7 +80,7 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "backend",
-			Usage:   "Sandbox backend (docker, experimental-docker, lambda-microvm)",
+			Usage:   "Sandbox backend (docker, experimental-docker, lambda-microvm, experimental-lambda-microvm)",
 			Value:   "docker",
 			Sources: cli.EnvVars("GRITZ_BACKEND"),
 		},
@@ -90,7 +92,7 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "lambda-microvm-region",
-			Usage:   "AWS region for the lambda-microvm backend (defaults to the SDK-resolved region)",
+			Usage:   "AWS region for the lambda-microvm backends (defaults to the SDK-resolved region)",
 			Sources: cli.EnvVars("GRITZ_LAMBDA_MICROVM_REGION"),
 		},
 		&cli.BoolFlag{
@@ -190,11 +192,7 @@ var RunnerCommand = &cli.Command{
 				return err
 			}
 		case "lambda-microvm":
-			loadOpts := []func(*config.LoadOptions) error{}
-			if region := cmd.String("lambda-microvm-region"); region != "" {
-				loadOpts = append(loadOpts, config.WithRegion(region))
-			}
-			awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
+			awsCfg, err := loadLambdaMicroVMConfig(ctx, cmd)
 			if err != nil {
 				return fmt.Errorf("lambda-microvm backend: %w", err)
 			}
@@ -204,6 +202,22 @@ var RunnerCommand = &cli.Command{
 				RunnerID: runnerID,
 				Region:   awsCfg.Region,
 				Log:      log,
+			})
+			if err != nil {
+				return err
+			}
+		case experimentallambdamicrovm.HandleType:
+			// Like experimental-docker, this replaces lambda-microvm rather
+			// than running beside it: handles recorded by any other backend
+			// are treated as gone.
+			awsCfg, err := loadLambdaMicroVMConfig(ctx, cmd)
+			if err != nil {
+				return fmt.Errorf("experimental-lambda-microvm backend: %w", err)
+			}
+			be, err = experimentallambdamicrovm.New(experimentallambdamicrovm.Options{
+				Cloud:  awsmicrovm.NewClient(awsCfg),
+				Region: awsCfg.Region,
+				Log:    log,
 			})
 			if err != nil {
 				return err
@@ -300,4 +314,15 @@ var RunnerCommand = &cli.Command{
 			}
 		}
 	},
+}
+
+// loadLambdaMicroVMConfig resolves the AWS config for the lambda-microvm
+// backends from the standard SDK chain, with --lambda-microvm-region
+// overriding the resolved region.
+func loadLambdaMicroVMConfig(ctx context.Context, cmd *cli.Command) (aws.Config, error) {
+	var loadOpts []func(*config.LoadOptions) error
+	if region := cmd.String("lambda-microvm-region"); region != "" {
+		loadOpts = append(loadOpts, config.WithRegion(region))
+	}
+	return config.LoadDefaultConfig(ctx, loadOpts...)
 }

@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
 	"github.com/gritzapp/gritz/internal/runner/logship"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"github.com/urfave/cli/v3"
 )
 
@@ -43,6 +46,10 @@ var DriverCommand = &cli.Command{
 			Usage: "Address to serve on with --serve",
 			Value: ":8080",
 		},
+		&cli.BoolFlag{
+			Name:  "aws-lambda-hooks",
+			Usage: "With --serve, also acknowledge the AWS Lambda MicroVM lifecycle hooks on their port",
+		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.Bool("serve") {
@@ -52,7 +59,29 @@ var DriverCommand = &cli.Command{
 			}
 			ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			return srv.ListenAndServe(ctx, cmd.String("addr"))
+			if !cmd.Bool("aws-lambda-hooks") {
+				return srv.ListenAndServe(ctx, cmd.String("addr"))
+			}
+			// The hooks have nothing to do: the VM's run arrives over
+			// driver.v1, and the runner drives suspend and resume.
+			hooks := &http.Server{
+				Addr:    fmt.Sprintf(":%d", awsmicrovm.HookPort),
+				Handler: &awsmicrovm.Handler{},
+			}
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
+			go func() {
+				err := hooks.ListenAndServe()
+				if !errors.Is(err, http.ErrServerClosed) {
+					cancel(fmt.Errorf("failed to serve lambda hooks: %w", err))
+				}
+			}()
+			defer hooks.Close()
+			err = srv.ListenAndServe(ctx, cmd.String("addr"))
+			if cause := context.Cause(ctx); err == nil && cause != nil && !errors.Is(cause, context.Canceled) {
+				return cause
+			}
+			return err
 		}
 		if !cmd.IsSet("task") {
 			return errors.New(`required flag "task" not set`)
