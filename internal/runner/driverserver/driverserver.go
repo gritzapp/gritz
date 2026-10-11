@@ -1,11 +1,12 @@
 // Package driverserver implements driver.v1.DriverService, served by
-// `gritz driver` inside the sandbox. Runs execute in-process, one at a
-// time, each built from its RunSpec: its own gritz client, log shipper, secret
-// mask and environment.
+// `gritz driver` inside the sandbox. Runs execute in-process, one at a time.
+// The Server holds what outlives a run — the run record, the Run streams, the
+// log shipper, provisioning — and each Run is built from its RunSpec: its own
+// gritz client, /gritz/log tee, secret mask and environment.
 //
-// See proposals/draft/driver-server.md. The driver still reports started /
-// stopped / failed to the gritz server itself, and Finished says whether that
-// report was acknowledged.
+// See proposals/draft/driver-server.md. A run reports started / stopped /
+// failed to the gritz server itself, and Finished says whether that report was
+// acknowledged. Stop ends a run as stopped; Shutdown ends it as failed.
 package driverserver
 
 import (
@@ -92,6 +93,12 @@ type Server struct {
 	log        *slog.Logger
 	hookAddr   string
 
+	// shipper mirrors every run's log to the gritz server; each run points it
+	// at itself and puts its own mask in front of it. Its sender runs until
+	// Shutdown has seen the active run finish.
+	shipper     *logship.Shipper
+	stopShipper context.CancelFunc
+
 	// runs tracks the goroutine of the active run, so Shutdown can wait for it.
 	runs sync.WaitGroup
 
@@ -103,7 +110,7 @@ type Server struct {
 	// active is the latest run started by this process, nil if none. It stays
 	// set after the run finishes, so a Run attaching late still gets its
 	// Finished.
-	active *run
+	active *Run
 	// streaming is true while a Run stream is open.
 	streaming bool
 	// closed is set by Shutdown; no run starts after it.
@@ -111,16 +118,6 @@ type Server struct {
 }
 
 var _ driverv1connect.DriverServiceHandler = (*Server)(nil)
-
-// run is a run executing in this process.
-type run struct {
-	version int64
-	cancel  context.CancelCauseFunc
-	// done is closed once the run has finished and its record is written.
-	done chan struct{}
-	// reported is set before done is closed.
-	reported bool
-}
 
 // New returns a server, reconciling the run record first: a record still
 // running means the previous process died mid-run, so it is rewritten as
@@ -136,6 +133,7 @@ func New(opts Options) (*Server, error) {
 		keepAlive:  cmp.Or(opts.KeepAlive, DefaultKeepAlive),
 		log:        cmp.Or(opts.Log, slog.Default()),
 		hookAddr:   opts.HookAddr,
+		shipper:    logship.New(nil, logship.Options{}),
 	}
 	if s.newClient == nil {
 		s.newClient = func(serverURL, token string) gritzclient.Client {
@@ -150,6 +148,9 @@ func New(opts Options) (*Server, error) {
 		s.log.Warn("driver restarted mid-run", "version", rec.Version)
 	}
 	s.rec, s.hasRec = rec, ok
+	ctx, cancel := context.WithCancel(context.Background())
+	s.stopShipper = cancel
+	go s.shipper.Run(ctx)
 	return s, nil
 }
 
@@ -162,9 +163,9 @@ func (s *Server) Handler() (string, http.Handler) {
 // over HTTP/1.1 and unencrypted HTTP/2, and the hooks on Options.HookAddr if
 // set, until ctx is cancelled or either listener fails. A socket file left at
 // a unix path is removed before listening, and the socket is removed again on
-// shutdown. Once ctx is cancelled it stops the active run, waits for it to
-// stop and report, however long that takes (the platform's stop timeout bounds
-// it), and shuts down the HTTP servers.
+// shutdown. Once ctx is cancelled it shuts down the active run, waits for it
+// to report, however long that takes (the platform's stop timeout bounds it),
+// and shuts down the HTTP servers.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle(s.Handler())
@@ -274,7 +275,7 @@ func (s *Server) Run(ctx context.Context, req *driverv1.RunRequest, stream *conn
 
 // open claims the stream and resolves the request to a run, starting it if
 // needed. On success the caller must release the stream.
-func (s *Server) open(req *driverv1.RunRequest) (r *run, attached bool, err error) {
+func (s *Server) open(req *driverv1.RunRequest) (r *Run, attached bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.streaming {
@@ -316,16 +317,9 @@ func (s *Server) release() {
 	s.streaming = false
 }
 
-// finishedRun returns a run that has already finished.
-func finishedRun(version int64, reported bool) *run {
-	r := &run{version: version, done: make(chan struct{}), reported: reported}
-	close(r.done)
-	return r
-}
-
 // start provisions the spec's files, writes the run record and starts the run
 // in the background. It is called with s.mu held.
-func (s *Server) start(version int64, spec *driverv1.RunSpec) (*run, error) {
+func (s *Server) start(version int64, spec *driverv1.RunSpec) (*Run, error) {
 	if err := s.provision(spec.GetFiles()); err != nil {
 		return nil, err
 	}
@@ -334,13 +328,14 @@ func (s *Server) start(version int64, spec *driverv1.RunSpec) (*run, error) {
 		return nil, err
 	}
 	s.rec, s.hasRec = rec, true
-	// Only Stop and Shutdown cancel a run; no request's context reaches it.
-	ctx, cancel := context.WithCancelCause(context.Background())
-	r := &run{version: version, cancel: cancel, done: make(chan struct{})}
+	r := s.newRun(version, spec)
 	s.active = r
 	s.runs.Go(func() {
-		defer cancel(nil)
-		s.execute(ctx, r, spec)
+		err := r.execute()
+		if err != nil {
+			s.log.Error("run not reported", "version", r.version, "err", err)
+		}
+		s.finish(r, err == nil)
 	})
 	return r, nil
 }
@@ -396,37 +391,8 @@ func writeFile(path string, f *driverv1.File) error {
 	return os.Chmod(path, mode)
 }
 
-// execute runs the driver for spec, then records the outcome and finishes r.
-func (s *Server) execute(ctx context.Context, r *run, spec *driverv1.RunSpec) {
-	client := s.newClient(spec.GetServerUrl(), spec.GetToken())
-
-	// Built before anything touches the server, so the mask is in place before
-	// the first shipped byte.
-	shipper := logship.New(client, logship.Options{
-		TaskID:  spec.GetTaskId(),
-		Secrets: Secrets(spec),
-	})
-	shipCtx, stopShipper := context.WithCancel(context.Background())
-	go shipper.Run(shipCtx)
-	log := agent.OpenDriverLog(s.logPath, shipper)
-
-	driver := &agent.Driver{
-		TaskID:    spec.GetTaskId(),
-		Client:    client,
-		Log:       log,
-		Config:    s.config,
-		ServerURL: spec.GetServerUrl(),
-		Token:     spec.GetToken(),
-		Env:       Env(s.environ, spec),
-	}
-	err := driver.Run(ctx)
-	if err != nil {
-		s.log.Error("run not reported", "version", r.version, "err", err)
-	}
-	_ = log.Close()
-	stopShipper()
-
-	reported := err == nil
+// finish writes r's outcome to the run record, then finishes r.
+func (s *Server) finish(r *Run, reported bool) {
 	rec := runrecord.Record{
 		Version:    r.version,
 		State:      runrecord.Finished,
@@ -437,44 +403,30 @@ func (s *Server) execute(ctx context.Context, r *run, spec *driverv1.RunSpec) {
 		s.log.Error("failed to write run record", "version", r.version, "err", err)
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.rec = rec
-	r.reported = reported
-	close(r.done)
-	s.mu.Unlock()
+	r.finish(reported)
 }
 
-// Stop cancels the run with the request's version with ErrStop, if it is
-// running. It does not wait: the run reports stopped and its Run stream gets
-// Finished as usual.
+// Stop ends the run with the request's version with ErrStop, if it is
+// running. It does not wait: the run flushes its log, reports stopped, and its
+// Run stream gets Finished as usual.
 func (s *Server) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1.StopResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return &driverv1.StopResponse{Stopped: s.stop(req.GetVersion())}, nil
-}
-
-// stop cancels the active run if it has the given version and is still
-// running. It is called with s.mu held.
-func (s *Server) stop(version int64) bool {
 	r := s.active
-	if r == nil || r.version != version {
-		return false
-	}
-	select {
-	case <-r.done:
-		return false
-	default:
-	}
-	r.cancel(agent.ErrStop)
-	return true
+	stopped := r != nil && r.version == req.GetVersion() && r.Stop()
+	return &driverv1.StopResponse{Stopped: stopped}, nil
 }
 
-// Shutdown stops the active run, if any, and waits for it to finish and
-// report, or for ctx to expire. No run starts after Shutdown is called.
+// Shutdown ends the active run, if it is running, with ErrShutdown, and waits
+// for it to flush its log and report failed, or for ctx to expire. With no run
+// active there is nothing to report. No run starts after Shutdown is called.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.closed = true
 	if s.active != nil {
-		s.stop(s.active.version)
+		s.active.Shutdown()
 	}
 	s.mu.Unlock()
 	done := make(chan struct{})
@@ -484,6 +436,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
+		s.stopShipper()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

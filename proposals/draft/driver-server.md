@@ -263,7 +263,7 @@ process today moves into the `Run` handler, and the server calls go away:
 | `logship.Shipper` calling `AppendLogChunk` | the shipper's sender logs `log_chunk` responses; masking and chunk cutting are unchanged |
 | `driverSecrets()` reads `GRITZ_SECRETS` via `os.Getenv` | `RunSpec.secrets`; the `redact.Writer` is built per run before the first byte |
 | `agent.OpenDriverLog` once | opened per run, still appending to `/gritz/log` |
-| SIGTERM handler in `Driver.Run` | run context cancelled with `ErrStop` by `Stop`; SIGTERM to the server process means shut down (stopping an active run first) |
+| SIGTERM handler in `Driver.Run` | run context cancelled with `ErrStop` by `Stop`, reported stopped; SIGTERM to the server process means shut down, cancelling an active run with `ErrShutdown`, reported failed ("driver shut down mid-run") |
 | exit code means "did the driver report?" | the response log: the terminal event is durable in the sandbox before `Finished` |
 
 The event cursor stays in the driver's config (`cfg.NextEventToken`). The driver

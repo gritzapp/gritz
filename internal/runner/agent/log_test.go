@@ -1,18 +1,14 @@
 package agent
 
 import (
-	"context"
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
-
-	"github.com/gritzapp/gritz/internal/gritzclient"
-	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/runner/logship"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestOpenLogSink_CreatesFile(t *testing.T) {
@@ -94,43 +90,23 @@ func TestOpenDriverLog_FailureDegrades(t *testing.T) {
 	assert.NilError(t, log.Close())
 }
 
-func TestDriverLog_CloseFlushesShipper(t *testing.T) {
+func TestOpenDriverLog_Ships(t *testing.T) {
 	t.Parallel()
-	// Arrange - a driver log holding bytes that no run ever flushed, as after an
-	// early-error exit (a failed GetTask returns before Run's end-of-run flush).
-	client := &gritzclient.ClientMock{
-		AppendLogChunkFunc: func(_ context.Context, _ *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
-			return &gritzv1.AppendLogChunkResponse{}, nil
-		},
-	}
-	log := OpenDriverLog(filepath.Join(t.TempDir(), "log"), logship.New(client, logship.Options{TaskID: 7}))
-	_, err := io.WriteString(log.Sink(), "early failure\n")
-	assert.NilError(t, err)
+	// Arrange - a log with a shipped branch
+	logPath := filepath.Join(t.TempDir(), "log")
+	var shipped bytes.Buffer
+	log := OpenDriverLog(logPath, &shipped)
 
-	// Act - the Close the driver command already defers
-	assert.NilError(t, log.Close())
-
-	// Assert - the backstop shipped the buffered tail, stamped with the
-	// pre-run version.
-	assert.DeepEqual(t,
-		client.AppendedLogChunks(),
-		[]*gritzv1.AppendLogChunkRequest{
-			{TaskId: 7, Data: []byte("early failure\n")},
-		},
-		protocmp.Transform(),
-	)
-}
-
-func TestDriverLog_NoShipperNeverShips(t *testing.T) {
-	t.Parallel()
-	// Arrange - a nil shipper, as tests and directly-invoked drivers pass. The
-	// mock has no AppendLogChunkFunc, so any call at all would panic.
-	log := OpenDriverLog(filepath.Join(t.TempDir(), "log"), nil)
-
-	// Act
-	_, err := io.WriteString(log.Sink(), "not shipped\n")
+	// Act - write through every tee
+	_, err := io.WriteString(log.Sink(), "sink\n")
 	assert.NilError(t, err)
 	log.StartRun(3)
-	assert.NilError(t, log.Flush(t.Context()))
+	log.Info("logged")
 	assert.NilError(t, log.Close())
+
+	// Assert - the shipped branch got the log file byte for byte
+	file, err := os.ReadFile(logPath)
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Contains(string(file), "==== run version=3"))
+	assert.Equal(t, shipped.String(), string(file))
 }

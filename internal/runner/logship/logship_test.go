@@ -75,41 +75,54 @@ func TestShipper_CutsAtChunkSize(t *testing.T) {
 	)
 }
 
-func TestShipper_SetVersion(t *testing.T) {
+func TestShipper_Reset(t *testing.T) {
 	t.Parallel()
-	// Arrange
-	client := &gritzclient.ClientMock{
+	// Arrange - a shipper with one run's tail still buffered, as when its
+	// Flush gave up
+	first := &gritzclient.ClientMock{
 		AppendLogChunkFunc: func(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
 			return &gritzv1.AppendLogChunkResponse{}, nil
 		},
 	}
-	shipper := New(client, Options{TaskID: 7})
-
-	// Act - the pre-run preamble ships as version 0, because the flush cuts it
-	// before the run is stamped; everything after ships as version 3
-	_, err := shipper.Write([]byte("preamble\n"))
+	second := &gritzclient.ClientMock{
+		AppendLogChunkFunc: func(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
+			return &gritzv1.AppendLogChunkResponse{}, nil
+		},
+	}
+	shipper := New(first, Options{TaskID: 7})
+	_, err := shipper.Write([]byte("shipped\n"))
 	assert.NilError(t, err)
 	assert.NilError(t, shipper.Flush(t.Context()))
-	shipper.SetVersion(3)
-	_, err = shipper.Write([]byte("run\n"))
+	_, err = shipper.Write([]byte("stranded\n"))
+	assert.NilError(t, err)
+
+	// Act - the next run, with its own client and version
+	shipper.Reset(second, 8, 3)
+	_, err = shipper.Write([]byte("next run\n"))
 	assert.NilError(t, err)
 	assert.NilError(t, shipper.Flush(t.Context()))
 
-	// Assert
+	// Assert - the stranded tail was dropped, and the new run's bytes went
+	// through its own client, stamped for it
 	assert.DeepEqual(t,
-		client.AppendedLogChunks(),
+		first.AppendedLogChunks(),
 		[]*gritzv1.AppendLogChunkRequest{
-			{TaskId: 7, Version: 0, Data: []byte("preamble\n")},
-			{TaskId: 7, Version: 3, Data: []byte("run\n")},
+			{TaskId: 7, Data: []byte("shipped\n")},
+		},
+		protocmp.Transform(),
+	)
+	assert.DeepEqual(t,
+		second.AppendedLogChunks(),
+		[]*gritzv1.AppendLogChunkRequest{
+			{TaskId: 8, Version: 3, Data: []byte("next run\n")},
 		},
 		protocmp.Transform(),
 	)
 }
 
-// TestShipper_SetVersionDoesNotCut asserts the version change is only a stamp:
-// bytes written either side of it share a chunk when nothing drained in
-// between, and that chunk carries the version current when it was cut.
-func TestShipper_SetVersionDoesNotCut(t *testing.T) {
+// TestShipper_NilClient asserts a shipper without a client drops what is
+// written: those bytes belong to no run.
+func TestShipper_NilClient(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	client := &gritzclient.ClientMock{
@@ -117,24 +130,17 @@ func TestShipper_SetVersionDoesNotCut(t *testing.T) {
 			return &gritzv1.AppendLogChunkResponse{}, nil
 		},
 	}
-	shipper := New(client, Options{TaskID: 7})
+	shipper := New(nil, Options{})
 
 	// Act
-	_, err := shipper.Write([]byte("preamble\n"))
+	_, err := shipper.Write([]byte("between runs\n"))
 	assert.NilError(t, err)
-	shipper.SetVersion(3)
-	_, err = shipper.Write([]byte("run\n"))
-	assert.NilError(t, err)
+	assert.NilError(t, shipper.Flush(t.Context()))
+	shipper.Reset(client, 7, 3)
 	assert.NilError(t, shipper.Flush(t.Context()))
 
 	// Assert
-	assert.DeepEqual(t,
-		client.AppendedLogChunks(),
-		[]*gritzv1.AppendLogChunkRequest{
-			{TaskId: 7, Version: 3, Data: []byte("preamble\nrun\n")},
-		},
-		protocmp.Transform(),
-	)
+	assert.Assert(t, cmp.Len(client.AppendedLogChunks(), 0))
 }
 
 // TestShipper_TickDrainCutsOnePartialChunk asserts a tick-started drain ships
@@ -500,120 +506,6 @@ func TestShipper_WriteDoesNotBlockOnASlowServer(t *testing.T) {
 		assert.Assert(t, len(req.GetData()) <= opts.ChunkSize,
 			"chunk of %d bytes exceeds the chunk size", len(req.GetData()))
 	}
-}
-
-// ghTokenSecret is the secrets map the driver hands the shipper for one
-// declared workspace secret.
-var ghTokenSecret = map[string]string{"GH_TOKEN": "ghp_abc123"}
-
-// TestShipper_PlainTextIsNotHeldBack asserts the mask holds nothing back from
-// a stream that carries no secret, so the shipped log keeps up with the written
-// one between flushes rather than trailing it by the length of a secret.
-func TestShipper_PlainTextIsNotHeldBack(t *testing.T) {
-	t.Parallel()
-	// Arrange - a long secret value, so any length-based holdback would swallow
-	// the whole write below
-	var delivered testx.SafeSlice[string]
-	client := &gritzclient.ClientMock{
-		AppendLogChunkFunc: func(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
-			delivered.Append(string(req.Data))
-			return &gritzv1.AppendLogChunkResponse{}, nil
-		},
-	}
-	shipper := New(client, Options{
-		TaskID:        7,
-		Secrets:       map[string]string{"GH_TOKEN": strings.Repeat("s", 900)},
-		FlushInterval: 10 * time.Millisecond,
-	})
-	go shipper.Run(t.Context())
-
-	// Act - no Flush, so only what the mask lets through can be cut and shipped
-	_, err := shipper.Write([]byte("cloning the repo\n"))
-	assert.NilError(t, err)
-
-	// Assert
-	testx.WaitForWithTimeout(t, t.Context(), 5*time.Second, func() bool {
-		return len(delivered.Slice()) == 1
-	})
-	assert.DeepEqual(t, delivered.Slice(), []string{"cloning the repo\n"})
-}
-
-// TestShipper_MasksAcrossWrites asserts a secret split across two writes is
-// still masked: log bytes arrive in arbitrary runs, so a value can land on any
-// write boundary.
-func TestShipper_MasksAcrossWrites(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	client := &gritzclient.ClientMock{
-		AppendLogChunkFunc: func(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
-			return &gritzv1.AppendLogChunkResponse{}, nil
-		},
-	}
-	shipper := New(client, Options{TaskID: 7, Secrets: ghTokenSecret})
-
-	// Act
-	for _, w := range []string{"cloning with ghp_", "abc123 now\n"} {
-		_, err := shipper.Write([]byte(w))
-		assert.NilError(t, err)
-	}
-	assert.NilError(t, shipper.Flush(t.Context()))
-
-	// Assert
-	assert.Equal(t, client.ShippedLog(), "cloning with [gritz:masked GH_TOKEN] now\n")
-}
-
-// TestShipper_MasksAcrossChunks asserts the mask state outlives a chunk cut:
-// with one-byte writes and a chunk cut every four bytes, both boundaries fall
-// inside the secret, and it must still never reach the server.
-func TestShipper_MasksAcrossChunks(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	client := &gritzclient.ClientMock{
-		AppendLogChunkFunc: func(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
-			return &gritzv1.AppendLogChunkResponse{}, nil
-		},
-	}
-	shipper := New(client, Options{TaskID: 7, Secrets: ghTokenSecret, ChunkSize: 4})
-
-	// Act
-	for _, b := range []byte("using ghp_abc123 now\n") {
-		_, err := shipper.Write([]byte{b})
-		assert.NilError(t, err)
-	}
-	assert.NilError(t, shipper.Flush(t.Context()))
-
-	// Assert - chunk boundaries fall wherever they fall, but the reassembled
-	// transcript carries the marker and not the value.
-	assert.Assert(t, len(client.AppendedLogChunks()) > 1, "expected more than one chunk")
-	assert.Equal(t, client.ShippedLog(), "using [gritz:masked GH_TOKEN] now\n")
-}
-
-// TestShipper_FlushDrainsHeldBytes asserts Flush drains the tail the mask holds
-// back mid-potential-match, so a run's last bytes ship with that run instead of
-// arriving a run late.
-func TestShipper_FlushDrainsHeldBytes(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	client := &gritzclient.ClientMock{
-		AppendLogChunkFunc: func(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
-			return &gritzv1.AppendLogChunkResponse{}, nil
-		},
-	}
-	shipper := New(client, Options{TaskID: 7, Secrets: ghTokenSecret})
-
-	// Act - the stream ends mid-match, so "ghp_abc" is held back
-	_, err := shipper.Write([]byte("prefix ghp_abc"))
-	assert.NilError(t, err)
-	assert.NilError(t, shipper.Flush(t.Context()))
-
-	// Assert - a partial match is not a secret; it ships whole, in this flush
-	assert.DeepEqual(t,
-		client.AppendedLogChunks(),
-		[]*gritzv1.AppendLogChunkRequest{
-			{TaskId: 7, Data: []byte("prefix ghp_abc")},
-		},
-		protocmp.Transform(),
-	)
 }
 
 func TestIsPermanentChunkError(t *testing.T) {

@@ -1,8 +1,10 @@
 // Package logship mirrors a driver's log bytes to the server as asynchronous
 // chunks. Its Shipper is an io.Writer spliced into the driver's log tee, so
-// buffering, secret masking, chunk cutting and retry all happen behind a Write
-// that never blocks and never fails. It depends only on the gritz client and
-// the proto types, not on internal/agent.
+// buffering, chunk cutting and retry all happen behind a Write that never
+// blocks and never fails. Secret masking is the caller's: it sits in front of
+// the shipper, since the secrets belong to a run and the shipper outlives it.
+// It depends only on the gritz client and the proto types, not on
+// internal/agent.
 package logship
 
 import (
@@ -23,7 +25,6 @@ import (
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/common"
-	"github.com/gritzapp/gritz/internal/x/redact"
 	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
@@ -58,15 +59,6 @@ const (
 // Shipping is best-effort end to end: a slow or unreachable server never blocks
 // a write, never fails a run, and at worst loses log bytes.
 type Shipper struct {
-	client gritzclient.Client
-	taskID int64
-	// mask replaces secret values in the bytes on their way into buf. It runs
-	// before chunking, so a value split across writes or chunks is still
-	// caught: the bytes that could still become one are held inside the mask
-	// until the writes that follow settle them. It is not safe for concurrent
-	// use and runs under mu.
-	mask *redact.Writer
-
 	// Tunables, taken from Options and defaulted by New. They are not mutated
 	// once the sender is running.
 	chunkSize     int
@@ -82,35 +74,41 @@ type Shipper struct {
 	// than one request in flight, and therefore that the server's insertion
 	// order is write order.
 	sendSem *semaphore.Weighted
-	// inflight is the request the sender is delivering, nil when there is none.
+	// inflight is the chunk the sender is delivering, nil when there is none.
 	// It is held across retries so a transient failure resends the same bytes
 	// rather than being overtaken by newer ones. It lives here rather than in a
 	// local so a Flush that follows a cancelled Run picks it up instead of
 	// losing it. Guarded by sendSem, not mu.
-	inflight *gritzv1.AppendLogChunkRequest
+	inflight *chunk
 	// failing suppresses a warning per retry, logging one per failure streak
 	// instead. Guarded by sendSem, not mu.
 	failing bool
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// client, taskID and version are the run the bytes belong to, set by New
+	// and replaced by Reset. A nil client ships nothing.
+	client  gritzclient.Client
+	taskID  int64
 	version int64
 	buf     bytes.Buffer
+}
+
+// chunk is a cut request together with the client that delivers it, so a
+// chunk cut before a Reset still goes to the run it was cut for.
+type chunk struct {
+	client gritzclient.Client
+	req    *gritzv1.AppendLogChunkRequest
 }
 
 var _ io.Writer = (*Shipper)(nil)
 
 // Options configures a Shipper. Every field takes its default when zero, so a
-// caller states only what it knows: the driver sets TaskID and Secrets, and
-// tests shrink the tunables to keep a test from waiting on production-sized
+// caller states only what it knows: the driver server leaves TaskID to Reset,
+// and tests shrink the tunables to keep a test from waiting on production-sized
 // thresholds.
 type Options struct {
-	// TaskID is the task whose log the chunks are appended to.
+	// TaskID is the task whose log the chunks are appended to, until Reset.
 	TaskID int64
-	// Secrets maps secret name to secret value; every occurrence of a value is
-	// replaced by its marker before the bytes are buffered, so nothing the mask
-	// replaces can reach the server. A nil or empty map matches nothing and
-	// ships the bytes verbatim.
-	Secrets map[string]string
 	// ChunkSize is the buffered-byte threshold that cuts a chunk.
 	// Defaults to DefaultChunkSize when zero.
 	ChunkSize int
@@ -130,14 +128,9 @@ type Options struct {
 }
 
 // New returns a shipper that mirrors everything written to it to the server as
-// log chunks for opts.TaskID. It buffers from construction with version 0 — the
-// pre-run preamble — until SetVersion stamps a run. Nothing is sent until Run
-// (or Flush) drains it.
-//
-// Secret values named by opts.Secrets are masked on their way into the buffer.
-// Masking belongs here rather than in the caller's tee because this is the
-// boundary that ships: the driver's other writers (the /gritz/log file,
-// os.Stderr) stay raw.
+// log chunks for opts.TaskID, stamped with version 0 until Reset says
+// otherwise. A nil client ships nothing, and drops what is written, until Reset
+// gives it one. Nothing is sent until Run (or Flush) drains it.
 func New(client gritzclient.Client, opts Options) *Shipper {
 	s := &Shipper{
 		client:        client,
@@ -161,41 +154,39 @@ func New(client gritzclient.Client, opts Options) *Shipper {
 		// and breaks the loop.
 		s.log = slog.New(slog.NewTextHandler(os.Stderr, nil))
 	}
-	s.mask = redact.NewWriter(&s.buf, opts.Secrets)
 	return s
 }
 
-// SetVersion stamps subsequent chunks with version. It cuts nothing: bytes
-// written either side of the call can share a chunk, which is then stamped with
-// whatever version is current when the drain cuts it. Nothing reads a chunk's
-// version today beyond recording it.
-func (s *Shipper) SetVersion(version int64) {
+// Reset points the shipper at a new run: chunks cut from here on go through
+// client to taskID, stamped with version, so one shipper serves every run of a
+// long-lived driver. Whatever is still buffered is dropped: it is the tail of
+// an earlier run whose Flush gave up, and it is still in /gritz/log. A chunk
+// already in flight is still delivered, through the client it was cut for.
+func (s *Shipper) Reset(client gritzclient.Client, taskID, version int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.version = version
+	s.client, s.taskID, s.version = client, taskID, version
+	s.buf.Reset()
 }
 
 // Write buffers p for shipping. It always reports the full write and a nil
 // error: the caller is a log tee that must not learn about network trouble, and
 // its other writers (the /gritz/log file, os.Stderr) still hold the bytes.
 // Bytes that would take the buffer past the pending cap are dropped silently;
-// the durable copy in /gritz/log is the one that has to be complete. Secret
-// values are masked on the way in, so nothing the mask replaces is ever
-// buffered.
+// the durable copy in /gritz/log is the one that has to be complete. Bytes
+// written while the shipper has no client belong to no run and are dropped too.
 //
 // The sender is woken only once a whole chunk is buffered. A quiet run
 // therefore ships on the flushInterval tick instead of turning every log line
 // into its own request and row.
 func (s *Shipper) Write(p []byte) (int, error) {
 	s.mu.Lock()
-	// The cap is enforced on the masked bytes rather than on p, because p is
-	// what the mask needs to stay in sync: skipping input ahead of it would
-	// leave a held prefix stranded and could ship half a secret raw.
-	before := s.buf.Len()
-	// bytes.Buffer.Write never fails, so neither does the mask.
-	_, _ = s.mask.Write(p)
-	if s.buf.Len() > s.maxPending {
-		s.buf.Truncate(before)
+	if s.client == nil {
+		s.mu.Unlock()
+		return len(p), nil
+	}
+	if s.buf.Len()+len(p) <= s.maxPending {
+		s.buf.Write(p)
 	}
 	full := s.buf.Len() >= s.chunkSize
 	s.mu.Unlock()
@@ -239,15 +230,6 @@ func (s *Shipper) Run(ctx context.Context) {
 // and carry on, since the full log remains in /gritz/log. It is safe to call
 // while Run is sending; the two never have two requests in flight.
 func (s *Shipper) Flush(ctx context.Context) error {
-	s.mu.Lock()
-	// Drain the mask into the buffer first: it can be holding the tail of a
-	// potential match, and those bytes belong in the chunks this flush ships
-	// rather than in whatever the next run writes. A value split across the
-	// flush goes out unmasked (see redact.Writer.Flush); the driver only
-	// flushes where the stream has ended or stalled, so that tail is the log's,
-	// not a secret's.
-	_ = s.mask.Flush()
-	s.mu.Unlock()
 	if !s.drain(ctx, true) {
 		return fmt.Errorf("flushing log chunks: %w", ctx.Err())
 	}
@@ -255,22 +237,25 @@ func (s *Shipper) Flush(ctx context.Context) error {
 }
 
 // cut takes up to chunkSize bytes off the front of the buffer and returns them
-// as the request that ships them, stamped with the current version, or nil when
+// as the chunk that ships them, stamped with the current run, or nil when
 // there was nothing to take. A remainder smaller than chunkSize is only taken
 // when partial is set; otherwise it stays buffered to coalesce with the bytes
 // still to come. The data is a copy rather than a window on the buffer:
 // bytes.Buffer slides its contents down to reclaim the space a cut freed, which
 // a concurrent Write would then overwrite.
-func (s *Shipper) cut(partial bool) *gritzv1.AppendLogChunkRequest {
+func (s *Shipper) cut(partial bool) *chunk {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.buf.Len() == 0 || (s.buf.Len() < s.chunkSize && !partial) {
 		return nil
 	}
-	return &gritzv1.AppendLogChunkRequest{
-		TaskId:  s.taskID,
-		Version: s.version,
-		Data:    bytes.Clone(s.buf.Next(s.chunkSize)),
+	return &chunk{
+		client: s.client,
+		req: &gritzv1.AppendLogChunkRequest{
+			TaskId:  s.taskID,
+			Version: s.version,
+			Data:    bytes.Clone(s.buf.Next(s.chunkSize)),
+		},
 	}
 }
 
@@ -306,23 +291,23 @@ func (s *Shipper) drain(ctx context.Context, partial bool) bool {
 			}
 			// cut takes min(chunkSize, buffered), so a short chunk is the
 			// remainder and spends the allowance.
-			if len(next.GetData()) < s.chunkSize {
+			if len(next.req.GetData()) < s.chunkSize {
 				partial = false
 			}
 			s.inflight = next
 		}
-		_, err := s.client.AppendLogChunk(ctx, s.inflight)
+		_, err := s.inflight.client.AppendLogChunk(ctx, s.inflight.req)
 		switch {
 		case err == nil:
 			s.failing = false
 			s.inflight = nil
 		case isPermanentChunkError(err):
-			s.log.Warn("dropping undeliverable log chunk", "task", s.taskID, "bytes", len(s.inflight.GetData()), "err", err)
+			s.log.Warn("dropping undeliverable log chunk", "task", s.inflight.req.GetTaskId(), "bytes", len(s.inflight.req.GetData()), "err", err)
 			s.inflight = nil
 		default:
 			if !s.failing {
 				s.failing = true
-				s.log.Warn("log chunk send failed, will retry", "task", s.taskID, "err", err)
+				s.log.Warn("log chunk send failed, will retry", "task", s.inflight.req.GetTaskId(), "err", err)
 			}
 			if !common.SleepContext(ctx, s.backoff.NextBackOff()) {
 				return false

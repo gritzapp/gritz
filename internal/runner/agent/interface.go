@@ -3,19 +3,8 @@ package agent
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 )
-
-// ErrStop is a sentinel error used to signal graceful agent cancellation.
-// Callers can cancel the context with ErrStop as the cause:
-//
-//	ctx, cancel := context.WithCancelCause(parentCtx)
-//	cancel(agent.ErrStop)
-//
-// After Prompt returns, callers can check context.Cause(ctx) == ErrStop
-// to distinguish a graceful stop from other errors.
-var ErrStop = errors.New("stop")
 
 // Agent type constants.
 const (

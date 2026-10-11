@@ -46,6 +46,9 @@ type testEnv struct {
 	mu    sync.Mutex
 	// dialed records the server URL and token each run built its client with.
 	dialed []string
+	// shippedAtTerminal is the log the gritz server had received when each
+	// terminal event arrived.
+	shippedAtTerminal []string
 }
 
 type testOptions struct {
@@ -70,7 +73,12 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: testVersion}}, nil
 		},
-		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+		SubmitRunnerEventsFunc: func(_ context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+			if req.Events[0].Event != "started" {
+				te.mu.Lock()
+				te.shippedAtTerminal = append(te.shippedAtTerminal, te.gritz.ShippedLog())
+				te.mu.Unlock()
+			}
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 		ListEventsByTaskFunc: func(_ context.Context, _ *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
@@ -189,10 +197,31 @@ func (te *testEnv) stop(t *testing.T, version int64) bool {
 	return resp.GetStopped()
 }
 
+// shippedBeforeTerminal returns what had been shipped when each terminal
+// event was submitted.
+func (te *testEnv) shippedBeforeTerminal() []string {
+	te.mu.Lock()
+	defer te.mu.Unlock()
+	return te.shippedAtTerminal
+}
+
+// log returns the run log in the sandbox, /gritz/log.
+func (te *testEnv) log(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(te.dir, "log"))
+	assert.NilError(t, err)
+	return string(data)
+}
+
 func (te *testEnv) dials() []string {
 	te.mu.Lock()
 	defer te.mu.Unlock()
 	return te.dialed
+}
+
+// failedEvent is the terminal event of a run that failed for reason.
+func failedEvent(reason string) *gritzv1.RunnerEvent {
+	return &gritzv1.RunnerEvent{TaskId: testTaskID, Version: testVersion, Event: "failed", Reason: reason}
 }
 
 func runnerEvents(events ...string) []*gritzv1.RunnerEvent {
@@ -226,6 +255,71 @@ func TestRun(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, ok)
 	assert.Equal(t, disk.Reported, true)
+
+	// Assert - the gritz server had /gritz/log byte for byte before the
+	// terminal event, every chunk stamped with the run's version
+	log := te.log(t)
+	assert.Assert(t, cmp.Contains(log, "==== run version=7 pid="))
+	assert.Assert(t, cmp.Contains(log, "Task completed successfully."))
+	assert.DeepEqual(t, te.shippedBeforeTerminal(), []string{log})
+	for _, chunk := range te.gritz.AppendedLogChunks() {
+		assert.Equal(t, chunk.GetTaskId(), int64(testTaskID))
+		assert.Equal(t, chunk.GetVersion(), int64(testVersion))
+	}
+}
+
+func TestRun_AgentError(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	te := setup(t, &agent.Config{
+		Type:  agent.TypeDummy,
+		Dummy: &agent.DummyOptions{Error: "dummy agent failed on purpose"},
+	}, testOptions{})
+
+	// Act
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
+
+	// Assert - the failure was reported with the agent's error as the reason,
+	// after the log that explains it
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	events := te.gritz.SubmittedRunnerEvents()
+	assert.Equal(t, len(events), 2)
+	assert.Equal(t, events[1].GetEvent(), "failed")
+	assert.Assert(t, cmp.Contains(events[1].GetReason(), "dummy agent failed on purpose"))
+	assert.Assert(t, cmp.Contains(te.shippedBeforeTerminal()[0], "task failed"))
+}
+
+func TestRun_GetTaskError(t *testing.T) {
+	t.Parallel()
+	// Arrange - the gritz server is unreachable
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	te.gritz.GetTaskFunc = func(_ context.Context, _ *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
+		return nil, errors.New("server unreachable")
+	}
+
+	// Act
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
+
+	// Assert - nothing was reported, so the runner's backstop reports it
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: false}, protocmp.Transform())
+	assert.Assert(t, cmp.Len(te.gritz.SubmittedRunnerEvents(), 0))
+}
+
+func TestRun_StartedSubmitError(t *testing.T) {
+	t.Parallel()
+	// Arrange - the gritz server rejects every event
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	te.gritz.SubmitRunnerEventsFunc = func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+		return nil, errors.New("server unavailable")
+	}
+
+	// Act
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
+
+	// Assert - the run went no further than started
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: false}, protocmp.Transform())
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started"), protocmp.Transform())
+	assert.Assert(t, !strings.Contains(te.log(t), "loaded config"))
 }
 
 // root returns the path of a sandbox path under the test's file root.
@@ -472,6 +566,12 @@ func TestRun_NextVersion(t *testing.T) {
 	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion + 1, Reported: true}, protocmp.Transform())
 	assert.Equal(t, te.status(t).GetVersion(), int64(testVersion+1))
 	assert.Equal(t, len(te.gritz.SubmittedRunnerEvents()), 4)
+
+	// Assert - both runs appended to the one log, each shipped as its own run
+	assert.Equal(t, strings.Count(te.log(t), "==== run version="), 2)
+	chunks := te.gritz.AppendedLogChunks()
+	assert.Equal(t, chunks[0].GetVersion(), int64(testVersion))
+	assert.Equal(t, chunks[len(chunks)-1].GetVersion(), int64(testVersion+1))
 }
 
 func TestRun_NotReported(t *testing.T) {
@@ -494,6 +594,25 @@ func TestRun_NotReported(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, disk.State, runrecord.Finished)
 	assert.Equal(t, disk.Reported, false)
+}
+
+func TestStop(t *testing.T) {
+	t.Parallel()
+	// Arrange - a running run with its stream open
+	te := setup(t, sleepForever, testOptions{})
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
+
+	// Act
+	stopped := te.stop(t, testVersion)
+
+	// Assert - the run reported stopped, with its log, to the end, shipped
+	// before the stopped event and before Finished
+	assert.Equal(t, stopped, true)
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+	log := te.log(t)
+	assert.Assert(t, cmp.Contains(log, "agent stopped gracefully"))
+	assert.DeepEqual(t, te.shippedBeforeTerminal(), []string{log})
 }
 
 func TestStop_NotRunning(t *testing.T) {
@@ -556,9 +675,17 @@ func TestShutdown(t *testing.T) {
 	// Act
 	assert.NilError(t, te.srv.Shutdown(t.Context()))
 
-	// Assert - the run was stopped and reported before Shutdown returned
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+	// Assert - nobody stopped the run, so it was reported failed before
+	// Shutdown returned, its log shipped first
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), []*gritzv1.RunnerEvent{
+		runnerEvents("started")[0],
+		failedEvent("driver shut down mid-run"),
+	}, protocmp.Transform())
 	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	log := te.log(t)
+	assert.Assert(t, cmp.Contains(log, "task interrupted"))
+	assert.DeepEqual(t, te.shippedBeforeTerminal(), []string{log})
+	assert.Equal(t, te.status(t).GetState(), driverv1.RunRecord_STATE_FINISHED)
 
 	// Assert - no run starts afterwards
 	stream, err := te.client.Run(t.Context(), &driverv1.RunRequest{Version: testVersion + 1, Spec: testSpec()})
@@ -567,6 +694,36 @@ func TestShutdown(t *testing.T) {
 	assert.Assert(t, !stream.Receive())
 	assert.Equal(t, connect.CodeOf(stream.Err()), connect.CodeUnavailable)
 	assert.ErrorContains(t, stream.Err(), "shutting down")
+}
+
+func TestShutdown_Idle(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		// run finishes a run before the shutdown
+		run bool
+	}{
+		{"no run", false},
+		{"finished run", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+			if tt.run {
+				stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
+				finished(t, stream)
+			}
+			events := len(te.gritz.SubmittedRunnerEvents())
+			chunks := len(te.gritz.AppendedLogChunks())
+
+			assert.NilError(t, te.srv.Shutdown(t.Context()))
+
+			// Nothing more was reported or shipped
+			assert.Equal(t, len(te.gritz.SubmittedRunnerEvents()), events)
+			assert.Equal(t, len(te.gritz.AppendedLogChunks()), chunks)
+		})
+	}
 }
 
 func TestRun_Env(t *testing.T) {
@@ -660,11 +817,14 @@ func TestListenAndServe(t *testing.T) {
 	// Act
 	cancel()
 
-	// Assert - the run was stopped and reported, its stream got Finished,
-	// and the server shut down cleanly
+	// Assert - the run was shut down and reported failed, its stream got
+	// Finished, and the server shut down cleanly
 	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
 	assert.NilError(t, <-errCh)
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), []*gritzv1.RunnerEvent{
+		runnerEvents("started")[0],
+		failedEvent("driver shut down mid-run"),
+	}, protocmp.Transform())
 }
 
 // On a unix:///path address, ListenAndServe replaces a stale socket file and

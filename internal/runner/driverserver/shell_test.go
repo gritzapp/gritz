@@ -1,4 +1,4 @@
-package agent
+package driverserver
 
 import (
 	"context"
@@ -11,16 +11,18 @@ import (
 	"github.com/coder/websocket"
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/gritzclient"
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/server/shellserver"
 	"github.com/gritzapp/gritz/internal/shell/shellwire"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 )
 
 // TestRun_ForksIntoShell verifies that when the task carries a shell_session,
-// run() dials the relay and serves a debug shell instead of the agent path —
-// wiring the driver's credentials through to shell.Serve.
+// the run dials the relay and serves a debug shell instead of the agent path —
+// wiring the RunSpec's credentials through to shell.Serve.
 func TestRun_ForksIntoShell(t *testing.T) {
 	t.Parallel()
 	// Real server-owned registry with both legs; the attach leg is admitted by a
@@ -39,17 +41,14 @@ func TestRun_ForksIntoShell(t *testing.T) {
 	t.Cleanup(reg.Close)
 	assert.NilError(t, reg.Seed("s1", 1, 1))
 
-	// A driver whose task carries the shell_session, pointed at the relay.
-	mock := &gritzclient.ClientMock{
-		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, ShellSession: "s1"}}, nil
-		},
+	// A run whose task carries the shell_session, pointed at the relay.
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	te.gritz.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
+		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: testVersion, ShellSession: "s1"}}, nil
 	}
-	d := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, ServerURL: srv.URL, Token: "t"}
-
-	task := &gritzv1.Task{Id: 1, ShellSession: "s1"}
-	runErr := make(chan error, 1)
-	go func() { runErr <- d.run(t.Context(), task) }()
+	spec := testSpec()
+	spec.ServerUrl = srv.URL
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
 
 	// Connect the operator leg and exercise the shell the fork spawned.
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -73,12 +72,8 @@ func TestRun_ForksIntoShell(t *testing.T) {
 		}
 	}
 
-	// Ending the shell makes run() return.
+	// Ending the shell ends the run, reported like an agent run.
 	assert.NilError(t, attach.Write(ctx, websocket.MessageBinary, shellwire.Data([]byte("exit\n"))))
-	select {
-	case err := <-runErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("run did not return after shell exit")
-	}
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 }
