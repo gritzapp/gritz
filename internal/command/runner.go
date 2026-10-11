@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/gritzapp/gritz/internal/configfile"
@@ -92,7 +91,7 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "lambda-microvm-region",
-			Usage:   "AWS region for the lambda-microvm backends (defaults to the SDK-resolved region)",
+			Usage:   "AWS region for the lambda-microvm backend (defaults to the SDK-resolved region)",
 			Sources: cli.EnvVars("GRITZ_LAMBDA_MICROVM_REGION"),
 		},
 		&cli.BoolFlag{
@@ -192,7 +191,11 @@ var RunnerCommand = &cli.Command{
 				return err
 			}
 		case "lambda-microvm":
-			awsCfg, err := loadLambdaMicroVMConfig(ctx, cmd)
+			loadOpts := []func(*config.LoadOptions) error{}
+			if region := cmd.String("lambda-microvm-region"); region != "" {
+				loadOpts = append(loadOpts, config.WithRegion(region))
+			}
+			awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 			if err != nil {
 				return fmt.Errorf("lambda-microvm backend: %w", err)
 			}
@@ -210,7 +213,11 @@ var RunnerCommand = &cli.Command{
 			// Like experimental-docker, this replaces lambda-microvm rather
 			// than running beside it: handles recorded by any other backend
 			// are treated as gone.
-			awsCfg, err := loadLambdaMicroVMConfig(ctx, cmd)
+			loadOpts := []func(*config.LoadOptions) error{}
+			if region := cmd.String("lambda-microvm-region"); region != "" {
+				loadOpts = append(loadOpts, config.WithRegion(region))
+			}
+			awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 			if err != nil {
 				return fmt.Errorf("experimental-lambda-microvm backend: %w", err)
 			}
@@ -314,15 +321,4 @@ var RunnerCommand = &cli.Command{
 			}
 		}
 	},
-}
-
-// loadLambdaMicroVMConfig resolves the AWS config for the lambda-microvm
-// backends from the standard SDK chain, with --lambda-microvm-region
-// overriding the resolved region.
-func loadLambdaMicroVMConfig(ctx context.Context, cmd *cli.Command) (aws.Config, error) {
-	var loadOpts []func(*config.LoadOptions) error
-	if region := cmd.String("lambda-microvm-region"); region != "" {
-		loadOpts = append(loadOpts, config.WithRegion(region))
-	}
-	return config.LoadDefaultConfig(ctx, loadOpts...)
 }

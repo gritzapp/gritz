@@ -7,9 +7,11 @@
 // the lambdamicrovm package, the driver still reports to the gritz server
 // itself, and the VM is suspended after every run.
 //
-// It shares no code with the lambdamicrovm package on purpose: that backend
-// and its in-VM shim are removed once this one replaces them. Agent files
-// arrive in the RunSpec, so nothing is staged in S3.
+// It shares no code with the lambdamicrovm or experimentaldocker packages on
+// purpose: lambdamicrovm and its in-VM shim are removed once this one replaces
+// them, and the backends evolve independently until then. Agent files arrive
+// in the RunSpec, so nothing is staged in S3. See README.md for building the
+// VM image.
 package experimentallambdamicrovm
 
 import (

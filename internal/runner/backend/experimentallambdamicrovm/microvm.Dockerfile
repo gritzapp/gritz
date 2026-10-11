@@ -1,11 +1,14 @@
 # Example Dockerfile for a Lambda MicroVMs image whose application is the gritz
-# driver server, for the experimental-lambda-microvm backend. It is packaged and
-# built exactly like microvm.Dockerfile (see "Building an image for the
-# experimental backend" in README.md); only the entrypoint differs. The task's
-# run, agent files included, arrives over driver.v1 through the managed proxy,
-# so nothing is staged in S3.
+# driver server, for the experimental-lambda-microvm backend. This is the
+# *container* layer of the image: it is packaged with a linux/arm64 gritz binary
+# into a zip, uploaded to S3, and built with `create-microvm-image`. See
+# README.md for the recipe. The task's run, agent files included, arrives over
+# driver.v1 through the managed proxy, so nothing is staged in S3.
 #
 # MicroVMs are ARM64-only, so FROM the arm64 container base and provide a
+# linux/arm64 gritz binary. The `--base-image-arn` (…:aws:microvm-image:al2023-1)
+# is the *separate* MicroVM OS base, NOT this container FROM.
+FROM the arm64 container base and provide a
 # linux/arm64 gritz binary.
 FROM public.ecr.aws/lambda/microvms:al2023-minimal
 
