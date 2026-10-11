@@ -426,6 +426,22 @@ func TestWait_NoSuchRun(t *testing.T) {
 	assert.Equal(t, te.cloud.state("mvm-9"), awsmicrovm.MicrovmStateSuspended)
 }
 
+// A Wait for a stale version reports it lost but leaves the VM running: a
+// newer run is active on it, which a suspend would kill.
+func TestWait_StaleVersion(t *testing.T) {
+	te := setup(t, sleepForever, testOptions{})
+	h, err := te.be.Launch(t.Context(), testSpec(2), nil)
+	assert.NilError(t, err)
+
+	code, err := te.be.Wait(t.Context(), handle(h.ID, 1, te.cloud.endpoint))
+
+	assert.NilError(t, err)
+	assert.Equal(t, code, backend.ExitLost)
+	suspended, _, _ := te.cloud.calls()
+	assert.Assert(t, cmp.Len(suspended, 0))
+	assert.Equal(t, te.cloud.state(h.ID), awsmicrovm.MicrovmStateRunning)
+}
+
 func TestWait_Foreign(t *testing.T) {
 	cloud := newFakeCloud("vm.example.com")
 	be, err := New(Options{Cloud: cloud})

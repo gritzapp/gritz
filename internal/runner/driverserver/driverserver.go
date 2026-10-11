@@ -31,6 +31,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"github.com/gritzapp/gritz/internal/x/envx"
 )
 
@@ -71,6 +72,11 @@ type Options struct {
 	KeepAlive time.Duration
 	// Log is the server's own logger. Defaults to slog.Default().
 	Log *slog.Logger
+	// HookAddr, when set, is an address ListenAndServe also serves the AWS
+	// Lambda MicroVM lifecycle hooks on, acknowledging every hook: in a
+	// MicroVM, the run arrives over driver.v1 and the runner drives suspend
+	// and resume, so the hooks have nothing to do.
+	HookAddr string
 }
 
 // Server implements driverv1connect.DriverServiceHandler.
@@ -83,6 +89,7 @@ type Server struct {
 	newClient  func(serverURL, token string) gritzclient.Client
 	keepAlive  time.Duration
 	log        *slog.Logger
+	hookAddr   string
 
 	// runs tracks the goroutine of the active run, so Shutdown can wait for it.
 	runs sync.WaitGroup
@@ -127,6 +134,7 @@ func New(opts Options) (*Server, error) {
 		newClient:  opts.NewClient,
 		keepAlive:  cmp.Or(opts.KeepAlive, DefaultKeepAlive),
 		log:        cmp.Or(opts.Log, slog.Default()),
+		hookAddr:   opts.HookAddr,
 	}
 	if s.newClient == nil {
 		s.newClient = func(serverURL, token string) gritzclient.Client {
@@ -150,27 +158,44 @@ func (s *Server) Handler() (string, http.Handler) {
 }
 
 // ListenAndServe serves the service on addr, over HTTP/1.1 and unencrypted
-// HTTP/2, until ctx is cancelled. It then stops the active run, waits for it to
-// stop and report, however long that takes (the platform's stop timeout bounds
-// it, as it does the one-shot driver), and shuts down the HTTP server.
+// HTTP/2, and the hooks on Options.HookAddr if set, until ctx is cancelled or
+// either listener fails. Once ctx is cancelled it stops the active run, waits
+// for it to stop and report, however long that takes (the platform's stop
+// timeout bounds it, as it does the one-shot driver), and shuts down the HTTP
+// servers.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle(s.Handler())
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
-	hs := &http.Server{
+	servers := []*http.Server{{
 		Addr:      addr,
 		Handler:   mux,
 		Protocols: protocols,
+	}}
+	if s.hookAddr != "" {
+		servers = append(servers, &http.Server{
+			Addr:    s.hookAddr,
+			Handler: &awsmicrovm.Handler{},
+		})
 	}
-	errCh := make(chan error, 1)
-	go func() {
-		s.log.Info("driver server listening", "addr", addr)
-		errCh <- hs.ListenAndServe()
-	}()
+	errCh := make(chan error, len(servers))
+	for i, hs := range servers {
+		go func() {
+			if i == 0 {
+				s.log.Info("driver server listening", "addr", hs.Addr)
+			} else {
+				s.log.Info("lambda hooks listening", "addr", hs.Addr)
+			}
+			errCh <- hs.ListenAndServe()
+		}()
+	}
 	select {
 	case err := <-errCh:
+		for _, hs := range servers {
+			_ = hs.Close()
+		}
 		return err
 	case <-ctx.Done():
 	}
@@ -180,7 +205,11 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer cancel()
-	return hs.Shutdown(shutdownCtx)
+	var errs []error
+	for _, hs := range servers {
+		errs = append(errs, hs.Shutdown(shutdownCtx))
+	}
+	return errors.Join(errs...)
 }
 
 // Status reports the current run record.

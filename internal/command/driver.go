@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -53,35 +52,17 @@ var DriverCommand = &cli.Command{
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.Bool("serve") {
-			srv, err := driverserver.New(driverserver.Options{Environ: os.Environ()})
+			opts := driverserver.Options{Environ: os.Environ()}
+			if cmd.Bool("aws-lambda-hooks") {
+				opts.HookAddr = fmt.Sprintf(":%d", awsmicrovm.HookPort)
+			}
+			srv, err := driverserver.New(opts)
 			if err != nil {
 				return err
 			}
 			ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			if !cmd.Bool("aws-lambda-hooks") {
-				return srv.ListenAndServe(ctx, cmd.String("addr"))
-			}
-			// The hooks have nothing to do: the VM's run arrives over
-			// driver.v1, and the runner drives suspend and resume.
-			hooks := &http.Server{
-				Addr:    fmt.Sprintf(":%d", awsmicrovm.HookPort),
-				Handler: &awsmicrovm.Handler{},
-			}
-			ctx, cancel := context.WithCancelCause(ctx)
-			defer cancel(nil)
-			go func() {
-				err := hooks.ListenAndServe()
-				if !errors.Is(err, http.ErrServerClosed) {
-					cancel(fmt.Errorf("failed to serve lambda hooks: %w", err))
-				}
-			}()
-			defer hooks.Close()
-			err = srv.ListenAndServe(ctx, cmd.String("addr"))
-			if cause := context.Cause(ctx); err == nil && cause != nil && !errors.Is(cause, context.Canceled) {
-				return cause
-			}
-			return err
+			return srv.ListenAndServe(ctx, cmd.String("addr"))
 		}
 		if !cmd.IsSet("task") {
 			return errors.New(`required flag "task" not set`)
