@@ -116,6 +116,14 @@ type handleData struct {
 	Version int64 `json:"version"`
 }
 
+// foreign reports whether h was produced by another backend. This backend
+// replaces docker rather than running beside it, so it treats such a handle's
+// sandbox as gone: Launch rejects it with backend.ErrGone, Probe answers
+// StateGone, Wait reports the run lost, and Signal and Destroy leave it alone.
+func foreign(h backend.Handle) bool {
+	return h.Type != HandleType
+}
+
 func decodeHandle(h backend.Handle) (handleData, error) {
 	var d handleData
 	if len(h.Data) == 0 {
@@ -169,6 +177,9 @@ func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend
 // task's first start).
 func (b *Backend) ensure(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (string, error) {
 	if reuse != nil && reuse.ID != "" {
+		if foreign(*reuse) {
+			return "", backend.ErrGone
+		}
 		id, ok, err := b.inspectID(ctx, reuse.ID)
 		if err != nil {
 			return "", err
@@ -432,6 +443,9 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // stream is reattached while the container is running; a container that is gone
 // or stopped before Finished arrived is reported as lost.
 func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
+	if foreign(h) {
+		return backend.ExitLost, nil
+	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		b.log.Error("wait: invalid handle", "container", h.ID, "err", err)
@@ -516,6 +530,9 @@ func (b *Backend) stopAfter(ctx context.Context, containerID string, version int
 // a stopped one exited, and a running one is running only while the driver's
 // run record shows the handle's version running.
 func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
+	if foreign(h) {
+		return backend.StateGone, nil
+	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		return backend.StateUnknown, err
@@ -544,6 +561,9 @@ func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, e
 // running. The driver reports stopped and sends Finished, after which Wait
 // stops the container.
 func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
+	if foreign(h) {
+		return false, nil
+	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		return false, err
@@ -565,6 +585,9 @@ func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
 
 // Destroy removes the handle's container. A missing container is not an error.
 func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
+	if foreign(h) {
+		return nil
+	}
 	err := b.docker.ContainerRemove(ctx, h.ID, container.RemoveOptions{Force: true})
 	if err != nil && !cerrdefs.IsNotFound(err) {
 		return fmt.Errorf("failed to remove container: %w", err)
