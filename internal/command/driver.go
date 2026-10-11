@@ -3,6 +3,9 @@ package command
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,13 +30,24 @@ var DriverCommand = &cli.Command{
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		opts := driverserver.Options{Environ: os.Environ()}
-		if cmd.Bool("aws-lambda-hooks") {
-			opts.HookAddr = fmt.Sprintf(":%d", awsmicrovm.HookPort)
-		}
-		srv, err := driverserver.New(opts)
+		srv, err := driverserver.New(driverserver.Options{Environ: os.Environ()})
 		if err != nil {
 			return err
+		}
+		if cmd.Bool("aws-lambda-hooks") {
+			// Lambda calls the MicroVM lifecycle hooks on their own port. Every
+			// hook is acknowledged: the run arrives over driver.v1 and the runner
+			// drives suspend and resume, so the hooks have nothing to do. The
+			// hooks are never shut down, so they stay up until the process exits.
+			l, err := net.Listen("tcp", fmt.Sprintf(":%d", awsmicrovm.HookPort))
+			if err != nil {
+				return err
+			}
+			slog.Info("lambda hooks listening", "addr", l.Addr().String())
+			go func() {
+				err := http.Serve(l, &awsmicrovm.Handler{})
+				slog.Error("lambda hooks stopped", "error", err)
+			}()
 		}
 		ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 		defer stop()

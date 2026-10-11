@@ -16,7 +16,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"maps"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,7 +30,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
-	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"github.com/gritzapp/gritz/internal/x/envx"
 	"github.com/gritzapp/gritz/internal/x/netx"
 )
@@ -73,11 +71,6 @@ type Options struct {
 	KeepAlive time.Duration
 	// Log is the server's own logger. Defaults to slog.Default().
 	Log *slog.Logger
-	// HookAddr, when set, is an address ListenAndServe also serves the AWS
-	// Lambda MicroVM lifecycle hooks on, acknowledging every hook: in a
-	// MicroVM, the run arrives over driver.v1 and the runner drives suspend
-	// and resume, so the hooks have nothing to do.
-	HookAddr string
 }
 
 // Server implements driverv1connect.DriverServiceHandler.
@@ -90,7 +83,6 @@ type Server struct {
 	newClient  func(serverURL, token string) gritzclient.Client
 	keepAlive  time.Duration
 	log        *slog.Logger
-	hookAddr   string
 
 	// runs tracks the goroutine of the active run, so Shutdown can wait for it.
 	runs sync.WaitGroup
@@ -135,7 +127,6 @@ func New(opts Options) (*Server, error) {
 		newClient:  opts.NewClient,
 		keepAlive:  cmp.Or(opts.KeepAlive, DefaultKeepAlive),
 		log:        cmp.Or(opts.Log, slog.Default()),
-		hookAddr:   opts.HookAddr,
 	}
 	if s.newClient == nil {
 		s.newClient = func(serverURL, token string) gritzclient.Client {
@@ -159,58 +150,36 @@ func (s *Server) Handler() (string, http.Handler) {
 }
 
 // ListenAndServe serves the service on addr, a TCP address or unix:///path,
-// over HTTP/1.1 and unencrypted HTTP/2, and the hooks on Options.HookAddr if
-// set, until ctx is cancelled or either listener fails. A socket file left at
-// a unix path is removed before listening, and the socket is removed again on
-// shutdown. Once ctx is cancelled it stops the active run, waits for it to
-// stop and report, however long that takes (the platform's stop timeout bounds
-// it), and shuts down the HTTP servers.
+// over HTTP/1.1 and unencrypted HTTP/2, until ctx is cancelled or the listener
+// fails. A socket file left at a unix path is removed before listening, and the
+// socket is removed again on shutdown. Once ctx is cancelled it stops the
+// active run, waits for it to stop and report, however long that takes (the
+// platform's stop timeout bounds it), and shuts down the HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle(s.Handler())
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
-	servers := []*http.Server{{
+	hs := &http.Server{
 		Addr:      addr,
 		Handler:   mux,
 		Protocols: protocols,
-	}}
-	if s.hookAddr != "" {
-		servers = append(servers, &http.Server{
-			Addr:    s.hookAddr,
-			Handler: &awsmicrovm.Handler{},
-		})
 	}
-	// Closing a unix listener removes its socket file, so every listener is
-	// closed on the way out, through its server once it is serving.
-	listeners := make([]net.Listener, 0, len(servers))
-	for _, hs := range servers {
-		l, err := netx.Listen(hs.Addr)
-		if err != nil {
-			for _, l := range listeners {
-				_ = l.Close()
-			}
-			return err
-		}
-		listeners = append(listeners, l)
+	// Closing a unix listener removes its socket file, so the listener is
+	// closed on the way out, through the server.
+	l, err := netx.Listen(addr)
+	if err != nil {
+		return err
 	}
-	errCh := make(chan error, len(servers))
-	for i, hs := range servers {
-		go func() {
-			if i == 0 {
-				s.log.Info("driver server listening", "addr", hs.Addr)
-			} else {
-				s.log.Info("lambda hooks listening", "addr", hs.Addr)
-			}
-			errCh <- hs.Serve(listeners[i])
-		}()
-	}
+	errCh := make(chan error, 1)
+	go func() {
+		s.log.Info("driver server listening", "addr", addr)
+		errCh <- hs.Serve(l)
+	}()
 	select {
 	case err := <-errCh:
-		for _, hs := range servers {
-			_ = hs.Close()
-		}
+		_ = hs.Close()
 		return err
 	case <-ctx.Done():
 	}
@@ -220,11 +189,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer cancel()
-	var errs []error
-	for _, hs := range servers {
-		errs = append(errs, hs.Shutdown(shutdownCtx))
-	}
-	return errors.Join(errs...)
+	return hs.Shutdown(shutdownCtx)
 }
 
 // Status reports the current run record.
