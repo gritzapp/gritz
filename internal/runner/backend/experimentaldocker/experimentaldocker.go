@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/driverclient"
 	"github.com/gritzapp/gritz/internal/runner/prebuilt"
+	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
 )
@@ -281,9 +283,12 @@ func (b *Backend) adopt(ctx context.Context, spec *backend.Spec, containerID str
 }
 
 // create creates the task's gritz-{taskID} container running the driver server
-// and copies the driver binary and spec.Files into it. The container gets only
-// the workspace's environment: the run's env, secrets and token arrive in the
-// RunSpec, so a container reused for a later run never holds stale ones.
+// and copies the driver binary into it, along with the driver's state
+// directory, which a non-root driver cannot create itself. spec.Files arrive in
+// the RunSpec, which the driver provisions on the first run. The container gets
+// only the workspace's environment: the run's env, secrets and token arrive in
+// the RunSpec too, so a container reused for a later run never holds stale
+// ones.
 func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error) {
 	wc := &spec.Workspace.Container
 
@@ -338,9 +343,10 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 		return "", fmt.Errorf("failed to create container: %w", err)
 	}
 
-	files := append([]backend.File{
+	files := []backend.File{
 		{Path: backend.BinaryPath, Data: binData, Mode: 0755},
-	}, spec.Files...)
+		{Path: path.Dir(runrecord.Path), Mode: 0777, Dir: true},
+	}
 	if err := b.copyFiles(ctx, resp.ID, files); err != nil {
 		b.discard(context.WithoutCancel(ctx), resp.ID)
 		return "", fmt.Errorf("failed to copy files: %w", err)
@@ -685,7 +691,7 @@ func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
 // backend the one-shot driver's environment (GRITZ_SERVER, GRITZ_TOKEN, the
 // workspace secrets and GRITZ_SECRETS naming them); the server URL, token and
 // secrets are lifted out of it into their own fields, and the rest is the
-// run's env.
+// run's env. spec.Files are carried as they are.
 func newRunSpec(spec *backend.Spec) (*driverv1.RunSpec, error) {
 	env := map[string]string{}
 	for _, kv := range spec.Env {
@@ -700,6 +706,14 @@ func newRunSpec(spec *backend.Spec) (*driverv1.RunSpec, error) {
 		ServerUrl: env["GRITZ_SERVER"],
 		Token:     env["GRITZ_TOKEN"],
 		Env:       env,
+	}
+	for _, f := range spec.Files {
+		rs.Files = append(rs.Files, &driverv1.File{
+			Path: f.Path,
+			Data: f.Data,
+			Mode: f.Mode,
+			Dir:  f.Dir,
+		})
 	}
 	if names := env["GRITZ_SECRETS"]; names != "" {
 		rs.Secrets = map[string]string{}
