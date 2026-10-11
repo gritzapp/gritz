@@ -28,8 +28,6 @@ diagrams/src/
   layouts/
     common.tsx              scaffold() (background, title, caption), linker()
     docker.tsx              Docker backend: client, server, postgres, runner host, container
-    microvm-driver-server.tsx   proposals/draft/driver-server.md variant
-    docker-driver-server.tsx    driver-server.md: the Docker backend on the driver server
   scenes/<flow>.tsx         One flow per scene
   projects/<flow>.ts        One project per scene (what the editor lists)
   projects/proposals/       Projects for designs that only exist in a proposal
