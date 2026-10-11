@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
@@ -20,7 +23,7 @@ import (
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
-	dockerbackend "github.com/gritzapp/gritz/internal/runner/backend/docker"
+	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
@@ -83,18 +86,35 @@ func TestRunnerStart(t *testing.T) {
 		ListLinksFunc: func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
 			return &gritzv1.ListLinksResponse{}, nil
 		},
+		// The driver ships its log to the server.
+		AppendLogChunkFunc: func(_ context.Context, _ *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
+			return &gritzv1.AppendLogChunkResponse{}, nil
+		},
 	}
 
-	// Create httptest server with the mock
-	_, handler := gritzv1connect.NewGritzServiceHandler(mock)
-	ts := httptest.NewServer(handler)
-	t.Cleanup(ts.Close)
+	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+	assert.NilError(t, err)
+	defer docker.Close()
 
-	// Create runner. The agent connects to the server directly over the network, so
-	// the container shares the host network namespace (NetworkMode "host") to
-	// reach the httptest server on 127.0.0.1, and ServerURL is the same URL.
+	// Create httptest server with the mock. The driver connects to the server
+	// directly over the network from its own network namespace, so the server
+	// listens on every interface and the container reaches it through the
+	// default bridge's gateway.
+	_, handler := gritzv1connect.NewGritzServiceHandler(mock)
+	ln, err := net.Listen("tcp", "0.0.0.0:0")
+	assert.NilError(t, err)
+	ts := httptest.NewUnstartedServer(handler)
+	ts.Listener.Close()
+	ts.Listener = ln
+	ts.Start()
+	t.Cleanup(ts.Close)
+	bridge, err := docker.NetworkInspect(t.Context(), "bridge", network.InspectOptions{})
+	assert.NilError(t, err)
+	assert.Assert(t, len(bridge.IPAM.Config) > 0)
+	serverURL := fmt.Sprintf("http://%s:%d", bridge.IPAM.Config[0].Gateway, ln.Addr().(*net.TCPAddr).Port)
+
 	client := gritzclient.New(gritzclient.Options{BaseURL: ts.URL})
-	be, err := dockerbackend.New(dockerbackend.Options{RunnerID: "test-runner"})
+	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
@@ -107,14 +127,13 @@ func TestRunnerStart(t *testing.T) {
 		Client:    client,
 		Backend:   be,
 		Store:     testStore(t),
-		ServerURL: ts.URL,
+		ServerURL: serverURL,
 		Queue:     queue,
 		Workspaces: &workspace.Config{
 			Workspaces: map[string]workspace.Workspace{
 				"test": {
 					Container: workspace.Container{
-						Image:       "alpine:latest",
-						NetworkMode: "host",
+						Image: "alpine:latest",
 					},
 					Agent: workspace.Agent{
 						Type: "dummy",
@@ -134,10 +153,6 @@ func TestRunnerStart(t *testing.T) {
 	assert.NilError(t, err)
 	t.Cleanup(func() { r.Close() })
 
-	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
-	assert.NilError(t, err)
-	defer docker.Close()
-
 	// Remove any leftover container from a previous aborted run.
 	_ = docker.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{Force: true})
 
@@ -149,7 +164,7 @@ func TestRunnerStart(t *testing.T) {
 	rec, ok, err := r.store.Read(task.ID)
 	assert.NilError(t, err)
 	assert.Equal(t, ok, true)
-	assert.Equal(t, rec.Type, "docker")
+	assert.Equal(t, rec.Type, experimentaldocker.HandleType)
 	assert.Assert(t, rec.ID != "")
 
 	// Wait for the container to exit
@@ -181,7 +196,7 @@ func TestRunnerSpec_PreCreatesLogDir(t *testing.T) {
 		},
 	}
 	client := gritzclient.New(gritzclient.Options{BaseURL: "http://localhost"})
-	be, err := dockerbackend.New(dockerbackend.Options{RunnerID: "test-runner"})
+	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
@@ -239,7 +254,7 @@ func TestRunnerSpec_Secrets(t *testing.T) {
 		},
 	}
 	client := gritzclient.New(gritzclient.Options{BaseURL: "http://localhost"})
-	be, err := dockerbackend.New(dockerbackend.Options{RunnerID: "test-runner"})
+	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),

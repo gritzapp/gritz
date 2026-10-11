@@ -226,31 +226,23 @@ func (c *Container) Validate() error {
 // workspace. AWS credentials are not configured here; they resolve through the
 // standard AWS credential chain on the runner.
 type LambdaMicroVM struct {
-	// ImageIdentifier is a pre-built MicroVM image ARN to launch from. If empty,
-	// the backend builds one from ImageSource on first use.
+	// ImageIdentifier is the pre-built MicroVM image ARN to launch from.
 	ImageIdentifier string `yaml:"image_identifier"`
-	// ImageSource is the OCI image to build a MicroVM image from when
-	// ImageIdentifier is empty.
-	ImageSource string `yaml:"image_source"`
 	// Region is the AWS region. Empty defers to the runner's region.
 	Region string `yaml:"region"`
 	// ExecutionRole is the IAM role ARN the MicroVM assumes at runtime. It needs
-	// S3 read for the staged bundle and whatever the workload requires, but no
-	// MicroVM control-plane permissions: suspend/resume/terminate are the
-	// runner's, never the guest's.
+	// whatever the workload requires, but no MicroVM control-plane permissions:
+	// suspend/resume/terminate are the runner's, never the guest's.
 	ExecutionRole string `yaml:"execution_role"`
 	// EgressConnector is the network connector ARN granting outbound access so
 	// the driver can reach the server (INTERNET_EGRESS or a VPC connector).
 	EgressConnector string `yaml:"egress_connector"`
 	// IngressConnector is the network connector ARN granting inbound access so
-	// the runner can reach the in-VM shim over AWS's managed proxy (SSE lifecycle
-	// stream + /gritz/stop). Empty defaults to the managed ALL_INGRESS connector.
-	// An operator may instead supply a connector scoped to the gritz
-	// control-surface port for tighter, defense-in-depth security (the proxy auth
-	// token is already port-scoped).
+	// the runner can reach the in-VM driver server over AWS's managed proxy.
+	// Empty defaults to the managed ALL_INGRESS connector. An operator may
+	// instead supply a connector scoped to the driver port for tighter,
+	// defense-in-depth security (the proxy auth token is already port-scoped).
 	IngressConnector string `yaml:"ingress_connector"`
-	// StagingBucket is the S3 bucket the backend stages the spec bundle in.
-	StagingBucket string `yaml:"staging_bucket"`
 	// MaxDurationSeconds caps the MicroVM's lifetime (run-microvm
 	// --maximum-duration-in-seconds). 0 uses the backend default.
 	MaxDurationSeconds int64             `yaml:"max_duration_seconds"`

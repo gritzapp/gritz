@@ -3,15 +3,13 @@
 // --aws-lambda-hooks`) as each VM's main process, starting each run over the
 // driver.v1 protocol through AWS's managed proxy. It is the Lambda counterpart
 // of experimentaldocker, and like it is phase A of
-// proposals/draft/driver-server.md: it implements the same backend.Backend as
-// the lambdamicrovm package, the driver still reports to the gritz server
-// itself, and the VM is suspended after every run.
+// proposals/draft/driver-server.md: it implements backend.Backend, the driver
+// still reports to the gritz server itself, and the VM is suspended after
+// every run.
 //
-// It shares no code with the lambdamicrovm or experimentaldocker packages on
-// purpose: lambdamicrovm and its in-VM shim are removed once this one replaces
-// them, and the backends evolve independently until then. Agent files arrive
-// in the RunSpec, so nothing is staged in S3. See README.md for building the
-// VM image.
+// It shares no code with the experimentaldocker package on purpose. Agent
+// files arrive in the RunSpec, so nothing is staged in S3. See README.md for
+// building the VM image.
 package experimentallambdamicrovm
 
 import (
@@ -145,7 +143,6 @@ func New(opts Options) (*Backend, error) {
 func (b *Backend) Close() error { return nil }
 
 // ValidateWorkspace requires the lambda_microvm config a VM is launched with.
-// staging_bucket is unused: agent files arrive in the RunSpec.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	cfg := ws.LambdaMicroVM
 	if cfg == nil {

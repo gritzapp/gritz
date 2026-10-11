@@ -1,14 +1,11 @@
 // Package experimentaldocker implements the runner backend on the local Docker
 // daemon with the driver server (`gritz driver --serve`) as each container's
 // main process, starting each run over the driver.v1 protocol. This is phase A
-// of proposals/draft/driver-server.md: it implements the same backend.Backend
-// as the docker package, the driver still reports to the gritz server itself,
-// and the container is stopped after every run.
+// of proposals/draft/driver-server.md: it implements backend.Backend, the
+// driver still reports to the gritz server itself, and the container is
+// stopped after every run.
 //
-// It shares no code with the docker package on purpose: that backend is
-// removed in phase E, and the two evolve independently until then.
-// Containers are named gritz-{task-id} and labelled with the owning runner, as
-// the docker package's are.
+// Containers are named gritz-{task-id} and labelled with the owning runner.
 package experimentaldocker
 
 import (

@@ -13,9 +13,7 @@ The runner resolves AWS credentials and region from the standard SDK chain;
 `--lambda-microvm-region` overrides the region. The control plane is reached
 with the official `github.com/aws/aws-sdk-go-v2/service/lambdamicrovms` client,
 so the standard endpoint overrides (`AWS_ENDPOINT_URL`,
-`AWS_ENDPOINT_URL_LAMBDA_MICROVMS`) apply. Handles recorded by any other
-backend are treated as gone, so switch a runner over only once it has no active
-tasks on another backend.
+`AWS_ENDPOINT_URL_LAMBDA_MICROVMS`) apply.
 
 ## Lifecycle
 
@@ -32,10 +30,10 @@ Every request to the driver carries a `CreateMicrovmAuthToken` token in
 
 ## Workspace config
 
-Workspaces use the same `lambda_microvm:` section as the `lambda-microvm`
-backend. `staging_bucket` is unused: agent files arrive in the run spec, so the
-execution role needs no S3 permission for them. `environment` is passed in each
-run's environment, since the VM has none of its own.
+Workspaces configure the VM in a `lambda_microvm:` section. Agent files arrive
+in the run spec, so the execution role needs no S3 permission for them.
+`environment` is passed in each run's environment, since the VM has none of its
+own.
 
 ```yaml
 workspaces:
