@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/runner/agent/toollog"
+	"github.com/gritzapp/gritz/internal/x/lines"
 )
 
 // Codegritz implements Agent using OpenAI Codex CLI.
@@ -98,11 +100,17 @@ func (a *Codegritz) run(ctx context.Context, bin string, args []string) error {
 		return err
 	}
 
-	readLines(stdout, a.log, func(line []byte) {
+	for line, err := range lines.Read(stdout) {
+		if err != nil {
+			// Drain the rest so the CLI can never block on a full pipe.
+			a.log.Error("failed to read agent output", "err", err)
+			_, _ = io.Copy(io.Discard, stdout)
+			break
+		}
 		if a.verbose || !a.handleStreamEvent(line) {
 			a.log.Info("output", "line", string(line))
 		}
-	})
+	}
 
 	return cmd.Wait()
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gritzapp/gritz/internal/x/lines"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/golden"
 )
@@ -32,9 +33,10 @@ func TestClaudeGolden(t *testing.T) {
 	}))
 	agent := &ClaudeAgent{log: &DriverLog{Logger: *log}}
 
-	readLines(f, agent.log, func(line []byte) {
+	for line, err := range lines.Read(f) {
+		assert.NilError(t, err)
 		agent.handleStreamEvent(line)
-	})
+	}
 
 	golden.Assert(t, buf.String(), "claude-session.golden")
 }

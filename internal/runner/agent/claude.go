@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os/exec"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/runner/agent/toollog"
+	"github.com/gritzapp/gritz/internal/x/lines"
 )
 
 // ClaudeAgent implements Agent using Claude Code CLI.
@@ -90,11 +92,17 @@ func (a *ClaudeAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 		return err
 	}
 
-	readLines(stdout, a.log, func(line []byte) {
+	for line, err := range lines.Read(stdout) {
+		if err != nil {
+			// Drain the rest so the CLI can never block on a full pipe.
+			a.log.Error("failed to read agent output", "err", err)
+			_, _ = io.Copy(io.Discard, stdout)
+			break
+		}
 		if a.verbose || !a.handleStreamEvent(line) {
 			a.log.Info("output", "line", string(line))
 		}
-	})
+	}
 
 	return cmd.Wait()
 }

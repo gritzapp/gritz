@@ -3,10 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
+
+	"github.com/gritzapp/gritz/internal/x/lines"
 )
 
 // CopilotAgent implements Agent using GitHub Copilot CLI.
@@ -81,9 +84,15 @@ func (a *CopilotAgent) Prompt(ctx context.Context, prompt string, resume bool) e
 		return err
 	}
 
-	readLines(stdout, a.log, func(line []byte) {
+	for line, err := range lines.Read(stdout) {
+		if err != nil {
+			// Drain the rest so the CLI can never block on a full pipe.
+			a.log.Error("failed to read agent output", "err", err)
+			_, _ = io.Copy(io.Discard, stdout)
+			break
+		}
 		a.log.Info("output", "line", string(line))
-	})
+	}
 
 	return cmd.Wait()
 }
