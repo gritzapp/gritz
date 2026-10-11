@@ -1,5 +1,5 @@
 # Example Dockerfile for a Lambda MicroVMs image whose application is the gritz
-# driver server, for the experimental-lambda-microvm backend. This is the
+# driver server, for the lambda-microvm backend. This is the
 # *container* layer of the image: it is packaged with a linux/arm64 gritz binary
 # into a zip, uploaded to S3, and built with `create-microvm-image`. See
 # README.md for the recipe. The task's run, agent files included, arrives over

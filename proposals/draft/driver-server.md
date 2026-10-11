@@ -505,12 +505,12 @@ only if its platform does not authenticate the path (see Authentication). `Cmd`,
 `Start`, `Kill`, `Remove` and the idle park, and with them every `Sandbox.Start`,
 `Park` and `Destroy`; `supervise` runs outside it (see Backend interface).
 
-The experimental backends showed two problems with today's `Launch` that this
+The driver-server backends showed two problems with today's `Launch` that this
 split fixes:
 
-- **`Launch` blocks `Poll`.** The experimental backends' `Launch` waits for the
-  driver (`waitReady`, polling `Status` for up to 30s on Docker, 1m on Lambda)
-  and starts the run before returning, and `Poll` waits for every `Start` in its
+- **`Launch` blocks `Poll`.** The backends' `Launch` waits for the driver
+  (`waitReady`, polling `Status` for up to 30s on Docker, 1m on Lambda) and
+  starts the run before returning, and `Poll` waits for every `Start` in its
   pass. A slow sandbox therefore delays the next poll, and with it every other
   task's start and stop commands. Here `Create` and `Sandbox.Start` only wait
   for the platform; the `Status` wait and `Run` move out of the poll pass into the
@@ -596,8 +596,8 @@ On both platforms the agent files (agent config and directories) travel in
 `RunSpec.files` and the driver writes them, so no backend copies files into the
 sandbox. Docker still copies the prebuilt binary.
 
-Lambda changes, all in place in the experimental Lambda backend
-(`internal/runner/backend/experimentallambdamicrovm`):
+Lambda changes, all in place in the Lambda backend
+(`internal/runner/backend/lambdamicrovm`):
 
 - The image entrypoint (`microvm.Dockerfile`) is
   `gritz driver --serve --aws-lambda-hooks`. The flag mounts
@@ -817,19 +817,20 @@ It delivered:
 - `gritz driver --serve`: attach-or-start keyed on version, one `Run` stream at a
   time, a dropped stream leaves the run going, `Stop` cancels with `ErrStop`,
   the agent files provisioned once per sandbox behind `/gritz/.provisioned`.
-- The `experimentaldocker` backend (handle type `experimental-docker`), reaching
-  the driver through a Docker exec tunnel of `gritz tool proxy`, and stopping the
-  container after every run.
+- The `experimentaldocker` backend (handle type `experimental-docker`), now
+  `docker` (L2), reaching the driver through a Docker exec tunnel of
+  `gritz tool proxy`, and stopping the container after every run.
 - The `experimentallambdamicrovm` backend (handle type
-  `experimental-lambda-microvm`): the driver server as the VM's main process,
-  acknowledging the Lambda hooks with `--aws-lambda-hooks`, reached through the
-  managed proxy with a cached port-scoped token, the run spec in `Run` instead of
-  S3, and the VM suspended (polled until `SUSPENDED`) after every run. Its
-  resume returns a plain error for `SUSPENDING`, which fixes problem 3 once the
-  old backend is gone.
-- `--backend experimental-docker` and `--backend experimental-lambda-microvm`.
-  Each replaces its old counterpart rather than running beside it: handles of
-  any other type are treated as gone.
+  `experimental-lambda-microvm`), now `lambdamicrovm` (L2): the driver server as
+  the VM's main process, acknowledging the Lambda hooks with
+  `--aws-lambda-hooks`, reached through the managed proxy with a cached
+  port-scoped token, the run spec in `Run` instead of S3, and the VM suspended
+  (polled until `SUSPENDED`) after every run. Its resume returns a plain error
+  for `SUSPENDING`, which fixes problem 3 once the old backend is gone.
+- `--backend experimental-docker` and `--backend experimental-lambda-microvm`
+  (deprecated aliases of `docker` and `lambda-microvm` since L2). Each replaced
+  its old counterpart rather than running beside it: handles of any other type
+  are treated as gone.
 
 It left the Docker driver listening on `:8080`, so sibling containers on a
 shared bridge could reach it and the host, `container:` and `none` network
@@ -844,7 +845,7 @@ redesign fixes (Runner).
 
 ### Switch-over
 
-The experimental backends replace the old ones, still on today's
+The driver-server backends replace the old ones, still on today's
 `backend.Backend` interface. There is no migration: tasks on the old backends
 are archived before upgrading (open question 4).
 
@@ -1032,7 +1033,7 @@ and a unix socket bind-mounted out to the runner were tried and abandoned
    log chunks. Should the driver cap it (dropping the oldest log
    chunks, never runner events)?
 8. **Status timeout values.** How long should `Start` and `supervise` wait for a
-   ready driver before failing? The experimental backends wait 30s on Docker and
+   ready driver before failing? The backends wait 30s on Docker and
    1m on Lambda, measured from the platform reporting the sandbox running, so the
    image entrypoint's time counts against it. Should the budget be split
    (platform boot, entrypoint, driver answering), or made a workspace setting

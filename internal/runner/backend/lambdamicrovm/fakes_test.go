@@ -1,4 +1,4 @@
-package experimentallambdamicrovm
+package lambdamicrovm
 
 import (
 	"context"

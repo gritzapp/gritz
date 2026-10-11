@@ -17,8 +17,8 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/backend"
-	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
-	"github.com/gritzapp/gritz/internal/runner/backend/experimentallambdamicrovm"
+	"github.com/gritzapp/gritz/internal/runner/backend/docker"
+	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/common"
@@ -39,6 +39,13 @@ func defaultRunnerID() string {
 		return "default"
 	}
 	return hostname
+}
+
+// deprecatedBackends maps the old --backend values, from when the backends
+// were experimental, to their current names.
+var deprecatedBackends = map[string]string{
+	"experimental-docker":         docker.HandleType,
+	"experimental-lambda-microvm": lambdamicrovm.HandleType,
 }
 
 var RunnerCommand = &cli.Command{
@@ -76,8 +83,8 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "backend",
-			Usage:   "Sandbox backend (experimental-docker, experimental-lambda-microvm)",
-			Value:   experimentaldocker.HandleType,
+			Usage:   "Sandbox backend (docker, lambda-microvm)",
+			Value:   docker.HandleType,
 			Sources: cli.EnvVars("GRITZ_BACKEND"),
 		},
 		&cli.StringFlag{
@@ -166,26 +173,30 @@ var RunnerCommand = &cli.Command{
 		}
 
 		backendName := cmd.String("backend")
+		if name, ok := deprecatedBackends[backendName]; ok {
+			log.Warn("deprecated --backend value, use the new name", "backend", backendName, "use", name)
+			backendName = name
+		}
 		var be backend.Backend
 		switch backendName {
-		case experimentaldocker.HandleType:
-			be, err = experimentaldocker.New(experimentaldocker.Options{
+		case docker.HandleType:
+			be, err = docker.New(docker.Options{
 				RunnerID: runnerID,
 				Log:      log,
 			})
 			if err != nil {
 				return err
 			}
-		case experimentallambdamicrovm.HandleType:
+		case lambdamicrovm.HandleType:
 			loadOpts := []func(*config.LoadOptions) error{}
 			if region := cmd.String("lambda-microvm-region"); region != "" {
 				loadOpts = append(loadOpts, config.WithRegion(region))
 			}
 			awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 			if err != nil {
-				return fmt.Errorf("experimental-lambda-microvm backend: %w", err)
+				return fmt.Errorf("lambda-microvm backend: %w", err)
 			}
-			be, err = experimentallambdamicrovm.New(experimentallambdamicrovm.Options{
+			be, err = lambdamicrovm.New(lambdamicrovm.Options{
 				Cloud:  lambdamicrovms.NewFromConfig(awsCfg),
 				Region: awsCfg.Region,
 				Log:    log,
@@ -221,7 +232,7 @@ var RunnerCommand = &cli.Command{
 		}
 		defer r.Close()
 
-		log.Info("runner started", "server", serverAddr, "config", configPath, "poll", pollInterval, "concurrency", concurrency, "backend", cmd.String("backend"))
+		log.Info("runner started", "server", serverAddr, "config", configPath, "poll", pollInterval, "concurrency", concurrency, "backend", backendName)
 
 		// Register workspaces with the server (non-fatal if it fails)
 		if err := r.RegisterWorkspaces(ctx); err != nil {

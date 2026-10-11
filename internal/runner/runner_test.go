@@ -20,7 +20,7 @@ import (
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
-	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
+	"github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
@@ -89,9 +89,9 @@ func TestRunnerStart(t *testing.T) {
 		},
 	}
 
-	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
+	dc, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
 	assert.NilError(t, err)
-	defer docker.Close()
+	defer dc.Close()
 
 	// Create httptest server with the mock. The driver connects to the server
 	// directly over the network, so the container shares the host network
@@ -102,7 +102,7 @@ func TestRunnerStart(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	client := gritzclient.New(gritzclient.Options{BaseURL: ts.URL})
-	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
+	be, err := docker.New(docker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
@@ -143,7 +143,7 @@ func TestRunnerStart(t *testing.T) {
 	t.Cleanup(func() { r.Close() })
 
 	// Remove any leftover container from a previous aborted run.
-	_ = docker.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{Force: true})
+	_ = dc.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{Force: true})
 
 	// Start a task
 	err = r.Start(t.Context(), task)
@@ -153,15 +153,15 @@ func TestRunnerStart(t *testing.T) {
 	rec, ok, err := r.store.Read(task.ID)
 	assert.NilError(t, err)
 	assert.Equal(t, ok, true)
-	assert.Equal(t, rec.Type, experimentaldocker.HandleType)
+	assert.Equal(t, rec.Type, docker.HandleType)
 	assert.Assert(t, rec.ID != "")
 
 	// Wait for the container to exit
-	err = dockerx.ContainerWait(t.Context(), docker, "gritz-1", container.WaitConditionNotRunning)
+	err = dockerx.ContainerWait(t.Context(), dc, "gritz-1", container.WaitConditionNotRunning)
 	assert.NilError(t, err)
 
 	// Remove the container
-	err = docker.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{})
+	err = dc.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{})
 	assert.NilError(t, err)
 
 	// Verify ListLinks was called twice — once by the driver's first-run brief
@@ -185,7 +185,7 @@ func TestRunnerSpec_PreCreatesLogDir(t *testing.T) {
 		},
 	}
 	client := gritzclient.New(gritzclient.Options{BaseURL: "http://localhost"})
-	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
+	be, err := docker.New(docker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
@@ -243,7 +243,7 @@ func TestRunnerSpec_Secrets(t *testing.T) {
 		},
 	}
 	client := gritzclient.New(gritzclient.Options{BaseURL: "http://localhost"})
-	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
+	be, err := docker.New(docker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),

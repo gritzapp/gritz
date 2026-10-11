@@ -3,10 +3,9 @@
 // time, each built from its RunSpec: its own gritz client, log shipper, secret
 // mask and environment.
 //
-// This is phase A of proposals/draft/driver-server.md: the driver still
-// reports started / stopped / failed to the gritz server itself, exactly as
-// the one-shot `gritz driver` does, and Finished says whether that report was
-// acknowledged.
+// See proposals/draft/driver-server.md. The driver still reports started /
+// stopped / failed to the gritz server itself, exactly as the one-shot
+// `gritz driver` does, and Finished says whether that report was acknowledged.
 package driverserver
 
 import (

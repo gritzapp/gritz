@@ -1,12 +1,11 @@
-// Package experimentaldocker implements the runner backend on the local Docker
-// daemon with the driver server (`gritz driver --serve`) as each container's
-// main process, starting each run over the driver.v1 protocol. This is phase A
-// of proposals/draft/driver-server.md: it implements backend.Backend, the
-// driver still reports to the gritz server itself, and the container is
-// stopped after every run.
+// Package docker implements the runner backend on the local Docker daemon
+// with the driver server (`gritz driver --serve`) as each container's main
+// process, starting each run over the driver.v1 protocol. The driver still
+// reports to the gritz server itself, and the container is stopped after
+// every run.
 //
 // Containers are named gritz-{task-id} and labelled with the owning runner.
-package experimentaldocker
+package docker
 
 import (
 	"archive/tar"
@@ -42,7 +41,7 @@ import (
 
 // HandleType is the backend.Handle.Type this backend stamps on the handles it
 // produces.
-const HandleType = "experimental-docker"
+const HandleType = "docker"
 
 // DriverAddr is the unix socket `gritz driver --serve` listens on inside a
 // container. Each container has its own filesystem, so drivers sharing a
@@ -117,14 +116,13 @@ func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	return ws.Container.Validate()
 }
 
-// handleData is the backend-defined part of an experimental handle.
+// handleData is the backend-defined part of a handle.
 type handleData struct {
 	Version int64 `json:"version"`
 }
 
 // foreign reports whether h was produced by another backend. This backend
-// replaces docker rather than running beside it, so it treats such a handle's
-// sandbox as gone: Launch rejects it with backend.ErrGone, Probe answers
+// treats such a handle's sandbox as gone: Launch rejects it with backend.ErrGone, Probe answers
 // StateGone, Wait reports the run lost, and Signal and Destroy leave it alone.
 func foreign(h backend.Handle) bool {
 	return h.Type != HandleType

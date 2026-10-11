@@ -1,12 +1,12 @@
-# Experimental Lambda MicroVMs backend
+# Lambda MicroVMs backend
 
 Runs each task in an AWS Lambda MicroVM whose main process is the driver server
 (`gritz driver --serve --aws-lambda-hooks`). The runner starts each run with
 driver.v1 `Run` over AWS's managed proxy and suspends the VM after every run.
-This is phase A of `proposals/draft/driver-server.md`; see #1704.
+See `proposals/draft/driver-server.md`.
 
 ```
-AWS_REGION=us-east-1 gritz runner --backend experimental-lambda-microvm
+AWS_REGION=us-east-1 gritz runner --backend lambda-microvm
 ```
 
 The runner resolves AWS credentials and region from the standard SDK chain;
