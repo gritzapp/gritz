@@ -1,4 +1,4 @@
-package docker
+package experimentaldocker
 
 import (
 	"testing"
@@ -85,23 +85,23 @@ func TestDriverAddr_NoIP(t *testing.T) {
 	assert.ErrorContains(t, err, "no IP address")
 }
 
-func TestExperimentalLaunch_ReuseGoneReturnsErrGone(t *testing.T) {
+func TestLaunch_ReuseGoneReturnsErrGone(t *testing.T) {
 	t.Parallel()
-	be, err := NewExperimental(Options{RunnerID: "test-runner"})
+	be, err := New(Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = be.Close() })
 
-	_, err = be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: ExperimentalHandleType, ID: "nonexistent-container-id"})
+	_, err = be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
 	assert.ErrorIs(t, err, backend.ErrGone)
 }
 
-func TestExperimentalProbe_Gone(t *testing.T) {
+func TestProbe_Gone(t *testing.T) {
 	t.Parallel()
-	be, err := NewExperimental(Options{RunnerID: "test-runner"})
+	be, err := New(Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = be.Close() })
 
-	st, err := be.Probe(t.Context(), backend.Handle{Type: ExperimentalHandleType, ID: "nonexistent-container-id", Data: []byte(`{"version":1}`)})
+	st, err := be.Probe(t.Context(), backend.Handle{Type: HandleType, ID: "nonexistent-container-id", Data: []byte(`{"version":1}`)})
 	assert.NilError(t, err)
 	assert.Equal(t, st, backend.StateGone)
 }
