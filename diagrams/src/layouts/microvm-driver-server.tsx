@@ -6,7 +6,7 @@ import {Scaffold, linker, scaffold} from './common';
 
 // MicrovmDriverServerLayout is the Lambda MicroVM layout under the driver
 // server proposal (proposals/draft/driver-server.md). There is no shim and no
-// S3 staging: the VM's main process is `gritz driver --serve`. The runner
+// S3 staging: the VM's main process is `gritz driver`. The runner
 // speaks the driver protocol itself over the managed proxy, the Backend only
 // manages the VM, and the driver never talks to the server.
 export interface MicrovmDriverServerLayout extends Scaffold {
@@ -164,7 +164,7 @@ export function microvmDriverServerLayout(
           <Service
             ref={driver}
             name={'Driver'}
-            role={'gritz driver --serve'}
+            role={'gritz driver'}
             accent={Colors.driver}
             x={320}
             y={30}

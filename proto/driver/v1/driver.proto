@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/gritzapp/gritz/internal/proto/driver/v1;driverv1";
 
-// DriverService is served by `gritz driver --serve` inside the sandbox and
+// DriverService is served by `gritz driver` inside the sandbox and
 // called by the runner. Runs execute in-process, one at a time.
 //
 // Field numbers follow proposals/draft/driver-server.md, so the fields later

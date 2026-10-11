@@ -67,7 +67,7 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     3,
-    'The VM boots gritz driver --serve, which acks the /run hook. Start polls until RUNNING.',
+    'The VM boots gritz driver, which acks the /run hook. Start polls until RUNNING.',
   );
   yield* a.driver.updateActivity('boot');
   yield* a.record.flash('state');

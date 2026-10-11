@@ -36,7 +36,8 @@ type ExitCode int
 const ExitLost ExitCode = -1
 
 // BinaryPath is the path inside the sandbox where backends provision the
-// gritz driver binary. Spec.Cmd and the injected MCP server reference it.
+// gritz driver binary. The sandbox command and the injected MCP server
+// reference it.
 const BinaryPath = "/usr/local/bin/gritz"
 
 // Handle identifies a backend's sandbox. ID is the index key (a container id,
@@ -69,9 +70,18 @@ type Spec struct {
 	// over the driver protocol key them on it.
 	Version   int64
 	Workspace *workspace.Workspace
-	Cmd       []string // driver invocation
-	Env       []string // GRITZ_TASK_ID / GRITZ_TOKEN / GRITZ_SERVER
-	Files     []File   // agent config; the driver binary is the backend's job
+	// ServerURL is the gritz server the driver reports to.
+	ServerURL string
+	// Token is the task token the driver calls ServerURL with. The driver
+	// masks it in the log it ships.
+	Token string
+	// Env is the run's environment, on top of the sandbox's own: what the setup
+	// commands and the agent CLI see.
+	Env map[string]string
+	// Secrets are the workspace's declared secrets, by name. They are added to
+	// the run's environment and masked in the log the driver ships.
+	Secrets map[string]string
+	Files   []File // agent config; the driver binary is the backend's job
 }
 
 // State is the orchestrator's view of a sandbox's lifecycle. Runtime states

@@ -1,7 +1,7 @@
 # Lambda MicroVMs backend
 
 Runs each task in an AWS Lambda MicroVM whose main process is the driver server
-(`gritz driver --serve --aws-lambda-hooks`). The runner starts each run with
+(`gritz driver --aws-lambda-hooks`). The runner starts each run with
 driver.v1 `Run` over AWS's managed proxy and suspends the VM after every run.
 See `proposals/draft/driver-server.md`.
 
@@ -58,7 +58,7 @@ workspaces:
 An image is a zip of a `Dockerfile` and the app, uploaded to S3 and built with
 `create-microvm-image`; its ARN is the workspace's `image_identifier`. MicroVMs
 are ARM64-only, so the gritz binary must be `linux/arm64`. See
-`microvm.Dockerfile`: its entrypoint is `gritz driver --serve --aws-lambda-hooks`.
+`microvm.Dockerfile`: its entrypoint is `gritz driver --aws-lambda-hooks`.
 
 The image serves two ports:
 

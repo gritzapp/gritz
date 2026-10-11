@@ -87,7 +87,7 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     7,
-    'Launch the container running “gritz driver --task 42” with the agent config written in.',
+    'Launch the container running “gritz driver” and start task 42’s run with the agent config.',
   );
   yield* a.runner.updateActivity('backend.Launch');
   yield* links.runnerContainer.opacity(1, 0.3);

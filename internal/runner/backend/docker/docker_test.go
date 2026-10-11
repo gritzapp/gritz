@@ -23,27 +23,25 @@ import (
 
 func TestNewRunSpec(t *testing.T) {
 	spec := &backend.Spec{
-		TaskID:  7,
-		Version: 3,
-		Env: []string{
-			"GRITZ_TASK_ID=7",
-			"GRITZ_TOKEN=tok",
-			"GRITZ_SERVER=http://server",
-			"GH_TOKEN=ghp_secret",
-			"GRITZ_SECRETS=GH_TOKEN",
+		TaskID:    7,
+		Version:   3,
+		ServerURL: "http://server",
+		Token:     "tok",
+		Env: map[string]string{
+			"GRITZ_TASK_ID": "7",
+			"GRITZ_TOKEN":   "tok",
+			"GRITZ_SERVER":  "http://server",
 		},
+		Secrets: map[string]string{"GH_TOKEN": "ghp_secret"},
 		Files: []backend.File{
 			{Path: "/tmp/gritz", Mode: 0777, Dir: true},
 			{Path: "/tmp/gritz/7.json", Data: []byte(`{"type":"dummy"}`), Mode: 0666},
 		},
 	}
 
-	rs, err := newRunSpec(spec)
+	rs := newRunSpec(spec)
 
-	// The server URL, token and secrets get their own fields; GRITZ_SECRETS
-	// is dropped, since the secrets map is the mask. The files are carried as
-	// they are.
-	assert.NilError(t, err)
+	// Every field is carried as it is.
 	assert.DeepEqual(t, rs, &driverv1.RunSpec{
 		TaskId:    7,
 		ServerUrl: "http://server",

@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math"
 	"path"
 	"regexp"
-	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/gritzclient"
@@ -451,8 +451,9 @@ func (r *Runner) Kill(ctx context.Context, task *model.Task) (bool, error) {
 	return r.backend.Signal(ctx, h)
 }
 
-// spec assembles the sandbox spec for a task: the task token, the driver
-// invocation, and the agent config with the injected gritz MCP server.
+// spec assembles the sandbox spec for a task: the task token, the run's
+// environment and secrets, and the agent config with the injected gritz MCP
+// server.
 func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, error) {
 	ws, err := r.workspaces.Get(task.Workspace)
 	if err != nil {
@@ -498,35 +499,20 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	env := []string{
-		fmt.Sprintf("GRITZ_TASK_ID=%d", task.ID),
-		fmt.Sprintf("GRITZ_TOKEN=%s", token),
-		"GRITZ_SERVER=" + r.serverURL,
-	}
-	// Declared workspace secrets enter the sandbox as ordinary environment
-	// variables; GRITZ_SECRETS carries their names so the driver can look the
-	// values up in its own environment and mask them in the log it ships. The
-	// names travel by env rather than in the agent config because the driver
-	// opens its log before it reads that config — the mask has to exist before
-	// the first shipped byte.
-	if names := ws.SecretNames(); len(names) > 0 {
-		for _, name := range names {
-			env = append(env, name+"="+ws.Secrets[name])
-		}
-		env = append(env, "GRITZ_SECRETS="+strings.Join(names, ","))
-	}
-
 	return &backend.Spec{
 		TaskID:    task.ID,
 		Version:   task.Version,
 		Workspace: ws,
-		Cmd: []string{
-			backend.BinaryPath, "driver",
-			"--server", r.serverURL,
-			"--task", fmt.Sprint(task.ID),
-			"--token", token,
+		ServerURL: r.serverURL,
+		Token:     token,
+		// The agent's tools (the git credential helper, the GitHub MCP server)
+		// reach the server through these.
+		Env: map[string]string{
+			"GRITZ_TASK_ID": fmt.Sprint(task.ID),
+			"GRITZ_TOKEN":   token,
+			"GRITZ_SERVER":  r.serverURL,
 		},
-		Env: env,
+		Secrets: maps.Clone(ws.Secrets),
 		Files: []backend.File{
 			// Allow non-root agents to write to this directory.
 			{Path: path.Dir(agent.DefaultConfigStore.Path(task.ID)), Mode: 0777, Dir: true},

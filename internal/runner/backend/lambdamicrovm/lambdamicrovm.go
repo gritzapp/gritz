@@ -1,5 +1,5 @@
 // Package lambdamicrovm implements the runner backend on AWS Lambda MicroVMs
-// with the driver server (`gritz driver --serve --aws-lambda-hooks`) as each
+// with the driver server (`gritz driver --aws-lambda-hooks`) as each
 // VM's main process, starting each run over the driver.v1 protocol through
 // AWS's managed proxy. It is the Lambda counterpart of the docker backend: the
 // driver still reports to the gritz server itself, and the VM is suspended
@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -39,7 +40,7 @@ import (
 // produces.
 const HandleType = "lambda-microvm"
 
-// DriverPort is the port `gritz driver --serve` listens on inside the VM, and
+// DriverPort is the port `gritz driver` listens on inside the VM, and
 // the only port the proxy tokens this backend mints may reach.
 const DriverPort = 8080
 
@@ -316,10 +317,7 @@ func (b *Backend) launch(ctx context.Context, spec *backend.Spec, id, endpoint s
 	if err := b.waitReady(ctx, client); err != nil {
 		return backend.Handle{}, err
 	}
-	runSpec, err := newRunSpec(spec)
-	if err != nil {
-		return backend.Handle{}, err
-	}
+	runSpec := newRunSpec(spec)
 	if err := b.start(ctx, client, spec.Version, runSpec); err != nil {
 		return backend.Handle{}, err
 	}
@@ -757,30 +755,19 @@ func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
 
 // newRunSpec builds the driver.v1 RunSpec for spec. A VM has no environment of
 // its own to carry the workspace's, so the run's env is the workspace's
-// lambda_microvm environment overlaid with the one-shot driver's environment
-// the runner hands every backend (GRITZ_SERVER, GRITZ_TOKEN, the workspace
-// secrets and GRITZ_SECRETS naming them). The server URL, token and secrets
-// are lifted out of it into their own fields. spec.Files are carried as they
-// are.
-func newRunSpec(spec *backend.Spec) (*driverv1.RunSpec, error) {
+// lambda_microvm environment overlaid with spec.Env.
+func newRunSpec(spec *backend.Spec) *driverv1.RunSpec {
 	env := map[string]string{}
 	if cfg := spec.Workspace.LambdaMicroVM; cfg != nil {
-		for k, v := range cfg.Environment {
-			env[k] = v
-		}
+		maps.Copy(env, cfg.Environment)
 	}
-	for _, kv := range spec.Env {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok {
-			return nil, fmt.Errorf("invalid environment entry %q", kv)
-		}
-		env[k] = v
-	}
+	maps.Copy(env, spec.Env)
 	rs := &driverv1.RunSpec{
 		TaskId:    spec.TaskID,
-		ServerUrl: env["GRITZ_SERVER"],
-		Token:     env["GRITZ_TOKEN"],
+		ServerUrl: spec.ServerURL,
+		Token:     spec.Token,
 		Env:       env,
+		Secrets:   maps.Clone(spec.Secrets),
 	}
 	for _, f := range spec.Files {
 		rs.Files = append(rs.Files, &driverv1.File{
@@ -790,17 +777,7 @@ func newRunSpec(spec *backend.Spec) (*driverv1.RunSpec, error) {
 			Dir:  f.Dir,
 		})
 	}
-	if names := env["GRITZ_SECRETS"]; names != "" {
-		rs.Secrets = map[string]string{}
-		for name := range strings.SplitSeq(names, ",") {
-			if v, ok := env[name]; ok {
-				rs.Secrets[name] = v
-				delete(env, name)
-			}
-		}
-	}
-	delete(env, "GRITZ_SECRETS")
-	return rs, nil
+	return rs
 }
 
 // sleep waits for d or until ctx is done, returning ctx's error in that case.

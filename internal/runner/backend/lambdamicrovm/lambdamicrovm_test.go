@@ -151,7 +151,8 @@ func testSpec(version int64) *backend.Spec {
 		TaskID:    testTaskID,
 		Version:   version,
 		Workspace: testWorkspace(),
-		Env:       []string{"GRITZ_SERVER=http://gritz.test", "GRITZ_TOKEN=tok"},
+		ServerURL: "http://gritz.test",
+		Token:     "tok",
 	}
 }
 
@@ -530,20 +531,20 @@ func TestNewRunSpec(t *testing.T) {
 		TaskID:    7,
 		Version:   3,
 		Workspace: ws,
-		Env: []string{
-			"FOO=run",
-			"GRITZ_TOKEN=tok",
-			"GRITZ_SERVER=http://server",
-			"GH_TOKEN=ghp_secret",
-			"GRITZ_SECRETS=GH_TOKEN",
+		ServerURL: "http://server",
+		Token:     "tok",
+		Env: map[string]string{
+			"FOO":          "run",
+			"GRITZ_TOKEN":  "tok",
+			"GRITZ_SERVER": "http://server",
 		},
-		Files: []backend.File{{Path: "/tmp/gritz/7.json", Data: []byte(`{}`), Mode: 0666}},
+		Secrets: map[string]string{"GH_TOKEN": "ghp_secret"},
+		Files:   []backend.File{{Path: "/tmp/gritz/7.json", Data: []byte(`{}`), Mode: 0666}},
 	}
 
-	rs, err := newRunSpec(spec)
+	rs := newRunSpec(spec)
 
 	// The workspace environment is layered under the run's.
-	assert.NilError(t, err)
 	assert.DeepEqual(t, rs, &driverv1.RunSpec{
 		TaskId:    7,
 		ServerUrl: "http://server",

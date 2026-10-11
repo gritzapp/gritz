@@ -46,8 +46,8 @@ GRITZ is an async agent orchestrator using a central control plane architecture 
 
 A workspace's `secrets:` map declares credentials for the sandbox. Each entry becomes an environment variable there — identical to a `container.environment` entry, same `${env:}`/`${sh:}` expansion — but declaring it is also what marks the value as a secret:
 
-- The runner injects the `NAME=value` pairs into `Spec.Env` and lists the names in `GRITZ_SECRETS` (`internal/runner/runner.go`). The names travel by env rather than in the agent config because the driver opens its log before reading that config — the mask has to exist before the first shipped byte.
-- `command/driver.go` reads those names back out of its own environment, adds its `--token` (the task JWT, masked as `token`), and hands the map to the log shipper.
+- The runner puts them in `backend.Spec.Secrets` (`internal/runner/runner.go`), and each backend carries them into the driver.v1 `RunSpec.secrets` of the run it starts. They travel in the run spec rather than in the agent config because the driver opens its log before reading that config — the mask has to exist before the first shipped byte.
+- `internal/runner/driverserver` adds them to the run's environment, adds the run's token (the task JWT, masked as `token`), and hands the map to the log shipper.
 - `internal/x/redact` replaces every occurrence of a declared value with `[gritz:masked NAME]`. It performs no detection — callers supply exact values — and matches leftmost-longest through a byte trie, so a value that is a prefix of another cannot mask partially. `internal/runner/logship.Shipper` owns a `redact.Writer` and masks before chunks are cut, so chunk boundaries and a value straddling two writes are both handled; only bytes that are still a live prefix of some secret are held back, and `Flush` drains that tail.
 - Only the shipped branch is masked. `/gritz/log` and stderr stay raw — same trust boundary as `gritz shell`, and full fidelity for post-mortems.
 
@@ -79,7 +79,7 @@ Use `create_link` with `subscribe=true` for resources that may need follow-up (P
 ```
 gritz server     # Start server
 gritz runner     # Start container orchestrator
-gritz driver     # Run agent (inside container, started by runner)
+gritz driver     # Driver server: runs agents inside the sandbox, started by the runner's backend
 gritz mcp        # Local user-facing stdio MCP server that proxies to the server
 gritz notify     # Subscribe to server notifications and emit system notifications
 gritz tool agent-mcp # In-container MCP server providing gritz tools to the agent

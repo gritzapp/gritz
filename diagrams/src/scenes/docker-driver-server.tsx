@@ -4,9 +4,9 @@ import {dockerDriverServerLayout} from '../layouts/docker-driver-server';
 import {Colors} from '../theme';
 
 // proposals/draft/driver-server.md: the first start of a task on the Docker
-// backend. The container runs `gritz driver
-// --serve`; the backend speaks the driver protocol behind today's
-// backend.Backend interface (Launch, Wait, Probe, Signal, Destroy), so
+// backend. The container runs `gritz driver`; the backend speaks the driver
+// protocol behind today's backend.Backend interface (Launch, Wait, Probe,
+// Signal, Destroy), so
 // runner.go only sets Spec.Version. The driver still reports to the server
 // directly, a dropped Run stream is reattached, and Wait stops the container
 // after Finished so it is stopped between runs as today.
@@ -50,7 +50,7 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     3,
-    'Launch: ContainerCreate runs gritz driver --serve. The binary and agent config are copied in as today.',
+    'Launch: ContainerCreate runs gritz driver. The binary and agent config are copied in as today.',
   );
   yield* links.runnerBackend.send('Launch(spec v1)', {color: Colors.runner});
   yield* a.backend.updateActivity('Launch');

@@ -1,11 +1,11 @@
 // Package driverserver implements driver.v1.DriverService, served by
-// `gritz driver --serve` inside the sandbox. Runs execute in-process, one at a
+// `gritz driver` inside the sandbox. Runs execute in-process, one at a
 // time, each built from its RunSpec: its own gritz client, log shipper, secret
 // mask and environment.
 //
 // See proposals/draft/driver-server.md. The driver still reports started /
-// stopped / failed to the gritz server itself, exactly as the one-shot
-// `gritz driver` does, and Finished says whether that report was acknowledged.
+// stopped / failed to the gritz server itself, and Finished says whether that
+// report was acknowledged.
 package driverserver
 
 import (
@@ -164,7 +164,7 @@ func (s *Server) Handler() (string, http.Handler) {
 // a unix path is removed before listening, and the socket is removed again on
 // shutdown. Once ctx is cancelled it stops the active run, waits for it to
 // stop and report, however long that takes (the platform's stop timeout bounds
-// it, as it does the one-shot driver), and shuts down the HTTP servers.
+// it), and shuts down the HTTP servers.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle(s.Handler())
@@ -400,8 +400,8 @@ func writeFile(path string, f *driverv1.File) error {
 func (s *Server) execute(ctx context.Context, r *run, spec *driverv1.RunSpec) {
 	client := s.newClient(spec.GetServerUrl(), spec.GetToken())
 
-	// Built before anything touches the server, as in the one-shot driver, so
-	// the mask is in place before the first shipped byte.
+	// Built before anything touches the server, so the mask is in place before
+	// the first shipped byte.
 	shipper := logship.New(client, logship.Options{
 		TaskID:  spec.GetTaskId(),
 		Secrets: Secrets(spec),
