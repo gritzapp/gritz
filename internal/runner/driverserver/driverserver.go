@@ -3,9 +3,9 @@
 // time, each built from its RunSpec: its own gritz client, log shipper, secret
 // mask and environment.
 //
-// See proposals/draft/driver-server.md. The driver still reports started /
-// stopped / failed to the gritz server itself, and Finished says whether that
-// report was acknowledged.
+// See proposals/draft/driver-server.md. The driver reports started / stopped /
+// failed to the gritz server itself, and Finished says whether that report was
+// acknowledged.
 package driverserver
 
 import (
@@ -287,7 +287,7 @@ func (s *Server) open(req *driverv1.RunRequest) (r *run, attached bool, err erro
 			fmt.Errorf("version %d is stale, the run record is at %d", version, s.rec.Version))
 	case s.hasRec && s.rec.Version == version:
 		r = s.active
-		if r == nil || r.version != version {
+		if r == nil {
 			// Finished before this process started: either it finished in an
 			// earlier process, or Reconcile marked it finished after a crash.
 			r = finishedRun(version, s.rec.Reported)
