@@ -223,3 +223,23 @@ func TestLaunch_ReuseFailureStopsContainer(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, st, backend.StateExited)
 }
+
+// A Wait whose driver never answers gives up after lostTimeout: it stops the
+// container and reports the run lost rather than retrying forever (#1687).
+func TestWait_DriverUnreachableGivesUp(t *testing.T) {
+	t.Parallel()
+	be, err := New(Options{RunnerID: "test-runner"})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = be.Close() })
+	be.lostTimeout = time.Second
+	// A running container with nothing listening on the driver port.
+	docker, id := startContainer(t, []string{"sh", "-c", "trap 'exit 0' TERM; sleep 300 & wait"})
+
+	code, err := be.Wait(t.Context(), backend.Handle{Type: HandleType, ID: id, Data: []byte(`{"version":1}`)})
+
+	assert.NilError(t, err)
+	assert.Equal(t, code, backend.ExitLost)
+	info, err := docker.ContainerInspect(t.Context(), id)
+	assert.NilError(t, err)
+	assert.Assert(t, !info.State.Running, "container %s is still running", id)
+}
