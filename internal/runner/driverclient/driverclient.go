@@ -1,7 +1,6 @@
 // Package driverclient builds driver.v1 clients that notice a dead Run stream.
 //
-// The driver server sends a KeepAlive on every open Run stream every
-// driverserver.DefaultKeepAlive. A client built here watches for them: a Run
+// The driver server sends a KeepAlive on every open Run stream every 15s. A client built here watches for them: a Run
 // stream that receives nothing for IdleTimeout is cancelled with
 // ErrStreamIdle, so a half-open connection fails instead of blocking forever.
 // KeepAlive messages are consumed by the client and never reach the caller,
@@ -17,12 +16,11 @@ import (
 	"connectrpc.com/connect"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
-	"github.com/gritzapp/gritz/internal/runner/driverserver"
 )
 
 // DefaultIdleTimeout is how long a Run stream may go without a message before
-// it is cancelled: three missed KeepAlives.
-const DefaultIdleTimeout = 3 * driverserver.DefaultKeepAlive
+// it is cancelled: three times the driver server's 15s keep-alive interval.
+const DefaultIdleTimeout = 45 * time.Second
 
 // ErrStreamIdle is the cause a Run stream is cancelled with when it has
 // received nothing for the idle timeout. A Receive on such a stream fails with
