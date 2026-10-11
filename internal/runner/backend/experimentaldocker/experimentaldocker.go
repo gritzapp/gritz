@@ -72,6 +72,9 @@ type Backend struct {
 	http     *http.Client
 	runnerID string
 	log      *slog.Logger
+	// readyTimeout bounds how long Launch waits for the driver server; tests
+	// shorten it.
+	readyTimeout time.Duration
 }
 
 var _ backend.Backend = (*Backend)(nil)
@@ -87,10 +90,11 @@ func New(opts Options) (*Backend, error) {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
 	return &Backend{
-		docker:   docker,
-		http:     &http.Client{},
-		runnerID: opts.RunnerID,
-		log:      cmp.Or(opts.Log, slog.Default()),
+		docker:       docker,
+		http:         &http.Client{},
+		runnerID:     opts.RunnerID,
+		log:          cmp.Or(opts.Log, slog.Default()),
+		readyTimeout: driverReadyTimeout,
 	}, nil
 }
 
@@ -141,11 +145,34 @@ func decodeHandle(h backend.Handle) (handleData, error) {
 // that container is gone; it never creates a fresh one. The runner only
 // launches on a container Probe does not report running, so between runs the
 // container has been stopped by Wait and is started again here.
+//
+// A failed Launch cleans up after itself, since the runner gets no handle to do
+// it with: a container it created is removed, and an adopted one is stopped —
+// not removed, as the task's record still points at it — so Probe does not
+// report it running with no run on it.
 func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (backend.Handle, error) {
+	fresh := reuse == nil || reuse.ID == ""
 	containerID, err := b.ensure(ctx, spec, reuse)
 	if err != nil {
 		return backend.Handle{}, err
 	}
+	h, err := b.launch(ctx, spec, containerID)
+	if err != nil {
+		// ctx being cancelled is one of the failures to clean up after.
+		ctx := context.WithoutCancel(ctx)
+		if fresh {
+			b.discard(ctx, containerID)
+		} else {
+			b.stopFailed(ctx, containerID)
+		}
+		return backend.Handle{}, err
+	}
+	return h, nil
+}
+
+// launch starts the container, waits for its driver server and starts the
+// spec's run on it.
+func (b *Backend) launch(ctx context.Context, spec *backend.Spec, containerID string) (backend.Handle, error) {
 	if err := b.docker.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 		return backend.Handle{}, fmt.Errorf("failed to start container: %w", err)
 	}
@@ -168,6 +195,28 @@ func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend
 		return backend.Handle{}, err
 	}
 	return backend.Handle{Type: HandleType, ID: containerID, Data: data}, nil
+}
+
+// discard force-removes a container this Launch created and failed to start a
+// run on: the runner has no record of it, so nothing else would. Failures are
+// logged: Launch returns the error that caused them.
+func (b *Backend) discard(ctx context.Context, containerID string) {
+	b.log.Info("removing container after failed launch", "container", containerID)
+	err := b.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		b.log.Error("failed to remove container after failed launch", "container", containerID, "err", err)
+	}
+}
+
+// stopFailed stops an adopted container Launch failed to start a run on, so
+// the next start launches on it again rather than finding it running.
+// Failures are logged: Launch returns the error that caused them.
+func (b *Backend) stopFailed(ctx context.Context, containerID string) {
+	b.log.Info("stopping container after failed launch", "container", containerID)
+	err := b.docker.ContainerStop(ctx, containerID, container.StopOptions{})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		b.log.Error("failed to stop container after failed launch", "container", containerID, "err", err)
+	}
 }
 
 // ensure resolves the container to start, enforcing the one-sandbox-per-task
@@ -294,6 +343,7 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 		{Path: backend.BinaryPath, Data: binData, Mode: 0755},
 	}, spec.Files...)
 	if err := b.copyFiles(ctx, resp.ID, files); err != nil {
+		b.discard(context.WithoutCancel(ctx), resp.ID)
 		return "", fmt.Errorf("failed to copy files: %w", err)
 	}
 
@@ -386,9 +436,9 @@ func driverAddr(info container.InspectResponse) (string, error) {
 }
 
 // waitReady polls Status until the driver server answers or
-// driverReadyTimeout elapses.
+// the backend's readyTimeout elapses.
 func (b *Backend) waitReady(ctx context.Context, client driverv1connect.DriverServiceClient) error {
-	ctx, cancel := context.WithTimeout(ctx, driverReadyTimeout)
+	ctx, cancel := context.WithTimeout(ctx, b.readyTimeout)
 	defer cancel()
 	for {
 		_, err := client.Status(ctx, &driverv1.StatusRequest{})
