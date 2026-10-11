@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -67,10 +66,9 @@ func (a *SloppyAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 		return err
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		a.log.Info("output", "line", scanner.Text())
-	}
+	readLines(stdout, a.log, func(line []byte) {
+		a.log.Info("output", "line", string(line))
+	})
 
 	return cmd.Wait()
 }

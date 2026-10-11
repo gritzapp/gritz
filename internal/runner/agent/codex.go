@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -99,17 +98,11 @@ func (a *Codegritz) run(ctx context.Context, bin string, args []string) error {
 		return err
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if a.verbose {
-			a.log.Info("output", "line", string(line))
-			continue
-		}
-		if !a.handleStreamEvent(line) {
+	readLines(stdout, a.log, func(line []byte) {
+		if a.verbose || !a.handleStreamEvent(line) {
 			a.log.Info("output", "line", string(line))
 		}
-	}
+	})
 
 	return cmd.Wait()
 }

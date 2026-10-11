@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os"
@@ -82,11 +81,9 @@ func (a *CopilotAgent) Prompt(ctx context.Context, prompt string, resume bool) e
 		return err
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		a.log.Info("output", "line", line)
-	}
+	readLines(stdout, a.log, func(line []byte) {
+		a.log.Info("output", "line", string(line))
+	})
 
 	return cmd.Wait()
 }
