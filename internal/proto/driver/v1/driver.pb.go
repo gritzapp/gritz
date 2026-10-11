@@ -223,6 +223,10 @@ type RunSpec struct {
 	// Workspace secrets. Added to the run's env and masked in shipped log
 	// chunks.
 	Secrets map[string]string `protobuf:"bytes,6,rep,name=secrets,proto3" json:"secrets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Agent config and directories. Provisioned once per sandbox, gated by
+	// /gritz/.provisioned, so later runs keep whatever the agent changed in
+	// them.
+	Files []*File `protobuf:"bytes,7,rep,name=files,proto3" json:"files,omitempty"`
 	// The task to run. The driver fetches it from server_url.
 	TaskId int64 `protobuf:"varint,8,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	// The gritz server the driver reports to.
@@ -277,6 +281,13 @@ func (x *RunSpec) GetSecrets() map[string]string {
 	return nil
 }
 
+func (x *RunSpec) GetFiles() []*File {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
 func (x *RunSpec) GetTaskId() int64 {
 	if x != nil {
 		return x.TaskId
@@ -298,6 +309,79 @@ func (x *RunSpec) GetToken() string {
 	return ""
 }
 
+// File is a file or directory the driver writes into the sandbox.
+type File struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Absolute path inside the sandbox.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// Contents; ignored for a directory.
+	Data []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	// Permission bits.
+	Mode int64 `protobuf:"varint,3,opt,name=mode,proto3" json:"mode,omitempty"`
+	// True for a directory.
+	Dir           bool `protobuf:"varint,4,opt,name=dir,proto3" json:"dir,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *File) Reset() {
+	*x = File{}
+	mi := &file_driver_v1_driver_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *File) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*File) ProtoMessage() {}
+
+func (x *File) ProtoReflect() protoreflect.Message {
+	mi := &file_driver_v1_driver_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use File.ProtoReflect.Descriptor instead.
+func (*File) Descriptor() ([]byte, []int) {
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *File) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *File) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *File) GetMode() int64 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+func (x *File) GetDir() bool {
+	if x != nil {
+		return x.Dir
+	}
+	return false
+}
+
 type RunRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Version int64                  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -309,7 +393,7 @@ type RunRequest struct {
 
 func (x *RunRequest) Reset() {
 	*x = RunRequest{}
-	mi := &file_driver_v1_driver_proto_msgTypes[4]
+	mi := &file_driver_v1_driver_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +405,7 @@ func (x *RunRequest) String() string {
 func (*RunRequest) ProtoMessage() {}
 
 func (x *RunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[4]
+	mi := &file_driver_v1_driver_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -334,7 +418,7 @@ func (x *RunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRequest.ProtoReflect.Descriptor instead.
 func (*RunRequest) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{4}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RunRequest) GetVersion() int64 {
@@ -365,7 +449,7 @@ type RunResponse struct {
 
 func (x *RunResponse) Reset() {
 	*x = RunResponse{}
-	mi := &file_driver_v1_driver_proto_msgTypes[5]
+	mi := &file_driver_v1_driver_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -377,7 +461,7 @@ func (x *RunResponse) String() string {
 func (*RunResponse) ProtoMessage() {}
 
 func (x *RunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[5]
+	mi := &file_driver_v1_driver_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -390,7 +474,7 @@ func (x *RunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
 func (*RunResponse) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{5}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RunResponse) GetEvent() isRunResponse_Event {
@@ -461,7 +545,7 @@ type Accepted struct {
 
 func (x *Accepted) Reset() {
 	*x = Accepted{}
-	mi := &file_driver_v1_driver_proto_msgTypes[6]
+	mi := &file_driver_v1_driver_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -473,7 +557,7 @@ func (x *Accepted) String() string {
 func (*Accepted) ProtoMessage() {}
 
 func (x *Accepted) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[6]
+	mi := &file_driver_v1_driver_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -486,7 +570,7 @@ func (x *Accepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Accepted.ProtoReflect.Descriptor instead.
 func (*Accepted) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{6}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Accepted) GetAttached() bool {
@@ -507,7 +591,7 @@ type Finished struct {
 
 func (x *Finished) Reset() {
 	*x = Finished{}
-	mi := &file_driver_v1_driver_proto_msgTypes[7]
+	mi := &file_driver_v1_driver_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -519,7 +603,7 @@ func (x *Finished) String() string {
 func (*Finished) ProtoMessage() {}
 
 func (x *Finished) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[7]
+	mi := &file_driver_v1_driver_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -532,7 +616,7 @@ func (x *Finished) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Finished.ProtoReflect.Descriptor instead.
 func (*Finished) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{7}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Finished) GetVersion() int64 {
@@ -557,7 +641,7 @@ type KeepAlive struct {
 
 func (x *KeepAlive) Reset() {
 	*x = KeepAlive{}
-	mi := &file_driver_v1_driver_proto_msgTypes[8]
+	mi := &file_driver_v1_driver_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -569,7 +653,7 @@ func (x *KeepAlive) String() string {
 func (*KeepAlive) ProtoMessage() {}
 
 func (x *KeepAlive) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[8]
+	mi := &file_driver_v1_driver_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -582,7 +666,7 @@ func (x *KeepAlive) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeepAlive.ProtoReflect.Descriptor instead.
 func (*KeepAlive) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{8}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{9}
 }
 
 type StopRequest struct {
@@ -594,7 +678,7 @@ type StopRequest struct {
 
 func (x *StopRequest) Reset() {
 	*x = StopRequest{}
-	mi := &file_driver_v1_driver_proto_msgTypes[9]
+	mi := &file_driver_v1_driver_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -606,7 +690,7 @@ func (x *StopRequest) String() string {
 func (*StopRequest) ProtoMessage() {}
 
 func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[9]
+	mi := &file_driver_v1_driver_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -619,7 +703,7 @@ func (x *StopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
 func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{9}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StopRequest) GetVersion() int64 {
@@ -639,7 +723,7 @@ type StopResponse struct {
 
 func (x *StopResponse) Reset() {
 	*x = StopResponse{}
-	mi := &file_driver_v1_driver_proto_msgTypes[10]
+	mi := &file_driver_v1_driver_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -651,7 +735,7 @@ func (x *StopResponse) String() string {
 func (*StopResponse) ProtoMessage() {}
 
 func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[10]
+	mi := &file_driver_v1_driver_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +748,7 @@ func (x *StopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
 func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{10}
+	return file_driver_v1_driver_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StopResponse) GetStopped() bool {
@@ -691,10 +775,11 @@ const file_driver_v1_driver_proto_rawDesc = "" +
 	"\rStatusRequest\"E\n" +
 	"\x0eStatusResponse\x12+\n" +
 	"\x03run\x18\x01 \x01(\v2\x14.driver.v1.RunRecordH\x00R\x03run\x88\x01\x01B\x06\n" +
-	"\x04_run\"\xb5\x02\n" +
+	"\x04_run\"\xdc\x02\n" +
 	"\aRunSpec\x12-\n" +
 	"\x03env\x18\x05 \x03(\v2\x1b.driver.v1.RunSpec.EnvEntryR\x03env\x129\n" +
-	"\asecrets\x18\x06 \x03(\v2\x1f.driver.v1.RunSpec.SecretsEntryR\asecrets\x12\x17\n" +
+	"\asecrets\x18\x06 \x03(\v2\x1f.driver.v1.RunSpec.SecretsEntryR\asecrets\x12%\n" +
+	"\x05files\x18\a \x03(\v2\x0f.driver.v1.FileR\x05files\x12\x17\n" +
 	"\atask_id\x18\b \x01(\x03R\x06taskId\x12\x1d\n" +
 	"\n" +
 	"server_url\x18\t \x01(\tR\tserverUrl\x12\x14\n" +
@@ -705,7 +790,12 @@ const file_driver_v1_driver_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a:\n" +
 	"\fSecretsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"N\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"T\n" +
+	"\x04File\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x12\n" +
+	"\x04mode\x18\x03 \x01(\x03R\x04mode\x12\x10\n" +
+	"\x03dir\x18\x04 \x01(\bR\x03dir\"N\n" +
 	"\n" +
 	"RunRequest\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12&\n" +
@@ -744,45 +834,47 @@ func file_driver_v1_driver_proto_rawDescGZIP() []byte {
 }
 
 var file_driver_v1_driver_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_driver_v1_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_driver_v1_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_driver_v1_driver_proto_goTypes = []any{
 	(RunRecord_State)(0),          // 0: driver.v1.RunRecord.State
 	(*RunRecord)(nil),             // 1: driver.v1.RunRecord
 	(*StatusRequest)(nil),         // 2: driver.v1.StatusRequest
 	(*StatusResponse)(nil),        // 3: driver.v1.StatusResponse
 	(*RunSpec)(nil),               // 4: driver.v1.RunSpec
-	(*RunRequest)(nil),            // 5: driver.v1.RunRequest
-	(*RunResponse)(nil),           // 6: driver.v1.RunResponse
-	(*Accepted)(nil),              // 7: driver.v1.Accepted
-	(*Finished)(nil),              // 8: driver.v1.Finished
-	(*KeepAlive)(nil),             // 9: driver.v1.KeepAlive
-	(*StopRequest)(nil),           // 10: driver.v1.StopRequest
-	(*StopResponse)(nil),          // 11: driver.v1.StopResponse
-	nil,                           // 12: driver.v1.RunSpec.EnvEntry
-	nil,                           // 13: driver.v1.RunSpec.SecretsEntry
-	(*timestamppb.Timestamp)(nil), // 14: google.protobuf.Timestamp
+	(*File)(nil),                  // 5: driver.v1.File
+	(*RunRequest)(nil),            // 6: driver.v1.RunRequest
+	(*RunResponse)(nil),           // 7: driver.v1.RunResponse
+	(*Accepted)(nil),              // 8: driver.v1.Accepted
+	(*Finished)(nil),              // 9: driver.v1.Finished
+	(*KeepAlive)(nil),             // 10: driver.v1.KeepAlive
+	(*StopRequest)(nil),           // 11: driver.v1.StopRequest
+	(*StopResponse)(nil),          // 12: driver.v1.StopResponse
+	nil,                           // 13: driver.v1.RunSpec.EnvEntry
+	nil,                           // 14: driver.v1.RunSpec.SecretsEntry
+	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
 }
 var file_driver_v1_driver_proto_depIdxs = []int32{
 	0,  // 0: driver.v1.RunRecord.state:type_name -> driver.v1.RunRecord.State
-	14, // 1: driver.v1.RunRecord.finished_at:type_name -> google.protobuf.Timestamp
+	15, // 1: driver.v1.RunRecord.finished_at:type_name -> google.protobuf.Timestamp
 	1,  // 2: driver.v1.StatusResponse.run:type_name -> driver.v1.RunRecord
-	12, // 3: driver.v1.RunSpec.env:type_name -> driver.v1.RunSpec.EnvEntry
-	13, // 4: driver.v1.RunSpec.secrets:type_name -> driver.v1.RunSpec.SecretsEntry
-	4,  // 5: driver.v1.RunRequest.spec:type_name -> driver.v1.RunSpec
-	7,  // 6: driver.v1.RunResponse.accepted:type_name -> driver.v1.Accepted
-	9,  // 7: driver.v1.RunResponse.keep_alive:type_name -> driver.v1.KeepAlive
-	8,  // 8: driver.v1.RunResponse.finished:type_name -> driver.v1.Finished
-	2,  // 9: driver.v1.DriverService.Status:input_type -> driver.v1.StatusRequest
-	5,  // 10: driver.v1.DriverService.Run:input_type -> driver.v1.RunRequest
-	10, // 11: driver.v1.DriverService.Stop:input_type -> driver.v1.StopRequest
-	3,  // 12: driver.v1.DriverService.Status:output_type -> driver.v1.StatusResponse
-	6,  // 13: driver.v1.DriverService.Run:output_type -> driver.v1.RunResponse
-	11, // 14: driver.v1.DriverService.Stop:output_type -> driver.v1.StopResponse
-	12, // [12:15] is the sub-list for method output_type
-	9,  // [9:12] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	13, // 3: driver.v1.RunSpec.env:type_name -> driver.v1.RunSpec.EnvEntry
+	14, // 4: driver.v1.RunSpec.secrets:type_name -> driver.v1.RunSpec.SecretsEntry
+	5,  // 5: driver.v1.RunSpec.files:type_name -> driver.v1.File
+	4,  // 6: driver.v1.RunRequest.spec:type_name -> driver.v1.RunSpec
+	8,  // 7: driver.v1.RunResponse.accepted:type_name -> driver.v1.Accepted
+	10, // 8: driver.v1.RunResponse.keep_alive:type_name -> driver.v1.KeepAlive
+	9,  // 9: driver.v1.RunResponse.finished:type_name -> driver.v1.Finished
+	2,  // 10: driver.v1.DriverService.Status:input_type -> driver.v1.StatusRequest
+	6,  // 11: driver.v1.DriverService.Run:input_type -> driver.v1.RunRequest
+	11, // 12: driver.v1.DriverService.Stop:input_type -> driver.v1.StopRequest
+	3,  // 13: driver.v1.DriverService.Status:output_type -> driver.v1.StatusResponse
+	7,  // 14: driver.v1.DriverService.Run:output_type -> driver.v1.RunResponse
+	12, // 15: driver.v1.DriverService.Stop:output_type -> driver.v1.StopResponse
+	13, // [13:16] is the sub-list for method output_type
+	10, // [10:13] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_driver_v1_driver_proto_init() }
@@ -791,7 +883,7 @@ func file_driver_v1_driver_proto_init() {
 		return
 	}
 	file_driver_v1_driver_proto_msgTypes[2].OneofWrappers = []any{}
-	file_driver_v1_driver_proto_msgTypes[5].OneofWrappers = []any{
+	file_driver_v1_driver_proto_msgTypes[6].OneofWrappers = []any{
 		(*RunResponse_Accepted)(nil),
 		(*RunResponse_KeepAlive)(nil),
 		(*RunResponse_Finished)(nil),
@@ -802,7 +894,7 @@ func file_driver_v1_driver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_driver_v1_driver_proto_rawDesc), len(file_driver_v1_driver_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -62,12 +62,28 @@ message RunSpec {
   // Workspace secrets. Added to the run's env and masked in shipped log
   // chunks.
   map<string, string> secrets = 6;
+  // Agent config and directories. Provisioned once per sandbox, gated by
+  // /gritz/.provisioned, so later runs keep whatever the agent changed in
+  // them.
+  repeated File files = 7;
   // The task to run. The driver fetches it from server_url.
   int64 task_id = 8;
   // The gritz server the driver reports to.
   string server_url = 9;
   // The task token used to call server_url. Masked in shipped log chunks.
   string token = 10;
+}
+
+// File is a file or directory the driver writes into the sandbox.
+message File {
+  // Absolute path inside the sandbox.
+  string path = 1;
+  // Contents; ignored for a directory.
+  bytes data = 2;
+  // Permission bits.
+  int64 mode = 3;
+  // True for a directory.
+  bool dir = 4;
 }
 
 message RunRequest {

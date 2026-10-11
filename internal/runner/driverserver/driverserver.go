@@ -14,9 +14,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -40,6 +43,10 @@ const DefaultKeepAlive = 15 * time.Second
 // has finished, which leaves only streams sending their Finished.
 const httpShutdownTimeout = 5 * time.Second
 
+// DefaultProvisionedPath is the marker a sandbox gets once a run has written
+// its RunSpec files.
+const DefaultProvisionedPath = "/gritz/.provisioned"
+
 // Options configures a Server. Every field takes its default when zero.
 type Options struct {
 	// RecordPath is the run record. Defaults to runrecord.Path.
@@ -50,6 +57,12 @@ type Options struct {
 	// Config is where the task config file lives. Defaults to
 	// agent.DefaultConfigStore.
 	Config agent.ConfigStore
+	// ProvisionedPath is the marker that says the RunSpec files have been
+	// written. Defaults to DefaultProvisionedPath.
+	ProvisionedPath string
+	// FileRoot is the directory the RunSpec file paths are relative to.
+	// Defaults to "/".
+	FileRoot string
 	// Environ is the base of every run's environment, which RunSpec.env and
 	// then RunSpec.secrets are layered on. The command sets it to
 	// os.Environ(), so whatever a custom image sets reaches the agent.
@@ -65,13 +78,15 @@ type Options struct {
 
 // Server implements driverv1connect.DriverServiceHandler.
 type Server struct {
-	recordPath string
-	logPath    string
-	config     agent.ConfigStore
-	environ    []string
-	newClient  func(serverURL, token string) gritzclient.Client
-	keepAlive  time.Duration
-	log        *slog.Logger
+	recordPath  string
+	logPath     string
+	config      agent.ConfigStore
+	provisioned string
+	fileRoot    string
+	environ     []string
+	newClient   func(serverURL, token string) gritzclient.Client
+	keepAlive   time.Duration
+	log         *slog.Logger
 
 	// runs tracks the goroutine of the active run, so Shutdown can wait for it.
 	runs sync.WaitGroup
@@ -108,13 +123,15 @@ type run struct {
 // finished and unreported.
 func New(opts Options) (*Server, error) {
 	s := &Server{
-		recordPath: cmp.Or(opts.RecordPath, runrecord.Path),
-		logPath:    cmp.Or(opts.LogPath, agent.DefaultLogPath),
-		config:     cmp.Or(opts.Config, agent.DefaultConfigStore),
-		environ:    opts.Environ,
-		newClient:  opts.NewClient,
-		keepAlive:  cmp.Or(opts.KeepAlive, DefaultKeepAlive),
-		log:        cmp.Or(opts.Log, slog.Default()),
+		recordPath:  cmp.Or(opts.RecordPath, runrecord.Path),
+		logPath:     cmp.Or(opts.LogPath, agent.DefaultLogPath),
+		config:      cmp.Or(opts.Config, agent.DefaultConfigStore),
+		provisioned: cmp.Or(opts.ProvisionedPath, DefaultProvisionedPath),
+		fileRoot:    cmp.Or(opts.FileRoot, "/"),
+		environ:     opts.Environ,
+		newClient:   opts.NewClient,
+		keepAlive:   cmp.Or(opts.KeepAlive, DefaultKeepAlive),
+		log:         cmp.Or(opts.Log, slog.Default()),
 	}
 	if s.newClient == nil {
 		s.newClient = func(serverURL, token string) gritzclient.Client {
@@ -267,9 +284,12 @@ func finishedRun(version int64, reported bool) *run {
 	return r
 }
 
-// start writes the run record and starts the run in the background. It is
-// called with s.mu held.
+// start provisions the spec's files, writes the run record and starts the run
+// in the background. It is called with s.mu held.
 func (s *Server) start(version int64, spec *driverv1.RunSpec) (*run, error) {
+	if err := s.provision(spec.GetFiles()); err != nil {
+		return nil, err
+	}
 	rec := runrecord.Record{Version: version, State: runrecord.Running}
 	if err := runrecord.Write(s.recordPath, rec); err != nil {
 		return nil, err
@@ -284,6 +304,56 @@ func (s *Server) start(version int64, spec *driverv1.RunSpec) (*run, error) {
 		s.execute(ctx, r, spec)
 	})
 	return r, nil
+}
+
+// provision writes files, unless the sandbox has been provisioned already,
+// then creates the marker. Files are written once per sandbox, so anything the
+// agent changes in them survives later runs.
+func (s *Server) provision(files []*driverv1.File) error {
+	if _, err := os.Stat(s.provisioned); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("provision: %w", err)
+	}
+	for _, f := range files {
+		if err := writeFile(filepath.Join(s.fileRoot, f.GetPath()), f); err != nil {
+			return fmt.Errorf("provision %s: %w", f.GetPath(), err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(s.provisioned), 0o755); err != nil {
+		return fmt.Errorf("provision: %w", err)
+	}
+	if err := os.WriteFile(s.provisioned, nil, 0o644); err != nil {
+		return fmt.Errorf("provision: %w", err)
+	}
+	return nil
+}
+
+// writeFile writes f at path with f's mode, creating missing parents. The mode
+// is applied with chmod so the umask does not narrow it, but only when it
+// differs: a directory that exists already may belong to another user.
+func writeFile(path string, f *driverv1.File) error {
+	mode := fs.FileMode(f.GetMode()) & fs.ModePerm
+	if f.GetDir() {
+		if err := os.MkdirAll(path, mode); err != nil {
+			return err
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, f.GetData(), mode); err != nil {
+			return err
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm() == mode {
+		return nil
+	}
+	return os.Chmod(path, mode)
 }
 
 // execute runs the driver for spec, then records the outcome and finishes r.

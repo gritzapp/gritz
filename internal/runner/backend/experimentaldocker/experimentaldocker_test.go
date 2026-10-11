@@ -32,12 +32,17 @@ func TestNewRunSpec(t *testing.T) {
 			"GH_TOKEN=ghp_secret",
 			"GRITZ_SECRETS=GH_TOKEN",
 		},
+		Files: []backend.File{
+			{Path: "/tmp/gritz", Mode: 0777, Dir: true},
+			{Path: "/tmp/gritz/7.json", Data: []byte(`{"type":"dummy"}`), Mode: 0666},
+		},
 	}
 
 	rs, err := newRunSpec(spec)
 
 	// The server URL, token and secrets get their own fields; GRITZ_SECRETS
-	// is dropped, since the secrets map is the mask.
+	// is dropped, since the secrets map is the mask. The files are carried as
+	// they are.
 	assert.NilError(t, err)
 	assert.DeepEqual(t, rs, &driverv1.RunSpec{
 		TaskId:    7,
@@ -49,6 +54,10 @@ func TestNewRunSpec(t *testing.T) {
 			"GRITZ_SERVER":  "http://server",
 		},
 		Secrets: map[string]string{"GH_TOKEN": "ghp_secret"},
+		Files: []*driverv1.File{
+			{Path: "/tmp/gritz", Mode: 0777, Dir: true},
+			{Path: "/tmp/gritz/7.json", Data: []byte(`{"type":"dummy"}`), Mode: 0666},
+		},
 	}, protocmp.Transform())
 }
 

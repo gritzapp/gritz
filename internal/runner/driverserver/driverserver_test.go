@@ -81,10 +81,12 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 		},
 	}
 	srv, err := New(Options{
-		RecordPath: recordPath,
-		LogPath:    filepath.Join(te.dir, "log"),
-		Config:     store,
-		Environ:    opts.Environ,
+		RecordPath:      recordPath,
+		LogPath:         filepath.Join(te.dir, "log"),
+		Config:          store,
+		ProvisionedPath: filepath.Join(te.dir, ".provisioned"),
+		FileRoot:        filepath.Join(te.dir, "root"),
+		Environ:         opts.Environ,
 		NewClient: func(serverURL, token string) gritzclient.Client {
 			te.mu.Lock()
 			defer te.mu.Unlock()
@@ -221,6 +223,113 @@ func TestRun(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, ok)
 	assert.Equal(t, disk.Reported, true)
+}
+
+// testFiles are the files of a spec: a directory, and a file in a directory
+// that does not exist yet.
+func testFiles(data string) []*driverv1.File {
+	return []*driverv1.File{
+		{Path: "/gritz", Mode: 0o777, Dir: true},
+		{Path: "/tmp/gritz/1.json", Data: []byte(data), Mode: 0o640},
+	}
+}
+
+// root returns the path of a sandbox path under the test's file root.
+func (te *testEnv) root(path string) string {
+	return filepath.Join(te.dir, "root", path)
+}
+
+func TestRun_ProvisionsFiles(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	spec := testSpec()
+	spec.Files = testFiles("config")
+
+	// Act
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
+	finished(t, stream)
+
+	// Assert - the files were written with their modes, regardless of the
+	// umask, and the sandbox is marked provisioned
+	info, err := os.Stat(te.root("/gritz"))
+	assert.NilError(t, err)
+	assert.Assert(t, info.IsDir())
+	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o777))
+	data, err := os.ReadFile(te.root("/tmp/gritz/1.json"))
+	assert.NilError(t, err)
+	assert.Equal(t, string(data), "config")
+	info, err = os.Stat(te.root("/tmp/gritz/1.json"))
+	assert.NilError(t, err)
+	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
+	_, err = os.Stat(filepath.Join(te.dir, ".provisioned"))
+	assert.NilError(t, err)
+}
+
+func TestRun_ProvisionsOnce(t *testing.T) {
+	t.Parallel()
+	// Arrange - a provisioned sandbox whose agent changed a file
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	spec := testSpec()
+	spec.Files = testFiles("config")
+	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
+	finished(t, stream)
+	assert.NilError(t, os.WriteFile(te.root("/tmp/gritz/1.json"), []byte("changed"), 0o640))
+
+	// Act - a later run with different files
+	spec = testSpec()
+	spec.Files = testFiles("new config")
+	stream, accepted := te.open(t, &driverv1.RunRequest{Version: testVersion + 1, Spec: spec})
+	finished(t, stream)
+
+	// Assert - the run started, and the file was not rewritten
+	assert.Equal(t, accepted.GetAttached(), false)
+	data, err := os.ReadFile(te.root("/tmp/gritz/1.json"))
+	assert.NilError(t, err)
+	assert.Equal(t, string(data), "changed")
+}
+
+func TestRun_AttachDoesNotProvision(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run that finished before this process started
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{
+		Record: &runrecord.Record{Version: testVersion, State: runrecord.Finished, Reported: true},
+	})
+	spec := testSpec()
+	spec.Files = testFiles("config")
+
+	// Act - the same version, spec and all
+	stream, accepted := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
+	finished(t, stream)
+
+	// Assert - attached, and nothing was written
+	assert.Equal(t, accepted.GetAttached(), true)
+	_, err := os.Stat(te.root("/tmp/gritz/1.json"))
+	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
+	_, err = os.Stat(filepath.Join(te.dir, ".provisioned"))
+	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
+}
+
+func TestRun_ProvisionFailure(t *testing.T) {
+	t.Parallel()
+	// Arrange - a file whose parent is a regular file
+	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	spec := testSpec()
+	spec.Files = []*driverv1.File{
+		{Path: "/gritz", Data: []byte("not a dir"), Mode: 0o644},
+		{Path: "/gritz/config.json", Data: []byte("config"), Mode: 0o644},
+	}
+
+	// Act
+	err := te.runErr(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
+
+	// Assert - the start failed before the run record, and the sandbox is
+	// not marked provisioned
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInternal)
+	assert.Assert(t, te.status(t) == nil)
+	assert.Equal(t, len(te.dials()), 0)
+	_, err = os.Stat(filepath.Join(te.dir, ".provisioned"))
+	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
 }
 
 func TestRun_Idempotent(t *testing.T) {
