@@ -232,8 +232,16 @@ message StopResponse {
 Everything from the runner to the driver is a unary call or the `Run` request
 itself, and everything back is the `Run` stream, rather than a single
 bidirectional stream, because Connect bidi needs HTTP/2 end to end and Lambda's
-managed proxy is HTTP/1.1. Connect handlers serve the Connect, gRPC and
+managed proxy does not provide it. Connect handlers serve the Connect, gRPC and
 gRPC-Web protocols on a plain `net/http` server.
+
+The experimental Lambda backend established what the managed proxy carries. It
+speaks HTTP/2 to clients. The Connect and gRPC-Web protocols pass through it,
+but gRPC does not, so the runner's driver client uses Connect, connect-go's
+default, on every backend. Server streams are not buffered: each `RunResponse`
+reaches the runner as the driver writes it. The proxy cut a stream that had been
+idle for 15 minutes. `KeepAlive` every 15 seconds keeps a stream well inside
+that limit, so the idle cut never applies to a `Run` stream.
 
 ### The driver server
 
@@ -448,6 +456,22 @@ only if its platform does not authenticate the path (see Authentication). `Cmd`,
 `runner.go` takes over what the backend used to hide. A per-task lock serializes
 `Start`, `Kill`, `Remove` and the idle park.
 
+The experimental backends showed two problems with today's `Launch` that this
+split fixes:
+
+- **`Launch` blocks `Poll`.** The experimental backends' `Launch` waits for the
+  driver (`waitReady`, polling `Status` for up to 30s on Docker, 1m on Lambda)
+  and starts the run before returning, and `Poll` waits for every `Start` in its
+  pass. A slow sandbox therefore delays the next poll, and with it every other
+  task's start and stop commands. Here `backend.Start` only waits for the
+  platform; the `Status` wait and `Run` move out of the poll pass into the
+  task's own goroutine, after the handle is recorded.
+- **`waitReady` counts the image entrypoint's time.** The readiness timeout
+  starts when the platform reports the sandbox running, so whatever the image's
+  entrypoint does before it execs the driver eats into the budget for the
+  driver to answer. The runner's readiness wait needs a budget that covers the
+  entrypoint explicitly (open question 8).
+
 | Runner method | With the driver server |
 |---|---|
 | `Start(task)` | Under the lock. `backend.Start(spec, reuse)` with the recorded handle, if any; write any returned handle to `taskstate/`, then return the error, if any. Then `Dial`, poll `Status` with backoff (timeout → error). A running record for this version: a no-op. Otherwise fetch events after `Status.event_token` (and links on the first run), mint the task token, `Run(version, spec, after_seq: record.Seq)` until `Accepted`, cancel any idle timer, and hand the stream to `supervise`. |
@@ -513,21 +537,28 @@ taskstate record is kept, and a later start or archive proceeds normally.
 |---|---|---|
 | `Start`, fresh | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary; `ContainerStart`. Any failure after `ContainerCreate` returns the handle with the error. | `RunMicrovm` with no run-hook payload, then poll until `RUNNING`. Any failure after `RunMicrovm` returns the handle with the error. |
 | `Start`, reuse | `ContainerStart` | `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll; `SUSPENDING` → plain error; terminal → `ErrGone` |
-| `Dial` | client whose transport tunnels each connection through a Docker exec of `gritz tool proxy --addr 127.0.0.1:8080` (stdin/stdout attached, stdout demultiplexed with `stdcopy`), adding the JWT | client for the managed proxy endpoint, adding a minted port-scoped token and the JWT |
+| `Dial` | client whose transport tunnels each connection through a Docker exec of `gritz tool proxy --addr 127.0.0.1:8080` (stdin/stdout attached, stdout demultiplexed with `stdcopy`), adding the JWT. The runner needs only Docker API access, never a network route to the container. | Connect client for the managed proxy endpoint over HTTP/2, adding a cached, minted port-scoped token and the JWT |
 | `Status` | inspect: running → Up, exited → Parked, not found → Gone | `GetMicrovm` |
 | `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown | `SuspendMicrovm`, then poll until `SUSPENDED` |
 | `Destroy` | `ContainerRemove` (force) | `TerminateMicrovm` |
 
-Lambda changes:
+On both platforms the agent files (agent config and directories) travel in
+`RunSpec.files` and the driver writes them, so no backend copies files into the
+sandbox. Docker still copies the prebuilt binary.
 
-- The image entrypoint (`internal/runner/backend/lambdamicrovm/microvm.Dockerfile`)
-  becomes `gritz driver --serve --aws-lambda-hooks`. The flag mounts
+Lambda changes, all in place in the experimental Lambda backend
+(`internal/runner/backend/experimentallambdamicrovm`):
+
+- The image entrypoint (`microvm.Dockerfile`) is
+  `gritz driver --serve --aws-lambda-hooks`. The flag mounts
   `awsmicrovm.Handler` with nil funcs on `awsmicrovm.HookPort`, which acknowledges
   every hook with 200. No hook does work.
-- The run spec travels in `Run` over the proxy, so the `Stager` interface,
-  `awsmvm.S3Stager`, `LambdaMicroVM.StagingBucket` and the S3 permission on the
-  execution role are removed.
-- `internal/runner/microvmshim` and `gritz tool microvm-shim` are deleted.
+- The run spec travels in `Run` over the proxy, so the backend needs no
+  `Stager`, `awsmvm.S3Stager`, `LambdaMicroVM.StagingBucket` or S3 permission
+  on the execution role.
+- No shim runs in the VM. Removing the old backend (L1) deletes
+  `internal/runner/microvmshim`, `gritz tool microvm-shim`, the stager and the
+  `staging_bucket` field.
 
 ### Sequences
 
@@ -697,116 +728,109 @@ driver response log → runner outbox → server.
 
 ## Implementation Plan
 
-The design lands in phases. Every step merges on its own and leaves a working
-system; the new path stays opt-in until it has replaced the old one.
+The design lands in three stages: an experimental phase that proved the driver
+server on both platforms (done), a switch-over that makes it the only path, and
+the `Backend` interface redesign on top. Every step merges on its own and leaves
+a working system.
 
-### Phase A: the driver server behind an experimental Docker backend
+### Phase A: the driver server behind experimental backends (done)
 
-The first pass changes the driver's process model and nothing else. The driver
-server still talks to the gritz server directly, exactly as the one-shot driver
-does, so today's `backend.Backend` interface (`Launch`, `Wait`, `Probe`,
-`Signal`, `Destroy`) keeps its meaning: `Wait` still answers "did the driver
-report?". Only Docker, no Lambda, no idle parking, no runner key.
+Phase A changed the driver's process model and nothing else. The driver server
+still talks to the gritz server directly, exactly as the one-shot driver does,
+so today's `backend.Backend` interface (`Launch`, `Wait`, `Probe`, `Signal`,
+`Destroy`) keeps its meaning: `Wait` still answers "did the driver report?". No
+idle parking, no runner key.
 
-1. **Per-run environment** — Delivers: `agent.Driver.Env`, threaded to every agent
-   CLI, setup commands and `Cwd` expansion; `gritz driver` sets it to
-   `os.Environ()`, so behavior is unchanged. Depends on: nothing. Verifiable by:
-   agent unit tests asserting the child env.
-2. **`driver.v1` proto, first cut** — Delivers: `proto/driver/v1/driver.proto`
-   with `Status`, `Run` and `Stop`. `RunSpec` carries what the driver reads from
-   flags and its environment today (`task_id`, `server_url`, `token`, `env`,
-   `secrets`); `RunResponse` carries `accepted`, `keep_alive` and `finished`,
-   whose `Finished` gains a `reported` bool for this phase. Depends on: nothing.
-   Verifiable by: `mise run generate` produces a compiling package.
-3. **Run record** — Delivers: a package reading/writing `/gritz/run.json`
-   atomically, with boot reconciliation (`running` → `finished, reported:
-   false`). Depends on: nothing. Verifiable by: unit tests in a temp dir.
-4. **Driver server, reporting directly** — Delivers: `gritz driver --serve`. Each
-   `Run` builds its own gritz client, log shipper and secret mask from the
-   `RunSpec`; `Run` is attach-or-start keyed on version; one `Run` stream at a
-   time; a dropped stream leaves the run going; `Stop` cancels the run with
-   `ErrStop`; SIGTERM stops an active run and shuts down. The driver reports
-   `started`, `stopped` and `failed` to the server itself, and `Finished` says
-   whether that report was acknowledged. `gritz driver` (one-shot) stays.
-   Depends on: (1), (2), (3). Verifiable by: in-memory Connect client tests with
-   a dummy agent and a fake gritz server: start, attach, idempotent re-`Run`,
-   reconnect after a dropped stream, a second concurrent `Run`,
-   stale/busy/not-found, `Stop`, restart reconciliation.
-5. **`ExperimentalDocker` backend** — Delivers: a second Docker implementation of
-   today's `backend.Backend`, with its own handle `Type`
-   (`experimental-docker`), and `backend.Spec.Version`, set by `Runner.spec()`
-   from `task.Version` (the only change to `runner.go`). Depends on: (4).
-   Verifiable by: the existing Docker e2e suite run against it.
+It delivered:
 
-   | Method | Behavior |
-   |---|---|
-   | `Launch` | Create the container with `Cmd: [BinaryPath, "driver", "--serve"]`, copy the binary and `spec.Files` as today, `ContainerStart` (fresh or reuse), dial :8080 through a Docker exec of `gritz tool proxy`, poll `Status` until it answers, then `Run(version, spec)` until `Accepted`. |
-   | `Wait` | `Run(version)` with no spec, read until `Finished`. On a dropped stream: container gone or exited → `ExitLost`; running → reconnect. On `Finished`, `docker stop` the container, so between runs it is stopped exactly as today, then return 0 if `reported`, else `ExitLost`. |
-   | `Probe` | Container gone → `StateGone`; not running → `StateExited`; running → `Status`: this version running → `StateRunning`, otherwise `StateExited`. |
-   | `Signal` | `Stop(version)`; `signalled = stopped`. |
-   | `Destroy` | `ContainerRemove` (force). |
+- `agent.Driver.Env`, threaded to every agent CLI, setup commands and `Cwd`
+  expansion.
+- `proto/driver/v1/driver.proto`, first cut: `Status`, `Run` and `Stop`.
+  `RunSpec` carries what the one-shot driver reads from flags and its
+  environment (`task_id`, `server_url`, `token`, `env`, `secrets`) plus the agent
+  files (`files`); `RunResponse` carries `accepted`, `keep_alive` and
+  `finished`, whose `Finished` has a `reported` bool.
+- The run record (`/gritz/run.json`) with boot reconciliation.
+- `gritz driver --serve`: attach-or-start keyed on version, one `Run` stream at a
+  time, a dropped stream leaves the run going, `Stop` cancels with `ErrStop`,
+  the agent files provisioned once per sandbox behind `/gritz/.provisioned`.
+- The `experimentaldocker` backend (handle type `experimental-docker`), reaching
+  the driver through a Docker exec tunnel of `gritz tool proxy`, and stopping the
+  container after every run.
+- The `experimentallambdamicrovm` backend (handle type
+  `experimental-lambda-microvm`): the driver server as the VM's main process,
+  acknowledging the Lambda hooks with `--aws-lambda-hooks`, reached through the
+  managed proxy with a cached port-scoped token, the run spec in `Run` instead of
+  S3, and the VM suspended (polled until `SUSPENDED`) after every run. Its
+  resume returns a plain error for `SUSPENDING`, which fixes problem 3 once the
+  old backend is gone.
+- `--backend experimental-docker` and `--backend experimental-lambda-microvm`.
+  Each replaces its old counterpart rather than running beside it: handles of
+  any other type are treated as gone.
 
-6. **Opt-in** — Delivers: a runner flag that selects `ExperimentalDocker` instead
-   of `Docker`. A handle of any other `Type` is rejected with `ErrGone`, so the
-   flag is meant for a runner with no active Docker tasks. Depends on: (5).
-   Verifiable by: running a runner with the flag against a dev server.
+It leaves open that the Docker driver listens on `:8080`, so sibling containers
+on a shared bridge can reach it until the runner key lands, and that a sandbox
+keeps the driver binary it was created with, so `driver.v1` changes must stay
+wire-compatible.
 
-Phase A leaves open: sibling containers on a shared bridge can reach `:8080` until phase C adds the
-runner key; and a container created before an upgrade keeps its old driver
-binary, so `driver.v1` changes in later phases must stay wire-compatible, or
-experimental containers be recreated.
+What it established is recorded in the design: the exec tunnel (Platform
+implementations, open question 3), the managed proxy's protocol behavior
+(Service definition), and the two problems with `Launch` that the interface
+redesign fixes (Runner).
 
-### Phase B: the runner forwards everything
+### Switch-over
 
-7. **Driver inputs and outputs behind interfaces** — Delivers: `agent.Driver`
-   takes the task, events and links as inputs and reports runner events and log
-   chunks through a sink. The one-shot driver and the phase A server implement
-   both with `gritzclient`, so behavior is unchanged. Depends on: (4).
-8. **Response log** — Delivers: the per-version `RunResponse` log with
-   read-after-seq and deletion behind a position; `RunRequest.after_seq`,
+The experimental backends replace the old ones, still on today's
+`backend.Backend` interface. There is no migration: tasks on the old backends
+are archived before upgrading (open question 4).
+
+- **L1: remove the old backends** (#1711) — Delivers: deletion of the old
+  `docker` and `lambdamicrovm` backends, `internal/runner/microvmshim`,
+  `gritz tool microvm-shim`, the S3 `Stager` / `awsmvm.S3Stager`, and the
+  `staging_bucket` workspace field. `--backend` accepts only the experimental
+  backends. Depends on: Phase A. Verifiable by: build and tests.
+- **L2: promote the experimental backends** (#1712) — Delivers:
+  `experimentaldocker` renamed to `docker` and `experimentallambdamicrovm` to
+  `lambdamicrovm`. The handle types become `docker` and `lambda-microvm`, a
+  clean break: handles of the `experimental-*` types are treated as gone. The
+  `--backend` values become `docker` (the default) and `lambda-microvm`, with
+  `experimental-docker` and `experimental-lambda-microvm` kept as deprecated
+  aliases of the flag value. READMEs, the dev compose file and the docs are
+  updated. Depends on: L1. Verifiable by: a runner with the default backend
+  running a task end to end.
+- **L3: remove the one-shot driver** (#1713) — Delivers: `gritz driver` becomes
+  the driver server (no `--serve` flag), and the one-shot plumbing goes:
+  `backend.Spec.Cmd`, and the driver environment the backends turn back into a
+  `RunSpec`. Depends on: L2. Verifiable by: build and tests, and a task running
+  end to end on Docker.
+
+### Backend interface redesign
+
+After the switch-over, the rest of the design lands on the promoted backends.
+These steps are split into their own layers when they become current; the order
+is:
+
+1. **Driver inputs and outputs behind interfaces** — `agent.Driver` takes the
+   task, events and links as inputs and reports runner events and log chunks
+   through a sink, implemented with `gritzclient` so behavior is unchanged.
+2. **Response log** — the per-version `RunResponse` log with read-after-seq and
+   deletion behind a position; `RunRequest.after_seq`,
    `StatusResponse.last_seq`, and the `runner_event` and `log_chunk` cases.
-   Depends on: (2).
-9. **Merged `Backend` interface and runner path** — Delivers: the interface from
-   the design (`Start`, `Dial`, `Status`, `Park`, `Destroy`), a second path in
-   `runner.go` for backends that implement it (`Start`, `supervise` forwarding and
-   advancing `Seq`, `Load`, `Kill`, `Remove`), `taskstate.Record.Seq`, and
-   `ExperimentalDocker` moved onto it with the driver server reporting through the
-   response log. The old path is untouched. Depends on: (7), (8). Verifiable by:
-   runner tests against a fake backend and an in-memory driver server, including
-   a runner restart mid-run; the Docker e2e suite against `ExperimentalDocker`.
-
-### Phase C: auth and idle parking
-
-10. **Runner key** — Delivers: the runner's key pair, `Spec.RunnerPublicKey`,
-    `Dial(jwt)`, and JWT verification in the driver when it has a key.
-    `ExperimentalDocker` installs the key. Depends on: (9).
-11. **Idle parking** — Delivers: `Workspace.IdleTimeout` (default 0, today's
-    behavior), the runner's idle timers and `Park`. `ExperimentalDocker` parks
-    with `docker stop` instead of stopping after every run. Depends on: (9).
-
-### Phase D: Lambda
-
-12. **Lambda transitional-state fix** — Delivers: `tryResume` returns a plain
-    error for `SUSPENDING` (keeping `ErrGone` for `TERMINATING`/`TERMINATED`),
-    and `Wait` polls until `SUSPENDED` after `SuspendMicrovm`. Depends on:
-    nothing; can land at any time. Verifiable by: `lambdamicrovm` unit tests
-    against the fake `Cloud`.
-13. **Lambda on the new interface** — Delivers: the Lambda implementation, the
-    `gritz driver --serve --aws-lambda-hooks` image entrypoint, README update, as
-    an opt-in backend type. Depends on: (9), (11). Verifiable by: an image built
-    per the README running a task end to end, including suspend/resume.
-
-### Phase E: switch over and remove the old path
-
-14. **New backends by default** — Delivers: the new Docker and Lambda backends as
-    the defaults. Existing records are dispatched by `Handle.Type`, so old
-    sandboxes stay on the old path until their tasks are archived (open
-    question 4). Depends on: (10), (11), (13).
-15. **Remove the old path** — Delivers: deletion of `Launch`, `Wait`, `Probe`,
-    `Signal`, `ExitCode`, the old Docker and Lambda backends, the one-shot
-    `gritz driver`, `internal/runner/microvmshim`, `gritz tool microvm-shim`, the
-    `Stager`, `awsmvm.S3Stager` and `LambdaMicroVM.StagingBucket`. Depends on:
-    (14), once no old records remain. Verifiable by: build and tests.
+3. **Merged `Backend` interface and runner path** — the interface from the
+   design (`Start`, `Dial`, `Status`, `Park`, `Destroy`), `runner.go` speaking
+   the driver protocol (`Start`, `supervise` forwarding and advancing `Seq`,
+   `Load`, `Kill`, `Remove`), `taskstate.Record.Seq`, both backends moved onto
+   it with the driver reporting through the response log, and `Launch`, `Wait`,
+   `Probe`, `Signal` and `ExitCode` removed. This is where `Launch` stops
+   blocking `Poll` and the readiness wait stops counting the entrypoint (see
+   Runner). Verifiable by: runner tests against a fake backend and an in-memory
+   driver server, including a runner restart mid-run.
+4. **Runner key** — the runner's key pair, `Spec.RunnerPublicKey`, `Dial(jwt)`,
+   and JWT verification in the driver when it has a key. Docker installs the
+   key.
+5. **Idle parking** — `Workspace.IdleTimeout` (default 0, today's behavior), the
+   runner's idle timers and `Park`. Docker parks with `docker stop` and Lambda
+   with `SuspendMicrovm` instead of after every run.
 
 ## Trade-offs
 
@@ -865,11 +889,25 @@ runner crash during `Start` is left uncovered, which is open question 10.
 
 **Server streaming plus unary calls vs. bidirectional streaming.** A bidi `Run`
 would carry `Stop` and the runner's position on the same stream, but needs
-HTTP/2 end to end, which Lambda's managed proxy does not provide.
+HTTP/2 end to end, which Lambda's managed proxy does not provide: it speaks
+HTTP/2 to clients, but gRPC does not pass through it. A server stream works
+through it unbuffered, which is all `Run` needs.
 
 **Connect vs. grpc-go.** Connect handlers are plain `net/http`, already used
-throughout the codebase, and speak gRPC as well as protocols that pass HTTP/1.1
-proxies. grpc-go requires HTTP/2 end to end.
+throughout the codebase, and serve Connect, gRPC and gRPC-Web from one handler.
+That turned out to matter: the Lambda managed proxy passes Connect and gRPC-Web
+but not gRPC, so a grpc-go server would not have been reachable through it.
+
+**Docker exec tunnel vs. a network path.** Reaching the driver through a Docker
+exec of `gritz tool proxy` costs an exec per connection, and the runner's
+connection depends on the Docker daemon's stream handling. In exchange the
+runner needs only Docker API access: it does not care which networks the
+container is on, whether the runner itself runs in a container, or whether
+`DOCKER_HOST` is remote. Because the tunnel connects from inside the container,
+the driver could listen on loopback only, which would keep sibling containers on
+a shared bridge from reaching it; today it listens on `:8080`, so until it does
+(or the runner key lands) they can. A published port and a bind-mounted unix socket were
+tried and abandoned (#1697).
 
 ## Open Questions
 
@@ -881,17 +919,20 @@ proxies. grpc-go requires HTTP/2 end to end.
 2. **Duplicate log chunks.** A chunk delivered after the last `Seq` write
    before a runner crash is appended twice. Should `AppendLogChunkRequest` gain a sequence
    number the server deduplicates on, or is a rare repeated chunk acceptable?
-3. **Docker reachability.** Resolved (#1697): the runner never connects to
+3. **Docker reachability.** Resolved in Phase A (#1697): the runner never connects to
    the container over the network. Each driver connection is tunnelled through
    a Docker exec of `gritz tool proxy --addr 127.0.0.1:8080`, which copies its
    stdin to the driver and the driver to its stdout, so the runner needs only
    Docker API access — it works for a runner in a container, a container on
    several networks, and a remote `DOCKER_HOST`. A published port and a
    bind-mounted unix socket were tried and abandoned.
-4. **Migrating existing sandboxes.** Containers and MicroVMs created before
-   steps 8/9 run the one-shot driver. Should the runner detect old handles (by
-   `Handle.Type` or a container label) and keep the old path until those tasks
-   are archived, or fail them with a clear error?
+4. **Migrating existing sandboxes.** Resolved: no migration. Tasks on the old
+   backends are archived before upgrading to the switch-over (L1), and the
+   experimental handle types are a clean break at L2: a handle of any type the
+   backend does not own is treated as gone. After the switch-over, the redesign
+   steps must keep `driver.v1` wire-compatible, or the affected sandboxes be
+   recreated, because a sandbox keeps the driver binary it was created with
+   (see question 5).
 5. **Driver revalidation.** A sandbox that stays up across a gritz release keeps
    serving with the old driver. Should `Status` report the driver version so the
    runner can park and restart stale drivers between runs?
@@ -904,8 +945,11 @@ proxies. grpc-go requires HTTP/2 end to end.
    log chunks. Should the driver cap it (dropping the oldest log
    chunks, never runner events)?
 8. **Status timeout values.** How long should `Start` and `supervise` wait for a
-   ready driver before failing? Docker boots in seconds; a fresh Lambda VM may
-   take longer.
+   ready driver before failing? The experimental backends wait 30s on Docker and
+   1m on Lambda, measured from the platform reporting the sandbox running, so the
+   image entrypoint's time counts against it. Should the budget be split
+   (platform boot, entrypoint, driver answering), or made a workspace setting
+   for images with slow entrypoints?
 9. **Idle-timeout limits.** Should the runner cap `idle_timeout` (warm sandboxes
    hold host memory or account quota outside the concurrency semaphore), and
    should warm sandboxes count toward any limit?
@@ -921,4 +965,7 @@ proxies. grpc-go requires HTTP/2 end to end.
     fails. A proxy that accepts writes for a client that is already gone would
     keep the old stream "open" and make every new `Run` return `Unavailable`.
     Should streams also have a maximum lifetime, or should a new `Run` from the
-    same runner replace the old stream instead of being rejected?
+    same runner replace the old stream instead of being rejected? On the runner
+    side, the driver client already cancels a `Run` stream that receives nothing
+    for 45s (`driverclient.ErrStreamIdle`), so a half-open stream does not block
+    the runner; only the driver's side is open.
