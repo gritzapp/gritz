@@ -28,6 +28,7 @@ import (
 
 type Runner struct {
 	backend     backend.Backend
+	backendV2   backend.BackendV2
 	store       *taskstate.Store
 	client      gritzclient.Client
 	serverURL   string
@@ -45,6 +46,10 @@ type Options struct {
 	Client gritzclient.Client
 	// Backend is the sandbox runtime that hosts task drivers.
 	Backend backend.Backend
+	// BackendV2 is the same backend under the interface the runner is moving
+	// onto, one path at a time (see #1725). Remove goes through it; every other
+	// path still uses Backend.
+	BackendV2 backend.BackendV2
 	// Store is the runner-local source of truth for the task→sandbox-handle
 	// mapping. The runner is the only writer; backends never touch it.
 	Store *taskstate.Store
@@ -85,6 +90,9 @@ func New(opts Options) (*Runner, error) {
 	if opts.Backend == nil {
 		return nil, fmt.Errorf("backend is required")
 	}
+	if opts.BackendV2 == nil {
+		return nil, fmt.Errorf("backend v2 is required")
+	}
 	if opts.Store == nil {
 		return nil, fmt.Errorf("store is required")
 	}
@@ -107,6 +115,7 @@ func New(opts Options) (*Runner, error) {
 
 	return &Runner{
 		backend:     opts.Backend,
+		backendV2:   opts.BackendV2,
 		store:       opts.Store,
 		client:      opts.Client,
 		serverURL:   opts.ServerURL,
@@ -424,8 +433,9 @@ func (r *Runner) List(ctx context.Context) ([]backend.Sandbox, error) {
 }
 
 // Remove destroys the task's sandbox and deletes its record. The record is
-// removed only after the backend destroy succeeds, so a failed destroy leaves
-// the task tracked and the removal is retried.
+// removed only after the destroy succeeds, so a failed destroy leaves the task
+// tracked and the removal is retried. Destroying a gone sandbox is not an
+// error, so a record whose sandbox vanished is simply dropped.
 func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	h, ok, err := r.handle(taskID)
 	if err != nil {
@@ -434,7 +444,13 @@ func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	if !ok {
 		return nil
 	}
-	if err := r.backend.Destroy(ctx, h); err != nil {
+	// Open ignores Data, so a handle recorded by Launch (which carries the run
+	// version there) opens like any other.
+	sb, err := r.backendV2.Open(h)
+	if err != nil {
+		return err
+	}
+	if err := sb.Destroy(ctx); err != nil {
 		return err
 	}
 	return r.store.Remove(taskID)
