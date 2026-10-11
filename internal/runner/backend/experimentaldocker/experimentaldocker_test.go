@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,7 +13,6 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -55,15 +55,14 @@ func TestNewRunSpec(t *testing.T) {
 
 func TestValidateWorkspace(t *testing.T) {
 	be := &Backend{}
-	for _, mode := range []string{"", "bridge", "gritz-net"} {
+	// The driver server is reached over its socket, whatever the network.
+	for _, mode := range []string{"", "bridge", "gritz-net", "host"} {
 		t.Run("accepts "+cmp.Or(mode, "default"), func(t *testing.T) {
 			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
 			assert.NilError(t, be.ValidateWorkspace(ws))
 		})
 	}
-	// The runner reaches the driver server at the container's own IP, which
-	// these modes do not give it.
-	for _, mode := range []string{"host", "none", "container:abc"} {
+	for _, mode := range []string{"none", "container:abc"} {
 		t.Run("rejects "+mode, func(t *testing.T) {
 			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
 			assert.ErrorContains(t, be.ValidateWorkspace(ws), "not supported by the experimental docker backend")
@@ -71,65 +70,38 @@ func TestValidateWorkspace(t *testing.T) {
 	}
 }
 
-func TestDriverAddr(t *testing.T) {
-	tests := []struct {
-		name string
-		info container.InspectResponse
-		want string
-	}{
-		{
-			name: "first network by name",
-			info: container.InspectResponse{
-				Config: &container.Config{},
-				NetworkSettings: &container.NetworkSettings{Networks: map[string]*network.EndpointSettings{
-					"zeta":  {IPAddress: "10.0.0.2"},
-					"alpha": {IPAddress: "10.0.0.1"},
-				}},
-			},
-			want: "10.0.0.1:8080",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			addr, err := driverAddr(tt.info)
-			assert.NilError(t, err)
-			assert.Equal(t, addr, tt.want)
-		})
-	}
-}
-
-func TestDriverAddr_NoIP(t *testing.T) {
-	_, err := driverAddr(container.InspectResponse{
-		ContainerJSONBase: &container.ContainerJSONBase{ID: "abc"},
-		Config:            &container.Config{},
-		NetworkSettings:   &container.NetworkSettings{},
-	})
-	assert.ErrorContains(t, err, "no IP address")
-}
-
 func TestLaunch_ReuseGoneReturnsErrGone(t *testing.T) {
 	t.Parallel()
-	be, err := New(Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
+	be := newBackend(t)
 
-	_, err = be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
+	_, err := be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
 	assert.ErrorIs(t, err, backend.ErrGone)
 }
 
 func TestProbe_Gone(t *testing.T) {
 	t.Parallel()
-	be, err := New(Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
+	be := newBackend(t)
 
 	st, err := be.Probe(t.Context(), backend.Handle{Type: HandleType, ID: "nonexistent-container-id", Data: []byte(`{"version":1}`)})
 	assert.NilError(t, err)
 	assert.Equal(t, st, backend.StateGone)
 }
 
-// startContainer creates and starts an alpine container running cmd, returning
-// a raw client and its id. It is removed on cleanup.
+// newBackend returns a backend under a runner ID of its own, whose directory is
+// removed on cleanup.
+func newBackend(t *testing.T) *Backend {
+	t.Helper()
+	be, err := New(Options{RunnerID: fmt.Sprintf("test-runner-%d", rand.Int64N(1<<40))})
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = be.Close()
+		_ = os.RemoveAll(be.runDir)
+	})
+	return be
+}
+
+// startContainer creates and starts an alpine container running cmd, labelled
+// with a task ID, returning a raw client and its id. It is removed on cleanup.
 func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
 	t.Helper()
 	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
@@ -138,7 +110,11 @@ func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
 	_, err = dockerx.ImageEnsure(t.Context(), docker, dockerx.ImageEnsureOptions{Ref: "alpine:latest"})
 	assert.NilError(t, err)
 	resp, err := docker.ContainerCreate(t.Context(),
-		&container.Config{Image: "alpine:latest", Cmd: cmd},
+		&container.Config{
+			Image:  "alpine:latest",
+			Cmd:    cmd,
+			Labels: map[string]string{"gritz.task": fmt.Sprint(rand.Int64N(1 << 40))},
+		},
 		&container.HostConfig{}, nil, nil, "")
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = docker.ContainerRemove(t.Context(), resp.ID, container.RemoveOptions{Force: true}) })
@@ -148,9 +124,7 @@ func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
 
 func TestProbe_States(t *testing.T) {
 	t.Parallel()
-	be, err := New(Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
+	be := newBackend(t)
 	data := []byte(`{"version":1}`)
 
 	// A running container is running whatever its driver reports — here there
@@ -172,12 +146,7 @@ func TestProbe_States(t *testing.T) {
 // A fresh Launch that fails after creating its container removes it: the
 // runner gets no handle, so nothing else would (#1685).
 func TestLaunch_FreshFailureRemovesContainer(t *testing.T) {
-	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
-	assert.NilError(t, err)
-	t.Setenv("GRITZ_PREBUILT_DIR", prebuiltDir)
-	be, err := New(Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
+	be := newCreateBackend(t)
 	// The driver server cannot answer within a nanosecond.
 	be.readyTimeout = time.Nanosecond
 	taskID := rand.Int64N(1 << 40)
@@ -186,7 +155,7 @@ func TestLaunch_FreshFailureRemovesContainer(t *testing.T) {
 		_ = be.docker.ContainerRemove(context.Background(), name, container.RemoveOptions{Force: true})
 	})
 
-	_, err = be.Launch(t.Context(), &backend.Spec{
+	_, err := be.Launch(t.Context(), &backend.Spec{
 		TaskID:    taskID,
 		Version:   1,
 		Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest"}},
@@ -202,9 +171,7 @@ func TestLaunch_FreshFailureRemovesContainer(t *testing.T) {
 // runner would never launch on it again (#1685).
 func TestLaunch_ReuseFailureStopsContainer(t *testing.T) {
 	t.Parallel()
-	be, err := New(Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
+	be := newBackend(t)
 	be.readyTimeout = time.Nanosecond
 
 	// A stopped container with no driver server, which exits on SIGTERM.
@@ -212,7 +179,7 @@ func TestLaunch_ReuseFailureStopsContainer(t *testing.T) {
 	assert.NilError(t, docker.ContainerStop(t.Context(), id, container.StopOptions{}))
 	h := backend.Handle{Type: HandleType, ID: id, Data: []byte(`{"version":1}`)}
 
-	_, err = be.Launch(t.Context(), &backend.Spec{
+	_, err := be.Launch(t.Context(), &backend.Spec{
 		TaskID:    1,
 		Version:   2,
 		Workspace: &workspace.Workspace{},
@@ -228,11 +195,9 @@ func TestLaunch_ReuseFailureStopsContainer(t *testing.T) {
 // container and reports the run lost rather than retrying forever (#1687).
 func TestWait_DriverUnreachableGivesUp(t *testing.T) {
 	t.Parallel()
-	be, err := New(Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = be.Close() })
+	be := newBackend(t)
 	be.lostTimeout = time.Second
-	// A running container with nothing listening on the driver port.
+	// A running container with no driver server.
 	docker, id := startContainer(t, []string{"sh", "-c", "trap 'exit 0' TERM; sleep 300 & wait"})
 
 	code, err := be.Wait(t.Context(), backend.Handle{Type: HandleType, ID: id, Data: []byte(`{"version":1}`)})
@@ -242,4 +207,65 @@ func TestWait_DriverUnreachableGivesUp(t *testing.T) {
 	info, err := docker.ContainerInspect(t.Context(), id)
 	assert.NilError(t, err)
 	assert.Assert(t, !info.State.Running, "container %s is still running", id)
+}
+
+// newCreateBackend returns a newBackend that can create containers.
+func newCreateBackend(t *testing.T) *Backend {
+	t.Helper()
+	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
+	assert.NilError(t, err)
+	t.Setenv("GRITZ_PREBUILT_DIR", prebuiltDir)
+	return newBackend(t)
+}
+
+// createContainer creates a task's container with be, removing it on cleanup.
+func createContainer(t *testing.T, be *Backend, taskID int64) string {
+	t.Helper()
+	id, err := be.create(t.Context(), &backend.Spec{
+		TaskID:    taskID,
+		Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest"}},
+	})
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = be.docker.ContainerRemove(context.Background(), id, container.RemoveOptions{Force: true})
+	})
+	return id
+}
+
+// A container from create runs the driver server on the socket in its task's
+// directory, which the runner dials (#1697).
+func TestCreate_DriverAnswersOverSocket(t *testing.T) {
+	be := newCreateBackend(t)
+	taskID := rand.Int64N(1 << 40)
+	id := createContainer(t, be, taskID)
+	assert.NilError(t, be.docker.ContainerStart(t.Context(), id, container.StartOptions{}))
+
+	client, err := be.dial(t.Context(), id)
+	assert.NilError(t, err)
+	err = be.waitReady(t.Context(), client)
+
+	assert.NilError(t, err)
+	fi, err := os.Stat(be.runDir)
+	assert.NilError(t, err)
+	assert.Equal(t, fi.Mode().Perm(), os.FileMode(0700))
+	fi, err = os.Stat(be.taskDir(taskID))
+	assert.NilError(t, err)
+	assert.Equal(t, fi.Mode().Perm(), os.FileMode(0777))
+	fi, err = os.Stat(filepath.Join(be.taskDir(taskID), DriverSocket))
+	assert.NilError(t, err)
+	assert.Equal(t, fi.Mode().Perm(), os.FileMode(0666))
+}
+
+func TestDestroy_RemovesTaskDir(t *testing.T) {
+	be := newCreateBackend(t)
+	taskID := rand.Int64N(1 << 40)
+	id := createContainer(t, be, taskID)
+
+	err := be.Destroy(t.Context(), backend.Handle{Type: HandleType, ID: id})
+
+	assert.NilError(t, err)
+	_, err = be.docker.ContainerInspect(t.Context(), id)
+	assert.Assert(t, cerrdefs.IsNotFound(err), "container %s was left behind: %v", id, err)
+	_, err = os.Stat(be.taskDir(taskID))
+	assert.Assert(t, os.IsNotExist(err), "task directory was left behind: %v", err)
 }

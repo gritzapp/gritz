@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
@@ -29,6 +30,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"github.com/gritzapp/gritz/internal/x/envx"
+	"github.com/gritzapp/gritz/internal/x/unixsock"
 )
 
 // DefaultKeepAlive is how often an open Run stream gets a KeepAlive. A write
@@ -137,10 +139,11 @@ func (s *Server) Handler() (string, http.Handler) {
 	return driverv1connect.NewDriverServiceHandler(s)
 }
 
-// ListenAndServe serves the service on addr, over HTTP/1.1 and unencrypted
-// HTTP/2, until ctx is cancelled. It then stops the active run, waits for it to
-// stop and report, however long that takes (the platform's stop timeout bounds
-// it, as it does the one-shot driver), and shuts down the HTTP server.
+// ListenAndServe serves the service on addr — a TCP address, or a unix socket
+// as unix:///path — over HTTP/1.1 and unencrypted HTTP/2, until ctx is
+// cancelled. It then stops the active run, waits for it to stop and report,
+// however long that takes (the platform's stop timeout bounds it, as it does
+// the one-shot driver), and shuts down the HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle(s.Handler())
@@ -148,14 +151,17 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	hs := &http.Server{
-		Addr:      addr,
 		Handler:   mux,
 		Protocols: protocols,
+	}
+	ln, err := listen(addr)
+	if err != nil {
+		return err
 	}
 	errCh := make(chan error, 1)
 	go func() {
 		s.log.Info("driver server listening", "addr", addr)
-		errCh <- hs.ListenAndServe()
+		errCh <- hs.Serve(ln)
 	}()
 	select {
 	case err := <-errCh:
@@ -169,6 +175,14 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
 	defer cancel()
 	return hs.Shutdown(shutdownCtx)
+}
+
+// listen listens on addr: the unix socket of a unix:///path address, else TCP.
+func listen(addr string) (net.Listener, error) {
+	if path, ok := unixsock.CutScheme(addr); ok {
+		return unixsock.Listen(path)
+	}
+	return net.Listen("tcp", cmp.Or(addr, ":http"))
 }
 
 // Status reports the current run record.

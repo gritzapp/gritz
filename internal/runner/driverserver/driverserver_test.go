@@ -20,6 +20,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
+	"github.com/gritzapp/gritz/internal/x/unixsock"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -553,6 +554,29 @@ func TestListenAndServe(t *testing.T) {
 	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
 	assert.NilError(t, <-errCh)
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+}
+
+func TestListenAndServe_Unix(t *testing.T) {
+	t.Parallel()
+	// Arrange - serving on a unix socket
+	te := setup(t, sleepForever, testOptions{})
+	path := filepath.Join(t.TempDir(), "driver.sock")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- te.srv.ListenAndServe(ctx, "unix://"+path) }()
+	client := driverv1connect.NewDriverServiceClient(unixsock.NewClient(path), "http://driver")
+
+	// Act
+	up := poll(func() bool {
+		_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+		return err == nil
+	})
+
+	// Assert - it answered over the socket and shuts down cleanly
+	assert.Assert(t, up, "server never came up")
+	cancel()
+	assert.NilError(t, <-errCh)
 }
 
 // poll reports whether cond became true within five seconds.

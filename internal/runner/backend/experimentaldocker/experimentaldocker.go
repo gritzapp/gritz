@@ -9,6 +9,14 @@
 // removed in phase E, and the two evolve independently until then.
 // Containers are named gritz-{task-id} and labelled with the owning runner, as
 // the docker package's are.
+//
+// The runner reaches each driver server over a unix socket rather than the
+// network: the task's directory <os.TempDir()>/gritz/{runner-id}/{task-id} is
+// bind-mounted at /gritz/run, and the driver listens on driver.sock in it. That
+// works whatever the container's network mode, and each container sees only
+// its own task's socket. The runner must see that directory at the same path as
+// the Docker daemon: a runner in a container needs it bind-mounted from the
+// host at the same path, and a remote DOCKER_HOST cannot work.
 package experimentaldocker
 
 import (
@@ -20,9 +28,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
-	"net"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,15 +49,19 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/prebuilt"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
+	"github.com/gritzapp/gritz/internal/x/unixsock"
 )
 
 // HandleType is the backend.Handle.Type this backend stamps on the handles it
 // produces.
 const HandleType = "experimental-docker"
 
-// DriverPort is the port `gritz driver --serve` listens on inside a container.
-// Every container has its own network namespace, so it never collides.
-const DriverPort = 8080
+// RunDir is where a container's task directory is mounted, and DriverSocket
+// the socket `gritz driver --serve` listens on in it.
+const (
+	RunDir       = "/gritz/run"
+	DriverSocket = "driver.sock"
+)
 
 const (
 	// driverReadyTimeout bounds how long Launch waits for a started
@@ -72,9 +85,10 @@ const (
 // and Signal address the driver with.
 type Backend struct {
 	docker   *client.Client
-	http     *http.Client
 	runnerID string
 	log      *slog.Logger
+	// runDir is this runner's directory of task directories.
+	runDir string
 	// readyTimeout bounds how long Launch waits for the driver server; tests
 	// shorten it.
 	readyTimeout time.Duration
@@ -99,8 +113,8 @@ func New(opts Options) (*Backend, error) {
 	}
 	return &Backend{
 		docker:       docker,
-		http:         &http.Client{},
 		runnerID:     opts.RunnerID,
+		runDir:       filepath.Join(os.TempDir(), "gritz", opts.RunnerID),
 		log:          cmp.Or(opts.Log, slog.Default()),
 		readyTimeout: driverReadyTimeout,
 		idleTimeout:  driverclient.DefaultIdleTimeout,
@@ -113,17 +127,16 @@ func (b *Backend) Close() error {
 }
 
 // ValidateWorkspace reports whether the workspace's container config is usable:
-// it needs an image, and a network namespace of its own on which the runner can
-// reach the driver server at the container's IP. Host mode is rejected too: the
-// driver would have to pick a free host port and advertise it, which this
-// backend does not do.
+// it needs an image, and a network mode other than none or container:. The
+// driver server is reached over its socket whatever the network mode, so host
+// mode is fine.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	if err := ws.Container.Validate(); err != nil {
 		return err
 	}
 	mode := container.NetworkMode(ws.Container.NetworkMode)
-	if mode.IsNone() || mode.IsContainer() || mode.IsHost() {
-		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the runner must reach the driver server at the container's IP", ws.Container.NetworkMode)
+	if mode.IsNone() || mode.IsContainer() {
+		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend", ws.Container.NetworkMode)
 	}
 	return nil
 }
@@ -174,7 +187,7 @@ func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend
 		// ctx being cancelled is one of the failures to clean up after.
 		ctx := context.WithoutCancel(ctx)
 		if fresh {
-			b.discard(ctx, containerID)
+			b.discard(ctx, spec.TaskID, containerID)
 		} else {
 			b.stopFailed(ctx, containerID)
 		}
@@ -211,13 +224,18 @@ func (b *Backend) launch(ctx context.Context, spec *backend.Spec, containerID st
 }
 
 // discard force-removes a container this Launch created and failed to start a
-// run on: the runner has no record of it, so nothing else would. Failures are
-// logged: Launch returns the error that caused them.
-func (b *Backend) discard(ctx context.Context, containerID string) {
+// run on, and its task's directory: the runner has no record of them, so
+// nothing else would. Failures are logged: Launch returns the error that
+// caused them.
+func (b *Backend) discard(ctx context.Context, taskID int64, containerID string) {
 	b.log.Info("removing container after failed launch", "container", containerID)
 	err := b.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 	if err != nil && !cerrdefs.IsNotFound(err) {
 		b.log.Error("failed to remove container after failed launch", "container", containerID, "err", err)
+		return
+	}
+	if err := os.RemoveAll(b.taskDir(taskID)); err != nil {
+		b.log.Error("failed to remove task directory after failed launch", "container", containerID, "err", err)
 	}
 }
 
@@ -269,9 +287,13 @@ func (b *Backend) inspectID(ctx context.Context, ref string) (string, bool, erro
 
 // adopt reuses an existing container, repairing any network attachments whose
 // endpoint ID has drifted from the live network — e.g. after
-// `docker compose down && up`.
+// `docker compose down && up`. The task's directory is recreated in case it
+// was cleared since, e.g. by a reboot emptying the temp dir.
 func (b *Backend) adopt(ctx context.Context, spec *backend.Spec, containerID string) (string, error) {
 	b.log.Info("adopting existing container", "task", spec.TaskID, "container", containerID)
+	if _, err := b.makeTaskDir(spec.TaskID); err != nil {
+		return "", err
+	}
 	repaired, err := dockerx.RepairNetworks(ctx, b.docker, containerID, spec.Workspace.Container.Networks)
 	if err != nil {
 		return "", fmt.Errorf("failed to repair network attachment: %w", err)
@@ -284,7 +306,8 @@ func (b *Backend) adopt(ctx context.Context, spec *backend.Spec, containerID str
 }
 
 // create creates the task's gritz-{taskID} container running the driver server
-// and copies the driver binary and spec.Files into it. The container gets only
+// on a socket in its task directory, and copies the driver binary and
+// spec.Files into it. The container gets only
 // the workspace's environment: the run's env, secrets and token arrive in the
 // RunSpec, so a container reused for a later run never holds stale ones.
 func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error) {
@@ -313,6 +336,11 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 		return "", err
 	}
 
+	dir, err := b.makeTaskDir(spec.TaskID)
+	if err != nil {
+		return "", err
+	}
+
 	resp, err := b.docker.ContainerCreate(ctx,
 		&container.Config{
 			Image: wc.Image,
@@ -322,12 +350,15 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 				"gritz.task":   fmt.Sprint(spec.TaskID),
 				"gritz.runner": b.runnerID,
 			},
-			Cmd:        []string{backend.BinaryPath, "driver", "--serve"},
+			Cmd: []string{
+				backend.BinaryPath, "driver", "--serve",
+				"--addr", unixsock.Scheme + path.Join(RunDir, DriverSocket),
+			},
 			Env:        wc.Environ(),
 			WorkingDir: wc.WorkingDir,
 		},
 		&container.HostConfig{
-			Binds:       wc.Volumes,
+			Binds:       append(slices.Clone(wc.Volumes), dir+":"+RunDir),
 			GroupAdd:    wc.GroupAdd,
 			Runtime:     wc.Runtime,
 			Privileged:  wc.Privileged,
@@ -345,11 +376,37 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 		{Path: backend.BinaryPath, Data: binData, Mode: 0755},
 	}, spec.Files...)
 	if err := b.copyFiles(ctx, resp.ID, files); err != nil {
-		b.discard(context.WithoutCancel(ctx), resp.ID)
+		b.discard(context.WithoutCancel(ctx), spec.TaskID, resp.ID)
 		return "", fmt.Errorf("failed to copy files: %w", err)
 	}
 
 	return resp.ID, nil
+}
+
+// taskDir returns the host directory mounted at RunDir in the task's container.
+func (b *Backend) taskDir(taskID int64) string {
+	return filepath.Join(b.runDir, strconv.FormatInt(taskID, 10))
+}
+
+// makeTaskDir creates the task's directory and returns it. The runner's
+// directory is private to it; the task's is world-writable, so the driver can
+// create its socket there whatever user the container runs as.
+func (b *Backend) makeTaskDir(taskID int64) (string, error) {
+	if err := os.MkdirAll(b.runDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create runner directory: %w", err)
+	}
+	if err := os.Chmod(b.runDir, 0700); err != nil {
+		return "", fmt.Errorf("failed to create runner directory: %w", err)
+	}
+	dir := b.taskDir(taskID)
+	if err := os.MkdirAll(dir, 0777); err != nil {
+		return "", fmt.Errorf("failed to create task directory: %w", err)
+	}
+	// MkdirAll's mode is subject to the umask.
+	if err := os.Chmod(dir, 0777); err != nil {
+		return "", fmt.Errorf("failed to create task directory: %w", err)
+	}
+	return dir, nil
 }
 
 func (b *Backend) copyFiles(ctx context.Context, containerID string, files []backend.File) error {
@@ -387,10 +444,10 @@ func (b *Backend) copyFiles(ctx context.Context, containerID string, files []bac
 // errNotRunning means the container exists but is not running.
 var errNotRunning = errors.New("container is not running")
 
-// dial returns a client for the driver server of a running container, whose
-// Run streams fail with driverclient.ErrStreamIdle once the driver goes quiet.
-// A missing container is reported as cerrdefs.ErrNotFound, a stopped one as
-// errNotRunning.
+// dial returns a client for the driver server of a running container, over the
+// socket in its task's directory, whose Run streams fail with
+// driverclient.ErrStreamIdle once the driver goes quiet. A missing container is
+// reported as cerrdefs.ErrNotFound, a stopped one as errNotRunning.
 func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
 	info, err := b.docker.ContainerInspect(ctx, containerID)
 	if err != nil {
@@ -399,25 +456,28 @@ func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect
 	if info.State == nil || !info.State.Running {
 		return nil, errNotRunning
 	}
-	addr, err := driverAddr(info)
+	taskID, err := labelTaskID(info)
 	if err != nil {
 		return nil, err
 	}
-	return driverclient.New(b.http, "http://"+addr, driverclient.Options{IdleTimeout: b.idleTimeout}), nil
+	// A client is made per dial, so it keeps no idle connections that would
+	// outlive it.
+	transport := unixsock.NewTransport(filepath.Join(b.taskDir(taskID), DriverSocket))
+	transport.DisableKeepAlives = true
+	return driverclient.New(&http.Client{Transport: transport}, "http://driver", driverclient.Options{IdleTimeout: b.idleTimeout}), nil
 }
 
-// driverAddr returns the address of a running container's driver server: the
-// container's IP on DriverPort. With several networks the first by name is
-// used.
-func driverAddr(info container.InspectResponse) (string, error) {
-	if info.NetworkSettings != nil {
-		for _, name := range slices.Sorted(maps.Keys(info.NetworkSettings.Networks)) {
-			if ep := info.NetworkSettings.Networks[name]; ep != nil && ep.IPAddress != "" {
-				return net.JoinHostPort(ep.IPAddress, strconv.Itoa(DriverPort)), nil
-			}
-		}
+// labelTaskID returns the task ID a container is labelled with.
+func labelTaskID(info container.InspectResponse) (int64, error) {
+	var label string
+	if info.Config != nil {
+		label = info.Config.Labels["gritz.task"]
 	}
-	return "", fmt.Errorf("container %s has no IP address to reach its driver on", info.ID)
+	taskID, err := strconv.ParseInt(label, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("container %s has no valid gritz.task label: %q", info.ID, label)
+	}
+	return taskID, nil
 }
 
 // waitReady polls Status until the driver server answers or
@@ -639,14 +699,29 @@ func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
 	return resp.GetStopped(), nil
 }
 
-// Destroy removes the handle's container. A missing container is not an error.
+// Destroy removes the handle's container and its task's directory. A missing
+// container is not an error.
 func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
 	if foreign(h) {
 		return nil
 	}
-	err := b.docker.ContainerRemove(ctx, h.ID, container.RemoveOptions{Force: true})
+	info, err := b.docker.ContainerInspect(ctx, h.ID)
+	if cerrdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+	taskID, err := labelTaskID(info)
+	if err != nil {
+		return err
+	}
+	err = b.docker.ContainerRemove(ctx, h.ID, container.RemoveOptions{Force: true})
 	if err != nil && !cerrdefs.IsNotFound(err) {
 		return fmt.Errorf("failed to remove container: %w", err)
+	}
+	if err := os.RemoveAll(b.taskDir(taskID)); err != nil {
+		return fmt.Errorf("failed to remove task directory: %w", err)
 	}
 	return nil
 }

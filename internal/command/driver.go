@@ -40,7 +40,7 @@ var DriverCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:  "addr",
-			Usage: "Address to serve on with --serve",
+			Usage: "Address to serve on with --serve: a TCP address, or a unix socket as unix:///path",
 			Value: ":8080",
 		},
 	},

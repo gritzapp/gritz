@@ -513,7 +513,7 @@ taskstate record is kept, and a later start or archive proceeds normally.
 |---|---|---|
 | `Start`, fresh | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary; `ContainerStart`. Any failure after `ContainerCreate` returns the handle with the error. | `RunMicrovm` with no run-hook payload, then poll until `RUNNING`. Any failure after `RunMicrovm` returns the handle with the error. |
 | `Start`, reuse | `ContainerStart` | `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll; `SUSPENDING` → plain error; terminal → `ErrGone` |
-| `Dial` | client for `http://<container IP>:8080` on its network, adding the JWT | client for the managed proxy endpoint, adding a minted port-scoped token and the JWT |
+| `Dial` | client for the driver's unix socket in the task's bind-mounted directory, adding the JWT | client for the managed proxy endpoint, adding a minted port-scoped token and the JWT |
 | `Status` | inspect: running → Up, exited → Parked, not found → Gone | `GetMicrovm` |
 | `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown | `SuspendMicrovm`, then poll until `SUSPENDED` |
 | `Destroy` | `ContainerRemove` (force) | `TerminateMicrovm` |
@@ -740,7 +740,7 @@ report?". Only Docker, no Lambda, no idle parking, no runner key.
 
    | Method | Behavior |
    |---|---|
-   | `Launch` | Create the container with `Cmd: [BinaryPath, "driver", "--serve"]`, copy the binary and `spec.Files` as today, `ContainerStart` (fresh or reuse), dial the container's IP on :8080, poll `Status` until it answers, then `Run(version, spec)` until `Accepted`. |
+   | `Launch` | Create the container with `Cmd: [BinaryPath, "driver", "--serve"]`, copy the binary and `spec.Files` as today, `ContainerStart` (fresh or reuse), dial the driver's unix socket in the task's bind-mounted directory (see open question 3), poll `Status` until it answers, then `Run(version, spec)` until `Accepted`. |
    | `Wait` | `Run(version)` with no spec, read until `Finished`. On a dropped stream: container gone or exited → `ExitLost`; running → reconnect. On `Finished`, `docker stop` the container, so between runs it is stopped exactly as today, then return 0 if `reported`, else `ExitLost`. |
    | `Probe` | Container gone → `StateGone`; not running → `StateExited`; running → `Status`: this version running → `StateRunning`, otherwise `StateExited`. |
    | `Signal` | `Stop(version)`; `signalled = stopped`. |
@@ -751,9 +751,7 @@ report?". Only Docker, no Lambda, no idle parking, no runner key.
    flag is meant for a runner with no active Docker tasks. Depends on: (5).
    Verifiable by: running a runner with the flag against a dev server.
 
-Phase A leaves open: the runner must reach the container's IP (open question 3);
-sibling containers on a shared bridge can reach `:8080` until phase C adds the
-runner key; and a container created before an upgrade keeps its old driver
+Phase A leaves open: a container created before an upgrade keeps its old driver
 binary, so `driver.v1` changes in later phases must stay wire-compatible, or
 experimental containers be recreated.
 
@@ -882,10 +880,12 @@ proxies. grpc-go requires HTTP/2 end to end.
 2. **Duplicate log chunks.** A chunk delivered after the last `Seq` write
    before a runner crash is appended twice. Should `AppendLogChunkRequest` gain a sequence
    number the server deduplicates on, or is a rare repeated chunk acceptable?
-3. **Docker reachability.** The runner dials the container's IP. That works when
-   the runner is on the host or shares a network with the container. Is that
-   always true for existing deployments, or does Docker need a published port or
-   a bind-mounted unix socket instead?
+3. **Docker reachability.** Resolved by #1697: the runner reaches each driver
+   over a unix socket in a per-task directory, `<os.TempDir()>/gritz/<runnerID>/<taskID>/`,
+   bind-mounted at `/gritz/run`, rather than the container's IP. That needs no
+   shared network, and sibling containers cannot reach each other's driver. The
+   runner must see that directory at the same path as the Docker daemon, so a
+   remote `DOCKER_HOST` cannot work.
 4. **Migrating existing sandboxes.** Containers and MicroVMs created before
    steps 8/9 run the one-shot driver. Should the runner detect old handles (by
    `Handle.Type` or a container label) and keep the old path until those tasks
