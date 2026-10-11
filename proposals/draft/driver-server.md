@@ -33,10 +33,11 @@ Problems that follow:
    egress to the server, and the terminal report races the runner's own view of
    the run: `ExitCode` exists only to tell the runner whether the driver's report
    got through.
-7. `Launch` returns a handle or an error, never both. A sandbox the platform
-   created but that then failed to come up (a boot timeout, a failed binary copy,
-   a cancelled context) is reported as an error alone; the runner has no record of
-   it, and the sandbox leaks.
+7. `Launch` returns a handle or an error, never both, and only once the sandbox
+   is up. A sandbox the platform created but that then failed to come up (a boot
+   timeout, a failed binary copy, a cancelled context) is reported as an error
+   alone, and a runner that crashes while `Launch` blocks gets nothing at all;
+   either way the runner has no record of the sandbox, and it leaks.
 
 ## Design
 
@@ -58,11 +59,11 @@ Key properties:
   durable on its side, and replays everything after it, so a runner that crashes
   or loses its stream and reconnects gets everything it missed. The driver
   tracks no delivery state.
-- **One `Backend` interface.** The backend manages sandboxes only; it never speaks
-  the driver protocol beyond handing out a client. `Start` returns the handle
-  alongside any error whenever a sandbox exists, and the runner persists a
-  returned handle before looking at the error. The handle is recorded before the
-  run starts, even when the sandbox fails to come up.
+- **`Backend` and `Sandbox`.** The backend manages sandboxes only; it never speaks
+  the driver protocol beyond handing out a client. `Backend.Create` provisions a
+  sandbox and returns a `Sandbox` as soon as the platform has assigned it an
+  identity; the runner records its handle before calling `Sandbox.Start`, so the
+  handle is recorded before the sandbox boots, even when it fails to come up.
 - **The runner owns the driver protocol.** `runner.go` calls `Status`, `Run` and
   `Stop`, consumes the stream and parks idle sandboxes.
 - **Runs execute in-process**, one at a time. Everything per-process today becomes
@@ -332,7 +333,7 @@ it fits any channel a backend has. JWTs are signed with EdDSA.
 - **No key:** the API is unauthenticated.
 
 Whether a sandbox needs the driver's own auth is the backend's decision, and
-setting it up is part of `Start` creating the sandbox. A backend whose platform
+setting it up is part of `Create`. A backend whose platform
 authenticates the path to the sandbox per sandbox or per port (Lambda's
 IAM-gated managed proxy, AgentCore) installs no key. A backend whose platform
 does not, or only with an account-wide credential, writes the runner's public
@@ -383,68 +384,115 @@ sequenceDiagram
 
 ### Backend interface
 
-`Backend` and the earlier `Sandbox` split are merged into one interface. It
-manages sandboxes; the runner speaks the driver protocol over the client `Dial`
-returns.
+The backend is split in two. A `Backend` creates sandboxes and reopens recorded
+ones; a `Sandbox` is a reference to one provisioned sandbox and manages it. The
+runner speaks the driver protocol over the client `Sandbox.Dial` returns.
 
 ```go
-// Backend runs task sandboxes on a concrete runtime. It manages the sandbox
-// itself and never speaks the driver protocol.
+// Backend creates task sandboxes on a concrete runtime and reopens recorded
+// ones. It never speaks the driver protocol.
 type Backend interface {
 	ValidateWorkspace(ws *workspace.Workspace) error
 
-	// Start ensures a running sandbox for spec and blocks until the platform
-	// reports it running. With reuse == nil it creates one; otherwise it starts
-	// or resumes the exact sandbox reuse identifies, and never creates a fresh
-	// one. Starting a running sandbox is a no-op.
-	//
-	// The returned handle is non-nil whenever a sandbox exists, including
-	// alongside an error: a sandbox that was created but failed to come up is
-	// returned with the error so the runner can record it and destroy or retry
-	// it later. A gone reuse sandbox returns (nil, ErrGone); a sandbox in a
-	// transitional state (SUSPENDING, pausing) returns (reuse, error).
-	Start(ctx context.Context, spec *Spec, reuse *Handle) (*Handle, error)
+	// Create provisions a sandbox for spec without starting it, and returns as
+	// soon as the platform has assigned it an identity. On error no sandbox
+	// exists: a backend whose provisioning fails after the platform assigned an
+	// identity (Docker's binary copy) destroys what it created, on a context
+	// of its own, before returning the error.
+	Create(ctx context.Context, spec *Spec) (Sandbox, error)
+
+	// Open rehydrates a sandbox from a handle that Sandbox.Handle returned. It
+	// does no I/O and does not check that the sandbox still exists; a gone
+	// sandbox shows up on the returned Sandbox's methods. It fails only for a
+	// handle this backend cannot decode (another type, malformed Data).
+	Open(h Handle) (Sandbox, error)
+
+	Close() error
+}
+
+// Sandbox is a reference to one provisioned sandbox, in whatever state it is
+// in: created, running, parked or gone. It holds the per-sandbox state its
+// backend needs (the Docker container ID, the Lambda endpoint and cached proxy
+// token). Its methods are safe for concurrent use.
+//
+// A Sandbox can be stale: the platform may have destroyed the sandbox since
+// Create or Open. Every method handles that: Status reports Gone, Start and
+// Park return ErrGone, and Destroy returns nil.
+type Sandbox interface {
+	// Handle identifies the sandbox for taskstate/. It is fixed at Create and
+	// never changes over the sandbox's life.
+	Handle() Handle
+
+	// Start boots a created sandbox or resumes a parked one, and blocks until
+	// the platform reports it running. Starting a running sandbox is a no-op. A
+	// gone sandbox returns ErrGone; a sandbox in a transitional state
+	// (SUSPENDING, pausing) returns a plain error. Start never creates a sandbox.
+	Start(ctx context.Context) error
 
 	// Dial returns a client for the sandbox's driver server. Every call it makes
 	// carries jwt as a bearer token, plus any platform credentials (Lambda's
 	// port-scoped proxy token). A driver with no runner key ignores the JWT.
 	// Dial does not wait for the driver; readiness is the runner's Status
 	// polling.
-	Dial(ctx context.Context, h Handle, jwt string) (driverv1connect.DriverServiceClient, error)
+	Dial(ctx context.Context, jwt string) (driverv1connect.DriverServiceClient, error)
 
 	// Status reports the platform's view of the sandbox: Up, Parked or Gone.
-	// Transitional states (SUSPENDING, pausing) report Parked.
-	Status(ctx context.Context, h Handle) (Status, error)
+	// Created but never started, and transitional states (SUSPENDING, pausing),
+	// report Parked.
+	Status(ctx context.Context) (Status, error)
 
 	// Park stops compute while preserving the sandbox, blocking until the
-	// platform reports the stable parked state.
-	Park(ctx context.Context, h Handle) error
+	// platform reports the stable parked state. Parking a parked sandbox is a
+	// no-op.
+	Park(ctx context.Context) error
 
-	// Destroy deletes the sandbox. Destroying an absent sandbox is not an error.
-	Destroy(ctx context.Context, h Handle) error
-
-	Close() error
+	// Destroy deletes the sandbox. Destroying a gone sandbox is not an error.
+	Destroy(ctx context.Context) error
 }
 ```
 
-`Start` is one call rather than separate create and start steps because not
-every platform has both: Docker separates `ContainerCreate` from
-`ContainerStart`, but most VM and sandbox APIs create and boot in a single call.
-A backend whose platform does separate them returns the handle from the create
-step alongside any error from the start step.
+`Create` and `Start` are separate because both platforms the design targets
+return an identity before the sandbox boots: Docker's `ContainerCreate` returns
+the container ID, and Lambda's `RunMicrovm` returns the microVM ID while the VM
+is still pending. One `Start` covers both a fresh boot and a resume, so the
+runner's start path is the same whether or not the sandbox has run before.
 
-The runner's rule is the same for every call site: if `Start` returned a handle,
-write it to `taskstate/` before handling the error.
+The runner's rule follows: record `sb.Handle()` in `taskstate/` as soon as
+`Create` returns, before anything else can fail.
 
 ```go
-h, err := r.backend.Start(ctx, spec, reuse)
-if h != nil {
-	r.record(task, *h)
-}
+sb, err := r.backend.Create(ctx, spec)
 if err != nil {
 	return err
 }
+r.record(task, sb.Handle())
+if err := sb.Start(ctx); err != nil {
+	return err // the record stays; a later Start or Remove deals with it
+}
 ```
+
+A record now always exists for a sandbox that failed to come up (a boot
+timeout, a failed start, a cancelled context), so a later `Start` retries it and
+`Remove` destroys it. A backend that cannot provide an identity before boot
+(most VM and sandbox APIs create and boot in one call) implements `Create` as
+that call plus the wait, and its `Start` on a fresh sandbox is a no-op; it keeps
+the window of open question 10. So does a `Create` whose cleanup after a failed
+provisioning step itself fails.
+
+The runner holds a `Sandbox` per tracked task, next to its lock and idle timer,
+from `Create`, or from `Open` on the recorded handle when it does not have one
+(`Load`, a follow-up `Start`). Because `Open` does no I/O, the runner never
+needs the platform to reach a record.
+
+The split has two costs. A `Sandbox` the runner holds can go stale: a sandbox
+pruned, removed by hand or reclaimed by the platform is only noticed on the next
+call, so every method has to handle gone rather than assume the sandbox
+`Create` or `Open` saw. And `Sandbox` methods are called concurrently: by
+`supervise` (`Dial` and `Status` while reconnecting, outside the lock, because
+it holds the stream for the whole run), by `Kill` (`Dial`), and by the idle-park
+timer (`Dial`, `Park`). The per-task lock serializes the lifecycle calls
+(`Start`, `Park`, `Destroy`), but not `supervise`'s, so an implementation's
+cached state (Lambda's endpoint and proxy token) needs its own synchronization.
 
 `Spec` shrinks to what the platform needs to create the sandbox: `TaskID`,
 `Workspace`, and `RunnerPublicKey`, which the backend installs in the sandbox
@@ -454,7 +502,8 @@ only if its platform does not authenticate the path (see Authentication). `Cmd`,
 ### Runner
 
 `runner.go` takes over what the backend used to hide. A per-task lock serializes
-`Start`, `Kill`, `Remove` and the idle park.
+`Start`, `Kill`, `Remove` and the idle park, and with them every `Sandbox.Start`,
+`Park` and `Destroy`; `supervise` runs outside it (see Backend interface).
 
 The experimental backends showed two problems with today's `Launch` that this
 split fixes:
@@ -463,8 +512,8 @@ split fixes:
   driver (`waitReady`, polling `Status` for up to 30s on Docker, 1m on Lambda)
   and starts the run before returning, and `Poll` waits for every `Start` in its
   pass. A slow sandbox therefore delays the next poll, and with it every other
-  task's start and stop commands. Here `backend.Start` only waits for the
-  platform; the `Status` wait and `Run` move out of the poll pass into the
+  task's start and stop commands. Here `Create` and `Sandbox.Start` only wait
+  for the platform; the `Status` wait and `Run` move out of the poll pass into the
   task's own goroutine, after the handle is recorded.
 - **`waitReady` counts the image entrypoint's time.** The readiness timeout
   starts when the platform reports the sandbox running, so whatever the image's
@@ -474,13 +523,13 @@ split fixes:
 
 | Runner method | With the driver server |
 |---|---|
-| `Start(task)` | Under the lock. `backend.Start(spec, reuse)` with the recorded handle, if any; write any returned handle to `taskstate/`, then return the error, if any. Then `Dial`, poll `Status` with backoff (timeout → error). A running record for this version: a no-op. Otherwise fetch events after `Status.event_token` (and links on the first run), mint the task token, `Run(version, spec, after_seq: record.Seq)` until `Accepted`, cancel any idle timer, and hand the stream to `supervise`. |
-| `supervise` | Reads the stream. `runner_event` → enqueue on the runner event outbox; `log_chunk` → `AppendLogChunk`; then advance the record's `Seq` (batched). `Finished` for the task's current version → release the slot, arm the idle timer, return. A dropped stream is expected: re-dial and `Run(version, after_seq: Seq)` straight away, no recovery check, retrying `Unavailable` (the driver has not yet released the old stream) with backoff. Only when reconnecting keeps failing: `backend.Status`; gone → failed backstop and remove the record; parked → failed backstop; up → keep retrying until the readiness timeout (timeout → failed backstop). |
-| `Load` | For each record: `backend.Status`; gone → as today; parked → `failIfTaskRunning`; up → `Dial`, `Run(version, after_seq: record.Seq)` to attach. The replay delivers whatever the previous runner process missed, including a `Finished` it never saw. |
-| `Running` | `backend.Status` up and `Status` reports a running record for this version. |
-| `Kill(task)` | Under the lock: `Stop(version)`; `signalled = stopped`. The terminal event arrives through the stream. |
-| `Remove(task)` | Under the lock: cancel the idle timer, `Destroy`, remove the record. |
-| `Prune` | Unchanged, on top of `backend.Status`. |
+| `Start(task)` | Under the lock. With no record: `backend.Create(spec)`, then write `sb.Handle()` to `taskstate/`. With one: the task's `Sandbox`, or `backend.Open` on the recorded handle. Then `sb.Start()`; `ErrGone` → remove the record and fail, any other error → keep the record and fail. Then `sb.Dial`, poll `Status` with backoff (timeout → error). A running record for this version: a no-op. Otherwise fetch events after `Status.event_token` (and links on the first run), mint the task token, `Run(version, spec, after_seq: record.Seq)` until `Accepted`, cancel any idle timer, and hand the stream to `supervise`. |
+| `supervise` | Reads the stream. `runner_event` → enqueue on the runner event outbox; `log_chunk` → `AppendLogChunk`; then advance the record's `Seq` (batched). `Finished` for the task's current version → release the slot, arm the idle timer, return. A dropped stream is expected: re-dial and `Run(version, after_seq: Seq)` straight away, no recovery check, retrying `Unavailable` (the driver has not yet released the old stream) with backoff. Only when reconnecting keeps failing: `sb.Status`; gone → failed backstop and remove the record; parked → failed backstop; up → keep retrying until the readiness timeout (timeout → failed backstop). |
+| `Load` | For each record: `backend.Open(handle)`, then `sb.Status`; gone → as today; parked → `failIfTaskRunning`; up → `sb.Dial`, `Run(version, after_seq: record.Seq)` to attach. The replay delivers whatever the previous runner process missed, including a `Finished` it never saw. |
+| `Running` | `sb.Status` up and `Status` reports a running record for this version. |
+| `Kill(task)` | Under the lock: `sb.Dial`, `Stop(version)`; `signalled = stopped`. The terminal event arrives through the stream. |
+| `Remove(task)` | Under the lock: cancel the idle timer, `sb.Destroy` (opening the record if needed), remove the record. |
+| `Prune` | Unchanged, on top of `backend.Open` and `sb.Status`. |
 
 The failed backstop is now only for sandbox loss and an unreachable driver. A
 driver crash is reported by the restarted driver through its response log, and a run
@@ -516,7 +565,7 @@ workspaces:
 ```
 
 When `supervise` sees `Finished`, the runner arms a timer for `idle_timeout`.
-When it fires, it takes the task's lock and checks `Status`: it parks only if the
+When it fires, it takes the task's lock and checks the driver's `Status`: it calls `sb.Park` only if the
 record is finished, `finished_at + idle_timeout` has passed, and the record's
 `Seq` has reached `Status.last_seq`, so everything the driver logged is stored
 on the runner's side. A `Start` that won the lock in between is never undone. With an
@@ -528,19 +577,20 @@ sandboxes never block new runs. The idle timeout is the only bound on what warm
 sandboxes cost.
 
 If the runner restarts mid-park, the next `Start` may find the sandbox in a
-transitional state. `backend.Start` returns a plain error: the run fails, the
+transitional state. `sb.Start` returns a plain error: the run fails, the
 taskstate record is kept, and a later start or archive proceeds normally.
 
 ### Platform implementations
 
 | | Docker | Lambda MicroVMs |
 |---|---|---|
-| `Start`, fresh | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary; `ContainerStart`. Any failure after `ContainerCreate` returns the handle with the error. | `RunMicrovm` with no run-hook payload, then poll until `RUNNING`. Any failure after `RunMicrovm` returns the handle with the error. |
-| `Start`, reuse | `ContainerStart` | `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll; `SUSPENDING` → plain error; terminal → `ErrGone` |
+| `Create` | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary. A failed copy removes the container. Handle: the container ID. | `RunMicrovm` with no run-hook payload; returns as soon as the call does, with the VM still `PENDING`. Handle: the microVM ID and the endpoint `RunMicrovm` returns. |
+| `Open` | decode the handle | decode the handle; the port-scoped proxy token is minted on first use and cached on the `Sandbox` |
+| `Start` | `ContainerStart` (a no-op on a running container); not found → `ErrGone` | poll `GetMicrovm`: `PENDING` → poll until `RUNNING`; `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll until `RUNNING`; `SUSPENDING` → plain error; `TERMINATING`, `TERMINATED` or not found → `ErrGone` |
 | `Dial` | client whose transport tunnels each connection through a Docker exec of `gritz tool proxy --addr 127.0.0.1:8080` (stdin/stdout attached, stdout demultiplexed with `stdcopy`), adding the JWT. The runner needs only Docker API access, never a network route to the container. | Connect client for the managed proxy endpoint over HTTP/2, adding a cached, minted port-scoped token and the JWT |
-| `Status` | inspect: running → Up, exited → Parked, not found → Gone | `GetMicrovm` |
-| `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown | `SuspendMicrovm`, then poll until `SUSPENDED` |
-| `Destroy` | `ContainerRemove` (force) | `TerminateMicrovm` |
+| `Status` | inspect: running → Up, created or exited → Parked, not found → Gone | `GetMicrovm`: `RUNNING` → Up; `PENDING`, `SUSPENDING`, `SUSPENDED` → Parked; `TERMINATING`, `TERMINATED` or not found → Gone |
+| `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown; not found → `ErrGone` | `SuspendMicrovm`, then poll until `SUSPENDED`; `TERMINATING`, `TERMINATED` or not found → `ErrGone` |
+| `Destroy` | `ContainerRemove` (force); not found → nil | `TerminateMicrovm`; already terminating, terminated or not found → nil |
 
 On both platforms the agent files (agent config and directories) travel in
 `RunSpec.files` and the driver writes them, so no backend copies files into the
@@ -574,17 +624,25 @@ sequenceDiagram
     participant F as Sandbox disk
 
     R->>R: lock(task)
-    R->>P: Start(spec, reuse?)
-    P->>P: create / start / resume, wait until running
-    alt gone
-        P-->>R: nil, ErrGone
-    else created or transitional, then failed
-        P-->>R: handle, error
-        R->>T: write {version, handle}
+    alt no record
+        R->>P: Create(spec)
+        P->>P: create, until the platform assigns an identity
+        P-->>R: sb
+        R->>T: write {version, sb.Handle()}
+    else recorded
+        R->>P: Open(handle) (no I/O)
+        P-->>R: sb
     end
-    P-->>R: handle, nil
-    R->>T: write {version, handle}
-    R->>P: Dial(handle)
+    R->>P: sb.Start()
+    P->>P: boot / resume, wait until running
+    alt gone
+        P-->>R: ErrGone
+        R->>T: remove record
+    else transitional or failed
+        P-->>R: error (record kept)
+    end
+    P-->>R: nil
+    R->>P: sb.Dial(jwt)
     loop until the driver answers (backoff, timeout -> error)
         R->>D: Status()
     end
@@ -632,13 +690,13 @@ sequenceDiagram
         R->>T: Seq = seq (batched)
         opt stream dropped (routine)
             Note over D: run continues, responses keep being logged
-            R->>P: Dial(handle, jwt)
+            R->>P: sb.Dial(jwt)
             R->>D: Run(version, after_seq: Seq) (attach, replay)
             opt Unavailable (old stream not yet released)
                 R->>D: retry Run with backoff
             end
             opt reconnecting keeps failing
-                R->>P: Status
+                R->>P: sb.Status()
                 alt gone / parked
                     R->>O: Enqueue failed (backstop)
                 else up
@@ -662,9 +720,11 @@ sequenceDiagram
 
     Note over D,F: run continued; responses logged past the runner's Seq
     R->>T: list records {version, handle, Seq: n}
-    R->>P: Status(handle)
+    R->>P: Open(handle) (no I/O)
+    P-->>R: sb
+    R->>P: sb.Status()
     P-->>R: Up
-    R->>P: Dial(handle)
+    R->>P: sb.Dial(jwt)
     R->>D: Run(version, after_seq: n)
     D->>F: read log after n
     D-->>R: Accepted{attached: true}
@@ -677,10 +737,12 @@ Kill:
 ```mermaid
 sequenceDiagram
     participant R as Runner
+    participant P as Backend / Platform
     participant D as Driver server
     participant F as Sandbox disk
 
     R->>R: lock(task)
+    R->>P: sb.Dial(jwt)
     R->>D: Stop(version)
     alt version is the active run
         D->>D: cancel run context (ErrStop)
@@ -704,11 +766,12 @@ sequenceDiagram
 
     Note over R: timer armed on Finished, or re-derived by Load from finished_at
     R->>R: timer fires, lock(task)
+    R->>P: sb.Dial(jwt)
     R->>D: Status()
     alt run active, Seq < last_seq, or idle_timeout not elapsed
         Note over R: skip
     else finished and idle long enough
-        R->>P: Park (blocks until stable)
+        R->>P: sb.Park() (blocks until stable)
         alt Docker
             P->>D: docker stop: SIGTERM, server shuts down, container exits
         else Lambda
@@ -816,15 +879,18 @@ is:
 2. **Response log** — the per-version `RunResponse` log with read-after-seq and
    deletion behind a position; `RunRequest.after_seq`,
    `StatusResponse.last_seq`, and the `runner_event` and `log_chunk` cases.
-3. **Merged `Backend` interface and runner path** — the interface from the
-   design (`Start`, `Dial`, `Status`, `Park`, `Destroy`), `runner.go` speaking
+3. **`Backend` / `Sandbox` interfaces and runner path** — the interfaces from
+   the design (`Backend`: `ValidateWorkspace`, `Create`, `Open`, `Close`;
+   `Sandbox`: `Handle`, `Start`, `Dial`, `Status`, `Park`, `Destroy`), the
+   runner recording `sb.Handle()` right after `Create`, `runner.go` speaking
    the driver protocol (`Start`, `supervise` forwarding and advancing `Seq`,
    `Load`, `Kill`, `Remove`), `taskstate.Record.Seq`, both backends moved onto
    it with the driver reporting through the response log, and `Launch`, `Wait`,
    `Probe`, `Signal` and `ExitCode` removed. This is where `Launch` stops
    blocking `Poll` and the readiness wait stops counting the entrypoint (see
    Runner). Verifiable by: runner tests against a fake backend and an in-memory
-   driver server, including a runner restart mid-run.
+   driver server, including a runner restart mid-run and a `Start` that fails
+   after `Create` (the record is kept and `Remove` destroys the sandbox).
 4. **Runner key** — the runner's key pair, `Spec.RunnerPublicKey`, `Dial(jwt)`,
    and JWT verification in the driver when it has a key. Docker installs the
    key.
@@ -868,9 +934,9 @@ was delivered after the last `Seq` write when the runner crashes.
 **Runner owns the driver protocol vs. a `DriverBackend` adapter.** An adapter
 would keep `runner.go` unchanged behind the old `Launch`/`Wait`/`Probe`
 interface, but `Launch` could only return the handle after the run started, and
-the log replay would be hidden behind `Wait`. With one sandbox-only `Backend`,
-the handle is persisted as soon as `Start` returns, before the run starts, and
-the runner deals with runs directly. The cost is a larger change to `runner.go` and its tests.
+the log replay would be hidden behind `Wait`. With a sandbox-only `Backend` and
+`Sandbox`, the handle is persisted as soon as `Create` returns, before the
+sandbox boots, and the runner deals with runs directly. The cost is a larger change to `runner.go` and its tests.
 
 **Idle timer in the runner vs. the driver or the platform.** The driver knows
 idleness exactly but holds no platform credentials, and on Lambda or DigitalOcean
@@ -879,13 +945,24 @@ DigitalOcean `auto_pause`) judge idleness by activity, not by "no active run", s
 a quiet agent could be parked mid-run; Lambda's minimum is also 600s. The runner
 has both the knowledge (`Status`) and the credentials (via the backend).
 
-**One `Start` returning a handle with its error vs. separate `Create` and
-`Start`.** A separate `Create` would let the runner persist the handle before
-the sandbox boots, closing the window in which a runner crash mid-boot leaks the
-sandbox. But many platforms create and boot in one blocking call, so `Create`
-could not be implemented as specified there. Returning the handle alongside the
-error covers every failure the backend can observe on all platforms; only a
-runner crash during `Start` is left uncovered, which is open question 10.
+**Separate `Create` and `Start` vs. one `Start` returning a handle with its
+error.** A single `Start(spec, reuse)` that creates, boots and returns the
+handle alongside any error would fit platforms that create and boot in one
+blocking call, and covers every failure the backend can observe. But the runner
+learns the handle only when `Start` returns, so a runner that crashes during a
+boot leaks the sandbox, and every call site has to remember to persist a handle
+that came back with an error. Both platforms the design targets return an
+identity before boot (`ContainerCreate`, `RunMicrovm`), so `Create` can return
+as soon as the sandbox exists, and the runner records the handle before
+anything else can fail; the window that remains is the platform call itself.
+Splitting `Sandbox` from `Backend` also gives per-sandbox state (the Docker
+container ID, Lambda's endpoint and proxy token) one place to live instead of
+being decoded from the handle on every call. The costs: a `Sandbox` can be
+stale, so every method has to handle a sandbox that is gone; `Sandbox` methods
+are called concurrently by `supervise`, `Kill` and the idle-park timer, so
+implementations must be safe for concurrent use where the runner's per-task lock
+does not cover them; and a platform with no identity before boot implements
+`Create` as create-and-boot, keeping the window open question 10 asks about.
 
 **Server streaming plus unary calls vs. bidirectional streaming.** A bidi `Run`
 would carry `Stop` and the runner's position on the same stream, but needs
@@ -953,10 +1030,14 @@ tried and abandoned (#1697).
 9. **Idle-timeout limits.** Should the runner cap `idle_timeout` (warm sandboxes
    hold host memory or account quota outside the concurrency semaphore), and
    should warm sandboxes count toward any limit?
-10. **Runner crash during `Start`.** A runner that dies while `Start` is
-    blocking never receives the handle, so a sandbox the platform created is not
-    recorded. Should `Prune` find such sandboxes by the gritz labels or tags the
-    backend sets on create and destroy those with no taskstate record?
+10. **Runner crash during `Create`.** The runner records the handle as soon as
+    `Create` returns, so only a runner that dies inside `Create` (during the
+    platform call, or during a create-and-boot on a platform with no identity
+    before boot) or between `Create` returning and the record write leaves a
+    sandbox the platform created with no record, as does a `Create` whose
+    cleanup after a failed provisioning step fails. Should `Prune` find such
+    sandboxes by the gritz labels or tags the backend sets on create and destroy
+    those with no taskstate record?
 11. **Runner key rotation.** Sandboxes hold the public key they were created
     with. Should a runner that rotates its key re-deliver the new one through
     the backend's channel, or keep old keys around until those sandboxes are
