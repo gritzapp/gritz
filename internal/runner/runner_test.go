@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +21,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	dockerbackend "github.com/gritzapp/gritz/internal/runner/backend/docker"
-	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
@@ -32,7 +29,6 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
-	"gotest.tools/v3/poll"
 )
 
 // testStore opens a fresh taskstate store in a temp dir, optionally seeded with
@@ -47,61 +43,35 @@ func testStore(t *testing.T, recs ...taskstate.Record) *taskstate.Store {
 	return s
 }
 
-// dockerBackends are the Docker backends the Docker e2e tests run against,
-// keyed by the handle type each produces.
-var dockerBackends = map[string]func() (backend.Backend, error){
-	dockerbackend.HandleType: func() (backend.Backend, error) {
-		return dockerbackend.New(dockerbackend.Options{RunnerID: "test-runner"})
-	},
-	experimentaldocker.HandleType: func() (backend.Backend, error) {
-		return experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
-	},
-}
-
-// dockerE2E is a runner on a real Docker backend, talking to a mock gritz
-// server that the task's container reaches over the host network.
-type dockerE2E struct {
-	runner *Runner
-	mock   *gritzclient.ClientMock
-	docker *dockerclient.Client
-
-	mu    sync.Mutex
-	tasks map[int64]*model.Task
-}
-
-// newDockerE2E returns a runner on be whose "test" workspace runs the dummy
-// agent with dummy. tasks are what the mock server's GetTask returns, by id;
-// their containers are removed before and after the test.
-func newDockerE2E(t *testing.T, be backend.Backend, dummy *workspace.DummyConfig, tasks ...*model.Task) *dockerE2E {
-	t.Helper()
+func TestRunnerStart(t *testing.T) {
 	abs, err := filepath.Abs("../../prebuilt")
 	assert.NilError(t, err)
 	t.Setenv("GRITZ_PREBUILT_DIR", abs)
 
-	// The driver and the injected MCP server connect to this server directly
-	// (over the host network), so it must answer the driver's started/stopped
-	// events, its first-run brief (ListLinks), and the agent's get_my_task
-	// (GetTask + ListEventsByTask + ListLinks).
-	e := &dockerE2E{tasks: map[int64]*model.Task{}}
-	for _, task := range tasks {
-		e.setTask(task)
+	task := &model.Task{
+		ID:        1,
+		Name:      "test-task",
+		Runner:    "test-runner",
+		Workspace: "test",
+		Status:    model.TaskStatusPending,
+		Command:   model.TaskCommandStart,
+		Version:   1,
 	}
-	e.mock = &gritzclient.ClientMock{
+
+	// Create mock client. The driver and the injected MCP server now connect to
+	// this server directly (over the host network), so it must answer the
+	// driver's started/stopped events, its first-run brief (ListLinks), and the
+	// agent's get_my_task (GetTask + ListEventsByTask + ListLinks).
+	mock := &gritzclient.ClientMock{
 		CreateTaskTokenFunc: func(_ context.Context, req *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
 			return &gritzv1.CreateTaskTokenResponse{Token: "test-token"}, nil
 		},
 		SubmitRunnerEventsFunc: func(_ context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
-		// The driver reads its task at startup to fork on shell_session; these
-		// tasks have none, so it takes the normal agent path.
+		// The driver reads its task at startup to fork on shell_session; this
+		// task has none, so it takes the normal agent path.
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			e.mu.Lock()
-			defer e.mu.Unlock()
-			task, ok := e.tasks[req.Id]
-			if !ok {
-				return nil, connect.NewError(connect.CodeNotFound, errors.New("no such task"))
-			}
 			return &gritzv1.GetTaskResponse{Task: task.Proto("")}, nil
 		},
 		// The driver drains the event stream before running the agent; an empty
@@ -114,14 +84,18 @@ func newDockerE2E(t *testing.T, be backend.Backend, dummy *workspace.DummyConfig
 			return &gritzv1.ListLinksResponse{}, nil
 		},
 	}
-	_, handler := gritzv1connect.NewGritzServiceHandler(e.mock)
+
+	// Create httptest server with the mock
+	_, handler := gritzv1connect.NewGritzServiceHandler(mock)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
 
-	// The agent connects to the server directly over the network, so the
-	// container shares the host network namespace (NetworkMode "host") to reach
-	// the httptest server on 127.0.0.1, and ServerURL is the same URL.
+	// Create runner. The agent connects to the server directly over the network, so
+	// the container shares the host network namespace (NetworkMode "host") to
+	// reach the httptest server on 127.0.0.1, and ServerURL is the same URL.
 	client := gritzclient.New(gritzclient.Options{BaseURL: ts.URL})
+	be, err := dockerbackend.New(dockerbackend.Options{RunnerID: "test-runner"})
+	assert.NilError(t, err)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   client,
@@ -142,181 +116,56 @@ func newDockerE2E(t *testing.T, be backend.Backend, dummy *workspace.DummyConfig
 						Image:       "alpine:latest",
 						NetworkMode: "host",
 					},
-					Agent: workspace.Agent{Type: "dummy", Dummy: dummy},
+					Agent: workspace.Agent{
+						Type: "dummy",
+						Dummy: &workspace.DummyConfig{
+							Sleep: 1,
+							ToolCalls: []agent.DummyToolCall{
+								{Server: "gritz", Name: "get_my_task"},
+							},
+						},
+					},
 				},
 			},
 		},
-		Concurrency: len(tasks),
+		Concurrency: 1,
 		RunnerID:    "test-runner",
 	})
 	assert.NilError(t, err)
 	t.Cleanup(func() { r.Close() })
-	e.runner = r
 
 	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
 	assert.NilError(t, err)
-	t.Cleanup(func() { _ = docker.Close() })
-	e.docker = docker
+	defer docker.Close()
 
-	// Remove any leftover container from a previous aborted run, and this
-	// test's containers once it is done.
-	for _, task := range tasks {
-		name := fmt.Sprintf("gritz-%d", task.ID)
-		_ = docker.ContainerRemove(t.Context(), name, container.RemoveOptions{Force: true})
-		t.Cleanup(func() {
-			_ = docker.ContainerRemove(context.Background(), name, container.RemoveOptions{Force: true})
-		})
-	}
-	return e
-}
+	// Remove any leftover container from a previous aborted run.
+	_ = docker.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{Force: true})
 
-// setTask sets what the mock server's GetTask returns for task.ID.
-func (e *dockerE2E) setTask(task *model.Task) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.tasks[task.ID] = task
-}
-
-// waitStopped waits for the task's container to stop.
-func (e *dockerE2E) waitStopped(t *testing.T, taskID int64) {
-	t.Helper()
-	err := dockerx.ContainerWait(t.Context(), e.docker, fmt.Sprintf("gritz-%d", taskID), container.WaitConditionNotRunning)
+	// Start a task
+	err = r.Start(t.Context(), task)
 	assert.NilError(t, err)
-}
 
-// events returns the runner events the mock server received for the task, as
-// "event@version".
-func (e *dockerE2E) events(taskID int64) []string {
-	var events []string
-	for _, ev := range e.mock.SubmittedRunnerEvents() {
-		if ev.TaskId == taskID {
-			events = append(events, fmt.Sprintf("%s@%d", ev.Event, ev.Version))
-		}
-	}
-	return events
-}
-
-func TestRunnerStart(t *testing.T) {
-	for handleType, newBackend := range dockerBackends {
-		t.Run(handleType, func(t *testing.T) {
-			task := &model.Task{
-				ID:        1,
-				Name:      "test-task",
-				Runner:    "test-runner",
-				Workspace: "test",
-				Status:    model.TaskStatusPending,
-				Command:   model.TaskCommandStart,
-				Version:   1,
-			}
-			be, err := newBackend()
-			assert.NilError(t, err)
-			e := newDockerE2E(t, be, &workspace.DummyConfig{
-				Sleep: 1,
-				ToolCalls: []agent.DummyToolCall{
-					{Server: "gritz", Name: "get_my_task"},
-				},
-			}, task)
-			r := e.runner
-
-			// Start a task
-			err = r.Start(t.Context(), task)
-			assert.NilError(t, err)
-
-			// The runner records the launched handle in the store.
-			rec, ok, err := r.store.Read(task.ID)
-			assert.NilError(t, err)
-			assert.Equal(t, ok, true)
-			assert.Equal(t, rec.Type, handleType)
-			assert.Assert(t, rec.ID != "")
-
-			// Wait for the container to exit
-			e.waitStopped(t, task.ID)
-
-			// Remove the container
-			err = e.docker.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{})
-			assert.NilError(t, err)
-
-			// Verify ListLinks was called twice — once by the driver's first-run brief
-			// and once by the dummy agent's get_my_task tool call.
-			assert.Assert(t, cmp.Len(e.mock.ListLinksCalls(), 2))
-
-			// Verify the driver reported its own lifecycle: started, then stopped.
-			assert.DeepEqual(t, testx.ExtractField(e.mock.SubmittedRunnerEvents(), "Event"), []string{"started", "stopped"})
-		})
-	}
-}
-
-// TestRunnerStart_ExperimentalFollowUp asserts a follow-up run of a task on
-// the experimental Docker backend restarts the container the first run left
-// stopped and starts the new version's run on its driver server.
-func TestRunnerStart_ExperimentalFollowUp(t *testing.T) {
-	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
+	// The runner records the launched handle in the store.
+	rec, ok, err := r.store.Read(task.ID)
 	assert.NilError(t, err)
-	task := &model.Task{ID: 2, Name: "follow-up", Runner: "test-runner", Workspace: "test", Version: 1}
-	e := newDockerE2E(t, be, &workspace.DummyConfig{Sleep: 1}, task)
-	r := e.runner
+	assert.Equal(t, ok, true)
+	assert.Equal(t, rec.Type, "docker")
+	assert.Assert(t, rec.ID != "")
 
-	// First run: the container is stopped once it finishes.
-	assert.NilError(t, r.Start(t.Context(), task))
-	first, ok, err := r.store.Read(task.ID)
+	// Wait for the container to exit
+	err = dockerx.ContainerWait(t.Context(), docker, "gritz-1", container.WaitConditionNotRunning)
 	assert.NilError(t, err)
-	assert.Assert(t, ok)
-	e.waitStopped(t, task.ID)
-	running, err := r.Running(t.Context(), task.ID)
-	assert.NilError(t, err)
-	assert.Assert(t, !running)
 
-	// Follow-up: the same container runs version 2.
-	followUp := *task
-	followUp.Version = 2
-	e.setTask(&followUp)
-	assert.NilError(t, r.Start(t.Context(), &followUp))
-	second, ok, err := r.store.Read(task.ID)
+	// Remove the container
+	err = docker.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{})
 	assert.NilError(t, err)
-	assert.Assert(t, ok)
-	assert.Equal(t, second.ID, first.ID)
-	assert.Equal(t, second.Version, int64(2))
-	e.waitStopped(t, task.ID)
 
-	assert.DeepEqual(t, e.events(task.ID), []string{"started@1", "stopped@1", "started@2", "stopped@2"})
-}
+	// Verify ListLinks was called twice — once by the driver's first-run brief
+	// and once by the dummy agent's get_my_task tool call.
+	assert.Assert(t, cmp.Len(mock.ListLinksCalls(), 2))
 
-// TestRunnerSignal_Experimental asserts Signal on the experimental Docker
-// backend stops the run through the driver server, which reports it stopped,
-// and the container is then stopped.
-func TestRunnerSignal_Experimental(t *testing.T) {
-	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
-	assert.NilError(t, err)
-	task := &model.Task{ID: 3, Name: "stop", Runner: "test-runner", Workspace: "test", Version: 1}
-	e := newDockerE2E(t, be, &workspace.DummyConfig{Sleep: -1}, task)
-	r := e.runner
-
-	assert.NilError(t, r.Start(t.Context(), task))
-	h, ok, err := r.handle(task.ID)
-	assert.NilError(t, err)
-	assert.Assert(t, ok)
-	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		if len(e.events(task.ID)) > 0 {
-			return poll.Success()
-		}
-		return poll.Continue("waiting for the run to start")
-	}, poll.WithTimeout(30*time.Second))
-	state, err := be.Probe(t.Context(), h)
-	assert.NilError(t, err)
-	assert.Equal(t, state, backend.StateRunning)
-
-	signalled, err := be.Signal(t.Context(), h)
-	assert.NilError(t, err)
-	assert.Assert(t, signalled)
-	e.waitStopped(t, task.ID)
-
-	state, err = be.Probe(t.Context(), h)
-	assert.NilError(t, err)
-	assert.Equal(t, state, backend.StateExited)
-	signalled, err = be.Signal(t.Context(), h)
-	assert.NilError(t, err)
-	assert.Assert(t, !signalled)
-	assert.DeepEqual(t, e.events(task.ID), []string{"started@1", "stopped@1"})
+	// Verify the driver reported its own lifecycle: started, then stopped.
+	assert.DeepEqual(t, testx.ExtractField(mock.SubmittedRunnerEvents(), "Event"), []string{"started", "stopped"})
 }
 
 // TestRunnerSpec_PreCreatesLogDir asserts the sandbox spec ships a directory
