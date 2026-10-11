@@ -10,5 +10,6 @@ var ToolCommand = &cli.Command{
 		GitCredentialCommand,
 		GitHubMCPCommand,
 		MicrovmShimCommand,
+		ProxyCommand,
 	},
 }

@@ -19,11 +19,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -72,7 +72,6 @@ const (
 // and Signal address the driver with.
 type Backend struct {
 	docker   *client.Client
-	http     *http.Client
 	runnerID string
 	log      *slog.Logger
 	// readyTimeout bounds how long Launch waits for the driver server; tests
@@ -99,7 +98,6 @@ func New(opts Options) (*Backend, error) {
 	}
 	return &Backend{
 		docker:       docker,
-		http:         &http.Client{},
 		runnerID:     opts.RunnerID,
 		log:          cmp.Or(opts.Log, slog.Default()),
 		readyTimeout: driverReadyTimeout,
@@ -113,17 +111,16 @@ func (b *Backend) Close() error {
 }
 
 // ValidateWorkspace reports whether the workspace's container config is usable:
-// it needs an image, and a network namespace of its own on which the runner can
-// reach the driver server at the container's IP. Host mode is rejected too: the
-// driver would have to pick a free host port and advertise it, which this
-// backend does not do.
+// it needs an image, and a network namespace of its own for the driver server
+// to listen on DriverPort in. Host and container: modes share a namespace in
+// which several drivers would collide; none is rejected as well.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	if err := ws.Container.Validate(); err != nil {
 		return err
 	}
 	mode := container.NetworkMode(ws.Container.NetworkMode)
 	if mode.IsNone() || mode.IsContainer() || mode.IsHost() {
-		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the runner must reach the driver server at the container's IP", ws.Container.NetworkMode)
+		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the driver server needs a network namespace of its own", ws.Container.NetworkMode)
 	}
 	return nil
 }
@@ -391,6 +388,11 @@ var errNotRunning = errors.New("container is not running")
 // Run streams fail with driverclient.ErrStreamIdle once the driver goes quiet.
 // A missing container is reported as cerrdefs.ErrNotFound, a stopped one as
 // errNotRunning.
+//
+// The client never connects to the container over the network: each
+// connection is tunnelled through a Docker exec of `gritz tool proxy`, so the
+// runner needs only Docker API access to reach the driver. Keep-alives are
+// off, so no idle connection holds an exec open.
 func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
 	info, err := b.docker.ContainerInspect(ctx, containerID)
 	if err != nil {
@@ -399,25 +401,53 @@ func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect
 	if info.State == nil || !info.State.Running {
 		return nil, errNotRunning
 	}
-	addr, err := driverAddr(info)
-	if err != nil {
-		return nil, err
-	}
-	return driverclient.New(b.http, "http://"+addr, driverclient.Options{IdleTimeout: b.idleTimeout}), nil
+	httpClient := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return b.execConn(ctx, containerID)
+		},
+		DisableKeepAlives: true,
+	}}
+	return driverclient.New(httpClient, "http://driver", driverclient.Options{IdleTimeout: b.idleTimeout}), nil
 }
 
-// driverAddr returns the address of a running container's driver server: the
-// container's IP on DriverPort. With several networks the first by name is
-// used.
-func driverAddr(info container.InspectResponse) (string, error) {
-	if info.NetworkSettings != nil {
-		for _, name := range slices.Sorted(maps.Keys(info.NetworkSettings.Networks)) {
-			if ep := info.NetworkSettings.Networks[name]; ep != nil && ep.IPAddress != "" {
-				return net.JoinHostPort(ep.IPAddress, strconv.Itoa(DriverPort)), nil
-			}
-		}
+// execConn opens a connection to the container's driver server through a
+// Docker exec of `gritz tool proxy`: writes go to the exec's stdin, and reads
+// come from its demultiplexed stdout.
+func (b *Backend) execConn(ctx context.Context, containerID string) (net.Conn, error) {
+	exec, err := b.docker.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+		AttachStdin:  true,
+		AttachStdout: true,
+		Cmd:          []string{backend.BinaryPath, "tool", "proxy", "--addr", net.JoinHostPort("127.0.0.1", strconv.Itoa(DriverPort))},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create driver proxy exec: %w", err)
 	}
-	return "", fmt.Errorf("container %s has no IP address to reach its driver on", info.ID)
+	resp, err := b.docker.ContainerExecAttach(ctx, exec.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach to driver proxy exec: %w", err)
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		_, err := stdcopy.StdCopy(pw, io.Discard, resp.Reader)
+		pw.CloseWithError(err)
+	}()
+	return &execConn{Conn: resp.Conn, stdout: pr}, nil
+}
+
+// execConn is a hijacked exec attach connection whose reads are the exec's
+// demultiplexed stdout.
+type execConn struct {
+	net.Conn
+	stdout *io.PipeReader
+}
+
+func (c *execConn) Read(p []byte) (int, error) {
+	return c.stdout.Read(p)
+}
+
+func (c *execConn) Close() error {
+	_ = c.stdout.Close()
+	return c.Conn.Close()
 }
 
 // waitReady polls Status until the driver server answers or

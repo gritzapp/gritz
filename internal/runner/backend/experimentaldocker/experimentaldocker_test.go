@@ -12,7 +12,6 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -61,8 +60,7 @@ func TestValidateWorkspace(t *testing.T) {
 			assert.NilError(t, be.ValidateWorkspace(ws))
 		})
 	}
-	// The runner reaches the driver server at the container's own IP, which
-	// these modes do not give it.
+	// The driver server needs a network namespace of its own to listen in.
 	for _, mode := range []string{"host", "none", "container:abc"} {
 		t.Run("rejects "+mode, func(t *testing.T) {
 			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
@@ -71,40 +69,34 @@ func TestValidateWorkspace(t *testing.T) {
 	}
 }
 
-func TestDriverAddr(t *testing.T) {
-	tests := []struct {
-		name string
-		info container.InspectResponse
-		want string
-	}{
-		{
-			name: "first network by name",
-			info: container.InspectResponse{
-				Config: &container.Config{},
-				NetworkSettings: &container.NetworkSettings{Networks: map[string]*network.EndpointSettings{
-					"zeta":  {IPAddress: "10.0.0.2"},
-					"alpha": {IPAddress: "10.0.0.1"},
-				}},
-			},
-			want: "10.0.0.1:8080",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			addr, err := driverAddr(tt.info)
-			assert.NilError(t, err)
-			assert.Equal(t, addr, tt.want)
-		})
-	}
-}
-
-func TestDriverAddr_NoIP(t *testing.T) {
-	_, err := driverAddr(container.InspectResponse{
-		ContainerJSONBase: &container.ContainerJSONBase{ID: "abc"},
-		Config:            &container.Config{},
-		NetworkSettings:   &container.NetworkSettings{},
+// A container from create answers Status through the exec tunnel, and a
+// stopped one is reported as not running rather than dialed.
+func TestDial_TunnelsThroughExec(t *testing.T) {
+	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
+	assert.NilError(t, err)
+	t.Setenv("GRITZ_PREBUILT_DIR", prebuiltDir)
+	be, err := New(Options{RunnerID: "test-runner"})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = be.Close() })
+	id, err := be.create(t.Context(), &backend.Spec{
+		TaskID:    rand.Int64N(1 << 40),
+		Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest"}},
 	})
-	assert.ErrorContains(t, err, "no IP address")
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = be.docker.ContainerRemove(context.Background(), id, container.RemoveOptions{Force: true})
+	})
+	assert.NilError(t, be.docker.ContainerStart(t.Context(), id, container.StartOptions{}))
+
+	client, err := be.dial(t.Context(), id)
+	assert.NilError(t, err)
+	assert.NilError(t, be.waitReady(t.Context(), client))
+	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.NilError(t, err)
+
+	assert.NilError(t, be.docker.ContainerStop(t.Context(), id, container.StopOptions{}))
+	_, err = be.dial(t.Context(), id)
+	assert.ErrorIs(t, err, errNotRunning)
 }
 
 func TestLaunch_ReuseGoneReturnsErrGone(t *testing.T) {
