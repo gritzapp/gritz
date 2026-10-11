@@ -112,12 +112,12 @@ func TestClaudeHandleStreamEvent_ResultAndRetry(t *testing.T) {
 		{
 			name:  "api retry",
 			event: `{"type":"system","subtype":"api_retry","attempt":2,"max_retries":10,"retry_delay_ms":1200,"error_status":529,"error":"overloaded","uuid":"u","session_id":"s"}`,
-			want:  `level=WARN msg=api_retry status=529 error=overloaded attempt=2 max_retries=10 retry_delay_ms=1200`,
+			want:  `level=WARN msg=api_retry status=529 err=overloaded attempt=2 max_retries=10 retry_delay_ms=1200`,
 		},
 		{
 			name:  "api retry connection error",
 			event: `{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":null,"error":"unknown","uuid":"u","session_id":"s"}`,
-			want:  `level=WARN msg=api_retry status=none error=unknown attempt=1 max_retries=10 retry_delay_ms=500`,
+			want:  `level=WARN msg=api_retry status=none err=unknown attempt=1 max_retries=10 retry_delay_ms=500`,
 		},
 		{
 			name:  "system init",
