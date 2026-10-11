@@ -29,8 +29,9 @@ GRITZ is an async agent orchestrator using a central control plane architecture 
 ### Core Components
 
 - **Server** (`internal/server/`) - Connect RPC API + Web UI, stores tasks and logs in PostgreSQL
-- **Runner** (`internal/runner/`) - Polls for pending tasks, manages Docker container lifecycle, creates Unix socket proxy for container-to-server communication
-- **Agent** (`internal/runner/agent/`) - Runs inside containers, executes Claude Code CLI (`claude --print`)
+- **Runner** (`internal/runner/`) - Polls for pending tasks and manages task sandboxes through a backend (`internal/runner/backend/`: `docker`, `lambdamicrovm`)
+- **Driver** (`internal/runner/driverserver/`, `gritz driver`) - Long-lived driver server inside each sandbox; the runner starts and stops runs over the driver.v1 Connect API
+- **Agent** (`internal/runner/agent/`) - Agent CLI integrations the driver runs for each run (Claude Code, Codex, Cursor, Copilot, ...)
 - **Store** (`internal/store/`) - PostgreSQL persistence layer using pgx driver
 
 ### Key Concepts
@@ -38,7 +39,7 @@ GRITZ is an async agent orchestrator using a central control plane architecture 
 - **Tasks** are the unit of work - contain workspace reference and prompts to execute
 - **Agents** run one-to-one with tasks inside containers named `gritz-{task-id}`
 - **Workspaces** define container config (image, volumes, env vars) and MCP servers in `workspaces.yaml`
-- Communication happens via Unix socket proxy at `/gritz/socket` inside containers
+- The runner reaches the driver through the backend (Docker: an exec tunnel to `/gritz/driver.sock`; Lambda MicroVMs: the managed proxy); the driver reports to the server directly with a per-task token
 - Runner auto-injects an `gritz` MCP server (see below)
 - **Secrets** listed in a workspace's `secrets:` map are masked in the log shipped to the server (see below)
 
