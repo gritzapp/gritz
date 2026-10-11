@@ -89,18 +89,6 @@ var RunnerCommand = &cli.Command{
 			Sources: cli.EnvVars("GRITZ_STATE_DIR"),
 		},
 		&cli.StringFlag{
-			Name:    "experimental-docker-publish-ip",
-			Usage:   "Host IP the experimental-docker backend publishes each container's driver port on (publishing beyond loopback exposes the unauthenticated driver server)",
-			Value:   experimentaldocker.DefaultPublishIP,
-			Sources: cli.EnvVars("GRITZ_EXPERIMENTAL_DOCKER_PUBLISH_IP"),
-		},
-		&cli.StringFlag{
-			Name:    "experimental-docker-dial-host",
-			Usage:   "Host the experimental-docker backend dials published driver ports at; it must reach the publish IP (publishing beyond loopback exposes the unauthenticated driver server)",
-			Value:   experimentaldocker.DefaultDialHost,
-			Sources: cli.EnvVars("GRITZ_EXPERIMENTAL_DOCKER_DIAL_HOST"),
-		},
-		&cli.StringFlag{
 			Name:    "lambda-microvm-region",
 			Usage:   "AWS region for the lambda-microvm backend (defaults to the SDK-resolved region)",
 			Sources: cli.EnvVars("GRITZ_LAMBDA_MICROVM_REGION"),
@@ -195,10 +183,8 @@ var RunnerCommand = &cli.Command{
 			// beside it: handles recorded by any other backend are treated as
 			// gone, so it is meant for a runner with no active docker tasks.
 			be, err = experimentaldocker.New(experimentaldocker.Options{
-				RunnerID:  runnerID,
-				Log:       log,
-				PublishIP: cmd.String("experimental-docker-publish-ip"),
-				DialHost:  cmd.String("experimental-docker-dial-host"),
+				RunnerID: runnerID,
+				Log:      log,
 			})
 			if err != nil {
 				return err

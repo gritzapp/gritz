@@ -108,12 +108,20 @@ func TestPublishedPort(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			port, err := publishedPort(container.InspectResponse{
 				ContainerJSONBase: &container.ContainerJSONBase{ID: "abc"},
-				NetworkSettings:   &container.NetworkSettings{NetworkSettingsBase: container.NetworkSettingsBase{Ports: tt.ports}},
+				NetworkSettings:   networkSettings(tt.ports),
 			})
 			assert.NilError(t, err)
 			assert.Equal(t, port, tt.want)
 		})
 	}
+}
+
+// networkSettings returns NetworkSettings with ports, without naming the
+// deprecated NetworkSettingsBase that holds them.
+func networkSettings(ports nat.PortMap) *container.NetworkSettings {
+	ns := &container.NetworkSettings{}
+	ns.Ports = ports
+	return ns
 }
 
 func TestPublishedPort_Unbound(t *testing.T) {
@@ -126,11 +134,11 @@ func TestPublishedPort_Unbound(t *testing.T) {
 		{
 			// Exposed but not published.
 			name:     "exposed only",
-			settings: &container.NetworkSettings{NetworkSettingsBase: container.NetworkSettingsBase{Ports: nat.PortMap{"8080/tcp": nil}}},
+			settings: networkSettings(nat.PortMap{"8080/tcp": nil}),
 		},
 		{
 			name:     "other port",
-			settings: &container.NetworkSettings{NetworkSettingsBase: container.NetworkSettingsBase{Ports: nat.PortMap{"9090/tcp": {{HostIP: "127.0.0.1", HostPort: "49153"}}}}},
+			settings: networkSettings(nat.PortMap{"9090/tcp": {{HostIP: "127.0.0.1", HostPort: "49153"}}}),
 		},
 	}
 	for _, tt := range tests {
@@ -157,7 +165,7 @@ func TestDriverAddr_PublishedPort(t *testing.T) {
 	assert.NilError(t, err)
 	host, _, err := net.SplitHostPort(addr)
 	assert.NilError(t, err)
-	assert.Equal(t, host, DefaultDialHost)
+	assert.Equal(t, host, loopback)
 
 	// nc may not be listening yet; docker-proxy accepts and closes until it is.
 	var got string
@@ -248,7 +256,7 @@ func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
 	t.Helper()
 	return startContainerWith(t,
 		&container.Config{Image: "alpine:latest", Cmd: cmd, ExposedPorts: nat.PortSet{driverPort: {}}},
-		&container.HostConfig{PortBindings: nat.PortMap{driverPort: {{HostIP: DefaultPublishIP, HostPort: "0"}}}})
+		&container.HostConfig{PortBindings: nat.PortMap{driverPort: {{HostIP: loopback, HostPort: "0"}}}})
 }
 
 // startContainerWith creates and starts an alpine container with cfg and

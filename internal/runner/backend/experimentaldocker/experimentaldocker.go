@@ -6,11 +6,11 @@
 // and the container is stopped after every run.
 //
 // The runner reaches each driver server through a host port Docker publishes
-// for the container's DriverPort, not at the container's IP: that works for a
-// runner that shares none of the container's networks — a runner in a
-// container of its own, or one using a remote DOCKER_HOST — given a publish IP
-// and dial host it can reach. Both default to loopback, since the driver server
-// is unauthenticated.
+// for the container's DriverPort on loopback, not at the container's IP, so it
+// need share none of the container's networks. It must share the Docker host's
+// loopback instead: the runner runs on the host, not in a container, and the
+// daemon is local. Loopback also keeps the unauthenticated driver server from
+// being exposed beyond the host.
 //
 // It shares no code with the docker package on purpose: that backend is
 // removed in phase E, and the two evolve independently until then.
@@ -61,13 +61,9 @@ const DriverPort = 8080
 // driverPort is DriverPort as a Docker port key.
 var driverPort = nat.Port(strconv.Itoa(DriverPort) + "/tcp")
 
-// DefaultPublishIP is the default host IP the driver port is published on, and
-// DefaultDialHost the default host the runner dials it at: loopback, so the
-// unauthenticated driver server is not exposed beyond the Docker host.
-const (
-	DefaultPublishIP = "127.0.0.1"
-	DefaultDialHost  = "127.0.0.1"
-)
+// loopback is the host IP the driver port is published on and the runner
+// dials it at.
+const loopback = "127.0.0.1"
 
 const (
 	// driverReadyTimeout bounds how long Launch waits for a started
@@ -94,10 +90,6 @@ type Backend struct {
 	http     *http.Client
 	runnerID string
 	log      *slog.Logger
-	// publishIP is the host IP containers' driver ports are published on, and
-	// dialHost the host the runner dials them at.
-	publishIP string
-	dialHost  string
 	// readyTimeout bounds how long Launch waits for the driver server; tests
 	// shorten it.
 	readyTimeout time.Duration
@@ -113,13 +105,6 @@ var _ backend.Backend = (*Backend)(nil)
 type Options struct {
 	RunnerID string
 	Log      *slog.Logger
-	// PublishIP is the host IP each container's driver port is published on;
-	// it defaults to DefaultPublishIP. Anything beyond loopback exposes the
-	// unauthenticated driver server to whatever can reach that address.
-	PublishIP string
-	// DialHost is the host the runner dials published driver ports at; it
-	// defaults to DefaultDialHost. It must reach PublishIP on the Docker host.
-	DialHost string
 }
 
 func New(opts Options) (*Backend, error) {
@@ -132,8 +117,6 @@ func New(opts Options) (*Backend, error) {
 		http:         &http.Client{},
 		runnerID:     opts.RunnerID,
 		log:          cmp.Or(opts.Log, slog.Default()),
-		publishIP:    cmp.Or(opts.PublishIP, DefaultPublishIP),
-		dialHost:     cmp.Or(opts.DialHost, DefaultDialHost),
 		readyTimeout: driverReadyTimeout,
 		idleTimeout:  driverclient.DefaultIdleTimeout,
 		lostTimeout:  driverLostTimeout,
@@ -365,7 +348,7 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 			Privileged:  wc.Privileged,
 			NetworkMode: container.NetworkMode(wc.NetworkMode),
 			// Host port 0 has Docker bind a free port on every start.
-			PortBindings: nat.PortMap{driverPort: {{HostIP: b.publishIP, HostPort: "0"}}},
+			PortBindings: nat.PortMap{driverPort: {{HostIP: loopback, HostPort: "0"}}},
 		},
 		wc.NetworkingConfig(),
 		nil,
@@ -433,7 +416,7 @@ func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect
 }
 
 // driverAddr returns the address of a running container's driver server: the
-// backend's dial host on the host port published for DriverPort, read afresh
+// loopback host port published for DriverPort, read afresh
 // on every call since a restart can bind a different one. A missing container
 // is reported as cerrdefs.ErrNotFound, a stopped one as errNotRunning, and a
 // running one with no published port as an error.
@@ -449,12 +432,12 @@ func (b *Backend) driverAddr(ctx context.Context, containerID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	return net.JoinHostPort(b.dialHost, port), nil
+	return net.JoinHostPort(loopback, port), nil
 }
 
 // publishedPort returns the host port Docker bound for a running container's
-// DriverPort. Docker may bind it on several host IPs (e.g. IPv4 and IPv6 for
-// an unspecified publish IP); they share the port, so the first is used.
+// DriverPort. Should Docker list several bindings (e.g. IPv4 and IPv6), they
+// share the port, so the first is used.
 func publishedPort(info container.InspectResponse) (string, error) {
 	if info.NetworkSettings != nil {
 		for _, binding := range info.NetworkSettings.Ports[driverPort] {
