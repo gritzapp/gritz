@@ -10,7 +10,7 @@
 // translates between a backend.Handle and a taskstate.Record at the boundary.
 package backend
 
-//go:generate go tool moq -out backend_moq.go . Backend
+//go:generate go tool moq -out backend_moq.go . Backend BackendV2 SandboxV2
 
 import (
 	"context"
@@ -22,7 +22,8 @@ import (
 
 // ErrGone means the sandbox a reuse handle refers to no longer exists. Launch
 // returns it instead of creating a fresh sandbox, since the task is bound 1:1 to
-// the sandbox its handle references.
+// the sandbox its handle references, and SandboxV2's Start and Park return it
+// for a sandbox that is gone.
 var ErrGone = errors.New("backend: sandbox is gone")
 
 // ExitCode reports why a sandbox stopped. 0 means the driver reported its own

@@ -42,8 +42,10 @@ type testEnv struct {
 	srv   *driverserver.Server
 
 	mu sync.Mutex
-	// auth records the proxy token header of every request the driver got.
-	auth []string
+	// auth records the proxy token header of every request the driver got,
+	// and bearer its Authorization header.
+	auth   []string
+	bearer []string
 }
 
 type testOptions struct {
@@ -91,6 +93,7 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 		token := r.Header.Get(awsmicrovm.ProxyAuthHeader)
 		te.mu.Lock()
 		te.auth = append(te.auth, token)
+		te.bearer = append(te.bearer, r.Header.Get("Authorization"))
 		te.mu.Unlock()
 		switch {
 		case token == "":

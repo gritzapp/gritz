@@ -240,20 +240,9 @@ func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend
 // run-hook payload: its run arrives over driver.v1. A VM that does not reach
 // RUNNING is terminated.
 func (b *Backend) run(ctx context.Context, spec *backend.Spec) (string, string, error) {
-	cfg := spec.Workspace.LambdaMicroVM
-	b.log.Info("running microvm", "task", spec.TaskID, "image", cfg.ImageIdentifier)
-	out, err := b.cloud.RunMicrovm(ctx, &lambdamicrovms.RunMicrovmInput{
-		// One token per launch, so a retried request cannot run a second VM.
-		ClientToken:              aws.String(uuid.NewString()),
-		ImageIdentifier:          aws.String(cfg.ImageIdentifier),
-		ExecutionRoleArn:         aws.String(cfg.ExecutionRole),
-		EgressNetworkConnectors:  []string{cfg.EgressConnector},
-		IngressNetworkConnectors: []string{cmp.Or(cfg.IngressConnector, fmt.Sprintf(allIngressConnector, b.region))},
-		MaximumDurationInSeconds: aws.Int32(cmp.Or(int32(cfg.MaxDurationSeconds), defaultMaxDuration)),
-		// No idle policy: Wait suspends the VM after every run.
-	})
+	out, err := b.runVM(ctx, spec)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to run microvm: %w", err)
+		return "", "", err
 	}
 	id := aws.ToString(out.MicrovmId)
 	vm, err := b.await(ctx, id, types.MicrovmStateRunning)
@@ -264,6 +253,27 @@ func (b *Backend) run(ctx context.Context, spec *backend.Spec) (string, string, 
 	return id, cmp.Or(aws.ToString(vm.Endpoint), aws.ToString(out.Endpoint)), nil
 }
 
+// runVM calls RunMicrovm for spec and returns as soon as the call does, with
+// the VM still PENDING.
+func (b *Backend) runVM(ctx context.Context, spec *backend.Spec) (*lambdamicrovms.RunMicrovmOutput, error) {
+	cfg := spec.Workspace.LambdaMicroVM
+	b.log.Info("running microvm", "task", spec.TaskID, "image", cfg.ImageIdentifier)
+	out, err := b.cloud.RunMicrovm(ctx, &lambdamicrovms.RunMicrovmInput{
+		// One token per launch, so a retried request cannot run a second VM.
+		ClientToken:              aws.String(uuid.NewString()),
+		ImageIdentifier:          aws.String(cfg.ImageIdentifier),
+		ExecutionRoleArn:         aws.String(cfg.ExecutionRole),
+		EgressNetworkConnectors:  []string{cfg.EgressConnector},
+		IngressNetworkConnectors: []string{cmp.Or(cfg.IngressConnector, fmt.Sprintf(allIngressConnector, b.region))},
+		MaximumDurationInSeconds: aws.Int32(cmp.Or(int32(cfg.MaxDurationSeconds), defaultMaxDuration)),
+		// No idle policy: the VM is suspended explicitly.
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to run microvm: %w", err)
+	}
+	return out, nil
+}
+
 // adopt resolves the reuse handle's VM and brings it to RUNNING, returning its
 // id and endpoint: a suspended VM is resumed, and a pending or running one is
 // adopted as it is.
@@ -271,30 +281,7 @@ func (b *Backend) adopt(ctx context.Context, reuse *backend.Handle) (string, str
 	if foreign(*reuse) {
 		return "", "", backend.ErrGone
 	}
-	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(reuse.ID)})
-	if isNotFound(err) {
-		return "", "", backend.ErrGone
-	}
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get microvm: %w", err)
-	}
-	switch state := out.State; {
-	case terminal(state):
-		return "", "", fmt.Errorf("microvm %s is %s: %w", reuse.ID, describe(out), backend.ErrGone)
-	case state == types.MicrovmStateSuspending:
-		return "", "", fmt.Errorf("microvm %s is still suspending: %s", reuse.ID, describe(out))
-	case state == types.MicrovmStateSuspended:
-		b.log.Info("resuming microvm", "microvm", reuse.ID)
-		if _, err := b.cloud.ResumeMicrovm(ctx, &lambdamicrovms.ResumeMicrovmInput{MicrovmIdentifier: aws.String(reuse.ID)}); err != nil {
-			if isNotFound(err) {
-				return "", "", backend.ErrGone
-			}
-			return "", "", fmt.Errorf("failed to resume microvm: %w", err)
-		}
-	default:
-		b.log.Info("adopting running microvm", "microvm", reuse.ID, "state", state)
-	}
-	vm, err := b.await(ctx, reuse.ID, types.MicrovmStateRunning)
+	vm, err := b.boot(ctx, reuse.ID)
 	if err != nil {
 		return "", "", err
 	}
@@ -309,6 +296,39 @@ func (b *Backend) adopt(ctx context.Context, reuse *backend.Handle) (string, str
 		return "", "", fmt.Errorf("microvm %s has no endpoint", reuse.ID)
 	}
 	return reuse.ID, endpoint, nil
+}
+
+// boot brings the VM to RUNNING and returns it: a suspended VM is resumed, and
+// a pending or running one is awaited as it is. A VM that is terminating,
+// terminated or not found is backend.ErrGone, and one that is still suspending
+// is a plain error.
+func (b *Backend) boot(ctx context.Context, id string) (*lambdamicrovms.GetMicrovmOutput, error) {
+	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	if isNotFound(err) {
+		return nil, backend.ErrGone
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get microvm: %w", err)
+	}
+	switch state := out.State; {
+	case terminal(state):
+		return nil, fmt.Errorf("microvm %s is %s: %w", id, describe(out), backend.ErrGone)
+	case state == types.MicrovmStateSuspending:
+		return nil, fmt.Errorf("microvm %s is still suspending: %s", id, describe(out))
+	case state == types.MicrovmStateRunning:
+		return out, nil
+	case state == types.MicrovmStateSuspended:
+		b.log.Info("resuming microvm", "microvm", id)
+		if _, err := b.cloud.ResumeMicrovm(ctx, &lambdamicrovms.ResumeMicrovmInput{MicrovmIdentifier: aws.String(id)}); err != nil {
+			if isNotFound(err) {
+				return nil, backend.ErrGone
+			}
+			return nil, fmt.Errorf("failed to resume microvm: %w", err)
+		}
+	default:
+		b.log.Info("waiting for microvm", "microvm", id, "state", state)
+	}
+	return b.await(ctx, id, types.MicrovmStateRunning)
 }
 
 // launch waits for the VM's driver server and starts the spec's run on it.
@@ -399,11 +419,23 @@ func (b *Backend) await(ctx context.Context, id string, want types.MicrovmState)
 // once the driver goes quiet. The proxy speaks HTTP/2 and the Connect
 // protocol, connect-go's default.
 func (b *Backend) dial(id, endpoint string) driverv1connect.DriverServiceClient {
-	baseURL := endpoint
-	if !strings.Contains(baseURL, "://") {
-		baseURL = "https://" + baseURL
+	httpClient := &http.Client{Transport: b.newTokenTransport(id)}
+	return driverclient.New(httpClient, driverURL(endpoint), driverclient.Options{IdleTimeout: b.idleTimeout})
+}
+
+// driverURL returns the base URL of the driver server behind a VM's proxy
+// endpoint, which the control plane may report without a scheme.
+func driverURL(endpoint string) string {
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
 	}
-	httpClient := &http.Client{Transport: &tokenTransport{
+	return strings.TrimRight(endpoint, "/")
+}
+
+// newTokenTransport returns a transport that adds a proxy token for the VM,
+// scoped to DriverPort, to every request.
+func (b *Backend) newTokenTransport(id string) *tokenTransport {
+	return &tokenTransport{
 		base: b.transport,
 		mint: func(ctx context.Context) (string, error) {
 			out, err := b.cloud.CreateMicrovmAuthToken(ctx, &lambdamicrovms.CreateMicrovmAuthTokenInput{
@@ -416,8 +448,7 @@ func (b *Backend) dial(id, endpoint string) driverv1connect.DriverServiceClient 
 			}
 			return out.AuthToken[awsmicrovm.ProxyAuthHeader], nil
 		},
-	}}
-	return driverclient.New(httpClient, strings.TrimRight(baseURL, "/"), driverclient.Options{IdleTimeout: b.idleTimeout})
+	}
 }
 
 // tokenTransport adds a proxy token to every request as
