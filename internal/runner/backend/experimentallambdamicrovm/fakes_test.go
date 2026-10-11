@@ -116,12 +116,6 @@ func (f *fakeCloud) add(id string, state awsmicrovm.MicrovmState) {
 	f.vms[id] = &awsmicrovm.Microvm{MicrovmID: id, State: state, Endpoint: f.endpoint}
 }
 
-func (f *fakeCloud) setState(id string, state awsmicrovm.MicrovmState) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.vms[id].State = state
-}
-
 // state returns the VM's state without settling it.
 func (f *fakeCloud) state(id string) awsmicrovm.MicrovmState {
 	f.mu.Lock()

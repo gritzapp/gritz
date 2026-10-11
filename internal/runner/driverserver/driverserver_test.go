@@ -20,6 +20,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -48,8 +49,9 @@ type testEnv struct {
 
 type testOptions struct {
 	// Record, when set, is written as the run record before the server boots.
-	Record  *runrecord.Record
-	Environ []string
+	Record   *runrecord.Record
+	Environ  []string
+	HookAddr string
 }
 
 // setup saves cfg for the test task and serves a driver server over an
@@ -93,6 +95,7 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 			return te.gritz
 		},
 		KeepAlive: 20 * time.Millisecond,
+		HookAddr:  opts.HookAddr,
 	})
 	assert.NilError(t, err)
 	te.srv = srv
@@ -661,6 +664,59 @@ func TestListenAndServe(t *testing.T) {
 	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
 	assert.NilError(t, <-errCh)
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
+}
+
+// With a hook address, ListenAndServe also acknowledges the Lambda hooks.
+func TestListenAndServe_Hooks(t *testing.T) {
+	t.Parallel()
+	// Arrange - serving on free ports
+	hookAddr := freeAddr(t)
+	te := setup(t, sleepForever, testOptions{HookAddr: hookAddr})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- te.srv.ListenAndServe(ctx, freeAddr(t)) }()
+
+	// Act
+	var resp *http.Response
+	ok := poll(func() bool {
+		var err error
+		resp, err = http.Post("http://"+hookAddr+awsmicrovm.HookRun, "application/json", strings.NewReader(`{"microvmId":"mvm-1"}`))
+		return err == nil
+	})
+
+	// Assert - the hook was acknowledged, and both servers shut down cleanly
+	assert.Assert(t, ok, "hook server never came up")
+	assert.NilError(t, resp.Body.Close())
+	assert.Equal(t, resp.StatusCode, http.StatusOK)
+	cancel()
+	assert.NilError(t, <-errCh)
+}
+
+// A hook listener that fails ends ListenAndServe with its error.
+func TestListenAndServe_HookListenFailure(t *testing.T) {
+	t.Parallel()
+	// Arrange - the hook address is taken
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NilError(t, err)
+	defer l.Close()
+	te := setup(t, sleepForever, testOptions{HookAddr: l.Addr().String()})
+
+	// Act
+	err = te.srv.ListenAndServe(t.Context(), freeAddr(t))
+
+	// Assert
+	assert.ErrorContains(t, err, "address already in use")
+}
+
+// freeAddr returns a loopback address with a port that was free.
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.NilError(t, err)
+	addr := l.Addr().String()
+	assert.NilError(t, l.Close())
+	return addr
 }
 
 // poll reports whether cond became true within five seconds.

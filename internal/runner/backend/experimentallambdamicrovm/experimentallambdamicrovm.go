@@ -548,10 +548,14 @@ func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode,
 		}
 		if isTerminal(err) {
 			// The driver has no run with this version (or has moved past it),
-			// so its Finished will never come. Nothing runs on the VM for
-			// this handle any more.
+			// so its Finished will never come.
 			b.log.Error("driver has no such run", "microvm", h.ID, "version", d.Version, "err", err)
-			b.suspendAfter(ctx, h.ID)
+			if connect.CodeOf(err) == connect.CodeNotFound {
+				// Nothing runs on the VM, which would otherwise stay billed.
+				// On FailedPrecondition or Aborted a newer run is active on
+				// it, which a suspend would kill.
+				b.suspendAfter(ctx, h.ID)
+			}
 			return backend.ExitLost, nil
 		}
 		if state, stateErr := b.state(ctx, h.ID); stateErr != nil {
