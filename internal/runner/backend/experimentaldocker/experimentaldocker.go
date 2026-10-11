@@ -45,14 +45,9 @@ import (
 // produces.
 const HandleType = "experimental-docker"
 
-// DriverPort is the port `gritz driver --serve` listens on inside a container
-// with its own network namespace.
+// DriverPort is the port `gritz driver --serve` listens on inside a container.
+// Every container has its own network namespace, so it never collides.
 const DriverPort = 8080
-
-// driverAddrLabel records the driver server's address on a container whose
-// address is not derived from its IP: one sharing the host's network
-// namespace, where :8080 would collide with the host and other containers.
-const driverAddrLabel = "gritz.driver.addr"
 
 const (
 	// driverReadyTimeout bounds how long Launch waits for a started
@@ -103,14 +98,17 @@ func (b *Backend) Close() error {
 }
 
 // ValidateWorkspace reports whether the workspace's container config is usable:
-// it needs an image, and a network the runner can reach the driver server on.
+// it needs an image, and a network namespace of its own on which the runner can
+// reach the driver server at the container's IP. Host mode is rejected too: the
+// driver would have to pick a free host port and advertise it, which this
+// backend does not do.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	if err := ws.Container.Validate(); err != nil {
 		return err
 	}
 	mode := container.NetworkMode(ws.Container.NetworkMode)
-	if mode.IsNone() || mode.IsContainer() {
-		return fmt.Errorf("network_mode %q is not supported: the runner must reach the driver server", ws.Container.NetworkMode)
+	if mode.IsNone() || mode.IsContainer() || mode.IsHost() {
+		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the runner must reach the driver server at the container's IP", ws.Container.NetworkMode)
 	}
 	return nil
 }
@@ -300,27 +298,16 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 		return "", err
 	}
 
-	labels := map[string]string{
-		"gritz":        "true",
-		"gritz.task":   fmt.Sprint(spec.TaskID),
-		"gritz.runner": b.runnerID,
-	}
-	cmd := []string{backend.BinaryPath, "driver", "--serve"}
-	if container.NetworkMode(wc.NetworkMode).IsHost() {
-		addr, err := freeLocalAddr()
-		if err != nil {
-			return "", err
-		}
-		cmd = append(cmd, "--addr", addr)
-		labels[driverAddrLabel] = addr
-	}
-
 	resp, err := b.docker.ContainerCreate(ctx,
 		&container.Config{
-			Image:      wc.Image,
-			User:       wc.User,
-			Labels:     labels,
-			Cmd:        cmd,
+			Image: wc.Image,
+			User:  wc.User,
+			Labels: map[string]string{
+				"gritz":        "true",
+				"gritz.task":   fmt.Sprint(spec.TaskID),
+				"gritz.runner": b.runnerID,
+			},
+			Cmd:        []string{backend.BinaryPath, "driver", "--serve"},
 			Env:        wc.Environ(),
 			WorkingDir: wc.WorkingDir,
 		},
@@ -382,19 +369,6 @@ func (b *Backend) copyFiles(ctx context.Context, containerID string, files []bac
 	return b.docker.CopyToContainer(ctx, containerID, "/", &buf, container.CopyToContainerOptions{})
 }
 
-// freeLocalAddr returns a loopback address with a port that is free now.
-func freeLocalAddr() (string, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("failed to find a free port: %w", err)
-	}
-	addr := l.Addr().String()
-	if err := l.Close(); err != nil {
-		return "", err
-	}
-	return addr, nil
-}
-
 // errNotRunning means the container exists but is not running.
 var errNotRunning = errors.New("container is not running")
 
@@ -417,14 +391,9 @@ func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect
 }
 
 // driverAddr returns the address of a running container's driver server: the
-// label recorded at create, or else the container's IP on DriverPort. With
-// several networks the first by name is used.
+// container's IP on DriverPort. With several networks the first by name is
+// used.
 func driverAddr(info container.InspectResponse) (string, error) {
-	if info.Config != nil {
-		if addr := info.Config.Labels[driverAddrLabel]; addr != "" {
-			return addr, nil
-		}
-	}
 	if info.NetworkSettings != nil {
 		for _, name := range slices.Sorted(maps.Keys(info.NetworkSettings.Networks)) {
 			if ep := info.NetworkSettings.Networks[name]; ep != nil && ep.IPAddress != "" {
