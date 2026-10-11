@@ -36,6 +36,7 @@ import (
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/driverclient"
 	"github.com/gritzapp/gritz/internal/runner/prebuilt"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
@@ -53,8 +54,15 @@ const (
 	// driverReadyTimeout bounds how long Launch waits for a started
 	// container's driver server to answer Status.
 	driverReadyTimeout = 30 * time.Second
-	// driverRetryInterval is the pause between attempts to reach the driver.
+	// driverRetryInterval is the pause between attempts to reach the driver,
+	// and the first pause between attempts to reattach to a run.
 	driverRetryInterval = 250 * time.Millisecond
+	// reattachMaxInterval caps the backoff between attempts to reattach.
+	reattachMaxInterval = 10 * time.Second
+	// driverLostTimeout is how long Wait keeps reattaching without a good
+	// message from the driver before it stops the container and reports the
+	// run lost.
+	driverLostTimeout = 2 * time.Minute
 )
 
 // Backend runs task sandboxes as containers on the local Docker daemon whose
@@ -70,6 +78,11 @@ type Backend struct {
 	// readyTimeout bounds how long Launch waits for the driver server; tests
 	// shorten it.
 	readyTimeout time.Duration
+	// idleTimeout is how long a Run stream may go without a message, and
+	// lostTimeout how long Wait reattaches without a good message; tests
+	// shorten them.
+	idleTimeout time.Duration
+	lostTimeout time.Duration
 }
 
 var _ backend.Backend = (*Backend)(nil)
@@ -90,6 +103,8 @@ func New(opts Options) (*Backend, error) {
 		runnerID:     opts.RunnerID,
 		log:          cmp.Or(opts.Log, slog.Default()),
 		readyTimeout: driverReadyTimeout,
+		idleTimeout:  driverclient.DefaultIdleTimeout,
+		lostTimeout:  driverLostTimeout,
 	}, nil
 }
 
@@ -372,8 +387,9 @@ func (b *Backend) copyFiles(ctx context.Context, containerID string, files []bac
 // errNotRunning means the container exists but is not running.
 var errNotRunning = errors.New("container is not running")
 
-// dial returns a client for the driver server of a running container. A
-// missing container is reported as cerrdefs.ErrNotFound, a stopped one as
+// dial returns a client for the driver server of a running container, whose
+// Run streams fail with driverclient.ErrStreamIdle once the driver goes quiet.
+// A missing container is reported as cerrdefs.ErrNotFound, a stopped one as
 // errNotRunning.
 func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
 	info, err := b.docker.ContainerInspect(ctx, containerID)
@@ -387,7 +403,7 @@ func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect
 	if err != nil {
 		return nil, err
 	}
-	return driverv1connect.NewDriverServiceClient(b.http, "http://"+addr), nil
+	return driverclient.New(b.http, "http://"+addr, driverclient.Options{IdleTimeout: b.idleTimeout}), nil
 }
 
 // driverAddr returns the address of a running container's driver server: the
@@ -459,8 +475,15 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // Wait attaches to the handle's run and blocks until its Finished, then stops
 // the container, so between runs it is stopped exactly as the docker backend's is. It
 // returns 0 if the driver reported the run's outcome, else ExitLost. A dropped
-// stream is reattached while the container is running; a container that is gone
-// or stopped before Finished arrived is reported as lost.
+// stream is reattached while the container is running, backing off
+// exponentially; a container that is gone or stopped before Finished arrived is
+// reported as lost.
+//
+// Reattaching gives up once the backend's lostTimeout has passed without a good
+// message — an accepted stream — from the driver: Wait stops the container and
+// reports the run lost. It returns only once the stop succeeded or the
+// container is gone, so Probe never reports a container running that no Wait
+// supervises; while dockerd cannot stop it, Wait keeps retrying.
 func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
 	if foreign(h) {
 		return backend.ExitLost, nil
@@ -470,8 +493,11 @@ func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode,
 		b.log.Error("wait: invalid handle", "container", h.ID, "err", err)
 		return backend.ExitLost, nil
 	}
+	lastGood := time.Now()
+	delay := driverRetryInterval
+	var lastErr string
 	for {
-		finished, err := b.attach(ctx, h.ID, d.Version)
+		finished, accepted, err := b.attach(ctx, h.ID, d.Version)
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
@@ -491,31 +517,57 @@ func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode,
 			b.log.Error("driver has no such run", "container", h.ID, "version", d.Version, "err", err)
 			return backend.ExitLost, nil
 		}
-		b.log.Warn("run stream dropped, reattaching", "container", h.ID, "version", d.Version, "err", err)
-		if err := sleep(ctx, driverRetryInterval); err != nil {
+		if accepted {
+			// The stream was live until it dropped: the driver's idle watchdog
+			// would have ended it otherwise.
+			lastGood = time.Now()
+			delay = driverRetryInterval
+			lastErr = ""
+		}
+		if time.Since(lastGood) >= b.lostTimeout {
+			// Give up on the driver; stop the container instead. While that
+			// fails, keep retrying the attach too in case the driver is back.
+			stopErr := b.docker.ContainerStop(ctx, h.ID, container.StopOptions{})
+			if stopErr == nil || cerrdefs.IsNotFound(stopErr) {
+				b.log.Error("run lost: driver unreachable, container stopped", "container", h.ID, "version", d.Version, "err", err)
+				return backend.ExitLost, nil
+			}
+			err = fmt.Errorf("failed to stop container of lost run: %w (driver: %w)", stopErr, err)
+		}
+		if msg := err.Error(); msg != lastErr {
+			b.log.Warn("run stream dropped, reattaching", "container", h.ID, "version", d.Version, "err", err)
+			lastErr = msg
+		}
+		if err := sleep(ctx, delay); err != nil {
 			return 0, err
 		}
+		delay = min(delay*2, reattachMaxInterval)
 	}
 }
 
 // attach opens a Run stream for version without a spec and reads it until the
 // run's Finished, which it returns. Otherwise it returns why the stream ended.
-func (b *Backend) attach(ctx context.Context, containerID string, version int64) (*driverv1.Finished, error) {
+// accepted reports whether the driver accepted the stream before it ended.
+func (b *Backend) attach(ctx context.Context, containerID string, version int64) (finished *driverv1.Finished, accepted bool, err error) {
 	client, err := b.dial(ctx, containerID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer stream.Close()
 	for stream.Receive() {
-		if finished := stream.Msg().GetFinished(); finished != nil {
-			return finished, nil
+		msg := stream.Msg()
+		if msg.GetAccepted() != nil {
+			accepted = true
+		}
+		if finished := msg.GetFinished(); finished != nil {
+			return finished, accepted, nil
 		}
 	}
-	return nil, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
+	return nil, accepted, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
 }
 
 // isTerminal reports whether a Run error means the run can never be attached
