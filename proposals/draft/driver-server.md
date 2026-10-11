@@ -828,7 +828,7 @@ It delivered:
   (polled until `SUSPENDED`) after every run. Its resume returns a plain error
   for `SUSPENDING`, which fixes problem 3 once the old backend is gone.
 - `--backend experimental-docker` and `--backend experimental-lambda-microvm`
-  (deprecated aliases of `docker` and `lambda-microvm` since L2). Each replaced
+  (removed in L2, replaced by `docker` and `lambda-microvm`). Each replaced
   its old counterpart rather than running beside it: handles of any other type
   are treated as gone.
 
@@ -865,9 +865,9 @@ are archived before upgrading (open question 4).
   `experimentaldocker` renamed to `docker` and `experimentallambdamicrovm` to
   `lambdamicrovm`. The handle types become `docker` and `lambda-microvm`, a
   clean break: handles of the `experimental-*` types are treated as gone. The
-  `--backend` values become `docker` (the default) and `lambda-microvm`, with
-  `experimental-docker` and `experimental-lambda-microvm` kept as deprecated
-  aliases of the flag value. READMEs, the dev compose file and the docs are
+  `--backend` values become `docker` (the default) and `lambda-microvm`; any
+  other value, `experimental-docker` and `experimental-lambda-microvm`
+  included, is an error. READMEs, the dev compose file and the docs are
   updated. Depends on: L1. Verifiable by: a runner with the default backend
   running a task end to end.
 - **L3: remove the one-shot driver** (#1713) — Delivers: `gritz driver` becomes
