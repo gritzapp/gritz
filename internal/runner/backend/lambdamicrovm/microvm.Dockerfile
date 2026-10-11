@@ -20,4 +20,4 @@ RUN chmod 0755 /usr/local/bin/gritz
 # reaches over the managed proxy, and acknowledges every AWS lifecycle and build
 # hook on the dedicated hook port 9000 (awsmicrovm.HookPort — must match
 # `--hooks port=9000`).
-ENTRYPOINT ["/usr/local/bin/gritz", "driver", "--serve", "--aws-lambda-hooks"]
+ENTRYPOINT ["/usr/local/bin/gritz", "driver", "--aws-lambda-hooks"]

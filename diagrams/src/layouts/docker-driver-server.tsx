@@ -5,7 +5,7 @@ import {Colors} from '../theme';
 import {Scaffold, linker, scaffold} from './common';
 
 // DockerDriverServerLayout is the Docker backend of
-// proposals/draft/driver-server.md: the container runs `gritz driver --serve`,
+// proposals/draft/driver-server.md: the container runs `gritz driver`,
 // the backend speaks the driver protocol behind today's backend.Backend
 // interface, and the driver still talks to the server directly.
 export interface DockerDriverServerLayout extends Scaffold {
@@ -148,7 +148,7 @@ export function dockerDriverServerLayout(
           <Service
             ref={driver}
             name={'Driver'}
-            role={'gritz driver --serve'}
+            role={'gritz driver'}
             accent={Colors.driver}
             x={-460}
             y={40}

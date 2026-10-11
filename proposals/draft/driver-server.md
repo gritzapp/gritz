@@ -43,7 +43,7 @@ Problems that follow:
 
 ### Overview
 
-The driver becomes a long-lived gRPC (Connect) server: `gritz driver --serve`.
+The driver becomes a long-lived gRPC (Connect) server: `gritz driver`.
 It is the sandbox's main process on every backend, and it talks only to the
 runner.
 
@@ -92,7 +92,7 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/icholy/gritz/internal/proto/driver/v1;driverv1";
 
-// DriverService is served by `gritz driver --serve` inside the sandbox and
+// DriverService is served by `gritz driver` inside the sandbox and
 // called by the runner. Runs execute in-process, one at a time. The driver
 // never calls the gritz server; it reports through its response log, which
 // Run streams from the caller's position.
@@ -246,8 +246,8 @@ that limit, so the idle cut never applies to a `Run` stream.
 
 ### The driver server
 
-`gritz driver --serve [--addr :8080 | unix:///path]` replaces `gritz driver` as the sandbox
-entrypoint. It holds no task identity and no server credentials of its own;
+`gritz driver [--addr :8080 | unix:///path]` is the driver server and the
+sandbox entrypoint; the one-shot `gritz driver --task` is gone. It holds no task identity and no server credentials of its own;
 everything arrives in `Run`.
 
 **Per-run construction.** What `internal/command/driver.go` builds once per
@@ -584,7 +584,7 @@ taskstate record is kept, and a later start or archive proceeds normally.
 
 | | Docker | Lambda MicroVMs |
 |---|---|---|
-| `Create` | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary. A failed copy removes the container. Handle: the container ID. | `RunMicrovm` with no run-hook payload; returns as soon as the call does, with the VM still `PENDING`. Handle: the microVM ID and the endpoint `RunMicrovm` returns. |
+| `Create` | `ContainerCreate` with `Cmd: [BinaryPath, "driver"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary. A failed copy removes the container. Handle: the container ID. | `RunMicrovm` with no run-hook payload; returns as soon as the call does, with the VM still `PENDING`. Handle: the microVM ID and the endpoint `RunMicrovm` returns. |
 | `Open` | decode the handle | decode the handle; the port-scoped proxy token is minted on first use and cached on the `Sandbox` |
 | `Start` | `ContainerStart` (a no-op on a running container); not found → `ErrGone` | poll `GetMicrovm`: `PENDING` → poll until `RUNNING`; `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll until `RUNNING`; `SUSPENDING` → plain error; `TERMINATING`, `TERMINATED` or not found → `ErrGone` |
 | `Dial` | client whose transport tunnels each connection through a Docker exec of `gritz tool proxy --addr unix:///gritz/driver.sock` (stdin/stdout attached, stdout demultiplexed with `stdcopy`), adding the JWT. The driver listens on that unix socket inside the container, not on a port, so any network mode works and nothing outside the container reaches it over the network. The runner needs only Docker API access, never a network route to the container. | Connect client for the managed proxy endpoint over HTTP/2, adding a cached, minted port-scoped token and the JWT |
@@ -600,7 +600,7 @@ Lambda changes, all in place in the Lambda backend
 (`internal/runner/backend/lambdamicrovm`):
 
 - The image entrypoint (`microvm.Dockerfile`) is
-  `gritz driver --serve --aws-lambda-hooks`. The flag mounts
+  `gritz driver --aws-lambda-hooks`. The flag mounts
   `awsmicrovm.Handler` with nil funcs on `awsmicrovm.HookPort`, which acknowledges
   every hook with 200. No hook does work.
 - The run spec travels in `Run` over the proxy, so the backend needs no

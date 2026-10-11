@@ -43,8 +43,8 @@ type Driver struct {
 // Run executes the task and reports its outcome to the server. The driver
 // owns the started / stopped / failed runner events (see the
 // driver-owned-events proposal); it returns an error only when it could not
-// report the outcome itself, so the runner's monitor reads the exit code as
-// a single bit meaning "did the driver report?".
+// report the outcome itself, so the driver server's Finished reports a single
+// bit meaning "did the driver report?".
 //
 // Cancelling ctx with ErrStop as the cause stops the run gracefully: the agent
 // and setup commands get SIGTERM, and the run is reported as stopped.
@@ -60,8 +60,8 @@ func (d *Driver) Run(ctx context.Context) error {
 	// clobbering the live one. The same response is reused for the shell-session
 	// fork in run, so this is a single fetch.
 	//
-	// A GetTask failure returns here before started is emitted: the driver exits
-	// non-zero and the runner's supervise backstop reports the lost run. A failed
+	// A GetTask failure returns here before started is emitted: the run finishes
+	// unreported and the runner's supervise backstop reports the lost run. A failed
 	// GetTask means the driver has no working server connection to report through
 	// anyway (see the proposal's resolved open question).
 	resp, err := d.Client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: d.TaskID})
@@ -97,9 +97,9 @@ func (d *Driver) Run(ctx context.Context) error {
 		event.Event = model.RunnerEventFailed
 		event.Reason = err.Error()
 	}
-	// The terminal ack decides the exit code: acked means the outcome is
-	// durably recorded and the driver exits 0 even on agent failure; a lost
-	// report exits non-zero so the monitor's "failed" fires.
+	// The terminal ack decides the return: acked means the outcome is durably
+	// recorded and Run returns nil even on agent failure; a lost report
+	// returns an error so the runner's "failed" fires.
 	serr := d.submit(eventCtx, event)
 	// Ship the tail of the log last, after the terminal event, so the "task
 	// failed" / "agent stopped" lines written above are in the buffer and go

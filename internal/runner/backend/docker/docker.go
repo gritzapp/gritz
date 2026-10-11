@@ -1,5 +1,5 @@
 // Package docker implements the runner backend on the local Docker daemon
-// with the driver server (`gritz driver --serve`) as each container's main
+// with the driver server (`gritz driver`) as each container's main
 // process, starting each run over the driver.v1 protocol. The driver still
 // reports to the gritz server itself, and the container is stopped after
 // every run.
@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"path"
@@ -43,7 +44,7 @@ import (
 // produces.
 const HandleType = "docker"
 
-// DriverAddr is the unix socket `gritz driver --serve` listens on inside a
+// DriverAddr is the unix socket `gritz driver` listens on inside a
 // container. Each container has its own filesystem, so drivers sharing a
 // network namespace never collide, and nothing outside the container can reach
 // the driver over the network.
@@ -183,10 +184,7 @@ func (b *Backend) launch(ctx context.Context, spec *backend.Spec, containerID st
 	if err := b.waitReady(ctx, client); err != nil {
 		return backend.Handle{}, err
 	}
-	runSpec, err := newRunSpec(spec)
-	if err != nil {
-		return backend.Handle{}, err
-	}
+	runSpec := newRunSpec(spec)
 	if err := b.start(ctx, client, spec.Version, runSpec); err != nil {
 		return backend.Handle{}, err
 	}
@@ -312,7 +310,7 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 				"gritz.task":   fmt.Sprint(spec.TaskID),
 				"gritz.runner": b.runnerID,
 			},
-			Cmd:        []string{backend.BinaryPath, "driver", "--serve", "--addr", DriverAddr},
+			Cmd:        []string{backend.BinaryPath, "driver", "--addr", DriverAddr},
 			Env:        wc.Environ(),
 			WorkingDir: wc.WorkingDir,
 		},
@@ -675,25 +673,15 @@ func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
 	return nil
 }
 
-// newRunSpec builds the driver.v1 RunSpec for spec. The runner hands every
-// backend the one-shot driver's environment (GRITZ_SERVER, GRITZ_TOKEN, the
-// workspace secrets and GRITZ_SECRETS naming them); the server URL, token and
-// secrets are lifted out of it into their own fields, and the rest is the
-// run's env. spec.Files are carried as they are.
-func newRunSpec(spec *backend.Spec) (*driverv1.RunSpec, error) {
-	env := map[string]string{}
-	for _, kv := range spec.Env {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok {
-			return nil, fmt.Errorf("invalid environment entry %q", kv)
-		}
-		env[k] = v
-	}
+// newRunSpec builds the driver.v1 RunSpec for spec. The workspace's container
+// environment is the container's own, so the run's env is spec.Env alone.
+func newRunSpec(spec *backend.Spec) *driverv1.RunSpec {
 	rs := &driverv1.RunSpec{
 		TaskId:    spec.TaskID,
-		ServerUrl: env["GRITZ_SERVER"],
-		Token:     env["GRITZ_TOKEN"],
-		Env:       env,
+		ServerUrl: spec.ServerURL,
+		Token:     spec.Token,
+		Env:       maps.Clone(spec.Env),
+		Secrets:   maps.Clone(spec.Secrets),
 	}
 	for _, f := range spec.Files {
 		rs.Files = append(rs.Files, &driverv1.File{
@@ -703,17 +691,7 @@ func newRunSpec(spec *backend.Spec) (*driverv1.RunSpec, error) {
 			Dir:  f.Dir,
 		})
 	}
-	if names := env["GRITZ_SECRETS"]; names != "" {
-		rs.Secrets = map[string]string{}
-		for name := range strings.SplitSeq(names, ",") {
-			if v, ok := env[name]; ok {
-				rs.Secrets[name] = v
-				delete(env, name)
-			}
-		}
-	}
-	delete(env, "GRITZ_SECRETS")
-	return rs, nil
+	return rs
 }
 
 // sleep waits for d or until ctx is done, returning ctx's error in that case.

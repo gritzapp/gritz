@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/docker/docker/api/types/network"
@@ -97,16 +96,11 @@ type Workspace struct {
 	// Secrets declares credentials for the sandbox, backend-agnostic. Each entry
 	// becomes an environment variable exactly like an environment: entry — values
 	// go through the same ${env:}/${sh:} expansion — but declaring one here is
-	// also what makes it a secret: the runner names them in GRITZ_SECRETS so the
-	// driver can mask their values in the log it ships to the server. Reference
-	// them from commands: by variable (${GH_TOKEN}) so the command string itself
-	// carries the name, not the value.
+	// also what makes it a secret: the runner passes them to the driver as the
+	// run's secrets, whose values it masks in the log it ships to the server.
+	// Reference them from commands: by variable (${GH_TOKEN}) so the command
+	// string itself carries the name, not the value.
 	Secrets map[string]string `yaml:"secrets,omitempty"`
-}
-
-// SecretNames returns the declared secret names, sorted.
-func (w *Workspace) SecretNames() []string {
-	return slices.Sorted(maps.Keys(w.Secrets))
 }
 
 type Agent struct {

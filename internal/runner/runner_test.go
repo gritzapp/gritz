@@ -230,10 +230,11 @@ func TestRunnerSpec_PreCreatesLogDir(t *testing.T) {
 	assert.Assert(t, found, "spec should pre-create the log dir %q", logDir)
 }
 
-// TestRunnerSpec_Secrets asserts the runner injects each declared workspace
-// secret into the sandbox as a plain environment variable and names them all in
-// GRITZ_SECRETS, which is how the driver learns which values to mask in the log
-// it ships (nothing consumes the list yet).
+// TestRunnerSpec_Secrets asserts the runner hands the backend the server URL,
+// the task token and the declared workspace secrets in their own fields, and
+// gives the run the GRITZ_* environment the agent's tools read. The secrets stay
+// out of Env: the driver adds them to the run's environment and masks them in
+// the log it ships.
 func TestRunnerSpec_Secrets(t *testing.T) {
 	t.Parallel()
 
@@ -280,13 +281,16 @@ func TestRunnerSpec_Secrets(t *testing.T) {
 	spec, err := r.spec(t.Context(), task)
 	assert.NilError(t, err)
 
-	assert.DeepEqual(t, spec.Env, []string{
-		"GRITZ_TASK_ID=1",
-		"GRITZ_TOKEN=test-token",
-		"GRITZ_SERVER=http://localhost",
-		"GH_TOKEN=gho_secretvalue",
-		"NPM_TOKEN=npm_secretvalue",
-		"GRITZ_SECRETS=GH_TOKEN,NPM_TOKEN",
+	assert.Equal(t, spec.ServerURL, "http://localhost")
+	assert.Equal(t, spec.Token, "test-token")
+	assert.DeepEqual(t, spec.Env, map[string]string{
+		"GRITZ_TASK_ID": "1",
+		"GRITZ_TOKEN":   "test-token",
+		"GRITZ_SERVER":  "http://localhost",
+	})
+	assert.DeepEqual(t, spec.Secrets, map[string]string{
+		"GH_TOKEN":  "gho_secretvalue",
+		"NPM_TOKEN": "npm_secretvalue",
 	})
 }
 

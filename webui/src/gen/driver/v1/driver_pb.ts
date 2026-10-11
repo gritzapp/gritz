@@ -309,7 +309,7 @@ export const StopResponseSchema: GenMessage<StopResponse> = /*@__PURE__*/
   messageDesc(file_driver_v1_driver, 10);
 
 /**
- * DriverService is served by `gritz driver --serve` inside the sandbox and
+ * DriverService is served by `gritz driver` inside the sandbox and
  * called by the runner. Runs execute in-process, one at a time.
  *
  * Field numbers follow proposals/draft/driver-server.md, so the fields later
