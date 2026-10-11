@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
@@ -23,7 +24,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm/awsmvm"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"github.com/gritzapp/gritz/internal/x/common"
 	"github.com/urfave/cli/v3"
 )
@@ -200,7 +200,7 @@ var RunnerCommand = &cli.Command{
 				return fmt.Errorf("lambda-microvm backend: %w", err)
 			}
 			be, err = lambdamicrovm.New(lambdamicrovm.Options{
-				Cloud:    awsmicrovm.NewClient(awsCfg),
+				Cloud:    lambdamicrovms.NewFromConfig(awsCfg),
 				Stager:   awsmvm.NewS3Stager(awsCfg),
 				RunnerID: runnerID,
 				Region:   awsCfg.Region,
@@ -222,7 +222,7 @@ var RunnerCommand = &cli.Command{
 				return fmt.Errorf("experimental-lambda-microvm backend: %w", err)
 			}
 			be, err = experimentallambdamicrovm.New(experimentallambdamicrovm.Options{
-				Cloud:  awsmicrovm.NewClient(awsCfg),
+				Cloud:  lambdamicrovms.NewFromConfig(awsCfg),
 				Region: awsCfg.Region,
 				Log:    log,
 			})

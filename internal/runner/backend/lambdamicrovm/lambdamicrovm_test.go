@@ -11,6 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms/types"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
@@ -100,15 +104,16 @@ func TestLaunchFresh(t *testing.T) {
 
 	// run-microvm assembly: connectors, idle omitted, payload pointer, no tags.
 	in := cloud.lastRun
-	assert.Equal(t, in.ImageIdentifier, "arn:aws:lambda:us-east-1:123:microvm-image/x")
-	assert.Equal(t, in.ExecutionRoleArn, "arn:aws:iam::123:role/x")
+	assert.Equal(t, aws.ToString(in.ImageIdentifier), "arn:aws:lambda:us-east-1:123:microvm-image/x")
+	assert.Assert(t, aws.ToString(in.ClientToken) != "", "a retried run-microvm must not run a second VM")
+	assert.Equal(t, aws.ToString(in.ExecutionRoleArn), "arn:aws:iam::123:role/x")
 	assert.DeepEqual(t, in.EgressNetworkConnectors, []string{"arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:INTERNET_EGRESS"})
 	// An ingress connector is required to reach the shim over the managed proxy;
 	// unset defaults to the managed ALL_INGRESS connector (bug 2 of #1088).
 	assert.Assert(t, len(in.IngressNetworkConnectors) == 1 && strings.Contains(in.IngressNetworkConnectors[0], "ALL_INGRESS"))
-	assert.Equal(t, in.MaximumDurationInSeconds, defaultMaxDuration)
+	assert.Equal(t, aws.ToInt32(in.MaximumDurationInSeconds), defaultMaxDuration)
 	assert.Assert(t, in.IdlePolicy == nil) // omitted: the service cannot express "never auto-suspend"
-	assert.Equal(t, in.RunHookPayload, "https://bucket.staging.example.com/runner-1/7.json")
+	assert.Equal(t, aws.ToString(in.RunHookPayload), "https://bucket.staging.example.com/runner-1/7.json")
 
 	// Bundle round-trips cmd/env/files (env = workspace env + spec env).
 	raw, ok := stager.get("runner-1/7.json")
@@ -136,7 +141,7 @@ func TestLaunchFreshCustomIngressConnector(t *testing.T) {
 
 func TestLaunchReuseResumes(t *testing.T) {
 	be, cloud, _ := newTestBackend(t)
-	cloud.add("mvm-9", awsmicrovm.MicrovmStateSuspended, "mvm-9.example.com")
+	cloud.add("mvm-9", types.MicrovmStateSuspended, "mvm-9.example.com")
 	reuse := &backend.Handle{Type: HandleType, ID: "mvm-9", Data: mustData(t, handleData{Endpoint: "mvm-9.example.com"})}
 
 	h, err := be.Launch(context.Background(), testSpec(9), reuse)
@@ -146,12 +151,13 @@ func TestLaunchReuseResumes(t *testing.T) {
 	assert.Equal(t, h.ID, "mvm-9")
 	assert.DeepEqual(t, cloud.resumed, []string{"mvm-9"})
 	assert.Assert(t, cloud.lastRun == nil, "should not RunMicrovm on reuse")
-	assert.Equal(t, cloud.state("mvm-9"), awsmicrovm.MicrovmStateRunning)
+	assert.Equal(t, cloud.state("mvm-9"), types.MicrovmStateRunning)
 }
 
 func TestLaunchReuseGoneReturnsErrGone(t *testing.T) {
 	be, cloud, _ := newTestBackend(t)
-	cloud.add("mvm-dead", awsmicrovm.MicrovmStateTerminated, "")
+	cloud.add("mvm-dead", types.MicrovmStateRunning, "")
+	cloud.setState("mvm-dead", types.MicrovmStateTerminated, "maximum duration reached")
 	reuse := &backend.Handle{Type: HandleType, ID: "mvm-dead", Data: mustData(t, handleData{StageBucket: "bucket", StageKey: "runner-1/3.json"})}
 
 	_, err := be.Launch(context.Background(), testSpec(3), reuse)
@@ -159,6 +165,7 @@ func TestLaunchReuseGoneReturnsErrGone(t *testing.T) {
 	// One sandbox per task: a terminated VM cannot resume, and Launch never
 	// creates a fresh one on the reuse path — it surfaces ErrGone.
 	assert.Assert(t, errors.Is(err, backend.ErrGone))
+	assert.ErrorContains(t, err, "TERMINATED (maximum duration reached)")
 	assert.Equal(t, len(cloud.resumed), 0)
 	assert.Assert(t, cloud.lastRun == nil, "should not launch fresh on a gone reuse handle")
 }
@@ -176,9 +183,9 @@ func TestLaunchReuseNotFoundReturnsErrGone(t *testing.T) {
 
 func TestProbe(t *testing.T) {
 	be, cloud, _ := newTestBackend(t)
-	cloud.add("run", awsmicrovm.MicrovmStateRunning, "e")
-	cloud.add("susp", awsmicrovm.MicrovmStateSuspended, "e")
-	cloud.add("term", awsmicrovm.MicrovmStateTerminated, "e")
+	cloud.add("run", types.MicrovmStateRunning, "e")
+	cloud.add("susp", types.MicrovmStateSuspended, "e")
+	cloud.add("term", types.MicrovmStateTerminated, "e")
 
 	mustState := func(id string) backend.State {
 		s, err := be.Probe(context.Background(), backend.Handle{ID: id})
@@ -193,7 +200,7 @@ func TestProbe(t *testing.T) {
 
 func TestSignalPostsStop(t *testing.T) {
 	be, cloud, _ := newTestBackend(t)
-	cloud.add("mvm-1", awsmicrovm.MicrovmStateRunning, "")
+	cloud.add("mvm-1", types.MicrovmStateRunning, "")
 
 	var gotPath, gotToken string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -209,7 +216,11 @@ func TestSignalPostsStop(t *testing.T) {
 	assert.Assert(t, signalled)
 	assert.Equal(t, gotPath, stopPath)
 	assert.Equal(t, gotToken, "token-mvm-1")
-	assert.DeepEqual(t, cloud.tokens, []string{"mvm-1"})
+	assert.DeepEqual(t, cloud.tokens, []*lambdamicrovms.CreateMicrovmAuthTokenInput{{
+		MicrovmIdentifier:   aws.String("mvm-1"),
+		ExpirationInMinutes: aws.Int32(tokenExpirationMinutes),
+		AllowedPorts:        []types.PortSpecification{&types.PortSpecificationMemberPort{Value: shimPort}},
+	}}, cmpopts.IgnoreUnexported(lambdamicrovms.CreateMicrovmAuthTokenInput{}, types.PortSpecificationMemberPort{}))
 }
 
 func TestSignalNoEndpoint(t *testing.T) {
@@ -221,12 +232,12 @@ func TestSignalNoEndpoint(t *testing.T) {
 
 func TestDestroyTerminatesAndCleansStaging(t *testing.T) {
 	be, cloud, stager := newTestBackend(t)
-	cloud.add("mvm-1", awsmicrovm.MicrovmStateSuspended, "e")
+	cloud.add("mvm-1", types.MicrovmStateSuspended, "e")
 	stager.objects["runner-1/1.json"] = []byte("x")
 	h := backend.Handle{ID: "mvm-1", Data: mustData(t, handleData{StageBucket: "bucket", StageKey: "runner-1/1.json"})}
 
 	assert.NilError(t, be.Destroy(context.Background(), h))
-	assert.Equal(t, cloud.state("mvm-1"), awsmicrovm.MicrovmStateTerminated)
+	assert.Equal(t, cloud.state("mvm-1"), types.MicrovmStateTerminated)
 	_, ok := stager.get("runner-1/1.json")
 	assert.Assert(t, !ok)
 }
@@ -309,7 +320,7 @@ func TestWaitCleanExitSuspends(t *testing.T) {
 		<-r.Context().Done()
 	})
 	defer srv.Close()
-	cloud.add("mvm-1", awsmicrovm.MicrovmStateRunning, srv.URL)
+	cloud.add("mvm-1", types.MicrovmStateRunning, srv.URL)
 
 	res, cancel := runWait(t, be, "mvm-1", srv.URL)
 	defer cancel()
@@ -319,7 +330,7 @@ func TestWaitCleanExitSuspends(t *testing.T) {
 	assert.Equal(t, r.code, backend.ExitCode(7))
 	// The runner — not the guest — suspended the VM.
 	assert.DeepEqual(t, cloud.suspended, []string{"mvm-1"})
-	assert.Equal(t, cloud.state("mvm-1"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, cloud.state("mvm-1"), types.MicrovmStateSuspended)
 }
 
 func TestWaitDropWithRunningReconnects(t *testing.T) {
@@ -332,7 +343,7 @@ func TestWaitDropWithRunningReconnects(t *testing.T) {
 		<-r.Context().Done()
 	})
 	defer srv.Close()
-	cloud.add("mvm-1", awsmicrovm.MicrovmStateRunning, srv.URL)
+	cloud.add("mvm-1", types.MicrovmStateRunning, srv.URL)
 
 	res, cancel := runWait(t, be, "mvm-1", srv.URL)
 	defer cancel()
@@ -346,10 +357,10 @@ func TestWaitDropWithTerminatedReportsLost(t *testing.T) {
 	be, cloud, _ := newTestBackend(t)
 	srv := sseTestServer(t, func(_ int, _ *sse.ServerWriter, r *http.Request) {
 		// Drop the connection, and the VM is terminal by the time we arbitrate.
-		cloud.setState("mvm-1", awsmicrovm.MicrovmStateTerminated)
+		cloud.setState("mvm-1", types.MicrovmStateTerminated, "terminated by user")
 	})
 	defer srv.Close()
-	cloud.add("mvm-1", awsmicrovm.MicrovmStateRunning, srv.URL)
+	cloud.add("mvm-1", types.MicrovmStateRunning, srv.URL)
 
 	res, cancel := runWait(t, be, "mvm-1", srv.URL)
 	defer cancel()
@@ -385,7 +396,7 @@ func TestWaitShutdownReturnsCanceled(t *testing.T) {
 		<-r.Context().Done()
 	})
 	defer srv.Close()
-	cloud.add("mvm-1", awsmicrovm.MicrovmStateRunning, srv.URL)
+	cloud.add("mvm-1", types.MicrovmStateRunning, srv.URL)
 
 	res, cancel := runWait(t, be, "mvm-1", srv.URL)
 	assertNoResult(t, res, 100*time.Millisecond)

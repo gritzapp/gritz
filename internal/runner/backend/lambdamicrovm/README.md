@@ -8,7 +8,9 @@ AWS_REGION=us-east-1 gritz runner --backend lambda-microvm
 ```
 
 The runner resolves AWS credentials and region from the standard SDK chain
-(`config.LoadDefaultConfig`: env, shared config, instance/IRSA role).
+(`config.LoadDefaultConfig`: env, shared config, instance/IRSA role). The
+control-plane endpoint can be overridden the standard way (`AWS_ENDPOINT_URL`,
+`AWS_ENDPOINT_URL_LAMBDA_MICROVMS`, or `endpoint_url` in the shared config).
 
 ## Lifecycle (symmetric with Docker)
 
@@ -53,9 +55,8 @@ match** the port declared to `create-microvm-image` via `--hooks port=9000`.
 - `Signal` (graceful stop) POSTs `/gritz/stop` over the proxy (SIGTERM → grace →
   SIGKILL the driver); the resulting exit suspends the VM like any completion.
 - AWS control-plane calls go through the `Cloud`/`Stager` interfaces; the live
-  implementation is `awsmicrovm.Client` + `awsmvm.S3Stager`. **The Lambda
-  MicroVMs control plane is preview** (no Go SDK yet), so `internal/x/awsmicrovm`
-  is a thin SigV4-signed JSON client; its wire surface is isolated there.
+  implementation is the official SDK client (`*lambdamicrovms.Client` from
+  `github.com/aws/aws-sdk-go-v2/service/lambdamicrovms`) + `awsmvm.S3Stager`.
 
 ## Workspace config
 

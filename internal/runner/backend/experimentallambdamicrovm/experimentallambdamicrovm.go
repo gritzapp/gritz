@@ -27,6 +27,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms/types"
+	"github.com/google/uuid"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -50,7 +54,7 @@ const allIngressConnector = "arn:aws:lambda:%s:aws:network-connector:aws-network
 
 // defaultMaxDuration is used when a workspace does not set
 // max_duration_seconds. Lambda caps the value at 28800 (8h).
-const defaultMaxDuration int64 = 14400
+const defaultMaxDuration int32 = 14400
 
 const (
 	// tokenLifetime is the lifetime of a minted proxy token, and
@@ -76,14 +80,14 @@ const (
 )
 
 // Cloud is the subset of the AWS Lambda MicroVMs control plane the backend
-// uses. *awsmicrovm.Client implements it; tests use a fake.
+// uses. *lambdamicrovms.Client implements it; tests use a fake.
 type Cloud interface {
-	RunMicrovm(ctx context.Context, in *awsmicrovm.RunMicrovmInput) (*awsmicrovm.RunMicrovmOutput, error)
-	GetMicrovm(ctx context.Context, in *awsmicrovm.GetMicrovmInput) (*awsmicrovm.GetMicrovmOutput, error)
-	TerminateMicrovm(ctx context.Context, in *awsmicrovm.TerminateMicrovmInput) (*awsmicrovm.TerminateMicrovmOutput, error)
-	SuspendMicrovm(ctx context.Context, in *awsmicrovm.SuspendMicrovmInput) (*awsmicrovm.SuspendMicrovmOutput, error)
-	ResumeMicrovm(ctx context.Context, in *awsmicrovm.ResumeMicrovmInput) (*awsmicrovm.ResumeMicrovmOutput, error)
-	CreateMicrovmAuthToken(ctx context.Context, in *awsmicrovm.CreateMicrovmAuthTokenInput) (*awsmicrovm.CreateMicrovmAuthTokenOutput, error)
+	RunMicrovm(ctx context.Context, in *lambdamicrovms.RunMicrovmInput, optFns ...func(*lambdamicrovms.Options)) (*lambdamicrovms.RunMicrovmOutput, error)
+	GetMicrovm(ctx context.Context, in *lambdamicrovms.GetMicrovmInput, optFns ...func(*lambdamicrovms.Options)) (*lambdamicrovms.GetMicrovmOutput, error)
+	TerminateMicrovm(ctx context.Context, in *lambdamicrovms.TerminateMicrovmInput, optFns ...func(*lambdamicrovms.Options)) (*lambdamicrovms.TerminateMicrovmOutput, error)
+	SuspendMicrovm(ctx context.Context, in *lambdamicrovms.SuspendMicrovmInput, optFns ...func(*lambdamicrovms.Options)) (*lambdamicrovms.SuspendMicrovmOutput, error)
+	ResumeMicrovm(ctx context.Context, in *lambdamicrovms.ResumeMicrovmInput, optFns ...func(*lambdamicrovms.Options)) (*lambdamicrovms.ResumeMicrovmOutput, error)
+	CreateMicrovmAuthToken(ctx context.Context, in *lambdamicrovms.CreateMicrovmAuthTokenInput, optFns ...func(*lambdamicrovms.Options)) (*lambdamicrovms.CreateMicrovmAuthTokenOutput, error)
 }
 
 // Backend runs task sandboxes as AWS Lambda MicroVMs whose main process is the
@@ -243,23 +247,26 @@ func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend
 func (b *Backend) run(ctx context.Context, spec *backend.Spec) (string, string, error) {
 	cfg := spec.Workspace.LambdaMicroVM
 	b.log.Info("running microvm", "task", spec.TaskID, "image", cfg.ImageIdentifier)
-	out, err := b.cloud.RunMicrovm(ctx, &awsmicrovm.RunMicrovmInput{
-		ImageIdentifier:          cfg.ImageIdentifier,
-		ExecutionRoleArn:         cfg.ExecutionRole,
+	out, err := b.cloud.RunMicrovm(ctx, &lambdamicrovms.RunMicrovmInput{
+		// One token per launch, so a retried request cannot run a second VM.
+		ClientToken:              aws.String(uuid.NewString()),
+		ImageIdentifier:          aws.String(cfg.ImageIdentifier),
+		ExecutionRoleArn:         aws.String(cfg.ExecutionRole),
 		EgressNetworkConnectors:  []string{cfg.EgressConnector},
 		IngressNetworkConnectors: []string{cmp.Or(cfg.IngressConnector, fmt.Sprintf(allIngressConnector, b.region))},
-		MaximumDurationInSeconds: cmp.Or(cfg.MaxDurationSeconds, defaultMaxDuration),
+		MaximumDurationInSeconds: aws.Int32(cmp.Or(int32(cfg.MaxDurationSeconds), defaultMaxDuration)),
 		// No idle policy: Wait suspends the VM after every run.
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to run microvm: %w", err)
 	}
-	vm, err := b.await(ctx, out.MicrovmID, awsmicrovm.MicrovmStateRunning)
+	id := aws.ToString(out.MicrovmId)
+	vm, err := b.await(ctx, id, types.MicrovmStateRunning)
 	if err != nil {
-		b.discard(context.WithoutCancel(ctx), out.MicrovmID)
+		b.discard(context.WithoutCancel(ctx), id)
 		return "", "", err
 	}
-	return out.MicrovmID, cmp.Or(vm.Endpoint, out.Endpoint), nil
+	return id, cmp.Or(aws.ToString(vm.Endpoint), aws.ToString(out.Endpoint)), nil
 }
 
 // adopt resolves the reuse handle's VM and brings it to RUNNING, returning its
@@ -269,22 +276,22 @@ func (b *Backend) adopt(ctx context.Context, reuse *backend.Handle) (string, str
 	if foreign(*reuse) {
 		return "", "", backend.ErrGone
 	}
-	out, err := b.cloud.GetMicrovm(ctx, &awsmicrovm.GetMicrovmInput{MicrovmID: reuse.ID})
-	if awsmicrovm.IsNotFound(err) {
+	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(reuse.ID)})
+	if isNotFound(err) {
 		return "", "", backend.ErrGone
 	}
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get microvm: %w", err)
 	}
-	switch state := out.Microvm.State; {
-	case state.Terminal():
-		return "", "", backend.ErrGone
-	case state == awsmicrovm.MicrovmStateSuspending:
-		return "", "", fmt.Errorf("microvm %s is still suspending", reuse.ID)
-	case state == awsmicrovm.MicrovmStateSuspended:
+	switch state := out.State; {
+	case terminal(state):
+		return "", "", fmt.Errorf("microvm %s is %s: %w", reuse.ID, describe(out), backend.ErrGone)
+	case state == types.MicrovmStateSuspending:
+		return "", "", fmt.Errorf("microvm %s is still suspending: %s", reuse.ID, describe(out))
+	case state == types.MicrovmStateSuspended:
 		b.log.Info("resuming microvm", "microvm", reuse.ID)
-		if _, err := b.cloud.ResumeMicrovm(ctx, &awsmicrovm.ResumeMicrovmInput{MicrovmID: reuse.ID}); err != nil {
-			if awsmicrovm.IsNotFound(err) {
+		if _, err := b.cloud.ResumeMicrovm(ctx, &lambdamicrovms.ResumeMicrovmInput{MicrovmIdentifier: aws.String(reuse.ID)}); err != nil {
+			if isNotFound(err) {
 				return "", "", backend.ErrGone
 			}
 			return "", "", fmt.Errorf("failed to resume microvm: %w", err)
@@ -292,11 +299,11 @@ func (b *Backend) adopt(ctx context.Context, reuse *backend.Handle) (string, str
 	default:
 		b.log.Info("adopting running microvm", "microvm", reuse.ID, "state", state)
 	}
-	vm, err := b.await(ctx, reuse.ID, awsmicrovm.MicrovmStateRunning)
+	vm, err := b.await(ctx, reuse.ID, types.MicrovmStateRunning)
 	if err != nil {
 		return "", "", err
 	}
-	endpoint := vm.Endpoint
+	endpoint := aws.ToString(vm.Endpoint)
 	if endpoint == "" {
 		// The control plane did not repeat it; fall back to the recorded one.
 		var d handleData
@@ -334,8 +341,8 @@ func (b *Backend) launch(ctx context.Context, spec *backend.Spec, id, endpoint s
 // Launch returns the error that caused them.
 func (b *Backend) discard(ctx context.Context, id string) {
 	b.log.Info("terminating microvm after failed launch", "microvm", id)
-	_, err := b.cloud.TerminateMicrovm(ctx, &awsmicrovm.TerminateMicrovmInput{MicrovmID: id})
-	if err != nil && !awsmicrovm.IsNotFound(err) {
+	_, err := b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	if err != nil && !isNotFound(err) {
 		b.log.Error("failed to terminate microvm after failed launch", "microvm", id, "err", err)
 	}
 }
@@ -353,14 +360,14 @@ func (b *Backend) suspendFailed(ctx context.Context, id string) {
 // suspend suspends the VM and polls until it is SUSPENDED. A VM that is gone
 // is not an error.
 func (b *Backend) suspend(ctx context.Context, id string) error {
-	_, err := b.cloud.SuspendMicrovm(ctx, &awsmicrovm.SuspendMicrovmInput{MicrovmID: id})
-	if awsmicrovm.IsNotFound(err) {
+	_, err := b.cloud.SuspendMicrovm(ctx, &lambdamicrovms.SuspendMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	if isNotFound(err) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("failed to suspend microvm: %w", err)
 	}
-	_, err = b.await(ctx, id, awsmicrovm.MicrovmStateSuspended)
+	_, err = b.await(ctx, id, types.MicrovmStateSuspended)
 	if errors.Is(err, backend.ErrGone) {
 		return nil
 	}
@@ -368,25 +375,29 @@ func (b *Backend) suspend(ctx context.Context, id string) error {
 }
 
 // await polls the VM until it is in state want and returns it. A VM that is
-// terminated or not found is backend.ErrGone; one that is not in want within
-// the backend's stateTimeout is an error.
-func (b *Backend) await(ctx context.Context, id string, want awsmicrovm.MicrovmState) (awsmicrovm.Microvm, error) {
+// terminating, terminated or not found is backend.ErrGone; one that is not in
+// want within the backend's stateTimeout is an error. Both carry the state the
+// VM was last seen in, with the service's reason for it.
+func (b *Backend) await(ctx context.Context, id string, want types.MicrovmState) (*lambdamicrovms.GetMicrovmOutput, error) {
 	ctx, cancel := context.WithTimeout(ctx, b.stateTimeout)
 	defer cancel()
+	last := "unknown"
 	for {
-		out, err := b.cloud.GetMicrovm(ctx, &awsmicrovm.GetMicrovmInput{MicrovmID: id})
+		out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
 		switch {
-		case awsmicrovm.IsNotFound(err):
-			return awsmicrovm.Microvm{}, backend.ErrGone
+		case isNotFound(err):
+			return nil, backend.ErrGone
 		case err != nil:
 			b.log.Warn("failed to get microvm", "microvm", id, "err", err)
-		case out.Microvm.State == want:
-			return out.Microvm, nil
-		case out.Microvm.State.Terminal():
-			return awsmicrovm.Microvm{}, backend.ErrGone
+		case out.State == want:
+			return out, nil
+		case terminal(out.State):
+			return nil, fmt.Errorf("microvm %s is %s: %w", id, describe(out), backend.ErrGone)
+		default:
+			last = describe(out)
 		}
 		if err := sleep(ctx, b.stateInterval); err != nil {
-			return awsmicrovm.Microvm{}, fmt.Errorf("microvm %s did not become %s: %w", id, want, err)
+			return nil, fmt.Errorf("microvm %s did not become %s (last %s): %w", id, want, last, err)
 		}
 	}
 }
@@ -403,15 +414,15 @@ func (b *Backend) dial(id, endpoint string) driverv1connect.DriverServiceClient 
 	httpClient := &http.Client{Transport: &tokenTransport{
 		base: b.transport,
 		mint: func(ctx context.Context) (string, error) {
-			out, err := b.cloud.CreateMicrovmAuthToken(ctx, &awsmicrovm.CreateMicrovmAuthTokenInput{
-				MicrovmID:         id,
-				ExpirationMinutes: int(tokenLifetime / time.Minute),
-				AllowedPorts:      []awsmicrovm.AllowedPort{{Port: DriverPort}},
+			out, err := b.cloud.CreateMicrovmAuthToken(ctx, &lambdamicrovms.CreateMicrovmAuthTokenInput{
+				MicrovmIdentifier:   aws.String(id),
+				ExpirationInMinutes: aws.Int32(int32(tokenLifetime / time.Minute)),
+				AllowedPorts:        []types.PortSpecification{&types.PortSpecificationMemberPort{Value: DriverPort}},
 			})
 			if err != nil {
 				return "", fmt.Errorf("failed to mint proxy token: %w", err)
 			}
-			return out.Token, nil
+			return out.AuthToken[awsmicrovm.ProxyAuthHeader], nil
 		},
 	}}
 	return driverclient.New(httpClient, strings.TrimRight(baseURL, "/"), driverclient.Options{IdleTimeout: b.idleTimeout})
@@ -558,14 +569,14 @@ func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode,
 			}
 			return backend.ExitLost, nil
 		}
-		if state, stateErr := b.state(ctx, h.ID); stateErr != nil {
+		if vm, stateErr := b.get(ctx, h.ID); stateErr != nil {
 			err = fmt.Errorf("%w (control plane: %w)", err, stateErr)
-		} else if !alive(state) {
-			b.log.Error("microvm stopped running before its run finished", "microvm", h.ID, "state", state, "version", d.Version, "err", err)
-			if state == awsmicrovm.MicrovmStateSuspending {
+		} else if !alive(vm) {
+			b.log.Error("microvm stopped running before its run finished", "microvm", h.ID, "state", describe(vm), "version", d.Version, "err", err)
+			if vm != nil && vm.State == types.MicrovmStateSuspending {
 				// Let the suspend complete, so Probe does not report the VM
 				// running once Wait has returned.
-				if _, err := b.await(ctx, h.ID, awsmicrovm.MicrovmStateSuspended); err != nil && !errors.Is(err, backend.ErrGone) {
+				if _, err := b.await(ctx, h.ID, types.MicrovmStateSuspended); err != nil && !errors.Is(err, backend.ErrGone) {
 					b.log.Error("microvm did not finish suspending", "microvm", h.ID, "err", err)
 				}
 			}
@@ -599,22 +610,46 @@ func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode,
 	}
 }
 
-// state returns the VM's state, or "" if it is not found.
-func (b *Backend) state(ctx context.Context, id string) (awsmicrovm.MicrovmState, error) {
-	out, err := b.cloud.GetMicrovm(ctx, &awsmicrovm.GetMicrovmInput{MicrovmID: id})
-	if awsmicrovm.IsNotFound(err) {
-		return "", nil
+// get returns the VM, or nil if it is not found.
+func (b *Backend) get(ctx context.Context, id string) (*lambdamicrovms.GetMicrovmOutput, error) {
+	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	if isNotFound(err) {
+		return nil, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("failed to get microvm: %w", err)
+		return nil, fmt.Errorf("failed to get microvm: %w", err)
 	}
-	return out.Microvm.State, nil
+	return out, nil
 }
 
-// alive reports whether a VM in state is pending or running, so its driver may
-// yet answer.
-func alive(state awsmicrovm.MicrovmState) bool {
-	return state == awsmicrovm.MicrovmStatePending || state == awsmicrovm.MicrovmStateRunning
+// alive reports whether vm is pending or running, so its driver may yet
+// answer. A nil vm, one that is not found, is not.
+func alive(vm *lambdamicrovms.GetMicrovmOutput) bool {
+	return vm != nil && (vm.State == types.MicrovmStatePending || vm.State == types.MicrovmStateRunning)
+}
+
+// terminal reports whether a VM in state is being torn down or is gone, and
+// will not run again.
+func terminal(state types.MicrovmState) bool {
+	return state == types.MicrovmStateTerminating || state == types.MicrovmStateTerminated
+}
+
+// describe renders vm's state with the service's reason for it, if any. A nil
+// vm is one that is not found.
+func describe(vm *lambdamicrovms.GetMicrovmOutput) string {
+	if vm == nil {
+		return "not found"
+	}
+	if reason := aws.ToString(vm.StateReason); reason != "" {
+		return fmt.Sprintf("%s (%s)", vm.State, reason)
+	}
+	return string(vm.State)
+}
+
+// isNotFound reports whether err is the control plane's not-found error.
+func isNotFound(err error) bool {
+	var nf *types.ResourceNotFoundException
+	return errors.As(err, &nf)
 }
 
 // attach opens a Run stream for version without a spec and reads it until the
@@ -668,22 +703,22 @@ func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, e
 	if foreign(h) {
 		return backend.StateGone, nil
 	}
-	out, err := b.cloud.GetMicrovm(ctx, &awsmicrovm.GetMicrovmInput{MicrovmID: h.ID})
-	if awsmicrovm.IsNotFound(err) {
+	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(h.ID)})
+	if isNotFound(err) {
 		return backend.StateGone, nil
 	}
 	if err != nil {
 		return backend.StateUnknown, fmt.Errorf("failed to get microvm: %w", err)
 	}
-	switch state := out.Microvm.State; {
-	case state == awsmicrovm.MicrovmStatePending, state == awsmicrovm.MicrovmStateRunning, state == awsmicrovm.MicrovmStateSuspending:
+	switch state := out.State; {
+	case state == types.MicrovmStatePending, state == types.MicrovmStateRunning, state == types.MicrovmStateSuspending:
 		return backend.StateRunning, nil
-	case state == awsmicrovm.MicrovmStateSuspended:
+	case state == types.MicrovmStateSuspended:
 		return backend.StateExited, nil
-	case state.Terminal():
+	case terminal(state):
 		return backend.StateGone, nil
 	default:
-		return backend.StateUnknown, fmt.Errorf("microvm %s is in unknown state %q", h.ID, state)
+		return backend.StateUnknown, fmt.Errorf("microvm %s is in unknown state %s", h.ID, describe(out))
 	}
 }
 
@@ -698,11 +733,11 @@ func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	state, err := b.state(ctx, h.ID)
+	vm, err := b.get(ctx, h.ID)
 	if err != nil {
 		return false, err
 	}
-	if !alive(state) {
+	if !alive(vm) {
 		return false, nil
 	}
 	b.log.Info("stopping run", "microvm", h.ID, "version", d.Version)
@@ -719,8 +754,8 @@ func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
 		return nil
 	}
 	b.log.Info("terminating microvm", "microvm", h.ID)
-	_, err := b.cloud.TerminateMicrovm(ctx, &awsmicrovm.TerminateMicrovmInput{MicrovmID: h.ID})
-	if err != nil && !awsmicrovm.IsNotFound(err) {
+	_, err := b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{MicrovmIdentifier: aws.String(h.ID)})
+	if err != nil && !isNotFound(err) {
 		return fmt.Errorf("failed to terminate microvm: %w", err)
 	}
 	return nil
