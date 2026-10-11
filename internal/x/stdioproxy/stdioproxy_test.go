@@ -1,4 +1,4 @@
-package command
+package stdioproxy
 
 import (
 	"bytes"
@@ -48,7 +48,7 @@ func TestProxy_ConnCloses(t *testing.T) {
 	go func() { _, _ = stdinW.Write([]byte("ping")) }()
 	var stdout bytes.Buffer
 
-	err := proxy(t.Context(), addr, stdin, &stdout)
+	err := Run(t.Context(), addr, stdin, &stdout)
 
 	assert.NilError(t, err)
 	assert.Equal(t, <-received, "ping")
@@ -64,7 +64,7 @@ func TestProxy_StdinCloses(t *testing.T) {
 		closed <- string(data)
 	})
 
-	err := proxy(t.Context(), addr, strings.NewReader("hello"), io.Discard)
+	err := Run(t.Context(), addr, strings.NewReader("hello"), io.Discard)
 
 	assert.NilError(t, err)
 	assert.Equal(t, <-closed, "hello")
@@ -76,7 +76,7 @@ func TestProxy_DialFails(t *testing.T) {
 	addr := ln.Addr().String()
 	assert.NilError(t, ln.Close())
 
-	err = proxy(t.Context(), addr, strings.NewReader(""), io.Discard)
+	err = Run(t.Context(), addr, strings.NewReader(""), io.Discard)
 
 	assert.ErrorContains(t, err, "failed to connect")
 }
