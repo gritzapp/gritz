@@ -114,6 +114,7 @@ func TestRunnerStart(t *testing.T) {
 	r, err := New(Options{
 		Client:    client,
 		Backend:   be,
+		BackendV2: be,
 		Store:     testStore(t),
 		ServerURL: ts.URL,
 		Queue:     queue,
@@ -197,6 +198,7 @@ func TestRunnerSpec_PreCreatesLogDir(t *testing.T) {
 	r, err := New(Options{
 		Client:    mock,
 		Backend:   be,
+		BackendV2: be,
 		Store:     testStore(t),
 		ServerURL: "http://localhost",
 		Queue:     queue,
@@ -256,6 +258,7 @@ func TestRunnerSpec_Secrets(t *testing.T) {
 	r, err := New(Options{
 		Client:    mock,
 		Backend:   be,
+		BackendV2: be,
 		Store:     testStore(t),
 		ServerURL: "http://localhost",
 		Queue:     queue,
@@ -379,7 +382,7 @@ func TestRunnerStart_Idempotent(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -425,7 +428,7 @@ func TestRunnerStart_AdoptReuse(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
 	assert.NilError(t, err)
 
 	// Act
@@ -461,7 +464,7 @@ func TestRunnerList(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -507,7 +510,7 @@ func TestRunnerPoll_StopWithoutSandbox(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -556,7 +559,7 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -592,7 +595,7 @@ func TestRunnerSupervise_ReportLost(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 	assert.Assert(t, r.sem.TryAcquire(1)) // the slot supervise will release
 
@@ -628,7 +631,7 @@ func TestRunnerSupervise_CleanExit(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 	assert.Assert(t, r.sem.TryAcquire(1))
 
@@ -659,7 +662,7 @@ func TestRunnerSupervise_Shutdown(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 	assert.Assert(t, r.sem.TryAcquire(1))
 
@@ -720,7 +723,7 @@ func TestRunnerLoad(t *testing.T) {
 	assert.NilError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -797,7 +800,7 @@ func TestRunnerLoad_VersionScopedBackstop(t *testing.T) {
 				Log:      slog.Default(),
 			})
 			assert.NilError(t, err)
-			r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+			r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 			assert.NilError(t, err)
 
 			// Act - Load drives the exited husk through failIfTaskRunning, which
@@ -838,8 +841,16 @@ func TestRunnerPrune(t *testing.T) {
 		ProbeFunc: func(_ context.Context, h backend.Handle) (backend.State, error) {
 			return state[h.ID], nil
 		},
-		DestroyFunc: func(_ context.Context, _ backend.Handle) error {
-			return nil
+	}
+	var destroyed []string
+	bev2 := &backend.BackendV2Mock{
+		OpenFunc: func(h backend.Handle) (backend.SandboxV2, error) {
+			return &backend.SandboxV2Mock{
+				DestroyFunc: func(context.Context) error {
+					destroyed = append(destroyed, h.ID)
+					return nil
+				},
+			}, nil
 		},
 	}
 	store := testStore(t,
@@ -855,7 +866,7 @@ func TestRunnerPrune(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -864,10 +875,6 @@ func TestRunnerPrune(t *testing.T) {
 
 	// Assert - archived/deleted tasks' sandboxes are destroyed and their
 	// records removed.
-	var destroyed []string
-	for _, call := range be.DestroyCalls() {
-		destroyed = append(destroyed, call.H.ID)
-	}
 	assert.DeepEqual(t, destroyed, []string{"c1", "c4"})
 	for _, id := range []int64{1, 4} {
 		_, ok, err := store.Read(id)
@@ -878,6 +885,78 @@ func TestRunnerPrune(t *testing.T) {
 	_, ok, err := store.Read(2)
 	assert.NilError(t, err)
 	assert.Equal(t, ok, true)
+}
+
+func TestRunnerRemove(t *testing.T) {
+	t.Parallel()
+	// A record written by v1 Launch carries the run version in Data.
+	v1 := taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1", Data: json.RawMessage(`{"version":3}`)}
+	tests := []struct {
+		name        string
+		records     []taskstate.Record
+		destroyErr  error
+		wantErr     bool
+		wantOpened  []backend.Handle
+		wantRecords bool
+	}{
+		{
+			name:       "v1 handle",
+			records:    []taskstate.Record{v1},
+			wantOpened: []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
+		},
+		{
+			// A gone sandbox's Destroy returns nil, so the record is dropped.
+			name:       "sandbox gone",
+			records:    []taskstate.Record{{TaskID: 1, Type: "docker", ID: "c1"}},
+			wantOpened: []backend.Handle{{Type: "docker", ID: "c1"}},
+		},
+		{
+			// A failed destroy keeps the record so the removal is retried.
+			name:        "destroy fails",
+			records:     []taskstate.Record{v1},
+			destroyErr:  errors.New("boom"),
+			wantErr:     true,
+			wantOpened:  []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
+			wantRecords: true,
+		},
+		{
+			name: "no record",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			sb := &backend.SandboxV2Mock{
+				DestroyFunc: func(context.Context) error { return tt.destroyErr },
+			}
+			bev2 := &backend.BackendV2Mock{
+				OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+			}
+			store := testStore(t, tt.records...)
+			r, err := New(Options{Backend: &backend.BackendMock{}, BackendV2: bev2, Store: store, RunnerID: "test-runner"})
+			assert.NilError(t, err)
+
+			// Act
+			err = r.Remove(t.Context(), 1)
+
+			// Assert
+			if tt.wantErr {
+				assert.ErrorIs(t, err, tt.destroyErr)
+			} else {
+				assert.NilError(t, err)
+			}
+			var opened []backend.Handle
+			for _, call := range bev2.OpenCalls() {
+				opened = append(opened, call.H)
+			}
+			assert.DeepEqual(t, opened, tt.wantOpened)
+			assert.Equal(t, len(sb.DestroyCalls()), len(tt.wantOpened))
+			_, ok, err := store.Read(1)
+			assert.NilError(t, err)
+			assert.Equal(t, ok, tt.wantRecords)
+		})
+	}
 }
 
 func TestRunnerStart_Gone(t *testing.T) {
@@ -911,7 +990,7 @@ func TestRunnerStart_Gone(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
 	assert.NilError(t, err)
 
 	// Act
@@ -944,7 +1023,7 @@ func TestRunnerStart_GoneViaProbe(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -1001,7 +1080,7 @@ func TestRunnerDie_StopWithoutSandbox(t *testing.T) {
 
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
-	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
 	assert.NilError(t, err)
 
 	// Act - the "stopped" enqueue fails durably, so die fires.
@@ -1049,7 +1128,7 @@ func TestRunnerGracefulShutdown_NoFatalCause(t *testing.T) {
 	assert.NilError(t, err)
 
 	ctx, cancelCause := context.WithCancelCause(context.Background())
-	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
 	assert.NilError(t, err)
 
 	// The durable enqueue succeeds, so die never fires.
