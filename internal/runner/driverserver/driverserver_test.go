@@ -81,12 +81,11 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 		},
 	}
 	srv, err := New(Options{
-		RecordPath:      recordPath,
-		LogPath:         filepath.Join(te.dir, "log"),
-		Config:          store,
-		ProvisionedPath: filepath.Join(te.dir, ".provisioned"),
-		FileRoot:        filepath.Join(te.dir, "root"),
-		Environ:         opts.Environ,
+		RecordPath: recordPath,
+		LogPath:    filepath.Join(te.dir, "log"),
+		Config:     store,
+		FileRoot:   filepath.Join(te.dir, "root"),
+		Environ:    opts.Environ,
 		NewClient: func(serverURL, token string) gritzclient.Client {
 			te.mu.Lock()
 			defer te.mu.Unlock()
@@ -262,7 +261,7 @@ func TestRun_ProvisionsFiles(t *testing.T) {
 	info, err = os.Stat(te.root("/tmp/gritz/1.json"))
 	assert.NilError(t, err)
 	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
-	_, err = os.Stat(filepath.Join(te.dir, ".provisioned"))
+	_, err = os.Stat(te.root(ProvisionedPath))
 	assert.NilError(t, err)
 }
 
@@ -306,7 +305,7 @@ func TestRun_AttachDoesNotProvision(t *testing.T) {
 	assert.Equal(t, accepted.GetAttached(), true)
 	_, err := os.Stat(te.root("/tmp/gritz/1.json"))
 	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
-	_, err = os.Stat(filepath.Join(te.dir, ".provisioned"))
+	_, err = os.Stat(te.root(ProvisionedPath))
 	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
 }
 
@@ -316,8 +315,8 @@ func TestRun_ProvisionFailure(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
 	spec := testSpec()
 	spec.Files = []*driverv1.File{
-		{Path: "/gritz", Data: []byte("not a dir"), Mode: 0o644},
-		{Path: "/gritz/config.json", Data: []byte("config"), Mode: 0o644},
+		{Path: "/etc", Data: []byte("not a dir"), Mode: 0o644},
+		{Path: "/etc/config.json", Data: []byte("config"), Mode: 0o644},
 	}
 
 	// Act
@@ -328,7 +327,7 @@ func TestRun_ProvisionFailure(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInternal)
 	assert.Assert(t, te.status(t) == nil)
 	assert.Equal(t, len(te.dials()), 0)
-	_, err = os.Stat(filepath.Join(te.dir, ".provisioned"))
+	_, err = os.Stat(te.root(ProvisionedPath))
 	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
 }
 
