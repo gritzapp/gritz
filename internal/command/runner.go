@@ -182,14 +182,13 @@ var RunnerCommand = &cli.Command{
 			// The experimental backend replaces docker rather than running
 			// beside it: handles recorded by any other backend are treated as
 			// gone, so it is meant for a runner with no active docker tasks.
-			edb, err := experimentaldocker.New(experimentaldocker.Options{
+			be, err = experimentaldocker.New(experimentaldocker.Options{
 				RunnerID: runnerID,
 				Log:      log,
 			})
 			if err != nil {
 				return err
 			}
-			be = onlyType{Backend: edb, typ: experimentaldocker.HandleType}
 		case "lambda-microvm":
 			loadOpts := []func(*config.LoadOptions) error{}
 			if region := cmd.String("lambda-microvm-region"); region != "" {
@@ -301,48 +300,4 @@ var RunnerCommand = &cli.Command{
 			}
 		}
 	},
-}
-
-// onlyType restricts a backend to the handles it produced: a handle of any
-// other Type refers to a sandbox this backend cannot see, so it is reported as
-// gone — Launch rejects it with backend.ErrGone, Probe answers StateGone, Wait
-// reports the run lost, and Signal and Destroy have nothing to act on.
-type onlyType struct {
-	backend.Backend
-	typ string
-}
-
-func (b onlyType) Launch(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (backend.Handle, error) {
-	if reuse != nil && reuse.Type != b.typ {
-		return backend.Handle{}, backend.ErrGone
-	}
-	return b.Backend.Launch(ctx, spec, reuse)
-}
-
-func (b onlyType) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
-	if h.Type != b.typ {
-		return backend.StateGone, nil
-	}
-	return b.Backend.Probe(ctx, h)
-}
-
-func (b onlyType) Signal(ctx context.Context, h backend.Handle) (bool, error) {
-	if h.Type != b.typ {
-		return false, nil
-	}
-	return b.Backend.Signal(ctx, h)
-}
-
-func (b onlyType) Destroy(ctx context.Context, h backend.Handle) error {
-	if h.Type != b.typ {
-		return nil
-	}
-	return b.Backend.Destroy(ctx, h)
-}
-
-func (b onlyType) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
-	if h.Type != b.typ {
-		return backend.ExitLost, nil
-	}
-	return b.Backend.Wait(ctx, h)
 }
