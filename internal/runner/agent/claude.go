@@ -1,11 +1,11 @@
 package agent
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os/exec"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -90,17 +90,11 @@ func (a *ClaudeAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 		return err
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if a.verbose {
-			a.log.Info("output", "line", string(line))
-			continue
-		}
-		if !a.handleStreamEvent(line) {
+	readLines(stdout, a.log, func(line []byte) {
+		if a.verbose || !a.handleStreamEvent(line) {
 			a.log.Info("output", "line", string(line))
 		}
-	}
+	})
 
 	return cmd.Wait()
 }
@@ -113,7 +107,20 @@ func (a *ClaudeAgent) Close() error {
 func (a *ClaudeAgent) handleStreamEvent(data []byte) bool {
 	var event struct {
 		Type    string `json:"type"`
-		Message struct {
+		Subtype string `json:"subtype"`
+		// result events
+		IsError    bool     `json:"is_error"`
+		Result     string   `json:"result"`
+		Errors     []string `json:"errors"`
+		NumTurns   int      `json:"num_turns"`
+		DurationMS int64    `json:"duration_ms"`
+		// system api_retry events
+		Attempt      int    `json:"attempt"`
+		MaxRetries   int    `json:"max_retries"`
+		RetryDelayMS int64  `json:"retry_delay_ms"`
+		ErrorStatus  *int   `json:"error_status"`
+		Error        string `json:"error"`
+		Message      struct {
 			Content []struct {
 				Type      string `json:"type"`
 				Text      string `json:"text"`
@@ -154,6 +161,35 @@ func (a *ClaudeAgent) handleStreamEvent(data []byte) bool {
 				}
 			}
 		}
+	case "system":
+		// Only API retries are logged: they are what an agent waiting out an
+		// API outage would otherwise look like, silence.
+		if event.Subtype == "api_retry" {
+			// error_status is null for connection errors with no HTTP response.
+			var status any = "none"
+			if event.ErrorStatus != nil {
+				status = *event.ErrorStatus
+			}
+			a.log.Warn("api_retry",
+				"status", status,
+				"error", event.Error,
+				"attempt", event.Attempt,
+				"max_retries", event.MaxRetries,
+				"retry_delay_ms", event.RetryDelayMS)
+		}
+	case "result":
+		attrs := []any{"subtype", event.Subtype, "turns", event.NumTurns, "duration_ms", event.DurationMS}
+		if !event.IsError {
+			a.log.Info("result", attrs...)
+			break
+		}
+		// Error subtypes carry their messages in errors; a "success" result
+		// with is_error set (e.g. an API error) carries it in result.
+		errText := strings.Join(event.Errors, "; ")
+		if errText == "" {
+			errText = event.Result
+		}
+		a.log.Error("result", append(attrs, "err", errText)...)
 	}
 	return true
 }

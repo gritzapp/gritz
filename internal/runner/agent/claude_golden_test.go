@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bufio"
 	"bytes"
 	"log/slog"
 	"os"
@@ -33,11 +32,9 @@ func TestClaudeGolden(t *testing.T) {
 	}))
 	agent := &ClaudeAgent{log: &DriverLog{Logger: *log}}
 
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		agent.handleStreamEvent(sc.Bytes())
-	}
-	assert.NilError(t, sc.Err())
+	readLines(f, agent.log, func(line []byte) {
+		agent.handleStreamEvent(line)
+	})
 
 	golden.Assert(t, buf.String(), "claude-session.golden")
 }
