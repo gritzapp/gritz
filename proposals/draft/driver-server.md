@@ -246,7 +246,7 @@ that limit, so the idle cut never applies to a `Run` stream.
 
 ### The driver server
 
-`gritz driver --serve [--addr :8080]` replaces `gritz driver` as the sandbox
+`gritz driver --serve [--addr :8080 | unix:///path]` replaces `gritz driver` as the sandbox
 entrypoint. It holds no task identity and no server credentials of its own;
 everything arrives in `Run`.
 
@@ -587,7 +587,7 @@ taskstate record is kept, and a later start or archive proceeds normally.
 | `Create` | `ContainerCreate` with `Cmd: [BinaryPath, "driver", "--serve"]`, `GRITZ_RUNNER_PUBLIC_KEY=spec.RunnerPublicKey` in `Env`, labels as today; tar-copy the prebuilt binary. A failed copy removes the container. Handle: the container ID. | `RunMicrovm` with no run-hook payload; returns as soon as the call does, with the VM still `PENDING`. Handle: the microVM ID and the endpoint `RunMicrovm` returns. |
 | `Open` | decode the handle | decode the handle; the port-scoped proxy token is minted on first use and cached on the `Sandbox` |
 | `Start` | `ContainerStart` (a no-op on a running container); not found → `ErrGone` | poll `GetMicrovm`: `PENDING` → poll until `RUNNING`; `RUNNING` → no-op; `SUSPENDED` → `ResumeMicrovm`, poll until `RUNNING`; `SUSPENDING` → plain error; `TERMINATING`, `TERMINATED` or not found → `ErrGone` |
-| `Dial` | client whose transport tunnels each connection through a Docker exec of `gritz tool proxy --addr 127.0.0.1:8080` (stdin/stdout attached, stdout demultiplexed with `stdcopy`), adding the JWT. The runner needs only Docker API access, never a network route to the container. | Connect client for the managed proxy endpoint over HTTP/2, adding a cached, minted port-scoped token and the JWT |
+| `Dial` | client whose transport tunnels each connection through a Docker exec of `gritz tool proxy --addr unix:///gritz/driver.sock` (stdin/stdout attached, stdout demultiplexed with `stdcopy`), adding the JWT. The driver listens on that unix socket inside the container, not on a port, so any network mode works and nothing outside the container reaches it over the network. The runner needs only Docker API access, never a network route to the container. | Connect client for the managed proxy endpoint over HTTP/2, adding a cached, minted port-scoped token and the JWT |
 | `Status` | inspect: running → Up, created or exited → Parked, not found → Gone | `GetMicrovm`: `RUNNING` → Up; `PENDING`, `SUSPENDING`, `SUSPENDED` → Parked; `TERMINATING`, `TERMINATED` or not found → Gone |
 | `Park` | `docker stop` with an explicit timeout covering a graceful server shutdown; not found → `ErrGone` | `SuspendMicrovm`, then poll until `SUSPENDED`; `TERMINATING`, `TERMINATED` or not found → `ErrGone` |
 | `Destroy` | `ContainerRemove` (force); not found → nil | `TerminateMicrovm`; already terminating, terminated or not found → nil |
@@ -831,10 +831,11 @@ It delivered:
   Each replaces its old counterpart rather than running beside it: handles of
   any other type are treated as gone.
 
-It leaves open that the Docker driver listens on `:8080`, so sibling containers
-on a shared bridge can reach it until the runner key lands, and that a sandbox
-keeps the driver binary it was created with, so `driver.v1` changes must stay
-wire-compatible.
+It left the Docker driver listening on `:8080`, so sibling containers on a
+shared bridge could reach it and the host, `container:` and `none` network
+modes were rejected; L1.5 moves it to a unix socket. It leaves open that a
+sandbox keeps the driver binary it was created with, so `driver.v1` changes
+must stay wire-compatible.
 
 What it established is recorded in the design: the exec tunnel (Platform
 implementations, open question 3), the managed proxy's protocol behavior
@@ -852,6 +853,13 @@ are archived before upgrading (open question 4).
   `gritz tool microvm-shim`, the S3 `Stager` / `awsmvm.S3Stager`, and the
   `staging_bucket` workspace field. `--backend` accepts only the experimental
   backends. Depends on: Phase A. Verifiable by: build and tests.
+- **L1.5: serve the Docker driver on a unix socket** (#1719) — Delivers:
+  `gritz driver --serve --addr` and `gritz tool proxy --addr` accept
+  `unix:///path`; the Docker backend starts the driver on
+  `unix:///gritz/driver.sock` and tunnels to it, and accepts every network
+  mode. The Lambda backend keeps TCP `:8080`, which the managed proxy routes
+  to. Depends on: L1. Verifiable by: the runner integration test on
+  `network_mode: host`.
 - **L2: promote the experimental backends** (#1712) — Delivers:
   `experimentaldocker` renamed to `docker` and `experimentallambdamicrovm` to
   `lambdamicrovm`. The handle types become `docker` and `lambda-microvm`, a
@@ -981,10 +989,12 @@ connection depends on the Docker daemon's stream handling. In exchange the
 runner needs only Docker API access: it does not care which networks the
 container is on, whether the runner itself runs in a container, or whether
 `DOCKER_HOST` is remote. Because the tunnel connects from inside the container,
-the driver could listen on loopback only, which would keep sibling containers on
-a shared bridge from reaching it; today it listens on `:8080`, so until it does
-(or the runner key lands) they can. A published port and a bind-mounted unix socket were
-tried and abandoned (#1697).
+the driver needs no port at all: it listens on a unix socket in the container's
+filesystem, `/gritz/driver.sock` (#1719). Sibling containers on a shared network
+cannot reach it, and drivers sharing a network namespace (`network_mode: host`
+or `container:`) do not collide, so every network mode works. A published port
+and a unix socket bind-mounted out to the runner were tried and abandoned
+(#1697).
 
 ## Open Questions
 
@@ -998,11 +1008,11 @@ tried and abandoned (#1697).
    number the server deduplicates on, or is a rare repeated chunk acceptable?
 3. **Docker reachability.** Resolved in Phase A (#1697): the runner never connects to
    the container over the network. Each driver connection is tunnelled through
-   a Docker exec of `gritz tool proxy --addr 127.0.0.1:8080`, which copies its
+   a Docker exec of `gritz tool proxy --addr unix:///gritz/driver.sock`, which copies its
    stdin to the driver and the driver to its stdout, so the runner needs only
    Docker API access — it works for a runner in a container, a container on
    several networks, and a remote `DOCKER_HOST`. A published port and a
-   bind-mounted unix socket were tried and abandoned.
+   unix socket bind-mounted out to the runner were tried and abandoned.
 4. **Migrating existing sandboxes.** Resolved: no migration. Tasks on the old
    backends are archived before upgrading to the switch-over (L1), and the
    experimental handle types are a clean break at L2: a handle of any type the

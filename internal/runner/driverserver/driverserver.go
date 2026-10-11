@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"github.com/gritzapp/gritz/internal/x/envx"
+	"github.com/gritzapp/gritz/internal/x/netx"
 )
 
 // DefaultKeepAlive is how often an open Run stream gets a KeepAlive. A write
@@ -157,12 +159,13 @@ func (s *Server) Handler() (string, http.Handler) {
 	return driverv1connect.NewDriverServiceHandler(s)
 }
 
-// ListenAndServe serves the service on addr, over HTTP/1.1 and unencrypted
-// HTTP/2, and the hooks on Options.HookAddr if set, until ctx is cancelled or
-// either listener fails. Once ctx is cancelled it stops the active run, waits
-// for it to stop and report, however long that takes (the platform's stop
-// timeout bounds it, as it does the one-shot driver), and shuts down the HTTP
-// servers.
+// ListenAndServe serves the service on addr, a TCP address or unix:///path,
+// over HTTP/1.1 and unencrypted HTTP/2, and the hooks on Options.HookAddr if
+// set, until ctx is cancelled or either listener fails. A socket file left at
+// a unix path is removed before listening, and the socket is removed again on
+// shutdown. Once ctx is cancelled it stops the active run, waits for it to
+// stop and report, however long that takes (the platform's stop timeout bounds
+// it, as it does the one-shot driver), and shuts down the HTTP servers.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle(s.Handler())
@@ -180,6 +183,19 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			Handler: &awsmicrovm.Handler{},
 		})
 	}
+	// Closing a unix listener removes its socket file, so every listener is
+	// closed on the way out, through its server once it is serving.
+	listeners := make([]net.Listener, 0, len(servers))
+	for _, hs := range servers {
+		l, err := netx.Listen(hs.Addr)
+		if err != nil {
+			for _, l := range listeners {
+				_ = l.Close()
+			}
+			return err
+		}
+		listeners = append(listeners, l)
+	}
 	errCh := make(chan error, len(servers))
 	for i, hs := range servers {
 		go func() {
@@ -188,7 +204,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			} else {
 				s.log.Info("lambda hooks listening", "addr", hs.Addr)
 			}
-			errCh <- hs.ListenAndServe()
+			errCh <- hs.Serve(listeners[i])
 		}()
 	}
 	select {

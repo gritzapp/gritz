@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"net"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -15,7 +13,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
@@ -97,21 +94,12 @@ func TestRunnerStart(t *testing.T) {
 	defer docker.Close()
 
 	// Create httptest server with the mock. The driver connects to the server
-	// directly over the network from its own network namespace, so the server
-	// listens on every interface and the container reaches it through the
-	// default bridge's gateway.
+	// directly over the network, so the container shares the host network
+	// namespace (NetworkMode "host") to reach it on 127.0.0.1, and ServerURL
+	// is the same URL.
 	_, handler := gritzv1connect.NewGritzServiceHandler(mock)
-	ln, err := net.Listen("tcp", "0.0.0.0:0")
-	assert.NilError(t, err)
-	ts := httptest.NewUnstartedServer(handler)
-	ts.Listener.Close()
-	ts.Listener = ln
-	ts.Start()
+	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
-	bridge, err := docker.NetworkInspect(t.Context(), "bridge", network.InspectOptions{})
-	assert.NilError(t, err)
-	assert.Assert(t, len(bridge.IPAM.Config) > 0)
-	serverURL := fmt.Sprintf("http://%s:%d", bridge.IPAM.Config[0].Gateway, ln.Addr().(*net.TCPAddr).Port)
 
 	client := gritzclient.New(gritzclient.Options{BaseURL: ts.URL})
 	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
@@ -127,13 +115,14 @@ func TestRunnerStart(t *testing.T) {
 		Client:    client,
 		Backend:   be,
 		Store:     testStore(t),
-		ServerURL: serverURL,
+		ServerURL: ts.URL,
 		Queue:     queue,
 		Workspaces: &workspace.Config{
 			Workspaces: map[string]workspace.Workspace{
 				"test": {
 					Container: workspace.Container{
-						Image: "alpine:latest",
+						Image:       "alpine:latest",
+						NetworkMode: "host",
 					},
 					Agent: workspace.Agent{
 						Type: "dummy",
