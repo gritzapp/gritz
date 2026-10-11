@@ -4,22 +4,26 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"io"
 	"math/rand/v2"
+	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/poll"
 )
 
 func TestNewRunSpec(t *testing.T) {
@@ -61,8 +65,8 @@ func TestValidateWorkspace(t *testing.T) {
 			assert.NilError(t, be.ValidateWorkspace(ws))
 		})
 	}
-	// The runner reaches the driver server at the container's own IP, which
-	// these modes do not give it.
+	// The runner reaches the driver server through a port published from the
+	// container's own network namespace, which these modes do not give it.
 	for _, mode := range []string{"host", "none", "container:abc"} {
 		t.Run("rejects "+mode, func(t *testing.T) {
 			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
@@ -71,40 +75,149 @@ func TestValidateWorkspace(t *testing.T) {
 	}
 }
 
-func TestDriverAddr(t *testing.T) {
+func TestPublishedPort(t *testing.T) {
 	tests := []struct {
-		name string
-		info container.InspectResponse
-		want string
+		name  string
+		ports nat.PortMap
+		want  string
 	}{
 		{
-			name: "first network by name",
-			info: container.InspectResponse{
-				Config: &container.Config{},
-				NetworkSettings: &container.NetworkSettings{Networks: map[string]*network.EndpointSettings{
-					"zeta":  {IPAddress: "10.0.0.2"},
-					"alpha": {IPAddress: "10.0.0.1"},
-				}},
+			name:  "bound port",
+			ports: nat.PortMap{"8080/tcp": {{HostIP: "127.0.0.1", HostPort: "49153"}}},
+			want:  "49153",
+		},
+		{
+			// An unspecified publish IP binds IPv4 and IPv6 on the same port.
+			name: "several bindings",
+			ports: nat.PortMap{"8080/tcp": {
+				{HostIP: "0.0.0.0", HostPort: "49153"},
+				{HostIP: "::", HostPort: "49153"},
+			}},
+			want: "49153",
+		},
+		{
+			name: "other ports ignored",
+			ports: nat.PortMap{
+				"9090/tcp": {{HostIP: "127.0.0.1", HostPort: "49999"}},
+				"8080/tcp": {{HostIP: "127.0.0.1", HostPort: "49153"}},
 			},
-			want: "10.0.0.1:8080",
+			want: "49153",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			addr, err := driverAddr(tt.info)
+			port, err := publishedPort(container.InspectResponse{
+				ContainerJSONBase: &container.ContainerJSONBase{ID: "abc"},
+				NetworkSettings:   &container.NetworkSettings{NetworkSettingsBase: container.NetworkSettingsBase{Ports: tt.ports}},
+			})
 			assert.NilError(t, err)
-			assert.Equal(t, addr, tt.want)
+			assert.Equal(t, port, tt.want)
 		})
 	}
 }
 
-func TestDriverAddr_NoIP(t *testing.T) {
-	_, err := driverAddr(container.InspectResponse{
-		ContainerJSONBase: &container.ContainerJSONBase{ID: "abc"},
-		Config:            &container.Config{},
-		NetworkSettings:   &container.NetworkSettings{},
+func TestPublishedPort_Unbound(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings *container.NetworkSettings
+	}{
+		{name: "no network settings"},
+		{name: "no ports", settings: &container.NetworkSettings{}},
+		{
+			// Exposed but not published.
+			name:     "exposed only",
+			settings: &container.NetworkSettings{NetworkSettingsBase: container.NetworkSettingsBase{Ports: nat.PortMap{"8080/tcp": nil}}},
+		},
+		{
+			name:     "other port",
+			settings: &container.NetworkSettings{NetworkSettingsBase: container.NetworkSettingsBase{Ports: nat.PortMap{"9090/tcp": {{HostIP: "127.0.0.1", HostPort: "49153"}}}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := publishedPort(container.InspectResponse{
+				ContainerJSONBase: &container.ContainerJSONBase{ID: "abc"},
+				NetworkSettings:   tt.settings,
+			})
+			assert.ErrorContains(t, err, "no host port published")
+		})
+	}
+}
+
+// A started container's published driver port is found and reaches the
+// container.
+func TestDriverAddr_PublishedPort(t *testing.T) {
+	t.Parallel()
+	be, err := New(Options{RunnerID: "test-runner"})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = be.Close() })
+	_, id := startContainer(t, []string{"sh", "-c", "while :; do echo hello | nc -l -p 8080; done"})
+
+	addr, err := be.driverAddr(t.Context(), id)
+	assert.NilError(t, err)
+	host, _, err := net.SplitHostPort(addr)
+	assert.NilError(t, err)
+	assert.Equal(t, host, DefaultDialHost)
+
+	// nc may not be listening yet; docker-proxy accepts and closes until it is.
+	var got string
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err != nil {
+			return poll.Continue("dial: %v", err)
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(time.Second))
+		b, _ := io.ReadAll(conn)
+		if got = strings.TrimSpace(string(b)); got == "" {
+			return poll.Continue("no data from container yet")
+		}
+		return poll.Success()
+	}, poll.WithTimeout(10*time.Second), poll.WithDelay(100*time.Millisecond))
+	assert.Equal(t, got, "hello")
+}
+
+// A container create made has its driver server reachable through the
+// published port, including after a restart that may bind a different one.
+func TestCreate_DriverReachable(t *testing.T) {
+	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
+	assert.NilError(t, err)
+	t.Setenv("GRITZ_PREBUILT_DIR", prebuiltDir)
+	be, err := New(Options{RunnerID: "test-runner"})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = be.Close() })
+	taskID := rand.Int64N(1 << 40)
+
+	id, err := be.create(t.Context(), &backend.Spec{
+		TaskID:    taskID,
+		Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest"}},
 	})
-	assert.ErrorContains(t, err, "no IP address")
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = be.docker.ContainerRemove(context.Background(), id, container.RemoveOptions{Force: true})
+	})
+
+	for range 2 {
+		assert.NilError(t, be.docker.ContainerStart(t.Context(), id, container.StartOptions{}))
+		client, err := be.dial(t.Context(), id)
+		assert.NilError(t, err)
+		assert.NilError(t, be.waitReady(t.Context(), client))
+		assert.NilError(t, be.docker.ContainerStop(t.Context(), id, container.StopOptions{}))
+	}
+}
+
+// A running container with no published driver port cannot be dialed.
+func TestDriverAddr_Unpublished(t *testing.T) {
+	t.Parallel()
+	be, err := New(Options{RunnerID: "test-runner"})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = be.Close() })
+	_, id := startContainerWith(t,
+		&container.Config{Image: "alpine:latest", Cmd: []string{"sleep", "30"}},
+		&container.HostConfig{})
+
+	_, err = be.driverAddr(t.Context(), id)
+	assert.ErrorContains(t, err, "no host port published")
 }
 
 func TestLaunch_ReuseGoneReturnsErrGone(t *testing.T) {
@@ -128,18 +241,26 @@ func TestProbe_Gone(t *testing.T) {
 	assert.Equal(t, st, backend.StateGone)
 }
 
-// startContainer creates and starts an alpine container running cmd, returning
-// a raw client and its id. It is removed on cleanup.
+// startContainer creates and starts an alpine container running cmd with its
+// driver port published as create publishes it, returning a raw client and its
+// id. It is removed on cleanup.
 func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
+	t.Helper()
+	return startContainerWith(t,
+		&container.Config{Image: "alpine:latest", Cmd: cmd, ExposedPorts: nat.PortSet{driverPort: {}}},
+		&container.HostConfig{PortBindings: nat.PortMap{driverPort: {{HostIP: DefaultPublishIP, HostPort: "0"}}}})
+}
+
+// startContainerWith creates and starts an alpine container with cfg and
+// hostCfg, returning a raw client and its id. It is removed on cleanup.
+func startContainerWith(t *testing.T, cfg *container.Config, hostCfg *container.HostConfig) (*dockerclient.Client, string) {
 	t.Helper()
 	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = docker.Close() })
-	_, err = dockerx.ImageEnsure(t.Context(), docker, dockerx.ImageEnsureOptions{Ref: "alpine:latest"})
+	_, err = dockerx.ImageEnsure(t.Context(), docker, dockerx.ImageEnsureOptions{Ref: cfg.Image})
 	assert.NilError(t, err)
-	resp, err := docker.ContainerCreate(t.Context(),
-		&container.Config{Image: "alpine:latest", Cmd: cmd},
-		&container.HostConfig{}, nil, nil, "")
+	resp, err := docker.ContainerCreate(t.Context(), cfg, hostCfg, nil, nil, "")
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = docker.ContainerRemove(t.Context(), resp.ID, container.RemoveOptions{Force: true}) })
 	assert.NilError(t, docker.ContainerStart(t.Context(), resp.ID, container.StartOptions{}))

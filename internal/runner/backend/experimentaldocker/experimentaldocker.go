@@ -5,6 +5,13 @@
 // as the docker package, the driver still reports to the gritz server itself,
 // and the container is stopped after every run.
 //
+// The runner reaches each driver server through a host port Docker publishes
+// for the container's DriverPort, not at the container's IP: that works for a
+// runner that shares none of the container's networks — a runner in a
+// container of its own, or one using a remote DOCKER_HOST — given a publish IP
+// and dial host it can reach. Both default to loopback, since the driver server
+// is unauthenticated.
+//
 // It shares no code with the docker package on purpose: that backend is
 // removed in phase E, and the two evolve independently until then.
 // Containers are named gritz-{task-id} and labelled with the owning runner, as
@@ -20,10 +27,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +38,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -47,8 +53,21 @@ import (
 const HandleType = "experimental-docker"
 
 // DriverPort is the port `gritz driver --serve` listens on inside a container.
-// Every container has its own network namespace, so it never collides.
+// Every container has its own network namespace, so it never collides. It is
+// published on a host port Docker picks when the container starts, which the
+// runner dials.
 const DriverPort = 8080
+
+// driverPort is DriverPort as a Docker port key.
+var driverPort = nat.Port(strconv.Itoa(DriverPort) + "/tcp")
+
+// DefaultPublishIP is the default host IP the driver port is published on, and
+// DefaultDialHost the default host the runner dials it at: loopback, so the
+// unauthenticated driver server is not exposed beyond the Docker host.
+const (
+	DefaultPublishIP = "127.0.0.1"
+	DefaultDialHost  = "127.0.0.1"
+)
 
 const (
 	// driverReadyTimeout bounds how long Launch waits for a started
@@ -75,6 +94,10 @@ type Backend struct {
 	http     *http.Client
 	runnerID string
 	log      *slog.Logger
+	// publishIP is the host IP containers' driver ports are published on, and
+	// dialHost the host the runner dials them at.
+	publishIP string
+	dialHost  string
 	// readyTimeout bounds how long Launch waits for the driver server; tests
 	// shorten it.
 	readyTimeout time.Duration
@@ -90,6 +113,13 @@ var _ backend.Backend = (*Backend)(nil)
 type Options struct {
 	RunnerID string
 	Log      *slog.Logger
+	// PublishIP is the host IP each container's driver port is published on;
+	// it defaults to DefaultPublishIP. Anything beyond loopback exposes the
+	// unauthenticated driver server to whatever can reach that address.
+	PublishIP string
+	// DialHost is the host the runner dials published driver ports at; it
+	// defaults to DefaultDialHost. It must reach PublishIP on the Docker host.
+	DialHost string
 }
 
 func New(opts Options) (*Backend, error) {
@@ -102,6 +132,8 @@ func New(opts Options) (*Backend, error) {
 		http:         &http.Client{},
 		runnerID:     opts.RunnerID,
 		log:          cmp.Or(opts.Log, slog.Default()),
+		publishIP:    cmp.Or(opts.PublishIP, DefaultPublishIP),
+		dialHost:     cmp.Or(opts.DialHost, DefaultDialHost),
 		readyTimeout: driverReadyTimeout,
 		idleTimeout:  driverclient.DefaultIdleTimeout,
 		lostTimeout:  driverLostTimeout,
@@ -113,17 +145,16 @@ func (b *Backend) Close() error {
 }
 
 // ValidateWorkspace reports whether the workspace's container config is usable:
-// it needs an image, and a network namespace of its own on which the runner can
-// reach the driver server at the container's IP. Host mode is rejected too: the
-// driver would have to pick a free host port and advertise it, which this
-// backend does not do.
+// it needs an image, and a network namespace of its own whose driver port Docker
+// can publish. Host mode is rejected too: the driver would have to pick a free
+// host port and advertise it, which this backend does not do.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	if err := ws.Container.Validate(); err != nil {
 		return err
 	}
 	mode := container.NetworkMode(ws.Container.NetworkMode)
 	if mode.IsNone() || mode.IsContainer() || mode.IsHost() {
-		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the runner must reach the driver server at the container's IP", ws.Container.NetworkMode)
+		return fmt.Errorf("network_mode %q is not supported by the experimental docker backend: the runner must reach the driver server through a published port", ws.Container.NetworkMode)
 	}
 	return nil
 }
@@ -322,9 +353,10 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 				"gritz.task":   fmt.Sprint(spec.TaskID),
 				"gritz.runner": b.runnerID,
 			},
-			Cmd:        []string{backend.BinaryPath, "driver", "--serve"},
-			Env:        wc.Environ(),
-			WorkingDir: wc.WorkingDir,
+			Cmd:          []string{backend.BinaryPath, "driver", "--serve"},
+			Env:          wc.Environ(),
+			WorkingDir:   wc.WorkingDir,
+			ExposedPorts: nat.PortSet{driverPort: {}},
 		},
 		&container.HostConfig{
 			Binds:       wc.Volumes,
@@ -332,6 +364,8 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 			Runtime:     wc.Runtime,
 			Privileged:  wc.Privileged,
 			NetworkMode: container.NetworkMode(wc.NetworkMode),
+			// Host port 0 has Docker bind a free port on every start.
+			PortBindings: nat.PortMap{driverPort: {{HostIP: b.publishIP, HostPort: "0"}}},
 		},
 		wc.NetworkingConfig(),
 		nil,
@@ -389,17 +423,9 @@ var errNotRunning = errors.New("container is not running")
 
 // dial returns a client for the driver server of a running container, whose
 // Run streams fail with driverclient.ErrStreamIdle once the driver goes quiet.
-// A missing container is reported as cerrdefs.ErrNotFound, a stopped one as
-// errNotRunning.
+// It fails as driverAddr does.
 func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
-	info, err := b.docker.ContainerInspect(ctx, containerID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to inspect container: %w", err)
-	}
-	if info.State == nil || !info.State.Running {
-		return nil, errNotRunning
-	}
-	addr, err := driverAddr(info)
+	addr, err := b.driverAddr(ctx, containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -407,17 +433,37 @@ func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect
 }
 
 // driverAddr returns the address of a running container's driver server: the
-// container's IP on DriverPort. With several networks the first by name is
-// used.
-func driverAddr(info container.InspectResponse) (string, error) {
+// backend's dial host on the host port published for DriverPort, read afresh
+// on every call since a restart can bind a different one. A missing container
+// is reported as cerrdefs.ErrNotFound, a stopped one as errNotRunning, and a
+// running one with no published port as an error.
+func (b *Backend) driverAddr(ctx context.Context, containerID string) (string, error) {
+	info, err := b.docker.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect container: %w", err)
+	}
+	if info.State == nil || !info.State.Running {
+		return "", errNotRunning
+	}
+	port, err := publishedPort(info)
+	if err != nil {
+		return "", err
+	}
+	return net.JoinHostPort(b.dialHost, port), nil
+}
+
+// publishedPort returns the host port Docker bound for a running container's
+// DriverPort. Docker may bind it on several host IPs (e.g. IPv4 and IPv6 for
+// an unspecified publish IP); they share the port, so the first is used.
+func publishedPort(info container.InspectResponse) (string, error) {
 	if info.NetworkSettings != nil {
-		for _, name := range slices.Sorted(maps.Keys(info.NetworkSettings.Networks)) {
-			if ep := info.NetworkSettings.Networks[name]; ep != nil && ep.IPAddress != "" {
-				return net.JoinHostPort(ep.IPAddress, strconv.Itoa(DriverPort)), nil
+		for _, binding := range info.NetworkSettings.Ports[driverPort] {
+			if binding.HostPort != "" && binding.HostPort != "0" {
+				return binding.HostPort, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("container %s has no IP address to reach its driver on", info.ID)
+	return "", fmt.Errorf("container %s has no host port published for its driver port %s", info.ID, driverPort)
 }
 
 // waitReady polls Status until the driver server answers or
