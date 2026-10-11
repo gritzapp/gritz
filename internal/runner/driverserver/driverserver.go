@@ -43,9 +43,9 @@ const DefaultKeepAlive = 15 * time.Second
 // has finished, which leaves only streams sending their Finished.
 const httpShutdownTimeout = 5 * time.Second
 
-// DefaultProvisionedPath is the marker a sandbox gets once a run has written
-// its RunSpec files.
-const DefaultProvisionedPath = "/gritz/.provisioned"
+// ProvisionedPath is the marker a sandbox gets once a run has written its
+// RunSpec files. Like the files, it lives under Options.FileRoot.
+const ProvisionedPath = "/gritz/.provisioned"
 
 // Options configures a Server. Every field takes its default when zero.
 type Options struct {
@@ -57,11 +57,8 @@ type Options struct {
 	// Config is where the task config file lives. Defaults to
 	// agent.DefaultConfigStore.
 	Config agent.ConfigStore
-	// ProvisionedPath is the marker that says the RunSpec files have been
-	// written. Defaults to DefaultProvisionedPath.
-	ProvisionedPath string
-	// FileRoot is the directory the RunSpec file paths are relative to.
-	// Defaults to "/".
+	// FileRoot is the directory the RunSpec file paths and ProvisionedPath
+	// are relative to. Defaults to "/".
 	FileRoot string
 	// Environ is the base of every run's environment, which RunSpec.env and
 	// then RunSpec.secrets are layered on. The command sets it to
@@ -78,15 +75,14 @@ type Options struct {
 
 // Server implements driverv1connect.DriverServiceHandler.
 type Server struct {
-	recordPath  string
-	logPath     string
-	config      agent.ConfigStore
-	provisioned string
-	fileRoot    string
-	environ     []string
-	newClient   func(serverURL, token string) gritzclient.Client
-	keepAlive   time.Duration
-	log         *slog.Logger
+	recordPath string
+	logPath    string
+	config     agent.ConfigStore
+	fileRoot   string
+	environ    []string
+	newClient  func(serverURL, token string) gritzclient.Client
+	keepAlive  time.Duration
+	log        *slog.Logger
 
 	// runs tracks the goroutine of the active run, so Shutdown can wait for it.
 	runs sync.WaitGroup
@@ -123,15 +119,14 @@ type run struct {
 // finished and unreported.
 func New(opts Options) (*Server, error) {
 	s := &Server{
-		recordPath:  cmp.Or(opts.RecordPath, runrecord.Path),
-		logPath:     cmp.Or(opts.LogPath, agent.DefaultLogPath),
-		config:      cmp.Or(opts.Config, agent.DefaultConfigStore),
-		provisioned: cmp.Or(opts.ProvisionedPath, DefaultProvisionedPath),
-		fileRoot:    cmp.Or(opts.FileRoot, "/"),
-		environ:     opts.Environ,
-		newClient:   opts.NewClient,
-		keepAlive:   cmp.Or(opts.KeepAlive, DefaultKeepAlive),
-		log:         cmp.Or(opts.Log, slog.Default()),
+		recordPath: cmp.Or(opts.RecordPath, runrecord.Path),
+		logPath:    cmp.Or(opts.LogPath, agent.DefaultLogPath),
+		config:     cmp.Or(opts.Config, agent.DefaultConfigStore),
+		fileRoot:   cmp.Or(opts.FileRoot, "/"),
+		environ:    opts.Environ,
+		newClient:  opts.NewClient,
+		keepAlive:  cmp.Or(opts.KeepAlive, DefaultKeepAlive),
+		log:        cmp.Or(opts.Log, slog.Default()),
 	}
 	if s.newClient == nil {
 		s.newClient = func(serverURL, token string) gritzclient.Client {
@@ -310,7 +305,8 @@ func (s *Server) start(version int64, spec *driverv1.RunSpec) (*run, error) {
 // then creates the marker. Files are written once per sandbox, so anything the
 // agent changes in them survives later runs.
 func (s *Server) provision(files []*driverv1.File) error {
-	if _, err := os.Stat(s.provisioned); err == nil {
+	marker := filepath.Join(s.fileRoot, ProvisionedPath)
+	if _, err := os.Stat(marker); err == nil {
 		return nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("provision: %w", err)
@@ -320,10 +316,10 @@ func (s *Server) provision(files []*driverv1.File) error {
 			return fmt.Errorf("provision %s: %w", f.GetPath(), err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(s.provisioned), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
 		return fmt.Errorf("provision: %w", err)
 	}
-	if err := os.WriteFile(s.provisioned, nil, 0o644); err != nil {
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
 		return fmt.Errorf("provision: %w", err)
 	}
 	return nil
