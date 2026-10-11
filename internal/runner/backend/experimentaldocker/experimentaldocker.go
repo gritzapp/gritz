@@ -65,8 +65,8 @@ const (
 // Backend runs task sandboxes as containers on the local Docker daemon whose
 // main process is the driver server.
 //
-// A handle's Data carries the version of the run Launch started, which Wait,
-// Probe and Signal address the driver with.
+// A handle's Data carries the version of the run Launch started, which Wait
+// and Signal address the driver with.
 type Backend struct {
 	docker   *client.Client
 	http     *http.Client
@@ -138,9 +138,9 @@ func decodeHandle(h backend.Handle) (handleData, error) {
 // Launch ensures the task's container exists and is running, waits for its
 // driver server to answer, and starts the spec's run on it. With a reuse
 // handle it adopts the exact recorded container, or returns backend.ErrGone if
-// that container is gone; it never creates a fresh one. Starting a container that is already
-// running is a no-op, so a container whose previous run has finished but which
-// has not been stopped yet is reused as is.
+// that container is gone; it never creates a fresh one. The runner only
+// launches on a container Probe does not report running, so between runs the
+// container has been stopped by Wait and is started again here.
 func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (backend.Handle, error) {
 	containerID, err := b.ensure(ctx, spec, reuse)
 	if err != nil {
@@ -458,7 +458,7 @@ func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode,
 		}
 		switch {
 		case finished != nil:
-			b.stopAfter(ctx, h.ID, d.Version)
+			b.stopAfter(ctx, h.ID)
 			if !finished.GetReported() {
 				return backend.ExitLost, nil
 			}
@@ -510,48 +510,33 @@ func isTerminal(err error) bool {
 	return false
 }
 
-// stopAfter stops the container once the run with version has finished,
-// unless a later run has started on it in the meantime. Failures are logged:
-// the run's outcome is already known.
-func (b *Backend) stopAfter(ctx context.Context, containerID string, version int64) {
-	if client, err := b.dial(ctx, containerID); err == nil {
-		resp, err := client.Status(ctx, &driverv1.StatusRequest{})
-		if err == nil && resp.GetRun().GetVersion() != version {
-			return
-		}
-	}
+// stopAfter stops the container once its run has finished. No later run can
+// have started on it meanwhile: Probe reports a running container as running,
+// so the runner does not launch on it until it is stopped. Failures are
+// logged: the run's outcome is already known.
+func (b *Backend) stopAfter(ctx context.Context, containerID string) {
 	err := b.docker.ContainerStop(ctx, containerID, container.StopOptions{})
 	if err != nil && !cerrdefs.IsNotFound(err) {
 		b.log.Error("failed to stop container after its run", "container", containerID, "err", err)
 	}
 }
 
-// Probe reports the liveness of the handle's run: a missing container is gone,
-// a stopped one exited, and a running one is running only while the driver's
-// run record shows the handle's version running.
+// Probe reports the liveness of the handle's container: a missing container is
+// gone, a stopped one exited, and a running one running — even after its run
+// has finished, until Wait stops it. It does not ask the driver: a running
+// container is never launched on, so a new run cannot race the stop.
 func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
 	if foreign(h) {
 		return backend.StateGone, nil
 	}
-	d, err := decodeHandle(h)
-	if err != nil {
-		return backend.StateUnknown, err
-	}
-	client, err := b.dial(ctx, h.ID)
-	switch {
-	case cerrdefs.IsNotFound(err):
+	info, err := b.docker.ContainerInspect(ctx, h.ID)
+	if cerrdefs.IsNotFound(err) {
 		return backend.StateGone, nil
-	case errors.Is(err, errNotRunning):
-		return backend.StateExited, nil
-	case err != nil:
-		return backend.StateUnknown, err
 	}
-	resp, err := client.Status(ctx, &driverv1.StatusRequest{})
 	if err != nil {
-		return backend.StateUnknown, fmt.Errorf("failed to get driver status: %w", err)
+		return backend.StateUnknown, fmt.Errorf("failed to inspect container: %w", err)
 	}
-	run := resp.GetRun()
-	if run.GetVersion() == d.Version && run.GetState() == driverv1.RunRecord_STATE_RUNNING {
+	if info.State != nil && info.State.Running {
 		return backend.StateRunning, nil
 	}
 	return backend.StateExited, nil
