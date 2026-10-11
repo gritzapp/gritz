@@ -28,7 +28,6 @@ diagrams/src/
   layouts/
     common.tsx              scaffold() (background, title, caption), linker()
     docker.tsx              Docker backend: client, server, postgres, runner host, container
-    microvm.tsx             Lambda MicroVM backend: runner host, AWS, S3, shim
     microvm-driver-server.tsx   proposals/draft/driver-server.md variant
     experimental-docker.tsx     driver-server.md phase A: ExperimentalDocker
   scenes/<flow>.tsx         One flow per scene

@@ -505,7 +505,6 @@ func TestTokenTransport_Refresh(t *testing.T) {
 func TestValidateWorkspace(t *testing.T) {
 	be, err := New(Options{Cloud: newFakeCloud(""), Region: "us-east-1"})
 	assert.NilError(t, err)
-	// staging_bucket is not needed.
 	assert.NilError(t, be.ValidateWorkspace(testWorkspace()))
 
 	tests := map[string]func(*workspace.LambdaMicroVM){

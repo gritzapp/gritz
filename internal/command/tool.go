@@ -9,7 +9,6 @@ var ToolCommand = &cli.Command{
 		AgentMcpCommand,
 		GitCredentialCommand,
 		GitHubMCPCommand,
-		MicrovmShimCommand,
 		ProxyCommand,
 	},
 }

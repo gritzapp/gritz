@@ -17,11 +17,8 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/backend"
-	dockerbackend "github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
 	"github.com/gritzapp/gritz/internal/runner/backend/experimentallambdamicrovm"
-	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
-	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm/awsmvm"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/common"
@@ -79,8 +76,8 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "backend",
-			Usage:   "Sandbox backend (docker, experimental-docker, lambda-microvm, experimental-lambda-microvm)",
-			Value:   "docker",
+			Usage:   "Sandbox backend (experimental-docker, experimental-lambda-microvm)",
+			Value:   experimentaldocker.HandleType,
 			Sources: cli.EnvVars("GRITZ_BACKEND"),
 		},
 		&cli.StringFlag{
@@ -171,18 +168,7 @@ var RunnerCommand = &cli.Command{
 		backendName := cmd.String("backend")
 		var be backend.Backend
 		switch backendName {
-		case "docker":
-			be, err = dockerbackend.New(dockerbackend.Options{
-				RunnerID: runnerID,
-				Log:      log,
-			})
-			if err != nil {
-				return err
-			}
 		case experimentaldocker.HandleType:
-			// The experimental backend replaces docker rather than running
-			// beside it: handles recorded by any other backend are treated as
-			// gone, so it is meant for a runner with no active docker tasks.
 			be, err = experimentaldocker.New(experimentaldocker.Options{
 				RunnerID: runnerID,
 				Log:      log,
@@ -190,29 +176,7 @@ var RunnerCommand = &cli.Command{
 			if err != nil {
 				return err
 			}
-		case "lambda-microvm":
-			loadOpts := []func(*config.LoadOptions) error{}
-			if region := cmd.String("lambda-microvm-region"); region != "" {
-				loadOpts = append(loadOpts, config.WithRegion(region))
-			}
-			awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
-			if err != nil {
-				return fmt.Errorf("lambda-microvm backend: %w", err)
-			}
-			be, err = lambdamicrovm.New(lambdamicrovm.Options{
-				Cloud:    lambdamicrovms.NewFromConfig(awsCfg),
-				Stager:   awsmvm.NewS3Stager(awsCfg),
-				RunnerID: runnerID,
-				Region:   awsCfg.Region,
-				Log:      log,
-			})
-			if err != nil {
-				return err
-			}
 		case experimentallambdamicrovm.HandleType:
-			// Like experimental-docker, this replaces lambda-microvm rather
-			// than running beside it: handles recorded by any other backend
-			// are treated as gone.
 			loadOpts := []func(*config.LoadOptions) error{}
 			if region := cmd.String("lambda-microvm-region"); region != "" {
 				loadOpts = append(loadOpts, config.WithRegion(region))

@@ -57,7 +57,6 @@ services:
       # (internal/command/server.go: provisionDevKey).
       GRITZ_API_KEY: xat_dev
       GRITZ_RUNNER_ID: dev-runner
-      GRITZ_BACKEND: docker
       GRITZ_STATE_DIR: /var/lib/gritz/tasks
     volumes:
       # Spawn task containers on the host daemon.
