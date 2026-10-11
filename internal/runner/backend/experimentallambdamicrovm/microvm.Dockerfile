@@ -8,8 +8,6 @@
 # MicroVMs are ARM64-only, so FROM the arm64 container base and provide a
 # linux/arm64 gritz binary. The `--base-image-arn` (…:aws:microvm-image:al2023-1)
 # is the *separate* MicroVM OS base, NOT this container FROM.
-FROM the arm64 container base and provide a
-# linux/arm64 gritz binary.
 FROM public.ecr.aws/lambda/microvms:al2023-minimal
 
 # Build a linux/arm64 gritz binary and place it alongside this Dockerfile
