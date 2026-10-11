@@ -41,13 +41,6 @@ func defaultRunnerID() string {
 	return hostname
 }
 
-// deprecatedBackends maps the old --backend values, from when the backends
-// were experimental, to their current names.
-var deprecatedBackends = map[string]string{
-	"experimental-docker":         docker.HandleType,
-	"experimental-lambda-microvm": lambdamicrovm.HandleType,
-}
-
 var RunnerCommand = &cli.Command{
 	Name:  "runner",
 	Usage: "Start the runner (monitors tasks, manages containers)",
@@ -173,10 +166,6 @@ var RunnerCommand = &cli.Command{
 		}
 
 		backendName := cmd.String("backend")
-		if name, ok := deprecatedBackends[backendName]; ok {
-			log.Warn("deprecated --backend value, use the new name", "backend", backendName, "use", name)
-			backendName = name
-		}
 		var be backend.Backend
 		switch backendName {
 		case docker.HandleType:
