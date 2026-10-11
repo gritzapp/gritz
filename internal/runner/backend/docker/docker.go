@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -110,7 +111,7 @@ func (b *Backend) ensure(ctx context.Context, spec *backend.Spec, reuse *backend
 		return b.adopt(ctx, spec, id)
 	}
 
-	return b.create(ctx, spec)
+	return b.create(ctx, spec, spec.Cmd, append(spec.Workspace.Container.Environ(), spec.Env...), nil)
 }
 
 // adopt reuses an existing container, repairing any network attachments whose
@@ -129,7 +130,10 @@ func (b *Backend) adopt(ctx context.Context, spec *backend.Spec, containerID str
 	return containerID, nil
 }
 
-func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error) {
+// create creates the task's gritz-{taskID} container running cmd with env,
+// labelled with the gritz labels plus labels, and copies the driver binary and
+// spec.Files into it.
+func (b *Backend) create(ctx context.Context, spec *backend.Spec, cmd, env []string, labels map[string]string) (string, error) {
 	wc := &spec.Workspace.Container
 
 	b.log.Info("creating container", "task", spec.TaskID, "image", wc.Image)
@@ -155,17 +159,20 @@ func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error
 		return "", err
 	}
 
+	containerLabels := map[string]string{
+		"gritz":        "true",
+		"gritz.task":   fmt.Sprint(spec.TaskID),
+		"gritz.runner": b.runnerID,
+	}
+	maps.Copy(containerLabels, labels)
+
 	resp, err := b.docker.ContainerCreate(ctx,
 		&container.Config{
-			Image: wc.Image,
-			User:  wc.User,
-			Labels: map[string]string{
-				"gritz":        "true",
-				"gritz.task":   fmt.Sprint(spec.TaskID),
-				"gritz.runner": b.runnerID,
-			},
-			Cmd:        spec.Cmd,
-			Env:        append(wc.Environ(), spec.Env...),
+			Image:      wc.Image,
+			User:       wc.User,
+			Labels:     containerLabels,
+			Cmd:        cmd,
+			Env:        env,
 			WorkingDir: wc.WorkingDir,
 		},
 		&container.HostConfig{

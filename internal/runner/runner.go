@@ -518,6 +518,7 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 
 	return &backend.Spec{
 		TaskID:    task.ID,
+		Version:   task.Version,
 		Workspace: ws,
 		Cmd: []string{
 			backend.BinaryPath, "driver",
