@@ -89,10 +89,12 @@ Packets are colored by the **sender's** accent (`Colors.runner`,
    });
    ```
 
-5. **Verify visually.** Type-check, then open the project in the editor with
-   Playwright, jump to the end (`button[title^="End"]`) and screenshot it, and
-   play through at least one mid-flow point. Check for lines crossing boxes,
-   labels overlapping each other or panel titles, and tables overflowing their
+5. **Type-check and hand it over.** Run the type-check and give the user the
+   project's editor URL. Do not open the editor with Playwright or screenshot
+   it unless the user reports something wrong with the rendering. When they
+   do, open the project, jump to the point they describe (the end is
+   `button[title^="End"]`), and look for lines crossing boxes, labels
+   overlapping each other or panel titles, and tables overflowing their
    panels. Fix by moving components, then by moving labels with the link's
    `labelAt` (0 = from, 1 = to). Delete the screenshots afterwards.
 
