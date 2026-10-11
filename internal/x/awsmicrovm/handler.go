@@ -1,3 +1,10 @@
+// Package awsmicrovm holds the in-VM side of AWS Lambda MicroVMs: a server
+// for the lifecycle hooks Lambda calls on the application, and the managed
+// proxy's auth header. It models the service and nothing about how any
+// particular application uses it: no tasks, sandboxes, or staging semantics.
+// The run-hook payload is passed through verbatim; its meaning is the caller's
+// business. The control plane is the official SDK,
+// github.com/aws/aws-sdk-go-v2/service/lambdamicrovms.
 package awsmicrovm
 
 import (

@@ -3,10 +3,11 @@ package lambdamicrovm
 import (
 	"context"
 	"fmt"
-	"sort"
-	"strconv"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms/types"
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 )
 
@@ -15,21 +16,25 @@ import (
 type fakeCloud struct {
 	mu      sync.Mutex
 	next    int
-	vms     map[string]*awsmicrovm.Microvm
-	lastRun *awsmicrovm.RunMicrovmInput
+	vms     map[string]*lambdamicrovms.GetMicrovmOutput
+	lastRun *lambdamicrovms.RunMicrovmInput
 
-	runErr   error
-	listErr  error // if set, ListMicrovms returns it
-	pageSize int   // >0 paginates ListMicrovms (NextToken is the start index)
+	runErr error
 
 	suspended []string // ids passed to SuspendMicrovm, in order
 	resumed   []string // ids passed to ResumeMicrovm, in order
-	tokens    []string // ids passed to CreateMicrovmAuthToken, in order
+	tokens    []*lambdamicrovms.CreateMicrovmAuthTokenInput
 }
 
-func newFakeCloud() *fakeCloud { return &fakeCloud{vms: map[string]*awsmicrovm.Microvm{}} }
+func newFakeCloud() *fakeCloud {
+	return &fakeCloud{vms: map[string]*lambdamicrovms.GetMicrovmOutput{}}
+}
 
-func (f *fakeCloud) RunMicrovm(_ context.Context, in *awsmicrovm.RunMicrovmInput) (*awsmicrovm.RunMicrovmOutput, error) {
+func notFound(id string) error {
+	return &types.ResourceNotFoundException{Message: aws.String("microvm " + id + " not found")}
+}
+
+func (f *fakeCloud) RunMicrovm(_ context.Context, in *lambdamicrovms.RunMicrovmInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.RunMicrovmOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.runErr != nil {
@@ -39,113 +44,84 @@ func (f *fakeCloud) RunMicrovm(_ context.Context, in *awsmicrovm.RunMicrovmInput
 	f.next++
 	id := fmt.Sprintf("mvm-%d", f.next)
 	endpoint := id + ".example.com"
-	// run-microvm does not tag the VM (the service has no tags input and a running
-	// MicroVM is not taggable); ownership for the Watch tests is set via add().
-	f.vms[id] = &awsmicrovm.Microvm{MicrovmID: id, State: awsmicrovm.MicrovmStateRunning, Endpoint: endpoint}
-	return &awsmicrovm.RunMicrovmOutput{MicrovmID: id, Endpoint: endpoint}, nil
+	f.vms[id] = &lambdamicrovms.GetMicrovmOutput{MicrovmId: aws.String(id), State: types.MicrovmStateRunning, Endpoint: aws.String(endpoint)}
+	return &lambdamicrovms.RunMicrovmOutput{MicrovmId: aws.String(id), State: types.MicrovmStatePending, Endpoint: aws.String(endpoint)}, nil
 }
 
-func (f *fakeCloud) GetMicrovm(_ context.Context, in *awsmicrovm.GetMicrovmInput) (*awsmicrovm.GetMicrovmOutput, error) {
+func (f *fakeCloud) GetMicrovm(_ context.Context, in *lambdamicrovms.GetMicrovmInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.GetMicrovmOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	vm, ok := f.vms[in.MicrovmID]
+	id := aws.ToString(in.MicrovmIdentifier)
+	vm, ok := f.vms[id]
 	if !ok {
-		return nil, &awsmicrovm.APIError{Op: "GetMicrovm", StatusCode: 404}
+		return nil, notFound(id)
 	}
-	return &awsmicrovm.GetMicrovmOutput{Microvm: *vm}, nil
+	out := *vm
+	return &out, nil
 }
 
-func (f *fakeCloud) TerminateMicrovm(_ context.Context, in *awsmicrovm.TerminateMicrovmInput) (*awsmicrovm.TerminateMicrovmOutput, error) {
+func (f *fakeCloud) TerminateMicrovm(_ context.Context, in *lambdamicrovms.TerminateMicrovmInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.TerminateMicrovmOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if vm, ok := f.vms[in.MicrovmID]; ok {
-		vm.State = awsmicrovm.MicrovmStateTerminated
+	if vm, ok := f.vms[aws.ToString(in.MicrovmIdentifier)]; ok {
+		vm.State = types.MicrovmStateTerminated
 	}
-	return &awsmicrovm.TerminateMicrovmOutput{}, nil
+	return &lambdamicrovms.TerminateMicrovmOutput{}, nil
 }
 
-func (f *fakeCloud) SuspendMicrovm(_ context.Context, in *awsmicrovm.SuspendMicrovmInput) (*awsmicrovm.SuspendMicrovmOutput, error) {
+func (f *fakeCloud) SuspendMicrovm(_ context.Context, in *lambdamicrovms.SuspendMicrovmInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.SuspendMicrovmOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.suspended = append(f.suspended, in.MicrovmID)
-	if vm, ok := f.vms[in.MicrovmID]; ok {
-		vm.State = awsmicrovm.MicrovmStateSuspended
+	id := aws.ToString(in.MicrovmIdentifier)
+	f.suspended = append(f.suspended, id)
+	if vm, ok := f.vms[id]; ok {
+		vm.State = types.MicrovmStateSuspended
 	}
-	return &awsmicrovm.SuspendMicrovmOutput{}, nil
+	return &lambdamicrovms.SuspendMicrovmOutput{}, nil
 }
 
-func (f *fakeCloud) ResumeMicrovm(_ context.Context, in *awsmicrovm.ResumeMicrovmInput) (*awsmicrovm.ResumeMicrovmOutput, error) {
+func (f *fakeCloud) ResumeMicrovm(_ context.Context, in *lambdamicrovms.ResumeMicrovmInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.ResumeMicrovmOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.resumed = append(f.resumed, in.MicrovmID)
-	if vm, ok := f.vms[in.MicrovmID]; ok {
-		vm.State = awsmicrovm.MicrovmStateRunning
+	id := aws.ToString(in.MicrovmIdentifier)
+	f.resumed = append(f.resumed, id)
+	if vm, ok := f.vms[id]; ok {
+		vm.State = types.MicrovmStateRunning
 	}
-	return &awsmicrovm.ResumeMicrovmOutput{}, nil
+	return &lambdamicrovms.ResumeMicrovmOutput{}, nil
 }
 
-func (f *fakeCloud) CreateMicrovmAuthToken(_ context.Context, in *awsmicrovm.CreateMicrovmAuthTokenInput) (*awsmicrovm.CreateMicrovmAuthTokenOutput, error) {
+func (f *fakeCloud) CreateMicrovmAuthToken(_ context.Context, in *lambdamicrovms.CreateMicrovmAuthTokenInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.CreateMicrovmAuthTokenOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.tokens = append(f.tokens, in.MicrovmID)
-	return &awsmicrovm.CreateMicrovmAuthTokenOutput{Token: "token-" + in.MicrovmID}, nil
-}
-
-func (f *fakeCloud) ListMicrovms(_ context.Context, in *awsmicrovm.ListMicrovmsInput) (*awsmicrovm.ListMicrovmsOutput, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.listErr != nil {
-		return nil, f.listErr
-	}
-	// Stable order so NextToken (a start index) paginates deterministically.
-	ids := make([]string, 0, len(f.vms))
-	for id := range f.vms {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	start := 0
-	if in != nil && in.NextToken != "" {
-		start, _ = strconv.Atoi(in.NextToken)
-	}
-	size := f.pageSize
-	if size <= 0 {
-		size = len(ids)
-	}
-	end := start + size
-	if end > len(ids) {
-		end = len(ids)
-	}
-	out := &awsmicrovm.ListMicrovmsOutput{}
-	for _, id := range ids[start:end] {
-		out.Microvms = append(out.Microvms, *f.vms[id])
-	}
-	if end < len(ids) {
-		out.NextToken = strconv.Itoa(end)
-	}
-	return out, nil
+	f.tokens = append(f.tokens, in)
+	return &lambdamicrovms.CreateMicrovmAuthTokenOutput{
+		AuthToken: map[string]string{awsmicrovm.ProxyAuthHeader: "token-" + aws.ToString(in.MicrovmIdentifier)},
+	}, nil
 }
 
 // add registers a VM with explicit id/state/endpoint.
-func (f *fakeCloud) add(id string, state awsmicrovm.MicrovmState, endpoint string) {
+func (f *fakeCloud) add(id string, state types.MicrovmState, endpoint string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.vms[id] = &awsmicrovm.Microvm{
-		MicrovmID: id,
+	f.vms[id] = &lambdamicrovms.GetMicrovmOutput{
+		MicrovmId: aws.String(id),
 		State:     state,
-		Endpoint:  endpoint,
+		Endpoint:  aws.String(endpoint),
 	}
 }
 
-func (f *fakeCloud) setState(id string, s awsmicrovm.MicrovmState) {
+// setState moves a VM to state s, with the service's reason for it.
+func (f *fakeCloud) setState(id string, s types.MicrovmState, reason string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if vm, ok := f.vms[id]; ok {
 		vm.State = s
+		vm.StateReason = aws.String(reason)
 	}
 }
 
-func (f *fakeCloud) state(id string) awsmicrovm.MicrovmState {
+func (f *fakeCloud) state(id string) types.MicrovmState {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if vm, ok := f.vms[id]; ok {

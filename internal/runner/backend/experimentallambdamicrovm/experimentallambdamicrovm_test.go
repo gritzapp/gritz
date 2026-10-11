@@ -11,6 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms/types"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -173,18 +177,21 @@ func TestLaunch_Fresh(t *testing.T) {
 	assert.DeepEqual(t, d, handleData{Endpoint: te.cloud.endpoint, Version: 1})
 	// The VM is run with no run-hook payload and the default ingress
 	// connector, and suspended once its run has finished.
-	assert.DeepEqual(t, te.cloud.lastRun, &awsmicrovm.RunMicrovmInput{
-		ImageIdentifier:          "arn:aws:lambda:us-east-1:123:microvm-image/x",
-		ExecutionRoleArn:         "arn:aws:iam::123:role/x",
+	// Each launch carries its own client token, so a retry cannot run a
+	// second VM.
+	assert.Assert(t, aws.ToString(te.cloud.lastRun.ClientToken) != "")
+	assert.DeepEqual(t, te.cloud.lastRun, &lambdamicrovms.RunMicrovmInput{
+		ImageIdentifier:          aws.String("arn:aws:lambda:us-east-1:123:microvm-image/x"),
+		ExecutionRoleArn:         aws.String("arn:aws:iam::123:role/x"),
 		EgressNetworkConnectors:  []string{"arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:INTERNET_EGRESS"},
 		IngressNetworkConnectors: []string{"arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS"},
-		MaximumDurationInSeconds: defaultMaxDuration,
-	})
+		MaximumDurationInSeconds: aws.Int32(defaultMaxDuration),
+	}, cmpopts.IgnoreUnexported(lambdamicrovms.RunMicrovmInput{}), cmpopts.IgnoreFields(lambdamicrovms.RunMicrovmInput{}, "ClientToken"))
 	suspended, resumed, terminated := te.cloud.calls()
 	assert.DeepEqual(t, suspended, []string{"mvm-1"})
 	assert.Assert(t, cmp.Len(resumed, 0))
 	assert.Assert(t, cmp.Len(terminated, 0))
-	assert.Equal(t, te.cloud.state("mvm-1"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateSuspended)
 }
 
 // Every request reaches the driver with a proxy token scoped to the driver
@@ -196,17 +203,17 @@ func TestLaunch_ProxyToken(t *testing.T) {
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, te.tokens(), []string{"token-mvm-1"})
-	assert.DeepEqual(t, te.cloud.mints(), []*awsmicrovm.CreateMicrovmAuthTokenInput{{
-		MicrovmID:         "mvm-1",
-		ExpirationMinutes: 60,
-		AllowedPorts:      []awsmicrovm.AllowedPort{{Port: DriverPort}},
-	}})
+	assert.DeepEqual(t, te.cloud.mints(), []*lambdamicrovms.CreateMicrovmAuthTokenInput{{
+		MicrovmIdentifier:   aws.String("mvm-1"),
+		ExpirationInMinutes: aws.Int32(60),
+		AllowedPorts:        []types.PortSpecification{&types.PortSpecificationMemberPort{Value: DriverPort}},
+	}}, cmpopts.IgnoreUnexported(lambdamicrovms.CreateMicrovmAuthTokenInput{}, types.PortSpecificationMemberPort{}))
 }
 
 // A suspended VM is resumed and the next run started on it.
 func TestLaunch_Resume(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateSuspended)
+	te.cloud.add("mvm-9", types.MicrovmStateSuspended, "")
 	reuse := handle("mvm-9", 1, te.cloud.endpoint)
 
 	h, err := te.be.Launch(t.Context(), testSpec(2), &reuse)
@@ -222,22 +229,23 @@ func TestLaunch_Resume(t *testing.T) {
 	suspended, resumed, _ := te.cloud.calls()
 	assert.DeepEqual(t, resumed, []string{"mvm-9"})
 	assert.DeepEqual(t, suspended, []string{"mvm-9"})
-	assert.Equal(t, te.cloud.state("mvm-9"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, te.cloud.state("mvm-9"), types.MicrovmStateSuspended)
 }
 
 func TestLaunch_ReuseStates(t *testing.T) {
 	tests := []struct {
 		name    string
-		state   awsmicrovm.MicrovmState // "" for a VM that is not found
+		state   types.MicrovmState // "" for a VM that is not found
+		reason  string
 		foreign bool
 		err     error
 		errMsg  string
 	}{
-		{name: "suspending", state: awsmicrovm.MicrovmStateSuspending, errMsg: "still suspending"},
-		{name: "terminating", state: awsmicrovm.MicrovmStateTerminating, err: backend.ErrGone},
-		{name: "terminated", state: awsmicrovm.MicrovmStateTerminated, err: backend.ErrGone},
+		{name: "suspending", state: types.MicrovmStateSuspending, errMsg: "still suspending"},
+		{name: "terminating", state: types.MicrovmStateTerminating, err: backend.ErrGone},
+		{name: "terminated", state: types.MicrovmStateTerminated, reason: "maximum duration reached", err: backend.ErrGone, errMsg: "TERMINATED (maximum duration reached)"},
 		{name: "not found", err: backend.ErrGone},
-		{name: "foreign", state: awsmicrovm.MicrovmStateSuspended, foreign: true, err: backend.ErrGone},
+		{name: "foreign", state: types.MicrovmStateSuspended, foreign: true, err: backend.ErrGone},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -245,7 +253,7 @@ func TestLaunch_ReuseStates(t *testing.T) {
 			be, err := New(Options{Cloud: cloud})
 			assert.NilError(t, err)
 			if tt.state != "" {
-				cloud.add("mvm-9", tt.state)
+				cloud.add("mvm-9", tt.state, tt.reason)
 			}
 			reuse := handle("mvm-9", 1, "vm.example.com")
 			if tt.foreign {
@@ -257,8 +265,10 @@ func TestLaunch_ReuseStates(t *testing.T) {
 			if tt.err != nil {
 				assert.ErrorIs(t, err, tt.err)
 			} else {
-				assert.ErrorContains(t, err, tt.errMsg)
 				assert.Assert(t, !errors.Is(err, backend.ErrGone))
+			}
+			if tt.errMsg != "" {
+				assert.ErrorContains(t, err, tt.errMsg)
 			}
 			// Nothing is resumed, run, suspended or terminated.
 			suspended, resumed, terminated := cloud.calls()
@@ -282,7 +292,7 @@ func TestLaunch_FreshFailureTerminates(t *testing.T) {
 	suspended, _, terminated := te.cloud.calls()
 	assert.DeepEqual(t, terminated, []string{"mvm-1"})
 	assert.Assert(t, cmp.Len(suspended, 0))
-	assert.Equal(t, te.cloud.state("mvm-1"), awsmicrovm.MicrovmStateTerminated)
+	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateTerminated)
 }
 
 // A reuse Launch that fails after resuming the VM suspends it but keeps it:
@@ -290,7 +300,7 @@ func TestLaunch_FreshFailureTerminates(t *testing.T) {
 func TestLaunch_ResumeFailureSuspends(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{Down: true})
 	te.be.readyTimeout = 100 * time.Millisecond
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateSuspended)
+	te.cloud.add("mvm-9", types.MicrovmStateSuspended, "")
 	reuse := handle("mvm-9", 1, te.cloud.endpoint)
 
 	_, err := te.be.Launch(t.Context(), testSpec(2), &reuse)
@@ -307,19 +317,19 @@ func TestLaunch_ResumeFailureSuspends(t *testing.T) {
 
 func TestProbe(t *testing.T) {
 	tests := []struct {
-		state   awsmicrovm.MicrovmState // "" for a VM that is not found
+		state   types.MicrovmState // "" for a VM that is not found
 		foreign bool
 		want    backend.State
 	}{
-		{state: awsmicrovm.MicrovmStatePending, want: backend.StateRunning},
-		{state: awsmicrovm.MicrovmStateRunning, want: backend.StateRunning},
+		{state: types.MicrovmStatePending, want: backend.StateRunning},
+		{state: types.MicrovmStateRunning, want: backend.StateRunning},
 		// A VM still suspending after its run is not launched on (#1684).
-		{state: awsmicrovm.MicrovmStateSuspending, want: backend.StateRunning},
-		{state: awsmicrovm.MicrovmStateSuspended, want: backend.StateExited},
-		{state: awsmicrovm.MicrovmStateTerminating, want: backend.StateGone},
-		{state: awsmicrovm.MicrovmStateTerminated, want: backend.StateGone},
+		{state: types.MicrovmStateSuspending, want: backend.StateRunning},
+		{state: types.MicrovmStateSuspended, want: backend.StateExited},
+		{state: types.MicrovmStateTerminating, want: backend.StateGone},
+		{state: types.MicrovmStateTerminated, want: backend.StateGone},
 		{state: "", want: backend.StateGone},
-		{state: awsmicrovm.MicrovmStateRunning, foreign: true, want: backend.StateGone},
+		{state: types.MicrovmStateRunning, foreign: true, want: backend.StateGone},
 	}
 	for _, tt := range tests {
 		name := string(tt.state)
@@ -331,7 +341,7 @@ func TestProbe(t *testing.T) {
 			be, err := New(Options{Cloud: cloud})
 			assert.NilError(t, err)
 			if tt.state != "" {
-				cloud.add("mvm-9", tt.state)
+				cloud.add("mvm-9", tt.state, "")
 			}
 			h := handle("mvm-9", 1, "vm.example.com")
 			if tt.foreign {
@@ -360,13 +370,13 @@ func TestSignal(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, stopped)
 	assert.Equal(t, code, backend.ExitCode(0))
-	assert.Equal(t, te.cloud.state("mvm-1"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateSuspended)
 }
 
 // A VM that is not running has no run to stop, and is not dialed.
 func TestSignal_NotRunning(t *testing.T) {
 	te := setup(t, sleepForever, testOptions{})
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateSuspended)
+	te.cloud.add("mvm-9", types.MicrovmStateSuspended, "")
 
 	stopped, err := te.be.Signal(t.Context(), handle("mvm-9", 1, te.cloud.endpoint))
 
@@ -378,7 +388,7 @@ func TestSignal_NotRunning(t *testing.T) {
 // A VM that is suspended before its run's Finished arrived is reported lost.
 func TestWait_SuspendedBeforeFinished(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{Down: true})
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateSuspending)
+	te.cloud.add("mvm-9", types.MicrovmStateSuspending, "")
 
 	code, err := te.be.Wait(t.Context(), handle("mvm-9", 1, te.cloud.endpoint))
 
@@ -386,13 +396,13 @@ func TestWait_SuspendedBeforeFinished(t *testing.T) {
 	assert.Equal(t, code, backend.ExitLost)
 	// Wait lets the suspend complete rather than leave Probe reporting the VM
 	// running.
-	assert.Equal(t, te.cloud.state("mvm-9"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, te.cloud.state("mvm-9"), types.MicrovmStateSuspended)
 }
 
 // A VM that is terminated while its run is going is reported lost.
 func TestWait_Gone(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{Down: true})
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateTerminated)
+	te.cloud.add("mvm-9", types.MicrovmStateTerminated, "")
 
 	code, err := te.be.Wait(t.Context(), handle("mvm-9", 1, te.cloud.endpoint))
 
@@ -405,25 +415,25 @@ func TestWait_Gone(t *testing.T) {
 func TestWait_DriverUnreachableGivesUp(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{Down: true})
 	te.be.lostTimeout = 500 * time.Millisecond
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateRunning)
+	te.cloud.add("mvm-9", types.MicrovmStateRunning, "")
 
 	code, err := te.be.Wait(t.Context(), handle("mvm-9", 1, te.cloud.endpoint))
 
 	assert.NilError(t, err)
 	assert.Equal(t, code, backend.ExitLost)
-	assert.Equal(t, te.cloud.state("mvm-9"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, te.cloud.state("mvm-9"), types.MicrovmStateSuspended)
 }
 
 // A Wait whose driver has no such run reports it lost and suspends the VM.
 func TestWait_NoSuchRun(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	te.cloud.add("mvm-9", awsmicrovm.MicrovmStateRunning)
+	te.cloud.add("mvm-9", types.MicrovmStateRunning, "")
 
 	code, err := te.be.Wait(t.Context(), handle("mvm-9", 1, te.cloud.endpoint))
 
 	assert.NilError(t, err)
 	assert.Equal(t, code, backend.ExitLost)
-	assert.Equal(t, te.cloud.state("mvm-9"), awsmicrovm.MicrovmStateSuspended)
+	assert.Equal(t, te.cloud.state("mvm-9"), types.MicrovmStateSuspended)
 }
 
 // A Wait for a stale version reports it lost but leaves the VM running: a
@@ -439,7 +449,7 @@ func TestWait_StaleVersion(t *testing.T) {
 	assert.Equal(t, code, backend.ExitLost)
 	suspended, _, _ := te.cloud.calls()
 	assert.Assert(t, cmp.Len(suspended, 0))
-	assert.Equal(t, te.cloud.state(h.ID), awsmicrovm.MicrovmStateRunning)
+	assert.Equal(t, te.cloud.state(h.ID), types.MicrovmStateRunning)
 }
 
 func TestWait_Foreign(t *testing.T) {
@@ -457,7 +467,7 @@ func TestDestroy(t *testing.T) {
 	cloud := newFakeCloud("vm.example.com")
 	be, err := New(Options{Cloud: cloud})
 	assert.NilError(t, err)
-	cloud.add("mvm-9", awsmicrovm.MicrovmStateSuspended)
+	cloud.add("mvm-9", types.MicrovmStateSuspended, "")
 
 	assert.NilError(t, be.Destroy(t.Context(), handle("mvm-9", 1, "vm.example.com")))
 	// A missing VM and a foreign handle are not errors.
@@ -466,7 +476,7 @@ func TestDestroy(t *testing.T) {
 
 	_, _, terminated := cloud.calls()
 	assert.DeepEqual(t, terminated, []string{"mvm-9", "mvm-404"})
-	assert.Equal(t, cloud.state("mvm-9"), awsmicrovm.MicrovmStateTerminated)
+	assert.Equal(t, cloud.state("mvm-9"), types.MicrovmStateTerminated)
 }
 
 // A cached token is reused until shortly before it expires, then re-minted.

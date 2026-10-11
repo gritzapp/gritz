@@ -10,7 +10,10 @@ AWS_REGION=us-east-1 gritz runner --backend experimental-lambda-microvm
 ```
 
 The runner resolves AWS credentials and region from the standard SDK chain;
-`--lambda-microvm-region` overrides the region. Handles recorded by any other
+`--lambda-microvm-region` overrides the region. The control plane is reached
+with the official `github.com/aws/aws-sdk-go-v2/service/lambdamicrovms` client,
+so the standard endpoint overrides (`AWS_ENDPOINT_URL`,
+`AWS_ENDPOINT_URL_LAMBDA_MICROVMS`) apply. Handles recorded by any other
 backend are treated as gone, so switch a runner over only once it has no active
 tasks on another backend.
 
