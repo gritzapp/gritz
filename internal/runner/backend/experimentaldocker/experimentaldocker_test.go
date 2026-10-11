@@ -1,6 +1,7 @@
 package experimentaldocker
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/rand/v2"
@@ -52,19 +53,30 @@ func TestNewRunSpec(t *testing.T) {
 	}, protocmp.Transform())
 }
 
+func TestValidateWorkspace(t *testing.T) {
+	be := &Backend{}
+	for _, mode := range []string{"", "bridge", "gritz-net"} {
+		t.Run("accepts "+cmp.Or(mode, "default"), func(t *testing.T) {
+			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
+			assert.NilError(t, be.ValidateWorkspace(ws))
+		})
+	}
+	// The runner reaches the driver server at the container's own IP, which
+	// these modes do not give it.
+	for _, mode := range []string{"host", "none", "container:abc"} {
+		t.Run("rejects "+mode, func(t *testing.T) {
+			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
+			assert.ErrorContains(t, be.ValidateWorkspace(ws), "not supported by the experimental docker backend")
+		})
+	}
+}
+
 func TestDriverAddr(t *testing.T) {
 	tests := []struct {
 		name string
 		info container.InspectResponse
 		want string
 	}{
-		{
-			name: "label",
-			info: container.InspectResponse{
-				Config: &container.Config{Labels: map[string]string{driverAddrLabel: "127.0.0.1:4321"}},
-			},
-			want: "127.0.0.1:4321",
-		},
 		{
 			name: "first network by name",
 			info: container.InspectResponse{
