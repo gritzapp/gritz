@@ -180,7 +180,7 @@ func (a *ClaudeAgent) handleStreamEvent(data []byte) bool {
 			}
 			a.log.Warn("api_retry",
 				"status", status,
-				"error", event.Error,
+				"err", event.Error,
 				"attempt", event.Attempt,
 				"max_retries", event.MaxRetries,
 				"retry_delay_ms", event.RetryDelayMS)
