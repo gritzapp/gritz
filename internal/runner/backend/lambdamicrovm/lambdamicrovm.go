@@ -1,16 +1,14 @@
-// Package experimentallambdamicrovm implements the runner backend on AWS
-// Lambda MicroVMs with the driver server (`gritz driver --serve
-// --aws-lambda-hooks`) as each VM's main process, starting each run over the
-// driver.v1 protocol through AWS's managed proxy. It is the Lambda counterpart
-// of experimentaldocker, and like it is phase A of
-// proposals/draft/driver-server.md: it implements backend.Backend, the driver
-// still reports to the gritz server itself, and the VM is suspended after
-// every run.
+// Package lambdamicrovm implements the runner backend on AWS Lambda MicroVMs
+// with the driver server (`gritz driver --serve --aws-lambda-hooks`) as each
+// VM's main process, starting each run over the driver.v1 protocol through
+// AWS's managed proxy. It is the Lambda counterpart of the docker backend: the
+// driver still reports to the gritz server itself, and the VM is suspended
+// after every run.
 //
-// It shares no code with the experimentaldocker package on purpose. Agent
-// files arrive in the RunSpec, so nothing is staged in S3. See README.md for
-// building the VM image.
-package experimentallambdamicrovm
+// It shares no code with the docker package on purpose. Agent files arrive in
+// the RunSpec, so nothing is staged in S3. See README.md for building the VM
+// image.
+package lambdamicrovm
 
 import (
 	"cmp"
@@ -39,7 +37,7 @@ import (
 
 // HandleType is the backend.Handle.Type this backend stamps on the handles it
 // produces.
-const HandleType = "experimental-lambda-microvm"
+const HandleType = "lambda-microvm"
 
 // DriverPort is the port `gritz driver --serve` listens on inside the VM, and
 // the only port the proxy tokens this backend mints may reach.
@@ -121,7 +119,7 @@ type Options struct {
 
 func New(opts Options) (*Backend, error) {
 	if opts.Cloud == nil {
-		return nil, errors.New("experimentallambdamicrovm: Cloud is required")
+		return nil, errors.New("lambdamicrovm: Cloud is required")
 	}
 	transport := opts.Transport
 	if transport == nil {
@@ -166,17 +164,16 @@ func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	return nil
 }
 
-// handleData is the backend-defined part of an experimental handle.
+// handleData is the backend-defined part of a handle.
 type handleData struct {
 	Endpoint string `json:"endpoint"`
 	Version  int64  `json:"version"`
 }
 
 // foreign reports whether h was produced by another backend. This backend
-// replaces lambdamicrovm rather than running beside it, so it treats such a
-// handle's sandbox as gone: Launch rejects it with backend.ErrGone, Probe
-// answers StateGone, Wait reports the run lost, and Signal and Destroy leave
-// it alone.
+// treats such a handle's sandbox as gone: Launch rejects it with
+// backend.ErrGone, Probe answers StateGone, Wait reports the run lost, and
+// Signal and Destroy leave it alone.
 func foreign(h backend.Handle) bool {
 	return h.Type != HandleType
 }

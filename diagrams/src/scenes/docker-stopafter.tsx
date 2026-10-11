@@ -1,10 +1,10 @@
 import {makeScene2D} from '@motion-canvas/2d';
 import {all, waitFor} from '@motion-canvas/core';
-import {experimentalDockerLayout} from '../layouts/experimental-docker';
+import {dockerDriverServerLayout} from '../layouts/docker-driver-server';
 import {Colors} from '../theme';
 
-// The stopAfter race in the ExperimentalDocker backend (gritzapp/gritz#1684).
-// Traced from internal/runner/backend/experimentaldocker/experimentaldocker.go
+// The stopAfter race in the Docker backend (gritzapp/gritz#1684).
+// Traced from internal/runner/backend/docker/docker.go
 // (Wait, stopAfter, Probe, Launch), internal/runner/runner.go (Start,
 // supervise) and internal/runner/driverserver/driverserver.go (Shutdown).
 //
@@ -14,13 +14,13 @@ import {Colors} from '../theme';
 // the still-running container and starts v2, and the stale stop then SIGTERMs
 // the driver, whose Shutdown stops v2.
 export default makeScene2D(function* (view) {
-  const a = experimentalDockerLayout(view, 'ExperimentalDocker: stopAfter race');
+  const a = dockerDriverServerLayout(view, 'Docker: stopAfter race');
   const {links} = a;
 
   // Run v1 is in flight: the container is up and supervise's Wait is attached.
   a.memory.putRow('sem', '1 / 4');
   a.taskstate.putRow('42.json', '');
-  a.taskstate.putRow('  type', 'experimental-docker');
+  a.taskstate.putRow('  type', 'docker');
   a.taskstate.putRow('  id', 'c0ffee12');
   a.taskstate.putRow('  version', '1');
   a.container.subtitle('gritz-42 · running');

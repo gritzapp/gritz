@@ -4,11 +4,11 @@ import {Link, Panel, Service, StateTable} from '../components';
 import {Colors} from '../theme';
 import {Scaffold, linker, scaffold} from './common';
 
-// ExperimentalDockerLayout is phase A of proposals/draft/driver-server.md: the
-// container runs `gritz driver --serve`, the ExperimentalDocker backend speaks
-// the driver protocol behind today's backend.Backend interface, and the driver
-// still talks to the server directly.
-export interface ExperimentalDockerLayout extends Scaffold {
+// DockerDriverServerLayout is the Docker backend of
+// proposals/draft/driver-server.md: the container runs `gritz driver --serve`,
+// the backend speaks the driver protocol behind today's backend.Backend
+// interface, and the driver still talks to the server directly.
+export interface DockerDriverServerLayout extends Scaffold {
   server: Panel;
   api: Service;
 
@@ -35,10 +35,10 @@ export interface ExperimentalDockerLayout extends Scaffold {
   };
 }
 
-export function experimentalDockerLayout(
+export function dockerDriverServerLayout(
   view: View2D,
   title: string,
-): ExperimentalDockerLayout {
+): DockerDriverServerLayout {
   const frame = scaffold(view, title);
   const server = createRef<Panel>();
   const api = createRef<Service>();
@@ -122,7 +122,7 @@ export function experimentalDockerLayout(
         />
         <Service
           ref={backend}
-          name={'ExperimentalDocker'}
+          name={'Docker'}
           role={'backend.Backend'}
           accent={Colors.runner}
           width={320}

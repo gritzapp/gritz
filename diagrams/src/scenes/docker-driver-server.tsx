@@ -1,17 +1,17 @@
 import {makeScene2D} from '@motion-canvas/2d';
 import {all, waitFor} from '@motion-canvas/core';
-import {experimentalDockerLayout} from '../layouts/experimental-docker';
+import {dockerDriverServerLayout} from '../layouts/docker-driver-server';
 import {Colors} from '../theme';
 
-// Phase A of proposals/draft/driver-server.md: the first start of a task on
-// the opt-in ExperimentalDocker backend. The container runs `gritz driver
+// proposals/draft/driver-server.md: the first start of a task on the Docker
+// backend. The container runs `gritz driver
 // --serve`; the backend speaks the driver protocol behind today's
 // backend.Backend interface (Launch, Wait, Probe, Signal, Destroy), so
 // runner.go only sets Spec.Version. The driver still reports to the server
 // directly, a dropped Run stream is reattached, and Wait stops the container
 // after Finished so it is stopped between runs as today.
 export default makeScene2D(function* (view) {
-  const a = experimentalDockerLayout(view, 'ExperimentalDocker (phase A)');
+  const a = dockerDriverServerLayout(view, 'Docker backend');
   const {links} = a;
 
   a.memory.putRow('sem', '0 / 4');
@@ -108,7 +108,7 @@ export default makeScene2D(function* (view) {
   yield* links.runnerBackend.send('handle', {back: true, color: Colors.runner});
   yield* a.taskstate.addRow('42.json', '');
   yield* all(
-    a.taskstate.addRow('  type', 'experimental-docker'),
+    a.taskstate.addRow('  type', 'docker'),
     a.taskstate.addRow('  id', 'c0ffee12'),
     a.taskstate.addRow('  version', '1'),
   );

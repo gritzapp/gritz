@@ -1,19 +1,18 @@
 import {makeScene2D} from '@motion-canvas/2d';
 import {all, waitFor} from '@motion-canvas/core';
-import {experimentalDockerLayout} from '../layouts/experimental-docker';
+import {dockerDriverServerLayout} from '../layouts/docker-driver-server';
 import {Colors} from '../theme';
 
-// A Launch that fails after ContainerCreate in the ExperimentalDocker backend
-// (gritzapp/gritz#1685). Traced from
-// internal/runner/backend/experimentaldocker/experimentaldocker.go (Launch,
-// create, waitReady) and internal/runner/runner.go (Poll's start handler,
+// A Launch that fails after ContainerCreate in the Docker backend
+// (gritzapp/gritz#1685). Traced from internal/runner/backend/docker/docker.go
+// (Launch, create, waitReady) and internal/runner/runner.go (Poll's start handler,
 // Start).
 //
 // Launch returns an empty handle with every error, so when waitReady times
 // out the runner records nothing. The container is left running, and the next
 // start has no handle to reuse: create collides with the existing gritz-42.
 export default makeScene2D(function* (view) {
-  const a = experimentalDockerLayout(view, 'ExperimentalDocker: Launch leaks the container');
+  const a = dockerDriverServerLayout(view, 'Docker: Launch leaks the container');
   const {links} = a;
 
   a.memory.putRow('sem', '0 / 4');

@@ -1,4 +1,4 @@
-package experimentallambdamicrovm
+package lambdamicrovm
 
 import (
 	"context"
@@ -257,7 +257,7 @@ func TestLaunch_ReuseStates(t *testing.T) {
 			}
 			reuse := handle("mvm-9", 1, "vm.example.com")
 			if tt.foreign {
-				reuse.Type = "lambda-microvm"
+				reuse.Type = "experimental-lambda-microvm"
 			}
 
 			_, err = be.Launch(t.Context(), testSpec(2), &reuse)
@@ -345,7 +345,7 @@ func TestProbe(t *testing.T) {
 			}
 			h := handle("mvm-9", 1, "vm.example.com")
 			if tt.foreign {
-				h.Type = "lambda-microvm"
+				h.Type = "experimental-lambda-microvm"
 			}
 
 			st, err := be.Probe(t.Context(), h)
@@ -457,7 +457,7 @@ func TestWait_Foreign(t *testing.T) {
 	be, err := New(Options{Cloud: cloud})
 	assert.NilError(t, err)
 
-	code, err := be.Wait(t.Context(), backend.Handle{Type: "lambda-microvm", ID: "mvm-9"})
+	code, err := be.Wait(t.Context(), backend.Handle{Type: "experimental-lambda-microvm", ID: "mvm-9"})
 
 	assert.NilError(t, err)
 	assert.Equal(t, code, backend.ExitLost)
@@ -472,7 +472,7 @@ func TestDestroy(t *testing.T) {
 	assert.NilError(t, be.Destroy(t.Context(), handle("mvm-9", 1, "vm.example.com")))
 	// A missing VM and a foreign handle are not errors.
 	assert.NilError(t, be.Destroy(t.Context(), handle("mvm-404", 1, "vm.example.com")))
-	assert.NilError(t, be.Destroy(t.Context(), backend.Handle{Type: "lambda-microvm", ID: "mvm-7"}))
+	assert.NilError(t, be.Destroy(t.Context(), backend.Handle{Type: "experimental-lambda-microvm", ID: "mvm-7"}))
 
 	_, _, terminated := cloud.calls()
 	assert.DeepEqual(t, terminated, []string{"mvm-9", "mvm-404"})
