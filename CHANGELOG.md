@@ -1,5 +1,28 @@
 # Changelog
 
+## [3.12.0](https://github.com/gritzapp/gritz/compare/v3.11.0...v3.12.0) (2026-10-11)
+
+
+### Features
+
+* **runner:** tunnel experimental docker driver connections through docker exec ([b2bc19b](https://github.com/gritzapp/gritz/commit/b2bc19b06117fb92f5ddfbccee78094e6d5124be)), closes [#1697](https://github.com/gritzapp/gritz/issues/1697)
+
+
+### Bug Fixes
+
+* **runner:** bound experimental docker Wait retries ([3e9f436](https://github.com/gritzapp/gritz/commit/3e9f436f0415b3e80543a382eb5b205eee21c092)), closes [#1687](https://github.com/gritzapp/gritz/issues/1687)
+* **runner:** clean up after a failed experimental docker Launch ([1ccdc9b](https://github.com/gritzapp/gritz/commit/1ccdc9ba1199fc6b2d1f0e22dd76a38413c2db89)), closes [#1685](https://github.com/gritzapp/gritz/issues/1685)
+* **runner:** reject network_mode host in the experimental docker backend ([90cc114](https://github.com/gritzapp/gritz/commit/90cc114853ace123a38aac1f9dd5a9e09662863f)), closes [#1688](https://github.com/gritzapp/gritz/issues/1688)
+* **runner:** report a running experimental docker container as running ([a32e320](https://github.com/gritzapp/gritz/commit/a32e3208d4c8b8408dd6f4eaa0a2b62b9419b663)), closes [#1684](https://github.com/gritzapp/gritz/issues/1684)
+
+
+### Miscellaneous
+
+* add motion canvas diagrams of two experimentaldocker bugs ([5e6e276](https://github.com/gritzapp/gritz/commit/5e6e276d2834b33d36cf8b3cfa2cf8945263f860))
+* only verify motion canvas diagrams with playwright when asked ([a630f3d](https://github.com/gritzapp/gritz/commit/a630f3d164b7feb1afa4136d064c741afe1608ad))
+* **runner:** drop driverclient's driverserver import ([b983a2e](https://github.com/gritzapp/gritz/commit/b983a2eca2b828afba2de570676aa36c306f9a1d))
+* **runner:** move tool proxy logic into internal/x/stdioproxy ([d89cdba](https://github.com/gritzapp/gritz/commit/d89cdba1eb83313bc6d39e77632b11c66f9a9bba))
+
 ## [3.11.0](https://github.com/gritzapp/gritz/compare/v3.10.0...v3.11.0) (2026-10-11)
 
 
