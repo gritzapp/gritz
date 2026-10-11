@@ -23,7 +23,7 @@ type Driver struct {
 	// Log bundles the driver's structured logger with the append-only
 	// /gritz/log sink it tees setup command and Claude CLI output into (see
 	// proposals/implemented/driver-logs-to-sandbox.md). It is required: the
-	// command builds it via agent.OpenDriverLog, and tests use
+	// driver server builds it via agent.OpenDriverLog, and tests use
 	// agent.DiscardDriverLog. os.Stdout/os.Stderr stay in every tee, so docker
 	// logs output is unchanged.
 	Log    *DriverLog
