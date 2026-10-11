@@ -23,6 +23,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	dockerbackend "github.com/gritzapp/gritz/internal/runner/backend/docker"
+	"github.com/gritzapp/gritz/internal/runner/backend/experimentaldocker"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
@@ -52,8 +53,8 @@ var dockerBackends = map[string]func() (backend.Backend, error){
 	dockerbackend.HandleType: func() (backend.Backend, error) {
 		return dockerbackend.New(dockerbackend.Options{RunnerID: "test-runner"})
 	},
-	dockerbackend.ExperimentalHandleType: func() (backend.Backend, error) {
-		return dockerbackend.NewExperimental(dockerbackend.Options{RunnerID: "test-runner"})
+	experimentaldocker.HandleType: func() (backend.Backend, error) {
+		return experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
 	},
 }
 
@@ -249,7 +250,7 @@ func TestRunnerStart(t *testing.T) {
 // the experimental Docker backend restarts the container the first run left
 // stopped and starts the new version's run on its driver server.
 func TestRunnerStart_ExperimentalFollowUp(t *testing.T) {
-	be, err := dockerbackend.NewExperimental(dockerbackend.Options{RunnerID: "test-runner"})
+	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	task := &model.Task{ID: 2, Name: "follow-up", Runner: "test-runner", Workspace: "test", Version: 1}
 	e := newDockerE2E(t, be, &workspace.DummyConfig{Sleep: 1}, task)
@@ -284,7 +285,7 @@ func TestRunnerStart_ExperimentalFollowUp(t *testing.T) {
 // backend stops the run through the driver server, which reports it stopped,
 // and the container is then stopped.
 func TestRunnerSignal_Experimental(t *testing.T) {
-	be, err := dockerbackend.NewExperimental(dockerbackend.Options{RunnerID: "test-runner"})
+	be, err := experimentaldocker.New(experimentaldocker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	task := &model.Task{ID: 3, Name: "stop", Runner: "test-runner", Workspace: "test", Version: 1}
 	e := newDockerE2E(t, be, &workspace.DummyConfig{Sleep: -1}, task)

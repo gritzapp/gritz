@@ -1,11 +1,25 @@
-package docker
+// Package experimentaldocker implements the runner backend on the local Docker
+// daemon with the driver server (`gritz driver --serve`) as each container's
+// main process, starting each run over the driver.v1 protocol. This is phase A
+// of proposals/draft/driver-server.md: it implements the same backend.Backend
+// as the docker package, the driver still reports to the gritz server itself,
+// and the container is stopped after every run.
+//
+// It shares no code with the docker package on purpose: that backend is
+// removed in phase E, and the two evolve independently until then.
+// Containers are named gritz-{task-id} and labelled with the owning runner, as
+// the docker package's are.
+package experimentaldocker
 
 import (
+	"archive/tar"
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net"
 	"net/http"
@@ -17,15 +31,19 @@ import (
 	"connectrpc.com/connect"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/client"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/prebuilt"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/x/dockerx"
 )
 
-// ExperimentalHandleType is the backend.Handle.Type the experimental Docker
-// backend stamps on the handles it produces.
-const ExperimentalHandleType = "experimental-docker"
+// HandleType is the backend.Handle.Type this backend stamps on the handles it
+// produces.
+const HandleType = "experimental-docker"
 
 // DriverPort is the port `gritz driver --serve` listens on inside a container
 // with its own network namespace.
@@ -44,28 +62,53 @@ const (
 	driverRetryInterval = 250 * time.Millisecond
 )
 
-// Experimental runs task sandboxes as containers whose main process is the
-// driver server (`gritz driver --serve`), and starts each run over the
-// driver.v1 protocol. This is phase A of proposals/draft/driver-server.md: it
-// implements the same backend.Backend as Backend, the driver still reports to
-// the gritz server itself, and the container is stopped after every run.
+// Backend runs task sandboxes as containers on the local Docker daemon whose
+// main process is the driver server.
 //
 // A handle's Data carries the version of the run Launch started, which Wait,
 // Probe and Signal address the driver with.
-type Experimental struct {
-	*Backend
-	http *http.Client
+type Backend struct {
+	docker   *client.Client
+	http     *http.Client
+	runnerID string
+	log      *slog.Logger
 }
 
-var _ backend.Backend = (*Experimental)(nil)
+var _ backend.Backend = (*Backend)(nil)
 
-// NewExperimental returns an experimental Docker backend.
-func NewExperimental(opts Options) (*Experimental, error) {
-	b, err := New(opts)
+type Options struct {
+	RunnerID string
+	Log      *slog.Logger
+}
+
+func New(opts Options) (*Backend, error) {
+	docker, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
-	return &Experimental{Backend: b, http: &http.Client{}}, nil
+	return &Backend{
+		docker:   docker,
+		http:     &http.Client{},
+		runnerID: opts.RunnerID,
+		log:      cmp.Or(opts.Log, slog.Default()),
+	}, nil
+}
+
+func (b *Backend) Close() error {
+	return b.docker.Close()
+}
+
+// ValidateWorkspace reports whether the workspace's container config is usable:
+// it needs an image, and a network the runner can reach the driver server on.
+func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
+	if err := ws.Container.Validate(); err != nil {
+		return err
+	}
+	mode := container.NetworkMode(ws.Container.NetworkMode)
+	if mode.IsNone() || mode.IsContainer() {
+		return fmt.Errorf("network_mode %q is not supported: the runner must reach the driver server", ws.Container.NetworkMode)
+	}
+	return nil
 }
 
 // handleData is the backend-defined part of an experimental handle.
@@ -85,67 +128,197 @@ func decodeHandle(h backend.Handle) (handleData, error) {
 }
 
 // Launch ensures the task's container exists and is running, waits for its
-// driver server to answer, and starts the spec's run on it. The reuse
-// semantics are Backend.Launch's: a reuse handle adopts the exact recorded
-// container or returns backend.ErrGone. Starting a container that is already
+// driver server to answer, and starts the spec's run on it. With a reuse
+// handle it adopts the exact recorded container, or returns backend.ErrGone if
+// that container is gone; it never creates a fresh one. Starting a container that is already
 // running is a no-op, so a container whose previous run has finished but which
 // has not been stopped yet is reused as is.
-func (e *Experimental) Launch(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (backend.Handle, error) {
-	containerID, err := e.ensure(ctx, spec, reuse)
+func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (backend.Handle, error) {
+	containerID, err := b.ensure(ctx, spec, reuse)
 	if err != nil {
 		return backend.Handle{}, err
 	}
-	if err := e.docker.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+	if err := b.docker.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
 		return backend.Handle{}, fmt.Errorf("failed to start container: %w", err)
 	}
-	client, err := e.dial(ctx, containerID)
+	client, err := b.dial(ctx, containerID)
 	if err != nil {
 		return backend.Handle{}, err
 	}
-	if err := e.waitReady(ctx, client); err != nil {
+	if err := b.waitReady(ctx, client); err != nil {
 		return backend.Handle{}, err
 	}
 	runSpec, err := newRunSpec(spec)
 	if err != nil {
 		return backend.Handle{}, err
 	}
-	if err := e.start(ctx, client, spec.Version, runSpec); err != nil {
+	if err := b.start(ctx, client, spec.Version, runSpec); err != nil {
 		return backend.Handle{}, err
 	}
 	data, err := json.Marshal(handleData{Version: spec.Version})
 	if err != nil {
 		return backend.Handle{}, err
 	}
-	return backend.Handle{Type: ExperimentalHandleType, ID: containerID, Data: data}, nil
+	return backend.Handle{Type: HandleType, ID: containerID, Data: data}, nil
 }
 
-// ensure resolves the container to start, like Backend.ensure, but creates it
-// running the driver server instead of the one-shot driver. The container gets
-// only the workspace's environment: the run's env, secrets and token arrive in
-// the RunSpec, so a container reused for a later run never holds stale ones.
-func (e *Experimental) ensure(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (string, error) {
+// ensure resolves the container to start, enforcing the one-sandbox-per-task
+// invariant: with a reuse handle it adopts the exact recorded container, or
+// returns backend.ErrGone if that container has vanished — it never falls
+// through to create. A fresh container is created only when reuse is nil (a
+// task's first start).
+func (b *Backend) ensure(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (string, error) {
 	if reuse != nil && reuse.ID != "" {
-		id, ok, err := e.inspectID(ctx, reuse.ID)
+		id, ok, err := b.inspectID(ctx, reuse.ID)
 		if err != nil {
 			return "", err
 		}
 		if !ok {
 			return "", backend.ErrGone
 		}
-		return e.adopt(ctx, spec, id)
+		return b.adopt(ctx, spec, id)
 	}
+	return b.create(ctx, spec)
+}
+
+// inspectID returns the container's id and whether it exists. A missing
+// container is ("", false, nil); any other failure is an error.
+func (b *Backend) inspectID(ctx context.Context, ref string) (string, bool, error) {
+	info, err := b.docker.ContainerInspect(ctx, ref)
+	if cerrdefs.IsNotFound(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("failed to inspect container: %w", err)
+	}
+	return info.ID, true, nil
+}
+
+// adopt reuses an existing container, repairing any network attachments whose
+// endpoint ID has drifted from the live network — e.g. after
+// `docker compose down && up`.
+func (b *Backend) adopt(ctx context.Context, spec *backend.Spec, containerID string) (string, error) {
+	b.log.Info("adopting existing container", "task", spec.TaskID, "container", containerID)
+	repaired, err := dockerx.RepairNetworks(ctx, b.docker, containerID, spec.Workspace.Container.Networks)
+	if err != nil {
+		return "", fmt.Errorf("failed to repair network attachment: %w", err)
+	}
+	if len(repaired) > 0 {
+		b.log.Warn("repaired stale network attachments",
+			"task", spec.TaskID, "container", containerID, "networks", repaired)
+	}
+	return containerID, nil
+}
+
+// create creates the task's gritz-{taskID} container running the driver server
+// and copies the driver binary and spec.Files into it. The container gets only
+// the workspace's environment: the run's env, secrets and token arrive in the
+// RunSpec, so a container reused for a later run never holds stale ones.
+func (b *Backend) create(ctx context.Context, spec *backend.Spec) (string, error) {
 	wc := &spec.Workspace.Container
+
+	b.log.Info("creating container", "task", spec.TaskID, "image", wc.Image)
+
+	// Ensure the image is available locally (pulls if needed).
+	info, err := dockerx.ImageEnsure(ctx, b.docker, dockerx.ImageEnsureOptions{
+		Ref:         wc.Image,
+		PullOptions: image.PullOptions{RegistryAuth: dockerx.ResolveRegistryAuth(wc.Image)},
+		PullProgress: func(p dockerx.PullProgress) {
+			if p.Status != "" && p.Progress == "" {
+				b.log.Info("pull", "image", wc.Image, "status", p.Status)
+			}
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to ensure image: %w", err)
+	}
+
+	// The driver binary is provisioned by the backend because selecting it
+	// requires the image architecture, which only the runtime knows.
+	binData, err := prebuilt.ReadBinary(info.Architecture)
+	if err != nil {
+		return "", err
+	}
+
+	labels := map[string]string{
+		"gritz":        "true",
+		"gritz.task":   fmt.Sprint(spec.TaskID),
+		"gritz.runner": b.runnerID,
+	}
 	cmd := []string{backend.BinaryPath, "driver", "--serve"}
-	var labels map[string]string
 	if container.NetworkMode(wc.NetworkMode).IsHost() {
 		addr, err := freeLocalAddr()
 		if err != nil {
 			return "", err
 		}
 		cmd = append(cmd, "--addr", addr)
-		labels = map[string]string{driverAddrLabel: addr}
+		labels[driverAddrLabel] = addr
 	}
-	return e.create(ctx, spec, cmd, wc.Environ(), labels)
+
+	resp, err := b.docker.ContainerCreate(ctx,
+		&container.Config{
+			Image:      wc.Image,
+			User:       wc.User,
+			Labels:     labels,
+			Cmd:        cmd,
+			Env:        wc.Environ(),
+			WorkingDir: wc.WorkingDir,
+		},
+		&container.HostConfig{
+			Binds:       wc.Volumes,
+			GroupAdd:    wc.GroupAdd,
+			Runtime:     wc.Runtime,
+			Privileged:  wc.Privileged,
+			NetworkMode: container.NetworkMode(wc.NetworkMode),
+		},
+		wc.NetworkingConfig(),
+		nil,
+		fmt.Sprintf("gritz-%d", spec.TaskID),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create container: %w", err)
+	}
+
+	files := append([]backend.File{
+		{Path: backend.BinaryPath, Data: binData, Mode: 0755},
+	}, spec.Files...)
+	if err := b.copyFiles(ctx, resp.ID, files); err != nil {
+		return "", fmt.Errorf("failed to copy files: %w", err)
+	}
+
+	return resp.ID, nil
+}
+
+func (b *Backend) copyFiles(ctx context.Context, containerID string, files []backend.File) error {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, f := range files {
+		name := strings.TrimPrefix(f.Path, "/")
+		if f.Dir {
+			if err := tw.WriteHeader(&tar.Header{
+				Name:     name + "/",
+				Mode:     f.Mode,
+				Typeflag: tar.TypeDir,
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name,
+			Mode: f.Mode,
+			Size: int64(len(f.Data)),
+		}); err != nil {
+			return err
+		}
+		if _, err := tw.Write(f.Data); err != nil {
+			return err
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	return b.docker.CopyToContainer(ctx, containerID, "/", &buf, container.CopyToContainerOptions{})
 }
 
 // freeLocalAddr returns a loopback address with a port that is free now.
@@ -167,8 +340,8 @@ var errNotRunning = errors.New("container is not running")
 // dial returns a client for the driver server of a running container. A
 // missing container is reported as cerrdefs.ErrNotFound, a stopped one as
 // errNotRunning.
-func (e *Experimental) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
-	info, err := e.docker.ContainerInspect(ctx, containerID)
+func (b *Backend) dial(ctx context.Context, containerID string) (driverv1connect.DriverServiceClient, error) {
+	info, err := b.docker.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
@@ -179,7 +352,7 @@ func (e *Experimental) dial(ctx context.Context, containerID string) (driverv1co
 	if err != nil {
 		return nil, err
 	}
-	return driverv1connect.NewDriverServiceClient(e.http, "http://"+addr), nil
+	return driverv1connect.NewDriverServiceClient(b.http, "http://"+addr), nil
 }
 
 // driverAddr returns the address of a running container's driver server: the
@@ -203,7 +376,7 @@ func driverAddr(info container.InspectResponse) (string, error) {
 
 // waitReady polls Status until the driver server answers or
 // driverReadyTimeout elapses.
-func (e *Experimental) waitReady(ctx context.Context, client driverv1connect.DriverServiceClient) error {
+func (b *Backend) waitReady(ctx context.Context, client driverv1connect.DriverServiceClient) error {
 	ctx, cancel := context.WithTimeout(ctx, driverReadyTimeout)
 	defer cancel()
 	for {
@@ -220,7 +393,7 @@ func (e *Experimental) waitReady(ctx context.Context, client driverv1connect.Dri
 // start opens a Run stream for version with spec and returns once the driver
 // has accepted it, closing the stream: the run keeps going without it. A Run
 // that is rejected because another stream is open is retried.
-func (e *Experimental) start(ctx context.Context, client driverv1connect.DriverServiceClient, version int64, spec *driverv1.RunSpec) error {
+func (b *Backend) start(ctx context.Context, client driverv1connect.DriverServiceClient, version int64, spec *driverv1.RunSpec) error {
 	for {
 		err := accept(ctx, client, &driverv1.RunRequest{Version: version, Spec: spec})
 		if err == nil {
@@ -254,38 +427,38 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 }
 
 // Wait attaches to the handle's run and blocks until its Finished, then stops
-// the container, so between runs it is stopped exactly as Backend's is. It
+// the container, so between runs it is stopped exactly as the docker backend's is. It
 // returns 0 if the driver reported the run's outcome, else ExitLost. A dropped
 // stream is reattached while the container is running; a container that is gone
 // or stopped before Finished arrived is reported as lost.
-func (e *Experimental) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
+func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
 	d, err := decodeHandle(h)
 	if err != nil {
-		e.log.Error("wait: invalid handle", "container", h.ID, "err", err)
+		b.log.Error("wait: invalid handle", "container", h.ID, "err", err)
 		return backend.ExitLost, nil
 	}
 	for {
-		finished, err := e.attach(ctx, h.ID, d.Version)
+		finished, err := b.attach(ctx, h.ID, d.Version)
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
 		switch {
 		case finished != nil:
-			e.stopAfter(ctx, h.ID, d.Version)
+			b.stopAfter(ctx, h.ID, d.Version)
 			if !finished.GetReported() {
 				return backend.ExitLost, nil
 			}
 			return 0, nil
 		case cerrdefs.IsNotFound(err) || errors.Is(err, errNotRunning):
-			e.log.Error("container exited before its run finished", "container", h.ID, "version", d.Version, "err", err)
+			b.log.Error("container exited before its run finished", "container", h.ID, "version", d.Version, "err", err)
 			return backend.ExitLost, nil
 		case isTerminal(err):
 			// The driver has no run with this version (or has moved past it),
 			// so its Finished will never come.
-			e.log.Error("driver has no such run", "container", h.ID, "version", d.Version, "err", err)
+			b.log.Error("driver has no such run", "container", h.ID, "version", d.Version, "err", err)
 			return backend.ExitLost, nil
 		}
-		e.log.Warn("run stream dropped, reattaching", "container", h.ID, "version", d.Version, "err", err)
+		b.log.Warn("run stream dropped, reattaching", "container", h.ID, "version", d.Version, "err", err)
 		if err := sleep(ctx, driverRetryInterval); err != nil {
 			return 0, err
 		}
@@ -294,8 +467,8 @@ func (e *Experimental) Wait(ctx context.Context, h backend.Handle) (backend.Exit
 
 // attach opens a Run stream for version without a spec and reads it until the
 // run's Finished, which it returns. Otherwise it returns why the stream ended.
-func (e *Experimental) attach(ctx context.Context, containerID string, version int64) (*driverv1.Finished, error) {
-	client, err := e.dial(ctx, containerID)
+func (b *Backend) attach(ctx context.Context, containerID string, version int64) (*driverv1.Finished, error) {
+	client, err := b.dial(ctx, containerID)
 	if err != nil {
 		return nil, err
 	}
@@ -326,28 +499,28 @@ func isTerminal(err error) bool {
 // stopAfter stops the container once the run with version has finished,
 // unless a later run has started on it in the meantime. Failures are logged:
 // the run's outcome is already known.
-func (e *Experimental) stopAfter(ctx context.Context, containerID string, version int64) {
-	if client, err := e.dial(ctx, containerID); err == nil {
+func (b *Backend) stopAfter(ctx context.Context, containerID string, version int64) {
+	if client, err := b.dial(ctx, containerID); err == nil {
 		resp, err := client.Status(ctx, &driverv1.StatusRequest{})
 		if err == nil && resp.GetRun().GetVersion() != version {
 			return
 		}
 	}
-	err := e.docker.ContainerStop(ctx, containerID, container.StopOptions{})
+	err := b.docker.ContainerStop(ctx, containerID, container.StopOptions{})
 	if err != nil && !cerrdefs.IsNotFound(err) {
-		e.log.Error("failed to stop container after its run", "container", containerID, "err", err)
+		b.log.Error("failed to stop container after its run", "container", containerID, "err", err)
 	}
 }
 
 // Probe reports the liveness of the handle's run: a missing container is gone,
 // a stopped one exited, and a running one is running only while the driver's
 // run record shows the handle's version running.
-func (e *Experimental) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
+func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
 	d, err := decodeHandle(h)
 	if err != nil {
 		return backend.StateUnknown, err
 	}
-	client, err := e.dial(ctx, h.ID)
+	client, err := b.dial(ctx, h.ID)
 	switch {
 	case cerrdefs.IsNotFound(err):
 		return backend.StateGone, nil
@@ -370,13 +543,13 @@ func (e *Experimental) Probe(ctx context.Context, h backend.Handle) (backend.Sta
 // Signal asks the driver to stop the handle's run, reporting whether it was
 // running. The driver reports stopped and sends Finished, after which Wait
 // stops the container.
-func (e *Experimental) Signal(ctx context.Context, h backend.Handle) (bool, error) {
+func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
 	d, err := decodeHandle(h)
 	if err != nil {
 		return false, err
 	}
-	e.log.Info("stopping run", "container", h.ID, "version", d.Version)
-	client, err := e.dial(ctx, h.ID)
+	b.log.Info("stopping run", "container", h.ID, "version", d.Version)
+	client, err := b.dial(ctx, h.ID)
 	if cerrdefs.IsNotFound(err) || errors.Is(err, errNotRunning) {
 		return false, nil
 	}
@@ -390,16 +563,11 @@ func (e *Experimental) Signal(ctx context.Context, h backend.Handle) (bool, erro
 	return resp.GetStopped(), nil
 }
 
-// ValidateWorkspace reports whether the workspace's container config is usable
-// by the experimental backend: Backend's checks, plus a network the runner can
-// reach the driver server on.
-func (e *Experimental) ValidateWorkspace(ws *workspace.Workspace) error {
-	if err := e.Backend.ValidateWorkspace(ws); err != nil {
-		return err
-	}
-	mode := container.NetworkMode(ws.Container.NetworkMode)
-	if mode.IsNone() || mode.IsContainer() {
-		return fmt.Errorf("network_mode %q is not supported: the runner must reach the driver server", ws.Container.NetworkMode)
+// Destroy removes the handle's container. A missing container is not an error.
+func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
+	err := b.docker.ContainerRemove(ctx, h.ID, container.RemoveOptions{Force: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("failed to remove container: %w", err)
 	}
 	return nil
 }
