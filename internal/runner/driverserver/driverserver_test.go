@@ -224,15 +224,6 @@ func TestRun(t *testing.T) {
 	assert.Equal(t, disk.Reported, true)
 }
 
-// testFiles are the files of a spec: a directory, and a file in a directory
-// that does not exist yet.
-func testFiles(data string) []*driverv1.File {
-	return []*driverv1.File{
-		{Path: "/gritz", Mode: 0o777, Dir: true},
-		{Path: "/tmp/gritz/1.json", Data: []byte(data), Mode: 0o640},
-	}
-}
-
 // root returns the path of a sandbox path under the test's file root.
 func (te *testEnv) root(path string) string {
 	return filepath.Join(te.dir, "root", path)
@@ -243,7 +234,10 @@ func TestRun_ProvisionsFiles(t *testing.T) {
 	// Arrange
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
 	spec := testSpec()
-	spec.Files = testFiles("config")
+	spec.Files = []*driverv1.File{
+		{Path: "/gritz", Mode: 0o777, Dir: true},
+		{Path: "/tmp/gritz/1.json", Data: []byte("config"), Mode: 0o640},
+	}
 
 	// Act
 	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
@@ -270,14 +264,18 @@ func TestRun_ProvisionsOnce(t *testing.T) {
 	// Arrange - a provisioned sandbox whose agent changed a file
 	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
 	spec := testSpec()
-	spec.Files = testFiles("config")
+	spec.Files = []*driverv1.File{
+		{Path: "/tmp/gritz/1.json", Data: []byte("config"), Mode: 0o640},
+	}
 	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
 	finished(t, stream)
 	assert.NilError(t, os.WriteFile(te.root("/tmp/gritz/1.json"), []byte("changed"), 0o640))
 
 	// Act - a later run with different files
 	spec = testSpec()
-	spec.Files = testFiles("new config")
+	spec.Files = []*driverv1.File{
+		{Path: "/tmp/gritz/1.json", Data: []byte("new config"), Mode: 0o640},
+	}
 	stream, accepted := te.open(t, &driverv1.RunRequest{Version: testVersion + 1, Spec: spec})
 	finished(t, stream)
 
@@ -295,7 +293,9 @@ func TestRun_AttachDoesNotProvision(t *testing.T) {
 		Record: &runrecord.Record{Version: testVersion, State: runrecord.Finished, Reported: true},
 	})
 	spec := testSpec()
-	spec.Files = testFiles("config")
+	spec.Files = []*driverv1.File{
+		{Path: "/tmp/gritz/1.json", Data: []byte("config"), Mode: 0o640},
+	}
 
 	// Act - the same version, spec and all
 	stream, accepted := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: spec})
