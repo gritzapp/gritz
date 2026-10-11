@@ -1,5 +1,27 @@
 # Changelog
 
+## [3.13.0](https://github.com/gritzapp/gritz/compare/v3.12.0...v3.13.0) (2026-10-11)
+
+
+### Features
+
+* **driver:** deliver agent files in driver.v1 RunSpec ([50527af](https://github.com/gritzapp/gritz/commit/50527af6ecceffdacddb946aa4c20a7c31a508d8)), closes [#1701](https://github.com/gritzapp/gritz/issues/1701)
+* **runner:** add experimental Lambda MicroVM backend on the driver server ([c30ca80](https://github.com/gritzapp/gritz/commit/c30ca80324e8203c4dd895716bb75a75e56de6df))
+
+
+### Bug Fixes
+
+* **runner:** remove stray line from experimental lambda microvm Dockerfile ([b15c660](https://github.com/gritzapp/gritz/commit/b15c660a15c4384f2734530d39f349dcefcb4bb3))
+
+
+### Miscellaneous
+
+* **driver:** inline provisioning test files ([bc6eebc](https://github.com/gritzapp/gritz/commit/bc6eebc5d7e29194a39eb6476374740464f84554))
+* **driver:** keep the provisioned marker under FileRoot ([4ae638f](https://github.com/gritzapp/gritz/commit/4ae638fb7a2818cc40301a65aa51f17451ff2a0f))
+* **runner:** keep the experimental lambda backend self-contained ([ba8a402](https://github.com/gritzapp/gritz/commit/ba8a40232903041b152d52ad87d8fbc2ed3eece3))
+* **runner:** serve lambda hooks from the driver server ([6201504](https://github.com/gritzapp/gritz/commit/6201504ff59d8249cf62bdd2bd77b906d85e70ef))
+* **runner:** use the official Lambda MicroVMs Go SDK ([0c56760](https://github.com/gritzapp/gritz/commit/0c56760571e20c09265dd51b530031bb4fec393e))
+
 ## [3.12.0](https://github.com/gritzapp/gritz/compare/v3.11.0...v3.12.0) (2026-10-11)
 
 
