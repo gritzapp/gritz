@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -460,7 +461,6 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 	be := &backend.BackendMock{
 		OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 	}
-	store := testStore(t, taskstate.Record{TaskID: 7, Version: 3, Type: "docker", ID: "c7"})
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   mock,
@@ -468,8 +468,9 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
+	seed(t, r, taskstate.Record{TaskID: 7, Version: 3, Type: "docker", ID: "c7"})
 
 	// Act
 	err = r.Poll(t.Context())
@@ -538,21 +539,79 @@ func testSupervisor(t *testing.T, be backend.Backend, store *taskstate.Store) (*
 }
 
 // supervise starts following run version of taskID on sb, as Start does once
-// the record is written.
-func supervise(t *testing.T, ctx context.Context, r *Runner, taskID, version int64, sb backend.Sandbox) {
+// the record is written, and returns the task's entry.
+func supervise(t *testing.T, ctx context.Context, r *Runner, taskID, version int64, sb backend.Sandbox) *taskEntry {
 	t.Helper()
 	assert.Assert(t, r.sem.TryAcquire(1)) // the slot supervise will release
-	e := r.entry(taskID)
+	e := track(t, r, taskstate.Record{TaskID: taskID, Version: version, Type: "docker", ID: "c1"}, sb)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.sb = sb
-	r.supervise(ctx, e, taskID, version, sb, nil)
+	r.supervise(ctx, e, nil)
+	return e
+}
+
+// track registers rec's task as Load does: rec in the store, and an entry for
+// it holding sb.
+func track(t *testing.T, r *Runner, rec taskstate.Record, sb backend.Sandbox) *taskEntry {
+	t.Helper()
+	assert.NilError(t, r.store.Write(rec))
+	e := &taskEntry{rec: rec, sb: sb}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tasks[rec.TaskID] = e
+	return e
+}
+
+// seed tracks recs, each with the sandbox the runner's backend opens for its
+// handle, as Load does without probing the sandboxes.
+func seed(t *testing.T, r *Runner, recs ...taskstate.Record) {
+	t.Helper()
+	for _, rec := range recs {
+		sb, err := r.backend.Open(recordHandle(rec))
+		assert.NilError(t, err)
+		track(t, r, rec, sb)
+	}
+}
+
+// entryOf returns the task's entry, or nil if it has none.
+func entryOf(r *Runner, taskID int64) *taskEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.tasks[taskID]
+}
+
+// assertTracked asserts that the task has a record and an entry holding that
+// record, or, with want nil, that it has neither.
+func assertTracked(t *testing.T, r *Runner, taskID int64, want *taskstate.Record) {
+	t.Helper()
+	rec, ok, err := r.store.Read(taskID)
+	assert.NilError(t, err)
+	e := entryOf(r, taskID)
+	if want == nil {
+		assert.Assert(t, !ok, "task %d has a record", taskID)
+		assert.Assert(t, e == nil, "task %d has an entry", taskID)
+		return
+	}
+	assert.Assert(t, ok, "no record for task %d", taskID)
+	assert.DeepEqual(t, rec, *want)
+	assert.Assert(t, e != nil, "no entry for task %d", taskID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	assert.DeepEqual(t, e.rec, *want)
+	assert.Assert(t, e.sb != nil)
 }
 
 // waitSupervised waits until no supervise goroutine follows the task.
 func waitSupervised(t *testing.T, r *Runner, taskID int64) {
 	t.Helper()
-	e := r.entry(taskID)
+	e := entryOf(r, taskID)
+	assert.Assert(t, e != nil, "no entry for task %d", taskID)
+	waitRun(t, e)
+}
+
+// waitRun waits until no supervise goroutine follows e's run.
+func waitRun(t *testing.T, e *taskEntry) {
+	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		e.mu.Lock()
@@ -712,18 +771,18 @@ func TestRunnerSupervise_Removed(t *testing.T) {
 	client, stream := testDriver(t, 1, 3, sleepForever)
 	assert.NilError(t, stream.Close())
 	sb, _ := testSandbox(client)
-	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"})
-	r, mock, queue := testSupervisor(t, &backend.BackendMock{}, store)
-	supervise(t, t.Context(), r, 1, 3, sb)
+	r, mock, queue := testSupervisor(t, &backend.BackendMock{}, testStore(t))
+	e := supervise(t, t.Context(), r, 1, 3, sb)
 	waitDialed(t, sb, 1)
 
 	// Act - the sandbox is removed under the run.
 	assert.NilError(t, r.Remove(t.Context(), 1))
-	waitSupervised(t, r, 1)
+	waitRun(t, e)
 
-	// Assert - Remove destroyed the sandbox supervise holds, and the run is
-	// lost.
+	// Assert - Remove destroyed the sandbox supervise holds, the task's record
+	// and entry are gone, and the run is lost.
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
+	assertTracked(t, r, 1, nil)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox removed before the run finished"},
 	}, protocmp.Transform())
@@ -811,9 +870,12 @@ func TestRunnerStart_Create(t *testing.T) {
 	_, client, _ := newDriver(t, 1, nil)
 	sb, parked := testSandbox(client)
 	store := testStore(t)
+	var r *Runner
 	sb.StartFunc = func(context.Context) error {
-		// The handle is recorded before the sandbox is started.
+		// The handle is recorded, and the task's entry registered, before the
+		// sandbox is started.
 		assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
+		assert.Assert(t, entryOf(r, 1) != nil)
 		return nil
 	}
 	be := &backend.BackendMock{
@@ -834,7 +896,28 @@ func TestRunnerStart_Create(t *testing.T) {
 	assert.Equal(t, spec.Version, int64(1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 	assertReported(t, r, 1, queue, parked)
-	assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
+	assertTracked(t, r, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
+}
+
+// TestRunnerStart_CreateFails covers a sandbox that cannot be created: the task
+// gets neither a record nor an entry.
+func TestRunnerStart_CreateFails(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
+	boom := errors.New("boom")
+	be := &backend.BackendMock{
+		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return nil, boom },
+	}
+	r, _, _ := testSupervisor(t, be, testStore(t))
+
+	// Act
+	err := startTask(t, r, task)
+
+	// Assert
+	assert.ErrorIs(t, err, boom)
+	assertTracked(t, r, 1, nil)
 }
 
 // TestRunnerStart_Restart covers a task restarted on its recorded sandbox,
@@ -862,8 +945,8 @@ func TestRunnerStart_Restart(t *testing.T) {
 				ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
 				OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 			}
-			store := testStore(t, tt.record)
-			r, _, queue := testSupervisor(t, be, store)
+			r, _, queue := testSupervisor(t, be, testStore(t))
+			seed(t, r, tt.record)
 
 			// Act
 			err := startTask(t, r, task)
@@ -875,7 +958,7 @@ func TestRunnerStart_Restart(t *testing.T) {
 			assert.DeepEqual(t, be.OpenCalls()[0].H, recordHandle(tt.record))
 			assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 			assertReported(t, r, 1, queue, parked)
-			assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
+			assertTracked(t, r, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
 		})
 	}
 }
@@ -932,8 +1015,7 @@ func TestRunnerSupervise_NotReady(t *testing.T) {
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
 		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
-	store := testStore(t)
-	r, mock, queue := testSupervisor(t, be, store)
+	r, mock, queue := testSupervisor(t, be, testStore(t))
 	r.readyTimeout = 100 * time.Millisecond
 
 	// Act
@@ -948,7 +1030,7 @@ func TestRunnerSupervise_NotReady(t *testing.T) {
 	assert.Equal(t, events[0].Version, int64(1))
 	assert.Assert(t, cmp.Contains(events[0].Reason, "driver server did not become ready"))
 	assert.Assert(t, r.sem.TryAcquire(1))
-	assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
+	assertTracked(t, r, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
 }
 
 // TestRunnerStart_StartFails covers a sandbox that cannot be started after
@@ -965,15 +1047,15 @@ func TestRunnerStart_StartFails(t *testing.T) {
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
 		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
-	store := testStore(t)
-	r, _, _ := testSupervisor(t, be, store)
+	r, _, _ := testSupervisor(t, be, testStore(t))
 
 	// Act
 	err := startTask(t, r, task)
 
-	// Assert - Start failed with the record kept and nothing supervised.
+	// Assert - Start failed with the record and entry kept and nothing
+	// supervised.
 	assert.ErrorIs(t, err, boom)
-	assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
+	assertTracked(t, r, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
 	assert.Assert(t, cmp.Len(sb.DialCalls(), 0))
 
 	// Act - the task's sandbox is removed.
@@ -981,9 +1063,7 @@ func TestRunnerStart_StartFails(t *testing.T) {
 
 	// Assert
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
-	_, ok, err := store.Read(1)
-	assert.NilError(t, err)
-	assert.Equal(t, ok, false)
+	assertTracked(t, r, 1, nil)
 }
 
 func TestRunnerStart_Gone(t *testing.T) {
@@ -997,18 +1077,19 @@ func TestRunnerStart_Gone(t *testing.T) {
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
 		OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 	}
-	store := testStore(t, taskstate.Record{TaskID: 8, Version: 1, Type: "docker", ID: "old-id"})
-	r, _, _ := testSupervisor(t, be, store)
+	r, _, _ := testSupervisor(t, be, testStore(t))
+	seed(t, r, taskstate.Record{TaskID: 8, Version: 1, Type: "docker", ID: "old-id"})
+	e := entryOf(r, 8)
 
 	// Act
 	err := startTask(t, r, task)
 
 	// Assert - ErrGone surfaced (the caller emits failed and releases the
-	// slot), the dangling record was removed, and nothing is supervised.
+	// slot), the dangling record and the entry were removed, the entry marked
+	// with why, and nothing is supervised.
 	assert.ErrorIs(t, err, backend.ErrGone)
-	_, ok, err := store.Read(8)
-	assert.NilError(t, err)
-	assert.Equal(t, ok, false)
+	assertTracked(t, r, 8, nil)
+	assert.ErrorIs(t, e.removed, backend.ErrGone)
 	assert.Assert(t, cmp.Len(sb.DialCalls(), 0))
 }
 
@@ -1028,11 +1109,12 @@ func TestRunnerPoll_StartStillRunning(t *testing.T) {
 		Version:   4,
 	}
 	be, _ := testBackend(map[string]backend.Status{"c1": backend.StatusParked}, nil)
-	r, mock, queue := testSupervisor(t, be, testStore(t, legacyRecord(1, "c1")))
+	r, mock, queue := testSupervisor(t, be, testStore(t))
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
-	r.entry(1).run = &taskRun{cancel: func(error) {}}
+	seed(t, r, legacyRecord(1, "c1"))
+	entryOf(r, 1).run = &taskRun{cancel: func(error) {}}
 
 	// Act
 	err := r.Poll(t.Context())
@@ -1101,9 +1183,11 @@ func TestRunnerLoad(t *testing.T) {
 	tests := []struct {
 		name       string
 		record     taskstate.Record
+		openErr    error
 		status     backend.Status
 		statusErr  error
 		wantEvents []*gritzv1.RunnerEvent
+		// wantRecord is whether the record is kept, and the task has an entry.
 		wantRecord bool
 		wantAttach bool // supervised: the runner dialed the driver to reattach
 	}{
@@ -1136,6 +1220,13 @@ func TestRunnerLoad(t *testing.T) {
 			statusErr:  errors.New("boom"),
 			wantRecord: true,
 		},
+		{
+			// A record whose handle cannot be opened (a malformed handle) has
+			// no sandbox, so it is dropped.
+			name:    "open fails",
+			record:  legacyRecord(1, "c1"),
+			openErr: errors.New("malformed handle"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1156,6 +1247,9 @@ func TestRunnerLoad(t *testing.T) {
 			dialed := make(chan backend.Handle, 1)
 			open := be.OpenFunc
 			be.OpenFunc = func(h backend.Handle) (backend.Sandbox, error) {
+				if tt.openErr != nil {
+					return nil, tt.openErr
+				}
 				sb, err := open(h)
 				sb.(*backend.SandboxMock).DialFunc = func(ctx context.Context, _ string) (driverv1connect.DriverServiceClient, error) {
 					dialed <- h // the up sandbox got a supervise goroutine
@@ -1183,9 +1277,11 @@ func TestRunnerLoad(t *testing.T) {
 			// Assert
 			assert.NilError(t, err)
 			assert.DeepEqual(t, submitted(t, mock, queue), tt.wantEvents, protocmp.Transform())
-			_, ok, err := store.Read(1)
-			assert.NilError(t, err)
-			assert.Equal(t, ok, tt.wantRecord)
+			if tt.wantRecord {
+				assertTracked(t, r, 1, &tt.record)
+			} else {
+				assertTracked(t, r, 1, nil)
+			}
 			assert.Assert(t, cmp.Len(*destroyed, 0)) // Load never destroys
 			var running int64
 			if tt.wantAttach {
@@ -1288,14 +1384,7 @@ func TestRunnerPrune(t *testing.T) {
 			"c7": errors.New("boom"), // status unknown -> not considered
 		},
 	)
-	store := testStore(t,
-		legacyRecord(1, "c1"),
-		legacyRecord(2, "c2"),
-		legacyRecord(3, "c3"),
-		legacyRecord(4, "c4"),
-		legacyRecord(5, "c5"),
-		legacyRecord(7, "c7"),
-	)
+	store := testStore(t)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   mock,
@@ -1305,6 +1394,14 @@ func TestRunnerPrune(t *testing.T) {
 	assert.NilError(t, err)
 	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
+	seed(t, r,
+		legacyRecord(1, "c1"),
+		legacyRecord(2, "c2"),
+		legacyRecord(3, "c3"),
+		legacyRecord(4, "c4"),
+		legacyRecord(5, "c5"),
+		legacyRecord(7, "c7"),
+	)
 
 	// Act
 	err = r.Prune(t.Context())
@@ -1328,6 +1425,11 @@ func TestRunnerPrune(t *testing.T) {
 	}
 	slices.Sort(kept)
 	assert.DeepEqual(t, kept, []int64{2, 3, 7})
+	// The registry dropped exactly the removed tasks' entries.
+	r.mu.Lock()
+	entries := slices.Sorted(maps.Keys(r.tasks))
+	r.mu.Unlock()
+	assert.DeepEqual(t, entries, kept)
 }
 
 func TestRunnerRunning(t *testing.T) {
@@ -1353,8 +1455,9 @@ func TestRunnerRunning(t *testing.T) {
 				map[string]backend.Status{"c1": tt.status},
 				map[string]error{"c1": tt.err},
 			)
-			r, err := New(Options{Backend: be, Store: testStore(t, tt.records...), RunnerID: "test-runner"})
+			r, err := New(Options{Backend: be, Store: testStore(t), RunnerID: "test-runner"})
 			assert.NilError(t, err)
+			seed(t, r, tt.records...)
 
 			// Act
 			running, err := r.Running(t.Context(), 1)
@@ -1416,9 +1519,9 @@ func TestRunnerRemove(t *testing.T) {
 			be := &backend.BackendMock{
 				OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 			}
-			store := testStore(t, tt.records...)
-			r, err := New(Options{Backend: be, Store: store, RunnerID: "test-runner"})
+			r, err := New(Options{Backend: be, Store: testStore(t), RunnerID: "test-runner"})
 			assert.NilError(t, err)
+			seed(t, r, tt.records...)
 
 			// Act
 			err = r.Remove(t.Context(), 1)
@@ -1435,10 +1538,66 @@ func TestRunnerRemove(t *testing.T) {
 			}
 			assert.DeepEqual(t, opened, tt.wantOpened)
 			assert.Equal(t, len(sb.DestroyCalls()), len(tt.wantOpened))
-			_, ok, err := store.Read(1)
-			assert.NilError(t, err)
-			assert.Equal(t, ok, tt.wantRecords)
+			// The record and the entry are removed together.
+			if tt.wantRecords {
+				assertTracked(t, r, 1, &tt.records[0])
+			} else {
+				assertTracked(t, r, 1, nil)
+			}
 		})
+	}
+}
+
+// TestRunnerRemovedEntry covers an operation that looked up a task's entry
+// just before the entry was removed: once it has the entry's lock it returns
+// why the entry was removed, without touching the sandbox or creating a new
+// one.
+func TestRunnerRemovedEntry(t *testing.T) {
+	t.Parallel()
+	ops := []struct {
+		name string
+		op   func(r *Runner) error
+	}{
+		{name: "start", op: func(r *Runner) error {
+			return r.Start(t.Context(), &model.Task{ID: 1, Workspace: "test", Version: 4})
+		}},
+		{name: "kill", op: func(r *Runner) error {
+			_, err := r.Kill(t.Context(), &model.Task{ID: 1, Version: 4})
+			return err
+		}},
+		{name: "running", op: func(r *Runner) error {
+			_, err := r.Running(t.Context(), 1)
+			return err
+		}},
+		{name: "remove", op: func(r *Runner) error { return r.Remove(t.Context(), 1) }},
+		{name: "version", op: func(r *Runner) error {
+			_, err := r.version(1)
+			return err
+		}},
+	}
+	for _, cause := range []error{errRemoved, backend.ErrGone} {
+		for _, tt := range ops {
+			t.Run(tt.name+"/"+cause.Error(), func(t *testing.T) {
+				t.Parallel()
+				// Arrange - the entry is still in the registry, as it was when
+				// the operation looked it up, but has since been removed.
+				// Every backend call is unmocked, and so must not be made.
+				sb := &backend.SandboxMock{}
+				be := &backend.BackendMock{
+					OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
+				}
+				r, mock, _ := testSupervisor(t, be, testStore(t))
+				seed(t, r, legacyRecord(1, "c1"))
+				entryOf(r, 1).removed = cause
+
+				// Act
+				err := tt.op(r)
+
+				// Assert
+				assert.ErrorIs(t, err, cause)
+				assert.Assert(t, cmp.Len(mock.CreateTaskTokenCalls(), 0))
+			})
+		}
 	}
 }
 
@@ -1630,8 +1789,9 @@ func TestRunnerKill(t *testing.T) {
 			if tt.record {
 				recs = append(recs, legacyRecord(1, "c1"))
 			}
-			r, err := New(Options{Backend: be, Store: testStore(t, recs...), RunnerID: "test-runner"})
+			r, err := New(Options{Backend: be, Store: testStore(t), RunnerID: "test-runner"})
 			assert.NilError(t, err)
+			seed(t, r, recs...)
 
 			// Act
 			signalled, err := r.Kill(t.Context(), &model.Task{ID: 1, Version: 3})
