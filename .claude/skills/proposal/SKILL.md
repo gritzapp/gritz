@@ -36,6 +36,21 @@ The concrete design. Include:
 
 Be specific. Use actual type names, table names, and code patterns from the codebase.
 
+### API
+
+The external Go API of every new or changed package, written as Go declarations
+with `//` doc comments (so it highlights as Go): the package path, then exported
+types, constructors, functions and methods. Every type,
+function and method gets a doc comment of one short sentence — say what it does,
+not how. No bodies, no unexported details. See `api-example.md` for the format.
+
+- One block per package. For a changed package, show only what changes, with
+  removals and additions marked (`// removed`, `// new`).
+- Follow the blocks with a short **How it fits** note: who constructs what and who
+  calls whom (e.g. "the server constructs a `foo.Store`; the `CreateFoo` handler
+  calls `Create`").
+- Proto definitions stay in their own section; this outline covers the Go side.
+
 ## Implementation Plan
 
 Break the work into an ordered stack of small PRs — a "layer cake" — where each PR is a
