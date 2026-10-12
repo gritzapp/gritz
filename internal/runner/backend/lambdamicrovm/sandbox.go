@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	_ backend.BackendV2 = (*Backend)(nil)
-	_ backend.RunEnver  = (*Backend)(nil)
+	_ backend.Backend  = (*Backend)(nil)
+	_ backend.RunEnver = (*Backend)(nil)
 )
 
 // RunEnv returns the workspace's lambda_microvm environment: a VM is run with
@@ -31,7 +31,7 @@ func (b *Backend) RunEnv(ws *workspace.Workspace) map[string]string {
 	return nil
 }
 
-// sandboxData is the backend-defined part of a SandboxV2 handle.
+// sandboxData is the backend-defined part of a Sandbox handle.
 type sandboxData struct {
 	Endpoint string `json:"endpoint"`
 }
@@ -39,7 +39,7 @@ type sandboxData struct {
 // Create runs a VM for spec and returns as soon as RunMicrovm does, with the VM
 // still PENDING. The handle is the VM's id and the endpoint RunMicrovm
 // returned.
-func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.SandboxV2, error) {
+func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandbox, error) {
 	if err := b.ValidateWorkspace(spec.Workspace); err != nil {
 		return nil, err
 	}
@@ -55,9 +55,9 @@ func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandb
 
 // Open returns the sandbox for a handle this backend produced. It does no I/O:
 // the proxy token is minted on the first call through a client Dial returns.
-// A handle the v1 Backend's Launch produced, which also carries its run's
+// A handle recorded by an older runner, which also carries its run's
 // version, opens the same VM.
-func (b *Backend) Open(h backend.Handle) (backend.SandboxV2, error) {
+func (b *Backend) Open(h backend.Handle) (backend.Sandbox, error) {
 	if h.Type != HandleType {
 		return nil, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)
 	}

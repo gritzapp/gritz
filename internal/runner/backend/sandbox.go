@@ -7,11 +7,11 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
 
-// BackendV2 creates task sandboxes on a concrete runtime and reopens recorded
+// Backend creates task sandboxes on a concrete runtime and reopens recorded
 // ones. It never speaks the driver protocol: the runner does, over the client
-// SandboxV2.Dial returns. See proposals/draft/driver-server.md, "Backend
+// Sandbox.Dial returns. See proposals/draft/driver-server.md, "Backend
 // interface".
-type BackendV2 interface {
+type Backend interface {
 	ValidateWorkspace(ws *workspace.Workspace) error
 
 	// Create provisions a sandbox for spec without starting it, and returns as
@@ -19,18 +19,18 @@ type BackendV2 interface {
 	// exists: a backend whose provisioning fails after the platform assigned an
 	// identity (Docker's binary copy) destroys what it created, on a context
 	// of its own, before returning the error.
-	Create(ctx context.Context, spec *Spec) (SandboxV2, error)
+	Create(ctx context.Context, spec *Spec) (Sandbox, error)
 
-	// Open rehydrates a sandbox from a handle that SandboxV2.Handle returned.
+	// Open rehydrates a sandbox from a handle that Sandbox.Handle returned.
 	// It does no I/O and does not check that the sandbox still exists; a gone
-	// sandbox shows up on the returned SandboxV2's methods. It fails only for a
+	// sandbox shows up on the returned Sandbox's methods. It fails only for a
 	// handle this backend cannot decode (another type, malformed Data).
-	Open(h Handle) (SandboxV2, error)
+	Open(h Handle) (Sandbox, error)
 
 	Close() error
 }
 
-// RunEnver is implemented by a BackendV2 whose sandboxes have no environment of
+// RunEnver is implemented by a Backend whose sandboxes have no environment of
 // their own to carry the workspace's (a Lambda VM is run with none). The runner
 // adds what RunEnv returns to the environment of every run it starts, under the
 // run's own.
@@ -38,15 +38,15 @@ type RunEnver interface {
 	RunEnv(ws *workspace.Workspace) map[string]string
 }
 
-// SandboxV2 is a reference to one provisioned sandbox, in whatever state it is
+// Sandbox is a reference to one provisioned sandbox, in whatever state it is
 // in: created, running, parked or gone. It holds the per-sandbox state its
 // backend needs (the Docker container ID, the Lambda endpoint and cached proxy
 // token). Its methods are safe for concurrent use.
 //
-// A SandboxV2 can be stale: the platform may have destroyed the sandbox since
+// A Sandbox can be stale: the platform may have destroyed the sandbox since
 // Create or Open. Every method handles that: Status reports StatusGone, Start
 // and Park return ErrGone, and Destroy returns nil.
-type SandboxV2 interface {
+type Sandbox interface {
 	// Handle identifies the sandbox for taskstate/. It is fixed at Create and
 	// never changes over the sandbox's life.
 	Handle() Handle
@@ -79,7 +79,7 @@ type SandboxV2 interface {
 	Destroy(ctx context.Context) error
 }
 
-// Status is the platform's view of a sandbox, as SandboxV2.Status reports it.
+// Status is the platform's view of a sandbox, as Sandbox.Status reports it.
 type Status int
 
 const (

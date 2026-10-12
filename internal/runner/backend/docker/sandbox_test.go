@@ -30,7 +30,7 @@ func newTestBackend(t *testing.T) *Backend {
 }
 
 // create creates a sandbox for a random task, removed on cleanup.
-func create(t *testing.T, be *Backend) backend.SandboxV2 {
+func create(t *testing.T, be *Backend) backend.Sandbox {
 	t.Helper()
 	sb, err := be.Create(t.Context(), &backend.Spec{
 		TaskID:    rand.Int64N(1 << 40),
@@ -43,7 +43,7 @@ func create(t *testing.T, be *Backend) backend.SandboxV2 {
 	return sb
 }
 
-func assertStatus(t *testing.T, sb backend.SandboxV2, want backend.Status) {
+func assertStatus(t *testing.T, sb backend.Sandbox, want backend.Status) {
 	t.Helper()
 	st, err := sb.Status(t.Context())
 	assert.NilError(t, err)
@@ -51,7 +51,7 @@ func assertStatus(t *testing.T, sb backend.SandboxV2, want backend.Status) {
 }
 
 // dialReady dials the sandbox's driver and waits for it to answer.
-func dialReady(t *testing.T, sb backend.SandboxV2) {
+func dialReady(t *testing.T, sb backend.Sandbox) {
 	t.Helper()
 	client, err := sb.Dial(t.Context(), "jwt")
 	assert.NilError(t, err)
@@ -127,7 +127,7 @@ func TestOpen(t *testing.T) {
 	sb, err := be.Open(backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, sb.Handle(), backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
-	// A handle the v1 Backend's Launch produced, which also carries its run's
+	// A handle recorded by an older runner, which also carries its run's
 	// version, opens the same container.
 	sb, err = be.Open(backend.Handle{Type: HandleType, ID: "c1", Data: []byte(`{"version":1}`)})
 	assert.NilError(t, err)
@@ -145,7 +145,7 @@ func TestSandbox_Status(t *testing.T) {
 	be, err := New(Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = be.Close() })
-	open := func(id string) backend.SandboxV2 {
+	open := func(id string) backend.Sandbox {
 		sb, err := be.Open(backend.Handle{Type: HandleType, ID: id})
 		assert.NilError(t, err)
 		return sb
