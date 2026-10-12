@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
 	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms/types"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -43,7 +46,7 @@ func open(t *testing.T, be *Backend, h backend.Handle) backend.SandboxV2 {
 // A sandbox goes through its whole life: created, started, dialed, parked,
 // resumed and destroyed, after which it is gone.
 func TestSandbox_Lifecycle(t *testing.T) {
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	te := setup(t, &agent.Config{Type: agent.TypeDummy})
 
 	sb, err := te.be.Create(t.Context(), testSpec(1))
 	assert.NilError(t, err)
@@ -109,8 +112,10 @@ func TestOpen(t *testing.T) {
 	// Open does not check that the VM exists.
 	h := sandboxHandle("mvm-404", "vm.example.com")
 	assert.DeepEqual(t, open(t, be, h).Handle(), h)
-	// A handle Launch produced opens the same VM.
-	assert.Equal(t, open(t, be, handle("mvm-9", 3, "vm.example.com")).Handle().ID, "mvm-9")
+	// A handle the v1 Backend's Launch produced, which also carries its run's
+	// version, opens the same VM.
+	v1 := backend.Handle{Type: HandleType, ID: "mvm-9", Data: []byte(`{"endpoint":"vm.example.com","version":3}`)}
+	assert.Equal(t, open(t, be, v1).Handle().ID, "mvm-9")
 
 	tests := map[string]backend.Handle{
 		"foreign":   {Type: "docker", ID: "mvm-9"},
@@ -279,7 +284,7 @@ func TestSandbox_Destroy(t *testing.T) {
 // Every request a dialed client makes carries the JWT and a proxy token scoped
 // to the driver port, which the sandbox mints once for all its clients.
 func TestSandbox_Dial(t *testing.T) {
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	te := setup(t, &agent.Config{Type: agent.TypeDummy})
 	te.cloud.add("mvm-9", types.MicrovmStateRunning, "")
 	sb := open(t, te.be, sandboxHandle("mvm-9", te.cloud.endpoint))
 
@@ -291,7 +296,11 @@ func TestSandbox_Dial(t *testing.T) {
 	}
 
 	assert.DeepEqual(t, te.tokens(), []string{"token-mvm-9"})
-	assert.Assert(t, cmp.Len(te.cloud.mints(), 1))
+	assert.DeepEqual(t, te.cloud.mints(), []*lambdamicrovms.CreateMicrovmAuthTokenInput{{
+		MicrovmIdentifier:   aws.String("mvm-9"),
+		ExpirationInMinutes: aws.Int32(60),
+		AllowedPorts:        []types.PortSpecification{&types.PortSpecificationMemberPort{Value: DriverPort}},
+	}}, cmpopts.IgnoreUnexported(lambdamicrovms.CreateMicrovmAuthTokenInput{}, types.PortSpecificationMemberPort{}))
 	te.mu.Lock()
 	defer te.mu.Unlock()
 	assert.DeepEqual(t, te.bearer, []string{"Bearer jwt-1", "Bearer jwt-2"})
@@ -317,7 +326,7 @@ func TestSandbox_DialLearnsEndpoint(t *testing.T) {
 // A sandbox's methods are safe for concurrent use, as the runner's supervisor,
 // Kill and idle timer make them; run with -race.
 func TestSandbox_Concurrent(t *testing.T) {
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
+	te := setup(t, &agent.Config{Type: agent.TypeDummy})
 	sb, err := te.be.Create(t.Context(), testSpec(1))
 	assert.NilError(t, err)
 
