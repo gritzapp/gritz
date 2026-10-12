@@ -56,8 +56,9 @@ type TaskManager struct {
 
 	// mu guards tasks, the registry of the tasks this TaskManager has a sandbox
 	// for. It mirrors taskstate/: a task has a TaskRunner if and only if it
-	// has a record, and every change writes through to both. Only Load reads
-	// taskstate/, to rebuild the registry at boot.
+	// has a record, except that a TaskRunner just created has none until its
+	// Start writes it, and every change writes through to both. Only Load (and
+	// TaskRunner.Load) reads taskstate/, to rebuild the registry at boot.
 	mu    sync.Mutex
 	tasks map[int64]*TaskRunner
 }
@@ -393,9 +394,9 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 // or destroy). The semaphore is seeded with the up count last, so it may exceed
 // capacity in over-limit scenarios — that's fine.
 //
-// Load rebuilds the task registry from the records it keeps: it is the only
-// reader of taskstate/. A record whose handle cannot be opened is dropped, so
-// every TaskRunner has a sandbox.
+// Load rebuilds the task registry from the records it keeps: with
+// TaskRunner.Load, it is the only reader of taskstate/. A record whose handle
+// cannot be opened is dropped, so every TaskRunner has a sandbox.
 func (m *TaskManager) Load(ctx context.Context) error {
 	recs, err := m.store.List()
 	if err != nil {
@@ -403,21 +404,24 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		sb, err := m.backend.Open(backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
-		if err != nil {
-			m.log.Error("load: open, dropping record", "task", rec.TaskID, "err", err)
-			if err := m.store.Remove(rec.TaskID); err != nil {
-				m.log.Error("load: remove unopenable record", "task", rec.TaskID, "err", err)
+		taskID := rec.TaskID
+		tr := m.taskRunner(taskID)
+		if err := tr.Load(); errors.Is(err, errOpen) {
+			m.log.Error("load: open, dropping record", "task", taskID, "err", err)
+			if err := m.store.Remove(taskID); err != nil {
+				m.log.Error("load: remove unopenable record", "task", taskID, "err", err)
 			}
 			continue
+		} else if err != nil {
+			return fmt.Errorf("failed to load task %d: %w", taskID, err)
 		}
-		tr := m.taskRunner(rec.TaskID, sb)
-		tr.Record = rec
-		st, err := sb.Status(ctx)
+		// tr is not registered yet, so it cannot have been removed.
+		version, _ := tr.Version()
+		st, err := tr.Sandbox.Status(ctx)
 		if err != nil {
 			// Keep the record and its TaskRunner: the sandbox may well be
 			// there.
-			m.log.Error("load: status", "task", rec.TaskID, "err", err)
+			m.log.Error("load: status", "task", taskID, "err", err)
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
@@ -425,15 +429,15 @@ func (m *TaskManager) Load(ctx context.Context) error {
 			m.run(ctx, tr, nil)
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
-			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
+			m.failIfTaskRunning(ctx, taskID, version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
-			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
+			m.failIfTaskRunning(ctx, taskID, version)
 			err := tr.dropGone()
 			if err == nil {
 				continue
 			}
 			// The record stays, so its TaskRunner does too.
-			m.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
+			m.log.Error("load: remove dangling record", "task", taskID, "err", err)
 		}
 		m.register(tr)
 	}
@@ -476,11 +480,12 @@ func (m *TaskManager) lookup(taskID int64) *TaskRunner {
 	return m.tasks[taskID]
 }
 
-// taskRunner returns a TaskRunner for the task's sandbox sb, with the
-// manager's dependencies set on it.
-func (m *TaskManager) taskRunner(taskID int64, sb backend.Sandbox) *TaskRunner {
+// taskRunner returns a TaskRunner for the task, with the manager's
+// dependencies set on it and no Sandbox.
+func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
 	return &TaskRunner{
 		Store:            m.store,
+		Backend:          m.backend,
 		Queue:            m.queue,
 		Log:              m.log,
 		OnFatal:          m.die,
@@ -490,7 +495,6 @@ func (m *TaskManager) taskRunner(taskID int64, sb backend.Sandbox) *TaskRunner {
 		LostTimeout:      m.lostTimeout,
 		ReadyTimeout:     m.readyTimeout,
 		TaskID:           taskID,
-		Sandbox:          sb,
 	}
 }
 
@@ -624,11 +628,10 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 
 // Start brings up the task's sandbox and starts the task's run on it, on a Run
 // goroutine. A task with no TaskRunner gets a sandbox created, and a
-// TaskRunner around it, which records its handle straight away, before
-// anything else can fail; it is registered once the record is written. A task
-// with one reuses its sandbox, since a task is bound 1:1 to it. Either way the
-// record is stamped with the task's version; see TaskRunner.Start for what a
-// failure to start the sandbox leaves behind.
+// TaskRunner around it, registered straight away. A task with one reuses its
+// sandbox, since a task is bound 1:1 to it. Either way TaskRunner.Start
+// records the handle stamped with the task's version before it starts the
+// sandbox; see it for what a failure to start the sandbox leaves behind.
 //
 // Start returns once the platform reports the sandbox running: waiting for the
 // driver and starting the run happen in Run, so a slow sandbox does not hold
@@ -664,7 +667,8 @@ func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
 }
 
 // create creates a sandbox for a task with no TaskRunner, and registers the
-// TaskRunner it constructs around it. It takes no per-task lock: Poll handles
+// TaskRunner it constructs around it. The TaskRunner's Start then writes its
+// record. It takes no per-task lock: Poll handles
 // each task at most once per pass and passes are sequential, so nothing else
 // registers a TaskRunner for the task meanwhile.
 func (m *TaskManager) create(ctx context.Context, task *model.Task, spec *backend.Spec) (*TaskRunner, error) {
@@ -672,10 +676,8 @@ func (m *TaskManager) create(ctx context.Context, task *model.Task, spec *backen
 	if err != nil {
 		return nil, err
 	}
-	tr, err := NewTaskRunner(m.taskRunner(task.ID, sb), task.Version)
-	if err != nil {
-		return nil, err
-	}
+	tr := m.taskRunner(task.ID)
+	tr.Sandbox = sb
 	m.register(tr)
 	return tr, nil
 }

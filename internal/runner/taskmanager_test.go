@@ -543,8 +543,9 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
 	t.Helper()
 	assert.NilError(t, m.store.Write(rec))
-	tr := m.taskRunner(rec.TaskID, sb)
-	tr.Record = rec
+	tr := m.taskRunner(rec.TaskID)
+	tr.Sandbox = sb
+	tr.rec = rec
 	m.register(tr)
 	return tr
 }
@@ -577,7 +578,7 @@ func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.R
 	assert.Assert(t, tr != nil, "no TaskRunner for task %d", taskID)
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	assert.DeepEqual(t, tr.Record, *want)
+	assert.DeepEqual(t, tr.rec, *want)
 	assert.Assert(t, tr.Sandbox != nil)
 }
 
@@ -587,7 +588,7 @@ func waitIdle(t *testing.T, tr *TaskRunner) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		tr.mu.Lock()
-		running := tr.Claimed
+		running := tr.running
 		tr.mu.Unlock()
 		if !running {
 			return
@@ -953,7 +954,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// with why, and nothing is run.
 	assert.ErrorIs(t, err, backend.ErrGone)
 	assertTracked(t, m, 8, nil)
-	assert.ErrorIs(t, tr.Removed, backend.ErrGone)
+	assert.ErrorIs(t, tr.removed, backend.ErrGone)
 	assert.Assert(t, cmp.Len(sb.DialCalls(), 0))
 }
 
@@ -978,7 +979,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
 	seed(t, m, legacyRecord(1, "c1"))
-	m.lookup(1).Claimed = true
+	m.lookup(1).running = true
 
 	// Act
 	err := m.Poll(t.Context())
@@ -1452,7 +1453,7 @@ func TestTaskManagerRemovedTaskRunner(t *testing.T) {
 				}
 				m, mock, _ := testManager(t, be, testStore(t))
 				seed(t, m, legacyRecord(1, "c1"))
-				m.lookup(1).Removed = cause
+				m.lookup(1).removed = cause
 
 				// Act
 				err := tt.op(m)

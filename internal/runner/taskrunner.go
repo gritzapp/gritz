@@ -21,22 +21,24 @@ import (
 
 // TaskRunner is the runner's state for a task that has a sandbox: the
 // sandbox, the task's record in taskstate/, and the run being followed on it.
-// It exists exactly as long as the record: it is created around a sandbox
-// once that is created, writing its record (or by Load, for a record a
-// previous process wrote), and it deletes the record when it is destroyed or
-// finds its sandbox gone.
+// It is created around a sandbox once that is created, and writes its record
+// when Start first stamps it with a version; or Load restores it from a record
+// a previous process wrote. It deletes the record when it is destroyed or finds
+// its sandbox gone.
 //
-// Its operations lock it and return Removed if it is set: the TaskRunner was
+// Its operations lock it and return removed if it is set: the TaskRunner was
 // destroyed, or found its sandbox gone, while the operation waited for its
 // lock. They do not look the task up again, so a task created anew after the
 // removal is left to the next operation.
 //
-// Its TaskManager sets the fields above mu when it constructs it, and does
-// not change them after.
+// Its TaskManager sets the exported fields when it constructs it (Load sets
+// Sandbox otherwise), and does not change them after.
 type TaskRunner struct {
 	Store *taskstate.Store
-	Queue *outbox.Outbox[model.RunnerEvent]
-	Log   *slog.Logger
+	// Backend opens the sandbox of the task's record in Load.
+	Backend backend.Backend
+	Queue   *outbox.Outbox[model.RunnerEvent]
+	Log     *slog.Logger
 	// OnFatal terminates the runner on a durable store write failure.
 	OnFatal func(error)
 	// OnRemove deletes the task from the manager's registry.
@@ -58,19 +60,19 @@ type TaskRunner struct {
 
 	// mu serializes Start, Kill, Destroy and Running for the task.
 	mu sync.Mutex
-	// Record is the task's record, as last written to taskstate/. Guarded by
-	// mu.
-	Record taskstate.Record
-	// Claimed is set from Start (or claim) until Run returns, so a second run
+	// rec is the task's record, as last written to taskstate/, or zero until
+	// it is first written. Guarded by mu.
+	rec taskstate.Record
+	// running is set from Start (or claim) until Run returns, so a second run
 	// is not started meanwhile. Guarded by mu.
-	Claimed bool
-	// Cancel cancels the context of the Run in progress, or is nil. Guarded by
+	running bool
+	// cancel cancels the context of the Run in progress, or is nil. Guarded by
 	// mu.
-	Cancel context.CancelCauseFunc
-	// Removed is why the TaskRunner was removed from the registry, or nil
+	cancel context.CancelCauseFunc
+	// removed is why the TaskRunner was removed from the registry, or nil
 	// while it is registered: ErrRemoved from Destroy, backend.ErrGone from
 	// gone. Guarded by mu.
-	Removed error
+	removed error
 }
 
 // ErrRemoved is the cause a Run is cancelled with when Destroy destroys its
@@ -82,22 +84,37 @@ var ErrRemoved = errors.New("sandbox removed")
 // already be parking after its run (a Lambda VM suspending).
 var ErrRunning = errors.New("sandbox is still running")
 
-// NewTaskRunner records the handle of tr's Sandbox, just created for the task,
-// at version in taskstate/, and returns tr. Its TaskManager has set tr's
-// fields above mu.
-func NewTaskRunner(tr *TaskRunner, version int64) (*TaskRunner, error) {
-	if err := tr.write(tr.record(version)); err != nil {
-		return nil, err
+// errOpen marks a Load error from opening the record's handle, as opposed to
+// reading the record.
+var errOpen = errors.New("failed to open sandbox handle")
+
+// Load restores tr from the task's record in taskstate/, which a previous
+// process wrote: it reads the record and opens its handle as tr's Sandbox. A
+// handle that cannot be opened gives an error wrapping errOpen. It is called
+// before tr is registered.
+func (tr *TaskRunner) Load() error {
+	rec, ok, err := tr.Store.Read(tr.TaskID)
+	if err != nil {
+		return err
 	}
-	return tr, nil
+	if !ok {
+		return fmt.Errorf("no record for task %d", tr.TaskID)
+	}
+	sb, err := tr.Backend.Open(backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
+	if err != nil {
+		return fmt.Errorf("%w: %w", errOpen, err)
+	}
+	tr.rec = rec
+	tr.Sandbox = sb
+	return nil
 }
 
 // lock locks tr, unless it was removed, in which case it returns why.
 func (tr *TaskRunner) lock() error {
 	tr.mu.Lock()
-	if tr.Removed != nil {
+	if tr.removed != nil {
 		tr.mu.Unlock()
-		return tr.Removed
+		return tr.removed
 	}
 	return nil
 }
@@ -118,13 +135,13 @@ func (tr *TaskRunner) record(version int64) taskstate.Record {
 // the runner's other durable local store, and a write failure here is the same
 // non-transient disk failure as an outbox Enqueue failure, so crash rather than
 // lose the handle. The returned error still unwinds the caller (releasing the
-// sem slot) as ctx tears down. The caller holds tr.mu, or is creating tr.
+// sem slot) as ctx tears down. The caller holds tr.mu.
 func (tr *TaskRunner) write(rec taskstate.Record) error {
 	if err := tr.Store.Write(rec); err != nil {
 		tr.OnFatal(fmt.Errorf("record handle for task %d: %w", tr.TaskID, err))
 		return fmt.Errorf("failed to record task handle: %w", err)
 	}
-	tr.Record = rec
+	tr.rec = rec
 	return nil
 }
 
@@ -136,7 +153,7 @@ func (tr *TaskRunner) remove(cause error) error {
 		return err
 	}
 	tr.OnRemove(tr.TaskID)
-	tr.Removed = cause
+	tr.removed = cause
 	return nil
 }
 
@@ -168,7 +185,7 @@ func (tr *TaskRunner) Version() (int64, error) {
 		return 0, err
 	}
 	defer tr.mu.Unlock()
-	return tr.Record.Version, nil
+	return tr.rec.Version, nil
 }
 
 // Running reports whether the task's sandbox is up.
@@ -190,7 +207,7 @@ func (tr *TaskRunner) idle() error {
 		return err
 	}
 	defer tr.mu.Unlock()
-	if tr.Claimed {
+	if tr.running {
 		return ErrRunning
 	}
 	return nil
@@ -206,11 +223,12 @@ func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
 		return err
 	}
 	defer tr.mu.Unlock()
-	if tr.Claimed {
+	if tr.running {
 		return ErrRunning
 	}
-	// A TaskRunner created for this run has its record written already.
-	if rec := tr.record(version); !reflect.DeepEqual(rec, tr.Record) {
+	// A TaskRunner created for this run has no record yet; one already
+	// stamped with version is not rewritten.
+	if rec := tr.record(version); !reflect.DeepEqual(rec, tr.rec) {
 		if err := tr.write(rec); err != nil {
 			return err
 		}
@@ -220,7 +238,7 @@ func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
 	} else if err != nil {
 		return err
 	}
-	tr.Claimed = true
+	tr.running = true
 	return nil
 }
 
@@ -229,7 +247,7 @@ func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
 func (tr *TaskRunner) claim() {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	tr.Claimed = true
+	tr.running = true
 }
 
 // Kill asks the driver of the task's sandbox to stop the recorded run. It
@@ -253,8 +271,8 @@ func (tr *TaskRunner) Kill(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	tr.Log.Info("stopping run", "task", tr.TaskID, "version", tr.Record.Version)
-	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: tr.Record.Version})
+	tr.Log.Info("stopping run", "task", tr.TaskID, "version", tr.rec.Version)
+	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: tr.rec.Version})
 	if err != nil {
 		return false, fmt.Errorf("failed to stop run: %w", err)
 	}
@@ -279,8 +297,8 @@ func (tr *TaskRunner) destroy(ctx context.Context) error {
 	if err := tr.Sandbox.Destroy(ctx); err != nil {
 		return err
 	}
-	if tr.Cancel != nil {
-		tr.Cancel(ErrRemoved)
+	if tr.cancel != nil {
+		tr.cancel(ErrRemoved)
 	}
 	return tr.remove(ErrRemoved)
 }
@@ -325,19 +343,19 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	tr.mu.Lock()
-	tr.Claimed = true
-	tr.Cancel = cancel
-	if tr.Removed != nil {
+	tr.running = true
+	tr.cancel = cancel
+	if tr.removed != nil {
 		// Destroyed between Start and Run.
 		cancel(ErrRemoved)
 	}
-	version := tr.Record.Version
+	version := tr.rec.Version
 	tr.mu.Unlock()
 	defer func() {
 		tr.mu.Lock()
 		defer tr.mu.Unlock()
-		tr.Claimed = false
-		tr.Cancel = nil
+		tr.running = false
+		tr.cancel = nil
 	}()
 
 	lost, err := tr.run(ctx, version, spec)
