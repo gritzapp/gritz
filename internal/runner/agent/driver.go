@@ -61,9 +61,9 @@ func (d *Driver) Run(ctx context.Context) error {
 	// fork in run, so this is a single fetch.
 	//
 	// A GetTask failure returns here before started is emitted: the run finishes
-	// unreported and the runner's supervise backstop reports the lost run. A failed
-	// GetTask means the driver has no working server connection to report through
-	// anyway (see the proposal's resolved open question).
+	// unreported and the runner's TaskRunner.Run backstop reports the lost run. A
+	// failed GetTask means the driver has no working server connection to report
+	// through anyway (see the proposal's resolved open question).
 	resp, err := d.Client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: d.TaskID})
 	if err != nil {
 		return fmt.Errorf("failed to get task: %w", err)

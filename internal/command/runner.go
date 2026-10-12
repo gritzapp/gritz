@@ -204,7 +204,7 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to open task store: %w", err)
 		}
 
-		r, err := runner.NewTaskManager(runner.TaskManagerOptions{
+		m, err := runner.NewTaskManager(runner.TaskManagerOptions{
 			Client:      client,
 			Backend:     be,
 			Store:       store,
@@ -219,19 +219,19 @@ var RunnerCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		defer r.Close()
+		defer m.Close()
 
 		log.Info("runner started", "server", serverAddr, "config", configPath, "poll", pollInterval, "concurrency", concurrency, "backend", backendName)
 
 		// Register workspaces with the server (non-fatal if it fails)
-		if err := r.RegisterWorkspaces(ctx); err != nil {
+		if err := m.RegisterWorkspaces(ctx); err != nil {
 			log.Warn("failed to register workspaces", "err", err)
 		}
 
 		// Rehydrate sandboxes that were running when the runner was stopped: this
 		// re-attaches a Run goroutine per running sandbox and seeds the
 		// concurrency semaphore. It runs once, before Poll admits new work.
-		if err := r.Load(ctx); err != nil {
+		if err := m.Load(ctx); err != nil {
 			return fmt.Errorf("failed to load sandboxes: %w", err)
 		}
 
@@ -242,7 +242,7 @@ var RunnerCommand = &cli.Command{
 		// Start autoprune goroutine
 		go func() {
 			for common.SleepContext(ctx, pollInterval) {
-				if err := r.Prune(ctx); err != nil {
+				if err := m.Prune(ctx); err != nil {
 					log.Error("failed to prune containers", "err", err)
 				}
 			}
@@ -257,7 +257,7 @@ var RunnerCommand = &cli.Command{
 				Runner:  runnerID,
 				Token:   cfg.Token,
 				Log:     log,
-				Handler: func(model.Notification) { r.Wake() },
+				Handler: func(model.Notification) { m.Wake() },
 			})
 			if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				log.Error("notification client stopped", "err", err)
@@ -265,11 +265,11 @@ var RunnerCommand = &cli.Command{
 		}()
 
 		for {
-			if err := r.Poll(ctx); err != nil {
+			if err := m.Poll(ctx); err != nil {
 				log.Error("failed to poll tasks", "err", err)
 			}
 			select {
-			case <-r.WakeC():
+			case <-m.WakeC():
 			case <-time.After(pollInterval):
 			case <-ctx.Done():
 				// Distinguish a durable-store-write crash (die set a

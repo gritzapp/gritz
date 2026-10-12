@@ -355,7 +355,7 @@ func TestDriverRun_GetTaskError(t *testing.T) {
 	err := driver.Run(t.Context())
 
 	// Assert - the error is returned and no events were emitted; the runner's
-	// supervise backstop reports the lost run via the non-zero exit code.
+	// TaskRunner.Run backstop reports the lost run via the non-zero exit code.
 	assert.ErrorContains(t, err, "failed to get task")
 	assert.Assert(t, cmp.Len(mock.SubmittedRunnerEvents(), 0))
 }
