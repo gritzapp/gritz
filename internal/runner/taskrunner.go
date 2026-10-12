@@ -11,11 +11,14 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/cenkalti/backoff/v5"
+
 	"github.com/gritzapp/gritz/internal/model"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
+	"github.com/gritzapp/gritz/internal/x/common"
 	"github.com/gritzapp/gritz/internal/x/outbox"
 )
 
@@ -407,23 +410,22 @@ func (tr *TaskRunner) startRun(ctx context.Context, version int64, spec *driverv
 	if err != nil {
 		return err
 	}
-	delay := env.retryInterval
+	bo := doubling(env.retryInterval, readyMaxInterval)
 	for {
 		_, err := client.Status(ctx, &driverv1.StatusRequest{})
 		if err == nil {
 			break
 		}
-		if sleep(ctx, delay) != nil {
+		if !common.SleepContext(ctx, bo.NextBackOff()) {
 			return fmt.Errorf("driver server did not become ready: %w", err)
 		}
-		delay = min(delay*2, readyMaxInterval)
 	}
 	for {
 		err := accept(ctx, client, &driverv1.RunRequest{Version: version, Spec: spec})
 		if err == nil {
 			return nil
 		}
-		if connect.CodeOf(err) != connect.CodeUnavailable || sleep(ctx, env.retryInterval) != nil {
+		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, env.retryInterval) {
 			return fmt.Errorf("failed to start run %d: %w", version, err)
 		}
 	}
@@ -463,7 +465,7 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 func (tr *TaskRunner) attach(ctx context.Context, version int64) (lost string, err error) {
 	env, taskID, sb := tr.env, tr.taskID, tr.sb
 	lastGood := time.Now()
-	delay := env.retryInterval
+	bo := doubling(env.retryInterval, env.retryMaxInterval)
 	var lastErr string
 	for {
 		finished, accepted, err := attachOnce(ctx, sb, version)
@@ -504,7 +506,7 @@ func (tr *TaskRunner) attach(ctx context.Context, version int64) (lost string, e
 			// The stream was live until it dropped: the driver's idle watchdog
 			// would have ended it otherwise.
 			lastGood = time.Now()
-			delay = env.retryInterval
+			bo.Reset()
 			lastErr = ""
 		}
 		if time.Since(lastGood) >= env.lostTimeout {
@@ -521,10 +523,9 @@ func (tr *TaskRunner) attach(ctx context.Context, version int64) (lost string, e
 			env.log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
 			lastErr = msg
 		}
-		if err := sleep(ctx, delay); err != nil {
-			return "", err
+		if !common.SleepContext(ctx, bo.NextBackOff()) {
+			return "", ctx.Err()
 		}
-		delay = min(delay*2, env.retryMaxInterval)
 	}
 }
 
@@ -573,14 +574,14 @@ func (tr *TaskRunner) park(ctx context.Context) {
 	}
 }
 
-// sleep waits for d or until ctx is done, returning ctx's error in that case.
-func sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
+// doubling returns a backoff that starts at initial and doubles up to
+// maxInterval, without jitter. It never stops: callers bound it themselves.
+func doubling(initial, maxInterval time.Duration) *backoff.ExponentialBackOff {
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = initial
+	bo.MaxInterval = maxInterval
+	bo.Multiplier = 2
+	bo.RandomizationFactor = 0
+	bo.Reset()
+	return bo
 }
