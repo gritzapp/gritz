@@ -1,13 +1,14 @@
 // Turns `vite build` into a static site for GitHub Pages: an index listing
 // every project and a page per project that plays it with the
-// @motion-canvas/player web component. Every URL is relative, so the same
+// @motion-canvas/player web component and the playback controls in
+// controls.ts. Every URL is relative, so the same
 // build works at the site root and under a PR preview's /pr/<n>/.
 
 import path from 'path';
 import type {Plugin} from 'vite';
 
 const PROJECTS_DIR = 'src/projects';
-const PLAYER_ID = '@motion-canvas/player';
+const CONTROLS = path.resolve('controls.ts');
 
 const style = `
   :root { color-scheme: dark; }
@@ -47,20 +48,20 @@ const relative = (from: string, to: string) =>
   path.posix.relative(path.posix.dirname(from), to) || '.';
 
 export function site(): Plugin {
-  let playerRef: string;
+  let controlsRef: string;
 
   return {
     name: 'gritz:site',
     apply: 'build',
     config: () => ({base: './'}),
     buildStart() {
-      playerRef = this.emitFile({type: 'chunk', id: PLAYER_ID, name: 'player'});
+      controlsRef = this.emitFile({type: 'chunk', id: CONTROLS, name: 'controls'});
     },
     generateBundle(_, bundle) {
       // Serve files as-is; Jekyll would drop chunks whose names start with `_`.
       this.emitFile({type: 'asset', fileName: '.nojekyll', source: ''});
 
-      const player = this.getFileName(playerRef);
+      const controls = this.getFileName(controlsRef);
 
       // `slug` is the project file's path under src/projects without the
       // extension, e.g. `create-task` or `proposals/restart`.
@@ -82,17 +83,11 @@ export function site(): Plugin {
 
       for (const {slug, src} of projects) {
         const fileName = `${slug}/index.html`;
-        // The player resolves `src` against its own module URL, so hand it
-        // an absolute URL built from the page's location.
+        // controls.ts turns data-src into the player's src.
         const body = `<p><a href="${relative(fileName, 'index.html')}">All diagrams</a></p>
 <h1>${escape(slug)}</h1>
-<motion-canvas-player auto="true"></motion-canvas-player>
-<script type="module">
-import '${relative(fileName, player)}';
-document
-  .querySelector('motion-canvas-player')
-  .setAttribute('src', new URL('${relative(fileName, src)}', location.href).href);
-</script>`;
+<motion-canvas-player data-src="${relative(fileName, src)}"></motion-canvas-player>
+<script type="module" src="${relative(fileName, controls)}"></script>`;
         this.emitFile({type: 'asset', fileName, source: page(slug, body)});
       }
 
