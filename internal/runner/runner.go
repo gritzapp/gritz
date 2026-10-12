@@ -15,6 +15,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -47,8 +48,8 @@ type Options struct {
 	// Backend is the sandbox runtime that hosts task drivers.
 	Backend backend.Backend
 	// BackendV2 is the same backend under the interface the runner is moving
-	// onto, one path at a time (see #1725). Load, Prune, Running and Remove go
-	// through it; every other path still uses Backend.
+	// onto, one path at a time (see #1725). Load, Prune, Running, Remove and Kill
+	// go through it; every other path still uses Backend.
 	BackendV2 backend.BackendV2
 	// Store is the runner-local source of truth for the task→sandbox-handle
 	// mapping. The runner is the only writer; backends never touch it.
@@ -214,8 +215,8 @@ func (r *Runner) Poll(ctx context.Context) error {
 					// "failed" instead.
 					return nil
 				}
-				// No running sandbox to signal: there is no driver to
-				// complete the cancel, so emit "stopped" to land the task in
+				// No running run to stop: there is no driver to complete
+				// the cancel, so emit "stopped" to land the task in
 				// cancelled instead of sticking in cancelling.
 				if err := r.queue.Enqueue(model.RunnerEvent{
 					TaskID:  task.ID,
@@ -465,15 +466,39 @@ func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	return r.store.Remove(taskID)
 }
 
-// Kill stops the task's sandbox if it is running. It reports whether a
-// running sandbox was signalled — in that case the driver owns the
-// terminal event report (see the driver-owned-events proposal).
+// Kill asks the driver of the task's sandbox to stop the recorded run. It
+// reports whether a running run was stopped — in that case the driver owns the
+// terminal event report (see the driver-owned-events proposal). A sandbox that
+// is not up has no driver to ask, so nothing is stopped; neither is a run that
+// already finished or is not the recorded version.
 func (r *Runner) Kill(ctx context.Context, task *model.Task) (bool, error) {
-	h, ok, err := r.handle(task.ID)
+	rec, ok, err := r.store.Read(task.ID)
 	if err != nil || !ok {
 		return false, err
 	}
-	return r.backend.Signal(ctx, h)
+	// Open ignores Data, so a handle recorded by Launch (which carries the run
+	// version there) opens like any other.
+	sb, err := r.backendV2.Open(backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
+	if err != nil {
+		return false, err
+	}
+	st, err := sb.Status(ctx)
+	if err != nil {
+		return false, err
+	}
+	if st != backend.StatusUp {
+		return false, nil
+	}
+	client, err := sb.Dial(ctx, "")
+	if err != nil {
+		return false, err
+	}
+	r.log.Info("stopping run", "task", task.ID, "version", rec.Version)
+	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: rec.Version})
+	if err != nil {
+		return false, fmt.Errorf("failed to stop run: %w", err)
+	}
+	return resp.GetStopped(), nil
 }
 
 // spec assembles the sandbox spec for a task: the task token, the run's

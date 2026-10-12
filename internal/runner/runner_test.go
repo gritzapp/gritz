@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
@@ -18,11 +19,14 @@ import (
 	dockerclient "github.com/docker/docker/client"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/docker"
+	"github.com/gritzapp/gritz/internal/runner/driverserver"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
@@ -464,11 +468,7 @@ func TestRunnerPoll_StopWithoutSandbox(t *testing.T) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 	}
-	be := &backend.BackendMock{
-		SignalFunc: func(_ context.Context, _ backend.Handle) (bool, error) {
-			return false, nil
-		},
-	}
+	be := &backend.BackendMock{}
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   mock,
@@ -483,9 +483,8 @@ func TestRunnerPoll_StopWithoutSandbox(t *testing.T) {
 	err = r.Poll(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - no record, so the backend is never signalled and the runner
-	// emits "stopped" itself.
-	assert.Assert(t, cmp.Len(be.SignalCalls(), 0))
+	// Assert - no record, so there is no driver to stop and the runner emits
+	// "stopped" itself.
 	events := submitted(t, mock, queue)
 	assert.Equal(t, len(events), 1)
 	assert.DeepEqual(t,
@@ -511,13 +510,17 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 			return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 		},
 	}
-	be := &backend.BackendMock{
-		SignalFunc: func(_ context.Context, h backend.Handle) (bool, error) {
-			assert.Equal(t, h.ID, "c7")
-			return true, nil
+	client, stream := testDriver(t, 7, 3, sleepForever)
+	sb := &backend.SandboxV2Mock{
+		StatusFunc: func(context.Context) (backend.Status, error) { return backend.StatusUp, nil },
+		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+			return client, nil
 		},
 	}
-	store := testStore(t, taskstate.Record{TaskID: 7, Type: "docker", ID: "c7"})
+	bev2 := &backend.BackendV2Mock{
+		OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+	}
+	store := testStore(t, taskstate.Record{TaskID: 7, Version: 3, Type: "docker", ID: "c7"})
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   mock,
@@ -525,15 +528,15 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: &backend.BackendMock{}, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
 	err = r.Poll(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - the driver was signalled and owns the terminal report.
-	assert.Assert(t, cmp.Len(be.SignalCalls(), 1))
+	// Assert - the driver stopped the run and owns the terminal report.
+	waitFinished(t, stream)
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
@@ -1062,6 +1065,192 @@ func TestRunnerRemove(t *testing.T) {
 	}
 }
 
+// sleepForever is an agent config whose dummy agent runs until it is stopped.
+var sleepForever = &agent.Config{Type: agent.TypeDummy, Dummy: &agent.DummyOptions{Sleep: -1}}
+
+// testDriver serves a driver server over an in-memory Connect client. With cfg
+// set, it starts run version of taskID with that agent config and returns the
+// run's stream; with cfg nil the driver has never run.
+func testDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (driverv1connect.DriverServiceClient, *connect.ServerStreamForClient[driverv1.RunResponse]) {
+	t.Helper()
+	dir := t.TempDir()
+	configs := agent.ConfigStore(filepath.Join(dir, "config"))
+	gritz := &gritzclient.ClientMock{
+		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
+			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: version}}, nil
+		},
+		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+			return &gritzv1.SubmitRunnerEventsResponse{}, nil
+		},
+		ListEventsByTaskFunc: func(_ context.Context, _ *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
+			return &gritzv1.ListEventsByTaskResponse{}, nil
+		},
+		ListLinksFunc: func(_ context.Context, _ *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
+			return &gritzv1.ListLinksResponse{}, nil
+		},
+		AppendLogChunkFunc: func(_ context.Context, _ *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
+			return &gritzv1.AppendLogChunkResponse{}, nil
+		},
+	}
+	srv, err := driverserver.New(driverserver.Options{
+		RecordPath: filepath.Join(dir, "run.json"),
+		LogPath:    filepath.Join(dir, "log"),
+		Config:     configs,
+		FileRoot:   filepath.Join(dir, "root"),
+		NewClient:  func(_, _ string) gritzclient.Client { return gritz },
+		KeepAlive:  20 * time.Millisecond,
+	})
+	assert.NilError(t, err)
+	mux := http.NewServeMux()
+	mux.Handle(srv.Handler())
+	hs := httptest.NewServer(mux)
+	t.Cleanup(hs.Close)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		assert.NilError(t, srv.Shutdown(ctx))
+	})
+	client := driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
+	if cfg == nil {
+		return client, nil
+	}
+	assert.NilError(t, configs.Save(taskID, cfg))
+	stream, err := client.Run(t.Context(), &driverv1.RunRequest{
+		Version: version,
+		Spec:    &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
+	})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = stream.Close() })
+	assert.Assert(t, stream.Receive(), "Run: %v", stream.Err())
+	assert.Assert(t, stream.Msg().GetAccepted() != nil, "first message is %v, want accepted", stream.Msg())
+	return client, stream
+}
+
+// waitFinished reads a run stream until the driver sends Finished.
+func waitFinished(t *testing.T, stream *connect.ServerStreamForClient[driverv1.RunResponse]) {
+	t.Helper()
+	for stream.Receive() {
+		if stream.Msg().GetFinished() != nil {
+			return
+		}
+	}
+	t.Fatalf("stream ended before finished: %v", stream.Err())
+}
+
+func TestRunnerKill(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		// record, when set, is the task's record (version 3).
+		record bool
+		status backend.Status
+		// agent, when set, starts run version 3 with it; finish waits for that
+		// run to finish before Kill.
+		agent        *agent.Config
+		finish       bool
+		statusErr    error
+		wantSignal   bool
+		wantErr      bool
+		wantDialed   bool
+		wantFinished bool
+	}{
+		{
+			name:         "running",
+			record:       true,
+			status:       backend.StatusUp,
+			agent:        sleepForever,
+			wantSignal:   true,
+			wantDialed:   true,
+			wantFinished: true,
+		},
+		{
+			name:       "finished",
+			record:     true,
+			status:     backend.StatusUp,
+			agent:      &agent.Config{Type: agent.TypeDummy},
+			finish:     true,
+			wantDialed: true,
+		},
+		{
+			name:       "never run",
+			record:     true,
+			status:     backend.StatusUp,
+			wantDialed: true,
+		},
+		{
+			name:   "parked",
+			record: true,
+			status: backend.StatusParked,
+		},
+		{
+			name:   "gone",
+			record: true,
+			status: backend.StatusGone,
+		},
+		{
+			name:      "status fails",
+			record:    true,
+			statusErr: errors.New("boom"),
+			wantErr:   true,
+		},
+		{
+			name: "no record",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			client, stream := testDriver(t, 1, 3, tt.agent)
+			if tt.finish {
+				waitFinished(t, stream)
+			}
+			sb := &backend.SandboxV2Mock{
+				StatusFunc: func(context.Context) (backend.Status, error) {
+					if tt.statusErr != nil {
+						return backend.StatusUnknown, tt.statusErr
+					}
+					return tt.status, nil
+				},
+				DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+					return client, nil
+				},
+			}
+			bev2 := &backend.BackendV2Mock{
+				OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+			}
+			var recs []taskstate.Record
+			if tt.record {
+				recs = append(recs, v1Record(1, "c1"))
+			}
+			// The v1 backend is unmocked: Kill must not call Signal.
+			r, err := New(Options{Backend: &backend.BackendMock{}, BackendV2: bev2, Store: testStore(t, recs...), RunnerID: "test-runner"})
+			assert.NilError(t, err)
+
+			// Act
+			signalled, err := r.Kill(t.Context(), &model.Task{ID: 1, Version: 3})
+
+			// Assert
+			if tt.wantErr {
+				assert.ErrorIs(t, err, tt.statusErr)
+			} else {
+				assert.NilError(t, err)
+			}
+			assert.Equal(t, signalled, tt.wantSignal)
+			assert.Equal(t, len(sb.DialCalls()) == 1, tt.wantDialed)
+			if tt.wantFinished {
+				// The stopped run reports and finishes on its own stream.
+				waitFinished(t, stream)
+			}
+			if tt.record {
+				assert.DeepEqual(t, bev2.OpenCalls()[0].H, backend.Handle{Type: "docker", ID: "c1", Data: recs[0].Data})
+			} else {
+				assert.Assert(t, cmp.Len(bev2.OpenCalls(), 0))
+			}
+		})
+	}
+}
+
 func TestRunnerStart_Gone(t *testing.T) {
 	t.Parallel()
 	// Arrange - a task whose recorded sandbox has vanished. Launch returns
@@ -1162,11 +1351,8 @@ func TestRunnerDie_StopWithoutSandbox(t *testing.T) {
 			return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 		},
 	}
-	be := &backend.BackendMock{
-		SignalFunc: func(_ context.Context, _ backend.Handle) (bool, error) {
-			return false, nil // no running sandbox to signal → runner emits "stopped"
-		},
-	}
+	// No record, so there is no run to stop → the runner emits "stopped".
+	be := &backend.BackendMock{}
 	// Back the outbox with a store whose durable Append fails. The die path is
 	// reached through Enqueue → Append alone, so Peek/Drop/Len are never called
 	// (an unstubbed moq method would panic if they were).
@@ -1217,11 +1403,7 @@ func TestRunnerGracefulShutdown_NoFatalCause(t *testing.T) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 	}
-	be := &backend.BackendMock{
-		SignalFunc: func(_ context.Context, _ backend.Handle) (bool, error) {
-			return false, nil
-		},
-	}
+	be := &backend.BackendMock{}
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   mock,
