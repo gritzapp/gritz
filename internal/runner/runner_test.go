@@ -416,10 +416,17 @@ func TestRunnerStart_AdoptReuse(t *testing.T) {
 			assert.Equal(t, reuse.ID, "old-id")
 			return backend.Handle{ID: "new-id"}, nil
 		},
-		// Start spawns a supervise goroutine; park it until the test's ctx ends.
-		WaitFunc: func(ctx context.Context, _ backend.Handle) (backend.ExitCode, error) {
-			<-ctx.Done()
-			return 0, ctx.Err()
+	}
+	// Start spawns a supervise goroutine; its dial blocks until the test's ctx
+	// ends.
+	bev2 := &backend.BackendV2Mock{
+		OpenFunc: func(h backend.Handle) (backend.SandboxV2, error) {
+			return &backend.SandboxV2Mock{
+				DialFunc: func(ctx context.Context, _ string) (driverv1connect.DriverServiceClient, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				},
+			}, nil
 		},
 	}
 	mock := &gritzclient.ClientMock{
@@ -434,15 +441,17 @@ func TestRunnerStart_AdoptReuse(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
+	r, err := New(Options{Client: mock, Backend: be, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
 	assert.NilError(t, err)
 
 	// Act
 	err = r.Start(t.Context(), task)
 
-	// Assert - the new handle replaced the old record.
+	// Assert - the new handle replaced the old record, and supervise follows the
+	// sandbox it identifies.
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(be.LaunchCalls(), 1))
+	assert.DeepEqual(t, bev2.OpenCalls()[0].H, backend.Handle{ID: "new-id"})
 	rec, ok, err := store.Read(6)
 	assert.NilError(t, err)
 	assert.Equal(t, ok, true)
@@ -542,21 +551,42 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 	assert.Equal(t, n, 0)
 }
 
-func TestRunnerSupervise_ReportLost(t *testing.T) {
-	t.Parallel()
-	// Arrange - Wait reports the exit as lost (non-zero code): the driver's
-	// terminal report never reached the server, so the runner emits "failed".
+// testSandbox returns a sandbox whose driver is client and which is up until it
+// is parked. parked is closed by its first Park.
+func testSandbox(client driverv1connect.DriverServiceClient) (sb *backend.SandboxV2Mock, parked <-chan struct{}) {
+	var once sync.Once
+	ch := make(chan struct{})
+	sb = &backend.SandboxV2Mock{
+		HandleFunc: func() backend.Handle { return backend.Handle{Type: "docker", ID: "c1"} },
+		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+			return client, nil
+		},
+		StatusFunc: func(context.Context) (backend.Status, error) {
+			select {
+			case <-ch:
+				return backend.StatusParked, nil
+			default:
+				return backend.StatusUp, nil
+			}
+		},
+		ParkFunc: func(context.Context) error {
+			once.Do(func() { close(ch) })
+			return nil
+		},
+		DestroyFunc: func(context.Context) error { return nil },
+	}
+	return sb, ch
+}
+
+// testSupervisor returns a runner whose concurrency slot is held by the run
+// supervise will follow, with reattach timings shortened for tests.
+func testSupervisor(t *testing.T, bev2 backend.BackendV2, store *taskstate.Store) (*Runner, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
+	t.Helper()
 	mock := &gritzclient.ClientMock{
 		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 	}
-	be := &backend.BackendMock{
-		WaitFunc: func(_ context.Context, h backend.Handle) (backend.ExitCode, error) {
-			assert.Equal(t, h.ID, "c2")
-			return backend.ExitLost, nil
-		},
-	}
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
 		Client:   mock,
@@ -564,85 +594,263 @@ func TestRunnerSupervise_ReportLost(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: &backend.BackendMock{}, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
-	assert.Assert(t, r.sem.TryAcquire(1)) // the slot supervise will release
-
-	// Act - supervise the run at version 4; the emitted failed is scoped to it.
-	r.supervise(t.Context(), 2, 4, backend.Handle{ID: "c2"})
-
-	// Assert - a failed event is emitted, scoped to the run's version, and the
-	// concurrency slot is released.
-	events := submitted(t, mock, queue)
-	assert.Equal(t, len(events), 1)
-	assert.DeepEqual(t,
-		events[0],
-		&gritzv1.RunnerEvent{Event: "failed", TaskId: 2, Version: 4, Reason: "sandbox exited with status code -1"},
-		protocmp.Transform(),
-	)
-	assert.Assert(t, r.sem.TryAcquire(1)) // the slot was released
+	r.retryInterval = 10 * time.Millisecond
+	r.retryMaxInterval = 50 * time.Millisecond
+	r.lostTimeout = 10 * time.Second
+	return r, mock, queue
 }
 
-func TestRunnerSupervise_CleanExit(t *testing.T) {
-	t.Parallel()
-	// Arrange - Wait returns a clean exit (0): the driver already reported, so
-	// no event is owed, but the slot is still released.
-	mock := &gritzclient.ClientMock{}
-	be := &backend.BackendMock{
-		WaitFunc: func(_ context.Context, _ backend.Handle) (backend.ExitCode, error) {
-			return 0, nil
-		},
+// supervise starts following run version of taskID on sb, as Start does once
+// the record is written.
+func supervise(t *testing.T, ctx context.Context, r *Runner, taskID, version int64, sb backend.SandboxV2) {
+	t.Helper()
+	assert.Assert(t, r.sem.TryAcquire(1)) // the slot supervise will release
+	e := r.entry(taskID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.sb = sb
+	r.supervise(ctx, e, taskID, version, sb)
+}
+
+// waitSupervised waits until no supervise goroutine follows the task.
+func waitSupervised(t *testing.T, r *Runner, taskID int64) {
+	t.Helper()
+	e := r.entry(taskID)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		e.mu.Lock()
+		sup := e.sup
+		e.mu.Unlock()
+		if sup == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("supervise did not return")
+		}
+		time.Sleep(time.Millisecond)
 	}
-	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
-		StoreDir: t.TempDir(),
-		Client:   mock,
-		Backoff:  backoff.NewConstantBackOff(0),
-		Log:      slog.Default(),
-	})
-	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
-	assert.NilError(t, err)
-	assert.Assert(t, r.sem.TryAcquire(1))
+}
+
+// waitDialed waits until the runner has dialed sb's driver at least min times.
+func waitDialed(t *testing.T, sb *backend.SandboxV2Mock, min int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for len(sb.DialCalls()) < min {
+		if time.Now().After(deadline) {
+			t.Fatalf("dialed %d times, want %d", len(sb.DialCalls()), min)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestRunnerSupervise_Finished(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run that finishes on its own; the test's own stream is
+	// closed, which detaches it and leaves the run to supervise.
+	client, stream := testDriver(t, 1, 3, &agent.Config{Type: agent.TypeDummy})
+	assert.NilError(t, stream.Close())
+	sb, parked := testSandbox(client)
+	r, _, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
 
 	// Act
-	r.supervise(t.Context(), 3, 1, backend.Handle{ID: "c3"})
+	supervise(t, t.Context(), r, 1, 3, sb)
+	waitSupervised(t, r, 1)
 
-	// Assert - no event, slot released.
+	// Assert - the driver reported, so no event is owed; the sandbox is parked
+	// after Finished and the slot is released.
+	select {
+	case <-parked:
+	default:
+		t.Fatal("sandbox was not parked after Finished")
+	}
+	assert.Assert(t, cmp.Len(sb.ParkCalls(), 1))
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
 	assert.Assert(t, r.sem.TryAcquire(1))
+}
+
+func TestRunnerSupervise_Reattach(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run that keeps going until it is stopped.
+	hs, client, stream := serveDriver(t, 1, 3, sleepForever)
+	assert.NilError(t, stream.Close())
+	sb, parked := testSandbox(client)
+	r, _, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	supervise(t, t.Context(), r, 1, 3, sb)
+	waitDialed(t, sb, 1)
+
+	// Act - drop every connection to the driver, the attached stream with
+	// them, until supervise has dialed again; then stop the run.
+	dials := len(sb.DialCalls())
+	deadline := time.Now().Add(10 * time.Second)
+	for len(sb.DialCalls()) == dials {
+		if time.Now().After(deadline) {
+			t.Fatal("supervise did not reattach")
+		}
+		hs.CloseClientConnections()
+		time.Sleep(5 * time.Millisecond)
+	}
+	stopRun(t, client, 3)
+	waitSupervised(t, r, 1)
+
+	// Assert - the reattached stream saw Finished: the driver reported, the
+	// sandbox is parked and the slot released, and no event is owed.
+	<-parked
+	n, err := queue.Len()
+	assert.NilError(t, err)
+	assert.Equal(t, n, 0)
+	assert.Assert(t, r.sem.TryAcquire(1))
+}
+
+func TestRunnerSupervise_DriverUnreachable(t *testing.T) {
+	t.Parallel()
+	// Arrange - a sandbox that stays up while its driver never answers.
+	hs := httptest.NewServer(http.NotFoundHandler())
+	hs.Close()
+	sb, parked := testSandbox(driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL))
+	r, mock, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	r.lostTimeout = 100 * time.Millisecond
+
+	// Act
+	supervise(t, t.Context(), r, 2, 4, sb)
+	waitSupervised(t, r, 2)
+
+	// Assert - supervise gave up: the sandbox is parked, the slot released, and
+	// the runner's fallback "failed" is scoped to the run's version.
+	<-parked
+	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
+		{Event: "failed", TaskId: 2, Version: 4, Reason: "driver unreachable"},
+	}, protocmp.Transform())
+	assert.Assert(t, r.sem.TryAcquire(1))
+}
+
+func TestRunnerSupervise_NoSuchRun(t *testing.T) {
+	t.Parallel()
+	// Arrange - a driver that has never run, so attaching to version 3 is
+	// NotFound.
+	client, _ := testDriver(t, 1, 3, nil)
+	sb, parked := testSandbox(client)
+	r, mock, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+
+	// Act
+	supervise(t, t.Context(), r, 1, 3, sb)
+	waitSupervised(t, r, 1)
+
+	// Assert - nothing runs on the sandbox, so it is parked and the run is
+	// reported failed.
+	<-parked
+	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
+		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver has no such run"},
+	}, protocmp.Transform())
 }
 
 func TestRunnerSupervise_Shutdown(t *testing.T) {
 	t.Parallel()
-	// Arrange - Wait returns context.Canceled: the runner is shutting down, the
-	// sandbox stays alive for next-boot rehydration. No event, slot NOT released.
-	mock := &gritzclient.ClientMock{}
-	be := &backend.BackendMock{
-		WaitFunc: func(_ context.Context, _ backend.Handle) (backend.ExitCode, error) {
-			return 0, context.Canceled
-		},
-	}
-	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
-		StoreDir: t.TempDir(),
-		Client:   mock,
-		Backoff:  backoff.NewConstantBackOff(0),
-		Log:      slog.Default(),
-	})
-	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, Backend: be, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
-	assert.NilError(t, err)
-	assert.Assert(t, r.sem.TryAcquire(1))
+	// Arrange - a run that keeps going.
+	client, stream := testDriver(t, 1, 3, sleepForever)
+	assert.NilError(t, stream.Close())
+	sb, _ := testSandbox(client)
+	r, _, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	ctx, cancel := context.WithCancel(t.Context())
+	supervise(t, ctx, r, 1, 3, sb)
+	waitDialed(t, sb, 1)
 
-	// Act
-	r.supervise(t.Context(), 4, 1, backend.Handle{ID: "c4"})
+	// Act - the runner shuts down.
+	cancel()
+	waitSupervised(t, r, 1)
 
-	// Assert - no event, and the slot is still held (not released on shutdown).
+	// Assert - the sandbox stays up for next-boot rehydration: no park, no
+	// event, and the slot is still held.
+	assert.Assert(t, cmp.Len(sb.ParkCalls(), 0))
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
 	assert.Assert(t, !r.sem.TryAcquire(1))
+}
+
+func TestRunnerSupervise_Removed(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run that keeps going, on a recorded sandbox.
+	client, stream := testDriver(t, 1, 3, sleepForever)
+	assert.NilError(t, stream.Close())
+	sb, _ := testSandbox(client)
+	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"})
+	r, mock, queue := testSupervisor(t, &backend.BackendV2Mock{}, store)
+	supervise(t, t.Context(), r, 1, 3, sb)
+	waitDialed(t, sb, 1)
+
+	// Act - the sandbox is removed under the run.
+	assert.NilError(t, r.Remove(t.Context(), 1))
+	waitSupervised(t, r, 1)
+
+	// Assert - Remove destroyed the sandbox supervise holds, and the run is
+	// lost.
+	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
+	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
+		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox removed before the run finished"},
+	}, protocmp.Transform())
+	assert.Assert(t, r.sem.TryAcquire(1))
+}
+
+// TestRunnerSupervise_RestartReattaches covers a runner restart mid-run: the
+// first runner process shuts down while it follows the run, and the next one
+// reattaches to it from the record in Load.
+func TestRunnerSupervise_RestartReattaches(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run that keeps going, recorded at its version, followed by a
+	// runner that then shuts down.
+	client, stream := testDriver(t, 1, 3, sleepForever)
+	assert.NilError(t, stream.Close())
+	sb, parked := testSandbox(client)
+	bev2 := &backend.BackendV2Mock{
+		OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+	}
+	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"})
+	first, _, _ := testSupervisor(t, bev2, store)
+	ctx, cancel := context.WithCancel(t.Context())
+	assert.NilError(t, first.Load(ctx))
+	waitDialed(t, sb, 1)
+	cancel()
+	waitSupervised(t, first, 1)
+	assert.Assert(t, cmp.Len(sb.ParkCalls(), 0))
+
+	// Act - the next runner process loads the record and reattaches; then the
+	// run finishes.
+	dials := len(sb.DialCalls())
+	r, _, queue := testSupervisor(t, bev2, store)
+	assert.NilError(t, r.Load(t.Context()))
+	waitDialed(t, sb, dials+1)
+	stopRun(t, client, 3)
+	waitSupervised(t, r, 1)
+
+	// Assert - the reattached runner saw Finished: the sandbox is parked, the
+	// slot Load seeded is released, and no event is owed.
+	<-parked
+	n, err := queue.Len()
+	assert.NilError(t, err)
+	assert.Equal(t, n, 0)
+	assert.Assert(t, r.sem.TryAcquire(1))
+}
+
+// stopRun stops the running run version, retrying until the driver has it
+// running.
+func stopRun(t *testing.T, client driverv1connect.DriverServiceClient, version int64) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err := client.Stop(t.Context(), &driverv1.StopRequest{Version: version})
+		assert.NilError(t, err)
+		if resp.GetStopped() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("run was never running")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // v1Record is a record written by v1 Launch: its Data carries the run version.
@@ -684,14 +892,14 @@ func TestRunnerLoad(t *testing.T) {
 		statusErr  error
 		wantEvents []*gritzv1.RunnerEvent
 		wantRecord bool
-		wantWait   bool // re-attached through v1 Wait
+		wantAttach bool // supervised: the runner dialed the driver to reattach
 	}{
 		{
 			name:       "up",
 			record:     v1Record(1, "c1"),
 			status:     backend.StatusUp,
 			wantRecord: true,
-			wantWait:   true,
+			wantAttach: true,
 		},
 		{
 			// A parked husk is a lost-report backstop; its record is kept.
@@ -728,18 +936,21 @@ func TestRunnerLoad(t *testing.T) {
 					return &gritzv1.SubmitRunnerEventsResponse{}, nil
 				},
 			}
-			waited := make(chan backend.Handle, 1)
-			be := &backend.BackendMock{
-				WaitFunc: func(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
-					waited <- h // the up sandbox got a supervise goroutine
-					<-ctx.Done()
-					return 0, ctx.Err()
-				},
-			}
 			bev2, destroyed := testBackendV2(
 				map[string]backend.Status{"c1": tt.status},
 				map[string]error{"c1": tt.statusErr},
 			)
+			dialed := make(chan backend.Handle, 1)
+			open := bev2.OpenFunc
+			bev2.OpenFunc = func(h backend.Handle) (backend.SandboxV2, error) {
+				sb, err := open(h)
+				sb.(*backend.SandboxV2Mock).DialFunc = func(ctx context.Context, _ string) (driverv1connect.DriverServiceClient, error) {
+					dialed <- h // the up sandbox got a supervise goroutine
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+				return sb, err
+			}
 			store := testStore(t, tt.record)
 			queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 				StoreDir: t.TempDir(),
@@ -750,7 +961,7 @@ func TestRunnerLoad(t *testing.T) {
 			assert.NilError(t, err)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			r, err := New(Options{Client: mock, Backend: be, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
+			r, err := New(Options{Client: mock, Backend: &backend.BackendMock{}, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
 			assert.NilError(t, err)
 
 			// Act
@@ -764,17 +975,17 @@ func TestRunnerLoad(t *testing.T) {
 			assert.Equal(t, ok, tt.wantRecord)
 			assert.Assert(t, cmp.Len(*destroyed, 0)) // Load never destroys
 			var running int64
-			if tt.wantWait {
+			if tt.wantAttach {
 				running = 1
-				// Re-attached through v1 Wait, with the recorded v1 handle.
+				// Reattached over the sandbox opened from the recorded handle.
 				select {
-				case h := <-waited:
+				case h := <-dialed:
 					assert.DeepEqual(t, h, backend.Handle{Type: "docker", ID: "c1", Data: tt.record.Data})
 				case <-time.After(3 * time.Second):
 					t.Fatal("up sandbox was not supervised")
 				}
 			} else {
-				assert.Assert(t, cmp.Len(be.WaitCalls(), 0))
+				assert.Equal(t, len(dialed), 0)
 			}
 			// The semaphore was seeded with the up count.
 			assert.Assert(t, r.sem.TryAcquire(5-running))
@@ -1073,6 +1284,14 @@ var sleepForever = &agent.Config{Type: agent.TypeDummy, Dummy: &agent.DummyOptio
 // run's stream; with cfg nil the driver has never run.
 func testDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (driverv1connect.DriverServiceClient, *connect.ServerStreamForClient[driverv1.RunResponse]) {
 	t.Helper()
+	_, client, stream := serveDriver(t, taskID, version, cfg)
+	return client, stream
+}
+
+// serveDriver is testDriver, also returning the server the driver is served
+// by.
+func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (*httptest.Server, driverv1connect.DriverServiceClient, *connect.ServerStreamForClient[driverv1.RunResponse]) {
+	t.Helper()
 	dir := t.TempDir()
 	configs := agent.ConfigStore(filepath.Join(dir, "config"))
 	gritz := &gritzclient.ClientMock{
@@ -1112,7 +1331,7 @@ func testDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (driverv
 	})
 	client := driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
 	if cfg == nil {
-		return client, nil
+		return hs, client, nil
 	}
 	assert.NilError(t, configs.Save(taskID, cfg))
 	stream, err := client.Run(t.Context(), &driverv1.RunRequest{
@@ -1123,7 +1342,7 @@ func testDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (driverv
 	t.Cleanup(func() { _ = stream.Close() })
 	assert.Assert(t, stream.Receive(), "Run: %v", stream.Err())
 	assert.Assert(t, stream.Msg().GetAccepted() != nil, "first message is %v, want accepted", stream.Msg())
-	return client, stream
+	return hs, client, stream
 }
 
 // waitFinished reads a run stream until the driver sends Finished.

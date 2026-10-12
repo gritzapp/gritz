@@ -11,6 +11,8 @@ import (
 	"math"
 	"path"
 	"regexp"
+	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/gritzclient"
@@ -41,15 +43,61 @@ type Runner struct {
 	queue       *outbox.Outbox[model.RunnerEvent]
 	wake        wakeup.Chan
 	fatal       context.CancelCauseFunc
+
+	// mu guards tasks.
+	mu    sync.Mutex
+	tasks map[int64]*taskEntry
+
+	// retryInterval is the first pause between attempts to reattach to a run,
+	// retryMaxInterval caps the backoff, and lostTimeout is how long supervise
+	// keeps reattaching without a good message from the driver before it gives
+	// up on the run. Tests shorten them.
+	retryInterval    time.Duration
+	retryMaxInterval time.Duration
+	lostTimeout      time.Duration
 }
+
+const (
+	// reattachInterval is the first pause between attempts to reattach to a
+	// run.
+	reattachInterval = 250 * time.Millisecond
+	// reattachMaxInterval caps the backoff between attempts to reattach.
+	reattachMaxInterval = 10 * time.Second
+	// driverLostTimeout is how long supervise keeps reattaching without a good
+	// message from the driver before it parks the sandbox and reports the run
+	// lost.
+	driverLostTimeout = 2 * time.Minute
+)
+
+// taskEntry is the runner's in-memory state for one task. taskstate/ stays the
+// durable record; an entry only caches what this process holds for it.
+type taskEntry struct {
+	// mu serializes Start, Kill and Remove for the task.
+	mu sync.Mutex
+	// sb is the task's sandbox, opened or launched by this process, or nil.
+	// Guarded by mu.
+	sb backend.SandboxV2
+	// sup is the supervise goroutine following the task's run, or nil. Guarded
+	// by mu.
+	sup *supervision
+}
+
+// supervision is a running supervise goroutine.
+type supervision struct {
+	cancel context.CancelCauseFunc
+}
+
+// errRemoved is the cause a supervise goroutine is cancelled with when Remove
+// destroys its sandbox.
+var errRemoved = errors.New("sandbox removed")
 
 type Options struct {
 	Client gritzclient.Client
 	// Backend is the sandbox runtime that hosts task drivers.
 	Backend backend.Backend
 	// BackendV2 is the same backend under the interface the runner is moving
-	// onto, one path at a time (see #1725). Load, Prune, Running, Remove and Kill
-	// go through it; every other path still uses Backend.
+	// onto, one path at a time (see #1725). Load, Prune, Running, Remove, Kill
+	// and supervise go through it; Start still launches through Backend.
 	BackendV2 backend.BackendV2
 	// Store is the runner-local source of truth for the task→sandbox-handle
 	// mapping. The runner is the only writer; backends never touch it.
@@ -128,6 +176,11 @@ func New(opts Options) (*Runner, error) {
 		queue:       opts.Queue,
 		wake:        wakeup.New(),
 		fatal:       fatal,
+
+		tasks:            map[int64]*taskEntry{},
+		retryInterval:    reattachInterval,
+		retryMaxInterval: reattachMaxInterval,
+		lostTimeout:      driverLostTimeout,
 	}, nil
 }
 
@@ -344,11 +397,11 @@ func (r *Runner) Poll(ctx context.Context) error {
 
 // Load rehydrates this runner's sandboxes at boot, before Poll admits new work.
 // The statefile enumerates; Status answers liveness per record. An up sandbox
-// gets the same per-handle supervise goroutine as the live path (Wait
-// re-attaches); a parked husk or a gone sandbox is a lost-report backstop, and a
-// gone sandbox's dangling record is dropped (nothing to reuse or destroy). The
-// semaphore is seeded with the up count last, so it may exceed capacity in
-// over-limit scenarios — that's fine.
+// gets the same per-task supervise goroutine as the live path, which reattaches
+// to the recorded run; a parked husk or a gone sandbox is a lost-report
+// backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
+// or destroy). The semaphore is seeded with the up count last, so it may exceed
+// capacity in over-limit scenarios — that's fine.
 func (r *Runner) Load(ctx context.Context) error {
 	recs, err := r.store.List()
 	if err != nil {
@@ -356,15 +409,23 @@ func (r *Runner) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		h := backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
-		st, err := r.status(ctx, h)
+		sb, err := r.backendV2.Open(recordHandle(rec))
+		if err != nil {
+			r.log.Error("load: open", "task", rec.TaskID, "err", err)
+			continue
+		}
+		st, err := sb.Status(ctx)
 		if err != nil {
 			r.log.Error("load: status", "task", rec.TaskID, "err", err)
 			continue
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			go r.supervise(ctx, rec.TaskID, rec.Version, h)
+			e := r.entry(rec.TaskID)
+			e.mu.Lock()
+			e.sb = sb
+			r.supervise(ctx, e, rec.TaskID, rec.Version, sb)
+			e.mu.Unlock()
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
@@ -407,6 +468,41 @@ func (r *Runner) failIfTaskRunning(ctx context.Context, taskID, version int64) {
 	}
 }
 
+// recordHandle returns the handle a record tracks.
+func recordHandle(rec taskstate.Record) backend.Handle {
+	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
+}
+
+// entry returns the task's registry entry, creating it if this process holds
+// none yet. Entries are never deleted: one is a few words, and a task keeps
+// its entry across runs.
+func (r *Runner) entry(taskID int64) *taskEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.tasks[taskID]
+	if !ok {
+		e = &taskEntry{}
+		r.tasks[taskID] = e
+	}
+	return e
+}
+
+// sandbox returns the sandbox rec tracks: the entry's, if it is that sandbox,
+// otherwise rec's handle opened, which the entry then holds. Open ignores Data,
+// so a handle recorded by Launch (which carries the run version there) opens
+// like any other. The caller holds e.mu.
+func (r *Runner) sandbox(e *taskEntry, rec taskstate.Record) (backend.SandboxV2, error) {
+	if e.sb != nil && e.sb.Handle().ID == rec.ID {
+		return e.sb, nil
+	}
+	sb, err := r.backendV2.Open(recordHandle(rec))
+	if err != nil {
+		return nil, err
+	}
+	e.sb = sb
+	return sb, nil
+}
+
 // handle returns the tracked handle for a task. ok is false when no record
 // exists (the runner never started the task, or its sandbox was removed).
 func (r *Runner) handle(taskID int64) (backend.Handle, bool, error) {
@@ -414,7 +510,7 @@ func (r *Runner) handle(taskID int64) (backend.Handle, bool, error) {
 	if err != nil || !ok {
 		return backend.Handle{}, false, err
 	}
-	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}, true, nil
+	return recordHandle(rec), true, nil
 }
 
 // status opens a recorded handle and reports its sandbox's status. Open ignores
@@ -445,24 +541,31 @@ func (r *Runner) Running(ctx context.Context, taskID int64) (bool, error) {
 // Remove destroys the task's sandbox and deletes its record. The record is
 // removed only after the destroy succeeds, so a failed destroy leaves the task
 // tracked and the removal is retried. Destroying a gone sandbox is not an
-// error, so a record whose sandbox vanished is simply dropped.
+// error, so a record whose sandbox vanished is simply dropped. A supervise
+// goroutine still following the destroyed sandbox is cancelled, and reports
+// the run lost.
 func (r *Runner) Remove(ctx context.Context, taskID int64) error {
-	h, ok, err := r.handle(taskID)
+	e := r.entry(taskID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	rec, ok, err := r.store.Read(taskID)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return nil
 	}
-	// Open ignores Data, so a handle recorded by Launch (which carries the run
-	// version there) opens like any other.
-	sb, err := r.backendV2.Open(h)
+	sb, err := r.sandbox(e, rec)
 	if err != nil {
 		return err
 	}
 	if err := sb.Destroy(ctx); err != nil {
 		return err
 	}
+	if e.sup != nil {
+		e.sup.cancel(errRemoved)
+	}
+	e.sb = nil
 	return r.store.Remove(taskID)
 }
 
@@ -472,13 +575,14 @@ func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 // is not up has no driver to ask, so nothing is stopped; neither is a run that
 // already finished or is not the recorded version.
 func (r *Runner) Kill(ctx context.Context, task *model.Task) (bool, error) {
+	e := r.entry(task.ID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	rec, ok, err := r.store.Read(task.ID)
 	if err != nil || !ok {
 		return false, err
 	}
-	// Open ignores Data, so a handle recorded by Launch (which carries the run
-	// version there) opens like any other.
-	sb, err := r.backendV2.Open(backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
+	sb, err := r.sandbox(e, rec)
 	if err != nil {
 		return false, err
 	}
@@ -582,7 +686,7 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 var errRunning = errors.New("sandbox is still running")
 
 // Start ensures the task's sandbox is running, records its handle, and spawns a
-// supervise goroutine to observe its exit. It is idempotent: if the tracked
+// supervise goroutine to follow its run. It is idempotent: if the tracked
 // handle is already running it returns errRunning without relaunching, and the
 // caller gives back the concurrency slot it acquired. Otherwise the prior
 // handle (if any) is passed to Launch so the backend adopts the existing sandbox;
@@ -590,6 +694,10 @@ var errRunning = errors.New("sandbox is still running")
 // the dangling record. The returned handle is persisted BEFORE supervise starts —
 // the store write is the runner's job, not the backend's.
 func (r *Runner) Start(ctx context.Context, task *model.Task) error {
+	e := r.entry(task.ID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
 	// Resolve the tracked handle first: a still-running sandbox makes Start a
 	// no-op, and we skip minting a token for it. An exited handle is passed to
 	// Launch so the backend can adopt the existing sandbox. A pre-Launch Probe
@@ -607,7 +715,7 @@ func (r *Runner) Start(ctx context.Context, task *model.Task) error {
 			return errRunning
 		}
 		if state == backend.StateGone {
-			return r.gone(task.ID)
+			return r.gone(e, task.ID)
 		}
 		reuse = &h
 	}
@@ -619,7 +727,7 @@ func (r *Runner) Start(ctx context.Context, task *model.Task) error {
 
 	h, err := r.backend.Launch(ctx, spec, reuse)
 	if errors.Is(err, backend.ErrGone) {
-		return r.gone(task.ID)
+		return r.gone(e, task.ID)
 	}
 	if err != nil {
 		return err
@@ -638,10 +746,15 @@ func (r *Runner) Start(ctx context.Context, task *model.Task) error {
 		r.die(fmt.Errorf("record handle for task %d: %w", task.ID, err))
 		return fmt.Errorf("failed to record task handle: %w", err)
 	}
-	// Observe the exit on the runner's root context: Wait is level-triggered and
-	// spawned after the record is persisted, so an exit in the launch→persist
-	// window is not lost.
-	go r.supervise(ctx, task.ID, task.Version, h)
+	sb, err := r.backendV2.Open(h)
+	if err != nil {
+		return err
+	}
+	e.sb = sb
+	// Follow the run on the runner's root context: attaching is keyed on the
+	// version, and supervise is spawned after the record is persisted, so a run
+	// that finishes in the launch→persist window is not lost.
+	r.supervise(ctx, e, task.ID, task.Version, sb)
 	return nil
 }
 
@@ -649,44 +762,197 @@ func (r *Runner) Start(ctx context.Context, task *model.Task) error {
 // exists, so drop the dangling record (nothing to reuse or destroy) and return
 // backend.ErrGone. The caller's error path emits "failed" and releases the
 // acquired sem slot. A subsequent explicit start/restart, having no handle, is
-// then a legitimate first-start-fresh.
-func (r *Runner) gone(taskID int64) error {
+// then a legitimate first-start-fresh. The caller holds e.mu.
+func (r *Runner) gone(e *taskEntry, taskID int64) error {
+	e.sb = nil
 	if err := r.store.Remove(taskID); err != nil {
 		r.log.Error("failed to remove dangling record", "task", taskID, "err", err)
 	}
 	return backend.ErrGone
 }
 
-// supervise blocks in the backend's per-handle Wait until the sandbox reaches a
-// terminal outcome, then releases the concurrency slot and reports the exit. A
-// context.Canceled error means the runner is shutting down — the sandbox stays
-// alive for next-boot rehydration, so no slot is released and no event emitted.
-// Otherwise a non-zero exit code means the driver's report was lost, so "failed"
-// is the honest outcome (see the driver-owned-events proposal); exit 0 means the
-// driver already reported and nothing is owed.
-func (r *Runner) supervise(ctx context.Context, taskID, version int64, h backend.Handle) {
-	code, err := r.backend.Wait(ctx, h)
-	if errors.Is(err, context.Canceled) {
-		return // shutdown: leave the sandbox alive for next-boot rehydration
+// supervise spawns the goroutine that follows the task's run version on sb and
+// registers it on e, so Remove can cancel it. The caller holds e.mu.
+func (r *Runner) supervise(ctx context.Context, e *taskEntry, taskID, version int64, sb backend.SandboxV2) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	sup := &supervision{cancel: cancel}
+	e.sup = sup
+	go func() {
+		defer cancel(nil)
+		r.follow(ctx, taskID, version, sb)
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.sup == sup {
+			e.sup = nil
+		}
+	}()
+}
+
+// follow attaches to the run until it finishes, then releases the concurrency
+// slot and reports the outcome if the driver did not. Cancelled by the
+// runner's shutdown, it returns with the slot held and no event: the sandbox
+// stays alive for next-boot rehydration. Cancelled by Remove, the run is lost.
+// A lost run gets the runner's fallback "failed", scoped to its version (a
+// legacy record's version 0 bypasses the guard).
+func (r *Runner) follow(ctx context.Context, taskID, version int64, sb backend.SandboxV2) {
+	lost, err := r.attach(ctx, taskID, version, sb)
+	if err != nil {
+		if !errors.Is(context.Cause(ctx), errRemoved) {
+			return // shutdown: leave the sandbox alive for next-boot rehydration
+		}
+		lost = "sandbox removed before the run finished"
 	}
 	r.sem.Release(1)
 	r.wake.Wake()
-	if code == 0 {
-		r.log.Info("sandbox exited, driver already reported", "task", taskID)
+	if lost == "" {
+		r.log.Info("run finished, driver already reported", "task", taskID, "version", version)
 		return
 	}
-	r.log.Error("sandbox exited without reporting", "task", taskID, "exitCode", int(code))
-	// Scope the backstop to the run that exited: a legacy record's version 0
-	// bypasses the guard, a stamped version only applies while the task is still
-	// on that run.
+	r.log.Error("run lost", "task", taskID, "version", version, "reason", lost)
 	if err := r.queue.Enqueue(model.RunnerEvent{
 		TaskID:  taskID,
 		Version: version,
 		Event:   model.RunnerEventFailed,
-		Reason:  fmt.Sprintf("sandbox exited with status code %d", code),
+		Reason:  lost,
 	}); err != nil {
 		r.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, taskID, err))
 		return
+	}
+}
+
+// attach follows the run version on sb until its Finished, then parks the
+// sandbox. It returns why the driver's report of the run's outcome was lost, or
+// "" if the driver reported it. The only error is ctx's.
+//
+// A dropped stream is reattached while the sandbox is up, backing off
+// exponentially. A sandbox that is parked or gone before Finished arrived, or a
+// driver with no such run, is a lost run. Reattaching gives up once lostTimeout
+// has passed without a good message — an accepted stream — from the driver:
+// attach parks the sandbox and reports the run lost. It returns only once the
+// park succeeded or the sandbox is gone, so the sandbox is never up with no
+// supervise following it; while the platform cannot park it, attach keeps
+// retrying.
+func (r *Runner) attach(ctx context.Context, taskID, version int64, sb backend.SandboxV2) (lost string, err error) {
+	lastGood := time.Now()
+	delay := r.retryInterval
+	var lastErr string
+	for {
+		finished, accepted, err := attachOnce(ctx, sb, version)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if finished != nil {
+			r.park(ctx, taskID, sb)
+			if !finished.GetReported() {
+				return "driver did not report the run's outcome", nil
+			}
+			return "", nil
+		}
+		if isTerminal(err) {
+			// The driver has no run with this version (or has moved past it),
+			// so its Finished will never come.
+			r.log.Error("driver has no such run", "task", taskID, "version", version, "err", err)
+			if connect.CodeOf(err) == connect.CodeNotFound {
+				// Nothing runs on the sandbox, which would otherwise stay up.
+				// On FailedPrecondition or Aborted a newer run is active on
+				// it, which parking would kill.
+				r.park(ctx, taskID, sb)
+			}
+			return "driver has no such run", nil
+		}
+		if st, stErr := sb.Status(ctx); stErr != nil {
+			err = fmt.Errorf("%w (status: %w)", err, stErr)
+		} else if st != backend.StatusUp {
+			r.log.Error("sandbox stopped before its run finished", "task", taskID, "status", st, "version", version, "err", err)
+			if st == backend.StatusParked {
+				// Let a sandbox that is still stopping (a SUSPENDING VM)
+				// settle, so it is not reported up once supervise is done.
+				r.park(ctx, taskID, sb)
+			}
+			return "sandbox stopped before the run finished", nil
+		}
+		if accepted {
+			// The stream was live until it dropped: the driver's idle watchdog
+			// would have ended it otherwise.
+			lastGood = time.Now()
+			delay = r.retryInterval
+			lastErr = ""
+		}
+		if time.Since(lastGood) >= r.lostTimeout {
+			// Give up on the driver; park the sandbox instead. While that
+			// fails, keep retrying the attach too in case the driver is back.
+			parkErr := sb.Park(ctx)
+			if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
+				r.log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
+				return "driver unreachable", nil
+			}
+			err = fmt.Errorf("failed to park sandbox of lost run: %w (driver: %w)", parkErr, err)
+		}
+		if msg := err.Error(); msg != lastErr {
+			r.log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
+			lastErr = msg
+		}
+		if err := sleep(ctx, delay); err != nil {
+			return "", err
+		}
+		delay = min(delay*2, r.retryMaxInterval)
+	}
+}
+
+// attachOnce opens a Run stream for version without a spec and reads it until
+// the run's Finished, which it returns. Otherwise it returns why the stream
+// ended. accepted reports whether the driver accepted the stream before it
+// ended.
+func attachOnce(ctx context.Context, sb backend.SandboxV2, version int64) (finished *driverv1.Finished, accepted bool, err error) {
+	client, err := sb.Dial(ctx, "")
+	if err != nil {
+		return nil, false, err
+	}
+	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
+	if err != nil {
+		return nil, false, err
+	}
+	defer stream.Close()
+	for stream.Receive() {
+		msg := stream.Msg()
+		if msg.GetAccepted() != nil {
+			accepted = true
+		}
+		if finished := msg.GetFinished(); finished != nil {
+			return finished, accepted, nil
+		}
+	}
+	return nil, accepted, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
+}
+
+// isTerminal reports whether a Run error means the run can never be attached
+// to: NotFound (no such run), FailedPrecondition (stale version) or Aborted
+// (another version is running).
+func isTerminal(err error) bool {
+	switch connect.CodeOf(err) {
+	case connect.CodeNotFound, connect.CodeFailedPrecondition, connect.CodeAborted:
+		return true
+	}
+	return false
+}
+
+// park parks the sandbox once its run is over. Failures are logged: the run's
+// outcome is already known.
+func (r *Runner) park(ctx context.Context, taskID int64, sb backend.SandboxV2) {
+	if err := sb.Park(ctx); err != nil && !errors.Is(err, backend.ErrGone) {
+		r.log.Error("failed to park sandbox after its run", "task", taskID, "err", err)
+	}
+}
+
+// sleep waits for d or until ctx is done, returning ctx's error in that case.
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 
