@@ -531,10 +531,10 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 	assert.NilError(t, err)
 	m, err := NewTaskManager(TaskManagerOptions{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
 	assert.NilError(t, err)
-	m.env.retryInterval = 10 * time.Millisecond
-	m.env.retryMaxInterval = 50 * time.Millisecond
-	m.env.lostTimeout = 10 * time.Second
-	m.env.readyTimeout = 10 * time.Second
+	m.retryInterval = 10 * time.Millisecond
+	m.retryMaxInterval = 50 * time.Millisecond
+	m.lostTimeout = 10 * time.Second
+	m.readyTimeout = 10 * time.Second
 	return m, mock, queue
 }
 
@@ -543,7 +543,8 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
 	t.Helper()
 	assert.NilError(t, m.store.Write(rec))
-	tr := loadTaskRunner(m.env, rec, sb)
+	tr := m.taskRunner(rec.TaskID, sb)
+	tr.Record = rec
 	m.register(tr)
 	return tr
 }
@@ -553,7 +554,7 @@ func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbo
 func seed(t *testing.T, m *TaskManager, recs ...taskstate.Record) {
 	t.Helper()
 	for _, rec := range recs {
-		sb, err := m.backend.Open(recordHandle(rec))
+		sb, err := m.backend.Open(backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
 		assert.NilError(t, err)
 		track(t, m, rec, sb)
 	}
@@ -576,8 +577,8 @@ func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.R
 	assert.Assert(t, tr != nil, "no TaskRunner for task %d", taskID)
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	assert.DeepEqual(t, tr.rec, *want)
-	assert.Assert(t, tr.sb != nil)
+	assert.DeepEqual(t, tr.Record, *want)
+	assert.Assert(t, tr.Sandbox != nil)
 }
 
 // waitIdle waits until no Run follows tr's run.
@@ -586,7 +587,7 @@ func waitIdle(t *testing.T, tr *TaskRunner) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		tr.mu.Lock()
-		running := tr.running
+		running := tr.Claimed
 		tr.mu.Unlock()
 		if !running {
 			return
@@ -818,7 +819,7 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 			// new version.
 			assert.NilError(t, err)
 			assert.Assert(t, cmp.Len(be.OpenCalls(), 1))
-			assert.DeepEqual(t, be.OpenCalls()[0].H, recordHandle(tt.record))
+			assert.DeepEqual(t, be.OpenCalls()[0].H, backend.Handle{Type: tt.record.Type, ID: tt.record.ID, Data: tt.record.Data})
 			assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 			assertReported(t, m, queue, parked)
 			assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
@@ -880,7 +881,7 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
 	m, mock, queue := testManager(t, be, testStore(t))
-	m.env.readyTimeout = 100 * time.Millisecond
+	m.readyTimeout = 100 * time.Millisecond
 
 	// Act
 	assert.NilError(t, startTask(t, m, task))
@@ -952,7 +953,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// with why, and nothing is run.
 	assert.ErrorIs(t, err, backend.ErrGone)
 	assertTracked(t, m, 8, nil)
-	assert.ErrorIs(t, tr.removed, backend.ErrGone)
+	assert.ErrorIs(t, tr.Removed, backend.ErrGone)
 	assert.Assert(t, cmp.Len(sb.DialCalls(), 0))
 }
 
@@ -977,7 +978,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
 	seed(t, m, legacyRecord(1, "c1"))
-	m.lookup(1).running = true
+	m.lookup(1).Claimed = true
 
 	// Act
 	err := m.Poll(t.Context())
@@ -1438,7 +1439,7 @@ func TestTaskManagerRemovedTaskRunner(t *testing.T) {
 			return err
 		}},
 	}
-	for _, cause := range []error{errRemoved, backend.ErrGone} {
+	for _, cause := range []error{ErrRemoved, backend.ErrGone} {
 		for _, tt := range ops {
 			t.Run(tt.name+"/"+cause.Error(), func(t *testing.T) {
 				t.Parallel()
@@ -1451,7 +1452,7 @@ func TestTaskManagerRemovedTaskRunner(t *testing.T) {
 				}
 				m, mock, _ := testManager(t, be, testStore(t))
 				seed(t, m, legacyRecord(1, "c1"))
-				m.lookup(1).removed = cause
+				m.lookup(1).Removed = cause
 
 				// Act
 				err := tt.op(m)

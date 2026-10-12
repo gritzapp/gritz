@@ -118,7 +118,7 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	hs.Close()
 	sb, parked := testSandbox(driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL))
 	tr, m, mock, queue := testTaskRunner(t, 2, 4, sb)
-	m.env.lostTimeout = 100 * time.Millisecond
+	m.lostTimeout = 100 * time.Millisecond
 
 	// Act
 	err := tr.Run(t.Context(), nil)
@@ -160,7 +160,7 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 	_, client, _ := newDriver(t, 1, make(chan struct{}))
 	sb, parked := testSandbox(client)
 	tr, m, mock, queue := testTaskRunner(t, 1, 1, sb)
-	m.env.readyTimeout = 100 * time.Millisecond
+	m.readyTimeout = 100 * time.Millisecond
 
 	// Act
 	err := tr.Run(t.Context(), &driverv1.RunSpec{TaskId: 1})
@@ -272,7 +272,7 @@ func TestTaskRunnerStart(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.ErrorIs(t, again, errRunning)
+	assert.ErrorIs(t, again, ErrRunning)
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
 }

@@ -46,8 +46,13 @@ type TaskManager struct {
 	queue       *outbox.Outbox[model.RunnerEvent]
 	wake        wakeup.Chan
 	fatal       context.CancelCauseFunc
-	// env is shared by the manager's TaskRunners.
-	env *taskEnv
+
+	// retryInterval, retryMaxInterval, lostTimeout and readyTimeout are set on
+	// each TaskRunner (see its fields of the same names). Tests shorten them.
+	retryInterval    time.Duration
+	retryMaxInterval time.Duration
+	lostTimeout      time.Duration
+	readyTimeout     time.Duration
 
 	// mu guards tasks, the registry of the tasks this TaskManager has a sandbox
 	// for. It mirrors taskstate/: a task has a TaskRunner if and only if it
@@ -154,13 +159,7 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		wake:        wakeup.New(),
 		fatal:       fatal,
 		tasks:       map[int64]*TaskRunner{},
-	}
-	m.env = &taskEnv{
-		store:            opts.Store,
-		queue:            opts.Queue,
-		log:              log,
-		die:              m.die,
-		forget:           m.forget,
+
 		retryInterval:    reattachInterval,
 		retryMaxInterval: reattachMaxInterval,
 		lostTimeout:      driverLostTimeout,
@@ -306,7 +305,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 					return nil
 				}
 				err = m.Start(ctx, task)
-				if errors.Is(err, errRunning) {
+				if errors.Is(err, ErrRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
 					m.sem.Release(1)
@@ -356,7 +355,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 					return nil
 				}
 				err = m.Start(ctx, task)
-				if errors.Is(err, errRunning) {
+				if errors.Is(err, ErrRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
 					m.sem.Release(1)
@@ -404,7 +403,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		sb, err := m.backend.Open(recordHandle(rec))
+		sb, err := m.backend.Open(backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
 		if err != nil {
 			m.log.Error("load: open, dropping record", "task", rec.TaskID, "err", err)
 			if err := m.store.Remove(rec.TaskID); err != nil {
@@ -412,7 +411,8 @@ func (m *TaskManager) Load(ctx context.Context) error {
 			}
 			continue
 		}
-		tr := loadTaskRunner(m.env, rec, sb)
+		tr := m.taskRunner(rec.TaskID, sb)
+		tr.Record = rec
 		st, err := sb.Status(ctx)
 		if err != nil {
 			// Keep the record and its TaskRunner: the sandbox may well be
@@ -476,11 +476,29 @@ func (m *TaskManager) lookup(taskID int64) *TaskRunner {
 	return m.tasks[taskID]
 }
 
+// taskRunner returns a TaskRunner for the task's sandbox sb, with the
+// manager's dependencies set on it.
+func (m *TaskManager) taskRunner(taskID int64, sb backend.Sandbox) *TaskRunner {
+	return &TaskRunner{
+		Store:            m.store,
+		Queue:            m.queue,
+		Log:              m.log,
+		OnFatal:          m.die,
+		OnRemove:         m.forget,
+		RetryInterval:    m.retryInterval,
+		RetryMaxInterval: m.retryMaxInterval,
+		LostTimeout:      m.lostTimeout,
+		ReadyTimeout:     m.readyTimeout,
+		TaskID:           taskID,
+		Sandbox:          sb,
+	}
+}
+
 // register adds tr to the registry. Its record is in taskstate/ already.
 func (m *TaskManager) register(tr *TaskRunner) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.tasks[tr.taskID] = tr
+	m.tasks[tr.TaskID] = tr
 }
 
 // forget deletes the task from the registry, once its TaskRunner has deleted
@@ -616,7 +634,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 // driver and starting the run happen in Run, so a slow sandbox does not hold
 // up the poll pass. A failure there is reported as the run's "failed".
 //
-// If a Run still follows the task's previous run, Start returns errRunning
+// If a Run still follows the task's previous run, Start returns ErrRunning
 // without starting anything, and the caller gives back the concurrency slot it
 // acquired.
 func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
@@ -654,7 +672,7 @@ func (m *TaskManager) create(ctx context.Context, task *model.Task, spec *backen
 	if err != nil {
 		return nil, err
 	}
-	tr, err := newTaskRunner(m.env, sb, task.ID, task.Version)
+	tr, err := NewTaskRunner(m.taskRunner(task.ID, sb), task.Version)
 	if err != nil {
 		return nil, err
 	}
