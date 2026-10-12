@@ -2,10 +2,16 @@ package backend
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
+
+// ErrForeign means a handle was produced by another backend type. BackendV2.Open
+// returns it wrapped: no method of this backend can reach that handle's sandbox,
+// so the runner treats it as gone.
+var ErrForeign = errors.New("backend: handle from another backend")
 
 // BackendV2 creates task sandboxes on a concrete runtime and reopens recorded
 // ones. It never speaks the driver protocol: the runner does, over the client
@@ -27,7 +33,8 @@ type BackendV2 interface {
 	// Open rehydrates a sandbox from a handle that SandboxV2.Handle returned.
 	// It does no I/O and does not check that the sandbox still exists; a gone
 	// sandbox shows up on the returned SandboxV2's methods. It fails only for a
-	// handle this backend cannot decode (another type, malformed Data).
+	// handle this backend cannot decode: another type (ErrForeign), or
+	// malformed Data.
 	Open(h Handle) (SandboxV2, error)
 
 	Close() error
