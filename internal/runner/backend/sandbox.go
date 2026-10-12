@@ -33,6 +33,14 @@ type BackendV2 interface {
 	Close() error
 }
 
+// RunEnver is implemented by a BackendV2 whose sandboxes have no environment of
+// their own to carry the workspace's (a Lambda VM is run with none). The runner
+// adds what RunEnv returns to the environment of every run it starts, under the
+// run's own.
+type RunEnver interface {
+	RunEnv(ws *workspace.Workspace) map[string]string
+}
+
 // SandboxV2 is a reference to one provisioned sandbox, in whatever state it is
 // in: created, running, parked or gone. It holds the per-sandbox state its
 // backend needs (the Docker container ID, the Lambda endpoint and cached proxy
