@@ -43,7 +43,10 @@ type Runner struct {
 	wake        wakeup.Chan
 	fatal       context.CancelCauseFunc
 
-	// mu guards tasks.
+	// mu guards tasks, the registry of the tasks this runner has a sandbox
+	// for. It mirrors taskstate/: a task has an entry if and only if it has a
+	// record, and every change writes through to both. Only Load reads
+	// taskstate/, to rebuild the registry at boot.
 	mu    sync.Mutex
 	tasks map[int64]*taskEntry
 
@@ -79,21 +82,35 @@ const (
 	readyMaxInterval = 2 * time.Second
 )
 
-// taskEntry is the runner's in-memory state for one task. taskstate/ stays the
-// durable record; an entry only caches what this process holds for it.
+// taskEntry is the runner's in-memory state for a task that has a sandbox. It
+// exists exactly as long as the task's record in taskstate/: it is added once
+// the sandbox is created and its record written (or by Load, for a record a
+// previous process wrote), and deleted together with the record.
+//
+// An operation on a task looks its entry up, locks mu, and returns removed if
+// it is set: the entry was deleted while the operation waited for mu. It does
+// not look the task up again, so a task created anew after the removal is left
+// to the next operation.
 type taskEntry struct {
-	// mu serializes Start, Kill and Remove for the task.
+	// mu serializes Start, Kill, Remove and Running for the task.
 	mu sync.Mutex
-	// sb is the task's sandbox, opened or created by this process, or nil.
-	// Guarded by mu.
+	// rec is the task's record, as last written to taskstate/. Guarded by mu.
+	rec taskstate.Record
+	// sb is the sandbox rec tracks. It is set when the entry is created and
+	// not changed after.
 	sb backend.Sandbox
 	// run is the run a supervise goroutine is following, or nil. Guarded by
 	// mu.
 	run *taskRun
+	// removed is why the entry was deleted from the registry, or nil while it
+	// is registered: errRemoved from Remove, backend.ErrGone from gone.
+	// Guarded by mu.
+	removed error
 }
 
 // errRemoved is the cause a supervise goroutine is cancelled with when Remove
-// destroys its sandbox.
+// destroys its sandbox, and the error an operation on the removed task's entry
+// returns.
 var errRemoved = errors.New("sandbox removed")
 
 type Options struct {
@@ -245,6 +262,12 @@ func (r *Runner) Poll(ctx context.Context) error {
 	// Plain group (limit + join only): WithContext's derived ctx is canceled
 	// when Wait returns, which would kill the supervise goroutines Start spawns
 	// on this ctx. supervise must outlive the poll cycle.
+	//
+	// A pass handles each task at most once, and passes run one after another,
+	// so Start can create a task's sandbox and entry without a per-task lock:
+	// nothing else creates the entry of a task this pass handles. Prune, which
+	// runs alongside, only removes archived tasks, which have no command to
+	// handle, so it does not act on the same tasks either.
 	var g errgroup.Group
 	g.SetLimit(int(r.concurrency))
 
@@ -291,12 +314,12 @@ func (r *Runner) Poll(ctx context.Context) error {
 				// the command, exactly like the start handler's already-running
 				// guard. A legacy version-0 record never matches a live task's
 				// version (>= 1), so the guard is a no-op for those.
-				rec, ok, err := r.store.Read(task.ID)
+				version, err := r.version(task.ID)
 				if err != nil {
 					r.log.Error("failed to read task record for restart", "task", task.ID, "err", err)
 					return nil
 				}
-				if ok && rec.Version == task.Version {
+				if version == task.Version {
 					r.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
 					return nil
 				}
@@ -400,6 +423,10 @@ func (r *Runner) Poll(ctx context.Context) error {
 // backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
 // or destroy). The semaphore is seeded with the up count last, so it may exceed
 // capacity in over-limit scenarios — that's fine.
+//
+// Load rebuilds the task registry from the records it keeps: it is the only
+// reader of taskstate/. A record whose handle cannot be opened is dropped, so
+// every entry has a sandbox.
 func (r *Runner) Load(ctx context.Context) error {
 	recs, err := r.store.List()
 	if err != nil {
@@ -409,30 +436,38 @@ func (r *Runner) Load(ctx context.Context) error {
 	for _, rec := range recs {
 		sb, err := r.backend.Open(recordHandle(rec))
 		if err != nil {
-			r.log.Error("load: open", "task", rec.TaskID, "err", err)
+			r.log.Error("load: open, dropping record", "task", rec.TaskID, "err", err)
+			if err := r.store.Remove(rec.TaskID); err != nil {
+				r.log.Error("load: remove unopenable record", "task", rec.TaskID, "err", err)
+			}
 			continue
 		}
+		e := &taskEntry{rec: rec, sb: sb}
 		st, err := sb.Status(ctx)
 		if err != nil {
+			// Keep the record and its entry: the sandbox may well be there.
 			r.log.Error("load: status", "task", rec.TaskID, "err", err)
-			continue
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			e := r.entry(rec.TaskID)
 			e.mu.Lock()
-			e.sb = sb
-			r.supervise(ctx, e, rec.TaskID, rec.Version, sb, nil)
+			r.supervise(ctx, e, nil)
 			e.mu.Unlock()
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
-			if err := r.store.Remove(rec.TaskID); err != nil {
-				r.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
+			err := r.store.Remove(rec.TaskID)
+			if err == nil {
+				continue
 			}
+			// The record stays, so its entry does too.
+			r.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
 		}
+		r.mu.Lock()
+		r.tasks[rec.TaskID] = e
+		r.mu.Unlock()
 	}
 	r.sem.Set(running)
 	r.log.Info("initialized running sandbox count", "count", running)
@@ -471,100 +506,110 @@ func recordHandle(rec taskstate.Record) backend.Handle {
 	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
 }
 
-// entry returns the task's registry entry, creating it if this process holds
-// none yet. Entries are never deleted: one is a few words, and a task keeps
-// its entry across runs.
-func (r *Runner) entry(taskID int64) *taskEntry {
+// lookup returns the task's entry, locked, or nil if the task has none. If the
+// entry was deleted while lookup waited for its lock, lookup returns why
+// instead.
+func (r *Runner) lookup(taskID int64) (*taskEntry, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	e, ok := r.tasks[taskID]
-	if !ok {
-		e = &taskEntry{}
-		r.tasks[taskID] = e
+	e := r.tasks[taskID]
+	r.mu.Unlock()
+	if e == nil {
+		return nil, nil
 	}
-	return e
+	e.mu.Lock()
+	if e.removed != nil {
+		e.mu.Unlock()
+		return nil, e.removed
+	}
+	return e, nil
 }
 
-// sandbox returns the sandbox rec tracks: the entry's, if it is that sandbox,
-// otherwise rec's handle opened, which the entry then holds. Open ignores Data,
-// so a handle an older runner recorded (which carries the run version there)
-// opens like any other. The caller holds e.mu.
-func (r *Runner) sandbox(e *taskEntry, rec taskstate.Record) (backend.Sandbox, error) {
-	if e.sb != nil && e.sb.Handle().ID == rec.ID {
-		return e.sb, nil
+// write records e's sandbox handle for the task at version, in taskstate/ and
+// on e. A store write failure terminates the runner: the taskstate store is the
+// runner's other durable local store, and a write failure here is the same
+// non-transient disk failure as an outbox Enqueue failure, so crash rather than
+// lose the handle. The returned error still unwinds the caller (releasing the
+// sem slot) as ctx tears down. The caller holds e.mu.
+func (r *Runner) write(e *taskEntry, taskID, version int64) error {
+	h := e.sb.Handle()
+	rec := taskstate.Record{
+		TaskID:  taskID,
+		Version: version,
+		Type:    h.Type,
+		ID:      h.ID,
+		Data:    h.Data,
 	}
-	sb, err := r.backend.Open(recordHandle(rec))
-	if err != nil {
-		return nil, err
+	if err := r.store.Write(rec); err != nil {
+		r.die(fmt.Errorf("record handle for task %d: %w", taskID, err))
+		return fmt.Errorf("failed to record task handle: %w", err)
 	}
-	e.sb = sb
-	return sb, nil
+	e.rec = rec
+	return nil
 }
 
-// handle returns the tracked handle for a task. ok is false when no record
-// exists (the runner never started the task, or its sandbox was removed).
-func (r *Runner) handle(taskID int64) (backend.Handle, bool, error) {
-	rec, ok, err := r.store.Read(taskID)
-	if err != nil || !ok {
-		return backend.Handle{}, false, err
+// remove deletes e's record and then e from the registry, marking e removed
+// with cause. If the record cannot be deleted, e stays registered. The caller
+// holds e.mu.
+func (r *Runner) remove(e *taskEntry, cause error) error {
+	if err := r.store.Remove(e.rec.TaskID); err != nil {
+		return err
 	}
-	return recordHandle(rec), true, nil
+	r.mu.Lock()
+	delete(r.tasks, e.rec.TaskID)
+	r.mu.Unlock()
+	e.removed = cause
+	return nil
 }
 
-// status opens a recorded handle and reports its sandbox's status. Open ignores
-// Data, so a handle an older runner recorded (which carries the run version
-// there) opens like any other.
-func (r *Runner) status(ctx context.Context, h backend.Handle) (backend.Status, error) {
-	sb, err := r.backend.Open(h)
-	if err != nil {
-		return backend.StatusUnknown, err
+// version returns the version the task's record is stamped with, or 0 if the
+// task has none.
+func (r *Runner) version(taskID int64) (int64, error) {
+	e, err := r.lookup(taskID)
+	if err != nil || e == nil {
+		return 0, err
 	}
-	return sb.Status(ctx)
+	defer e.mu.Unlock()
+	return e.rec.Version, nil
 }
 
-// Running reports whether the task's sandbox is up, asking the status of the
-// handle the store tracks for it.
+// Running reports whether the task's sandbox is up.
 func (r *Runner) Running(ctx context.Context, taskID int64) (bool, error) {
-	h, ok, err := r.handle(taskID)
-	if err != nil || !ok {
+	e, err := r.lookup(taskID)
+	if err != nil || e == nil {
 		return false, err
 	}
-	st, err := r.status(ctx, h)
+	defer e.mu.Unlock()
+	st, err := e.sb.Status(ctx)
 	if err != nil {
 		return false, err
 	}
 	return st == backend.StatusUp, nil
 }
 
-// Remove destroys the task's sandbox and deletes its record. The record is
-// removed only after the destroy succeeds, so a failed destroy leaves the task
-// tracked and the removal is retried. Destroying a gone sandbox is not an
-// error, so a record whose sandbox vanished is simply dropped. A supervise
+// Remove destroys the task's sandbox and deletes its record and entry. They
+// are deleted only after the destroy succeeds, so a failed destroy leaves the
+// task tracked and the removal is retried. Destroying a gone sandbox is not an
+// error, so a task whose sandbox vanished is simply dropped. A supervise
 // goroutine still following the destroyed sandbox is cancelled, and reports
 // the run lost.
 func (r *Runner) Remove(ctx context.Context, taskID int64) error {
-	e := r.entry(taskID)
-	e.mu.Lock()
+	e, err := r.lookup(taskID)
+	if err != nil || e == nil {
+		return err
+	}
 	defer e.mu.Unlock()
-	rec, ok, err := r.store.Read(taskID)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	sb, err := r.sandbox(e, rec)
-	if err != nil {
-		return err
-	}
-	if err := sb.Destroy(ctx); err != nil {
+	return r.destroy(ctx, e)
+}
+
+// destroy is Remove for e. The caller holds e.mu.
+func (r *Runner) destroy(ctx context.Context, e *taskEntry) error {
+	if err := e.sb.Destroy(ctx); err != nil {
 		return err
 	}
 	if e.run != nil {
 		e.run.cancel(errRemoved)
 	}
-	e.sb = nil
-	return r.store.Remove(taskID)
+	return r.remove(e, errRemoved)
 }
 
 // Kill asks the driver of the task's sandbox to stop the recorded run. It
@@ -573,30 +618,24 @@ func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 // is not up has no driver to ask, so nothing is stopped; neither is a run that
 // already finished or is not the recorded version.
 func (r *Runner) Kill(ctx context.Context, task *model.Task) (bool, error) {
-	e := r.entry(task.ID)
-	e.mu.Lock()
+	e, err := r.lookup(task.ID)
+	if err != nil || e == nil {
+		return false, err
+	}
 	defer e.mu.Unlock()
-	rec, ok, err := r.store.Read(task.ID)
-	if err != nil || !ok {
-		return false, err
-	}
-	sb, err := r.sandbox(e, rec)
-	if err != nil {
-		return false, err
-	}
-	st, err := sb.Status(ctx)
+	st, err := e.sb.Status(ctx)
 	if err != nil {
 		return false, err
 	}
 	if st != backend.StatusUp {
 		return false, nil
 	}
-	client, err := sb.Dial(ctx, "")
+	client, err := e.sb.Dial(ctx, "")
 	if err != nil {
 		return false, err
 	}
-	r.log.Info("stopping run", "task", task.ID, "version", rec.Version)
-	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: rec.Version})
+	r.log.Info("stopping run", "task", task.ID, "version", e.rec.Version)
+	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: e.rec.Version})
 	if err != nil {
 		return false, fmt.Errorf("failed to stop run: %w", err)
 	}
@@ -683,12 +722,13 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 var errRunning = errors.New("sandbox is still running")
 
 // Start brings up the task's sandbox and spawns a supervise goroutine that
-// starts the task's run on it. With no record a sandbox is created, and its
-// handle recorded straight away, before anything else can fail; with one, the
-// recorded sandbox is reused, since a task is bound 1:1 to it. Either way the
-// record is stamped with the task's version. If the recorded sandbox is gone,
-// Start drops the record and returns backend.ErrGone; any other failure to
-// start it keeps the record, so Remove can still destroy the sandbox.
+// starts the task's run on it. A task with no entry gets a sandbox created, and
+// its handle recorded straight away, before anything else can fail; the entry
+// is registered once the record is written. A task with one reuses its
+// sandbox, since a task is bound 1:1 to it. Either way the record is stamped
+// with the task's version. If the sandbox is gone, Start drops the record and
+// entry and returns backend.ErrGone; any other failure to start it keeps them,
+// so Remove can still destroy the sandbox.
 //
 // Start returns once the platform reports the sandbox running: waiting for the
 // driver and starting the run happen in the supervise goroutine, so a slow
@@ -699,58 +739,59 @@ var errRunning = errors.New("sandbox is still running")
 // returns errRunning without starting anything, and the caller gives back the
 // concurrency slot it acquired.
 func (r *Runner) Start(ctx context.Context, task *model.Task) error {
-	e := r.entry(task.ID)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.run != nil {
-		return errRunning
-	}
-	rec, ok, err := r.store.Read(task.ID)
+	e, err := r.lookup(task.ID)
 	if err != nil {
 		return err
+	}
+	if e != nil {
+		defer e.mu.Unlock()
+		if e.run != nil {
+			return errRunning
+		}
 	}
 	spec, err := r.spec(ctx, task)
 	if err != nil {
 		return err
 	}
-	var sb backend.Sandbox
-	if ok {
-		sb, err = r.sandbox(e, rec)
-		if err != nil {
+	if e == nil {
+		if e, err = r.create(ctx, task, spec); err != nil {
 			return err
 		}
-	} else {
-		sb, err = r.backend.Create(ctx, spec)
-		if err != nil {
-			return err
-		}
-		e.sb = sb
+		defer e.mu.Unlock()
+	} else if err := r.write(e, task.ID, task.Version); err != nil {
+		return err
 	}
-	h := sb.Handle()
-	if err := r.store.Write(taskstate.Record{
-		TaskID:  task.ID,
-		Version: task.Version,
-		Type:    h.Type,
-		ID:      h.ID,
-		Data:    h.Data,
-	}); err != nil {
-		// The taskstate store is the runner's other durable local store; a write
-		// failure here is the same non-transient disk failure as an outbox
-		// Enqueue failure, so crash rather than lose the handle. The returned
-		// error still unwinds the caller (releasing the sem slot) as ctx tears down.
-		r.die(fmt.Errorf("record handle for task %d: %w", task.ID, err))
-		return fmt.Errorf("failed to record task handle: %w", err)
-	}
-	if err := sb.Start(ctx); errors.Is(err, backend.ErrGone) {
-		return r.gone(e, task.ID)
+	if err := e.sb.Start(ctx); errors.Is(err, backend.ErrGone) {
+		return r.gone(e)
 	} else if err != nil {
 		return err
 	}
 	// Follow the run on the runner's root context: the run is started there,
 	// after the record is stamped with its version, so a runner that restarts
 	// in between reattaches to it.
-	r.supervise(ctx, e, task.ID, task.Version, sb, r.runSpec(spec))
+	r.supervise(ctx, e, r.runSpec(spec))
 	return nil
+}
+
+// create creates a sandbox for a task with no entry, records it, and registers
+// the task's entry, which it returns locked. It takes no per-task lock: Poll
+// handles each task at most once per pass and passes are sequential, so nothing
+// else registers an entry for the task meanwhile.
+func (r *Runner) create(ctx context.Context, task *model.Task, spec *backend.Spec) (*taskEntry, error) {
+	sb, err := r.backend.Create(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	e := &taskEntry{sb: sb}
+	e.mu.Lock()
+	if err := r.write(e, task.ID, task.Version); err != nil {
+		e.mu.Unlock()
+		return nil, err
+	}
+	r.mu.Lock()
+	r.tasks[task.ID] = e
+	r.mu.Unlock()
+	return e, nil
 }
 
 // runSpec builds the driver.v1 RunSpec for spec. A backend whose sandboxes
@@ -781,30 +822,30 @@ func (r *Runner) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 }
 
 // gone handles a vanished bound sandbox: the task's recorded sandbox no longer
-// exists, so drop the dangling record (nothing to reuse or destroy) and return
-// backend.ErrGone. The caller's error path emits "failed" and releases the
-// acquired sem slot. A subsequent explicit start/restart, having no handle, is
-// then a legitimate first-start-fresh. The caller holds e.mu.
-func (r *Runner) gone(e *taskEntry, taskID int64) error {
-	e.sb = nil
-	if err := r.store.Remove(taskID); err != nil {
-		r.log.Error("failed to remove dangling record", "task", taskID, "err", err)
+// exists, so drop the dangling record and the entry (nothing to reuse or
+// destroy) and return backend.ErrGone. The caller's error path emits "failed"
+// and releases the acquired sem slot. A subsequent explicit start/restart,
+// having no entry, is then a legitimate first-start-fresh. The caller holds
+// e.mu.
+func (r *Runner) gone(e *taskEntry) error {
+	if err := r.remove(e, backend.ErrGone); err != nil {
+		r.log.Error("failed to remove dangling record", "task", e.rec.TaskID, "err", err)
 	}
 	return backend.ErrGone
 }
 
-// supervise spawns the goroutine that follows the task's run version on sb and
-// registers its taskRun on e, so Remove can cancel it. With spec set the
-// goroutine starts the run first; with spec nil it reattaches to a run already
-// started. The caller holds e.mu.
-func (r *Runner) supervise(ctx context.Context, e *taskEntry, taskID, version int64, sb backend.Sandbox, spec *driverv1.RunSpec) {
+// supervise spawns the goroutine that follows the run version e's record is
+// stamped with on e's sandbox, and registers its taskRun on e, so Remove can
+// cancel it. With spec set the goroutine starts the run first; with spec nil
+// it reattaches to a run already started. The caller holds e.mu.
+func (r *Runner) supervise(ctx context.Context, e *taskEntry, spec *driverv1.RunSpec) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	t := &taskRun{
 		r:       r,
-		taskID:  taskID,
-		version: version,
+		taskID:  e.rec.TaskID,
+		version: e.rec.Version,
 		spec:    spec,
-		sb:      sb,
+		sb:      e.sb,
 		cancel:  cancel,
 	}
 	e.run = t
@@ -819,40 +860,48 @@ func (r *Runner) supervise(ctx context.Context, e *taskEntry, taskID, version in
 	}()
 }
 
-// Prune removes sandboxes for archived tasks.
+// Prune removes sandboxes for archived tasks. It goes through a snapshot of the
+// registry; it only removes archived tasks, which Poll has no command for, so
+// it never acts on a task Poll is handling.
 func (r *Runner) Prune(ctx context.Context) error {
-	recs, err := r.store.List()
-	if err != nil {
-		return fmt.Errorf("failed to list records: %w", err)
+	r.mu.Lock()
+	tasks := maps.Clone(r.tasks)
+	r.mu.Unlock()
+	for taskID, e := range tasks {
+		r.prune(ctx, taskID, e)
 	}
-
-	// Check each sandbox that is not up and remove it if its task is archived.
-	// Both a parked husk and a gone sandbox count as "no live sandbox"; Destroy
-	// is idempotent, so removing a gone record's (absent) sandbox is a no-op.
-	for _, rec := range recs {
-		st, err := r.status(ctx, backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
-		if err != nil {
-			r.log.Error("failed to get sandbox status", "task", rec.TaskID, "err", err)
-			continue
-		}
-		if st == backend.StatusUp {
-			continue
-		}
-		// Fetch task
-		resp, err := r.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: rec.TaskID})
-		if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
-			r.log.Error("failed to get task", "task", rec.TaskID, "err", err)
-			continue
-		}
-		// Remove sandbox if task is archived or deleted
-		if connect.CodeOf(err) == connect.CodeNotFound || resp.Task.Archived {
-			if err := r.Remove(ctx, rec.TaskID); err != nil {
-				r.log.Error("failed to remove sandbox", "task", rec.TaskID, "err", err)
-			} else {
-				r.log.Info("sandbox removed", "task", rec.TaskID)
-			}
-		}
-	}
-
 	return nil
+}
+
+// prune removes the task's sandbox if it is not up and the task is archived.
+// Both a parked husk and a gone sandbox count as "no live sandbox"; Destroy is
+// idempotent, so removing a gone sandbox is a no-op.
+func (r *Runner) prune(ctx context.Context, taskID int64, e *taskEntry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.removed != nil {
+		return
+	}
+	st, err := e.sb.Status(ctx)
+	if err != nil {
+		r.log.Error("failed to get sandbox status", "task", taskID, "err", err)
+		return
+	}
+	if st == backend.StatusUp {
+		return
+	}
+	// Fetch task
+	resp, err := r.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
+	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+		r.log.Error("failed to get task", "task", taskID, "err", err)
+		return
+	}
+	// Remove sandbox if task is archived or deleted
+	if connect.CodeOf(err) == connect.CodeNotFound || resp.Task.Archived {
+		if err := r.destroy(ctx, e); err != nil {
+			r.log.Error("failed to remove sandbox", "task", taskID, "err", err)
+		} else {
+			r.log.Info("sandbox removed", "task", taskID)
+		}
+	}
 }
