@@ -46,7 +46,7 @@ var DriverCommand = &cli.Command{
 			slog.Info("lambda hooks listening", "addr", l.Addr().String())
 			go func() {
 				err := http.Serve(l, &awsmicrovm.Handler{})
-				slog.Error("lambda hooks stopped", "error", err)
+				slog.Error("lambda hooks stopped", "err", err)
 			}()
 		}
 		ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
