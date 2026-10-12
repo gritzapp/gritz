@@ -10,7 +10,7 @@
 // translates between a backend.Handle and a taskstate.Record at the boundary.
 package backend
 
-//go:generate go tool moq -out backend_moq.go . BackendV2 SandboxV2
+//go:generate go tool moq -out backend_moq.go . Backend Sandbox
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
 
-// ErrGone means a sandbox no longer exists: SandboxV2's Start and Park return
+// ErrGone means a sandbox no longer exists: Sandbox's Start and Park return
 // it for a sandbox that is gone.
 var ErrGone = errors.New("backend: sandbox is gone")
 

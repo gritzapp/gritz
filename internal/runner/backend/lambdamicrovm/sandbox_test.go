@@ -36,7 +36,7 @@ func sandboxHandle(id, endpoint string) backend.Handle {
 	return backend.Handle{Type: HandleType, ID: id, Data: data}
 }
 
-func open(t *testing.T, be *Backend, h backend.Handle) backend.SandboxV2 {
+func open(t *testing.T, be *Backend, h backend.Handle) backend.Sandbox {
 	t.Helper()
 	sb, err := be.Open(h)
 	assert.NilError(t, err)
@@ -88,7 +88,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assert.DeepEqual(t, terminated, []string{"mvm-1", "mvm-1"})
 }
 
-func assertStatus(t *testing.T, sb backend.SandboxV2, want backend.Status) {
+func assertStatus(t *testing.T, sb backend.Sandbox, want backend.Status) {
 	t.Helper()
 	st, err := sb.Status(t.Context())
 	assert.NilError(t, err)
@@ -112,10 +112,10 @@ func TestOpen(t *testing.T) {
 	// Open does not check that the VM exists.
 	h := sandboxHandle("mvm-404", "vm.example.com")
 	assert.DeepEqual(t, open(t, be, h).Handle(), h)
-	// A handle the v1 Backend's Launch produced, which also carries its run's
+	// A handle recorded by an older runner, which also carries its run's
 	// version, opens the same VM.
-	v1 := backend.Handle{Type: HandleType, ID: "mvm-9", Data: []byte(`{"endpoint":"vm.example.com","version":3}`)}
-	assert.Equal(t, open(t, be, v1).Handle().ID, "mvm-9")
+	legacy := backend.Handle{Type: HandleType, ID: "mvm-9", Data: []byte(`{"endpoint":"vm.example.com","version":3}`)}
+	assert.Equal(t, open(t, be, legacy).Handle().ID, "mvm-9")
 
 	tests := map[string]backend.Handle{
 		"foreign":   {Type: "docker", ID: "mvm-9"},

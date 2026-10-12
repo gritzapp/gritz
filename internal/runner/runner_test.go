@@ -119,7 +119,7 @@ func TestRunnerStart(t *testing.T) {
 	assert.NilError(t, err)
 	r, err := New(Options{
 		Client:    client,
-		BackendV2: be,
+		Backend:   be,
 		Store:     testStore(t),
 		ServerURL: ts.URL,
 		Queue:     queue,
@@ -202,7 +202,7 @@ func TestRunnerSpec_PreCreatesLogDir(t *testing.T) {
 	assert.NilError(t, err)
 	r, err := New(Options{
 		Client:    mock,
-		BackendV2: be,
+		Backend:   be,
 		Store:     testStore(t),
 		ServerURL: "http://localhost",
 		Queue:     queue,
@@ -261,7 +261,7 @@ func TestRunnerSpec_Secrets(t *testing.T) {
 	assert.NilError(t, err)
 	r, err := New(Options{
 		Client:    mock,
-		BackendV2: be,
+		Backend:   be,
 		Store:     testStore(t),
 		ServerURL: "http://localhost",
 		Queue:     queue,
@@ -302,7 +302,7 @@ func TestRunnerSpec_Secrets(t *testing.T) {
 
 // runEnvBackend is a backend whose sandboxes have no environment of their own.
 type runEnvBackend struct {
-	*backend.BackendV2Mock
+	*backend.BackendMock
 	env map[string]string
 }
 
@@ -313,10 +313,10 @@ func (b runEnvBackend) RunEnv(*workspace.Workspace) map[string]string { return b
 func TestRunnerRunSpec_RunEnv(t *testing.T) {
 	t.Parallel()
 	be := runEnvBackend{
-		BackendV2Mock: &backend.BackendV2Mock{},
-		env:           map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"},
+		BackendMock: &backend.BackendMock{},
+		env:         map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"},
 	}
-	r, err := New(Options{BackendV2: be, Store: testStore(t), RunnerID: "test-runner"})
+	r, err := New(Options{Backend: be, Store: testStore(t), RunnerID: "test-runner"})
 	assert.NilError(t, err)
 
 	rs := r.runSpec(&backend.Spec{TaskID: 1, Env: map[string]string{"GRITZ_TASK_ID": "1"}})
@@ -416,7 +416,7 @@ func TestRunnerPoll_StopWithoutSandbox(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: &backend.BackendMock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -451,14 +451,14 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 		},
 	}
 	client, stream := testDriver(t, 7, 3, sleepForever)
-	sb := &backend.SandboxV2Mock{
+	sb := &backend.SandboxMock{
 		StatusFunc: func(context.Context) (backend.Status, error) { return backend.StatusUp, nil },
 		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
 			return client, nil
 		},
 	}
-	bev2 := &backend.BackendV2Mock{
-		OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+	be := &backend.BackendMock{
+		OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 	}
 	store := testStore(t, taskstate.Record{TaskID: 7, Version: 3, Type: "docker", ID: "c7"})
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
@@ -468,7 +468,7 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -484,10 +484,10 @@ func TestRunnerPoll_StopSignalled(t *testing.T) {
 
 // testSandbox returns a sandbox whose driver is client and which is up until it
 // is parked. parked is closed by its first Park.
-func testSandbox(client driverv1connect.DriverServiceClient) (sb *backend.SandboxV2Mock, parked <-chan struct{}) {
+func testSandbox(client driverv1connect.DriverServiceClient) (sb *backend.SandboxMock, parked <-chan struct{}) {
 	var once sync.Once
 	ch := make(chan struct{})
-	sb = &backend.SandboxV2Mock{
+	sb = &backend.SandboxMock{
 		HandleFunc: func() backend.Handle { return backend.Handle{Type: "docker", ID: "c1"} },
 		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
 			return client, nil
@@ -511,7 +511,7 @@ func testSandbox(client driverv1connect.DriverServiceClient) (sb *backend.Sandbo
 
 // testSupervisor returns a runner with the "test" workspace whose client mints
 // task tokens, with reattach timings shortened for tests.
-func testSupervisor(t *testing.T, bev2 backend.BackendV2, store *taskstate.Store) (*Runner, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
+func testSupervisor(t *testing.T, be backend.Backend, store *taskstate.Store) (*Runner, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
 	t.Helper()
 	mock := &gritzclient.ClientMock{
 		CreateTaskTokenFunc: func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
@@ -528,7 +528,7 @@ func testSupervisor(t *testing.T, bev2 backend.BackendV2, store *taskstate.Store
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
+	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
 	assert.NilError(t, err)
 	r.retryInterval = 10 * time.Millisecond
 	r.retryMaxInterval = 50 * time.Millisecond
@@ -539,7 +539,7 @@ func testSupervisor(t *testing.T, bev2 backend.BackendV2, store *taskstate.Store
 
 // supervise starts following run version of taskID on sb, as Start does once
 // the record is written.
-func supervise(t *testing.T, ctx context.Context, r *Runner, taskID, version int64, sb backend.SandboxV2) {
+func supervise(t *testing.T, ctx context.Context, r *Runner, taskID, version int64, sb backend.Sandbox) {
 	t.Helper()
 	assert.Assert(t, r.sem.TryAcquire(1)) // the slot supervise will release
 	e := r.entry(taskID)
@@ -569,7 +569,7 @@ func waitSupervised(t *testing.T, r *Runner, taskID int64) {
 }
 
 // waitDialed waits until the runner has dialed sb's driver at least min times.
-func waitDialed(t *testing.T, sb *backend.SandboxV2Mock, min int) {
+func waitDialed(t *testing.T, sb *backend.SandboxMock, min int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for len(sb.DialCalls()) < min {
@@ -587,7 +587,7 @@ func TestRunnerSupervise_Finished(t *testing.T) {
 	client, stream := testDriver(t, 1, 3, &agent.Config{Type: agent.TypeDummy})
 	assert.NilError(t, stream.Close())
 	sb, parked := testSandbox(client)
-	r, _, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	r, _, queue := testSupervisor(t, &backend.BackendMock{}, testStore(t))
 
 	// Act
 	supervise(t, t.Context(), r, 1, 3, sb)
@@ -613,7 +613,7 @@ func TestRunnerSupervise_Reattach(t *testing.T) {
 	hs, client, stream := serveDriver(t, 1, 3, sleepForever)
 	assert.NilError(t, stream.Close())
 	sb, parked := testSandbox(client)
-	r, _, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	r, _, queue := testSupervisor(t, &backend.BackendMock{}, testStore(t))
 	supervise(t, t.Context(), r, 1, 3, sb)
 	waitDialed(t, sb, 1)
 
@@ -646,7 +646,7 @@ func TestRunnerSupervise_DriverUnreachable(t *testing.T) {
 	hs := httptest.NewServer(http.NotFoundHandler())
 	hs.Close()
 	sb, parked := testSandbox(driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL))
-	r, mock, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	r, mock, queue := testSupervisor(t, &backend.BackendMock{}, testStore(t))
 	r.lostTimeout = 100 * time.Millisecond
 
 	// Act
@@ -668,7 +668,7 @@ func TestRunnerSupervise_NoSuchRun(t *testing.T) {
 	// NotFound.
 	client, _ := testDriver(t, 1, 3, nil)
 	sb, parked := testSandbox(client)
-	r, mock, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	r, mock, queue := testSupervisor(t, &backend.BackendMock{}, testStore(t))
 
 	// Act
 	supervise(t, t.Context(), r, 1, 3, sb)
@@ -688,7 +688,7 @@ func TestRunnerSupervise_Shutdown(t *testing.T) {
 	client, stream := testDriver(t, 1, 3, sleepForever)
 	assert.NilError(t, stream.Close())
 	sb, _ := testSandbox(client)
-	r, _, queue := testSupervisor(t, &backend.BackendV2Mock{}, testStore(t))
+	r, _, queue := testSupervisor(t, &backend.BackendMock{}, testStore(t))
 	ctx, cancel := context.WithCancel(t.Context())
 	supervise(t, ctx, r, 1, 3, sb)
 	waitDialed(t, sb, 1)
@@ -713,7 +713,7 @@ func TestRunnerSupervise_Removed(t *testing.T) {
 	assert.NilError(t, stream.Close())
 	sb, _ := testSandbox(client)
 	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"})
-	r, mock, queue := testSupervisor(t, &backend.BackendV2Mock{}, store)
+	r, mock, queue := testSupervisor(t, &backend.BackendMock{}, store)
 	supervise(t, t.Context(), r, 1, 3, sb)
 	waitDialed(t, sb, 1)
 
@@ -740,11 +740,11 @@ func TestRunnerSupervise_RestartReattaches(t *testing.T) {
 	client, stream := testDriver(t, 1, 3, sleepForever)
 	assert.NilError(t, stream.Close())
 	sb, parked := testSandbox(client)
-	bev2 := &backend.BackendV2Mock{
-		OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+	be := &backend.BackendMock{
+		OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 	}
 	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"})
-	first, _, _ := testSupervisor(t, bev2, store)
+	first, _, _ := testSupervisor(t, be, store)
 	ctx, cancel := context.WithCancel(t.Context())
 	assert.NilError(t, first.Load(ctx))
 	waitDialed(t, sb, 1)
@@ -755,7 +755,7 @@ func TestRunnerSupervise_RestartReattaches(t *testing.T) {
 	// Act - the next runner process loads the record and reattaches; then the
 	// run finishes.
 	dials := len(sb.DialCalls())
-	r, _, queue := testSupervisor(t, bev2, store)
+	r, _, queue := testSupervisor(t, be, store)
 	assert.NilError(t, r.Load(t.Context()))
 	waitDialed(t, sb, dials+1)
 	stopRun(t, client, 3)
@@ -816,11 +816,11 @@ func TestRunnerStart_Create(t *testing.T) {
 		assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
 		return nil
 	}
-	bev2 := &backend.BackendV2Mock{
+	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		CreateFunc:            func(context.Context, *backend.Spec) (backend.SandboxV2, error) { return sb, nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
-	r, _, queue := testSupervisor(t, bev2, store)
+	r, _, queue := testSupervisor(t, be, store)
 
 	// Act
 	err := startTask(t, r, task)
@@ -828,8 +828,8 @@ func TestRunnerStart_Create(t *testing.T) {
 	// Assert - the sandbox was created for the task's run, which the driver
 	// ran and reported.
 	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(bev2.CreateCalls(), 1))
-	spec := bev2.CreateCalls()[0].Spec
+	assert.Assert(t, cmp.Len(be.CreateCalls(), 1))
+	spec := be.CreateCalls()[0].Spec
 	assert.Equal(t, spec.TaskID, int64(1))
 	assert.Equal(t, spec.Version, int64(1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
@@ -838,16 +838,16 @@ func TestRunnerStart_Create(t *testing.T) {
 }
 
 // TestRunnerStart_Restart covers a task restarted on its recorded sandbox,
-// whether a v1 Launch or a v2 Start recorded it: the sandbox is reused, and
-// the record moves to the sandbox's v2 handle at the new version.
+// whether an older runner or this one recorded it: the sandbox is reused, and
+// the record moves to the sandbox's current handle at the new version.
 func TestRunnerStart_Restart(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name   string
 		record taskstate.Record
 	}{
-		{name: "v1 handle", record: v1Record(1, "c1")},
-		{name: "v2 handle", record: taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"}},
+		{name: "legacy handle", record: legacyRecord(1, "c1")},
+		{name: "current handle", record: taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -858,12 +858,12 @@ func TestRunnerStart_Restart(t *testing.T) {
 			sb, parked := testSandbox(client)
 			sb.StartFunc = func(context.Context) error { return nil }
 			// Create is unmocked: Start must not create a second sandbox.
-			bev2 := &backend.BackendV2Mock{
+			be := &backend.BackendMock{
 				ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-				OpenFunc:              func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+				OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 			}
 			store := testStore(t, tt.record)
-			r, _, queue := testSupervisor(t, bev2, store)
+			r, _, queue := testSupervisor(t, be, store)
 
 			// Act
 			err := startTask(t, r, task)
@@ -871,8 +871,8 @@ func TestRunnerStart_Restart(t *testing.T) {
 			// Assert - the recorded sandbox was opened, started and ran the
 			// new version.
 			assert.NilError(t, err)
-			assert.Assert(t, cmp.Len(bev2.OpenCalls(), 1))
-			assert.DeepEqual(t, bev2.OpenCalls()[0].H, recordHandle(tt.record))
+			assert.Assert(t, cmp.Len(be.OpenCalls(), 1))
+			assert.DeepEqual(t, be.OpenCalls()[0].H, recordHandle(tt.record))
 			assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 			assertReported(t, r, 1, queue, parked)
 			assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
@@ -899,11 +899,11 @@ func TestRunnerPoll_SlowDriver(t *testing.T) {
 	_, client, _ := newDriver(t, 1, ready)
 	sb, parked := testSandbox(client)
 	sb.StartFunc = func(context.Context) error { return nil }
-	bev2 := &backend.BackendV2Mock{
+	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		CreateFunc:            func(context.Context, *backend.Spec) (backend.SandboxV2, error) { return sb, nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
-	r, mock, queue := testSupervisor(t, bev2, testStore(t))
+	r, mock, queue := testSupervisor(t, be, testStore(t))
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
@@ -928,12 +928,12 @@ func TestRunnerSupervise_NotReady(t *testing.T) {
 	_, client, _ := newDriver(t, 1, make(chan struct{}))
 	sb, parked := testSandbox(client)
 	sb.StartFunc = func(context.Context) error { return nil }
-	bev2 := &backend.BackendV2Mock{
+	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		CreateFunc:            func(context.Context, *backend.Spec) (backend.SandboxV2, error) { return sb, nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
 	store := testStore(t)
-	r, mock, queue := testSupervisor(t, bev2, store)
+	r, mock, queue := testSupervisor(t, be, store)
 	r.readyTimeout = 100 * time.Millisecond
 
 	// Act
@@ -961,12 +961,12 @@ func TestRunnerStart_StartFails(t *testing.T) {
 	sb, _ := testSandbox(nil)
 	sb.StartFunc = func(context.Context) error { return boom }
 	// Open is unmocked: Remove destroys the sandbox Start created.
-	bev2 := &backend.BackendV2Mock{
+	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		CreateFunc:            func(context.Context, *backend.Spec) (backend.SandboxV2, error) { return sb, nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
 	store := testStore(t)
-	r, _, _ := testSupervisor(t, bev2, store)
+	r, _, _ := testSupervisor(t, be, store)
 
 	// Act
 	err := startTask(t, r, task)
@@ -993,12 +993,12 @@ func TestRunnerStart_Gone(t *testing.T) {
 	task := &model.Task{ID: 8, Runner: "test-runner", Workspace: "test", Version: 2}
 	sb, _ := testSandbox(nil)
 	sb.StartFunc = func(context.Context) error { return backend.ErrGone }
-	bev2 := &backend.BackendV2Mock{
+	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		OpenFunc:              func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+		OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 	}
 	store := testStore(t, taskstate.Record{TaskID: 8, Version: 1, Type: "docker", ID: "old-id"})
-	r, _, _ := testSupervisor(t, bev2, store)
+	r, _, _ := testSupervisor(t, be, store)
 
 	// Act
 	err := startTask(t, r, task)
@@ -1027,8 +1027,8 @@ func TestRunnerPoll_StartStillRunning(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   4,
 	}
-	bev2, _ := testBackendV2(map[string]backend.Status{"c1": backend.StatusParked}, nil)
-	r, mock, queue := testSupervisor(t, bev2, testStore(t, v1Record(1, "c1")))
+	be, _ := testBackend(map[string]backend.Status{"c1": backend.StatusParked}, nil)
+	r, mock, queue := testSupervisor(t, be, testStore(t, legacyRecord(1, "c1")))
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
@@ -1065,19 +1065,20 @@ func stopRun(t *testing.T, client driverv1connect.DriverServiceClient, version i
 	}
 }
 
-// v1Record is a record written by v1 Launch: its Data carries the run version.
-func v1Record(taskID int64, id string) taskstate.Record {
+// legacyRecord is a record written by an older runner: its Data carries the run
+// version.
+func legacyRecord(taskID int64, id string) taskstate.Record {
 	return taskstate.Record{TaskID: taskID, Version: 3, Type: "docker", ID: id, Data: json.RawMessage(`{"version":3}`)}
 }
 
-// testBackendV2 returns a BackendV2 mock whose opened sandboxes report the
+// testBackend returns a Backend mock whose opened sandboxes report the
 // status (or error) given for their ID. Destroy records the IDs it destroyed.
-func testBackendV2(status map[string]backend.Status, statusErr map[string]error) (*backend.BackendV2Mock, *[]string) {
+func testBackend(status map[string]backend.Status, statusErr map[string]error) (*backend.BackendMock, *[]string) {
 	var mu sync.Mutex
 	var destroyed []string
-	return &backend.BackendV2Mock{
-		OpenFunc: func(h backend.Handle) (backend.SandboxV2, error) {
-			return &backend.SandboxV2Mock{
+	return &backend.BackendMock{
+		OpenFunc: func(h backend.Handle) (backend.Sandbox, error) {
+			return &backend.SandboxMock{
 				StatusFunc: func(context.Context) (backend.Status, error) {
 					if err := statusErr[h.ID]; err != nil {
 						return backend.StatusUnknown, err
@@ -1108,7 +1109,7 @@ func TestRunnerLoad(t *testing.T) {
 	}{
 		{
 			name:       "up",
-			record:     v1Record(1, "c1"),
+			record:     legacyRecord(1, "c1"),
 			status:     backend.StatusUp,
 			wantRecord: true,
 			wantAttach: true,
@@ -1116,7 +1117,7 @@ func TestRunnerLoad(t *testing.T) {
 		{
 			// A parked husk is a lost-report backstop; its record is kept.
 			name:       "parked",
-			record:     v1Record(1, "c1"),
+			record:     legacyRecord(1, "c1"),
 			status:     backend.StatusParked,
 			wantEvents: []*gritzv1.RunnerEvent{{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"}},
 			wantRecord: true,
@@ -1124,14 +1125,14 @@ func TestRunnerLoad(t *testing.T) {
 		{
 			// A gone sandbox is a lost-report backstop; its record is dropped.
 			name:       "gone",
-			record:     v1Record(1, "c1"),
+			record:     legacyRecord(1, "c1"),
 			status:     backend.StatusGone,
 			wantEvents: []*gritzv1.RunnerEvent{{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"}},
 		},
 		{
 			// A failed status check leaves the record alone.
 			name:       "status error",
-			record:     v1Record(1, "c1"),
+			record:     legacyRecord(1, "c1"),
 			statusErr:  errors.New("boom"),
 			wantRecord: true,
 		},
@@ -1148,15 +1149,15 @@ func TestRunnerLoad(t *testing.T) {
 					return &gritzv1.SubmitRunnerEventsResponse{}, nil
 				},
 			}
-			bev2, destroyed := testBackendV2(
+			be, destroyed := testBackend(
 				map[string]backend.Status{"c1": tt.status},
 				map[string]error{"c1": tt.statusErr},
 			)
 			dialed := make(chan backend.Handle, 1)
-			open := bev2.OpenFunc
-			bev2.OpenFunc = func(h backend.Handle) (backend.SandboxV2, error) {
+			open := be.OpenFunc
+			be.OpenFunc = func(h backend.Handle) (backend.Sandbox, error) {
 				sb, err := open(h)
-				sb.(*backend.SandboxV2Mock).DialFunc = func(ctx context.Context, _ string) (driverv1connect.DriverServiceClient, error) {
+				sb.(*backend.SandboxMock).DialFunc = func(ctx context.Context, _ string) (driverv1connect.DriverServiceClient, error) {
 					dialed <- h // the up sandbox got a supervise goroutine
 					<-ctx.Done()
 					return nil, ctx.Err()
@@ -1173,7 +1174,7 @@ func TestRunnerLoad(t *testing.T) {
 			assert.NilError(t, err)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			r, err := New(Options{Client: mock, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
+			r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
 			assert.NilError(t, err)
 
 			// Act
@@ -1235,7 +1236,7 @@ func TestRunnerLoad_VersionScopedBackstop(t *testing.T) {
 					return &gritzv1.SubmitRunnerEventsResponse{}, nil
 				},
 			}
-			bev2, _ := testBackendV2(map[string]backend.Status{"c1": backend.StatusParked}, nil)
+			be, _ := testBackend(map[string]backend.Status{"c1": backend.StatusParked}, nil)
 			store := testStore(t, taskstate.Record{TaskID: 1, Version: tt.recVersion, Type: "docker", ID: "c1"})
 			queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 				StoreDir: t.TempDir(),
@@ -1244,7 +1245,7 @@ func TestRunnerLoad_VersionScopedBackstop(t *testing.T) {
 				Log:      slog.Default(),
 			})
 			assert.NilError(t, err)
-			r, err := New(Options{Client: mock, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+			r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 			assert.NilError(t, err)
 
 			// Act - Load drives the parked husk through failIfTaskRunning, which
@@ -1275,7 +1276,7 @@ func TestRunnerPrune(t *testing.T) {
 			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: req.Id != 2}}, nil
 		},
 	}
-	bev2, destroyed := testBackendV2(
+	be, destroyed := testBackend(
 		map[string]backend.Status{
 			"c1": backend.StatusParked, // archived -> removed
 			"c2": backend.StatusParked, // not archived -> kept
@@ -1288,12 +1289,12 @@ func TestRunnerPrune(t *testing.T) {
 		},
 	)
 	store := testStore(t,
-		v1Record(1, "c1"),
-		v1Record(2, "c2"),
-		v1Record(3, "c3"),
-		v1Record(4, "c4"),
-		v1Record(5, "c5"),
-		v1Record(7, "c7"),
+		legacyRecord(1, "c1"),
+		legacyRecord(2, "c2"),
+		legacyRecord(3, "c3"),
+		legacyRecord(4, "c4"),
+		legacyRecord(5, "c5"),
+		legacyRecord(7, "c7"),
 	)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
 		StoreDir: t.TempDir(),
@@ -1302,7 +1303,7 @@ func TestRunnerPrune(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	r, err := New(Options{Client: mock, BackendV2: bev2, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
+	r, err := New(Options{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue})
 	assert.NilError(t, err)
 
 	// Act
@@ -1338,21 +1339,21 @@ func TestRunnerRunning(t *testing.T) {
 		err     error
 		want    bool
 	}{
-		{name: "up", records: []taskstate.Record{v1Record(1, "c1")}, status: backend.StatusUp, want: true},
-		{name: "parked", records: []taskstate.Record{v1Record(1, "c1")}, status: backend.StatusParked},
-		{name: "gone", records: []taskstate.Record{v1Record(1, "c1")}, status: backend.StatusGone},
+		{name: "up", records: []taskstate.Record{legacyRecord(1, "c1")}, status: backend.StatusUp, want: true},
+		{name: "parked", records: []taskstate.Record{legacyRecord(1, "c1")}, status: backend.StatusParked},
+		{name: "gone", records: []taskstate.Record{legacyRecord(1, "c1")}, status: backend.StatusGone},
 		{name: "no record"},
-		{name: "status error", records: []taskstate.Record{v1Record(1, "c1")}, err: errors.New("boom")},
+		{name: "status error", records: []taskstate.Record{legacyRecord(1, "c1")}, err: errors.New("boom")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			bev2, _ := testBackendV2(
+			be, _ := testBackend(
 				map[string]backend.Status{"c1": tt.status},
 				map[string]error{"c1": tt.err},
 			)
-			r, err := New(Options{BackendV2: bev2, Store: testStore(t, tt.records...), RunnerID: "test-runner"})
+			r, err := New(Options{Backend: be, Store: testStore(t, tt.records...), RunnerID: "test-runner"})
 			assert.NilError(t, err)
 
 			// Act
@@ -1371,8 +1372,8 @@ func TestRunnerRunning(t *testing.T) {
 
 func TestRunnerRemove(t *testing.T) {
 	t.Parallel()
-	// A record written by v1 Launch carries the run version in Data.
-	v1 := taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1", Data: json.RawMessage(`{"version":3}`)}
+	// A record written by an older runner carries the run version in Data.
+	legacy := taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1", Data: json.RawMessage(`{"version":3}`)}
 	tests := []struct {
 		name        string
 		records     []taskstate.Record
@@ -1382,9 +1383,9 @@ func TestRunnerRemove(t *testing.T) {
 		wantRecords bool
 	}{
 		{
-			name:       "v1 handle",
-			records:    []taskstate.Record{v1},
-			wantOpened: []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
+			name:       "legacy handle",
+			records:    []taskstate.Record{legacy},
+			wantOpened: []backend.Handle{{Type: "docker", ID: "c1", Data: legacy.Data}},
 		},
 		{
 			// A gone sandbox's Destroy returns nil, so the record is dropped.
@@ -1395,10 +1396,10 @@ func TestRunnerRemove(t *testing.T) {
 		{
 			// A failed destroy keeps the record so the removal is retried.
 			name:        "destroy fails",
-			records:     []taskstate.Record{v1},
+			records:     []taskstate.Record{legacy},
 			destroyErr:  errors.New("boom"),
 			wantErr:     true,
-			wantOpened:  []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
+			wantOpened:  []backend.Handle{{Type: "docker", ID: "c1", Data: legacy.Data}},
 			wantRecords: true,
 		},
 		{
@@ -1409,14 +1410,14 @@ func TestRunnerRemove(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			sb := &backend.SandboxV2Mock{
+			sb := &backend.SandboxMock{
 				DestroyFunc: func(context.Context) error { return tt.destroyErr },
 			}
-			bev2 := &backend.BackendV2Mock{
-				OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+			be := &backend.BackendMock{
+				OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 			}
 			store := testStore(t, tt.records...)
-			r, err := New(Options{BackendV2: bev2, Store: store, RunnerID: "test-runner"})
+			r, err := New(Options{Backend: be, Store: store, RunnerID: "test-runner"})
 			assert.NilError(t, err)
 
 			// Act
@@ -1429,7 +1430,7 @@ func TestRunnerRemove(t *testing.T) {
 				assert.NilError(t, err)
 			}
 			var opened []backend.Handle
-			for _, call := range bev2.OpenCalls() {
+			for _, call := range be.OpenCalls() {
 				opened = append(opened, call.H)
 			}
 			assert.DeepEqual(t, opened, tt.wantOpened)
@@ -1611,7 +1612,7 @@ func TestRunnerKill(t *testing.T) {
 			if tt.finish {
 				waitFinished(t, stream)
 			}
-			sb := &backend.SandboxV2Mock{
+			sb := &backend.SandboxMock{
 				StatusFunc: func(context.Context) (backend.Status, error) {
 					if tt.statusErr != nil {
 						return backend.StatusUnknown, tt.statusErr
@@ -1622,15 +1623,14 @@ func TestRunnerKill(t *testing.T) {
 					return client, nil
 				},
 			}
-			bev2 := &backend.BackendV2Mock{
-				OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
+			be := &backend.BackendMock{
+				OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 			}
 			var recs []taskstate.Record
 			if tt.record {
-				recs = append(recs, v1Record(1, "c1"))
+				recs = append(recs, legacyRecord(1, "c1"))
 			}
-			// The v1 backend is unmocked: Kill must not call Signal.
-			r, err := New(Options{BackendV2: bev2, Store: testStore(t, recs...), RunnerID: "test-runner"})
+			r, err := New(Options{Backend: be, Store: testStore(t, recs...), RunnerID: "test-runner"})
 			assert.NilError(t, err)
 
 			// Act
@@ -1649,9 +1649,9 @@ func TestRunnerKill(t *testing.T) {
 				waitFinished(t, stream)
 			}
 			if tt.record {
-				assert.DeepEqual(t, bev2.OpenCalls()[0].H, backend.Handle{Type: "docker", ID: "c1", Data: recs[0].Data})
+				assert.DeepEqual(t, be.OpenCalls()[0].H, backend.Handle{Type: "docker", ID: "c1", Data: recs[0].Data})
 			} else {
-				assert.Assert(t, cmp.Len(bev2.OpenCalls(), 0))
+				assert.Assert(t, cmp.Len(be.OpenCalls(), 0))
 			}
 		})
 	}
@@ -1695,7 +1695,7 @@ func TestRunnerDie_StopWithoutSandbox(t *testing.T) {
 
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
-	r, err := New(Options{Client: mock, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
+	r, err := New(Options{Client: mock, Backend: &backend.BackendMock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
 	assert.NilError(t, err)
 
 	// Act - the "stopped" enqueue fails durably, so die fires.
@@ -1738,7 +1738,7 @@ func TestRunnerGracefulShutdown_NoFatalCause(t *testing.T) {
 	assert.NilError(t, err)
 
 	ctx, cancelCause := context.WithCancelCause(context.Background())
-	r, err := New(Options{Client: mock, BackendV2: &backend.BackendV2Mock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
+	r, err := New(Options{Client: mock, Backend: &backend.BackendMock{}, Store: testStore(t), RunnerID: "test-runner", Concurrency: 1, Queue: queue, Fatal: cancelCause})
 	assert.NilError(t, err)
 
 	// The durable enqueue succeeds, so die never fires.

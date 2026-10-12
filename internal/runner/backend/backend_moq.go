@@ -10,23 +10,23 @@ import (
 	"sync"
 )
 
-// Ensure, that BackendV2Mock does implement BackendV2.
+// Ensure, that BackendMock does implement Backend.
 // If this is not the case, regenerate this file with moq.
-var _ BackendV2 = &BackendV2Mock{}
+var _ Backend = &BackendMock{}
 
-// BackendV2Mock is a mock implementation of BackendV2.
+// BackendMock is a mock implementation of Backend.
 //
-//	func TestSomethingThatUsesBackendV2(t *testing.T) {
+//	func TestSomethingThatUsesBackend(t *testing.T) {
 //
-//		// make and configure a mocked BackendV2
-//		mockedBackendV2 := &BackendV2Mock{
+//		// make and configure a mocked Backend
+//		mockedBackend := &BackendMock{
 //			CloseFunc: func() error {
 //				panic("mock out the Close method")
 //			},
-//			CreateFunc: func(ctx context.Context, spec *Spec) (SandboxV2, error) {
+//			CreateFunc: func(ctx context.Context, spec *Spec) (Sandbox, error) {
 //				panic("mock out the Create method")
 //			},
-//			OpenFunc: func(h Handle) (SandboxV2, error) {
+//			OpenFunc: func(h Handle) (Sandbox, error) {
 //				panic("mock out the Open method")
 //			},
 //			ValidateWorkspaceFunc: func(ws *workspace.Workspace) error {
@@ -34,19 +34,19 @@ var _ BackendV2 = &BackendV2Mock{}
 //			},
 //		}
 //
-//		// use mockedBackendV2 in code that requires BackendV2
+//		// use mockedBackend in code that requires Backend
 //		// and then make assertions.
 //
 //	}
-type BackendV2Mock struct {
+type BackendMock struct {
 	// CloseFunc mocks the Close method.
 	CloseFunc func() error
 
 	// CreateFunc mocks the Create method.
-	CreateFunc func(ctx context.Context, spec *Spec) (SandboxV2, error)
+	CreateFunc func(ctx context.Context, spec *Spec) (Sandbox, error)
 
 	// OpenFunc mocks the Open method.
-	OpenFunc func(h Handle) (SandboxV2, error)
+	OpenFunc func(h Handle) (Sandbox, error)
 
 	// ValidateWorkspaceFunc mocks the ValidateWorkspace method.
 	ValidateWorkspaceFunc func(ws *workspace.Workspace) error
@@ -81,9 +81,9 @@ type BackendV2Mock struct {
 }
 
 // Close calls CloseFunc.
-func (mock *BackendV2Mock) Close() error {
+func (mock *BackendMock) Close() error {
 	if mock.CloseFunc == nil {
-		panic("BackendV2Mock.CloseFunc: method is nil but BackendV2.Close was just called")
+		panic("BackendMock.CloseFunc: method is nil but Backend.Close was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -96,8 +96,8 @@ func (mock *BackendV2Mock) Close() error {
 // CloseCalls gets all the calls that were made to Close.
 // Check the length with:
 //
-//	len(mockedBackendV2.CloseCalls())
-func (mock *BackendV2Mock) CloseCalls() []struct {
+//	len(mockedBackend.CloseCalls())
+func (mock *BackendMock) CloseCalls() []struct {
 } {
 	var calls []struct {
 	}
@@ -108,9 +108,9 @@ func (mock *BackendV2Mock) CloseCalls() []struct {
 }
 
 // Create calls CreateFunc.
-func (mock *BackendV2Mock) Create(ctx context.Context, spec *Spec) (SandboxV2, error) {
+func (mock *BackendMock) Create(ctx context.Context, spec *Spec) (Sandbox, error) {
 	if mock.CreateFunc == nil {
-		panic("BackendV2Mock.CreateFunc: method is nil but BackendV2.Create was just called")
+		panic("BackendMock.CreateFunc: method is nil but Backend.Create was just called")
 	}
 	callInfo := struct {
 		Ctx  context.Context
@@ -128,8 +128,8 @@ func (mock *BackendV2Mock) Create(ctx context.Context, spec *Spec) (SandboxV2, e
 // CreateCalls gets all the calls that were made to Create.
 // Check the length with:
 //
-//	len(mockedBackendV2.CreateCalls())
-func (mock *BackendV2Mock) CreateCalls() []struct {
+//	len(mockedBackend.CreateCalls())
+func (mock *BackendMock) CreateCalls() []struct {
 	Ctx  context.Context
 	Spec *Spec
 } {
@@ -144,9 +144,9 @@ func (mock *BackendV2Mock) CreateCalls() []struct {
 }
 
 // Open calls OpenFunc.
-func (mock *BackendV2Mock) Open(h Handle) (SandboxV2, error) {
+func (mock *BackendMock) Open(h Handle) (Sandbox, error) {
 	if mock.OpenFunc == nil {
-		panic("BackendV2Mock.OpenFunc: method is nil but BackendV2.Open was just called")
+		panic("BackendMock.OpenFunc: method is nil but Backend.Open was just called")
 	}
 	callInfo := struct {
 		H Handle
@@ -162,8 +162,8 @@ func (mock *BackendV2Mock) Open(h Handle) (SandboxV2, error) {
 // OpenCalls gets all the calls that were made to Open.
 // Check the length with:
 //
-//	len(mockedBackendV2.OpenCalls())
-func (mock *BackendV2Mock) OpenCalls() []struct {
+//	len(mockedBackend.OpenCalls())
+func (mock *BackendMock) OpenCalls() []struct {
 	H Handle
 } {
 	var calls []struct {
@@ -176,9 +176,9 @@ func (mock *BackendV2Mock) OpenCalls() []struct {
 }
 
 // ValidateWorkspace calls ValidateWorkspaceFunc.
-func (mock *BackendV2Mock) ValidateWorkspace(ws *workspace.Workspace) error {
+func (mock *BackendMock) ValidateWorkspace(ws *workspace.Workspace) error {
 	if mock.ValidateWorkspaceFunc == nil {
-		panic("BackendV2Mock.ValidateWorkspaceFunc: method is nil but BackendV2.ValidateWorkspace was just called")
+		panic("BackendMock.ValidateWorkspaceFunc: method is nil but Backend.ValidateWorkspace was just called")
 	}
 	callInfo := struct {
 		Ws *workspace.Workspace
@@ -194,8 +194,8 @@ func (mock *BackendV2Mock) ValidateWorkspace(ws *workspace.Workspace) error {
 // ValidateWorkspaceCalls gets all the calls that were made to ValidateWorkspace.
 // Check the length with:
 //
-//	len(mockedBackendV2.ValidateWorkspaceCalls())
-func (mock *BackendV2Mock) ValidateWorkspaceCalls() []struct {
+//	len(mockedBackend.ValidateWorkspaceCalls())
+func (mock *BackendMock) ValidateWorkspaceCalls() []struct {
 	Ws *workspace.Workspace
 } {
 	var calls []struct {
@@ -207,16 +207,16 @@ func (mock *BackendV2Mock) ValidateWorkspaceCalls() []struct {
 	return calls
 }
 
-// Ensure, that SandboxV2Mock does implement SandboxV2.
+// Ensure, that SandboxMock does implement Sandbox.
 // If this is not the case, regenerate this file with moq.
-var _ SandboxV2 = &SandboxV2Mock{}
+var _ Sandbox = &SandboxMock{}
 
-// SandboxV2Mock is a mock implementation of SandboxV2.
+// SandboxMock is a mock implementation of Sandbox.
 //
-//	func TestSomethingThatUsesSandboxV2(t *testing.T) {
+//	func TestSomethingThatUsesSandbox(t *testing.T) {
 //
-//		// make and configure a mocked SandboxV2
-//		mockedSandboxV2 := &SandboxV2Mock{
+//		// make and configure a mocked Sandbox
+//		mockedSandbox := &SandboxMock{
 //			DestroyFunc: func(ctx context.Context) error {
 //				panic("mock out the Destroy method")
 //			},
@@ -237,11 +237,11 @@ var _ SandboxV2 = &SandboxV2Mock{}
 //			},
 //		}
 //
-//		// use mockedSandboxV2 in code that requires SandboxV2
+//		// use mockedSandbox in code that requires Sandbox
 //		// and then make assertions.
 //
 //	}
-type SandboxV2Mock struct {
+type SandboxMock struct {
 	// DestroyFunc mocks the Destroy method.
 	DestroyFunc func(ctx context.Context) error
 
@@ -302,9 +302,9 @@ type SandboxV2Mock struct {
 }
 
 // Destroy calls DestroyFunc.
-func (mock *SandboxV2Mock) Destroy(ctx context.Context) error {
+func (mock *SandboxMock) Destroy(ctx context.Context) error {
 	if mock.DestroyFunc == nil {
-		panic("SandboxV2Mock.DestroyFunc: method is nil but SandboxV2.Destroy was just called")
+		panic("SandboxMock.DestroyFunc: method is nil but Sandbox.Destroy was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -320,8 +320,8 @@ func (mock *SandboxV2Mock) Destroy(ctx context.Context) error {
 // DestroyCalls gets all the calls that were made to Destroy.
 // Check the length with:
 //
-//	len(mockedSandboxV2.DestroyCalls())
-func (mock *SandboxV2Mock) DestroyCalls() []struct {
+//	len(mockedSandbox.DestroyCalls())
+func (mock *SandboxMock) DestroyCalls() []struct {
 	Ctx context.Context
 } {
 	var calls []struct {
@@ -334,9 +334,9 @@ func (mock *SandboxV2Mock) DestroyCalls() []struct {
 }
 
 // Dial calls DialFunc.
-func (mock *SandboxV2Mock) Dial(ctx context.Context, jwt string) (driverv1connect.DriverServiceClient, error) {
+func (mock *SandboxMock) Dial(ctx context.Context, jwt string) (driverv1connect.DriverServiceClient, error) {
 	if mock.DialFunc == nil {
-		panic("SandboxV2Mock.DialFunc: method is nil but SandboxV2.Dial was just called")
+		panic("SandboxMock.DialFunc: method is nil but Sandbox.Dial was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -354,8 +354,8 @@ func (mock *SandboxV2Mock) Dial(ctx context.Context, jwt string) (driverv1connec
 // DialCalls gets all the calls that were made to Dial.
 // Check the length with:
 //
-//	len(mockedSandboxV2.DialCalls())
-func (mock *SandboxV2Mock) DialCalls() []struct {
+//	len(mockedSandbox.DialCalls())
+func (mock *SandboxMock) DialCalls() []struct {
 	Ctx context.Context
 	Jwt string
 } {
@@ -370,9 +370,9 @@ func (mock *SandboxV2Mock) DialCalls() []struct {
 }
 
 // Handle calls HandleFunc.
-func (mock *SandboxV2Mock) Handle() Handle {
+func (mock *SandboxMock) Handle() Handle {
 	if mock.HandleFunc == nil {
-		panic("SandboxV2Mock.HandleFunc: method is nil but SandboxV2.Handle was just called")
+		panic("SandboxMock.HandleFunc: method is nil but Sandbox.Handle was just called")
 	}
 	callInfo := struct {
 	}{}
@@ -385,8 +385,8 @@ func (mock *SandboxV2Mock) Handle() Handle {
 // HandleCalls gets all the calls that were made to Handle.
 // Check the length with:
 //
-//	len(mockedSandboxV2.HandleCalls())
-func (mock *SandboxV2Mock) HandleCalls() []struct {
+//	len(mockedSandbox.HandleCalls())
+func (mock *SandboxMock) HandleCalls() []struct {
 } {
 	var calls []struct {
 	}
@@ -397,9 +397,9 @@ func (mock *SandboxV2Mock) HandleCalls() []struct {
 }
 
 // Park calls ParkFunc.
-func (mock *SandboxV2Mock) Park(ctx context.Context) error {
+func (mock *SandboxMock) Park(ctx context.Context) error {
 	if mock.ParkFunc == nil {
-		panic("SandboxV2Mock.ParkFunc: method is nil but SandboxV2.Park was just called")
+		panic("SandboxMock.ParkFunc: method is nil but Sandbox.Park was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -415,8 +415,8 @@ func (mock *SandboxV2Mock) Park(ctx context.Context) error {
 // ParkCalls gets all the calls that were made to Park.
 // Check the length with:
 //
-//	len(mockedSandboxV2.ParkCalls())
-func (mock *SandboxV2Mock) ParkCalls() []struct {
+//	len(mockedSandbox.ParkCalls())
+func (mock *SandboxMock) ParkCalls() []struct {
 	Ctx context.Context
 } {
 	var calls []struct {
@@ -429,9 +429,9 @@ func (mock *SandboxV2Mock) ParkCalls() []struct {
 }
 
 // Start calls StartFunc.
-func (mock *SandboxV2Mock) Start(ctx context.Context) error {
+func (mock *SandboxMock) Start(ctx context.Context) error {
 	if mock.StartFunc == nil {
-		panic("SandboxV2Mock.StartFunc: method is nil but SandboxV2.Start was just called")
+		panic("SandboxMock.StartFunc: method is nil but Sandbox.Start was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -447,8 +447,8 @@ func (mock *SandboxV2Mock) Start(ctx context.Context) error {
 // StartCalls gets all the calls that were made to Start.
 // Check the length with:
 //
-//	len(mockedSandboxV2.StartCalls())
-func (mock *SandboxV2Mock) StartCalls() []struct {
+//	len(mockedSandbox.StartCalls())
+func (mock *SandboxMock) StartCalls() []struct {
 	Ctx context.Context
 } {
 	var calls []struct {
@@ -461,9 +461,9 @@ func (mock *SandboxV2Mock) StartCalls() []struct {
 }
 
 // Status calls StatusFunc.
-func (mock *SandboxV2Mock) Status(ctx context.Context) (Status, error) {
+func (mock *SandboxMock) Status(ctx context.Context) (Status, error) {
 	if mock.StatusFunc == nil {
-		panic("SandboxV2Mock.StatusFunc: method is nil but SandboxV2.Status was just called")
+		panic("SandboxMock.StatusFunc: method is nil but Sandbox.Status was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
@@ -479,8 +479,8 @@ func (mock *SandboxV2Mock) Status(ctx context.Context) (Status, error) {
 // StatusCalls gets all the calls that were made to Status.
 // Check the length with:
 //
-//	len(mockedSandboxV2.StatusCalls())
-func (mock *SandboxV2Mock) StatusCalls() []struct {
+//	len(mockedSandbox.StatusCalls())
+func (mock *SandboxMock) StatusCalls() []struct {
 	Ctx context.Context
 } {
 	var calls []struct {

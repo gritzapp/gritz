@@ -19,12 +19,12 @@ import (
 // after SIGTERM before Docker kills the container.
 const parkTimeout = 30 * time.Second
 
-var _ backend.BackendV2 = (*Backend)(nil)
+var _ backend.Backend = (*Backend)(nil)
 
 // Create creates the task's container, running the driver server, without
 // starting it. A container whose binary copy fails is removed before Create
 // returns. The handle is the container's ID.
-func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.SandboxV2, error) {
+func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandbox, error) {
 	id, err := b.create(ctx, spec)
 	if err != nil {
 		return nil, err
@@ -33,9 +33,9 @@ func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandb
 }
 
 // Open returns the sandbox for a handle this backend produced. It does no I/O.
-// A handle's Data is not read: a handle the v1 Backend's Launch produced,
+// A handle's Data is not read: a handle recorded by an older runner,
 // carrying its run's version, opens the same container.
-func (b *Backend) Open(h backend.Handle) (backend.SandboxV2, error) {
+func (b *Backend) Open(h backend.Handle) (backend.Sandbox, error) {
 	if h.Type != HandleType {
 		return nil, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)
 	}

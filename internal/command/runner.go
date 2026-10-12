@@ -166,7 +166,7 @@ var RunnerCommand = &cli.Command{
 		}
 
 		backendName := cmd.String("backend")
-		var be backend.BackendV2
+		var be backend.Backend
 		switch backendName {
 		case docker.HandleType:
 			be, err = docker.New(docker.Options{
@@ -206,7 +206,7 @@ var RunnerCommand = &cli.Command{
 
 		r, err := runner.New(runner.Options{
 			Client:      client,
-			BackendV2:   be,
+			Backend:     be,
 			Store:       store,
 			ServerURL:   serverAddr,
 			Workspaces:  workspaces,
