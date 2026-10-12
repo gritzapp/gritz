@@ -29,7 +29,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type Runner struct {
+// TaskManager orchestrates the runner's tasks: it polls the server for their
+// commands, builds the specs their sandboxes are created and run with, admits
+// runs under the concurrency limit, and keeps the registry of the tasks that
+// have a sandbox, each run by a TaskRunner.
+type TaskManager struct {
 	backend     backend.Backend
 	store       *taskstate.Store
 	client      gritzclient.Client
@@ -42,24 +46,15 @@ type Runner struct {
 	queue       *outbox.Outbox[model.RunnerEvent]
 	wake        wakeup.Chan
 	fatal       context.CancelCauseFunc
+	// env is shared by the manager's TaskRunners.
+	env *taskEnv
 
 	// mu guards tasks, the registry of the tasks this runner has a sandbox
-	// for. It mirrors taskstate/: a task has an entry if and only if it has a
-	// record, and every change writes through to both. Only Load reads
+	// for. It mirrors taskstate/: a task has a TaskRunner if and only if it
+	// has a record, and every change writes through to both. Only Load reads
 	// taskstate/, to rebuild the registry at boot.
 	mu    sync.Mutex
-	tasks map[int64]*taskEntry
-
-	// retryInterval is the first pause between attempts to reach the driver
-	// or reattach to a run, retryMaxInterval caps the reattach backoff, and
-	// lostTimeout is how long supervise keeps reattaching without a good
-	// message from the driver before it gives up on the run. readyTimeout is
-	// how long a started sandbox's driver has to answer and accept its run.
-	// Tests shorten them.
-	retryInterval    time.Duration
-	retryMaxInterval time.Duration
-	lostTimeout      time.Duration
-	readyTimeout     time.Duration
+	tasks map[int64]*TaskRunner
 }
 
 const (
@@ -68,52 +63,20 @@ const (
 	reattachInterval = 250 * time.Millisecond
 	// reattachMaxInterval caps the backoff between attempts to reattach.
 	reattachMaxInterval = 10 * time.Second
-	// driverLostTimeout is how long supervise keeps reattaching without a good
+	// driverLostTimeout is how long Run keeps reattaching without a good
 	// message from the driver before it parks the sandbox and reports the run
 	// lost.
 	driverLostTimeout = 2 * time.Minute
-	// driverReadyTimeout is how long supervise waits for a started sandbox's
-	// driver to answer Status and accept its run. It counts whatever the
-	// image's entrypoint does before it execs the driver, and a Lambda VM's
-	// boot.
+	// driverReadyTimeout is how long Run waits for a started sandbox's driver
+	// to answer Status and accept its run. It counts whatever the image's
+	// entrypoint does before it execs the driver, and a Lambda VM's boot.
 	driverReadyTimeout = time.Minute
 	// readyMaxInterval caps the backoff between attempts to reach a starting
 	// driver.
 	readyMaxInterval = 2 * time.Second
 )
 
-// taskEntry is the runner's in-memory state for a task that has a sandbox. It
-// exists exactly as long as the task's record in taskstate/: it is added once
-// the sandbox is created and its record written (or by Load, for a record a
-// previous process wrote), and deleted together with the record.
-//
-// An operation on a task looks its entry up, locks mu, and returns removed if
-// it is set: the entry was deleted while the operation waited for mu. It does
-// not look the task up again, so a task created anew after the removal is left
-// to the next operation.
-type taskEntry struct {
-	// mu serializes Start, Kill, Remove and Running for the task.
-	mu sync.Mutex
-	// rec is the task's record, as last written to taskstate/. Guarded by mu.
-	rec taskstate.Record
-	// sb is the sandbox rec tracks. It is set when the entry is created and
-	// not changed after.
-	sb backend.Sandbox
-	// run is the run a supervise goroutine is following, or nil. Guarded by
-	// mu.
-	run *taskRun
-	// removed is why the entry was deleted from the registry, or nil while it
-	// is registered: errRemoved from Remove, backend.ErrGone from gone.
-	// Guarded by mu.
-	removed error
-}
-
-// errRemoved is the cause a supervise goroutine is cancelled with when Remove
-// destroys its sandbox, and the error an operation on the removed task's entry
-// returns.
-var errRemoved = errors.New("sandbox removed")
-
-type Options struct {
+type TaskManagerOptions struct {
 	Client gritzclient.Client
 	// Backend is the sandbox runtime that hosts task drivers.
 	Backend backend.Backend
@@ -150,7 +113,7 @@ func ValidateRunnerID(id string) error {
 	return nil
 }
 
-func New(opts Options) (*Runner, error) {
+func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 	if err := ValidateRunnerID(opts.RunnerID); err != nil {
 		return nil, err
 	}
@@ -169,7 +132,7 @@ func New(opts Options) (*Runner, error) {
 
 	log := cmp.Or(opts.Log, slog.Default())
 
-	// Default Fatal to a no-op so die can call r.fatal unconditionally. A nil
+	// Default Fatal to a no-op so die can call m.fatal unconditionally. A nil
 	// Fatal means the caller opted out of crash-on-write-failure (only tests that
 	// never trigger die); production always wires the CancelCauseFunc.
 	fatal := opts.Fatal
@@ -177,7 +140,7 @@ func New(opts Options) (*Runner, error) {
 		fatal = func(error) {}
 	}
 
-	return &Runner{
+	m := &TaskManager{
 		backend:     opts.Backend,
 		store:       opts.Store,
 		client:      opts.Client,
@@ -190,13 +153,20 @@ func New(opts Options) (*Runner, error) {
 		queue:       opts.Queue,
 		wake:        wakeup.New(),
 		fatal:       fatal,
-
-		tasks:            map[int64]*taskEntry{},
+		tasks:       map[int64]*TaskRunner{},
+	}
+	m.env = &taskEnv{
+		store:            opts.Store,
+		queue:            opts.Queue,
+		log:              log,
+		die:              m.die,
+		forget:           m.forget,
 		retryInterval:    reattachInterval,
 		retryMaxInterval: reattachMaxInterval,
 		lostTimeout:      driverLostTimeout,
 		readyTimeout:     driverReadyTimeout,
-	}, nil
+	}
+	return m, nil
 }
 
 // FatalError wraps a durable local-store write failure that terminates the
@@ -218,69 +188,69 @@ func (e FatalError) Unwrap() error { return e.err }
 // detach-don't-kill teardown — in-flight sandboxes stay alive and are re-adopted
 // by Load on the next boot. First cause wins (WithCancelCause is idempotent), so
 // the first failure is the one reported.
-func (r *Runner) die(err error) { r.fatal(FatalError{err}) }
+func (m *TaskManager) die(err error) { m.fatal(FatalError{err}) }
 
 // WakeC returns a channel that receives one value per coalesced burst of
 // internally-generated wake-ups. Currently signalled when a concurrency
 // slot is released so the main loop can immediately retry tasks that were
 // previously skipped for being over the limit.
-func (r *Runner) WakeC() <-chan struct{} { return r.wake }
+func (m *TaskManager) WakeC() <-chan struct{} { return m.wake }
 
 // Wake signals the runner's main loop to poll immediately.
-func (r *Runner) Wake() { r.wake.Wake() }
+func (m *TaskManager) Wake() { m.wake.Wake() }
 
-func (r *Runner) Close() error {
-	return r.backend.Close()
+func (m *TaskManager) Close() error {
+	return m.backend.Close()
 }
 
 // RegisterWorkspaces sends the available workspace names to the server.
-func (r *Runner) RegisterWorkspaces(ctx context.Context) error {
-	workspaces := make([]*gritzv1.RegisteredWorkspace, 0, len(r.workspaces.Workspaces))
-	for name, ws := range r.workspaces.Workspaces {
+func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
+	workspaces := make([]*gritzv1.RegisteredWorkspace, 0, len(m.workspaces.Workspaces))
+	for name, ws := range m.workspaces.Workspaces {
 		workspaces = append(workspaces, &gritzv1.RegisteredWorkspace{
 			Name:        name,
 			Description: ws.Description,
 		})
 	}
-	_, err := r.client.RegisterWorkspaces(ctx, &gritzv1.RegisterWorkspacesRequest{
-		RunnerId:   r.runnerID,
+	_, err := m.client.RegisterWorkspaces(ctx, &gritzv1.RegisterWorkspacesRequest{
+		RunnerId:   m.runnerID,
 		Workspaces: workspaces,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to register workspaces: %w", err)
 	}
-	r.log.Info("registered workspaces", "runner_id", r.runnerID, "count", len(workspaces))
+	m.log.Info("registered workspaces", "runner_id", m.runnerID, "count", len(workspaces))
 	return nil
 }
 
-func (r *Runner) Poll(ctx context.Context) error {
-	resp, err := r.client.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: r.runnerID})
+func (m *TaskManager) Poll(ctx context.Context) error {
+	resp, err := m.client.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: m.runnerID})
 	if err != nil {
 		return err
 	}
 
 	// Plain group (limit + join only): WithContext's derived ctx is canceled
-	// when Wait returns, which would kill the supervise goroutines Start spawns
-	// on this ctx. supervise must outlive the poll cycle.
+	// when Wait returns, which would kill the Run goroutines Start spawns on
+	// this ctx. Run must outlive the poll cycle.
 	//
 	// A pass handles each task at most once, and passes run one after another,
-	// so Start can create a task's sandbox and entry without a per-task lock:
-	// nothing else creates the entry of a task this pass handles. Prune, which
-	// runs alongside, only removes archived tasks, which have no command to
-	// handle, so it does not act on the same tasks either.
+	// so Start can create a task's sandbox and TaskRunner without a per-task
+	// lock: nothing else creates the TaskRunner of a task this pass handles.
+	// Prune, which runs alongside, only removes archived tasks, which have no
+	// command to handle, so it does not act on the same tasks either.
 	var g errgroup.Group
-	g.SetLimit(int(r.concurrency))
+	g.SetLimit(int(m.concurrency))
 
 	for _, pbTask := range resp.Tasks {
 		task := model.TaskFromProto(pbTask)
 		switch task.Command {
 		case model.TaskCommandStop:
 			g.Go(func() error {
-				signalled, err := r.Kill(ctx, task)
+				signalled, err := m.Kill(ctx, task)
 				if err != nil {
 					// The stop command survives, so the kill is retried on
 					// the next poll.
-					r.log.Error("failed to stop task", "task", task.ID, "err", err)
+					m.log.Error("failed to stop task", "task", task.ID, "err", err)
 					return nil
 				}
 				if signalled {
@@ -292,12 +262,12 @@ func (r *Runner) Poll(ctx context.Context) error {
 				// No running run to stop: there is no driver to complete
 				// the cancel, so emit "stopped" to land the task in
 				// cancelled instead of sticking in cancelling.
-				if err := r.queue.Enqueue(model.RunnerEvent{
+				if err := m.queue.Enqueue(model.RunnerEvent{
 					TaskID:  task.ID,
 					Event:   model.RunnerEventStopped,
 					Version: task.Version,
 				}); err != nil {
-					r.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, task.ID, err))
+					m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, task.ID, err))
 					return nil
 				}
 				return nil
@@ -314,46 +284,46 @@ func (r *Runner) Poll(ctx context.Context) error {
 				// the command, exactly like the start handler's already-running
 				// guard. A legacy version-0 record never matches a live task's
 				// version (>= 1), so the guard is a no-op for those.
-				version, err := r.version(task.ID)
+				version, err := m.version(task.ID)
 				if err != nil {
-					r.log.Error("failed to read task record for restart", "task", task.ID, "err", err)
+					m.log.Error("failed to read task record for restart", "task", task.ID, "err", err)
 					return nil
 				}
 				if version == task.Version {
-					r.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
+					m.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
 					return nil
 				}
 				// Kill existing sandbox if running. The old run's "stopped"
 				// is rejected by the status guard while the restart command is
 				// pending, so the command survives until the new run's
 				// "started" consumes it.
-				if _, err := r.Kill(ctx, task); err != nil {
-					r.log.Error("failed to kill task for restart", "task", task.ID, "err", err)
+				if _, err := m.Kill(ctx, task); err != nil {
+					m.log.Error("failed to kill task for restart", "task", task.ID, "err", err)
 				}
 				// Atomically acquire a semaphore slot before starting
-				if !r.sem.TryAcquire(1) {
-					r.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", r.concurrency)
+				if !m.sem.TryAcquire(1) {
+					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
 					return nil
 				}
-				err = r.Start(ctx, task)
+				err = m.Start(ctx, task)
 				if errors.Is(err, errRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
-					r.sem.Release(1)
-					r.log.Debug("sandbox still running, not started", "task", task.ID)
+					m.sem.Release(1)
+					m.log.Debug("sandbox still running, not started", "task", task.ID)
 					return nil
 				}
 				if err != nil {
-					r.sem.Release(1) // Release the slot on failure
-					r.log.Error("failed to start task", "task", task.ID, "err", err)
-					err := r.queue.Enqueue(model.RunnerEvent{
+					m.sem.Release(1) // Release the slot on failure
+					m.log.Error("failed to start task", "task", task.ID, "err", err)
+					err := m.queue.Enqueue(model.RunnerEvent{
 						TaskID:  task.ID,
 						Event:   model.RunnerEventFailed,
 						Version: task.Version,
 						Reason:  err.Error(),
 					})
 					if err != nil {
-						r.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
+						m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
 					}
 					return nil
 				}
@@ -364,46 +334,46 @@ func (r *Runner) Poll(ctx context.Context) error {
 			g.Go(func() error {
 				// Don't bother checking the backend if the status is still running
 				if task.Status == model.TaskStatusRunning {
-					r.log.Debug("start command: task.status=running, waiting for it to finish", "task", task.ID)
+					m.log.Debug("start command: task.status=running, waiting for it to finish", "task", task.ID)
 					return nil
 				}
 				// Check if the sandbox is already running
-				running, err := r.Running(ctx, task.ID)
+				running, err := m.Running(ctx, task.ID)
 				if err != nil {
-					r.log.Error("failed to check if task is running", "task", task.ID, "err", err)
+					m.log.Error("failed to check if task is running", "task", task.ID, "err", err)
 					return nil
 				}
 				if running {
 					// Sandbox is running - do nothing, let it finish naturally
 					// The command will be processed when it stops
-					r.log.Debug("start command: sandbox already running, waiting for it to finish", "task", task.ID)
+					m.log.Debug("start command: sandbox already running, waiting for it to finish", "task", task.ID)
 					return nil
 				}
 
 				// Sandbox not running - atomically acquire a semaphore slot before starting
-				if !r.sem.TryAcquire(1) {
-					r.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", r.concurrency)
+				if !m.sem.TryAcquire(1) {
+					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
 					return nil
 				}
-				err = r.Start(ctx, task)
+				err = m.Start(ctx, task)
 				if errors.Is(err, errRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
-					r.sem.Release(1)
-					r.log.Debug("sandbox still running, not started", "task", task.ID)
+					m.sem.Release(1)
+					m.log.Debug("sandbox still running, not started", "task", task.ID)
 					return nil
 				}
 				if err != nil {
-					r.sem.Release(1) // Release the slot on failure
-					r.log.Error("failed to start task", "task", task.ID, "err", err)
-					err := r.queue.Enqueue(model.RunnerEvent{
+					m.sem.Release(1) // Release the slot on failure
+					m.log.Error("failed to start task", "task", task.ID, "err", err)
+					err := m.queue.Enqueue(model.RunnerEvent{
 						TaskID:  task.ID,
 						Event:   model.RunnerEventFailed,
 						Version: task.Version,
 						Reason:  err.Error(),
 					})
 					if err != nil {
-						r.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
+						m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
 					}
 					return nil
 				}
@@ -418,7 +388,7 @@ func (r *Runner) Poll(ctx context.Context) error {
 
 // Load rehydrates this runner's sandboxes at boot, before Poll admits new work.
 // The statefile enumerates; Status answers liveness per record. An up sandbox
-// gets the same per-task supervise goroutine as the live path, which reattaches
+// gets the same Run goroutine as the live path, which reattaches
 // to the recorded run; a parked husk or a gone sandbox is a lost-report
 // backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
 // or destroy). The semaphore is seeded with the up count last, so it may exceed
@@ -426,231 +396,149 @@ func (r *Runner) Poll(ctx context.Context) error {
 //
 // Load rebuilds the task registry from the records it keeps: it is the only
 // reader of taskstate/. A record whose handle cannot be opened is dropped, so
-// every entry has a sandbox.
-func (r *Runner) Load(ctx context.Context) error {
-	recs, err := r.store.List()
+// every TaskRunner has a sandbox.
+func (m *TaskManager) Load(ctx context.Context) error {
+	recs, err := m.store.List()
 	if err != nil {
 		return fmt.Errorf("failed to list records: %w", err)
 	}
 	var running int64
 	for _, rec := range recs {
-		sb, err := r.backend.Open(recordHandle(rec))
+		sb, err := m.backend.Open(recordHandle(rec))
 		if err != nil {
-			r.log.Error("load: open, dropping record", "task", rec.TaskID, "err", err)
-			if err := r.store.Remove(rec.TaskID); err != nil {
-				r.log.Error("load: remove unopenable record", "task", rec.TaskID, "err", err)
+			m.log.Error("load: open, dropping record", "task", rec.TaskID, "err", err)
+			if err := m.store.Remove(rec.TaskID); err != nil {
+				m.log.Error("load: remove unopenable record", "task", rec.TaskID, "err", err)
 			}
 			continue
 		}
-		e := &taskEntry{rec: rec, sb: sb}
+		t := loadTaskRunner(m.env, rec, sb)
 		st, err := sb.Status(ctx)
 		if err != nil {
-			// Keep the record and its entry: the sandbox may well be there.
-			r.log.Error("load: status", "task", rec.TaskID, "err", err)
+			// Keep the record and its TaskRunner: the sandbox may well be
+			// there.
+			m.log.Error("load: status", "task", rec.TaskID, "err", err)
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			e.mu.Lock()
-			r.supervise(ctx, e, nil)
-			e.mu.Unlock()
+			t.claim()
+			m.run(ctx, t, nil)
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
-			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
+			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
-			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
-			err := r.store.Remove(rec.TaskID)
+			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
+			err := t.dropGone()
 			if err == nil {
 				continue
 			}
-			// The record stays, so its entry does too.
-			r.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
+			// The record stays, so its TaskRunner does too.
+			m.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
 		}
-		r.mu.Lock()
-		r.tasks[rec.TaskID] = e
-		r.mu.Unlock()
+		m.register(t)
 	}
-	r.sem.Set(running)
-	r.log.Info("initialized running sandbox count", "count", running)
+	m.sem.Set(running)
+	m.log.Info("initialized running sandbox count", "count", running)
 	return nil
 }
 
 // failIfTaskRunning emits a "failed" event for a task whose sandbox is no longer
 // running but whose server status is still RUNNING — the driver's terminal report was
 // lost, so "failed" is the honest outcome (see the driver-owned-events proposal).
-func (r *Runner) failIfTaskRunning(ctx context.Context, taskID, version int64) {
-	task, err := r.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
+func (m *TaskManager) failIfTaskRunning(ctx context.Context, taskID, version int64) {
+	task, err := m.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
 	if err != nil {
-		r.log.Error("failed to get task", "task", taskID, "err", err)
+		m.log.Error("failed to get task", "task", taskID, "err", err)
 		return
 	}
 	if task.Task.Status != gritzv1.TaskStatus_RUNNING {
 		return
 	}
-	r.log.Error("load: sandbox exited without reporting", "task", taskID)
+	m.log.Error("load: sandbox exited without reporting", "task", taskID)
 	// Scope the backstop to the run that exited: a legacy record's version 0
 	// bypasses the guard, a stamped version only applies while the task is still
 	// on that run.
-	if err := r.queue.Enqueue(model.RunnerEvent{
+	if err := m.queue.Enqueue(model.RunnerEvent{
 		TaskID:  taskID,
 		Version: version,
 		Event:   model.RunnerEventFailed,
 		Reason:  "sandbox exited",
 	}); err != nil {
-		r.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, taskID, err))
+		m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, taskID, err))
 		return
 	}
 }
 
-// recordHandle returns the handle a record tracks.
-func recordHandle(rec taskstate.Record) backend.Handle {
-	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
+// lookup returns the task's TaskRunner, or nil if the task has none.
+func (m *TaskManager) lookup(taskID int64) *TaskRunner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tasks[taskID]
 }
 
-// lookup returns the task's entry, locked, or nil if the task has none. If the
-// entry was deleted while lookup waited for its lock, lookup returns why
-// instead.
-func (r *Runner) lookup(taskID int64) (*taskEntry, error) {
-	r.mu.Lock()
-	e := r.tasks[taskID]
-	r.mu.Unlock()
-	if e == nil {
-		return nil, nil
-	}
-	e.mu.Lock()
-	if e.removed != nil {
-		e.mu.Unlock()
-		return nil, e.removed
-	}
-	return e, nil
+// register adds t to the registry. Its record is in taskstate/ already.
+func (m *TaskManager) register(t *TaskRunner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tasks[t.taskID] = t
 }
 
-// write records e's sandbox handle for the task at version, in taskstate/ and
-// on e. A store write failure terminates the runner: the taskstate store is the
-// runner's other durable local store, and a write failure here is the same
-// non-transient disk failure as an outbox Enqueue failure, so crash rather than
-// lose the handle. The returned error still unwinds the caller (releasing the
-// sem slot) as ctx tears down. The caller holds e.mu.
-func (r *Runner) write(e *taskEntry, taskID, version int64) error {
-	h := e.sb.Handle()
-	rec := taskstate.Record{
-		TaskID:  taskID,
-		Version: version,
-		Type:    h.Type,
-		ID:      h.ID,
-		Data:    h.Data,
-	}
-	if err := r.store.Write(rec); err != nil {
-		r.die(fmt.Errorf("record handle for task %d: %w", taskID, err))
-		return fmt.Errorf("failed to record task handle: %w", err)
-	}
-	e.rec = rec
-	return nil
-}
-
-// remove deletes e's record and then e from the registry, marking e removed
-// with cause. If the record cannot be deleted, e stays registered. The caller
-// holds e.mu.
-func (r *Runner) remove(e *taskEntry, cause error) error {
-	if err := r.store.Remove(e.rec.TaskID); err != nil {
-		return err
-	}
-	r.mu.Lock()
-	delete(r.tasks, e.rec.TaskID)
-	r.mu.Unlock()
-	e.removed = cause
-	return nil
+// forget deletes the task from the registry, once its TaskRunner has deleted
+// its record.
+func (m *TaskManager) forget(taskID int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tasks, taskID)
 }
 
 // version returns the version the task's record is stamped with, or 0 if the
 // task has none.
-func (r *Runner) version(taskID int64) (int64, error) {
-	e, err := r.lookup(taskID)
-	if err != nil || e == nil {
-		return 0, err
+func (m *TaskManager) version(taskID int64) (int64, error) {
+	t := m.lookup(taskID)
+	if t == nil {
+		return 0, nil
 	}
-	defer e.mu.Unlock()
-	return e.rec.Version, nil
+	return t.Version()
 }
 
 // Running reports whether the task's sandbox is up.
-func (r *Runner) Running(ctx context.Context, taskID int64) (bool, error) {
-	e, err := r.lookup(taskID)
-	if err != nil || e == nil {
-		return false, err
-	}
-	defer e.mu.Unlock()
-	st, err := e.sb.Status(ctx)
-	if err != nil {
-		return false, err
-	}
-	return st == backend.StatusUp, nil
-}
-
-// Remove destroys the task's sandbox and deletes its record and entry. They
-// are deleted only after the destroy succeeds, so a failed destroy leaves the
-// task tracked and the removal is retried. Destroying a gone sandbox is not an
-// error, so a task whose sandbox vanished is simply dropped. A supervise
-// goroutine still following the destroyed sandbox is cancelled, and reports
-// the run lost.
-func (r *Runner) Remove(ctx context.Context, taskID int64) error {
-	e, err := r.lookup(taskID)
-	if err != nil || e == nil {
-		return err
-	}
-	defer e.mu.Unlock()
-	return r.destroy(ctx, e)
-}
-
-// destroy is Remove for e. The caller holds e.mu.
-func (r *Runner) destroy(ctx context.Context, e *taskEntry) error {
-	if err := e.sb.Destroy(ctx); err != nil {
-		return err
-	}
-	if e.run != nil {
-		e.run.cancel(errRemoved)
-	}
-	return r.remove(e, errRemoved)
-}
-
-// Kill asks the driver of the task's sandbox to stop the recorded run. It
-// reports whether a running run was stopped — in that case the driver owns the
-// terminal event report (see the driver-owned-events proposal). A sandbox that
-// is not up has no driver to ask, so nothing is stopped; neither is a run that
-// already finished or is not the recorded version.
-func (r *Runner) Kill(ctx context.Context, task *model.Task) (bool, error) {
-	e, err := r.lookup(task.ID)
-	if err != nil || e == nil {
-		return false, err
-	}
-	defer e.mu.Unlock()
-	st, err := e.sb.Status(ctx)
-	if err != nil {
-		return false, err
-	}
-	if st != backend.StatusUp {
+func (m *TaskManager) Running(ctx context.Context, taskID int64) (bool, error) {
+	t := m.lookup(taskID)
+	if t == nil {
 		return false, nil
 	}
-	client, err := e.sb.Dial(ctx, "")
-	if err != nil {
-		return false, err
+	return t.Running(ctx)
+}
+
+// Remove destroys the task's sandbox and deletes its record and TaskRunner;
+// see TaskRunner.Destroy.
+func (m *TaskManager) Remove(ctx context.Context, taskID int64) error {
+	t := m.lookup(taskID)
+	if t == nil {
+		return nil
 	}
-	r.log.Info("stopping run", "task", task.ID, "version", e.rec.Version)
-	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: e.rec.Version})
-	if err != nil {
-		return false, fmt.Errorf("failed to stop run: %w", err)
+	return t.Destroy(ctx)
+}
+
+// Kill asks the driver of the task's sandbox to stop the recorded run, and
+// reports whether a running run was stopped; see TaskRunner.Kill.
+func (m *TaskManager) Kill(ctx context.Context, task *model.Task) (bool, error) {
+	t := m.lookup(task.ID)
+	if t == nil {
+		return false, nil
 	}
-	return resp.GetStopped(), nil
+	return t.Kill(ctx)
 }
 
 // spec assembles the sandbox spec for a task: the task token, the run's
 // environment and secrets, and the agent config with the injected gritz MCP
 // server.
-func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, error) {
-	ws, err := r.workspaces.Get(task.Workspace)
+func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec, error) {
+	ws, err := m.workspaces.Get(task.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
-	if err := r.backend.ValidateWorkspace(ws); err != nil {
+	if err := m.backend.ValidateWorkspace(ws); err != nil {
 		return nil, fmt.Errorf("invalid workspace %q: %w", task.Workspace, err)
 	}
 
@@ -658,7 +546,7 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 	// supplies only the task id and capability flags and the server derives the
 	// task's workspace/runner/org from the row and signs a narrow app JWT. The
 	// driver and injected MCP server present it directly to the server.
-	tokenResp, err := r.client.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
+	tokenResp, err := m.client.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
 		TaskId:       task.ID,
 		Capabilities: ws.Capabilities,
 	})
@@ -671,7 +559,7 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 	cfg := ws.AgentConfig()
 	mcpArgs := []string{
 		"tool", "agent-mcp",
-		"--server", r.serverURL,
+		"--server", m.serverURL,
 		"--task", fmt.Sprint(task.ID),
 		"--runner", task.Runner,
 		"--workspace", task.Workspace,
@@ -694,14 +582,14 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 		TaskID:    task.ID,
 		Version:   task.Version,
 		Workspace: ws,
-		ServerURL: r.serverURL,
+		ServerURL: m.serverURL,
 		Token:     token,
 		// The agent's tools (the git credential helper, the GitHub MCP server)
 		// reach the server through these.
 		Env: map[string]string{
 			"GRITZ_TASK_ID": fmt.Sprint(task.ID),
 			"GRITZ_TOKEN":   token,
-			"GRITZ_SERVER":  r.serverURL,
+			"GRITZ_SERVER":  m.serverURL,
 		},
 		Secrets: maps.Clone(ws.Secrets),
 		Files: []backend.File{
@@ -716,90 +604,70 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 	}, nil
 }
 
-// errRunning is returned by Start when a supervise goroutine still follows the
-// task's previous run, so nothing was started. Running can report false then:
-// the sandbox may already be parking after its run (a Lambda VM suspending).
-var errRunning = errors.New("sandbox is still running")
-
-// Start brings up the task's sandbox and spawns a supervise goroutine that
-// starts the task's run on it. A task with no entry gets a sandbox created, and
-// its handle recorded straight away, before anything else can fail; the entry
-// is registered once the record is written. A task with one reuses its
-// sandbox, since a task is bound 1:1 to it. Either way the record is stamped
-// with the task's version. If the sandbox is gone, Start drops the record and
-// entry and returns backend.ErrGone; any other failure to start it keeps them,
-// so Remove can still destroy the sandbox.
+// Start brings up the task's sandbox and starts the task's run on it, on a Run
+// goroutine. A task with no TaskRunner gets a sandbox created, and a
+// TaskRunner around it, which records its handle straight away, before
+// anything else can fail; it is registered once the record is written. A task
+// with one reuses its sandbox, since a task is bound 1:1 to it. Either way the
+// record is stamped with the task's version; see TaskRunner.Start for what a
+// failure to start the sandbox leaves behind.
 //
 // Start returns once the platform reports the sandbox running: waiting for the
-// driver and starting the run happen in the supervise goroutine, so a slow
-// sandbox does not hold up the poll pass. A failure there is reported as the
-// run's "failed".
+// driver and starting the run happen in Run, so a slow sandbox does not hold
+// up the poll pass. A failure there is reported as the run's "failed".
 //
-// If a supervise goroutine still follows the task's previous run, Start
-// returns errRunning without starting anything, and the caller gives back the
-// concurrency slot it acquired.
-func (r *Runner) Start(ctx context.Context, task *model.Task) error {
-	e, err := r.lookup(task.ID)
-	if err != nil {
-		return err
-	}
-	if e != nil {
-		defer e.mu.Unlock()
-		if e.run != nil {
-			return errRunning
-		}
-	}
-	spec, err := r.spec(ctx, task)
-	if err != nil {
-		return err
-	}
-	if e == nil {
-		if e, err = r.create(ctx, task, spec); err != nil {
+// If a Run still follows the task's previous run, Start returns errRunning
+// without starting anything, and the caller gives back the concurrency slot it
+// acquired.
+func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
+	t := m.lookup(task.ID)
+	if t != nil {
+		if err := t.idle(); err != nil {
 			return err
 		}
-		defer e.mu.Unlock()
-	} else if err := r.write(e, task.ID, task.Version); err != nil {
+	}
+	spec, err := m.spec(ctx, task)
+	if err != nil {
 		return err
 	}
-	if err := e.sb.Start(ctx); errors.Is(err, backend.ErrGone) {
-		return r.gone(e)
-	} else if err != nil {
+	if t == nil {
+		if t, err = m.create(ctx, task, spec); err != nil {
+			return err
+		}
+	}
+	if err := t.Start(ctx, task.Version); err != nil {
 		return err
 	}
 	// Follow the run on the runner's root context: the run is started there,
 	// after the record is stamped with its version, so a runner that restarts
 	// in between reattaches to it.
-	r.supervise(ctx, e, r.runSpec(spec))
+	m.run(ctx, t, m.runSpec(spec))
 	return nil
 }
 
-// create creates a sandbox for a task with no entry, records it, and registers
-// the task's entry, which it returns locked. It takes no per-task lock: Poll
-// handles each task at most once per pass and passes are sequential, so nothing
-// else registers an entry for the task meanwhile.
-func (r *Runner) create(ctx context.Context, task *model.Task, spec *backend.Spec) (*taskEntry, error) {
-	sb, err := r.backend.Create(ctx, spec)
+// create creates a sandbox for a task with no TaskRunner, and registers the
+// TaskRunner it constructs around it. It takes no per-task lock: Poll handles
+// each task at most once per pass and passes are sequential, so nothing else
+// registers a TaskRunner for the task meanwhile.
+func (m *TaskManager) create(ctx context.Context, task *model.Task, spec *backend.Spec) (*TaskRunner, error) {
+	sb, err := m.backend.Create(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
-	e := &taskEntry{sb: sb}
-	e.mu.Lock()
-	if err := r.write(e, task.ID, task.Version); err != nil {
-		e.mu.Unlock()
+	t, err := newTaskRunner(m.env, sb, task.ID, task.Version)
+	if err != nil {
 		return nil, err
 	}
-	r.mu.Lock()
-	r.tasks[task.ID] = e
-	r.mu.Unlock()
-	return e, nil
+	m.register(t)
+	return t, nil
 }
 
 // runSpec builds the driver.v1 RunSpec for spec. A backend whose sandboxes
 // have no environment of their own adds the workspace's to the run's, under
 // spec.Env.
-func (r *Runner) runSpec(spec *backend.Spec) *driverv1.RunSpec {
+func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 	env := map[string]string{}
-	if be, ok := r.backend.(backend.RunEnver); ok {
+	if be, ok := m.backend.(backend.RunEnver); ok {
 		maps.Copy(env, be.RunEnv(spec.Workspace))
 	}
 	maps.Copy(env, spec.Env)
@@ -821,54 +689,29 @@ func (r *Runner) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 	return rs
 }
 
-// gone handles a vanished bound sandbox: the task's recorded sandbox no longer
-// exists, so drop the dangling record and the entry (nothing to reuse or
-// destroy) and return backend.ErrGone. The caller's error path emits "failed"
-// and releases the acquired sem slot. A subsequent explicit start/restart,
-// having no entry, is then a legitimate first-start-fresh. The caller holds
-// e.mu.
-func (r *Runner) gone(e *taskEntry) error {
-	if err := r.remove(e, backend.ErrGone); err != nil {
-		r.log.Error("failed to remove dangling record", "task", e.rec.TaskID, "err", err)
-	}
-	return backend.ErrGone
-}
-
-// supervise spawns the goroutine that follows the run version e's record is
-// stamped with on e's sandbox, and registers its taskRun on e, so Remove can
-// cancel it. With spec set the goroutine starts the run first; with spec nil
-// it reattaches to a run already started. The caller holds e.mu.
-func (r *Runner) supervise(ctx context.Context, e *taskEntry, spec *driverv1.RunSpec) {
-	ctx, cancel := context.WithCancelCause(ctx)
-	t := &taskRun{
-		r:       r,
-		taskID:  e.rec.TaskID,
-		version: e.rec.Version,
-		spec:    spec,
-		sb:      e.sb,
-		cancel:  cancel,
-	}
-	e.run = t
+// run calls t's Run on its own goroutine, which holds the run's concurrency
+// slot. Once Run returns, the slot is released and Poll woken, unless the
+// runner is shutting down: then the slot stays held and the sandbox is left
+// for the next boot.
+func (m *TaskManager) run(ctx context.Context, t *TaskRunner, spec *driverv1.RunSpec) {
 	go func() {
-		defer cancel(nil)
-		t.follow(ctx)
-		e.mu.Lock()
-		defer e.mu.Unlock()
-		if e.run == t {
-			e.run = nil
+		if err := t.Run(ctx, spec); err != nil {
+			return
 		}
+		m.sem.Release(1)
+		m.wake.Wake()
 	}()
 }
 
 // Prune removes sandboxes for archived tasks. It goes through a snapshot of the
 // registry; it only removes archived tasks, which Poll has no command for, so
 // it never acts on a task Poll is handling.
-func (r *Runner) Prune(ctx context.Context) error {
-	r.mu.Lock()
-	tasks := maps.Clone(r.tasks)
-	r.mu.Unlock()
-	for taskID, e := range tasks {
-		r.prune(ctx, taskID, e)
+func (m *TaskManager) Prune(ctx context.Context) error {
+	m.mu.Lock()
+	tasks := maps.Clone(m.tasks)
+	m.mu.Unlock()
+	for taskID, t := range tasks {
+		m.prune(ctx, taskID, t)
 	}
 	return nil
 }
@@ -876,32 +719,18 @@ func (r *Runner) Prune(ctx context.Context) error {
 // prune removes the task's sandbox if it is not up and the task is archived.
 // Both a parked husk and a gone sandbox count as "no live sandbox"; Destroy is
 // idempotent, so removing a gone sandbox is a no-op.
-func (r *Runner) prune(ctx context.Context, taskID int64, e *taskEntry) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.removed != nil {
-		return
-	}
-	st, err := e.sb.Status(ctx)
-	if err != nil {
-		r.log.Error("failed to get sandbox status", "task", taskID, "err", err)
-		return
-	}
-	if st == backend.StatusUp {
-		return
-	}
-	// Fetch task
-	resp, err := r.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-	if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
-		r.log.Error("failed to get task", "task", taskID, "err", err)
-		return
-	}
-	// Remove sandbox if task is archived or deleted
-	if connect.CodeOf(err) == connect.CodeNotFound || resp.Task.Archived {
-		if err := r.destroy(ctx, e); err != nil {
-			r.log.Error("failed to remove sandbox", "task", taskID, "err", err)
-		} else {
-			r.log.Info("sandbox removed", "task", taskID)
+func (m *TaskManager) prune(ctx context.Context, taskID int64, t *TaskRunner) {
+	removed, err := t.destroyIf(ctx, func(ctx context.Context) (bool, error) {
+		resp, err := m.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
+		if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+			return false, fmt.Errorf("failed to get task: %w", err)
 		}
+		// Remove sandbox if task is archived or deleted
+		return connect.CodeOf(err) == connect.CodeNotFound || resp.Task.Archived, nil
+	})
+	if err != nil {
+		m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
+	} else if removed {
+		m.log.Info("sandbox removed", "task", taskID)
 	}
 }

@@ -113,8 +113,8 @@ var RunnerCommand = &cli.Command{
 
 		// Wrap the incoming ctx so a durable local-store write failure can
 		// terminate the runner by cancelling it with a FatalError cause. This
-		// must happen before anything that takes ctx is spawned (Load's supervise
-		// goroutines, queue.Run, the supervise/autoprune/notify goroutines, and the
+		// must happen before anything that takes ctx is spawned (Load's Run
+		// goroutines, queue.Run, the Run/autoprune/notify goroutines, and the
 		// Poll loop) so they all observe the cancellation.
 		ctx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
@@ -204,7 +204,7 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to open task store: %w", err)
 		}
 
-		r, err := runner.New(runner.Options{
+		r, err := runner.NewTaskManager(runner.TaskManagerOptions{
 			Client:      client,
 			Backend:     be,
 			Store:       store,
@@ -229,7 +229,7 @@ var RunnerCommand = &cli.Command{
 		}
 
 		// Rehydrate sandboxes that were running when the runner was stopped: this
-		// re-attaches a supervise goroutine per running sandbox and seeds the
+		// re-attaches a Run goroutine per running sandbox and seeds the
 		// concurrency semaphore. It runs once, before Poll admits new work.
 		if err := r.Load(ctx); err != nil {
 			return fmt.Errorf("failed to load sandboxes: %w", err)
