@@ -1,5 +1,51 @@
 # Changelog
 
+## [3.14.0](https://github.com/gritzapp/gritz/compare/v3.13.0...v3.14.0) (2026-10-12)
+
+
+### Features
+
+* **runner:** add the Backend and Sandbox interfaces to the backends ([0a62e6c](https://github.com/gritzapp/gritz/commit/0a62e6cbe5da0201ce7e5f50f3895db802098dea))
+* **runner:** serve the Docker driver on a unix socket ([2341175](https://github.com/gritzapp/gritz/commit/23411756fc396890c302c44077dd720b3ea38d37))
+
+
+### Bug Fixes
+
+* **agent:** log the api_retry error under the err key ([343f38f](https://github.com/gritzapp/gritz/commit/343f38fbe84819f1c325d8851840bd4890691db8))
+* **agent:** read agent stream lines of any length and log Claude results ([c59a7b9](https://github.com/gritzapp/gritz/commit/c59a7b9033bb83bf9b0b3b800c39c23fec28a284))
+* **driver:** log the lambda hooks error under the err key ([9ef9fc4](https://github.com/gritzapp/gritz/commit/9ef9fc4c03bd55b43188eb21f0903abfcb599353))
+
+
+### Miscellaneous
+
+* **agent:** read agent output with a generic lines.Read iterator ([28016a5](https://github.com/gritzapp/gritz/commit/28016a517cd729399ffb2329d8942bf64a104e61))
+* describe the driver server architecture in CLAUDE.md ([c664ba3](https://github.com/gritzapp/gritz/commit/c664ba37e42bbb94d0ec72b87a4d0c48ac5d35a3))
+* **driver:** remove the one-shot driver ([7f2961b](https://github.com/gritzapp/gritz/commit/7f2961bf6e0d8ebfab9eb2cc499914bd12a32749))
+* **driver:** serve the Lambda hooks from the driver command ([ef8c264](https://github.com/gritzapp/gritz/commit/ef8c264db218170f6d2c31e121a54cea5dcdfb02))
+* **driver:** strip leftovers from driverserver and agent.Driver ([7417aff](https://github.com/gritzapp/gritz/commit/7417aff88c41c6a76c4d7528a1dacb902a2e8b83))
+* **proposal:** plan the driver-server switch-over ([e7dc01d](https://github.com/gritzapp/gritz/commit/e7dc01d562c5765f336c8c0e3bc80c87bfdf5483))
+* **proposal:** split Backend and Sandbox in the driver-server design ([854fff3](https://github.com/gritzapp/gritz/commit/854fff3374008bf3eb07a8780fab142929c3519d))
+* remove outdated driver-server diagrams ([c3409f4](https://github.com/gritzapp/gritz/commit/c3409f479056bb12218c51f6ab6a5979b7175633))
+* **runner:** delete the v1 backend interface ([84fd060](https://github.com/gritzapp/gritz/commit/84fd060c795c937034ef6598d13b1ebcd030f06a))
+* **runner:** drop the experimental --backend aliases ([56f8880](https://github.com/gritzapp/gritz/commit/56f8880cd00d2a665fdeda90a7638ec1ec3667db))
+* **runner:** hold a run's state on a taskRun ([ec4000d](https://github.com/gritzapp/gritz/commit/ec4000de0cdd106014df6c50036d5f95f8d19df0))
+* **runner:** keep the task registry in sync with taskstate ([e24d417](https://github.com/gritzapp/gritz/commit/e24d4170a80a27bc3ddbbe1ddb1349c2e7232e6f))
+* **runner:** kill tasks through the driver's Stop ([2c5c8db](https://github.com/gritzapp/gritz/commit/2c5c8db6c52259267f0317043d4657a3ac6f2c52))
+* **runner:** load, prune and check running through BackendV2 ([5a3c6c0](https://github.com/gritzapp/gritz/commit/5a3c6c0b3137e081cd96e9feaf67641844345f38))
+* **runner:** move taskRun into run.go ([e58e9a2](https://github.com/gritzapp/gritz/commit/e58e9a2c54db6f3782e9a494b61ef881fd62ad07))
+* **runner:** promote the experimental backends ([8e9db25](https://github.com/gritzapp/gritz/commit/8e9db2501126347906511302dd152456e810f95f))
+* **runner:** remove sandboxes through BackendV2 ([4c3c852](https://github.com/gritzapp/gritz/commit/4c3c8520df114cc193d46de8bd33811b0f839404))
+* **runner:** remove the old docker and lambda-microvm backends ([1233735](https://github.com/gritzapp/gritz/commit/1233735b0424441f1bfb2da50882c45e51729760))
+* **runner:** rename BackendV2 and SandboxV2 to Backend and Sandbox ([58270f2](https://github.com/gritzapp/gritz/commit/58270f213745c284c27d18c8904451b6b142fc80))
+* **runner:** rename files and variables for TaskManager and TaskRunner ([d2d6e22](https://github.com/gritzapp/gritz/commit/d2d6e2223258102cdd21ea8f8289d4d133110a3a))
+* **runner:** split Runner into TaskManager and TaskRunner ([c033a1a](https://github.com/gritzapp/gritz/commit/c033a1abcca386b2148a1272fb82a39d5551d4ad))
+* **runner:** start tasks through BackendV2 ([1786334](https://github.com/gritzapp/gritz/commit/1786334c22b27e6c9c753d8e54a0b2af910df1a4))
+* **runner:** supervise runs over the driver protocol ([f97224c](https://github.com/gritzapp/gritz/commit/f97224cb4d9f36e75a91a505d4e83f58fa243965))
+* **runner:** treat a foreign handle as an invalid handle ([72898c2](https://github.com/gritzapp/gritz/commit/72898c24f04be4c3d173bc5ea93f8c74834b6f3b))
+* **runner:** use cenkalti/backoff for retries ([3ed318e](https://github.com/gritzapp/gritz/commit/3ed318e9e3d0bf8b25df1285b8a9b38c5b2d807d))
+* **skills:** add comment-command skill ([75b347a](https://github.com/gritzapp/gritz/commit/75b347ae4b83a56a95fdeacd660a7aa585475a48))
+* **skills:** filter Done cards when reading the board ([15f07b1](https://github.com/gritzapp/gritz/commit/15f07b1373d82484c56afb7ca4bd1023cf572e05))
+
 ## [3.13.0](https://github.com/gritzapp/gritz/compare/v3.12.0...v3.13.0) (2026-10-11)
 
 
