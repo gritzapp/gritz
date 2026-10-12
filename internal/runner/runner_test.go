@@ -556,9 +556,9 @@ func waitSupervised(t *testing.T, r *Runner, taskID int64) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		e.mu.Lock()
-		sup := e.sup
+		run := e.run
 		e.mu.Unlock()
-		if sup == nil {
+		if run == nil {
 			return
 		}
 		if time.Now().After(deadline) {
@@ -1032,7 +1032,7 @@ func TestRunnerPoll_StartStillRunning(t *testing.T) {
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
-	r.entry(1).sup = &supervision{cancel: func(error) {}}
+	r.entry(1).run = &taskRun{cancel: func(error) {}}
 
 	// Act
 	err := r.Poll(t.Context())
