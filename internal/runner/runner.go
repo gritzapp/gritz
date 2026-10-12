@@ -47,8 +47,8 @@ type Options struct {
 	// Backend is the sandbox runtime that hosts task drivers.
 	Backend backend.Backend
 	// BackendV2 is the same backend under the interface the runner is moving
-	// onto, one path at a time (see #1725). Remove goes through it; every other
-	// path still uses Backend.
+	// onto, one path at a time (see #1725). Load, Prune, Running and Remove go
+	// through it; every other path still uses Backend.
 	BackendV2 backend.BackendV2
 	// Store is the runner-local source of truth for the task→sandbox-handle
 	// mapping. The runner is the only writer; backends never touch it.
@@ -260,7 +260,15 @@ func (r *Runner) Poll(ctx context.Context) error {
 					r.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", r.concurrency)
 					return nil
 				}
-				if err := r.Start(ctx, task); err != nil {
+				err = r.Start(ctx, task)
+				if errors.Is(err, errRunning) {
+					// Nothing was started, so the slot goes back; the
+					// command is retried on a later poll.
+					r.sem.Release(1)
+					r.log.Debug("sandbox still running, not started", "task", task.ID)
+					return nil
+				}
+				if err != nil {
 					r.sem.Release(1) // Release the slot on failure
 					r.log.Error("failed to start task", "task", task.ID, "err", err)
 					err := r.queue.Enqueue(model.RunnerEvent{
@@ -302,7 +310,15 @@ func (r *Runner) Poll(ctx context.Context) error {
 					r.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", r.concurrency)
 					return nil
 				}
-				if err := r.Start(ctx, task); err != nil {
+				err = r.Start(ctx, task)
+				if errors.Is(err, errRunning) {
+					// Nothing was started, so the slot goes back; the
+					// command is retried on a later poll.
+					r.sem.Release(1)
+					r.log.Debug("sandbox still running, not started", "task", task.ID)
+					return nil
+				}
+				if err != nil {
 					r.sem.Release(1) // Release the slot on failure
 					r.log.Error("failed to start task", "task", task.ID, "err", err)
 					err := r.queue.Enqueue(model.RunnerEvent{
@@ -326,11 +342,11 @@ func (r *Runner) Poll(ctx context.Context) error {
 }
 
 // Load rehydrates this runner's sandboxes at boot, before Poll admits new work.
-// The statefile enumerates; Probe answers liveness per record. A running sandbox
+// The statefile enumerates; Status answers liveness per record. An up sandbox
 // gets the same per-handle supervise goroutine as the live path (Wait
-// re-attaches); an exited husk or a gone sandbox is a lost-report backstop, and a
+// re-attaches); a parked husk or a gone sandbox is a lost-report backstop, and a
 // gone sandbox's dangling record is dropped (nothing to reuse or destroy). The
-// semaphore is seeded with the running count last, so it may exceed capacity in
+// semaphore is seeded with the up count last, so it may exceed capacity in
 // over-limit scenarios — that's fine.
 func (r *Runner) Load(ctx context.Context) error {
 	recs, err := r.store.List()
@@ -340,18 +356,18 @@ func (r *Runner) Load(ctx context.Context) error {
 	var running int64
 	for _, rec := range recs {
 		h := backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
-		st, err := r.backend.Probe(ctx, h)
+		st, err := r.status(ctx, h)
 		if err != nil {
-			r.log.Error("load: probe", "task", rec.TaskID, "err", err)
+			r.log.Error("load: status", "task", rec.TaskID, "err", err)
 			continue
 		}
 		switch st {
-		case backend.StateRunning: // container up / VM RUNNING: re-attach
+		case backend.StatusUp: // container running / VM RUNNING: re-attach
 			go r.supervise(ctx, rec.TaskID, rec.Version, h)
 			running++
-		case backend.StateExited: // stopped container / SUSPENDED VM (husk preserved)
+		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
-		case backend.StateGone: // removed / TERMINATED: the bound sandbox vanished
+		case backend.StatusGone: // removed / TERMINATED / foreign: the bound sandbox vanished
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 			if err := r.store.Remove(rec.TaskID); err != nil {
 				r.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
@@ -400,42 +416,40 @@ func (r *Runner) handle(taskID int64) (backend.Handle, bool, error) {
 	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}, true, nil
 }
 
-// Running reports whether the task's sandbox is currently running, probing the
+// status opens a recorded handle and reports its sandbox's status. Open ignores
+// Data, so a handle recorded by Launch (which carries the run version there)
+// opens like any other. A handle another backend type recorded reports
+// StatusGone: this backend can never reach its sandbox.
+func (r *Runner) status(ctx context.Context, h backend.Handle) (backend.Status, error) {
+	sb, err := r.backendV2.Open(h)
+	if errors.Is(err, backend.ErrForeign) {
+		return backend.StatusGone, nil
+	}
+	if err != nil {
+		return backend.StatusUnknown, err
+	}
+	return sb.Status(ctx)
+}
+
+// Running reports whether the task's sandbox is up, asking the status of the
 // handle the store tracks for it.
 func (r *Runner) Running(ctx context.Context, taskID int64) (bool, error) {
 	h, ok, err := r.handle(taskID)
 	if err != nil || !ok {
 		return false, err
 	}
-	state, err := r.backend.Probe(ctx, h)
+	st, err := r.status(ctx, h)
 	if err != nil {
 		return false, err
 	}
-	return state == backend.StateRunning, nil
-}
-
-// List composes the orchestrator's sandbox view from the store: one Sandbox
-// per tracked record, its state resolved by probing the backend handle.
-func (r *Runner) List(ctx context.Context) ([]backend.Sandbox, error) {
-	records, err := r.store.List()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list records: %w", err)
-	}
-	sandboxes := make([]backend.Sandbox, 0, len(records))
-	for _, rec := range records {
-		state, err := r.backend.Probe(ctx, backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
-		if err != nil {
-			return nil, fmt.Errorf("failed to probe task %d: %w", rec.TaskID, err)
-		}
-		sandboxes = append(sandboxes, backend.Sandbox{TaskID: rec.TaskID, State: state})
-	}
-	return sandboxes, nil
+	return st == backend.StatusUp, nil
 }
 
 // Remove destroys the task's sandbox and deletes its record. The record is
 // removed only after the destroy succeeds, so a failed destroy leaves the task
 // tracked and the removal is retried. Destroying a gone sandbox is not an
-// error, so a record whose sandbox vanished is simply dropped.
+// error, so a record whose sandbox vanished is simply dropped, as is one
+// another backend type recorded: there is nothing this backend can destroy.
 func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	h, ok, err := r.handle(taskID)
 	if err != nil {
@@ -447,6 +461,9 @@ func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	// Open ignores Data, so a handle recorded by Launch (which carries the run
 	// version there) opens like any other.
 	sb, err := r.backendV2.Open(h)
+	if errors.Is(err, backend.ErrForeign) {
+		return r.store.Remove(taskID)
+	}
 	if err != nil {
 		return err
 	}
@@ -541,9 +558,16 @@ func (r *Runner) spec(ctx context.Context, task *model.Task) (*backend.Spec, err
 	}, nil
 }
 
+// errRunning is returned by Start when the task's recorded sandbox is still
+// running, so nothing was launched. Running can report false for such a
+// sandbox: a Lambda VM still suspending after its run is parked to Status but
+// running to Probe.
+var errRunning = errors.New("sandbox is still running")
+
 // Start ensures the task's sandbox is running, records its handle, and spawns a
 // supervise goroutine to observe its exit. It is idempotent: if the tracked
-// handle is already running it returns without relaunching. Otherwise the prior
+// handle is already running it returns errRunning without relaunching, and the
+// caller gives back the concurrency slot it acquired. Otherwise the prior
 // handle (if any) is passed to Launch so the backend adopts the existing sandbox;
 // a vanished sandbox surfaces as backend.ErrGone, which fails the task and drops
 // the dangling record. The returned handle is persisted BEFORE supervise starts —
@@ -563,7 +587,7 @@ func (r *Runner) Start(ctx context.Context, task *model.Task) error {
 			return err
 		}
 		if state == backend.StateRunning {
-			return nil
+			return errRunning
 		}
 		if state == backend.StateGone {
 			return r.gone(task.ID)
@@ -651,30 +675,35 @@ func (r *Runner) supervise(ctx context.Context, taskID, version int64, h backend
 
 // Prune removes sandboxes for archived tasks.
 func (r *Runner) Prune(ctx context.Context) error {
-	sandboxes, err := r.List(ctx)
+	recs, err := r.store.List()
 	if err != nil {
-		return fmt.Errorf("failed to list sandboxes: %w", err)
+		return fmt.Errorf("failed to list records: %w", err)
 	}
 
-	// Check each non-running sandbox's task status and remove if archived. Both
-	// an exited husk and a gone sandbox count as "no live sandbox"; Destroy is
-	// idempotent, so removing a gone record's (absent) sandbox is a no-op.
-	for _, sb := range sandboxes {
-		if sb.State == backend.StateRunning {
+	// Check each sandbox that is not up and remove it if its task is archived.
+	// Both a parked husk and a gone sandbox count as "no live sandbox"; Destroy
+	// is idempotent, so removing a gone record's (absent) sandbox is a no-op.
+	for _, rec := range recs {
+		st, err := r.status(ctx, backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data})
+		if err != nil {
+			r.log.Error("failed to get sandbox status", "task", rec.TaskID, "err", err)
+			continue
+		}
+		if st == backend.StatusUp {
 			continue
 		}
 		// Fetch task
-		resp, err := r.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: sb.TaskID})
+		resp, err := r.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: rec.TaskID})
 		if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
-			r.log.Error("failed to get task", "task", sb.TaskID, "err", err)
+			r.log.Error("failed to get task", "task", rec.TaskID, "err", err)
 			continue
 		}
 		// Remove sandbox if task is archived or deleted
 		if connect.CodeOf(err) == connect.CodeNotFound || resp.Task.Archived {
-			if err := r.Remove(ctx, sb.TaskID); err != nil {
-				r.log.Error("failed to remove sandbox", "task", sb.TaskID, "err", err)
+			if err := r.Remove(ctx, rec.TaskID); err != nil {
+				r.log.Error("failed to remove sandbox", "task", rec.TaskID, "err", err)
 			} else {
-				r.log.Info("sandbox removed", "task", sb.TaskID)
+				r.log.Info("sandbox removed", "task", rec.TaskID)
 			}
 		}
 	}
