@@ -166,12 +166,7 @@ var RunnerCommand = &cli.Command{
 		}
 
 		backendName := cmd.String("backend")
-		// Each backend implements both interfaces; the runner moves its paths
-		// from Backend to BackendV2 one at a time.
-		var be interface {
-			backend.Backend
-			backend.BackendV2
-		}
+		var be backend.BackendV2
 		switch backendName {
 		case docker.HandleType:
 			be, err = docker.New(docker.Options{
@@ -211,7 +206,6 @@ var RunnerCommand = &cli.Command{
 
 		r, err := runner.New(runner.Options{
 			Client:      client,
-			Backend:     be,
 			BackendV2:   be,
 			Store:       store,
 			ServerURL:   serverAddr,

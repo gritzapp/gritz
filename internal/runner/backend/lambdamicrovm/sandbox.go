@@ -14,9 +14,22 @@ import (
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/driverclient"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
 
-var _ backend.BackendV2 = (*Backend)(nil)
+var (
+	_ backend.BackendV2 = (*Backend)(nil)
+	_ backend.RunEnver  = (*Backend)(nil)
+)
+
+// RunEnv returns the workspace's lambda_microvm environment: a VM is run with
+// no environment of its own, so it reaches the run through its RunSpec.
+func (b *Backend) RunEnv(ws *workspace.Workspace) map[string]string {
+	if cfg := ws.LambdaMicroVM; cfg != nil {
+		return cfg.Environment
+	}
+	return nil
+}
 
 // sandboxData is the backend-defined part of a SandboxV2 handle.
 type sandboxData struct {
