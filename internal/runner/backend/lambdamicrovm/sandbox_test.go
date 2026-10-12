@@ -112,10 +112,8 @@ func TestOpen(t *testing.T) {
 	// A handle Launch produced opens the same VM.
 	assert.Equal(t, open(t, be, handle("mvm-9", 3, "vm.example.com")).Handle().ID, "mvm-9")
 
-	_, err := be.Open(backend.Handle{Type: "docker", ID: "mvm-9"})
-	assert.ErrorIs(t, err, backend.ErrForeign)
-
 	tests := map[string]backend.Handle{
+		"foreign":   {Type: "docker", ID: "mvm-9"},
 		"no id":     {Type: HandleType},
 		"malformed": {Type: HandleType, ID: "mvm-9", Data: []byte(`{`)},
 	}
@@ -123,7 +121,6 @@ func TestOpen(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := be.Open(h)
 			assert.Assert(t, err != nil)
-			assert.Assert(t, !errors.Is(err, backend.ErrForeign))
 		})
 	}
 }

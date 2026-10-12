@@ -367,7 +367,7 @@ func (r *Runner) Load(ctx context.Context) error {
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
-		case backend.StatusGone: // removed / TERMINATED / foreign: the bound sandbox vanished
+		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
 			r.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 			if err := r.store.Remove(rec.TaskID); err != nil {
 				r.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
@@ -418,13 +418,9 @@ func (r *Runner) handle(taskID int64) (backend.Handle, bool, error) {
 
 // status opens a recorded handle and reports its sandbox's status. Open ignores
 // Data, so a handle recorded by Launch (which carries the run version there)
-// opens like any other. A handle another backend type recorded reports
-// StatusGone: this backend can never reach its sandbox.
+// opens like any other.
 func (r *Runner) status(ctx context.Context, h backend.Handle) (backend.Status, error) {
 	sb, err := r.backendV2.Open(h)
-	if errors.Is(err, backend.ErrForeign) {
-		return backend.StatusGone, nil
-	}
 	if err != nil {
 		return backend.StatusUnknown, err
 	}
@@ -448,8 +444,7 @@ func (r *Runner) Running(ctx context.Context, taskID int64) (bool, error) {
 // Remove destroys the task's sandbox and deletes its record. The record is
 // removed only after the destroy succeeds, so a failed destroy leaves the task
 // tracked and the removal is retried. Destroying a gone sandbox is not an
-// error, so a record whose sandbox vanished is simply dropped, as is one
-// another backend type recorded: there is nothing this backend can destroy.
+// error, so a record whose sandbox vanished is simply dropped.
 func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	h, ok, err := r.handle(taskID)
 	if err != nil {
@@ -461,9 +456,6 @@ func (r *Runner) Remove(ctx context.Context, taskID int64) error {
 	// Open ignores Data, so a handle recorded by Launch (which carries the run
 	// version there) opens like any other.
 	sb, err := r.backendV2.Open(h)
-	if errors.Is(err, backend.ErrForeign) {
-		return r.store.Remove(taskID)
-	}
 	if err != nil {
 		return err
 	}

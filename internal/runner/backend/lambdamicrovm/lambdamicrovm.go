@@ -171,16 +171,14 @@ type handleData struct {
 	Version  int64  `json:"version"`
 }
 
-// foreign reports whether h was produced by another backend. This backend
-// treats such a handle's sandbox as gone: Launch rejects it with
-// backend.ErrGone, Probe answers StateGone, Wait reports the run lost, and
-// Signal and Destroy leave it alone.
-func foreign(h backend.Handle) bool {
-	return h.Type != HandleType
-}
-
+// decodeHandle decodes a handle Launch produced. A handle of another type is
+// an error: records are runner-local and written by one backend, so one only
+// shows up when a different backend is pointed at an existing state dir.
 func decodeHandle(h backend.Handle) (handleData, error) {
 	var d handleData
+	if h.Type != HandleType {
+		return d, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)
+	}
 	if len(h.Data) == 0 {
 		return d, fmt.Errorf("handle %s has no run version", h.ID)
 	}
@@ -197,8 +195,9 @@ func decodeHandle(h backend.Handle) (handleData, error) {
 // server to answer, and starts the spec's run on it. Without a reuse handle it
 // runs a fresh VM. With one it adopts the exact recorded VM, resuming it if it
 // is suspended; it returns backend.ErrGone if that VM is terminated or not
-// found, and an error if it is still suspending. It never runs a fresh VM in
-// place of a recorded one.
+// found, and an error if it is still suspending or its handle cannot be
+// decoded (another type, say). It never runs a fresh VM in place of a recorded
+// one.
 //
 // A failed Launch cleans up after itself, since the runner gets no handle to do
 // it with: a VM it ran is terminated, and an adopted one is suspended — not
@@ -278,8 +277,8 @@ func (b *Backend) runVM(ctx context.Context, spec *backend.Spec) (*lambdamicrovm
 // id and endpoint: a suspended VM is resumed, and a pending or running one is
 // adopted as it is.
 func (b *Backend) adopt(ctx context.Context, reuse *backend.Handle) (string, string, error) {
-	if foreign(*reuse) {
-		return "", "", backend.ErrGone
+	if _, err := decodeHandle(*reuse); err != nil {
+		return "", "", err
 	}
 	vm, err := b.boot(ctx, reuse.ID)
 	if err != nil {
@@ -548,7 +547,8 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // no compute. It returns 0 if the driver reported the run's outcome, else
 // ExitLost. A dropped stream is reattached while the VM is pending or running,
 // backing off exponentially; a VM that is gone or no longer running before
-// Finished arrived is reported as lost.
+// Finished arrived is reported as lost, as is a handle Wait cannot decode, such
+// as one of another type.
 //
 // Reattaching gives up once the backend's lostTimeout has passed without a good
 // message — an accepted stream — from the driver: Wait suspends the VM and
@@ -556,9 +556,6 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // is gone, so Probe never reports a VM running that no Wait supervises; while
 // the control plane cannot suspend it, Wait keeps retrying.
 func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
-	if foreign(h) {
-		return backend.ExitLost, nil
-	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		b.log.Error("wait: invalid handle", "microvm", h.ID, "err", err)
@@ -721,10 +718,11 @@ func (b *Backend) suspendAfter(ctx context.Context, id string) {
 // pending, running or suspending VM is running — even after its run has
 // finished, until Wait's suspend completes — so the runner never launches on a
 // VM that is still finishing the previous run. A suspended VM is exited, and a
-// terminated or missing one gone.
+// terminated or missing one gone. A handle it cannot decode, such as one of
+// another type, is an error.
 func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
-	if foreign(h) {
-		return backend.StateGone, nil
+	if _, err := decodeHandle(h); err != nil {
+		return backend.StateUnknown, err
 	}
 	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(h.ID)})
 	if isNotFound(err) {
@@ -749,9 +747,6 @@ func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, e
 // running. The driver reports stopped and sends Finished, after which Wait
 // suspends the VM.
 func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
-	if foreign(h) {
-		return false, nil
-	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		return false, err
@@ -771,10 +766,11 @@ func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
 	return resp.GetStopped(), nil
 }
 
-// Destroy terminates the handle's VM. A missing VM is not an error.
+// Destroy terminates the handle's VM. A missing VM is not an error; a handle it
+// cannot decode, such as one of another type, is.
 func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
-	if foreign(h) {
-		return nil
+	if _, err := decodeHandle(h); err != nil {
+		return err
 	}
 	b.log.Info("terminating microvm", "microvm", h.ID)
 	_, err := b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{MicrovmIdentifier: aws.String(h.ID)})

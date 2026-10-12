@@ -249,7 +249,7 @@ func TestLaunch_ReuseStates(t *testing.T) {
 		{name: "terminating", state: types.MicrovmStateTerminating, err: backend.ErrGone},
 		{name: "terminated", state: types.MicrovmStateTerminated, reason: "maximum duration reached", err: backend.ErrGone, errMsg: "TERMINATED (maximum duration reached)"},
 		{name: "not found", err: backend.ErrGone},
-		{name: "foreign", state: types.MicrovmStateSuspended, foreign: true, err: backend.ErrGone},
+		{name: "foreign", state: types.MicrovmStateSuspended, foreign: true, errMsg: "is not"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -321,9 +321,8 @@ func TestLaunch_ResumeFailureSuspends(t *testing.T) {
 
 func TestProbe(t *testing.T) {
 	tests := []struct {
-		state   types.MicrovmState // "" for a VM that is not found
-		foreign bool
-		want    backend.State
+		state types.MicrovmState // "" for a VM that is not found
+		want  backend.State
 	}{
 		{state: types.MicrovmStatePending, want: backend.StateRunning},
 		{state: types.MicrovmStateRunning, want: backend.StateRunning},
@@ -333,26 +332,16 @@ func TestProbe(t *testing.T) {
 		{state: types.MicrovmStateTerminating, want: backend.StateGone},
 		{state: types.MicrovmStateTerminated, want: backend.StateGone},
 		{state: "", want: backend.StateGone},
-		{state: types.MicrovmStateRunning, foreign: true, want: backend.StateGone},
 	}
 	for _, tt := range tests {
-		name := string(tt.state)
-		if tt.foreign {
-			name += " foreign"
-		}
-		t.Run(name, func(t *testing.T) {
+		t.Run(string(tt.state), func(t *testing.T) {
 			cloud := newFakeCloud("vm.example.com")
 			be, err := New(Options{Cloud: cloud})
 			assert.NilError(t, err)
 			if tt.state != "" {
 				cloud.add("mvm-9", tt.state, "")
 			}
-			h := handle("mvm-9", 1, "vm.example.com")
-			if tt.foreign {
-				h.Type = "experimental-lambda-microvm"
-			}
-
-			st, err := be.Probe(t.Context(), h)
+			st, err := be.Probe(t.Context(), handle("mvm-9", 1, "vm.example.com"))
 
 			assert.NilError(t, err)
 			assert.Equal(t, st, tt.want)
@@ -456,7 +445,22 @@ func TestWait_StaleVersion(t *testing.T) {
 	assert.Equal(t, te.cloud.state(h.ID), types.MicrovmStateRunning)
 }
 
-func TestWait_Foreign(t *testing.T) {
+// A handle of another type is an error, not a gone VM.
+func TestProbe_InvalidHandle(t *testing.T) {
+	cloud := newFakeCloud("vm.example.com")
+	be, err := New(Options{Cloud: cloud})
+	assert.NilError(t, err)
+	cloud.add("mvm-9", types.MicrovmStateRunning, "")
+	h := handle("mvm-9", 1, "vm.example.com")
+	h.Type = "experimental-lambda-microvm"
+
+	_, err = be.Probe(t.Context(), h)
+
+	assert.ErrorContains(t, err, "is not")
+}
+
+// A handle Wait cannot decode, such as one of another type, is reported lost.
+func TestWait_InvalidHandle(t *testing.T) {
 	cloud := newFakeCloud("vm.example.com")
 	be, err := New(Options{Cloud: cloud})
 	assert.NilError(t, err)
@@ -474,9 +478,9 @@ func TestDestroy(t *testing.T) {
 	cloud.add("mvm-9", types.MicrovmStateSuspended, "")
 
 	assert.NilError(t, be.Destroy(t.Context(), handle("mvm-9", 1, "vm.example.com")))
-	// A missing VM and a foreign handle are not errors.
+	// A missing VM is not an error; a handle of another type is.
 	assert.NilError(t, be.Destroy(t.Context(), handle("mvm-404", 1, "vm.example.com")))
-	assert.NilError(t, be.Destroy(t.Context(), backend.Handle{Type: "experimental-lambda-microvm", ID: "mvm-7"}))
+	assert.ErrorContains(t, be.Destroy(t.Context(), backend.Handle{Type: "experimental-lambda-microvm", ID: "mvm-7"}), "is not")
 
 	_, _, terminated := cloud.calls()
 	assert.DeepEqual(t, terminated, []string{"mvm-9", "mvm-404"})

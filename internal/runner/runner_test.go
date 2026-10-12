@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
@@ -648,22 +647,13 @@ func v1Record(taskID int64, id string) taskstate.Record {
 	return taskstate.Record{TaskID: taskID, Version: 3, Type: "docker", ID: id, Data: json.RawMessage(`{"version":3}`)}
 }
 
-// foreignRecord is a record written by a backend of another type.
-func foreignRecord(taskID int64, id string) taskstate.Record {
-	return taskstate.Record{TaskID: taskID, Version: 3, Type: "lambda-microvm", ID: id, Data: json.RawMessage(`{"version":3}`)}
-}
-
-// testBackendV2 returns a docker-typed BackendV2 mock: Open rejects other
-// handle types with backend.ErrForeign, and each opened sandbox reports the
-// status (or error) given for its ID. Destroy records the IDs it destroyed.
+// testBackendV2 returns a BackendV2 mock whose opened sandboxes report the
+// status (or error) given for their ID. Destroy records the IDs it destroyed.
 func testBackendV2(status map[string]backend.Status, statusErr map[string]error) (*backend.BackendV2Mock, *[]string) {
 	var mu sync.Mutex
 	var destroyed []string
 	return &backend.BackendV2Mock{
 		OpenFunc: func(h backend.Handle) (backend.SandboxV2, error) {
-			if h.Type != "docker" {
-				return nil, fmt.Errorf("handle type %q is not %q: %w", h.Type, "docker", backend.ErrForeign)
-			}
 			return &backend.SandboxV2Mock{
 				StatusFunc: func(context.Context) (backend.Status, error) {
 					if err := statusErr[h.ID]; err != nil {
@@ -713,12 +703,6 @@ func TestRunnerLoad(t *testing.T) {
 			name:       "gone",
 			record:     v1Record(1, "c1"),
 			status:     backend.StatusGone,
-			wantEvents: []*gritzv1.RunnerEvent{{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"}},
-		},
-		{
-			// A handle from another backend type is gone: Open fails for it.
-			name:       "foreign",
-			record:     foreignRecord(1, "c1"),
 			wantEvents: []*gritzv1.RunnerEvent{{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"}},
 		},
 		{
@@ -883,7 +867,6 @@ func TestRunnerPrune(t *testing.T) {
 		v1Record(3, "c3"),
 		v1Record(4, "c4"),
 		v1Record(5, "c5"),
-		foreignRecord(6, "c6"), // archived, gone -> removed
 		v1Record(7, "c7"),
 	)
 	queue, err := NewRunnerEventOutbox(RunnerEventOutboxOptions{
@@ -906,9 +889,8 @@ func TestRunnerPrune(t *testing.T) {
 		looked = append(looked, call.GetTaskRequest.Id)
 	}
 	slices.Sort(looked)
-	assert.DeepEqual(t, looked, []int64{1, 2, 4, 5, 6})
-	// Archived/deleted tasks' sandboxes are destroyed; the foreign one has
-	// nothing this backend can destroy.
+	assert.DeepEqual(t, looked, []int64{1, 2, 4, 5})
+	// Archived/deleted tasks' sandboxes are destroyed.
 	slices.Sort(*destroyed)
 	assert.DeepEqual(t, *destroyed, []string{"c1", "c4", "c5"})
 	recs, err := store.List()
@@ -933,7 +915,6 @@ func TestRunnerRunning(t *testing.T) {
 		{name: "up", records: []taskstate.Record{v1Record(1, "c1")}, status: backend.StatusUp, want: true},
 		{name: "parked", records: []taskstate.Record{v1Record(1, "c1")}, status: backend.StatusParked},
 		{name: "gone", records: []taskstate.Record{v1Record(1, "c1")}, status: backend.StatusGone},
-		{name: "foreign", records: []taskstate.Record{foreignRecord(1, "c1")}},
 		{name: "no record"},
 		{name: "status error", records: []taskstate.Record{v1Record(1, "c1")}, err: errors.New("boom")},
 	}
@@ -1019,21 +1000,18 @@ func TestRunnerRemove(t *testing.T) {
 		destroyErr  error
 		wantErr     bool
 		wantOpened  []backend.Handle
-		wantDestroy bool
 		wantRecords bool
 	}{
 		{
-			name:        "v1 handle",
-			records:     []taskstate.Record{v1},
-			wantOpened:  []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
-			wantDestroy: true,
+			name:       "v1 handle",
+			records:    []taskstate.Record{v1},
+			wantOpened: []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
 		},
 		{
 			// A gone sandbox's Destroy returns nil, so the record is dropped.
-			name:        "sandbox gone",
-			records:     []taskstate.Record{{TaskID: 1, Type: "docker", ID: "c1"}},
-			wantOpened:  []backend.Handle{{Type: "docker", ID: "c1"}},
-			wantDestroy: true,
+			name:       "sandbox gone",
+			records:    []taskstate.Record{{TaskID: 1, Type: "docker", ID: "c1"}},
+			wantOpened: []backend.Handle{{Type: "docker", ID: "c1"}},
 		},
 		{
 			// A failed destroy keeps the record so the removal is retried.
@@ -1042,15 +1020,7 @@ func TestRunnerRemove(t *testing.T) {
 			destroyErr:  errors.New("boom"),
 			wantErr:     true,
 			wantOpened:  []backend.Handle{{Type: "docker", ID: "c1", Data: v1.Data}},
-			wantDestroy: true,
 			wantRecords: true,
-		},
-		{
-			// A handle from another backend type has no sandbox this backend
-			// can destroy, so the record is dropped.
-			name:       "foreign",
-			records:    []taskstate.Record{foreignRecord(1, "c1")},
-			wantOpened: []backend.Handle{{Type: "lambda-microvm", ID: "c1", Data: v1.Data}},
 		},
 		{
 			name: "no record",
@@ -1064,12 +1034,7 @@ func TestRunnerRemove(t *testing.T) {
 				DestroyFunc: func(context.Context) error { return tt.destroyErr },
 			}
 			bev2 := &backend.BackendV2Mock{
-				OpenFunc: func(h backend.Handle) (backend.SandboxV2, error) {
-					if h.Type != "docker" {
-						return nil, backend.ErrForeign
-					}
-					return sb, nil
-				},
+				OpenFunc: func(backend.Handle) (backend.SandboxV2, error) { return sb, nil },
 			}
 			store := testStore(t, tt.records...)
 			r, err := New(Options{Backend: &backend.BackendMock{}, BackendV2: bev2, Store: store, RunnerID: "test-runner"})
@@ -1089,7 +1054,7 @@ func TestRunnerRemove(t *testing.T) {
 				opened = append(opened, call.H)
 			}
 			assert.DeepEqual(t, opened, tt.wantOpened)
-			assert.Equal(t, len(sb.DestroyCalls()) == 1, tt.wantDestroy)
+			assert.Equal(t, len(sb.DestroyCalls()), len(tt.wantOpened))
 			_, ok, err := store.Read(1)
 			assert.NilError(t, err)
 			assert.Equal(t, ok, tt.wantRecords)

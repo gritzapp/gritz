@@ -122,15 +122,14 @@ type handleData struct {
 	Version int64 `json:"version"`
 }
 
-// foreign reports whether h was produced by another backend. This backend
-// treats such a handle's sandbox as gone: Launch rejects it with backend.ErrGone, Probe answers
-// StateGone, Wait reports the run lost, and Signal and Destroy leave it alone.
-func foreign(h backend.Handle) bool {
-	return h.Type != HandleType
-}
-
+// decodeHandle decodes a handle Launch produced. A handle of another type is
+// an error: records are runner-local and written by one backend, so one only
+// shows up when a different backend is pointed at an existing state dir.
 func decodeHandle(h backend.Handle) (handleData, error) {
 	var d handleData
+	if h.Type != HandleType {
+		return d, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)
+	}
 	if len(h.Data) == 0 {
 		return d, fmt.Errorf("handle %s has no run version", h.ID)
 	}
@@ -143,7 +142,8 @@ func decodeHandle(h backend.Handle) (handleData, error) {
 // Launch ensures the task's container exists and is running, waits for its
 // driver server to answer, and starts the spec's run on it. With a reuse
 // handle it adopts the exact recorded container, or returns backend.ErrGone if
-// that container is gone; it never creates a fresh one. The runner only
+// that container is gone; it never creates a fresh one. A reuse handle it
+// cannot decode, such as one of another type, is an error. The runner only
 // launches on a container Probe does not report running, so between runs the
 // container has been stopped by Wait and is started again here.
 //
@@ -224,8 +224,8 @@ func (b *Backend) stopFailed(ctx context.Context, containerID string) {
 // task's first start).
 func (b *Backend) ensure(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (string, error) {
 	if reuse != nil && reuse.ID != "" {
-		if foreign(*reuse) {
-			return "", backend.ErrGone
+		if _, err := decodeHandle(*reuse); err != nil {
+			return "", err
 		}
 		id, ok, err := b.inspectID(ctx, reuse.ID)
 		if err != nil {
@@ -499,7 +499,8 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // returns 0 if the driver reported the run's outcome, else ExitLost. A dropped
 // stream is reattached while the container is running, backing off
 // exponentially; a container that is gone or stopped before Finished arrived is
-// reported as lost.
+// reported as lost, as is a handle Wait cannot decode, such as one of another
+// type.
 //
 // Reattaching gives up once the backend's lostTimeout has passed without a good
 // message — an accepted stream — from the driver: Wait stops the container and
@@ -507,9 +508,6 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // container is gone, so Probe never reports a container running that no Wait
 // supervises; while dockerd cannot stop it, Wait keeps retrying.
 func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
-	if foreign(h) {
-		return backend.ExitLost, nil
-	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		b.log.Error("wait: invalid handle", "container", h.ID, "err", err)
@@ -617,10 +615,11 @@ func (b *Backend) stopAfter(ctx context.Context, containerID string) {
 // Probe reports the liveness of the handle's container: a missing container is
 // gone, a stopped one exited, and a running one running — even after its run
 // has finished, until Wait stops it. It does not ask the driver: a running
-// container is never launched on, so a new run cannot race the stop.
+// container is never launched on, so a new run cannot race the stop. A handle
+// it cannot decode, such as one of another type, is an error.
 func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
-	if foreign(h) {
-		return backend.StateGone, nil
+	if _, err := decodeHandle(h); err != nil {
+		return backend.StateUnknown, err
 	}
 	info, err := b.docker.ContainerInspect(ctx, h.ID)
 	if cerrdefs.IsNotFound(err) {
@@ -639,9 +638,6 @@ func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, e
 // running. The driver reports stopped and sends Finished, after which Wait
 // stops the container.
 func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
-	if foreign(h) {
-		return false, nil
-	}
 	d, err := decodeHandle(h)
 	if err != nil {
 		return false, err
@@ -661,10 +657,11 @@ func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
 	return resp.GetStopped(), nil
 }
 
-// Destroy removes the handle's container. A missing container is not an error.
+// Destroy removes the handle's container. A missing container is not an error;
+// a handle it cannot decode, such as one of another type, is.
 func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
-	if foreign(h) {
-		return nil
+	if _, err := decodeHandle(h); err != nil {
+		return err
 	}
 	err := b.docker.ContainerRemove(ctx, h.ID, container.RemoveOptions{Force: true})
 	if err != nil && !cerrdefs.IsNotFound(err) {

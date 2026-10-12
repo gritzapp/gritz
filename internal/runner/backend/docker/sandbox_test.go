@@ -126,7 +126,7 @@ func TestOpen(t *testing.T) {
 	assert.Equal(t, sb.Handle().ID, "c1")
 
 	_, err = be.Open(backend.Handle{Type: "lambda-microvm", ID: "c1"})
-	assert.ErrorIs(t, err, backend.ErrForeign)
+	assert.ErrorContains(t, err, "is not")
 	_, err = be.Open(backend.Handle{Type: HandleType})
 	assert.ErrorContains(t, err, "no container id")
 }
