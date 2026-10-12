@@ -19,6 +19,25 @@ mise run motioncanvas   # editor at http://localhost:9000/
 The index page lists every project; each one opens on its own timeline.
 Type-check with `cd diagrams && npx tsc --noEmit -p .`.
 
+## Published site and PR previews
+
+Every project is published to GitHub Pages, served from the `gh-pages` branch
+(`https://gritzapp.github.io/gritz/`), with an index page and one page per
+project that plays it with the `@motion-canvas/player` web component:
+
+- `.github/workflows/diagrams-pages.yml` deploys master to the site root on
+  every push touching `diagrams/`.
+- `.github/workflows/diagrams-preview.yml` deploys a PR touching `diagrams/` to
+  `/pr/<number>/`, keeps one PR comment with the link, and removes the preview
+  when the PR closes. PRs from forks get no preview.
+
+Link the preview page of a proposal's project (e.g.
+`https://gritzapp.github.io/gritz/pr/<number>/proposals/<flow>/`) in the PR so
+reviewers can watch it. `site.ts` generates the pages during `pnpm build`
+(`cd diagrams && pnpm build`, output in `dist/`); every URL in it is relative
+so the same build works at the root and under `/pr/<n>/`. The player only
+plays and loops the animation; use the editor to scrub through it.
+
 ## Layout of the project
 
 ```
@@ -34,7 +53,8 @@ diagrams/src/
 ```
 
 `vite.config.ts` loads `./src/projects/**/*.ts`. Every `.ts` file under
-`src/projects/` becomes a project, so never put helpers there. New project files
+`src/projects/` becomes a project (and a page on the published site), so never
+put helpers there. New project files
 only show up after restarting the editor.
 
 ## Components
