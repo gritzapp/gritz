@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.15.0](https://github.com/gritzapp/gritz/compare/v3.14.0...v3.15.0) (2026-10-12)
+
+
+### Features
+
+* **diagrams:** add playback controls to the published diagram pages ([ad661e7](https://github.com/gritzapp/gritz/commit/ad661e7f67dc05f585477b89edc64e4193ad76c0))
+
+
+### Miscellaneous
+
+* publish motion canvas diagrams to GitHub Pages ([6bbe9dd](https://github.com/gritzapp/gritz/commit/6bbe9dd16f6946e639b39e5c1fe3d633bbd25b63))
+* **skills:** move the proposal template to its own file ([3913475](https://github.com/gritzapp/gritz/commit/39134759ac06e480f665203e990d9f6bfed2cd68))
+* **skills:** require a Go API outline in proposals ([d941588](https://github.com/gritzapp/gritz/commit/d941588a25c72e1d6f45673414a2bbe3dc84627e))
+* **skills:** require a motion canvas visualization in proposals ([8b8359f](https://github.com/gritzapp/gritz/commit/8b8359f773bf54895d05385089cdc573a3646907))
+
 ## [3.14.0](https://github.com/gritzapp/gritz/compare/v3.13.0...v3.14.0) (2026-10-12)
 
 
