@@ -36,8 +36,8 @@ func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandb
 // A handle's Data is not read: a handle Launch produced, carrying its run's
 // version, opens the same container.
 func (b *Backend) Open(h backend.Handle) (backend.SandboxV2, error) {
-	if foreign(h) {
-		return nil, fmt.Errorf("handle type %q is not %q: %w", h.Type, HandleType, backend.ErrForeign)
+	if h.Type != HandleType {
+		return nil, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)
 	}
 	if h.ID == "" {
 		return nil, errors.New("handle has no container id")

@@ -3,6 +3,7 @@ package docker
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"path/filepath"
@@ -116,8 +117,13 @@ func TestLaunch_ReuseGoneReturnsErrGone(t *testing.T) {
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = be.Close() })
 
-	_, err = be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
+	_, err = be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: HandleType, ID: "nonexistent-container-id", Data: []byte(`{"version":1}`)})
 	assert.ErrorIs(t, err, backend.ErrGone)
+
+	// A handle of another type is an error, not a gone container.
+	_, err = be.Launch(t.Context(), &backend.Spec{TaskID: 1}, &backend.Handle{Type: "lambda-microvm", ID: "nonexistent-container-id", Data: []byte(`{"version":1}`)})
+	assert.ErrorContains(t, err, "is not")
+	assert.Assert(t, !errors.Is(err, backend.ErrGone))
 }
 
 func TestProbe_Gone(t *testing.T) {
