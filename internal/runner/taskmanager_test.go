@@ -156,7 +156,7 @@ func TestTaskManagerStart(t *testing.T) {
 	err = m.Start(t.Context(), task)
 	assert.NilError(t, err)
 
-	// The runner records the launched handle in the store.
+	// The TaskManager records the launched handle in the store.
 	rec, ok, err := m.store.Read(task.ID)
 	assert.NilError(t, err)
 	assert.Equal(t, ok, true)
@@ -237,7 +237,7 @@ func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
 	assert.Assert(t, found, "spec should pre-create the log dir %q", logDir)
 }
 
-// TestTaskManagerSpec_Secrets asserts the runner hands the backend the server URL,
+// TestTaskManagerSpec_Secrets asserts the TaskManager hands the backend the server URL,
 // the task token and the declared workspace secrets in their own fields, and
 // gives the run the GRITZ_* environment the agent's tools read. The secrets stay
 // out of Env: the driver adds them to the run's environment and masks them in
@@ -310,7 +310,7 @@ type runEnvBackend struct {
 func (b runEnvBackend) RunEnv(*workspace.Workspace) map[string]string { return b.env }
 
 // TestTaskManagerRunSpec_RunEnv asserts a backend's RunEnv reaches the run's
-// environment under the runner's own.
+// environment under the TaskManager's own.
 func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	t.Parallel()
 	be := runEnvBackend{
@@ -424,7 +424,7 @@ func TestTaskManagerPoll_StopWithoutSandbox(t *testing.T) {
 	err = m.Poll(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - no record, so there is no driver to stop and the runner emits
+	// Assert - no record, so there is no driver to stop and the TaskManager emits
 	// "stopped" itself.
 	events := submitted(t, mock, queue)
 	assert.Equal(t, len(events), 1)
@@ -548,7 +548,7 @@ func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbo
 	return tr
 }
 
-// seed tracks recs, each with the sandbox the runner's backend opens for its
+// seed tracks recs, each with the sandbox the TaskManager's backend opens for its
 // handle, as Load does without probing the sandboxes.
 func seed(t *testing.T, m *TaskManager, recs ...taskstate.Record) {
 	t.Helper()
@@ -611,7 +611,7 @@ func waitReleased(t *testing.T, m *TaskManager) {
 	}
 }
 
-// waitDialed waits until the runner has dialed sb's driver at least min times.
+// waitDialed waits until the TaskRunner has dialed sb's driver at least min times.
 func waitDialed(t *testing.T, sb *backend.SandboxMock, min int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -1052,7 +1052,7 @@ func TestTaskManagerLoad(t *testing.T) {
 		wantEvents []*gritzv1.RunnerEvent
 		// wantRecord is whether the record is kept, and the task has a TaskRunner.
 		wantRecord bool
-		wantAttach bool // run: the runner dialed the driver to reattach
+		wantAttach bool // run: the TaskRunner dialed the driver to reattach
 	}{
 		{
 			name:       "up",
@@ -1497,7 +1497,7 @@ func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (*httpt
 }
 
 // newDriver serves a driver server that has never run, for tasks on version.
-// It reads the agent config from where the runner's spec provisions it, so a
+// It reads the agent config from where the TaskManager's spec provisions it, so a
 // Run with that spec runs the workspace's agent; configs is that store. Until
 // ready is closed every call fails Unavailable, as from a driver that is not
 // up yet; a nil ready is open.
@@ -1701,7 +1701,7 @@ func TestTaskManagerDie_StopWithoutSandbox(t *testing.T) {
 			return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 		},
 	}
-	// No record, so there is no run to stop → the runner emits "stopped".
+	// No record, so there is no run to stop → the TaskManager emits "stopped".
 	// Back the outbox with a store whose durable Append fails. The die path is
 	// reached through Enqueue → Append alone, so Peek/Drop/Len are never called
 	// (an unstubbed moq method would panic if they were).
