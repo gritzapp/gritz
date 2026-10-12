@@ -29,6 +29,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/driverclient"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/common"
 )
 
 // HandleType is the backend.Handle.Type this backend stamps on the handles it
@@ -217,8 +218,8 @@ func (b *Backend) await(ctx context.Context, id string, want types.MicrovmState)
 		default:
 			last = describe(out)
 		}
-		if err := sleep(ctx, b.stateInterval); err != nil {
-			return nil, fmt.Errorf("microvm %s did not become %s (last %s): %w", id, want, last, err)
+		if !common.SleepContext(ctx, b.stateInterval) {
+			return nil, fmt.Errorf("microvm %s did not become %s (last %s): %w", id, want, last, ctx.Err())
 		}
 	}
 }
@@ -325,16 +326,4 @@ func describe(vm *lambdamicrovms.GetMicrovmOutput) string {
 func isNotFound(err error) bool {
 	var nf *types.ResourceNotFoundException
 	return errors.As(err, &nf)
-}
-
-// sleep waits for d or until ctx is done, returning ctx's error in that case.
-func sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
 }
