@@ -493,8 +493,8 @@ func (r *Runner) entry(taskID int64) *taskEntry {
 
 // sandbox returns the sandbox rec tracks: the entry's, if it is that sandbox,
 // otherwise rec's handle opened, which the entry then holds. Open ignores Data,
-// so a handle recorded by Launch (which carries the run version there) opens
-// like any other. The caller holds e.mu.
+// so a handle the v1 Backend's Launch recorded (which carries the run version
+// there) opens like any other. The caller holds e.mu.
 func (r *Runner) sandbox(e *taskEntry, rec taskstate.Record) (backend.SandboxV2, error) {
 	if e.sb != nil && e.sb.Handle().ID == rec.ID {
 		return e.sb, nil
@@ -518,8 +518,8 @@ func (r *Runner) handle(taskID int64) (backend.Handle, bool, error) {
 }
 
 // status opens a recorded handle and reports its sandbox's status. Open ignores
-// Data, so a handle recorded by Launch (which carries the run version there)
-// opens like any other.
+// Data, so a handle the v1 Backend's Launch recorded (which carries the run
+// version there) opens like any other.
 func (r *Runner) status(ctx context.Context, h backend.Handle) (backend.Status, error) {
 	sb, err := r.backend.Open(h)
 	if err != nil {

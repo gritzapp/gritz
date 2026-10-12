@@ -55,8 +55,8 @@ func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandb
 
 // Open returns the sandbox for a handle this backend produced. It does no I/O:
 // the proxy token is minted on the first call through a client Dial returns.
-// A handle Launch produced, which also carries its run's version, opens the
-// same VM.
+// A handle the v1 Backend's Launch produced, which also carries its run's
+// version, opens the same VM.
 func (b *Backend) Open(h backend.Handle) (backend.SandboxV2, error) {
 	if h.Type != HandleType {
 		return nil, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)

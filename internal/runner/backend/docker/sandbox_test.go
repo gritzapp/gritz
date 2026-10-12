@@ -6,12 +6,14 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/poll"
 )
 
 // newTestBackend returns a backend on the local daemon that can provision the
@@ -49,11 +51,16 @@ func assertStatus(t *testing.T, sb backend.SandboxV2, want backend.Status) {
 }
 
 // dialReady dials the sandbox's driver and waits for it to answer.
-func dialReady(t *testing.T, be *Backend, sb backend.SandboxV2) {
+func dialReady(t *testing.T, sb backend.SandboxV2) {
 	t.Helper()
 	client, err := sb.Dial(t.Context(), "jwt")
 	assert.NilError(t, err)
-	assert.NilError(t, be.waitReady(t.Context(), client))
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		if _, err := client.Status(t.Context(), &driverv1.StatusRequest{}); err != nil {
+			return poll.Continue("driver not ready: %v", err)
+		}
+		return poll.Success()
+	}, poll.WithTimeout(30*time.Second), poll.WithDelay(250*time.Millisecond))
 }
 
 // A sandbox goes through its whole life: created, started, dialed, parked,
@@ -76,7 +83,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assertStatus(t, sb, backend.StatusUp)
 	// Starting a running container is a no-op.
 	assert.NilError(t, sb.Start(t.Context()))
-	dialReady(t, be, sb)
+	dialReady(t, sb)
 
 	assert.NilError(t, sb.Park(t.Context()))
 	assertStatus(t, sb, backend.StatusParked)
@@ -90,7 +97,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 
 	assert.NilError(t, sb.Start(t.Context()))
 	assertStatus(t, sb, backend.StatusUp)
-	dialReady(t, be, sb)
+	dialReady(t, sb)
 
 	assert.NilError(t, sb.Destroy(t.Context()))
 	assertStatus(t, sb, backend.StatusGone)
@@ -110,7 +117,7 @@ func TestSandbox_Reopen(t *testing.T) {
 
 	assert.DeepEqual(t, reopened.Handle(), sb.Handle())
 	assertStatus(t, reopened, backend.StatusUp)
-	dialReady(t, be, reopened)
+	dialReady(t, reopened)
 }
 
 func TestOpen(t *testing.T) {
@@ -120,7 +127,8 @@ func TestOpen(t *testing.T) {
 	sb, err := be.Open(backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, sb.Handle(), backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
-	// A handle Launch produced opens the same container.
+	// A handle the v1 Backend's Launch produced, which also carries its run's
+	// version, opens the same container.
 	sb, err = be.Open(backend.Handle{Type: HandleType, ID: "c1", Data: []byte(`{"version":1}`)})
 	assert.NilError(t, err)
 	assert.Equal(t, sb.Handle().ID, "c1")
@@ -164,7 +172,7 @@ func TestSandbox_Concurrent(t *testing.T) {
 	be := newTestBackend(t)
 	sb := create(t, be)
 	assert.NilError(t, sb.Start(t.Context()))
-	dialReady(t, be, sb)
+	dialReady(t, sb)
 
 	var wg sync.WaitGroup
 	for range 4 {

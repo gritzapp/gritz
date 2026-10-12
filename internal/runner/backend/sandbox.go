@@ -11,9 +11,6 @@ import (
 // ones. It never speaks the driver protocol: the runner does, over the client
 // SandboxV2.Dial returns. See proposals/draft/driver-server.md, "Backend
 // interface".
-//
-// It sits beside Backend until the runner moves onto it, which removes Backend
-// and the Sandbox view and renames BackendV2 and SandboxV2 to take their names.
 type BackendV2 interface {
 	ValidateWorkspace(ws *workspace.Workspace) error
 

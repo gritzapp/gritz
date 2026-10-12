@@ -13,23 +13,18 @@ package lambdamicrovm
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
 	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms/types"
 	"github.com/google/uuid"
-	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/driverclient"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
@@ -58,18 +53,6 @@ const (
 	// tokenRefreshMargin how long before it expires a client mints another.
 	tokenLifetime      = time.Hour
 	tokenRefreshMargin = 5 * time.Minute
-	// driverReadyTimeout bounds how long Launch waits for a running VM's
-	// driver server to answer Status.
-	driverReadyTimeout = time.Minute
-	// driverRetryInterval is the pause between attempts to reach the driver,
-	// and the first pause between attempts to reattach to a run.
-	driverRetryInterval = 250 * time.Millisecond
-	// reattachMaxInterval caps the backoff between attempts to reattach.
-	reattachMaxInterval = 10 * time.Second
-	// driverLostTimeout is how long Wait keeps reattaching without a good
-	// message from the driver before it suspends the VM and reports the run
-	// lost.
-	driverLostTimeout = 2 * time.Minute
 	// stateTimeout bounds how long the backend polls a VM to reach RUNNING or
 	// SUSPENDED, and statePollInterval is the pause between polls.
 	stateTimeout      = 5 * time.Minute
@@ -91,22 +74,17 @@ type Cloud interface {
 // driver server.
 //
 // A handle's ID is the MicroVM id, and its Data carries the VM's proxy
-// endpoint and the version of the run Launch started, which Wait and Signal
-// address the driver with.
+// endpoint.
 type Backend struct {
 	cloud     Cloud
 	transport http.RoundTripper
 	region    string
 	log       *slog.Logger
 	// The timeouts and intervals below are shortened by tests.
-	readyTimeout  time.Duration
 	idleTimeout   time.Duration
-	lostTimeout   time.Duration
 	stateTimeout  time.Duration
 	stateInterval time.Duration
 }
-
-var _ backend.Backend = (*Backend)(nil)
 
 type Options struct {
 	Cloud Cloud
@@ -131,9 +109,7 @@ func New(opts Options) (*Backend, error) {
 		transport:     transport,
 		region:        opts.Region,
 		log:           cmp.Or(opts.Log, slog.Default()),
-		readyTimeout:  driverReadyTimeout,
 		idleTimeout:   driverclient.DefaultIdleTimeout,
-		lostTimeout:   driverLostTimeout,
 		stateTimeout:  stateTimeout,
 		stateInterval: statePollInterval,
 	}, nil
@@ -165,93 +141,6 @@ func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	return nil
 }
 
-// handleData is the backend-defined part of a handle.
-type handleData struct {
-	Endpoint string `json:"endpoint"`
-	Version  int64  `json:"version"`
-}
-
-// decodeHandle decodes a handle Launch produced. A handle of another type is
-// an error: records are runner-local and written by one backend, so one only
-// shows up when a different backend is pointed at an existing state dir.
-func decodeHandle(h backend.Handle) (handleData, error) {
-	var d handleData
-	if h.Type != HandleType {
-		return d, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)
-	}
-	if len(h.Data) == 0 {
-		return d, fmt.Errorf("handle %s has no run version", h.ID)
-	}
-	if err := json.Unmarshal(h.Data, &d); err != nil {
-		return d, fmt.Errorf("failed to decode handle data: %w", err)
-	}
-	if d.Endpoint == "" {
-		return d, fmt.Errorf("handle %s has no endpoint", h.ID)
-	}
-	return d, nil
-}
-
-// Launch ensures the task's VM exists and is running, waits for its driver
-// server to answer, and starts the spec's run on it. Without a reuse handle it
-// runs a fresh VM. With one it adopts the exact recorded VM, resuming it if it
-// is suspended; it returns backend.ErrGone if that VM is terminated or not
-// found, and an error if it is still suspending or its handle cannot be
-// decoded (another type, say). It never runs a fresh VM in place of a recorded
-// one.
-//
-// A failed Launch cleans up after itself, since the runner gets no handle to do
-// it with: a VM it ran is terminated, and an adopted one is suspended — not
-// terminated, as the task's record still points at it — so Probe does not
-// report it running with no run on it.
-func (b *Backend) Launch(ctx context.Context, spec *backend.Spec, reuse *backend.Handle) (backend.Handle, error) {
-	if err := b.ValidateWorkspace(spec.Workspace); err != nil {
-		return backend.Handle{}, err
-	}
-	fresh := reuse == nil || reuse.ID == ""
-	var (
-		id       string
-		endpoint string
-		err      error
-	)
-	if fresh {
-		id, endpoint, err = b.run(ctx, spec)
-	} else {
-		id, endpoint, err = b.adopt(ctx, reuse)
-	}
-	if err != nil {
-		return backend.Handle{}, err
-	}
-	h, err := b.launch(ctx, spec, id, endpoint)
-	if err != nil {
-		// ctx being cancelled is one of the failures to clean up after.
-		ctx := context.WithoutCancel(ctx)
-		if fresh {
-			b.discard(ctx, id)
-		} else {
-			b.suspendFailed(ctx, id)
-		}
-		return backend.Handle{}, err
-	}
-	return h, nil
-}
-
-// run runs a fresh VM for spec and returns its id and endpoint. The VM gets no
-// run-hook payload: its run arrives over driver.v1. A VM that does not reach
-// RUNNING is terminated.
-func (b *Backend) run(ctx context.Context, spec *backend.Spec) (string, string, error) {
-	out, err := b.runVM(ctx, spec)
-	if err != nil {
-		return "", "", err
-	}
-	id := aws.ToString(out.MicrovmId)
-	vm, err := b.await(ctx, id, types.MicrovmStateRunning)
-	if err != nil {
-		b.discard(context.WithoutCancel(ctx), id)
-		return "", "", err
-	}
-	return id, cmp.Or(aws.ToString(vm.Endpoint), aws.ToString(out.Endpoint)), nil
-}
-
 // runVM calls RunMicrovm for spec and returns as soon as the call does, with
 // the VM still PENDING.
 func (b *Backend) runVM(ctx context.Context, spec *backend.Spec) (*lambdamicrovms.RunMicrovmOutput, error) {
@@ -271,30 +160,6 @@ func (b *Backend) runVM(ctx context.Context, spec *backend.Spec) (*lambdamicrovm
 		return nil, fmt.Errorf("failed to run microvm: %w", err)
 	}
 	return out, nil
-}
-
-// adopt resolves the reuse handle's VM and brings it to RUNNING, returning its
-// id and endpoint: a suspended VM is resumed, and a pending or running one is
-// adopted as it is.
-func (b *Backend) adopt(ctx context.Context, reuse *backend.Handle) (string, string, error) {
-	if _, err := decodeHandle(*reuse); err != nil {
-		return "", "", err
-	}
-	vm, err := b.boot(ctx, reuse.ID)
-	if err != nil {
-		return "", "", err
-	}
-	endpoint := aws.ToString(vm.Endpoint)
-	if endpoint == "" {
-		// The control plane did not repeat it; fall back to the recorded one.
-		var d handleData
-		_ = json.Unmarshal(reuse.Data, &d)
-		endpoint = d.Endpoint
-	}
-	if endpoint == "" {
-		return "", "", fmt.Errorf("microvm %s has no endpoint", reuse.ID)
-	}
-	return reuse.ID, endpoint, nil
 }
 
 // boot brings the VM to RUNNING and returns it: a suspended VM is resumed, and
@@ -330,61 +195,6 @@ func (b *Backend) boot(ctx context.Context, id string) (*lambdamicrovms.GetMicro
 	return b.await(ctx, id, types.MicrovmStateRunning)
 }
 
-// launch waits for the VM's driver server and starts the spec's run on it.
-func (b *Backend) launch(ctx context.Context, spec *backend.Spec, id, endpoint string) (backend.Handle, error) {
-	client := b.dial(id, endpoint)
-	if err := b.waitReady(ctx, client); err != nil {
-		return backend.Handle{}, err
-	}
-	runSpec := newRunSpec(spec)
-	if err := b.start(ctx, client, spec.Version, runSpec); err != nil {
-		return backend.Handle{}, err
-	}
-	data, err := json.Marshal(handleData{Endpoint: endpoint, Version: spec.Version})
-	if err != nil {
-		return backend.Handle{}, err
-	}
-	return backend.Handle{Type: HandleType, ID: id, Data: data}, nil
-}
-
-// discard terminates a VM this Launch ran and failed to start a run on: the
-// runner has no record of it, so nothing else would. Failures are logged:
-// Launch returns the error that caused them.
-func (b *Backend) discard(ctx context.Context, id string) {
-	b.log.Info("terminating microvm after failed launch", "microvm", id)
-	_, err := b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{MicrovmIdentifier: aws.String(id)})
-	if err != nil && !isNotFound(err) {
-		b.log.Error("failed to terminate microvm after failed launch", "microvm", id, "err", err)
-	}
-}
-
-// suspendFailed suspends an adopted VM Launch failed to start a run on, so the
-// next start launches on it again rather than finding it running. Failures
-// are logged: Launch returns the error that caused them.
-func (b *Backend) suspendFailed(ctx context.Context, id string) {
-	b.log.Info("suspending microvm after failed launch", "microvm", id)
-	if err := b.suspend(ctx, id); err != nil {
-		b.log.Error("failed to suspend microvm after failed launch", "microvm", id, "err", err)
-	}
-}
-
-// suspend suspends the VM and polls until it is SUSPENDED. A VM that is gone
-// is not an error.
-func (b *Backend) suspend(ctx context.Context, id string) error {
-	_, err := b.cloud.SuspendMicrovm(ctx, &lambdamicrovms.SuspendMicrovmInput{MicrovmIdentifier: aws.String(id)})
-	if isNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("failed to suspend microvm: %w", err)
-	}
-	_, err = b.await(ctx, id, types.MicrovmStateSuspended)
-	if errors.Is(err, backend.ErrGone) {
-		return nil
-	}
-	return err
-}
-
 // await polls the VM until it is in state want and returns it. A VM that is
 // terminating, terminated or not found is backend.ErrGone; one that is not in
 // want within the backend's stateTimeout is an error. Both carry the state the
@@ -411,15 +221,6 @@ func (b *Backend) await(ctx context.Context, id string, want types.MicrovmState)
 			return nil, fmt.Errorf("microvm %s did not become %s (last %s): %w", id, want, last, err)
 		}
 	}
-}
-
-// dial returns a client for the driver server of the VM at endpoint, through
-// the managed proxy, whose Run streams fail with driverclient.ErrStreamIdle
-// once the driver goes quiet. The proxy speaks HTTP/2 and the Connect
-// protocol, connect-go's default.
-func (b *Backend) dial(id, endpoint string) driverv1connect.DriverServiceClient {
-	httpClient := &http.Client{Transport: b.newTokenTransport(id)}
-	return driverclient.New(httpClient, driverURL(endpoint), driverclient.Options{IdleTimeout: b.idleTimeout})
 }
 
 // driverURL returns the base URL of the driver server behind a VM's proxy
@@ -490,146 +291,6 @@ func (t *tokenTransport) get(ctx context.Context) (string, error) {
 	return token, nil
 }
 
-// waitReady polls Status until the driver server answers or the backend's
-// readyTimeout elapses.
-func (b *Backend) waitReady(ctx context.Context, client driverv1connect.DriverServiceClient) error {
-	ctx, cancel := context.WithTimeout(ctx, b.readyTimeout)
-	defer cancel()
-	for {
-		_, err := client.Status(ctx, &driverv1.StatusRequest{})
-		if err == nil {
-			return nil
-		}
-		if err := sleep(ctx, driverRetryInterval); err != nil {
-			return fmt.Errorf("driver server did not become ready: %w", err)
-		}
-	}
-}
-
-// start opens a Run stream for version with spec and returns once the driver
-// has accepted it, closing the stream: the run keeps going without it. A Run
-// that is rejected because another stream is open is retried.
-func (b *Backend) start(ctx context.Context, client driverv1connect.DriverServiceClient, version int64, spec *driverv1.RunSpec) error {
-	for {
-		err := accept(ctx, client, &driverv1.RunRequest{Version: version, Spec: spec})
-		if err == nil {
-			return nil
-		}
-		if connect.CodeOf(err) != connect.CodeUnavailable {
-			return fmt.Errorf("failed to start run %d: %w", version, err)
-		}
-		if err := sleep(ctx, driverRetryInterval); err != nil {
-			return fmt.Errorf("failed to start run %d: %w", version, err)
-		}
-	}
-}
-
-// accept opens a Run stream and closes it after its Accepted.
-func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := client.Run(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
-	if !stream.Receive() {
-		return cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted"))
-	}
-	if stream.Msg().GetAccepted() == nil {
-		return fmt.Errorf("unexpected first run response: %v", stream.Msg())
-	}
-	return nil
-}
-
-// Wait attaches to the handle's run and blocks until its Finished, then
-// suspends the VM and polls until it is SUSPENDED, so between runs the VM costs
-// no compute. It returns 0 if the driver reported the run's outcome, else
-// ExitLost. A dropped stream is reattached while the VM is pending or running,
-// backing off exponentially; a VM that is gone or no longer running before
-// Finished arrived is reported as lost, as is a handle Wait cannot decode, such
-// as one of another type.
-//
-// Reattaching gives up once the backend's lostTimeout has passed without a good
-// message — an accepted stream — from the driver: Wait suspends the VM and
-// reports the run lost. It returns only once the suspend succeeded or the VM
-// is gone, so Probe never reports a VM running that no Wait supervises; while
-// the control plane cannot suspend it, Wait keeps retrying.
-func (b *Backend) Wait(ctx context.Context, h backend.Handle) (backend.ExitCode, error) {
-	d, err := decodeHandle(h)
-	if err != nil {
-		b.log.Error("wait: invalid handle", "microvm", h.ID, "err", err)
-		return backend.ExitLost, nil
-	}
-	client := b.dial(h.ID, d.Endpoint)
-	lastGood := time.Now()
-	delay := driverRetryInterval
-	var lastErr string
-	for {
-		finished, accepted, err := attach(ctx, client, d.Version)
-		if ctx.Err() != nil {
-			return 0, ctx.Err()
-		}
-		if finished != nil {
-			b.suspendAfter(ctx, h.ID)
-			if !finished.GetReported() {
-				return backend.ExitLost, nil
-			}
-			return 0, nil
-		}
-		if isTerminal(err) {
-			// The driver has no run with this version (or has moved past it),
-			// so its Finished will never come.
-			b.log.Error("driver has no such run", "microvm", h.ID, "version", d.Version, "err", err)
-			if connect.CodeOf(err) == connect.CodeNotFound {
-				// Nothing runs on the VM, which would otherwise stay billed.
-				// On FailedPrecondition or Aborted a newer run is active on
-				// it, which a suspend would kill.
-				b.suspendAfter(ctx, h.ID)
-			}
-			return backend.ExitLost, nil
-		}
-		if vm, stateErr := b.get(ctx, h.ID); stateErr != nil {
-			err = fmt.Errorf("%w (control plane: %w)", err, stateErr)
-		} else if !alive(vm) {
-			b.log.Error("microvm stopped running before its run finished", "microvm", h.ID, "state", describe(vm), "version", d.Version, "err", err)
-			if vm != nil && vm.State == types.MicrovmStateSuspending {
-				// Let the suspend complete, so Probe does not report the VM
-				// running once Wait has returned.
-				if _, err := b.await(ctx, h.ID, types.MicrovmStateSuspended); err != nil && !errors.Is(err, backend.ErrGone) {
-					b.log.Error("microvm did not finish suspending", "microvm", h.ID, "err", err)
-				}
-			}
-			return backend.ExitLost, nil
-		}
-		if accepted {
-			// The stream was live until it dropped: the driver's idle watchdog
-			// would have ended it otherwise.
-			lastGood = time.Now()
-			delay = driverRetryInterval
-			lastErr = ""
-		}
-		if time.Since(lastGood) >= b.lostTimeout {
-			// Give up on the driver; suspend the VM instead. While that
-			// fails, keep retrying the attach too in case the driver is back.
-			suspendErr := b.suspend(ctx, h.ID)
-			if suspendErr == nil {
-				b.log.Error("run lost: driver unreachable, microvm suspended", "microvm", h.ID, "version", d.Version, "err", err)
-				return backend.ExitLost, nil
-			}
-			err = fmt.Errorf("failed to suspend microvm of lost run: %w (driver: %w)", suspendErr, err)
-		}
-		if msg := err.Error(); msg != lastErr {
-			b.log.Warn("run stream dropped, reattaching", "microvm", h.ID, "version", d.Version, "err", err)
-			lastErr = msg
-		}
-		if err := sleep(ctx, delay); err != nil {
-			return 0, err
-		}
-		delay = min(delay*2, reattachMaxInterval)
-	}
-}
-
 // get returns the VM, or nil if it is not found.
 func (b *Backend) get(ctx context.Context, id string) (*lambdamicrovms.GetMicrovmOutput, error) {
 	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
@@ -640,12 +301,6 @@ func (b *Backend) get(ctx context.Context, id string) (*lambdamicrovms.GetMicrov
 		return nil, fmt.Errorf("failed to get microvm: %w", err)
 	}
 	return out, nil
-}
-
-// alive reports whether vm is pending or running, so its driver may yet
-// answer. A nil vm, one that is not found, is not.
-func alive(vm *lambdamicrovms.GetMicrovmOutput) bool {
-	return vm != nil && (vm.State == types.MicrovmStatePending || vm.State == types.MicrovmStateRunning)
 }
 
 // terminal reports whether a VM in state is being torn down or is gone, and
@@ -670,141 +325,6 @@ func describe(vm *lambdamicrovms.GetMicrovmOutput) string {
 func isNotFound(err error) bool {
 	var nf *types.ResourceNotFoundException
 	return errors.As(err, &nf)
-}
-
-// attach opens a Run stream for version without a spec and reads it until the
-// run's Finished, which it returns. Otherwise it returns why the stream ended.
-// accepted reports whether the driver accepted the stream before it ended.
-func attach(ctx context.Context, client driverv1connect.DriverServiceClient, version int64) (finished *driverv1.Finished, accepted bool, err error) {
-	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
-	if err != nil {
-		return nil, false, err
-	}
-	defer stream.Close()
-	for stream.Receive() {
-		msg := stream.Msg()
-		if msg.GetAccepted() != nil {
-			accepted = true
-		}
-		if finished := msg.GetFinished(); finished != nil {
-			return finished, accepted, nil
-		}
-	}
-	return nil, accepted, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
-}
-
-// isTerminal reports whether a Run error means the run can never be attached
-// to: NotFound (no such run), FailedPrecondition (stale version) or Aborted
-// (another version is running).
-func isTerminal(err error) bool {
-	switch connect.CodeOf(err) {
-	case connect.CodeNotFound, connect.CodeFailedPrecondition, connect.CodeAborted:
-		return true
-	}
-	return false
-}
-
-// suspendAfter suspends the VM once its run has finished. No later run can
-// have started on it meanwhile: Probe reports a running or suspending VM as
-// running, so the runner does not launch on it until it is suspended. Failures
-// are logged: the run's outcome is already known.
-func (b *Backend) suspendAfter(ctx context.Context, id string) {
-	if err := b.suspend(ctx, id); err != nil {
-		b.log.Error("failed to suspend microvm after its run", "microvm", id, "err", err)
-	}
-}
-
-// Probe reports the liveness of the handle's VM from the control plane. A
-// pending, running or suspending VM is running — even after its run has
-// finished, until Wait's suspend completes — so the runner never launches on a
-// VM that is still finishing the previous run. A suspended VM is exited, and a
-// terminated or missing one gone. A handle it cannot decode, such as one of
-// another type, is an error.
-func (b *Backend) Probe(ctx context.Context, h backend.Handle) (backend.State, error) {
-	if _, err := decodeHandle(h); err != nil {
-		return backend.StateUnknown, err
-	}
-	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(h.ID)})
-	if isNotFound(err) {
-		return backend.StateGone, nil
-	}
-	if err != nil {
-		return backend.StateUnknown, fmt.Errorf("failed to get microvm: %w", err)
-	}
-	switch state := out.State; {
-	case state == types.MicrovmStatePending, state == types.MicrovmStateRunning, state == types.MicrovmStateSuspending:
-		return backend.StateRunning, nil
-	case state == types.MicrovmStateSuspended:
-		return backend.StateExited, nil
-	case terminal(state):
-		return backend.StateGone, nil
-	default:
-		return backend.StateUnknown, fmt.Errorf("microvm %s is in unknown state %s", h.ID, describe(out))
-	}
-}
-
-// Signal asks the driver to stop the handle's run, reporting whether it was
-// running. The driver reports stopped and sends Finished, after which Wait
-// suspends the VM.
-func (b *Backend) Signal(ctx context.Context, h backend.Handle) (bool, error) {
-	d, err := decodeHandle(h)
-	if err != nil {
-		return false, err
-	}
-	vm, err := b.get(ctx, h.ID)
-	if err != nil {
-		return false, err
-	}
-	if !alive(vm) {
-		return false, nil
-	}
-	b.log.Info("stopping run", "microvm", h.ID, "version", d.Version)
-	resp, err := b.dial(h.ID, d.Endpoint).Stop(ctx, &driverv1.StopRequest{Version: d.Version})
-	if err != nil {
-		return false, fmt.Errorf("failed to stop run: %w", err)
-	}
-	return resp.GetStopped(), nil
-}
-
-// Destroy terminates the handle's VM. A missing VM is not an error; a handle it
-// cannot decode, such as one of another type, is.
-func (b *Backend) Destroy(ctx context.Context, h backend.Handle) error {
-	if _, err := decodeHandle(h); err != nil {
-		return err
-	}
-	b.log.Info("terminating microvm", "microvm", h.ID)
-	_, err := b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{MicrovmIdentifier: aws.String(h.ID)})
-	if err != nil && !isNotFound(err) {
-		return fmt.Errorf("failed to terminate microvm: %w", err)
-	}
-	return nil
-}
-
-// newRunSpec builds the driver.v1 RunSpec for spec. A VM has no environment of
-// its own to carry the workspace's, so the run's env is the workspace's
-// lambda_microvm environment overlaid with spec.Env.
-func newRunSpec(spec *backend.Spec) *driverv1.RunSpec {
-	env := map[string]string{}
-	if cfg := spec.Workspace.LambdaMicroVM; cfg != nil {
-		maps.Copy(env, cfg.Environment)
-	}
-	maps.Copy(env, spec.Env)
-	rs := &driverv1.RunSpec{
-		TaskId:    spec.TaskID,
-		ServerUrl: spec.ServerURL,
-		Token:     spec.Token,
-		Env:       env,
-		Secrets:   maps.Clone(spec.Secrets),
-	}
-	for _, f := range spec.Files {
-		rs.Files = append(rs.Files, &driverv1.File{
-			Path: f.Path,
-			Data: f.Data,
-			Mode: f.Mode,
-			Dir:  f.Dir,
-		})
-	}
-	return rs
 }
 
 // sleep waits for d or until ctx is done, returning ctx's error in that case.
