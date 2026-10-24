@@ -5,7 +5,7 @@ import {Colors} from '../../theme';
 
 // A runner restart with task 42's sandbox still up, traced from
 // proposals/draft/taskrunner-owns-sandbox.md (Restore, Events, Driver WAL):
-// Load starts the event loop, Restore adopts the record and claims the run in
+// the command starts HandleEvents before Load, Restore adopts the record and claims the run in
 // one lock acquisition, and Run reattaches from the record's Seq.
 export default makeScene2D(function* (view) {
   const a = taskRunnerLayout(view, 'Load: Restore claims the run');
@@ -35,9 +35,9 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     2,
-    'Load first starts handleEvents on the root ctx, so the loop and every sender stop together.',
+    'The command starts go m.HandleEvents(ctx) before Load, on the root ctx the senders also use.',
   );
-  yield* a.manager.updateActivity('Load: go handleEvents(ctx)');
+  yield* a.manager.updateActivity('go HandleEvents(ctx)');
   yield* a.events.flash();
 
   yield* a.caption.show(
@@ -50,7 +50,6 @@ export default makeScene2D(function* (view) {
   yield* all(
     a.state.addRow('sb', 'nil'),
     a.state.addRow('running', 'false'),
-    a.state.addRow('retired', 'false'),
   );
 
   yield* a.caption.show(
