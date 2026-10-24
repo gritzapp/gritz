@@ -31,8 +31,8 @@ import (
 
 // TaskManager orchestrates the runner's tasks: it polls the server for their
 // commands, builds the specs their sandboxes are created and run with, admits
-// runs under the concurrency limit, and keeps the registry of the tasks that
-// have a sandbox, each run by a TaskRunner.
+// runs under the concurrency limit, and keeps the registry of the tasks'
+// TaskRunners.
 type TaskManager struct {
 	backend     backend.Backend
 	store       *taskstate.Store
@@ -55,10 +55,12 @@ type TaskManager struct {
 	// env is shared by the manager's TaskRunners.
 	env *taskEnv
 
-	// mu guards tasks, the registry of the tasks this TaskManager has a sandbox
-	// for. It mirrors taskstate/: a task has a TaskRunner if and only if it
-	// has a record, and every change writes through to both. Only Load reads
-	// taskstate/, to rebuild the registry at boot.
+	// mu guards tasks, the registry of the tasks' TaskRunners. A task with a
+	// record in taskstate/ has a TaskRunner holding it; Start also registers
+	// one for a task with no sandbox yet, which stays registered without one
+	// if no sandbox is created. A TaskRunner that deletes its record leaves
+	// the registry.
+	// Only Load reads taskstate/, to rebuild the registry at boot.
 	mu    sync.Mutex
 	tasks map[int64]*TaskRunner
 }
@@ -311,11 +313,9 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 	// when Wait returns, which would kill the Run goroutines Start spawns on
 	// this ctx. Run must outlive the poll cycle.
 	//
-	// A pass handles each task at most once, and passes run one after another,
-	// so Start can create a task's sandbox and TaskRunner without a per-task
-	// lock: nothing else creates the TaskRunner of a task this pass handles.
-	// Run calls Prune only between passes, so Prune does not act on the same
-	// tasks either.
+	// A pass handles each task at most once, and passes run one after another.
+	// Run calls Prune only between passes, so Prune does not act on the tasks a
+	// pass handles.
 	var g errgroup.Group
 	g.SetLimit(int(m.concurrency))
 
@@ -475,8 +475,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 // Load rebuilds the task registry from the records it keeps: it is the only
 // reader of taskstate/. Each record is adopted by TaskRunner.Restore, which
 // claims an up sandbox's TaskRunner for its Run. A record whose handle cannot
-// be opened is dropped like a gone sandbox's, and neither gets a TaskRunner, so
-// every TaskRunner has a sandbox.
+// be opened is dropped like a gone sandbox's, and neither gets a TaskRunner.
 //
 // HandleEvents must already be running: the Run goroutines Load starts are
 // the first to send it events.
@@ -548,6 +547,19 @@ func (m *TaskManager) lookup(taskID int64) *TaskRunner {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tasks[taskID]
+}
+
+// taskRunner returns the task's TaskRunner, registering one with no sandbox if
+// the task has none.
+func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	tr := m.tasks[taskID]
+	if tr == nil {
+		tr = &TaskRunner{env: m.env, taskID: taskID}
+		m.tasks[taskID] = tr
+	}
+	return tr
 }
 
 // register adds tr to the registry. Its record is in taskstate/ already.
@@ -679,12 +691,9 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 }
 
 // Start brings up the task's sandbox and starts the task's run on it, on a Run
-// goroutine. A task with no TaskRunner gets a sandbox created, and a
-// TaskRunner around it, which records its handle straight away, before
-// anything else can fail; it is registered once the record is written. A task
-// with one reuses its sandbox, since a task is bound 1:1 to it. Either way the
-// record is stamped with the task's version; see TaskRunner.Start for what a
-// failure to start the sandbox leaves behind.
+// goroutine. The task's TaskRunner creates the sandbox if it has none, or
+// reuses it, and stamps the record with the task's version; see
+// TaskRunner.Start for what a failure leaves behind.
 //
 // Start returns once the platform reports the sandbox running: waiting for the
 // driver and starting the run happen in Run, so a slow sandbox does not hold
@@ -692,24 +701,14 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 //
 // If a Run still follows the task's previous run, Start returns errRunning
 // without starting anything, and the caller gives back the concurrency slot it
-// acquired.
+// acquired. The task token minted for the spec then goes unused.
 func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
-	tr := m.lookup(task.ID)
-	if tr != nil {
-		if err := tr.idle(); err != nil {
-			return err
-		}
-	}
+	tr := m.taskRunner(task.ID)
 	spec, err := m.spec(ctx, task)
 	if err != nil {
 		return err
 	}
-	if tr == nil {
-		if tr, err = m.create(ctx, task, spec); err != nil {
-			return err
-		}
-	}
-	if err := tr.Start(ctx, task.Version); err != nil {
+	if err := tr.Start(ctx, *spec); err != nil {
 		return err
 	}
 	// Follow the run on the runner's root context: the run is started there,
@@ -717,23 +716,6 @@ func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
 	// in between reattaches to it.
 	m.run(ctx, tr, m.runSpec(spec))
 	return nil
-}
-
-// create creates a sandbox for a task with no TaskRunner, and registers the
-// TaskRunner it constructs around it. It takes no per-task lock: Poll handles
-// each task at most once per pass and passes are sequential, so nothing else
-// registers a TaskRunner for the task meanwhile.
-func (m *TaskManager) create(ctx context.Context, task *model.Task, spec *backend.Spec) (*TaskRunner, error) {
-	sb, err := m.backend.Create(ctx, spec)
-	if err != nil {
-		return nil, err
-	}
-	tr, err := newTaskRunner(ctx, m.env, sb, task.ID, task.Version)
-	if err != nil {
-		return nil, err
-	}
-	m.register(tr)
-	return tr, nil
 }
 
 // runSpec builds the driver.v1 RunSpec for spec. A backend whose sandboxes

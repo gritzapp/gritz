@@ -589,7 +589,8 @@ func seed(t *testing.T, m *TaskManager, recs ...taskstate.Record) {
 }
 
 // assertTracked asserts that the task has a record and a TaskRunner holding
-// that record, or, with want nil, that it has neither.
+// that record, or, with want nil, that it has no record and no TaskRunner with
+// a sandbox.
 func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.Record) {
 	t.Helper()
 	rec, ok, err := m.store.Read(taskID)
@@ -597,7 +598,11 @@ func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.R
 	tr := m.lookup(taskID)
 	if want == nil {
 		assert.Assert(t, !ok, "task %d has a record", taskID)
-		assert.Assert(t, tr == nil, "task %d has a TaskRunner", taskID)
+		if tr != nil {
+			tr.mu.Lock()
+			defer tr.mu.Unlock()
+			assert.Assert(t, tr.sb == nil, "task %d has a sandbox", taskID)
+		}
 		return
 	}
 	assert.Assert(t, ok, "no record for task %d", taskID)
@@ -793,7 +798,7 @@ func TestTaskManagerStart_Create(t *testing.T) {
 }
 
 // TestTaskManagerStart_CreateFails covers a sandbox that cannot be created: the task
-// gets neither a record nor a TaskRunner.
+// gets no record, and its TaskRunner no sandbox.
 func TestTaskManagerStart_CreateFails(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -1003,6 +1008,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		Version:   4,
 	}
 	be, _ := testBackend(map[string]backend.Status{"c1": backend.StatusParked}, nil)
+	be.ValidateWorkspaceFunc = func(*workspace.Workspace) error { return nil }
 	m, mock, queue := testManager(t, be, testStore(t))
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
@@ -1014,9 +1020,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 	err := m.Poll(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - no sandbox started, no token minted, no event, and the slot is
-	// free again.
-	assert.Assert(t, cmp.Len(mock.CreateTaskTokenCalls(), 0))
+	// Assert - no sandbox started, no event, and the slot is free again.
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
@@ -1523,12 +1527,13 @@ func TestTaskManagerRemovedTaskRunner(t *testing.T) {
 				t.Parallel()
 				// Arrange - the TaskRunner is still in the registry, as it was when
 				// the operation looked it up, but has since been removed.
-				// Every backend call is unmocked, and so must not be made.
+				// Every other backend call is unmocked, and so must not be made.
 				sb := &backend.SandboxMock{}
 				be := &backend.BackendMock{
-					OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
+					ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+					OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
 				}
-				m, mock, _ := testManager(t, be, testStore(t))
+				m, _, _ := testManager(t, be, testStore(t))
 				seed(t, m, legacyRecord(1, "c1"))
 				m.lookup(1).removed = cause
 
@@ -1537,7 +1542,6 @@ func TestTaskManagerRemovedTaskRunner(t *testing.T) {
 
 				// Assert
 				assert.ErrorIs(t, err, cause)
-				assert.Assert(t, cmp.Len(mock.CreateTaskTokenCalls(), 0))
 			})
 		}
 	}
@@ -1893,9 +1897,12 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	// Act
 	err = startTask(t, m, &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1})
 
-	// Assert - Start failed, and the runner's root ctx is cancelled with a
-	// FatalError cause.
+	// Assert - Start failed, the unrecorded sandbox was destroyed, and the
+	// runner's root ctx is cancelled with a FatalError cause.
 	assert.ErrorContains(t, err, "failed to record task handle")
+	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
+	assert.Assert(t, cmp.Len(sb.StartCalls(), 0))
+	assert.Assert(t, m.lookup(1).sb == nil)
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):
