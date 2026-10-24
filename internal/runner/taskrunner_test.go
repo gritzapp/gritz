@@ -244,7 +244,7 @@ func TestTaskRunnerRun_DestroyedBeforeRun(t *testing.T) {
 		DestroyFunc: func(context.Context) error { return nil },
 	}
 	tr, m, mock, queue := testTaskRunner(t, 1, 3, sb)
-	assert.NilError(t, tr.Start(t.Context(), 4))
+	assert.NilError(t, tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}))
 	assert.NilError(t, tr.Destroy(t.Context()))
 
 	// Act
@@ -273,12 +273,77 @@ func TestTaskRunnerStart(t *testing.T) {
 	tr, m, _, _ := testTaskRunner(t, 1, 3, sb)
 
 	// Act
-	err := tr.Start(t.Context(), 4)
-	again := tr.Start(t.Context(), 5)
+	err := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+	again := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 5})
 
 	// Assert
 	assert.NilError(t, err)
 	assert.ErrorIs(t, again, errRunning)
+	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
+	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
+}
+
+// TestTaskRunnerStart_Create covers starting a TaskRunner with no sandbox:
+// Start creates one from the spec and records its handle before starting it.
+func TestTaskRunnerStart_Create(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	store := testStore(t)
+	sb := &backend.SandboxMock{
+		HandleFunc: func() backend.Handle { return backend.Handle{Type: "docker", ID: "c1"} },
+		StartFunc: func(context.Context) error {
+			// The handle is recorded before the sandbox is started.
+			assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
+			return nil
+		},
+	}
+	be := &backend.BackendMock{
+		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
+	}
+	m, _, _ := testManager(t, be, store)
+	tr := m.taskRunner(1)
+
+	// Act
+	err := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(be.CreateCalls(), 1))
+	assert.DeepEqual(t, *be.CreateCalls()[0].Spec, backend.Spec{TaskID: 1, Version: 4})
+	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
+	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
+}
+
+// TestTaskRunnerStart_Concurrent covers two Starts racing on a task with no
+// sandbox: one sandbox is created and started, and the other Start finds it
+// claimed.
+func TestTaskRunnerStart_Concurrent(t *testing.T) {
+	t.Parallel()
+	// Arrange - a Create slow enough for both Starts to be underway.
+	sb := &backend.SandboxMock{
+		HandleFunc: func() backend.Handle { return backend.Handle{Type: "docker", ID: "c1"} },
+		StartFunc:  func(context.Context) error { return nil },
+	}
+	be := &backend.BackendMock{
+		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
+			time.Sleep(10 * time.Millisecond)
+			return sb, nil
+		},
+	}
+	m, _, _ := testManager(t, be, testStore(t))
+
+	// Act
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() { errs <- m.taskRunner(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
+	}
+	first, second := <-errs, <-errs
+
+	// Assert - one Start created and started the sandbox, the other started
+	// nothing.
+	assert.Assert(t, (first == nil) != (second == nil), "first: %v, second: %v", first, second)
+	assert.ErrorIs(t, errors.Join(first, second), errRunning)
+	assert.Assert(t, cmp.Len(be.CreateCalls(), 1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
 }

@@ -20,12 +20,11 @@ import (
 	"github.com/gritzapp/gritz/internal/x/common"
 )
 
-// TaskRunner is the runner's state for a task that has a sandbox: the
-// sandbox, the task's record in taskstate/, and the run being followed on it.
-// It exists exactly as long as the record: it is created around a sandbox
-// once that is created, writing its record (or by Load, which has it Restore a
-// record a previous process wrote), and it deletes the record when it is
-// destroyed or finds its sandbox gone.
+// TaskRunner is the runner's state for a task: its sandbox, the task's record
+// in taskstate/, and the run being followed on it. It may have no sandbox yet:
+// Start creates one and writes its record, and Restore adopts the record a
+// previous process wrote. It deletes the record, and leaves the registry, when
+// it is destroyed or finds its sandbox gone.
 //
 // Its operations lock it and return removed if it is set: the TaskRunner was
 // destroyed, or found its sandbox gone, while the operation waited for its
@@ -34,12 +33,12 @@ import (
 type TaskRunner struct {
 	env    *taskEnv
 	taskID int64
-	// sb is the task's sandbox. It is set when the TaskRunner is created, or
-	// by Restore before Load registers it, and not changed after.
-	sb backend.Sandbox
-
 	// mu serializes Start, Kill, Destroy and Running for the task.
 	mu sync.Mutex
+	// sb is the task's sandbox, or nil while it has none. It is set by Start,
+	// which creates it, or by Restore. Guarded by mu; a claimed Run reads it
+	// without, since neither sets it while tr is claimed.
+	sb backend.Sandbox
 	// rec is the task's record, as last written to taskstate/. Guarded by mu.
 	rec taskstate.Record
 	// running is set from Start (or Restore) until Run returns, so a second run
@@ -57,7 +56,8 @@ type TaskRunner struct {
 // taskEnv is what a TaskRunner needs from its TaskManager. A manager's
 // TaskRunners share one.
 type taskEnv struct {
-	// backend opens the sandbox of a record Restore adopts.
+	// backend creates the sandbox Start needs, and opens the sandbox of a
+	// record Restore adopts.
 	backend backend.Backend
 	store   *taskstate.Store
 	log     *slog.Logger
@@ -110,16 +110,6 @@ var errRemoved = errors.New("sandbox removed")
 // already be parking after its run (a Lambda VM suspending).
 var errRunning = errors.New("sandbox is still running")
 
-// newTaskRunner returns the TaskRunner of a sandbox just created for the task,
-// recording its handle at version in taskstate/.
-func newTaskRunner(ctx context.Context, env *taskEnv, sb backend.Sandbox, taskID, version int64) (*TaskRunner, error) {
-	tr := &TaskRunner{env: env, taskID: taskID, sb: sb}
-	if err := tr.write(ctx, tr.record(version)); err != nil {
-		return nil, err
-	}
-	return tr, nil
-}
-
 // recordHandle returns the handle a record tracks.
 func recordHandle(rec taskstate.Record) backend.Handle {
 	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
@@ -135,9 +125,9 @@ func (tr *TaskRunner) lock() error {
 	return nil
 }
 
-// record returns the task's record of the sandbox's handle at version.
-func (tr *TaskRunner) record(version int64) taskstate.Record {
-	h := tr.sb.Handle()
+// record returns the task's record of sb's handle at version.
+func (tr *TaskRunner) record(sb backend.Sandbox, version int64) taskstate.Record {
+	h := sb.Handle()
 	return taskstate.Record{
 		TaskID:  tr.taskID,
 		Version: version,
@@ -152,7 +142,7 @@ func (tr *TaskRunner) record(version int64) taskstate.Record {
 // other durable local store, and a write failure here is the same
 // non-transient disk failure as an outbox Enqueue failure, so crash rather than
 // lose the handle. The returned error still unwinds the caller (releasing the
-// sem slot) as ctx tears down. The caller holds tr.mu, or is creating tr.
+// sem slot) as ctx tears down. The caller holds tr.mu.
 func (tr *TaskRunner) write(ctx context.Context, rec taskstate.Record) error {
 	if err := tr.env.store.Write(rec); err != nil {
 		tr.send(ctx, TaskFatalEvent{
@@ -201,7 +191,8 @@ func (tr *TaskRunner) gone() error {
 	return backend.ErrGone
 }
 
-// Version returns the version the task's record is stamped with.
+// Version returns the version the task's record is stamped with, or 0 if it
+// has no sandbox.
 func (tr *TaskRunner) Version() (int64, error) {
 	if err := tr.lock(); err != nil {
 		return 0, err
@@ -210,12 +201,15 @@ func (tr *TaskRunner) Version() (int64, error) {
 	return tr.rec.Version, nil
 }
 
-// Running reports whether the task's sandbox is up.
+// Running reports whether the task's sandbox is up: false if it has none.
 func (tr *TaskRunner) Running(ctx context.Context) (bool, error) {
 	if err := tr.lock(); err != nil {
 		return false, err
 	}
 	defer tr.mu.Unlock()
+	if tr.sb == nil {
+		return false, nil
+	}
 	st, err := tr.sb.Status(ctx)
 	if err != nil {
 		return false, err
@@ -223,8 +217,16 @@ func (tr *TaskRunner) Running(ctx context.Context) (bool, error) {
 	return st == backend.StatusUp, nil
 }
 
-// idle returns errRunning if a Run still follows the task's previous run.
-func (tr *TaskRunner) idle() error {
+// Start brings up the task's sandbox for run spec.Version, claiming tr for the
+// run Run then starts. With no sandbox, Start creates one from spec and records
+// its handle; with one, it stamps the record with spec.Version and reuses it,
+// since a task is bound 1:1 to its sandbox. Then it starts the sandbox.
+//
+// If the sandbox is gone, Start drops the record and tr and returns
+// backend.ErrGone; any other failure to start it keeps them, so Destroy can
+// still destroy the sandbox. If a Run still follows the task's previous run,
+// Start returns errRunning without doing anything.
+func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error {
 	if err := tr.lock(); err != nil {
 		return err
 	}
@@ -232,24 +234,11 @@ func (tr *TaskRunner) idle() error {
 	if tr.running {
 		return errRunning
 	}
-	return nil
-}
-
-// Start stamps the task's record with version and starts the sandbox, claiming
-// tr for the run Run then starts. If the sandbox is gone, Start drops the record
-// and tr and returns backend.ErrGone; any other failure to start it keeps them,
-// so Destroy can still destroy the sandbox. If a Run still follows the task's
-// previous run, Start returns errRunning without starting anything.
-func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
-	if err := tr.lock(); err != nil {
-		return err
-	}
-	defer tr.mu.Unlock()
-	if tr.running {
-		return errRunning
-	}
-	// A TaskRunner created for this run has its record written already.
-	if rec := tr.record(version); !reflect.DeepEqual(rec, tr.rec) {
+	if tr.sb == nil {
+		if err := tr.create(ctx, &spec); err != nil {
+			return err
+		}
+	} else if rec := tr.record(tr.sb, spec.Version); !reflect.DeepEqual(rec, tr.rec) {
 		if err := tr.write(ctx, rec); err != nil {
 			return err
 		}
@@ -260,6 +249,25 @@ func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
 		return err
 	}
 	tr.running = true
+	return nil
+}
+
+// create creates the task's sandbox from spec and records its handle at
+// spec.Version. If the record cannot be written, the new sandbox is destroyed,
+// on a best-effort basis and even if ctx is done, so it is not left untracked.
+// The caller holds tr.mu, and tr has no sandbox.
+func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
+	sb, err := tr.env.backend.Create(ctx, spec)
+	if err != nil {
+		return err
+	}
+	if err := tr.write(ctx, tr.record(sb, spec.Version)); err != nil {
+		if err := sb.Destroy(context.WithoutCancel(ctx)); err != nil {
+			tr.env.log.Error("failed to destroy unrecorded sandbox", "task", tr.taskID, "err", err)
+		}
+		return err
+	}
+	tr.sb = sb
 	return nil
 }
 
@@ -304,12 +312,15 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backen
 // reports whether a running run was stopped — in that case the driver owns the
 // terminal event report (see the driver-owned-events proposal). A sandbox that
 // is not up has no driver to ask, so nothing is stopped; neither is a run that
-// already finished or is not the recorded version.
+// already finished or is not the recorded version, or a task with no sandbox.
 func (tr *TaskRunner) Kill(ctx context.Context) (bool, error) {
 	if err := tr.lock(); err != nil {
 		return false, err
 	}
 	defer tr.mu.Unlock()
+	if tr.sb == nil {
+		return false, nil
+	}
 	st, err := tr.sb.Status(ctx)
 	if err != nil {
 		return false, err
@@ -333,7 +344,8 @@ func (tr *TaskRunner) Kill(ctx context.Context) (bool, error) {
 // deleted only after the destroy succeeds, so a failed destroy leaves the task
 // tracked and the removal is retried. Destroying a gone sandbox is not an
 // error, so a task whose sandbox vanished is simply dropped. A Run still
-// following the destroyed sandbox is cancelled, and reports the run lost.
+// following the destroyed sandbox is cancelled, and reports the run lost. A
+// task with no sandbox has nothing to destroy.
 func (tr *TaskRunner) Destroy(ctx context.Context) error {
 	if err := tr.lock(); err != nil {
 		return err
@@ -344,6 +356,9 @@ func (tr *TaskRunner) Destroy(ctx context.Context) error {
 
 // destroy is Destroy with tr.mu held.
 func (tr *TaskRunner) destroy(ctx context.Context) error {
+	if tr.sb == nil {
+		return nil
+	}
 	if err := tr.sb.Destroy(ctx); err != nil {
 		return err
 	}
@@ -356,12 +371,15 @@ func (tr *TaskRunner) destroy(ctx context.Context) error {
 // destroyIf destroys the sandbox, as Destroy does, if it is not up and stale
 // reports the task gone for good, and reports whether it did. Both a parked
 // husk and a gone sandbox count as "no live sandbox". A removed tr is left
-// alone.
+// alone, and so is one with no sandbox.
 func (tr *TaskRunner) destroyIf(ctx context.Context, stale func(context.Context) (bool, error)) (bool, error) {
 	if tr.lock() != nil {
 		return false, nil
 	}
 	defer tr.mu.Unlock()
+	if tr.sb == nil {
+		return false, nil
+	}
 	st, err := tr.sb.Status(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get sandbox status: %w", err)
