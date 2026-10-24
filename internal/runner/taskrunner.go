@@ -29,8 +29,8 @@ import (
 // record of a sandbox they find gone. The TaskRunner stays usable throughout,
 // and the next Start creates a fresh sandbox.
 type TaskRunner struct {
-	env    *taskEnv
-	taskID int64
+	// opts is the TaskRunner's configuration, with its defaults applied.
+	opts TaskRunnerOptions
 	// mu serializes the TaskRunner's methods. Run holds it only to capture the
 	// sandbox it follows and to release its claim.
 	mu sync.Mutex
@@ -48,27 +48,66 @@ type TaskRunner struct {
 	cancel context.CancelCauseFunc
 }
 
-// taskEnv is what a TaskRunner needs from its TaskManager. A manager's
-// TaskRunners share one.
-type taskEnv struct {
-	// backend creates the sandbox Start needs, and opens the sandbox of a
-	// record Restore adopts.
-	backend backend.Backend
-	store   *taskstate.Store
-	log     *slog.Logger
-	// events receives the TaskRunners' events; see TaskRunner.send.
-	events chan<- TaskEvent
+// TaskRunnerOptions configures a TaskRunner.
+type TaskRunnerOptions struct {
+	// TaskID is the task the TaskRunner runs.
+	TaskID int64
+	// Backend creates the sandbox Start needs, and opens the sandbox of a
+	// record Restore adopts. Required.
+	Backend backend.Backend
+	// Store holds the task's record. Required.
+	Store *taskstate.Store
+	// Events receives the TaskRunner's events; see TaskRunner.send. Required.
+	Events chan<- TaskEvent
+	// Log is the logger; defaults to slog.Default().
+	Log *slog.Logger
+	// RetryInterval is the first pause between attempts to reach the driver
+	// or reattach to a run; defaults to 250ms.
+	RetryInterval time.Duration
+	// RetryMaxInterval caps the reattach backoff; defaults to 10s.
+	RetryMaxInterval time.Duration
+	// LostTimeout is how long Run keeps reattaching without a good message
+	// from the driver before it gives up on the run; defaults to 2m.
+	LostTimeout time.Duration
+	// ReadyTimeout is how long a started sandbox's driver has to answer and
+	// accept its run; defaults to 1m.
+	ReadyTimeout time.Duration
+}
 
-	// retryInterval is the first pause between attempts to reach the driver
-	// or reattach to a run, retryMaxInterval caps the reattach backoff, and
-	// lostTimeout is how long Run keeps reattaching without a good message
-	// from the driver before it gives up on the run. readyTimeout is how long
-	// a started sandbox's driver has to answer and accept its run. Tests
-	// shorten them.
-	retryInterval    time.Duration
-	retryMaxInterval time.Duration
-	lostTimeout      time.Duration
-	readyTimeout     time.Duration
+const (
+	// defaultRetryInterval is TaskRunnerOptions.RetryInterval's default.
+	defaultRetryInterval = 250 * time.Millisecond
+	// defaultRetryMaxInterval is TaskRunnerOptions.RetryMaxInterval's default.
+	defaultRetryMaxInterval = 10 * time.Second
+	// defaultLostTimeout is TaskRunnerOptions.LostTimeout's default.
+	defaultLostTimeout = 2 * time.Minute
+	// defaultReadyTimeout is TaskRunnerOptions.ReadyTimeout's default. It
+	// counts whatever the image's entrypoint does before it execs the driver,
+	// and a Lambda VM's boot.
+	defaultReadyTimeout = time.Minute
+	// readyMaxInterval caps the backoff between attempts to reach a starting
+	// driver.
+	readyMaxInterval = 2 * time.Second
+)
+
+// NewTaskRunner returns a TaskRunner for opts.TaskID with no sandbox. It has no
+// side effects: Start creates the sandbox and Restore adopts a record. It
+// panics if Backend, Store or Events is missing.
+func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
+	switch {
+	case opts.Backend == nil:
+		panic("runner: TaskRunnerOptions.Backend is required")
+	case opts.Store == nil:
+		panic("runner: TaskRunnerOptions.Store is required")
+	case opts.Events == nil:
+		panic("runner: TaskRunnerOptions.Events is required")
+	}
+	opts.Log = cmp.Or(opts.Log, slog.Default())
+	opts.RetryInterval = cmp.Or(opts.RetryInterval, defaultRetryInterval)
+	opts.RetryMaxInterval = cmp.Or(opts.RetryMaxInterval, defaultRetryMaxInterval)
+	opts.LostTimeout = cmp.Or(opts.LostTimeout, defaultLostTimeout)
+	opts.ReadyTimeout = cmp.Or(opts.ReadyTimeout, defaultReadyTimeout)
+	return &TaskRunner{opts: opts}
 }
 
 // TaskEvent is something a TaskRunner reports to its manager, on the
@@ -112,7 +151,7 @@ func recordHandle(rec taskstate.Record) backend.Handle {
 func (tr *TaskRunner) record(sb backend.Sandbox, version int64) taskstate.Record {
 	h := sb.Handle()
 	return taskstate.Record{
-		TaskID:  tr.taskID,
+		TaskID:  tr.opts.TaskID,
 		Version: version,
 		Type:    h.Type,
 		ID:      h.ID,
@@ -127,10 +166,10 @@ func (tr *TaskRunner) record(sb backend.Sandbox, version int64) taskstate.Record
 // lose the handle. The returned error still unwinds the caller (releasing the
 // sem slot) as ctx tears down. The caller holds tr.mu.
 func (tr *TaskRunner) write(ctx context.Context, rec taskstate.Record) error {
-	if err := tr.env.store.Write(rec); err != nil {
+	if err := tr.opts.Store.Write(rec); err != nil {
 		tr.send(ctx, TaskFatalEvent{
-			TaskID: tr.taskID,
-			Err:    fmt.Errorf("record handle for task %d: %w", tr.taskID, err),
+			TaskID: tr.opts.TaskID,
+			Err:    fmt.Errorf("record handle for task %d: %w", tr.opts.TaskID, err),
 		})
 		return fmt.Errorf("failed to record task handle: %w", err)
 	}
@@ -144,9 +183,9 @@ func (tr *TaskRunner) write(ctx context.Context, rec taskstate.Record) error {
 // handle an event, so the caller may hold tr.mu.
 func (tr *TaskRunner) send(ctx context.Context, ev TaskEvent) {
 	select {
-	case tr.env.events <- ev:
+	case tr.opts.Events <- ev:
 	case <-ctx.Done():
-		tr.env.log.Warn("task event dropped at shutdown", "task", tr.taskID, "event", ev)
+		tr.opts.Log.Warn("task event dropped at shutdown", "task", tr.opts.TaskID, "event", ev)
 	}
 }
 
@@ -156,8 +195,8 @@ func (tr *TaskRunner) send(ctx context.Context, ev TaskEvent) {
 // there is none, the next boot's Load finds the sandbox gone and drops it. The
 // caller holds tr.mu.
 func (tr *TaskRunner) clear() {
-	if err := tr.env.store.Remove(tr.taskID); err != nil {
-		tr.env.log.Error("failed to remove record", "task", tr.taskID, "err", err)
+	if err := tr.opts.Store.Remove(tr.opts.TaskID); err != nil {
+		tr.opts.Log.Error("failed to remove record", "task", tr.opts.TaskID, "err", err)
 	}
 	tr.sb, tr.rec = nil, taskstate.Record{}
 }
@@ -225,13 +264,13 @@ func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error {
 // on a best-effort basis and even if ctx is done, so it is not left untracked.
 // The caller holds tr.mu, and tr has no sandbox.
 func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
-	sb, err := tr.env.backend.Create(ctx, spec)
+	sb, err := tr.opts.Backend.Create(ctx, spec)
 	if err != nil {
 		return err
 	}
 	if err := tr.write(ctx, tr.record(sb, spec.Version)); err != nil {
 		if err := sb.Destroy(context.WithoutCancel(ctx)); err != nil {
-			tr.env.log.Error("failed to destroy unrecorded sandbox", "task", tr.taskID, "err", err)
+			tr.opts.Log.Error("failed to destroy unrecorded sandbox", "task", tr.opts.TaskID, "err", err)
 		}
 		return err
 	}
@@ -251,7 +290,7 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backend.Status, error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	sb, err := tr.env.backend.Open(recordHandle(rec))
+	sb, err := tr.opts.Backend.Open(recordHandle(rec))
 	if err != nil {
 		tr.clear()
 		return backend.StatusUnknown, fmt.Errorf("failed to open sandbox: %w", err)
@@ -292,7 +331,7 @@ func (tr *TaskRunner) Kill(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	tr.env.log.Info("stopping run", "task", tr.taskID, "version", tr.rec.Version)
+	tr.opts.Log.Info("stopping run", "task", tr.opts.TaskID, "version", tr.rec.Version)
 	resp, err := client.Stop(ctx, &driverv1.StopRequest{Version: tr.rec.Version})
 	if err != nil {
 		return false, fmt.Errorf("failed to stop run: %w", err)
@@ -391,11 +430,11 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 		lost = "sandbox removed before the run finished"
 	}
 	if lost == "" {
-		tr.env.log.Info("run finished, driver already reported", "task", tr.taskID, "version", version)
+		tr.opts.Log.Info("run finished, driver already reported", "task", tr.opts.TaskID, "version", version)
 		return nil
 	}
-	tr.env.log.Error("run lost", "task", tr.taskID, "version", version, "reason", lost)
-	tr.send(ctx, TaskLostEvent{TaskID: tr.taskID, Version: version, Reason: lost})
+	tr.opts.Log.Error("run lost", "task", tr.opts.TaskID, "version", version, "reason", lost)
+	tr.send(ctx, TaskLostEvent{TaskID: tr.opts.TaskID, Version: version, Reason: lost})
 	return nil
 }
 
@@ -413,7 +452,7 @@ func (tr *TaskRunner) run(ctx context.Context, sb backend.Sandbox, version int64
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
-			tr.env.log.Error("failed to start run", "task", tr.taskID, "version", version, "err", err)
+			tr.opts.Log.Error("failed to start run", "task", tr.opts.TaskID, "version", version, "err", err)
 			tr.park(ctx, sb)
 			return err.Error(), nil
 		}
@@ -426,14 +465,14 @@ func (tr *TaskRunner) run(ctx context.Context, sb backend.Sandbox, version int64
 // driver has accepted it. A Run that is rejected because another stream is
 // open is retried. The driver has the runner's readyTimeout to do both.
 func (tr *TaskRunner) startRun(ctx context.Context, sb backend.Sandbox, version int64, spec *driverv1.RunSpec) error {
-	env := tr.env
-	ctx, cancel := context.WithTimeout(ctx, env.readyTimeout)
+	opts := tr.opts
+	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
 	defer cancel()
 	client, err := sb.Dial(ctx, "")
 	if err != nil {
 		return err
 	}
-	bo := doubling(env.retryInterval, readyMaxInterval)
+	bo := doubling(opts.RetryInterval, readyMaxInterval)
 	for {
 		_, err := client.Status(ctx, &driverv1.StatusRequest{})
 		if err == nil {
@@ -448,7 +487,7 @@ func (tr *TaskRunner) startRun(ctx context.Context, sb backend.Sandbox, version 
 		if err == nil {
 			return nil
 		}
-		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, env.retryInterval) {
+		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, opts.RetryInterval) {
 			return fmt.Errorf("failed to start run %d: %w", version, err)
 		}
 	}
@@ -485,9 +524,9 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // Run following it; while the platform cannot park it, attach keeps
 // retrying.
 func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version int64) (lost string, err error) {
-	env, taskID := tr.env, tr.taskID
+	opts, taskID := tr.opts, tr.opts.TaskID
 	lastGood := time.Now()
-	bo := doubling(env.retryInterval, env.retryMaxInterval)
+	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
 	var lastErr string
 	for {
 		finished, accepted, err := attachOnce(ctx, sb, version)
@@ -504,7 +543,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version in
 		if isTerminal(err) {
 			// The driver has no run with this version (or has moved past it),
 			// so its Finished will never come.
-			env.log.Error("driver has no such run", "task", taskID, "version", version, "err", err)
+			opts.Log.Error("driver has no such run", "task", taskID, "version", version, "err", err)
 			if connect.CodeOf(err) == connect.CodeNotFound {
 				// Nothing runs on the sandbox, which would otherwise stay up.
 				// On FailedPrecondition or Aborted a newer run is active on
@@ -516,7 +555,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version in
 		if st, stErr := sb.Status(ctx); stErr != nil {
 			err = fmt.Errorf("%w (status: %w)", err, stErr)
 		} else if st != backend.StatusUp {
-			env.log.Error("sandbox stopped before its run finished", "task", taskID, "status", st, "version", version, "err", err)
+			opts.Log.Error("sandbox stopped before its run finished", "task", taskID, "status", st, "version", version, "err", err)
 			if st == backend.StatusParked {
 				// Let a sandbox that is still stopping (a SUSPENDING VM)
 				// settle, so it is not reported up once Run is done.
@@ -531,18 +570,18 @@ func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version in
 			bo.Reset()
 			lastErr = ""
 		}
-		if time.Since(lastGood) >= env.lostTimeout {
+		if time.Since(lastGood) >= opts.LostTimeout {
 			// Give up on the driver; park the sandbox instead. While that
 			// fails, keep retrying the attach too in case the driver is back.
 			parkErr := sb.Park(ctx)
 			if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
-				env.log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
+				opts.Log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
 				return "driver unreachable", nil
 			}
 			err = fmt.Errorf("failed to park sandbox of lost run: %w (driver: %w)", parkErr, err)
 		}
 		if msg := err.Error(); msg != lastErr {
-			env.log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
+			opts.Log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
 			lastErr = msg
 		}
 		if !common.SleepContext(ctx, bo.NextBackOff()) {
@@ -592,7 +631,7 @@ func isTerminal(err error) bool {
 // the run's outcome is already known.
 func (tr *TaskRunner) park(ctx context.Context, sb backend.Sandbox) {
 	if err := sb.Park(ctx); err != nil && !errors.Is(err, backend.ErrGone) {
-		tr.env.log.Error("failed to park sandbox after its run", "task", tr.taskID, "err", err)
+		tr.opts.Log.Error("failed to park sandbox after its run", "task", tr.opts.TaskID, "err", err)
 	}
 }
 

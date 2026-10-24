@@ -552,10 +552,10 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 	assert.NilError(t, err)
 	m, err := NewTaskManager(TaskManagerOptions{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
 	assert.NilError(t, err)
-	m.env.retryInterval = 10 * time.Millisecond
-	m.env.retryMaxInterval = 50 * time.Millisecond
-	m.env.lostTimeout = 10 * time.Second
-	m.env.readyTimeout = 10 * time.Second
+	m.opts.RetryInterval = 10 * time.Millisecond
+	m.opts.RetryMaxInterval = 50 * time.Millisecond
+	m.opts.LostTimeout = 10 * time.Second
+	m.opts.ReadyTimeout = 10 * time.Second
 	go m.HandleEvents(t.Context())
 	return m, mock, queue
 }
@@ -925,7 +925,7 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
 	m, mock, queue := testManager(t, be, testStore(t))
-	m.env.readyTimeout = 100 * time.Millisecond
+	m.opts.ReadyTimeout = 100 * time.Millisecond
 
 	// Act
 	assert.NilError(t, startTask(t, m, task))
