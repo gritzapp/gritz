@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,6 +51,111 @@ func waitDone(t *testing.T, done <-chan error) error {
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return")
 		return nil
+	}
+}
+
+func TestNewTaskRunner(t *testing.T) {
+	be := &backend.BackendMock{}
+	events := make(chan TaskEvent)
+	log := slog.New(slog.DiscardHandler)
+	tests := []struct {
+		name      string
+		opts      func(store *taskstate.Store) TaskRunnerOptions
+		wantPanic bool
+		want      func(store *taskstate.Store) TaskRunnerOptions
+	}{
+		{
+			name: "no backend",
+			opts: func(store *taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{TaskID: 1, Store: store, Events: events}
+			},
+			wantPanic: true,
+		},
+		{
+			name: "no store",
+			opts: func(*taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{TaskID: 1, Backend: be, Events: events}
+			},
+			wantPanic: true,
+		},
+		{
+			name: "no events",
+			opts: func(store *taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{TaskID: 1, Backend: be, Store: store}
+			},
+			wantPanic: true,
+		},
+		{
+			name: "defaults",
+			opts: func(store *taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{TaskID: 1, Backend: be, Store: store, Events: events}
+			},
+			want: func(store *taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{
+					TaskID:           1,
+					Backend:          be,
+					Store:            store,
+					Events:           events,
+					Log:              slog.Default(),
+					RetryInterval:    250 * time.Millisecond,
+					RetryMaxInterval: 10 * time.Second,
+					LostTimeout:      2 * time.Minute,
+					ReadyTimeout:     time.Minute,
+				}
+			},
+		},
+		{
+			name: "explicit",
+			opts: func(store *taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{
+					TaskID:           1,
+					Backend:          be,
+					Store:            store,
+					Events:           events,
+					Log:              log,
+					RetryInterval:    time.Millisecond,
+					RetryMaxInterval: 2 * time.Millisecond,
+					LostTimeout:      3 * time.Millisecond,
+					ReadyTimeout:     4 * time.Millisecond,
+				}
+			},
+			want: func(store *taskstate.Store) TaskRunnerOptions {
+				return TaskRunnerOptions{
+					TaskID:           1,
+					Backend:          be,
+					Store:            store,
+					Events:           events,
+					Log:              log,
+					RetryInterval:    time.Millisecond,
+					RetryMaxInterval: 2 * time.Millisecond,
+					LostTimeout:      3 * time.Millisecond,
+					ReadyTimeout:     4 * time.Millisecond,
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			store := testStore(t)
+			opts := tt.opts(store)
+
+			// Act & Assert
+			if tt.wantPanic {
+				assert.Assert(t, cmp.Panics(func() { NewTaskRunner(opts) }))
+				return
+			}
+			tr := NewTaskRunner(opts)
+			assert.Assert(t, tr.opts == tt.want(store), "got %+v", tr.opts)
+			assert.Assert(t, tr.sb == nil)
+			assert.Equal(t, tr.Version(), int64(0))
+			// No side effects: no record written, no sandbox touched.
+			recs, err := store.List()
+			assert.NilError(t, err)
+			assert.Assert(t, cmp.Len(recs, 0))
+			assert.Assert(t, cmp.Len(be.CreateCalls(), 0))
+			assert.Assert(t, cmp.Len(be.OpenCalls(), 0))
+		})
 	}
 }
 
@@ -118,8 +224,9 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	hs := httptest.NewServer(http.NotFoundHandler())
 	hs.Close()
 	sb, parked := testSandbox(driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL))
-	tr, m, mock, queue := testTaskRunner(t, 2, 4, sb)
-	m.env.lostTimeout = 100 * time.Millisecond
+	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t))
+	m.opts.LostTimeout = 100 * time.Millisecond
+	tr := track(t, m, taskstate.Record{TaskID: 2, Version: 4, Type: "docker", ID: "c1"}, sb)
 
 	// Act
 	err := tr.Run(t.Context(), nil)
@@ -162,8 +269,9 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 	// Arrange
 	_, client, _ := newDriver(t, 1, make(chan struct{}))
 	sb, parked := testSandbox(client)
-	tr, m, mock, queue := testTaskRunner(t, 1, 1, sb)
-	m.env.readyTimeout = 100 * time.Millisecond
+	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t))
+	m.opts.ReadyTimeout = 100 * time.Millisecond
+	tr := track(t, m, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"}, sb)
 
 	// Act
 	err := tr.Run(t.Context(), &driverv1.RunSpec{TaskId: 1})
@@ -389,7 +497,9 @@ func TestTaskRunnerRestore(t *testing.T) {
 				},
 			}
 			m, _, _ := testManager(t, be, testStore(t, rec))
-			tr := &TaskRunner{env: m.env, taskID: rec.TaskID}
+			opts := m.opts
+			opts.TaskID = rec.TaskID
+			tr := NewTaskRunner(opts)
 
 			// Act
 			st, err := tr.Restore(t.Context(), rec)

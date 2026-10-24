@@ -52,8 +52,9 @@ type TaskManager struct {
 	// events is the unbuffered channel the TaskRunners send their events on;
 	// HandleEvents drains it.
 	events chan TaskEvent
-	// env is shared by the manager's TaskRunners.
-	env *taskEnv
+	// opts is the template of the manager's TaskRunners' options; taskRunner
+	// copies it and fills in TaskID.
+	opts TaskRunnerOptions
 
 	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
 	// task the runner has seen, from its first command (or its record, at
@@ -66,22 +67,6 @@ type TaskManager struct {
 }
 
 const (
-	// reattachInterval is the first pause between attempts to reattach to a
-	// run.
-	reattachInterval = 250 * time.Millisecond
-	// reattachMaxInterval caps the backoff between attempts to reattach.
-	reattachMaxInterval = 10 * time.Second
-	// driverLostTimeout is how long Run keeps reattaching without a good
-	// message from the driver before it parks the sandbox and reports the run
-	// lost.
-	driverLostTimeout = 2 * time.Minute
-	// driverReadyTimeout is how long Run waits for a started sandbox's driver
-	// to answer Status and accept its run. It counts whatever the image's
-	// entrypoint does before it execs the driver, and a Lambda VM's boot.
-	driverReadyTimeout = time.Minute
-	// readyMaxInterval caps the backoff between attempts to reach a starting
-	// driver.
-	readyMaxInterval = 2 * time.Second
 	// defaultPollInterval is Run's poll interval when TaskManagerOptions
 	// leaves it unset.
 	defaultPollInterval = 30 * time.Second
@@ -171,15 +156,11 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		events:       make(chan TaskEvent),
 		tasks:        map[int64]*TaskRunner{},
 	}
-	m.env = &taskEnv{
-		backend:          opts.Backend,
-		store:            opts.Store,
-		log:              log,
-		events:           m.events,
-		retryInterval:    reattachInterval,
-		retryMaxInterval: reattachMaxInterval,
-		lostTimeout:      driverLostTimeout,
-		readyTimeout:     driverReadyTimeout,
+	m.opts = TaskRunnerOptions{
+		Backend: opts.Backend,
+		Store:   opts.Store,
+		Events:  m.events,
+		Log:     log,
 	}
 	return m, nil
 }
@@ -536,7 +517,9 @@ func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
 	defer m.mu.Unlock()
 	tr := m.tasks[taskID]
 	if tr == nil {
-		tr = &TaskRunner{env: m.env, taskID: taskID}
+		opts := m.opts
+		opts.TaskID = taskID
+		tr = NewTaskRunner(opts)
 		m.tasks[taskID] = tr
 	}
 	return tr
