@@ -170,6 +170,7 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		tasks:        map[int64]*TaskRunner{},
 	}
 	m.env = &taskEnv{
+		backend:          opts.Backend,
 		store:            opts.Store,
 		log:              log,
 		events:           m.events,
@@ -472,7 +473,9 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 // capacity in over-limit scenarios — that's fine.
 //
 // Load rebuilds the task registry from the records it keeps: it is the only
-// reader of taskstate/. A record whose handle cannot be opened is dropped, so
+// reader of taskstate/. Each record is adopted by TaskRunner.Restore, which
+// claims an up sandbox's TaskRunner for its Run. A record whose handle cannot
+// be opened is dropped like a gone sandbox's, and neither gets a TaskRunner, so
 // every TaskRunner has a sandbox.
 //
 // HandleEvents must already be running: the Run goroutines Load starts are
@@ -484,38 +487,29 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		sb, err := m.backend.Open(recordHandle(rec))
+		// The TaskRunner has no sandbox until Restore installs one; it is
+		// registered only if it keeps it.
+		tr := &TaskRunner{env: m.env, taskID: rec.TaskID}
+		st, err := tr.Restore(ctx, rec)
 		if err != nil {
-			m.log.Error("load: open, dropping record", "task", rec.TaskID, "err", err)
-			if err := m.store.Remove(rec.TaskID); err != nil {
-				m.log.Error("load: remove unopenable record", "task", rec.TaskID, "err", err)
+			m.log.Error("load: restore", "task", rec.TaskID, "err", err)
+			if tr.sb != nil {
+				// The status check failed: the sandbox may well be there.
+				m.register(tr)
 			}
 			continue
 		}
-		tr := loadTaskRunner(m.env, rec, sb)
-		st, err := sb.Status(ctx)
-		if err != nil {
-			// Keep the record and its TaskRunner: the sandbox may well be
-			// there.
-			m.log.Error("load: status", "task", rec.TaskID, "err", err)
-		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			tr.claim()
+			m.register(tr)
 			m.run(ctx, tr, nil)
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
+			m.register(tr)
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
-			err := tr.dropGone()
-			if err == nil {
-				continue
-			}
-			// The record stays, so its TaskRunner does too.
-			m.log.Error("load: remove dangling record", "task", rec.TaskID, "err", err)
 		}
-		m.register(tr)
 	}
 	m.sem.Set(running)
 	m.log.Info("initialized running sandbox count", "count", running)

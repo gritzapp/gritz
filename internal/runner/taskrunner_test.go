@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -35,7 +36,7 @@ func testTaskRunner(t *testing.T, taskID, version int64, sb backend.Sandbox) (*T
 // error is sent on.
 func runAsync(ctx context.Context, tr *TaskRunner, spec *driverv1.RunSpec) <-chan error {
 	done := make(chan error, 1)
-	tr.claim()
+	claim(tr)
 	go func() { done <- tr.Run(ctx, spec) }()
 	return done
 }
@@ -280,6 +281,77 @@ func TestTaskRunnerStart(t *testing.T) {
 	assert.ErrorIs(t, again, errRunning)
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
+}
+
+// TestTaskRunnerRestore covers adopting a record at Load: an up sandbox is
+// claimed for its Run, a parked one is kept unclaimed, a gone or unopenable one
+// leaves no sandbox and no record, and a failed status check keeps both.
+func TestTaskRunnerRestore(t *testing.T) {
+	t.Parallel()
+	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"}
+	tests := []struct {
+		name        string
+		openErr     error
+		status      backend.Status
+		statusErr   error
+		wantStatus  backend.Status
+		wantErr     bool
+		wantSandbox bool // the sandbox and record are kept
+		wantClaimed bool
+	}{
+		{name: "up", status: backend.StatusUp, wantStatus: backend.StatusUp, wantSandbox: true, wantClaimed: true},
+		{name: "parked", status: backend.StatusParked, wantStatus: backend.StatusParked, wantSandbox: true},
+		{name: "gone", status: backend.StatusGone, wantStatus: backend.StatusGone},
+		{name: "status error", statusErr: errors.New("boom"), wantErr: true, wantSandbox: true},
+		{name: "open fails", openErr: errors.New("malformed handle"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - a TaskRunner with no sandbox, and a previous process's
+			// record.
+			sb := &backend.SandboxMock{
+				StatusFunc: func(context.Context) (backend.Status, error) { return tt.status, tt.statusErr },
+			}
+			be := &backend.BackendMock{
+				OpenFunc: func(h backend.Handle) (backend.Sandbox, error) {
+					assert.DeepEqual(t, h, recordHandle(rec))
+					if tt.openErr != nil {
+						return nil, tt.openErr
+					}
+					return sb, nil
+				},
+			}
+			m, _, _ := testManager(t, be, testStore(t, rec))
+			tr := &TaskRunner{env: m.env, taskID: rec.TaskID}
+
+			// Act
+			st, err := tr.Restore(t.Context(), rec)
+
+			// Assert
+			if tt.wantErr {
+				assert.Assert(t, err != nil)
+			} else {
+				assert.NilError(t, err)
+				assert.Equal(t, st, tt.wantStatus)
+			}
+			got, ok, err := m.store.Read(rec.TaskID)
+			assert.NilError(t, err)
+			tr.mu.Lock()
+			defer tr.mu.Unlock()
+			if tt.wantSandbox {
+				assert.Assert(t, ok, "record was deleted")
+				assert.DeepEqual(t, got, rec)
+				assert.Equal(t, tr.sb, backend.Sandbox(sb))
+				assert.DeepEqual(t, tr.rec, rec)
+			} else {
+				assert.Assert(t, !ok, "record was kept")
+				assert.Assert(t, tr.sb == nil)
+				assert.DeepEqual(t, tr.rec, taskstate.Record{})
+			}
+			assert.Equal(t, tr.running, tt.wantClaimed)
+		})
+	}
 }
 
 // TestDoubling checks the backoff matches the schedule the hand-rolled loops
