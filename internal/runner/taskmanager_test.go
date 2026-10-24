@@ -565,9 +565,16 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
 	t.Helper()
 	assert.NilError(t, m.store.Write(rec))
-	tr := loadTaskRunner(m.env, rec, sb)
+	tr := &TaskRunner{env: m.env, taskID: rec.TaskID, sb: sb, rec: rec}
 	m.register(tr)
 	return tr
+}
+
+// claim claims tr for a Run, as Start or Restore does.
+func claim(tr *TaskRunner) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tr.running = true
 }
 
 // seed tracks recs, each with the sandbox the TaskManager's backend opens for its
@@ -657,7 +664,7 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t))
 	assert.Assert(t, m.sem.TryAcquire(1)) // the slot the Run goroutine releases
 	tr := track(t, m, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"}, sb)
-	tr.claim()
+	claim(tr)
 	m.run(t.Context(), tr, nil)
 	waitDialed(t, sb, 1)
 

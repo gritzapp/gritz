@@ -23,9 +23,9 @@ import (
 // TaskRunner is the runner's state for a task that has a sandbox: the
 // sandbox, the task's record in taskstate/, and the run being followed on it.
 // It exists exactly as long as the record: it is created around a sandbox
-// once that is created, writing its record (or by Load, for a record a
-// previous process wrote), and it deletes the record when it is destroyed or
-// finds its sandbox gone.
+// once that is created, writing its record (or by Load, which has it Restore a
+// record a previous process wrote), and it deletes the record when it is
+// destroyed or finds its sandbox gone.
 //
 // Its operations lock it and return removed if it is set: the TaskRunner was
 // destroyed, or found its sandbox gone, while the operation waited for its
@@ -34,15 +34,15 @@ import (
 type TaskRunner struct {
 	env    *taskEnv
 	taskID int64
-	// sb is the task's sandbox. It is set when the TaskRunner is created and
-	// not changed after.
+	// sb is the task's sandbox. It is set when the TaskRunner is created, or
+	// by Restore before Load registers it, and not changed after.
 	sb backend.Sandbox
 
 	// mu serializes Start, Kill, Destroy and Running for the task.
 	mu sync.Mutex
 	// rec is the task's record, as last written to taskstate/. Guarded by mu.
 	rec taskstate.Record
-	// running is set from Start (or claim) until Run returns, so a second run
+	// running is set from Start (or Restore) until Run returns, so a second run
 	// is not started meanwhile. Guarded by mu.
 	running bool
 	// cancel cancels the context of the Run in progress, or is nil. Guarded by
@@ -57,8 +57,10 @@ type TaskRunner struct {
 // taskEnv is what a TaskRunner needs from its TaskManager. A manager's
 // TaskRunners share one.
 type taskEnv struct {
-	store *taskstate.Store
-	log   *slog.Logger
+	// backend opens the sandbox of a record Restore adopts.
+	backend backend.Backend
+	store   *taskstate.Store
+	log     *slog.Logger
 	// events receives the TaskRunners' events; see TaskRunner.send.
 	events chan<- TaskEvent
 	// forget deletes the task from the manager's registry.
@@ -116,12 +118,6 @@ func newTaskRunner(ctx context.Context, env *taskEnv, sb backend.Sandbox, taskID
 		return nil, err
 	}
 	return tr, nil
-}
-
-// loadTaskRunner returns the TaskRunner of rec, a record already in
-// taskstate/, whose handle opened as sb.
-func loadTaskRunner(env *taskEnv, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
-	return &TaskRunner{env: env, taskID: rec.TaskID, sb: sb, rec: rec}
 }
 
 // recordHandle returns the handle a record tracks.
@@ -205,16 +201,6 @@ func (tr *TaskRunner) gone() error {
 	return backend.ErrGone
 }
 
-// dropGone deletes the record of a sandbox Load found gone, marking tr removed.
-// If the record cannot be deleted, tr stays registered.
-func (tr *TaskRunner) dropGone() error {
-	if err := tr.lock(); err != nil {
-		return err
-	}
-	defer tr.mu.Unlock()
-	return tr.remove(backend.ErrGone)
-}
-
 // Version returns the version the task's record is stamped with.
 func (tr *TaskRunner) Version() (int64, error) {
 	if err := tr.lock(); err != nil {
@@ -277,12 +263,41 @@ func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
 	return nil
 }
 
-// claim claims tr for a Run reattaching to a run already started, as Start does
-// for a new one.
-func (tr *TaskRunner) claim() {
+// Restore adopts rec, a record a previous process wrote, on a TaskRunner with
+// no sandbox yet, and reports the status of the sandbox it opens from rec's
+// handle. An up sandbox claims tr for a Run reattaching to the recorded run, in
+// the same lock acquisition that installs it, as Start does for a new run.
+//
+// A handle that cannot be opened, or a sandbox that is gone, leaves tr with no
+// sandbox and its record deleted; a failure to delete it is only logged, and
+// the next boot drops the record again. A failed status check keeps the
+// sandbox and its record, since the sandbox may still be there, and claims
+// nothing.
+func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backend.Status, error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	tr.running = true
+	sb, err := tr.env.backend.Open(recordHandle(rec))
+	if err != nil {
+		if err := tr.env.store.Remove(rec.TaskID); err != nil {
+			tr.env.log.Error("failed to remove unopenable record", "task", rec.TaskID, "err", err)
+		}
+		return backend.StatusUnknown, fmt.Errorf("failed to open sandbox: %w", err)
+	}
+	tr.sb, tr.rec = sb, rec
+	st, err := sb.Status(ctx)
+	if err != nil {
+		return backend.StatusUnknown, fmt.Errorf("failed to get sandbox status: %w", err)
+	}
+	switch st {
+	case backend.StatusGone:
+		if err := tr.env.store.Remove(rec.TaskID); err != nil {
+			tr.env.log.Error("failed to remove dangling record", "task", rec.TaskID, "err", err)
+		}
+		tr.sb, tr.rec = nil, taskstate.Record{}
+	case backend.StatusUp:
+		tr.running = true
+	}
+	return st, nil
 }
 
 // Kill asks the driver of the task's sandbox to stop the recorded run. It
