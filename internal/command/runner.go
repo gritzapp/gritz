@@ -21,7 +21,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/x/common"
 	"github.com/urfave/cli/v3"
 )
 
@@ -114,8 +113,8 @@ var RunnerCommand = &cli.Command{
 		// Wrap the incoming ctx so a durable local-store write failure can
 		// terminate the runner by cancelling it with a FatalError cause. This
 		// must happen before anything that takes ctx is spawned (HandleEvents,
-		// Load's Run goroutines, queue.Run, the autoprune/notify goroutines,
-		// and the Poll loop) so they all observe the cancellation.
+		// Load's Run goroutines, queue.Run, the notify goroutine, and
+		// m.Run) so they all observe the cancellation.
 		ctx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 
@@ -205,16 +204,17 @@ var RunnerCommand = &cli.Command{
 		}
 
 		m, err := runner.NewTaskManager(runner.TaskManagerOptions{
-			Client:      client,
-			Backend:     be,
-			Store:       store,
-			ServerURL:   serverAddr,
-			Workspaces:  workspaces,
-			Concurrency: int(concurrency),
-			RunnerID:    runnerID,
-			Log:         log,
-			Queue:       queue,
-			Fatal:       cancel,
+			Client:       client,
+			Backend:      be,
+			Store:        store,
+			ServerURL:    serverAddr,
+			Workspaces:   workspaces,
+			Concurrency:  int(concurrency),
+			RunnerID:     runnerID,
+			Log:          log,
+			Queue:        queue,
+			PollInterval: pollInterval,
+			Fatal:        cancel,
 		})
 		if err != nil {
 			return err
@@ -243,15 +243,6 @@ var RunnerCommand = &cli.Command{
 		// events that were persisted but not yet acknowledged before a restart.
 		go queue.Run(ctx)
 
-		// Start autoprune goroutine
-		go func() {
-			for common.SleepContext(ctx, pollInterval) {
-				if err := m.Prune(ctx); err != nil {
-					log.Error("failed to prune containers", "err", err)
-				}
-			}
-		}()
-
 		// Subscribe to server-sent task change notifications so the runner
 		// reacts to new commands immediately instead of waiting for the
 		// fallback poll.
@@ -268,25 +259,15 @@ var RunnerCommand = &cli.Command{
 			}
 		}()
 
-		for {
-			if err := m.Poll(ctx); err != nil {
-				log.Error("failed to poll tasks", "err", err)
-			}
-			select {
-			case <-m.WakeC():
-			case <-time.After(pollInterval):
-			case <-ctx.Done():
-				// Distinguish a durable-store-write crash (die set a
-				// FatalError cause) from a graceful signal shutdown. The
-				// sentinel is what lets us return non-zero on a broken disk
-				// without depending on whatever cause signal.NotifyContext sets.
-				var fatal runner.FatalError
-				if cause := context.Cause(ctx); errors.As(cause, &fatal) {
-					log.Error("runner terminating: durable store write failed", "err", cause)
-					return cause // non-zero exit → supervisor restarts + alerts
-				}
-				return nil // graceful signal shutdown → exit 0
-			}
+		// Poll (and prune) until ctx is done. Distinguish a durable-store-write
+		// crash (die set a FatalError cause) from a graceful signal shutdown.
+		// The sentinel is what lets us return non-zero on a broken disk
+		// without depending on whatever cause signal.NotifyContext sets.
+		var fatal runner.FatalError
+		if cause := m.Run(ctx); errors.As(cause, &fatal) {
+			log.Error("runner terminating: durable store write failed", "err", cause)
+			return cause // non-zero exit → supervisor restarts + alerts
 		}
+		return nil // graceful signal shutdown → exit 0
 	},
 }

@@ -45,7 +45,10 @@ type TaskManager struct {
 	log         *slog.Logger
 	queue       *outbox.Outbox[model.RunnerEvent]
 	wake        wakeup.Chan
-	fatal       context.CancelCauseFunc
+	// pollInterval is Run's fallback interval between Poll passes, and its
+	// interval between Prune passes.
+	pollInterval time.Duration
+	fatal        context.CancelCauseFunc
 	// events is the unbuffered channel the TaskRunners send their events on;
 	// HandleEvents drains it.
 	events chan TaskEvent
@@ -77,6 +80,9 @@ const (
 	// readyMaxInterval caps the backoff between attempts to reach a starting
 	// driver.
 	readyMaxInterval = 2 * time.Second
+	// defaultPollInterval is Run's poll interval when TaskManagerOptions
+	// leaves it unset.
+	defaultPollInterval = 30 * time.Second
 )
 
 type TaskManagerOptions struct {
@@ -98,6 +104,9 @@ type TaskManagerOptions struct {
 	// Queue is the durable outbox that delivers runner lifecycle events to the
 	// server, buffering them across transient outages and restarts.
 	Queue *outbox.Outbox[model.RunnerEvent]
+	// PollInterval is how long Run waits for a wake-up before it polls again,
+	// and how often it prunes. Defaults to 30s.
+	PollInterval time.Duration
 	// Fatal terminates the runner by cancelling its root context with the given
 	// cause. It is invoked by die when a durable local-store write fails; the
 	// command layer wraps ctx with context.WithCancelCause and passes the
@@ -144,20 +153,21 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 	}
 
 	m := &TaskManager{
-		backend:     opts.Backend,
-		store:       opts.Store,
-		client:      opts.Client,
-		serverURL:   opts.ServerURL,
-		workspaces:  opts.Workspaces,
-		runnerID:    opts.RunnerID,
-		concurrency: concurrency,
-		sem:         safesem.New(concurrency),
-		log:         log,
-		queue:       opts.Queue,
-		wake:        wakeup.New(),
-		fatal:       fatal,
-		events:      make(chan TaskEvent),
-		tasks:       map[int64]*TaskRunner{},
+		backend:      opts.Backend,
+		store:        opts.Store,
+		client:       opts.Client,
+		serverURL:    opts.ServerURL,
+		workspaces:   opts.Workspaces,
+		runnerID:     opts.RunnerID,
+		concurrency:  concurrency,
+		sem:          safesem.New(concurrency),
+		log:          log,
+		queue:        opts.Queue,
+		wake:         wakeup.New(),
+		pollInterval: cmp.Or(opts.PollInterval, defaultPollInterval),
+		fatal:        fatal,
+		events:       make(chan TaskEvent),
+		tasks:        map[int64]*TaskRunner{},
 	}
 	m.env = &taskEnv{
 		store:            opts.Store,
@@ -231,14 +241,40 @@ func (m *TaskManager) handle(ev TaskEvent) {
 	}
 }
 
-// WakeC returns a channel that receives one value per coalesced burst of
-// internally-generated wake-ups. Currently signalled when a concurrency
-// slot is released so the main loop can immediately retry tasks that were
-// previously skipped for being over the limit.
-func (m *TaskManager) WakeC() <-chan struct{} { return m.wake }
-
-// Wake signals the runner's main loop to poll immediately.
+// Wake signals Run to poll immediately. Wake-ups coalesce: a burst of them
+// before the next pass results in a single pass.
 func (m *TaskManager) Wake() { m.wake.Wake() }
+
+// Run polls the server for the runner's tasks until ctx is done, then returns
+// context.Cause(ctx). It polls again as soon as Wake is called or a run
+// releases its concurrency slot, and at the latest after PollInterval. Every
+// PollInterval it also runs Prune, between two Poll passes, so the two never
+// overlap.
+//
+// HandleEvents must be running, and Load must have returned, before Run is
+// called, all on the same ctx.
+func (m *TaskManager) Run(ctx context.Context) error {
+	prune := time.NewTicker(m.pollInterval)
+	defer prune.Stop()
+	for {
+		if err := m.Poll(ctx); err != nil {
+			m.log.Error("failed to poll tasks", "err", err)
+		}
+		select {
+		case <-prune.C:
+			if err := m.Prune(ctx); err != nil {
+				m.log.Error("failed to prune sandboxes", "err", err)
+			}
+		default:
+		}
+		select {
+		case <-m.wake:
+		case <-time.After(m.pollInterval):
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
+}
 
 func (m *TaskManager) Close() error {
 	return m.backend.Close()
@@ -277,8 +313,8 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 	// A pass handles each task at most once, and passes run one after another,
 	// so Start can create a task's sandbox and TaskRunner without a per-task
 	// lock: nothing else creates the TaskRunner of a task this pass handles.
-	// Prune, which runs alongside, only removes archived tasks, which have no
-	// command to handle, so it does not act on the same tasks either.
+	// Run calls Prune only between passes, so Prune does not act on the same
+	// tasks either.
 	var g errgroup.Group
 	g.SetLimit(int(m.concurrency))
 
@@ -748,8 +784,8 @@ func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.Ru
 }
 
 // Prune removes sandboxes for archived tasks. It goes through a snapshot of the
-// registry; it only removes archived tasks, which Poll has no command for, so
-// it never acts on a task Poll is handling.
+// registry. Run calls it between Poll passes, so it never acts on a task Poll
+// is handling.
 func (m *TaskManager) Prune(ctx context.Context) error {
 	m.mu.Lock()
 	tasks := maps.Clone(m.tasks)
