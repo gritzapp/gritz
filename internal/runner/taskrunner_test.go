@@ -127,6 +127,7 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	// "failed" is scoped to the run's version.
 	assert.NilError(t, err)
 	<-parked
+	waitQueued(t, queue, 1)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 2, Version: 4, Reason: "driver unreachable"},
 	}, protocmp.Transform())
@@ -147,6 +148,7 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 	// reported failed.
 	assert.NilError(t, err)
 	<-parked
+	waitQueued(t, queue, 1)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver has no such run"},
 	}, protocmp.Transform())
@@ -168,6 +170,7 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	<-parked
+	waitQueued(t, queue, 1)
 	events := submitted(t, mock, queue)
 	assert.Assert(t, cmp.Len(events, 1))
 	assert.Equal(t, events[0].Event, "failed")
@@ -217,6 +220,7 @@ func TestTaskRunnerRun_Destroyed(t *testing.T) {
 	assert.NilError(t, waitDone(t, done))
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assertTracked(t, m, 1, nil)
+	waitQueued(t, queue, 1)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox removed before the run finished"},
 	}, protocmp.Transform())
@@ -249,6 +253,7 @@ func TestTaskRunnerRun_DestroyedBeforeRun(t *testing.T) {
 	// cancelled from the start.
 	assert.NilError(t, err)
 	assertTracked(t, m, 1, nil)
+	waitQueued(t, queue, 1)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 1, Version: 4, Reason: "sandbox removed before the run finished"},
 	}, protocmp.Transform())
