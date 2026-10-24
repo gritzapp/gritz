@@ -560,14 +560,24 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 	return m, mock, queue
 }
 
-// track registers rec's task as Load does: rec in the store, and a TaskRunner
-// for it holding sb.
+// track tracks rec's task as Load does: rec in the store, and the task's
+// TaskRunner holding sb.
 func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
 	t.Helper()
 	assert.NilError(t, m.store.Write(rec))
-	tr := &TaskRunner{env: m.env, taskID: rec.TaskID, sb: sb, rec: rec}
-	m.register(tr)
+	tr := m.taskRunner(rec.TaskID)
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tr.sb, tr.rec = sb, rec
 	return tr
+}
+
+// registered returns the task's TaskRunner, or nil if it has none, without
+// registering one.
+func registered(m *TaskManager, taskID int64) *TaskRunner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tasks[taskID]
 }
 
 // claim claims tr for a Run, as Start or Restore does.
@@ -595,7 +605,7 @@ func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.R
 	t.Helper()
 	rec, ok, err := m.store.Read(taskID)
 	assert.NilError(t, err)
-	tr := m.lookup(taskID)
+	tr := registered(m, taskID)
 	if want == nil {
 		assert.Assert(t, !ok, "task %d has a record", taskID)
 		if tr != nil {
@@ -677,8 +687,8 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 	assert.NilError(t, m.Remove(t.Context(), 1))
 	waitReleased(t, m)
 
-	// Assert - Remove destroyed the sandbox Run holds, the task's record and
-	// TaskRunner are gone, and the run is lost.
+	// Assert - Remove destroyed the sandbox Run holds, the task's record is
+	// gone and its TaskRunner has no sandbox, and the run is lost.
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assertTracked(t, m, 1, nil)
 	waitQueued(t, queue, 1)
@@ -706,7 +716,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	assert.NilError(t, first.Load(ctx))
 	waitDialed(t, sb, 1)
 	cancel()
-	waitIdle(t, first.lookup(1))
+	waitIdle(t, first.taskRunner(1))
 	// The sandbox stays up for next-boot rehydration, and the slot held.
 	assert.Assert(t, cmp.Len(sb.ParkCalls(), 0))
 	assert.Assert(t, !first.sem.TryAcquire(1))
@@ -773,7 +783,7 @@ func TestTaskManagerStart_Create(t *testing.T) {
 		// The handle is recorded, and its TaskRunner registered, before the
 		// sandbox is started.
 		assertRecord(t, store, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
-		assert.Assert(t, m.lookup(1) != nil)
+		assert.Assert(t, registered(m, 1) != nil)
 		return nil
 	}
 	be := &backend.BackendMock{
@@ -951,7 +961,7 @@ func TestTaskManagerStart_StartFails(t *testing.T) {
 	// Act
 	err := startTask(t, m, task)
 
-	// Assert - Start failed with the record and TaskRunner kept and nothing
+	// Assert - Start failed with the record and sandbox kept and nothing
 	// run.
 	assert.ErrorIs(t, err, boom)
 	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"})
@@ -965,31 +975,50 @@ func TestTaskManagerStart_StartFails(t *testing.T) {
 	assertTracked(t, m, 1, nil)
 }
 
+// TestTaskManagerStart_Gone covers a task whose recorded sandbox has vanished:
+// Start fails with ErrGone and leaves the TaskRunner with no sandbox, and the
+// next Start creates a fresh one.
 func TestTaskManagerStart_Gone(t *testing.T) {
 	t.Parallel()
-	// Arrange - a task whose recorded sandbox has vanished. Start never
-	// creates a fresh sandbox for a recorded task.
+	// Arrange - a task whose recorded sandbox has vanished, and the sandbox
+	// Create makes for it once it has none.
 	task := &model.Task{ID: 8, Runner: "test-runner", Workspace: "test", Version: 2}
-	sb, _ := testSandbox(nil)
-	sb.StartFunc = func(context.Context) error { return backend.ErrGone }
+	gone, _ := testSandbox(nil)
+	gone.StartFunc = func(context.Context) error { return backend.ErrGone }
+	_, client, _ := newDriver(t, 3, nil)
+	fresh, parked := testSandbox(client)
+	fresh.StartFunc = func(context.Context) error { return nil }
 	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
+		OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return gone, nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return fresh, nil },
 	}
-	m, _, _ := testManager(t, be, testStore(t))
+	m, _, queue := testManager(t, be, testStore(t))
 	seed(t, m, taskstate.Record{TaskID: 8, Version: 1, Type: "docker", ID: "old-id"})
-	tr := m.lookup(8)
+	tr := m.taskRunner(8)
 
 	// Act
 	err := startTask(t, m, task)
 
 	// Assert - ErrGone surfaced (the caller emits failed and releases the
-	// slot), the dangling record and the TaskRunner were removed and it marked
-	// with why, and nothing is run.
+	// slot), no fresh sandbox was created, the dangling record was removed,
+	// and the TaskRunner was kept with no sandbox; nothing is run.
 	assert.ErrorIs(t, err, backend.ErrGone)
+	assert.Assert(t, cmp.Len(be.CreateCalls(), 0))
 	assertTracked(t, m, 8, nil)
-	assert.ErrorIs(t, tr.removed, backend.ErrGone)
-	assert.Assert(t, cmp.Len(sb.DialCalls(), 0))
+	assert.Equal(t, registered(m, 8), tr)
+	assert.Assert(t, cmp.Len(gone.DialCalls(), 0))
+
+	// Act - the task is started again.
+	task.Version = 3
+	err = startTask(t, m, task)
+
+	// Assert - the same TaskRunner created one fresh sandbox and ran on it.
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(be.CreateCalls(), 1))
+	assert.Equal(t, registered(m, 8), tr)
+	assertReported(t, m, queue, parked)
+	assertTracked(t, m, 8, &taskstate.Record{TaskID: 8, Version: 3, Type: "docker", ID: "c1"})
 }
 
 // TestTaskManagerPoll_StartStillRunning covers a start command for a task whose
@@ -1014,7 +1043,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
 	seed(t, m, legacyRecord(1, "c1"))
-	m.lookup(1).running = true
+	claim(m.taskRunner(1))
 
 	// Act
 	err := m.Poll(t.Context())
@@ -1085,7 +1114,8 @@ func TestTaskManagerLoad(t *testing.T) {
 		status     backend.Status
 		statusErr  error
 		wantEvents []*gritzv1.RunnerEvent
-		// wantRecord is whether the record is kept, and the task has a TaskRunner.
+		// wantRecord is whether the record is kept, and the task's TaskRunner
+		// holds its sandbox.
 		wantRecord bool
 		wantAttach bool // run: the TaskRunner dialed the driver to reattach
 	}{
@@ -1275,12 +1305,12 @@ func TestTaskManagerPrune(t *testing.T) {
 		map[string]backend.Status{
 			"c1": backend.StatusParked, // archived -> removed
 			"c2": backend.StatusParked, // not archived -> kept
-			"c3": backend.StatusUp,     // up -> not considered
+			"c3": backend.StatusUp,     // up -> kept
 			"c4": backend.StatusParked, // deleted -> removed
 			"c5": backend.StatusGone,   // archived -> removed
 		},
 		map[string]error{
-			"c7": errors.New("boom"), // status unknown -> not considered
+			"c7": errors.New("boom"), // status unknown -> kept
 		},
 	)
 	store := testStore(t)
@@ -1301,18 +1331,23 @@ func TestTaskManagerPrune(t *testing.T) {
 		legacyRecord(5, "c5"),
 		legacyRecord(7, "c7"),
 	)
+	// Task 6 is archived, and its TaskRunner has no sandbox.
+	tr6 := m.taskRunner(6)
+	// Task 8 is archived, and its TaskRunner's run is claimed.
+	tr8 := track(t, m, legacyRecord(8, "c8"), &backend.SandboxMock{})
+	claim(tr8)
 
 	// Act
 	err = m.Prune(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - only sandboxes that are not up had their task looked up.
+	// Assert - every registered task was looked up.
 	var looked []int64
 	for _, call := range mock.GetTaskCalls() {
 		looked = append(looked, call.GetTaskRequest.Id)
 	}
 	slices.Sort(looked)
-	assert.DeepEqual(t, looked, []int64{1, 2, 4, 5})
+	assert.DeepEqual(t, looked, []int64{1, 2, 3, 4, 5, 6, 7, 8})
 	// Archived/deleted tasks' sandboxes are destroyed.
 	slices.Sort(*destroyed)
 	assert.DeepEqual(t, *destroyed, []string{"c1", "c4", "c5"})
@@ -1323,12 +1358,16 @@ func TestTaskManagerPrune(t *testing.T) {
 		kept = append(kept, rec.TaskID)
 	}
 	slices.Sort(kept)
-	assert.DeepEqual(t, kept, []int64{2, 3, 7})
-	// The registry dropped exactly the removed tasks' TaskRunners.
+	assert.DeepEqual(t, kept, []int64{2, 3, 7, 8})
+	// The registry dropped the retired tasks' TaskRunners, including the one
+	// with no sandbox, and kept the claimed one.
 	m.mu.Lock()
-	registered := slices.Sorted(maps.Keys(m.tasks))
+	tasks := slices.Sorted(maps.Keys(m.tasks))
 	m.mu.Unlock()
-	assert.DeepEqual(t, registered, kept)
+	assert.DeepEqual(t, tasks, []int64{2, 3, 7, 8})
+	// The next command for a dropped task gets a fresh TaskRunner.
+	assert.Assert(t, m.taskRunner(6) != tr6)
+	assert.Equal(t, m.taskRunner(8), tr8)
 }
 
 // TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
@@ -1357,7 +1396,7 @@ func TestTaskManagerRun(t *testing.T) {
 
 	// Assert - the archived task's sandbox is pruned while Run keeps polling.
 	deadline := time.Now().Add(3 * time.Second)
-	for m.lookup(1) != nil {
+	for registered(m, 1) != nil {
 		if time.Now().After(deadline) {
 			t.Fatal("sandbox was not pruned")
 		}
@@ -1484,7 +1523,7 @@ func TestTaskManagerRemove(t *testing.T) {
 			}
 			assert.DeepEqual(t, opened, tt.wantOpened)
 			assert.Equal(t, len(sb.DestroyCalls()), len(tt.wantOpened))
-			// The record and the TaskRunner are removed together.
+			// The record is removed only with the sandbox.
 			if tt.wantRecords {
 				assertTracked(t, m, 1, &tt.records[0])
 			} else {
@@ -1494,56 +1533,56 @@ func TestTaskManagerRemove(t *testing.T) {
 	}
 }
 
-// TestTaskManagerRemovedTaskRunner covers an operation that looked up a task's
-// TaskRunner just before it was removed: once it has its lock it returns
-// why it was removed, without touching the sandbox or creating a new
-// one.
-func TestTaskManagerRemovedTaskRunner(t *testing.T) {
+// TestTaskManagerAfterDestroy covers the operations on a task whose sandbox
+// was destroyed: its TaskRunner stays registered, and they see no sandbox.
+func TestTaskManagerAfterDestroy(t *testing.T) {
 	t.Parallel()
-	ops := []struct {
+	tests := []struct {
 		name string
-		op   func(m *TaskManager) error
+		op   func(t *testing.T, m *TaskManager)
 	}{
-		{name: "start", op: func(m *TaskManager) error {
-			return m.Start(t.Context(), &model.Task{ID: 1, Workspace: "test", Version: 4})
+		{name: "kill", op: func(t *testing.T, m *TaskManager) {
+			stopped, err := m.Kill(t.Context(), &model.Task{ID: 1, Version: 4})
+			assert.NilError(t, err)
+			assert.Assert(t, !stopped)
 		}},
-		{name: "kill", op: func(m *TaskManager) error {
-			_, err := m.Kill(t.Context(), &model.Task{ID: 1, Version: 4})
-			return err
+		{name: "running", op: func(t *testing.T, m *TaskManager) {
+			running, err := m.Running(t.Context(), 1)
+			assert.NilError(t, err)
+			assert.Assert(t, !running)
 		}},
-		{name: "running", op: func(m *TaskManager) error {
-			_, err := m.Running(t.Context(), 1)
-			return err
+		{name: "remove", op: func(t *testing.T, m *TaskManager) {
+			assert.NilError(t, m.Remove(t.Context(), 1))
 		}},
-		{name: "remove", op: func(m *TaskManager) error { return m.Remove(t.Context(), 1) }},
-		{name: "version", op: func(m *TaskManager) error {
-			_, err := m.version(1)
-			return err
+		{name: "version", op: func(t *testing.T, m *TaskManager) {
+			assert.Equal(t, m.taskRunner(1).Version(), int64(0))
 		}},
 	}
-	for _, cause := range []error{errRemoved, backend.ErrGone} {
-		for _, tt := range ops {
-			t.Run(tt.name+"/"+cause.Error(), func(t *testing.T) {
-				t.Parallel()
-				// Arrange - the TaskRunner is still in the registry, as it was when
-				// the operation looked it up, but has since been removed.
-				// Every other backend call is unmocked, and so must not be made.
-				sb := &backend.SandboxMock{}
-				be := &backend.BackendMock{
-					ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-					OpenFunc:              func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
-				}
-				m, _, _ := testManager(t, be, testStore(t))
-				seed(t, m, legacyRecord(1, "c1"))
-				m.lookup(1).removed = cause
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - the task's sandbox is destroyed. Every other sandbox
+			// call is unmocked, and so must not be made.
+			sb := &backend.SandboxMock{
+				DestroyFunc: func(context.Context) error { return nil },
+			}
+			be := &backend.BackendMock{
+				OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sb, nil },
+			}
+			m, _, _ := testManager(t, be, testStore(t))
+			seed(t, m, legacyRecord(1, "c1"))
+			tr := m.taskRunner(1)
+			assert.NilError(t, m.Remove(t.Context(), 1))
 
-				// Act
-				err := tt.op(m)
+			// Act
+			tt.op(t, m)
 
-				// Assert
-				assert.ErrorIs(t, err, cause)
-			})
-		}
+			// Assert - the sandbox was destroyed once, and the task keeps its
+			// TaskRunner with no sandbox.
+			assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
+			assert.Equal(t, registered(m, 1), tr)
+			assertTracked(t, m, 1, nil)
+		})
 	}
 }
 
@@ -1902,7 +1941,7 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to record task handle")
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 0))
-	assert.Assert(t, m.lookup(1).sb == nil)
+	assert.Assert(t, m.taskRunner(1).sb == nil)
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):

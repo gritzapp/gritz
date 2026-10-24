@@ -55,12 +55,12 @@ type TaskManager struct {
 	// env is shared by the manager's TaskRunners.
 	env *taskEnv
 
-	// mu guards tasks, the registry of the tasks' TaskRunners. A task with a
-	// record in taskstate/ has a TaskRunner holding it; Start also registers
-	// one for a task with no sandbox yet, which stays registered without one
-	// if no sandbox is created. A TaskRunner that deletes its record leaves
-	// the registry.
-	// Only Load reads taskstate/, to rebuild the registry at boot.
+	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
+	// task the runner has seen, from its first command (or its record, at
+	// Load) until Prune drops it once the task is archived or deleted. A
+	// TaskRunner stays registered with no sandbox, before it creates one and
+	// after it destroys it or finds it gone. Only Load reads taskstate/, to
+	// rebuild the registry at boot.
 	mu    sync.Mutex
 	tasks map[int64]*TaskRunner
 }
@@ -176,7 +176,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		store:            opts.Store,
 		log:              log,
 		events:           m.events,
-		forget:           m.forget,
 		retryInterval:    reattachInterval,
 		retryMaxInterval: reattachMaxInterval,
 		lostTimeout:      driverLostTimeout,
@@ -362,12 +361,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 				// the command, exactly like the start handler's already-running
 				// guard. A legacy version-0 record never matches a live task's
 				// version (>= 1), so the guard is a no-op for those.
-				version, err := m.version(task.ID)
-				if err != nil {
-					m.log.Error("failed to read task record for restart", "task", task.ID, "err", err)
-					return nil
-				}
-				if version == task.Version {
+				if m.taskRunner(task.ID).Version() == task.Version {
 					m.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
 					return nil
 				}
@@ -383,7 +377,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
 					return nil
 				}
-				err = m.Start(ctx, task)
+				err := m.Start(ctx, task)
 				if errors.Is(err, errRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
@@ -473,9 +467,10 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 // capacity in over-limit scenarios — that's fine.
 //
 // Load rebuilds the task registry from the records it keeps: it is the only
-// reader of taskstate/. Each record is adopted by TaskRunner.Restore, which
-// claims an up sandbox's TaskRunner for its Run. A record whose handle cannot
-// be opened is dropped like a gone sandbox's, and neither gets a TaskRunner.
+// reader of taskstate/. Each record is adopted by its task's TaskRunner through
+// TaskRunner.Restore, which claims the TaskRunner of an up sandbox for its Run.
+// A record whose handle cannot be opened is dropped like a gone sandbox's,
+// leaving its TaskRunner with no sandbox.
 //
 // HandleEvents must already be running: the Run goroutines Load starts are
 // the first to send it events.
@@ -486,25 +481,17 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		// The TaskRunner has no sandbox until Restore installs one; it is
-		// registered only if it keeps it.
-		tr := &TaskRunner{env: m.env, taskID: rec.TaskID}
+		tr := m.taskRunner(rec.TaskID)
 		st, err := tr.Restore(ctx, rec)
 		if err != nil {
 			m.log.Error("load: restore", "task", rec.TaskID, "err", err)
-			if tr.sb != nil {
-				// The status check failed: the sandbox may well be there.
-				m.register(tr)
-			}
 			continue
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			m.register(tr)
 			m.run(ctx, tr, nil)
 			running++
 		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
-			m.register(tr)
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
@@ -542,13 +529,6 @@ func (m *TaskManager) failIfTaskRunning(ctx context.Context, taskID, version int
 	}
 }
 
-// lookup returns the task's TaskRunner, or nil if the task has none.
-func (m *TaskManager) lookup(taskID int64) *TaskRunner {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.tasks[taskID]
-}
-
 // taskRunner returns the task's TaskRunner, registering one with no sandbox if
 // the task has none.
 func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
@@ -562,58 +542,21 @@ func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
 	return tr
 }
 
-// register adds tr to the registry. Its record is in taskstate/ already.
-func (m *TaskManager) register(tr *TaskRunner) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tasks[tr.taskID] = tr
-}
-
-// forget deletes the task from the registry, once its TaskRunner has deleted
-// its record.
-func (m *TaskManager) forget(taskID int64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.tasks, taskID)
-}
-
-// version returns the version the task's record is stamped with, or 0 if the
-// task has none.
-func (m *TaskManager) version(taskID int64) (int64, error) {
-	tr := m.lookup(taskID)
-	if tr == nil {
-		return 0, nil
-	}
-	return tr.Version()
-}
-
 // Running reports whether the task's sandbox is up.
 func (m *TaskManager) Running(ctx context.Context, taskID int64) (bool, error) {
-	tr := m.lookup(taskID)
-	if tr == nil {
-		return false, nil
-	}
-	return tr.Running(ctx)
+	return m.taskRunner(taskID).Running(ctx)
 }
 
-// Remove destroys the task's sandbox and deletes its record and TaskRunner;
-// see TaskRunner.Destroy.
+// Remove destroys the task's sandbox and deletes its record; see
+// TaskRunner.Destroy.
 func (m *TaskManager) Remove(ctx context.Context, taskID int64) error {
-	tr := m.lookup(taskID)
-	if tr == nil {
-		return nil
-	}
-	return tr.Destroy(ctx)
+	return m.taskRunner(taskID).Destroy(ctx)
 }
 
 // Kill asks the driver of the task's sandbox to stop the recorded run, and
 // reports whether a running run was stopped; see TaskRunner.Kill.
 func (m *TaskManager) Kill(ctx context.Context, task *model.Task) (bool, error) {
-	tr := m.lookup(task.ID)
-	if tr == nil {
-		return false, nil
-	}
-	return tr.Kill(ctx)
+	return m.taskRunner(task.ID).Kill(ctx)
 }
 
 // spec assembles the sandbox spec for a task: the task token, the run's
@@ -759,9 +702,10 @@ func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.Ru
 	}()
 }
 
-// Prune removes sandboxes for archived tasks. It goes through a snapshot of the
-// registry. Run calls it between Poll passes, so it never acts on a task Poll
-// is handling.
+// Prune removes the sandboxes of archived and deleted tasks, and drops their
+// TaskRunners from the registry. It goes through a snapshot of the registry.
+// Run calls it between Poll passes, so it never acts on a task Poll is
+// handling.
 func (m *TaskManager) Prune(ctx context.Context) error {
 	m.mu.Lock()
 	tasks := maps.Clone(m.tasks)
@@ -772,21 +716,42 @@ func (m *TaskManager) Prune(ctx context.Context) error {
 	return nil
 }
 
-// prune removes the task's sandbox if it is not up and the task is archived.
-// Both a parked husk and a gone sandbox count as "no live sandbox"; Destroy is
-// idempotent, so removing a gone sandbox is a no-op.
+// prune retires the task's TaskRunner if the task is archived or deleted, and
+// then drops it from the registry; see TaskRunner.Retire. Between Poll passes
+// only a Run holds a TaskRunner, and Retire refuses a claimed one, so nothing
+// still uses a TaskRunner that is dropped: the task's next command gets a
+// fresh one.
 func (m *TaskManager) prune(ctx context.Context, taskID int64, tr *TaskRunner) {
-	removed, err := tr.destroyIf(ctx, func(ctx context.Context) (bool, error) {
-		resp, err := m.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-		if err != nil && connect.CodeOf(err) != connect.CodeNotFound {
-			return false, fmt.Errorf("failed to get task: %w", err)
-		}
-		// Remove sandbox if task is archived or deleted
-		return connect.CodeOf(err) == connect.CodeNotFound || resp.Task.Archived, nil
-	})
+	stale, err := m.stale(ctx, taskID)
 	if err != nil {
 		m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
-	} else if removed {
-		m.log.Info("sandbox removed", "task", taskID)
+		return
 	}
+	if !stale {
+		return
+	}
+	ok, err := tr.Retire(ctx)
+	if err != nil {
+		m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
+		return
+	}
+	if !ok {
+		return
+	}
+	m.mu.Lock()
+	delete(m.tasks, taskID)
+	m.mu.Unlock()
+	m.log.Info("task pruned", "task", taskID)
+}
+
+// stale reports whether the task is archived or deleted on the server.
+func (m *TaskManager) stale(ctx context.Context, taskID int64) (bool, error) {
+	resp, err := m.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to get task: %w", err)
+	}
+	return resp.Task.Archived, nil
 }
