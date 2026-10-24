@@ -23,7 +23,7 @@ import (
 )
 
 // testTaskRunner returns the TaskRunner of run version of taskID on sb,
-// registered with a test manager as Load does, along with the manager's
+// tracked by a test manager as Load does, along with the manager's
 // client and outbox.
 func testTaskRunner(t *testing.T, taskID, version int64, sb backend.Sandbox) (*TaskRunner, *TaskManager, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
 	t.Helper()
@@ -217,7 +217,7 @@ func TestTaskRunnerRun_Destroyed(t *testing.T) {
 	assert.NilError(t, tr.Destroy(t.Context()))
 
 	// Assert - Run is not shutting down, so it returns no error; the run is
-	// lost, and the task's record and TaskRunner are gone.
+	// lost, and the task's record and sandbox are gone.
 	assert.NilError(t, waitDone(t, done))
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assertTracked(t, m, 1, nil)
@@ -251,12 +251,13 @@ func TestTaskRunnerRun_DestroyedBeforeRun(t *testing.T) {
 	err := tr.Run(t.Context(), &driverv1.RunSpec{TaskId: 1})
 
 	// Assert - Run returned without waiting for the driver: its context was
-	// cancelled from the start.
+	// cancelled from the start. Destroy deleted the record, so the lost run
+	// has no version.
 	assert.NilError(t, err)
 	assertTracked(t, m, 1, nil)
 	waitQueued(t, queue, 1)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 4, Reason: "sandbox removed before the run finished"},
+		{Event: "failed", TaskId: 1, Reason: "sandbox removed before the run finished"},
 	}, protocmp.Transform())
 }
 
