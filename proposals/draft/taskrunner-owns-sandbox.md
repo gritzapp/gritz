@@ -50,7 +50,8 @@ archived or deleted.
 | Who calls `backend.Create` | `TaskManager.create`, with no lock | `TaskRunner.Start`, under `tr.mu` |
 | Destroy / sandbox gone | delete the record, `forget` the `TaskRunner`, set `removed` | delete the record and set `sb = nil`; the `TaskRunner` stays |
 | "No sandbox" | `m.tasks[id] == nil` | `tr.sb == nil` |
-| Reporting to the manager | `env.die`, `env.queue.Enqueue` | an events channel of sealed `TaskEvent` types |
+| Reporting to the manager | `env.die`, `env.queue.Enqueue` | an events channel of sealed `TaskEvent` types, drained by `HandleEvents` |
+| Prune | its own goroutine; archived check under `tr.mu` | between `Poll` passes in `TaskManager.Run`; archived check outside the lock |
 
 ### TaskRunner state
 
@@ -69,8 +70,6 @@ type TaskRunner struct {
 	running bool
 	// cancel cancels the Run in progress, or is nil.
 	cancel context.CancelCauseFunc
-	// retired is set by Retire; Start then returns ErrRetired.
-	retired bool
 }
 ```
 
@@ -98,35 +97,29 @@ and `forget` are deleted.
 
 `Start(ctx, spec backend.Spec)` runs entirely under `tr.mu`:
 
-1. A retired `TaskRunner` returns `ErrRetired`. If a claimed run is still
-   active, `Start` returns `ErrRunning` without doing anything.
+1. If a claimed run is still active, `Start` returns `ErrRunning` without
+   doing anything.
 2. **Existing sandbox:** stamp the record with `spec.Version`, keeping `Seq`
    (written only if it changed, as today). Then `sb.Start`. If that returns
-   `backend.ErrGone`, log a warning, `clear()` and continue to step 3. Any
-   other error is returned, and the sandbox and record are kept so `Destroy`
-   can still remove them.
+   `backend.ErrGone`, `clear()` and return `backend.ErrGone`. Any other error
+   is returned, and the sandbox and record are kept so `Destroy` can still
+   remove them. If `sb.Start` succeeds, go to step 4.
 3. **No sandbox:** `backend.Create(ctx, &spec)`. If it fails, nothing exists
    (that is `Create`'s contract). Otherwise write the record
    `{handle, spec.Version, Seq: 0}`. If that write fails, send a
    `TaskFatalEvent`, destroy the new sandbox on a best-effort basis (on
    `context.WithoutCancel(ctx)`, which today's code leaks), and return. Then
-   `sb.Start`. An `ErrGone` here is cleared and returned; there is no second
-   recreate.
+   `sb.Start`. An `ErrGone` here is also cleared and returned.
 4. `running = true`: this claims the `TaskRunner` for the `Run` the manager
    starts next.
 
-**Decision: `Start` recreates a gone sandbox in the same call.** Today a gone
-sandbox fails the start with `"sandbox is gone"`, and the next start creates a
-fresh sandbox because no `TaskRunner` is left. Now that the `TaskRunner`
-outlives its sandbox, "gone" and "no sandbox" should mean the same thing to
-`Start`. Failing would only make the user send the same start again to get the
-same result. If a run was in progress when the sandbox vanished, its loss is
-already reported, by `attach` (`TaskLostEvent`) or by `Load`'s backstop, so
-another `failed` adds nothing. The cost is that an idle task whose sandbox
-vanished starts again on a fresh sandbox without being told. The driver's
-first-run detection (`agent.Config.Started`) lives in the sandbox, so the
-fresh sandbox's run gets the first-run brief again. The agent keeps the task's
-context but loses its workspace files and session.
+**Decision: `Start` on a gone sandbox fails, as it does today.** It clears the
+sandbox and returns `backend.ErrGone`. The manager's existing error path gives
+back the slot and reports `failed` with `"sandbox is gone"`. The next start
+finds no sandbox and creates a fresh one. The only difference from today is
+what makes that next start create: before, it was the missing `TaskRunner`;
+now it is the `TaskRunner`'s nil `sb`. A task never moves to a fresh
+workspace without the user being told.
 
 ### Restore (reattach at Load)
 
@@ -141,10 +134,10 @@ acquisition that installs the sandbox:
    claimed and nothing is cleared, as today.
 3. `StatusGone`: `clear()`. `StatusUp`: `running = true`. Return the status.
 
-`Load` becomes:
+`Load` becomes the following. It requires `HandleEvents` to be running
+already (see [Events](#events)):
 
 ```go
-go m.handleEvents(ctx)
 for _, rec := range recs {
 	tr := m.taskRunner(rec.TaskID) // get-or-create
 	st, err := tr.Restore(ctx, rec)
@@ -185,9 +178,10 @@ exactly as `run`/`startRun`/`attach` do today. The differences:
   shutdown, the record is what `Load`'s backstop needs at the next boot (see
   [Coverage of a dropped TaskLostEvent](#coverage-of-a-dropped-tasklostevent)).
   The gone sandbox is cleared later by whichever comes first: the next `Start`
-  (which recreates it), `Restore` at boot, or `Retire`. Clearing a gone sandbox
-  always goes with a report: `Start`'s run reports itself, `Restore`'s goes
-  with the backstop, and `Retire`'s task is archived.
+  (which fails with `ErrGone`), `Restore` at boot, or `Retire`. Clearing a
+  gone sandbox always goes with a report: `Start`'s `ErrGone` becomes the
+  manager's `failed`, `Restore`'s goes with the backstop, and `Retire`'s task
+  is archived.
 
 ### Kill, Running, Version, Destroy
 
@@ -203,12 +197,20 @@ exactly as `run`/`startRun`/`attach` do today. The differences:
 
 ### Retire and Prune
 
-`Retire(ctx) (bool, error)`, under `tr.mu`, works as follows:
+`Retire(ctx) (bool, error)` destroys the sandbox if the `TaskRunner` is idle.
+Under `tr.mu`:
 
-- An already retired `TaskRunner` returns `true`.
 - If a run is claimed, or `sb.Status` reports `StatusUp`, it returns `false`.
-- Otherwise it destroys the sandbox if there is one, calls `clear()`, sets
-  `retired`, and returns `true`.
+- Otherwise it destroys the sandbox if there is one, calls `clear()`, and
+  returns `true`. A `TaskRunner` with no sandbox and no run just returns
+  `true`.
+
+`Prune` no longer runs on its own goroutine. `TaskManager.Run` (below) calls
+it between `Poll` passes. `Poll` waits for every handler it starts
+(`g.Wait()`), so between passes no handler holds a `*TaskRunner`. The only
+other holders are the `Run` goroutines, which hold one only while a run is
+claimed, and then `Retire` refuses. So `prune` can delete the registry entry
+right after `Retire` reports `true`:
 
 ```go
 func (m *TaskManager) prune(ctx context.Context, taskID int64, tr *TaskRunner) {
@@ -217,36 +219,70 @@ func (m *TaskManager) prune(ctx context.Context, taskID int64, tr *TaskRunner) {
 	}
 	if ok, err := tr.Retire(ctx); ok {
 		m.mu.Lock()
-		if m.tasks[taskID] == tr {
-			delete(m.tasks, taskID)
-		}
+		delete(m.tasks, taskID)
 		m.mu.Unlock()
 	}
 }
 ```
 
+Prune doesn't need a terminal state on the `TaskRunner`. No `Start` can reach
+a `TaskRunner` once it is dropped: the next pass's get-or-create builds a
+fresh one. Today's race, where a `Start` waiting for the lock of a pruned
+`TaskRunner` gets `errRemoved` and reports `failed`, cannot happen.
+
 **Decision: the archived check runs outside the TaskRunner's lock.** Holding
 the lock across `GetTask` never stopped the task from being unarchived after
 the check. What it actually guaranteed was that no run started between the
-check and the destroy. `Retire` gives the same guarantee on its own, because
-it refuses while a run is claimed or the sandbox is up.
-
-`retired` is the one terminal state left. It is needed because the registry
-lets go of a `TaskRunner` that a `Poll` goroutine may still hold. If that
-goroutine's `Start` ran on a dropped `TaskRunner`, it would create a sandbox
-no registry entry knows about, and the next get-or-create would create a
-second one. `Start` returns `ErrRetired` instead. The manager handles that
-like `ErrRunning`: it gives back the slot and emits no `failed`. The command
-survives (the task was unarchived and started), and the next poll's
-get-or-create builds a fresh `TaskRunner`. Today the same race emits `failed`
-with `errRemoved`. Unlike `removed`, `retired` has one writer (`Retire`), is
-only set on a `TaskRunner` with no sandbox and no run, and only `Start` checks
-it, since `Start` is the only method that can create a sandbox after `Load`.
+check and the destroy. With Prune serialized with Poll, no `Start` runs during
+`prune` at all, and `Retire` still refuses a claimed run or an up sandbox.
 
 Prune now calls `GetTask` for every registered `TaskRunner`, including those
 with no sandbox. Today it only does so for sandboxes that are not up. The
 extra calls are bounded by the concurrency limit (up sandboxes) plus the
 `TaskRunner`s with no sandbox, which auto-archive keeps small.
+
+### TaskManager.Run
+
+`Run(ctx)` takes over the poll loop from `internal/command/runner.go`. It
+polls, runs `Prune` if the prune ticker (`PollInterval`, the interval of
+today's autoprune goroutine) has fired since the last pass, and then waits for
+`WakeC`, `PollInterval` or `ctx`:
+
+```go
+func (m *TaskManager) Run(ctx context.Context) error {
+	prune := time.NewTicker(m.pollInterval)
+	defer prune.Stop()
+	for {
+		if err := m.Poll(ctx); err != nil {
+			m.log.Error("failed to poll tasks", "err", err)
+		}
+		select {
+		case <-prune.C:
+			if err := m.Prune(ctx); err != nil {
+				m.log.Error("failed to prune sandboxes", "err", err)
+			}
+		default:
+		}
+		select {
+		case <-m.wake:
+		case <-time.After(m.pollInterval):
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		}
+	}
+}
+```
+
+`PollInterval` moves into `TaskManagerOptions`. The command keeps its
+`--poll` flag and passes the value through. The command still matches the
+returned cause against `FatalError` to choose its exit code, and `Fatal`
+stays in `TaskManagerOptions` unchanged.
+
+A slow Prune delays the next poll. It calls `GetTask` for every registered
+`TaskRunner`, and `sb.Destroy` for each one it retires. While it runs, new
+commands, and the wakes from released slots, wait. `wakeup.Chan` coalesces
+wakes, so none is lost, only delayed. This is the price of dropping the
+terminal state, and it is bounded by one prune pass per `PollInterval`.
 
 ### Registry and the manager
 
@@ -282,21 +318,23 @@ case <-ctx.Done():
 }
 ```
 
-The manager's handler is `TaskFatalEvent` → `m.die(ev.Err)`, and
-`TaskLostEvent` → `m.queue.Enqueue(RunnerEvent{TaskID, Version, Failed,
-Reason})`, which calls `m.die` if it fails. It never touches a `TaskRunner`, so
-sends made while holding `tr.mu` (from `Start`, and from the `Seq` write)
-cannot deadlock.
+`HandleEvents(ctx)` drains the channel until `ctx` is done.
+`TaskFatalEvent` → `m.die(ev.Err)`. `TaskLostEvent` →
+`m.queue.Enqueue(RunnerEvent{TaskID, Version, Failed, Reason})`, which calls
+`m.die` if it fails. It never touches a `TaskRunner`, so sends made while
+holding `tr.mu` (from `Start`, and from the `Seq` write) cannot deadlock.
 
-**Decision: the event loop runs on a goroutine `Load` starts, on `Load`'s
-ctx.** `Load` already has to run once before `Poll` admits work, and its Run
-goroutines are the first possible senders. All senders select on the same
-root ctx, so the loop and the sends stop together: no sender can block on a
-loop that has stopped. If `NewTaskManager` started the loop instead, it would
-need a context of its own and a `Close` to stop it. A separate exported `Run`
-would be one more thing the command layer must remember to call, and missing
-it would hang `Start` while it holds `tr.mu`. Tests that drive `Poll` call
-`Load` on an empty store first.
+**Decision: the event loop is the exported `HandleEvents(ctx)`, and the
+command starts it before `Load`.** The command runs
+`go m.HandleEvents(ctx)`, then `m.Load(ctx)`, then `m.Run(ctx)`, all on the
+runner's root context. Since the loop and every sender use that same context,
+they stop together: no sender can block on a loop that has stopped. `Load`'s
+Run goroutines are the first possible senders, so the doc comments of both
+`HandleEvents` and `Load` say that `HandleEvents` must be running before
+`Load` is called. Starting the loop in the command keeps `Load` a pure
+rehydration step and keeps the manager's goroutines visible where the
+command's other goroutines (`queue.Run`, the notification client) are
+started. The test helper starts `HandleEvents` too.
 
 **Decision: the channel is unbuffered.** Events are rare (a lost run, a dead
 disk), and the handler is one `Enqueue` or one `cancel`. A buffer would save
@@ -318,14 +356,12 @@ again:
   enqueues `failed(rec.Version)`. Covered.
 - **Run lost before the driver reported `started`** (a `startRun` failure):
   the task is `PENDING` or `RESTARTING`, not `RUNNING`, so the backstop skips
-  it. A `START` command is still pending and the next poll starts it again.
-  A `RESTART` command hits the restart guard (`Version() == task.Version`) and
-  waits for a `started` that never comes. Today's code has the same hole when
-  the runner crashes between the version stamp and `sb.Start`. Layer 7 closes
-  both: the backstop also fires for `PENDING`/`RESTARTING` tasks whose version
-  equals `rec.Version` (and is not 0). That is safe because a record stamped
-  with `v` means this runner launched run `v`, and at boot nothing follows it.
-  `applyRunnerEventFailed` already accepts those statuses.
+  it. A pending `START` recovers: the next poll finds the sandbox not running
+  and starts it again. A `RESTART` hits the restart guard
+  (`Version() == task.Version`) and waits for a `started` that never comes.
+  Today's code has the same gap when the runner stops between the version
+  stamp and `started`. It is tracked in #1763 and is not part of this
+  refactor.
 - **Sandbox removed** (`Destroy` cancelled the run): the record is gone on
   purpose. Only `Prune` and `Remove` destroy, and only for archived or deleted
   tasks. Not covered, and it doesn't need to be.
@@ -346,8 +382,8 @@ With this design, #1757's layer 6 changes only `TaskRunner`:
 - The lock is short: a claimed `TaskRunner` refuses `Start` right away, so
   only `Kill`, `Destroy`, `Running` and `Retire` compete with the `Seq` write.
 - `Start` keeps `Seq` when it restarts an existing sandbox, because the WAL
-  index stays monotonic across that sandbox's runs. It is 0 for a new or
-  recreated sandbox (a new WAL). `Restore` reads it from the record.
+  index stays monotonic across that sandbox's runs. It is 0 for a new sandbox
+  (a new WAL). `Restore` reads it from the record.
 
 ### API
 
@@ -382,7 +418,7 @@ type TaskRunner struct{ ... }
 // NewTaskRunner returns a TaskRunner with no sandbox; it panics if a required option is missing. // new
 func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner
 
-// Start creates the sandbox if there is none or it is gone, stamps its record and starts it, claiming tr for Run. // changed: was Start(ctx, version)
+// Start creates the sandbox if there is none, stamps its record and starts it, claiming tr for Run. // changed: was Start(ctx, version)
 func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error
 
 // Restore adopts a record from a previous process and reports its sandbox's status, claiming tr for Run if it is up. // new
@@ -403,14 +439,11 @@ func (tr *TaskRunner) Version() int64
 // Destroy destroys the sandbox and deletes its record, keeping tr. // changed: tr stays usable
 func (tr *TaskRunner) Destroy(ctx context.Context) error
 
-// Retire destroys an idle sandbox and makes tr refuse Start, reporting whether it did. // new
+// Retire destroys the sandbox if tr is idle, reporting whether tr is now idle with no sandbox. // new
 func (tr *TaskRunner) Retire(ctx context.Context) (bool, error)
 
 // ErrRunning is returned by Start while a Run follows the previous run. // changed: was errRunning
 var ErrRunning = errors.New("sandbox is still running")
-
-// ErrRetired is returned by Start on a retired TaskRunner. // new
-var ErrRetired = errors.New("task runner retired")
 
 // TaskEvent is something a TaskRunner reports to its manager. // new
 type TaskEvent interface{ taskEvent() }
@@ -428,8 +461,21 @@ type TaskLostEvent struct {
 	Reason  string
 }
 
-// Load rehydrates the registry from taskstate/ and starts the task event loop on ctx. // changed: starts the event loop
+type TaskManagerOptions struct {
+	// ... existing fields, Fatal unchanged.
+
+	// PollInterval is the fallback pause between Poll passes and the Prune interval. // new
+	PollInterval time.Duration
+}
+
+// HandleEvents handles the TaskRunners' events until ctx is done; start it before Load. // new
+func (m *TaskManager) HandleEvents(ctx context.Context)
+
+// Load rehydrates the registry from taskstate/; HandleEvents must already be running. // changed: doc states the ordering
 func (m *TaskManager) Load(ctx context.Context) error
+
+// Run polls until ctx is done, pruning between passes, and returns ctx's cause. // new: was the command's poll loop
+func (m *TaskManager) Run(ctx context.Context) error
 ```
 
 Removed (all unexported): `taskEnv`, `newTaskRunner`, `loadTaskRunner`,
@@ -448,13 +494,15 @@ type Record struct {
 ```
 
 **How it fits:** `NewTaskManager` builds a `TaskRunnerOptions` template that
-points `Events` at its unbuffered `events` channel. `Load` starts
-`handleEvents` and calls `Restore` on a get-or-created `TaskRunner` for each
-record. `Poll`'s handlers get-or-create, build the `backend.Spec`, and call
-`Start`, then `m.run` calls `Run` on its own goroutine, which holds the
-concurrency slot. `Prune` checks the server and calls `Retire`, then drops the
+points `Events` at its unbuffered `events` channel. The `gritz runner` command
+starts `go m.HandleEvents(ctx)`, then calls `Load`, which calls `Restore` on a
+get-or-created `TaskRunner` for each record, and then calls `m.Run(ctx)`
+instead of its own loop and autoprune goroutine. `Run` alternates `Poll` and
+`Prune`. `Poll`'s handlers get-or-create, build the `backend.Spec`, and call
+`Start`, then `m.run` calls `TaskRunner.Run` on its own goroutine, which holds
+the concurrency slot. `Prune` checks the server, calls `Retire`, and drops the
 entry. `TaskRunner`s talk back only through `TaskFatalEvent` and
-`TaskLostEvent`, which `handleEvents` turns into `die` or an outbox `failed`.
+`TaskLostEvent`, which `HandleEvents` turns into `die` or an outbox `failed`.
 
 ### Visualization
 
@@ -468,14 +516,15 @@ entry. `TaskRunner`s talk back only through `TaskFatalEvent` and
   claims the run under its lock. `Run` then starts the run.
 - **`taskrunner-gone`**: the sandbox vanishes mid-run. `attach` sends a
   `TaskLostEvent` that the manager turns into an outbox `failed`, and the
-  record stays. The next `START` finds the sandbox gone, clears it and
-  recreates it in the same call.
-- **`taskrunner-restore`**: after a runner restart, `Load` starts the event
-  loop, and `Restore` adopts the record and claims the run on an up sandbox.
-  `Run` reattaches from `Seq`.
-- **`taskrunner-prune`**: an archived task is checked outside the lock.
-  `Retire` destroys the parked sandbox, clears the record and retires the
-  `TaskRunner`, the registry drops it, and a racing `Start` gets `ErrRetired`.
+  record stays. The next `START` finds the sandbox gone, clears it and fails
+  with `ErrGone`, and the start after that creates a fresh sandbox.
+- **`taskrunner-restore`**: after a runner restart, the command starts
+  `HandleEvents`, then `Load`'s `Restore` adopts the record and claims the run
+  on an up sandbox. `Run` reattaches from `Seq`.
+- **`taskrunner-prune`**: between two `Poll` passes, `Run` runs `Prune`. The
+  archived check happens outside the lock, `Retire` destroys the parked
+  sandbox and clears the record, and the registry drops the entry. The next
+  pass creates a fresh `TaskRunner`.
 
 ## Implementation Plan
 
@@ -484,75 +533,80 @@ Each layer merges on its own and leaves the runner working. The existing
 with their helpers (`track`, `seed`, `testManager`) updated as they go.
 
 1. **Task events** — Delivers: `TaskEvent`, `TaskFatalEvent`, `TaskLostEvent`;
-   the manager's unbuffered `events` channel and `handleEvents`, started by
-   `Load`; `TaskRunner.write` and `Run` send events instead of calling
+   the manager's unbuffered `events` channel and exported `HandleEvents`, which
+   the command starts before `Load` and `testManager` starts too;
+   `TaskRunner.write` and `Run` send events instead of calling
    `env.die`/`env.queue`; `die` and `queue` leave `taskEnv`. Depends on:
    nothing. Verifiable by: tests that a lost run's `failed` reaches the outbox
    through the channel, that a failed record write sets the `FatalError` cause,
    and that a send on a cancelled ctx returns.
-2. **Restore** — Delivers: `TaskRunner.Restore`, used by `Load`; removes
+2. **TaskManager.Run** — Delivers: `TaskManager.Run(ctx)` with the poll loop
+   moved from `internal/command/runner.go`; `TaskManagerOptions.PollInterval`;
+   `Prune` runs on a ticker between `Poll` passes, and the autoprune goroutine
+   goes. Prune's logic is unchanged here. Depends on: nothing. Verifiable by: a
+   test that `Run` prunes an archived task's parked sandbox and returns the
+   `FatalError` cause once `die` fires; running the runner against a local
+   server.
+3. **Restore** — Delivers: `TaskRunner.Restore`, used by `Load`; removes
    `loadTaskRunner`, `claim` and `dropGone`. Depends on: (1). Verifiable by:
    `TestTaskManagerLoad*` (up claims and reattaches, parked/gone backstop, gone
    and unopenable records dropped).
-3. **Start creates the sandbox** — Delivers: nullable `sb`;
+4. **Start creates the sandbox** — Delivers: nullable `sb`;
    `TaskRunner.Start(ctx, backend.Spec)` calls `backend.Create` and writes the
    record under `tr.mu`, destroying the sandbox if the write fails; get-or-create
    `m.taskRunner`; removes `m.create`, `newTaskRunner` and `idle`. `forget` and
-   `removed` still exist. Depends on: (2). Verifiable by:
+   `removed` still exist. Depends on: (3). Verifiable by:
    `TestTaskManagerStart_*` and a test that two concurrent `Start`s on one task
    create one sandbox.
-4. **TaskRunner outlives its sandbox** — Delivers: `clear()` replaces `remove`;
-   `Destroy` and gone keep the `TaskRunner`; `Retire` and the new `prune`;
-   `ErrRetired`/`ErrRunning` handling in `Poll`; removes `forget`, `removed`,
-   `destroyIf`, `lookup` and every `tr == nil` branch. Depends on: (3).
-   Verifiable by: `TestTaskManagerRemovedTaskRunner` rewritten as "operations
-   after Destroy see no sandbox", and new tests for a `Start` racing `Retire`
-   and for start-after-destroy creating a new sandbox.
-5. **TaskRunnerOptions** — Delivers: exported `TaskRunnerOptions` and
+5. **TaskRunner outlives its sandbox** — Delivers: `clear()` replaces `remove`;
+   `Destroy`, and `Start`'s `ErrGone`, keep the `TaskRunner`; `Retire` and the
+   new `prune`, which drops the entry after `Retire`; removes `forget`,
+   `removed`, `destroyIf`, `lookup` and every `tr == nil` branch. Depends on:
+   (2), (4). Verifiable by: `TestTaskManagerRemovedTaskRunner` rewritten as
+   "operations after Destroy see no sandbox"; `TestTaskManagerStart_Gone`
+   (fails with `ErrGone`, then the next `Start` creates one new sandbox);
+   `TestTaskManagerPrune` checking that the entry is dropped and the next
+   `Start` gets a fresh `TaskRunner`.
+6. **TaskRunnerOptions** — Delivers: exported `TaskRunnerOptions` and
    `NewTaskRunner` (panics, defaults, no side effects); the manager's `opts`
    template; removes `taskEnv`; tests tune timeouts through `m.opts`. Depends
-   on: (4). Verifiable by: `NewTaskRunner` table test (panics per missing dep,
+   on: (5). Verifiable by: `NewTaskRunner` table test (panics per missing dep,
    defaults applied, no record written); the existing suites with `m.env`
    replaced.
-6. **Recreate a gone sandbox in Start** — Delivers: `Start`'s `ErrGone` on an
-   existing sandbox clears it and falls through to `Create`. Depends on: (4).
-   Verifiable by: `TestTaskManagerStart_Gone` flipped: one `Create`, a new
-   record with `Seq` 0, no `failed`.
-7. **Backstop for runs that never reported started** — Delivers:
-   `failIfTaskRunning` also fires for `PENDING`/`RESTARTING` tasks whose
-   version equals a nonzero `rec.Version`. Depends on: (2). Verifiable by:
-   `TestTaskManagerLoad_VersionScopedBackstop` cases for a restart whose
-   `TaskLostEvent` was dropped, and for a stale-version pending task (no
-   event).
 
-#1757's layer 6 (`Record.Seq`, `tr.advance`) goes on top of (5).
+#1757's layer 6 (`Record.Seq`, `tr.advance`) goes on top of (6).
 
 ## Trade-offs
 
-**Start on a gone sandbox: recreate vs. fail.** Failing, as today, tells the
-user explicitly that the workspace is lost. But it reports the same loss a
-second time for a run that `attach` already reported, and the user's only
-option is to send the same start again. Recreating makes "gone" and "no
-sandbox" behave the same and lets a sandbox the platform reclaimed recover on
-its own. The cost is an idle task silently getting a fresh workspace. That is
-logged, and the driver's first-run brief gives the agent its context back.
+**Start on a gone sandbox: fail vs. recreate.** Recreating in the same call
+would make "gone" and "no sandbox" behave the same, and would save a second
+start. But an idle task would then silently get a fresh workspace, and a
+start that fails for an unrelated reason would hide the loss. Failing, as
+today, tells the user explicitly that the workspace is gone, and the next
+start creates a fresh one. The cost: a run already reported lost when its
+sandbox vanished gets a second `failed` when the next start finds the sandbox
+gone.
 
 **attach clearing a gone sandbox.** Clearing at once would free the record
 sooner, but it would remove exactly what `Load`'s backstop needs when the
 `TaskLostEvent` is dropped. Keeping it costs nothing: whatever happens next
 (`Start`, `Restore`, `Retire`) clears it.
 
-**A `retired` flag vs. no terminal state.** Without one, `Prune` would have to
-drop the registry entry while holding both `m.mu` and `tr.mu`. That means
-holding `m.mu` across `sb.Destroy`, or `TryLock` and skipping work. Dropping
-the entry without coordinating with the `TaskRunner` lets a `Poll` goroutine
-that already holds the pointer create a sandbox nothing tracks. A single
-write-once flag that only `Start` checks is the smallest fix.
+**Serializing Prune with Poll vs. a terminal state.** With Prune on its own
+goroutine, a `Poll` handler can hold a pointer to a `TaskRunner` that Prune
+has just dropped. Its `Start` would then create a sandbox nothing tracks, so
+the `TaskRunner` would need a write-once `retired` flag for `Start` to refuse
+(an earlier draft of this proposal had one). Running Prune between passes
+removes the race instead of guarding against it, and removes a state and an
+error the manager would otherwise handle. The cost is that a slow Prune delays
+the next poll.
 
-**Event loop in Load vs. NewTaskManager vs. an exported Run.** See
-[Events](#events). `Load` ties the loop to the senders' context with no new
-lifecycle method. The price is that tests driving `Poll` must call `Load`
-first.
+**`HandleEvents` started by the command vs. by `Load` or `NewTaskManager`.**
+Starting the loop inside `Load` would tie it to the senders' context without a
+new method, but it would hide a goroutine inside a rehydration step.
+`NewTaskManager` would need a context of its own and a `Close` to stop it. An
+exported `HandleEvents` costs one ordering rule (before `Load`), which both doc
+comments state and the command and test helper follow.
 
 **Unbuffered vs. buffered events.** A buffer would let `Start` release `tr.mu`
 a few microseconds sooner. It would also add a new way to lose events
@@ -561,22 +615,20 @@ a few microseconds sooner. It would also add a new way to lose events
 **Callbacks vs. a channel.** That choice was settled. The channel makes the
 direction explicit: `TaskRunner` → manager only, with a closed set of
 messages. The cost is the "never take a `TaskRunner` lock in a handler" rule,
-which a lone `handleEvents` keeps easy to enforce.
+which a lone `HandleEvents` keeps easy to enforce.
 
 **More `GetTask` calls in Prune.** Checking the server before `Retire`, for
 every registered `TaskRunner`, costs a few extra calls each pass compared with
 today's check of `Status` first. In return the server call no longer holds
-`tr.mu`.
+`tr.mu`. Now that Prune runs between polls, these calls also add to how long
+the next poll is delayed.
 
 ## Open Questions
 
 - Should `TaskManager.Remove` stay? Only tests call it. Its tests could call
   `TaskRunner.Destroy` on `m.taskRunner(id)` directly.
-- Layer 7 broadens the backstop to `PENDING`/`RESTARTING`. Should
-  `CANCELLING` be included too? This proposal leaves it out, because `Poll`'s
-  stop handler already emits `stopped` for a task with no running sandbox, and
-  a `failed` enqueued at boot would get there first and change the outcome to
-  `FAILED`.
 - Should a `TaskRunner` with no sandbox that sees no command for a long time
   (a task that is never archived) be dropped earlier than `Prune`'s archived
   check? This proposal relies on auto-archive.
+- Should Prune skip a pass, or cap the number of `GetTask` calls per pass, when
+  the registry is large, to bound how long it delays the next poll?

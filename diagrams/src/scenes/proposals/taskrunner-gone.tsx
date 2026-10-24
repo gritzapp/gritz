@@ -6,15 +6,15 @@ import {Colors} from '../../theme';
 // A sandbox that vanishes mid-run, traced from
 // proposals/draft/taskrunner-owns-sandbox.md (Run, Events, Start): attach
 // reports the run lost through the events channel and keeps the record; the
-// next START clears the gone sandbox and recreates it in the same call.
+// next START clears the gone sandbox and fails with ErrGone, as today; the
+// START after that creates a fresh sandbox.
 export default makeScene2D(function* (view) {
-  const a = taskRunnerLayout(view, 'A gone sandbox: lost, then recreated');
+  const a = taskRunnerLayout(view, 'A gone sandbox: lost, failed, then fresh');
   const {links} = a;
 
   a.registry.putRow('42', 'TaskRunner');
   a.state.putRow('sb', 'c1');
   a.state.putRow('running', 'true');
-  a.state.putRow('retired', 'false');
   a.taskstate.putRow('type', 'docker');
   a.taskstate.putRow('id', 'c1');
   a.taskstate.putRow('version', '1');
@@ -79,7 +79,7 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     7,
-    'Start clears the gone sandbox (record removed, sb = nil) and falls through to Create.',
+    'Start clears the gone sandbox (record removed, sb = nil) and returns ErrGone. The TaskRunner stays.',
   );
   yield* all(
     a.taskstate.dropRow('type'),
@@ -90,11 +90,24 @@ export default makeScene2D(function* (view) {
     a.sandbox.opacity(0, 0.5),
     a.wal.dropRow('last'),
   );
+  yield* links.calls.send('ErrGone', {back: true, color: Colors.runner});
+  yield* a.taskRunner.updateActivity('');
 
   yield* a.caption.show(
     8,
-    'Same call: Create a fresh sandbox, record it at v2 with Seq 0 (a new WAL), start it, claim the run.',
+    'As today, the manager gives the slot back and reports failed(v2): the user learns the workspace is gone.',
   );
+  yield* a.outbox.addRow('failed', '42 · v2');
+  yield* links.managerApi.send('SubmitRunnerEvents', {color: Colors.runner});
+  yield* a.outbox.dropRow('failed');
+
+  yield* a.caption.show(
+    9,
+    'The next START (v3) finds sb == nil, so Start creates a fresh sandbox and records it at v3 with Seq 0.',
+  );
+  yield* a.manager.updateActivity('Start(42, v3)');
+  yield* links.calls.send('Start(spec v3)', {color: Colors.runner});
+  yield* a.taskRunner.updateActivity('Start · tr.mu held');
   yield* links.backend.send('Create(spec)', {color: Colors.runner});
   a.sandbox.subtitle('c2');
   a.driver.activity('');
@@ -104,7 +117,7 @@ export default makeScene2D(function* (view) {
   yield* a.taskstate.addRow('type', 'docker');
   yield* all(
     a.taskstate.addRow('id', 'c2'),
-    a.taskstate.addRow('version', '2'),
+    a.taskstate.addRow('version', '3'),
     a.taskstate.addRow('seq', '0'),
   );
   yield* links.backend.send('Start', {color: Colors.runner});
@@ -112,15 +125,10 @@ export default makeScene2D(function* (view) {
     a.sandbox.subtitle('c2 · up', 0.4),
     a.state.setRow('running', 'true'),
   );
-
-  yield* a.caption.show(
-    9,
-    'No second failed. The fresh sandbox’s driver sees a first run, so the agent gets the task brief again.',
-  );
-  yield* a.taskRunner.updateActivity('Run: attach v2');
-  yield* links.backend.rpc('Run(v2, spec)', 'Accepted', {
+  yield* a.taskRunner.updateActivity('Run: attach v3');
+  yield* links.backend.rpc('Run(v3, spec)', 'Accepted', {
     color: Colors.runner,
   });
-  yield* a.driver.updateActivity('run v2 · first run');
+  yield* a.driver.updateActivity('run v3');
   yield* waitFor(2);
 });

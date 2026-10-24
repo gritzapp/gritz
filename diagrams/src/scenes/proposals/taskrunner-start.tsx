@@ -36,7 +36,6 @@ export default makeScene2D(function* (view) {
   yield* all(
     a.state.addRow('sb', 'nil'),
     a.state.addRow('running', 'false'),
-    a.state.addRow('retired', 'false'),
   );
 
   yield* a.caption.show(
