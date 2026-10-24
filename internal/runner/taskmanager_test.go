@@ -1320,6 +1320,53 @@ func TestTaskManagerPrune(t *testing.T) {
 	assert.DeepEqual(t, registered, kept)
 }
 
+// TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
+// archived task's parked sandbox, and once die fires it returns the FatalError
+// cause.
+func TestTaskManagerRun(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 1 is archived and its sandbox is parked.
+	be, _ := testBackend(map[string]backend.Status{"c1": backend.StatusParked}, nil)
+	m, mock, _ := testManager(t, be, testStore(t))
+	mock.ListRunnerTasksFunc = func(context.Context, *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
+		return &gritzv1.ListRunnerTasksResponse{}, nil
+	}
+	mock.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
+		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: true}}, nil
+	}
+	m.pollInterval = 10 * time.Millisecond
+	ctx, cancelCause := context.WithCancelCause(t.Context())
+	defer cancelCause(nil)
+	m.fatal = cancelCause
+	seed(t, m, legacyRecord(1, "c1"))
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- m.Run(ctx) }()
+
+	// Assert - the archived task's sandbox is pruned while Run keeps polling.
+	deadline := time.Now().Add(3 * time.Second)
+	for m.lookup(1) != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("sandbox was not pruned")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	assertTracked(t, m, 1, nil)
+	assert.Assert(t, len(mock.ListRunnerTasksCalls()) > 0)
+
+	// Assert - Run returns the FatalError cause once die fires.
+	m.die(errors.New("boom"))
+	select {
+	case err := <-done:
+		var fatal FatalError
+		assert.Assert(t, errors.As(err, &fatal), "got %v", err)
+		assert.ErrorContains(t, err, "boom")
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return")
+	}
+}
+
 func TestTaskManagerRunning(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
