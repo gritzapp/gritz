@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -349,6 +350,25 @@ func submitted(t *testing.T, mock *gritzclient.ClientMock, queue *outbox.Outbox[
 	return mock.SubmittedRunnerEvents()
 }
 
+// waitQueued waits until the outbox holds n events. A TaskRunner's send
+// returns once HandleEvents has received the event, which it enqueues only
+// after.
+func waitQueued(t *testing.T, queue *outbox.Outbox[model.RunnerEvent], n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got, err := queue.Len()
+		assert.NilError(t, err)
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("outbox holds %d events, want %d", got, n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // TestTaskManagerEventsSurviveRestart is the durability payoff of this layer: events
 // persisted by one runner process are redelivered by the next, with no separate
 // recovery path — the reopened outbox's first Run pass drains them in FIFO order.
@@ -511,7 +531,8 @@ func testSandbox(client driverv1connect.DriverServiceClient) (sb *backend.Sandbo
 }
 
 // testManager returns a manager with the "test" workspace whose client mints
-// task tokens, with reattach timings shortened for tests.
+// task tokens, with reattach timings shortened for tests, and its HandleEvents
+// running until the test ends.
 func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*TaskManager, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
 	t.Helper()
 	mock := &gritzclient.ClientMock{
@@ -535,6 +556,7 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 	m.env.retryMaxInterval = 50 * time.Millisecond
 	m.env.lostTimeout = 10 * time.Second
 	m.env.readyTimeout = 10 * time.Second
+	go m.HandleEvents(t.Context())
 	return m, mock, queue
 }
 
@@ -647,6 +669,7 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 	// TaskRunner are gone, and the run is lost.
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assertTracked(t, m, 1, nil)
+	waitQueued(t, queue, 1)
 	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox removed before the run finished"},
 	}, protocmp.Transform())
@@ -888,6 +911,7 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 
 	// Assert
 	<-parked
+	waitQueued(t, queue, 1)
 	events := submitted(t, mock, queue)
 	assert.Assert(t, cmp.Len(events, 1))
 	assert.Equal(t, events[0].Event, "failed")
@@ -1133,6 +1157,7 @@ func TestTaskManagerLoad(t *testing.T) {
 			defer cancel()
 			m, err := NewTaskManager(TaskManagerOptions{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 5, Queue: queue})
 			assert.NilError(t, err)
+			go m.HandleEvents(ctx)
 
 			// Act
 			err = m.Load(ctx)
@@ -1771,6 +1796,85 @@ func TestTaskManagerGracefulShutdown_NoFatalCause(t *testing.T) {
 	cancelCause(nil)
 	var fatal FatalError
 	assert.Assert(t, !errors.As(context.Cause(ctx), &fatal))
+}
+
+// TestTaskManagerHandleEvents_Lost covers a lost run reported through the
+// events channel: HandleEvents turns it into the run's "failed" in the outbox.
+func TestTaskManagerHandleEvents_Lost(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t))
+	tr := track(t, m, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"}, &backend.SandboxMock{})
+
+	// Act
+	tr.send(t.Context(), TaskLostEvent{TaskID: 1, Version: 3, Reason: "boom"})
+
+	// Assert
+	waitQueued(t, queue, 1)
+	assert.DeepEqual(t, submitted(t, mock, queue), []*gritzv1.RunnerEvent{
+		{Event: "failed", TaskId: 1, Version: 3, Reason: "boom"},
+	}, protocmp.Transform())
+}
+
+// TestTaskManagerHandleEvents_Fatal covers a failed record write: the
+// TaskRunner sends a TaskFatalEvent, and HandleEvents terminates the runner
+// with a FatalError cause.
+func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
+	t.Parallel()
+	// Arrange - a store whose directory is gone, so every write fails.
+	dir := t.TempDir()
+	store, err := taskstate.Open(dir)
+	assert.NilError(t, err)
+	assert.NilError(t, os.RemoveAll(dir))
+	sb, _ := testSandbox(nil)
+	be := &backend.BackendMock{
+		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
+	}
+	m, _, _ := testManager(t, be, store)
+	ctx, cancelCause := context.WithCancelCause(t.Context())
+	defer cancelCause(nil)
+	m.fatal = cancelCause
+
+	// Act
+	err = startTask(t, m, &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1})
+
+	// Assert - Start failed, and the runner's root ctx is cancelled with a
+	// FatalError cause.
+	assert.ErrorContains(t, err, "failed to record task handle")
+	select {
+	case <-ctx.Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("runner was not terminated")
+	}
+	var fatal FatalError
+	assert.Assert(t, errors.As(context.Cause(ctx), &fatal))
+}
+
+// TestTaskRunnerSend_Shutdown covers a send with nothing handling events: it
+// returns once ctx is done, dropping the event.
+func TestTaskRunnerSend_Shutdown(t *testing.T) {
+	t.Parallel()
+	// Arrange - a manager whose HandleEvents is not running.
+	m, err := NewTaskManager(TaskManagerOptions{Backend: &backend.BackendMock{}, Store: testStore(t), RunnerID: "test-runner"})
+	assert.NilError(t, err)
+	tr := track(t, m, taskstate.Record{TaskID: 1, Version: 3, Type: "docker", ID: "c1"}, &backend.SandboxMock{})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Act
+	done := make(chan struct{})
+	go func() {
+		tr.send(ctx, TaskLostEvent{TaskID: 1, Version: 3, Reason: "boom"})
+		close(done)
+	}()
+
+	// Assert
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("send did not return")
+	}
 }
 
 // testWorkspaces returns a minimal workspace config with a "test" workspace.

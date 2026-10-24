@@ -113,9 +113,9 @@ var RunnerCommand = &cli.Command{
 
 		// Wrap the incoming ctx so a durable local-store write failure can
 		// terminate the runner by cancelling it with a FatalError cause. This
-		// must happen before anything that takes ctx is spawned (Load's Run
-		// goroutines, queue.Run, the Run/autoprune/notify goroutines, and the
-		// Poll loop) so they all observe the cancellation.
+		// must happen before anything that takes ctx is spawned (HandleEvents,
+		// Load's Run goroutines, queue.Run, the autoprune/notify goroutines,
+		// and the Poll loop) so they all observe the cancellation.
 		ctx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 
@@ -227,6 +227,10 @@ var RunnerCommand = &cli.Command{
 		if err := m.RegisterWorkspaces(ctx); err != nil {
 			log.Warn("failed to register workspaces", "err", err)
 		}
+
+		// Handle the TaskRunners' events. It must run before Load, whose Run
+		// goroutines are the first to send them.
+		go m.HandleEvents(ctx)
 
 		// Rehydrate sandboxes that were running when the runner was stopped: this
 		// re-attaches a Run goroutine per running sandbox and seeds the

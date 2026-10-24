@@ -46,6 +46,9 @@ type TaskManager struct {
 	queue       *outbox.Outbox[model.RunnerEvent]
 	wake        wakeup.Chan
 	fatal       context.CancelCauseFunc
+	// events is the unbuffered channel the TaskRunners send their events on;
+	// HandleEvents drains it.
+	events chan TaskEvent
 	// env is shared by the manager's TaskRunners.
 	env *taskEnv
 
@@ -153,13 +156,13 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		queue:       opts.Queue,
 		wake:        wakeup.New(),
 		fatal:       fatal,
+		events:      make(chan TaskEvent),
 		tasks:       map[int64]*TaskRunner{},
 	}
 	m.env = &taskEnv{
 		store:            opts.Store,
-		queue:            opts.Queue,
 		log:              log,
-		die:              m.die,
+		events:           m.events,
 		forget:           m.forget,
 		retryInterval:    reattachInterval,
 		retryMaxInterval: reattachMaxInterval,
@@ -189,6 +192,44 @@ func (e FatalError) Unwrap() error { return e.err }
 // by Load on the next boot. First cause wins (WithCancelCause is idempotent), so
 // the first failure is the one reported.
 func (m *TaskManager) die(err error) { m.fatal(FatalError{err}) }
+
+// HandleEvents handles the TaskRunners' events until ctx is done. It must be
+// running before Load is called, and run on the same context as Load, Poll and
+// the Run goroutines they start, so that no TaskRunner blocks sending to it
+// after it has stopped.
+//
+// A TaskFatalEvent terminates the runner; a TaskLostEvent is reported to the
+// server as the run's "failed". Handling an event never takes a TaskRunner's
+// lock, so a TaskRunner may send while holding it.
+func (m *TaskManager) HandleEvents(ctx context.Context) {
+	for {
+		select {
+		case ev := <-m.events:
+			m.handle(ev)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// handle handles one TaskRunner event; see HandleEvents.
+func (m *TaskManager) handle(ev TaskEvent) {
+	switch ev := ev.(type) {
+	case TaskFatalEvent:
+		m.die(ev.Err)
+	case TaskLostEvent:
+		if err := m.queue.Enqueue(model.RunnerEvent{
+			TaskID:  ev.TaskID,
+			Version: ev.Version,
+			Event:   model.RunnerEventFailed,
+			Reason:  ev.Reason,
+		}); err != nil {
+			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, ev.TaskID, err))
+		}
+	default:
+		panic(fmt.Sprintf("unknown task event %T", ev))
+	}
+}
 
 // WakeC returns a channel that receives one value per coalesced burst of
 // internally-generated wake-ups. Currently signalled when a concurrency
@@ -397,6 +438,9 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 // Load rebuilds the task registry from the records it keeps: it is the only
 // reader of taskstate/. A record whose handle cannot be opened is dropped, so
 // every TaskRunner has a sandbox.
+//
+// HandleEvents must already be running: the Run goroutines Load starts are
+// the first to send it events.
 func (m *TaskManager) Load(ctx context.Context) error {
 	recs, err := m.store.List()
 	if err != nil {
@@ -654,7 +698,7 @@ func (m *TaskManager) create(ctx context.Context, task *model.Task, spec *backen
 	if err != nil {
 		return nil, err
 	}
-	tr, err := newTaskRunner(m.env, sb, task.ID, task.Version)
+	tr, err := newTaskRunner(ctx, m.env, sb, task.ID, task.Version)
 	if err != nil {
 		return nil, err
 	}

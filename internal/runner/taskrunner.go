@@ -13,13 +13,11 @@ import (
 	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 
-	"github.com/gritzapp/gritz/internal/model"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/x/common"
-	"github.com/gritzapp/gritz/internal/x/outbox"
 )
 
 // TaskRunner is the runner's state for a task that has a sandbox: the
@@ -60,10 +58,9 @@ type TaskRunner struct {
 // TaskRunners share one.
 type taskEnv struct {
 	store *taskstate.Store
-	queue *outbox.Outbox[model.RunnerEvent]
 	log   *slog.Logger
-	// die terminates the runner on a durable store write failure.
-	die func(error)
+	// events receives the TaskRunners' events; see TaskRunner.send.
+	events chan<- TaskEvent
 	// forget deletes the task from the manager's registry.
 	forget func(taskID int64)
 
@@ -79,6 +76,29 @@ type taskEnv struct {
 	readyTimeout     time.Duration
 }
 
+// TaskEvent is something a TaskRunner reports to its manager, on the
+// manager's events channel; see TaskManager.HandleEvents. Only this package
+// implements it, so the manager's type switch is exhaustive.
+type TaskEvent interface{ taskEvent() }
+
+// TaskFatalEvent reports a durable write failure that must terminate the
+// runner.
+type TaskFatalEvent struct {
+	TaskID int64
+	Err    error
+}
+
+// TaskLostEvent reports a run whose outcome the driver did not report: the
+// manager reports it "failed", scoped to Version.
+type TaskLostEvent struct {
+	TaskID  int64
+	Version int64
+	Reason  string
+}
+
+func (TaskFatalEvent) taskEvent() {}
+func (TaskLostEvent) taskEvent()  {}
+
 // errRemoved is the cause a Run is cancelled with when Destroy destroys its
 // sandbox, and the error an operation on the destroyed TaskRunner returns.
 var errRemoved = errors.New("sandbox removed")
@@ -90,9 +110,9 @@ var errRunning = errors.New("sandbox is still running")
 
 // newTaskRunner returns the TaskRunner of a sandbox just created for the task,
 // recording its handle at version in taskstate/.
-func newTaskRunner(env *taskEnv, sb backend.Sandbox, taskID, version int64) (*TaskRunner, error) {
+func newTaskRunner(ctx context.Context, env *taskEnv, sb backend.Sandbox, taskID, version int64) (*TaskRunner, error) {
 	tr := &TaskRunner{env: env, taskID: taskID, sb: sb}
-	if err := tr.write(tr.record(version)); err != nil {
+	if err := tr.write(ctx, tr.record(version)); err != nil {
 		return nil, err
 	}
 	return tr, nil
@@ -131,18 +151,34 @@ func (tr *TaskRunner) record(version int64) taskstate.Record {
 	}
 }
 
-// write records rec in taskstate/ and on tr. A store write failure terminates the runner: the taskstate store is
-// the runner's other durable local store, and a write failure here is the same
+// write records rec in taskstate/ and on tr. A store write failure terminates
+// the runner, through a TaskFatalEvent: the taskstate store is the runner's
+// other durable local store, and a write failure here is the same
 // non-transient disk failure as an outbox Enqueue failure, so crash rather than
 // lose the handle. The returned error still unwinds the caller (releasing the
 // sem slot) as ctx tears down. The caller holds tr.mu, or is creating tr.
-func (tr *TaskRunner) write(rec taskstate.Record) error {
+func (tr *TaskRunner) write(ctx context.Context, rec taskstate.Record) error {
 	if err := tr.env.store.Write(rec); err != nil {
-		tr.env.die(fmt.Errorf("record handle for task %d: %w", tr.taskID, err))
+		tr.send(ctx, TaskFatalEvent{
+			TaskID: tr.taskID,
+			Err:    fmt.Errorf("record handle for task %d: %w", tr.taskID, err),
+		})
 		return fmt.Errorf("failed to record task handle: %w", err)
 	}
 	tr.rec = rec
 	return nil
+}
+
+// send sends ev to the manager, or drops it if ctx is done first: the runner
+// is shutting down, and the manager's HandleEvents, which runs on the same
+// context, may have stopped. The manager never takes a TaskRunner's lock to
+// handle an event, so the caller may hold tr.mu.
+func (tr *TaskRunner) send(ctx context.Context, ev TaskEvent) {
+	select {
+	case tr.env.events <- ev:
+	case <-ctx.Done():
+		tr.env.log.Warn("task event dropped at shutdown", "task", tr.taskID, "event", ev)
+	}
 }
 
 // remove deletes tr's record and then tr from the registry, marking tr removed
@@ -228,7 +264,7 @@ func (tr *TaskRunner) Start(ctx context.Context, version int64) error {
 	}
 	// A TaskRunner created for this run has its record written already.
 	if rec := tr.record(version); !reflect.DeepEqual(rec, tr.rec) {
-		if err := tr.write(rec); err != nil {
+		if err := tr.write(ctx, rec); err != nil {
 			return err
 		}
 	}
@@ -335,11 +371,15 @@ func (tr *TaskRunner) destroyIf(ctx context.Context, stale func(context.Context)
 // record's version 0 bypasses the guard). Cancelled by Destroy, the run is
 // lost.
 //
+// A lost run is sent to the manager as a TaskLostEvent, on ctx rather than on
+// the run's context that Destroy cancels, before tr is released for another
+// run.
+//
 // Cancelled by ctx, Run returns its error with no event: the runner is
 // shutting down, and the sandbox stays alive for next-boot rehydration. That
 // is the only error.
 func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
-	ctx, cancel := context.WithCancelCause(ctx)
+	runCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	tr.mu.Lock()
 	tr.running = true
@@ -357,9 +397,9 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 		tr.cancel = nil
 	}()
 
-	lost, err := tr.run(ctx, version, spec)
+	lost, err := tr.run(runCtx, version, spec)
 	if err != nil {
-		if !errors.Is(context.Cause(ctx), errRemoved) {
+		if !errors.Is(context.Cause(runCtx), errRemoved) {
 			return err // shutdown: leave the sandbox alive for next-boot rehydration
 		}
 		lost = "sandbox removed before the run finished"
@@ -369,14 +409,7 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 		return nil
 	}
 	tr.env.log.Error("run lost", "task", tr.taskID, "version", version, "reason", lost)
-	if err := tr.env.queue.Enqueue(model.RunnerEvent{
-		TaskID:  tr.taskID,
-		Version: version,
-		Event:   model.RunnerEventFailed,
-		Reason:  lost,
-	}); err != nil {
-		tr.env.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, tr.taskID, err))
-	}
+	tr.send(ctx, TaskLostEvent{TaskID: tr.taskID, Version: version, Reason: lost})
 	return nil
 }
 
