@@ -10,7 +10,7 @@ lifecycle. Lambda MicroVMs need an in-VM supervisor (`internal/runner/microvmshi
 `gritz tool microvm-shim`) that serves the AWS hooks, fetches a spec bundle staged
 in S3, spawns the driver and reports its exit over a hand-rolled SSE stream. Every
 proposed backend designs another variant: a generic standalone shim
-(proposals/draft/generic-shim.md), a shim as the image `CMD` (DigitalOcean, #1588),
+(proposals/rejected/generic-shim.md), a shim as the image `CMD` (DigitalOcean, #1588),
 exec sessions (Fly Sprites, #1522), `systemd-run` units (exe.dev, #1108).
 
 Problems that follow:
