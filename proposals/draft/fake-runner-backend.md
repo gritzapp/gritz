@@ -457,7 +457,7 @@ two test files touch today, and the black-box replacement:
 | `m.store` | many | the `*taskstate.Store` the test passed in | — |
 | `m.backend.Open`, `recordHandle` (`seed`) | `seed`, assertions on `OpenCalls` | `be.Add`, the record in the store, then `tr.Restore` or `Load`. Assertions on the opened handle become assertions on the fake sandbox's state and counters | — |
 | `tr.sbx`, `tr.rec` (`track`, `assertTracked`, Restore and Fatal tests) | ~25 tests | the store for the record, the fake for the sandboxes, and a trailing `Start` for what the `TaskRunner` holds (see [Probing](#probing-what-a-taskrunner-holds)) | — |
-| `m.tasks` (`registered`, Prune's key list) | Start_Gone, Prune, Run | Prune is observed through the fake's sandboxes, not the registry: the archived and deleted tasks' sandboxes are destroyed (`Snapshot().Destroyed`, state `Gone`) and the others are left as they were. `TestTaskManagerRun` waits on `Snapshot().Destroyed` instead of polling the registry. Start_Gone keeps `m.Runner(8)` returning the same `TaskRunner` it restored | — |
+| `m.tasks` (`registered`, Prune's key list) | Start_Gone, Prune, Run | Tests do not look at the registry. Prune is observed through the fake's sandboxes: the archived and deleted tasks' sandboxes are destroyed (`Snapshot().Destroyed`, state `Gone`) and the others are left as they were; `TestTaskManagerRun` waits on `Snapshot().Destroyed`. Start_Gone is observed through behaviour: the next `Start` creating a fresh sandbox, the record, and `Destroyed`. `m.Runner(id)` is only used to drive a task's `TaskRunner`, never to compare it | — |
 | `tr.running` (`claim`) | StartStillRunning, Prune, Remove_Running, `runAsync` | `tr.Restore` on an up sandbox claims, as `Load` does. "Claimed but not up" is `Restore` on `Up`, then `be.Set(id, fake.Parked)` | — |
 | `tr.running` (`waitIdle`) | Run_Finished, Run_Shutdown, RestartReattaches | a synchronous `tr.Run` returning is idle already (the `running` reset is deferred inside `Run`). A manager's Run goroutines use `m.Wait`. "Claimed" as an assertion (Restore test) is probed with `Start` returning `ErrRunning` | `Wait`, `ErrRunning` |
 | `m.sem` (`startTask`, `waitReleased`) | ~10 tests | `m.Start` directly (`Release` floors at zero), then `m.Wait` | `Wait` |
@@ -570,10 +570,9 @@ func assertTracked(t *testing.T, m *runner.TaskManager, be *fake.Backend, store 
 }
 ```
 
-`m.Runner` registers a `TaskRunner` for a task that has none. The old helper
-told "no `TaskRunner`" apart from "a `TaskRunner` with no sandbox". #1758 made
-that difference meaningless, so the two cases merge here: either way, the
-probe creates.
+The old helper told "no `TaskRunner`" apart from "a `TaskRunner` with no
+sandbox". #1758 made that difference meaningless, and the tests do not look
+at the registry, so the two cases merge here: either way, the probe creates.
 
 #### `assertTracked`: a sandbox that fails to start
 
@@ -799,8 +798,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	be.Add("c1", fake.Parked)
 	store := testStore(t, rec)
 	m, _, queue := testManager(t, be, store)
-	tr := m.Runner(8)
-	_, err := tr.Restore(t.Context(), rec)
+	_, err := m.Runner(8).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 	be.Set("c1", fake.Gone)
 	task := &model.Task{ID: 8, Runner: "test-runner", Workspace: "test", Version: 2}
@@ -809,12 +807,11 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	err = m.Start(t.Context(), task)
 
 	// Assert - ErrGone surfaced (the caller emits failed and releases the
-	// slot), no fresh sandbox was created, the dangling record was removed,
-	// and the TaskRunner was kept with no sandbox.
+	// slot), no fresh sandbox was created, and the dangling record was
+	// removed.
 	assert.ErrorIs(t, err, backend.ErrGone)
 	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0))
 	assertRecord(t, store, 8, nil)
-	assert.Equal(t, m.Runner(8), tr)
 
 	// Act - the task is started again. This Start is also the probe for the
 	// first one: a Create means it left the TaskRunner with no sandbox.
@@ -822,14 +819,13 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	assert.NilError(t, m.Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
-	// Assert - the same TaskRunner created one fresh sandbox and ran the
+	// Assert - the task got one fresh sandbox, which ran the
 	// workspace's agent on it; the driver reported, and the sandbox is parked.
 	snap := be.Snapshot()
 	assert.Assert(t, cmp.Len(snap.Specs, 1))
 	assert.Equal(t, snap.Specs[0].Version, int64(3))
 	fresh, _ := snap.Sandbox("c2")
 	assert.Equal(t, fresh.State, fake.Parked)
-	assert.Equal(t, m.Runner(8), tr)
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
@@ -949,10 +945,11 @@ nothing.
   changes state and must go last, and that it cannot see past a claim. The
   only claim without a `Run` is `Restore` on an up sandbox, and that claim is
   itself the proof.
-- **`m.Runner` in `assertTracked`.** It registers a `TaskRunner` for an
-  unknown task. A `TaskManager.Registered(id)` accessor would avoid that, but
-  would expose the registry purely for tests. Since #1758, "no `TaskRunner`"
-  and "no sandbox" mean the same thing to every caller.
+- **No registry accessor.** A `TaskManager.Registered(id)` accessor would
+  expose the registry purely for tests. The tests reach a task's
+  `TaskRunner` through `m.Runner` only to drive it, and observe Prune and the
+  rest through the fake, the store and behaviour. Since #1758, "no
+  `TaskRunner`" and "no sandbox" mean the same thing to every caller.
 - **Dropping the defaults half of `TestNewTaskRunner`.** Keeping it would
   need either `tr.opts` (internal) or an options accessor. It only restates
   the `default*` constants, so it is dropped rather than kept internal.

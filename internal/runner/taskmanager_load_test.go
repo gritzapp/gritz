@@ -270,8 +270,6 @@ func TestTaskManagerPrune(t *testing.T) {
 		_, err := m.Runner(rec.TaskID).Restore(t.Context(), rec)
 		assert.NilError(t, err)
 	}
-	// Task 6 is archived, and its TaskRunner has no sandbox.
-	m.Runner(6)
 	// Behind the runner's back, c3 is started and c5 vanishes; c7's status
 	// check will fail.
 	be.Set("c3", fake.Up)
@@ -284,14 +282,7 @@ func TestTaskManagerPrune(t *testing.T) {
 	err := m.Prune(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - every registered task was looked up.
-	var looked []int64
-	for _, call := range mock.GetTaskCalls() {
-		looked = append(looked, call.GetTaskRequest.Id)
-	}
-	slices.Sort(looked)
-	assert.DeepEqual(t, looked, []int64{1, 2, 3, 4, 5, 6, 7, 8})
-	// Archived/deleted tasks' sandboxes are destroyed, including the one
+	// Assert - archived/deleted tasks' sandboxes are destroyed, including the one
 	// that had already vanished, and the others are left as they were.
 	snap := be.Snapshot()
 	destroyed := slices.Sorted(slices.Values(snap.Destroyed))

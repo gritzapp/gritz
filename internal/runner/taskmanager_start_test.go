@@ -671,8 +671,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	be.Add("c1", fake.Parked)
 	store := testStore(t, rec)
 	m, _, queue := testManager(t, be, store)
-	tr := m.Runner(8)
-	_, err := tr.Restore(t.Context(), rec)
+	_, err := m.Runner(8).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 	be.Set("c1", fake.Gone)
 	task := &model.Task{ID: 8, Runner: "test-runner", Workspace: "test", Version: 2}
@@ -681,12 +680,11 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	err = m.Start(t.Context(), task)
 
 	// Assert - ErrGone surfaced (the caller emits failed and releases the
-	// slot), no fresh sandbox was created, the dangling record was removed,
-	// and the TaskRunner was kept with no sandbox.
+	// slot), no fresh sandbox was created, and the dangling record was
+	// removed.
 	assert.ErrorIs(t, err, backend.ErrGone)
 	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0))
 	assertRecord(t, store, 8, nil)
-	assert.Equal(t, m.Runner(8), tr)
 
 	// Act - the task is started again. This Start is also the probe for the
 	// first one: a Create means it left the TaskRunner with no sandbox.
@@ -694,14 +692,13 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	assert.NilError(t, m.Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
-	// Assert - the same TaskRunner created one fresh sandbox and ran the
+	// Assert - the task got one fresh sandbox, which ran the
 	// workspace's agent on it; the driver reported, and the sandbox is parked.
 	snap := be.Snapshot()
 	assert.Assert(t, cmp.Len(snap.Specs, 1))
 	assert.Equal(t, snap.Specs[0].Version, int64(3))
 	fresh, _ := snap.Sandbox("c2")
 	assert.Equal(t, fresh.State, fake.Parked)
-	assert.Equal(t, m.Runner(8), tr)
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
@@ -920,7 +917,7 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 }
 
 // TestTaskManagerAfterDestroy covers the operations on a task whose sandbox
-// was destroyed: its TaskRunner stays registered, and they see no sandbox.
+// was destroyed: they see no sandbox.
 func TestTaskManagerAfterDestroy(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -962,10 +959,9 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 			tt.op(t, m)
 
 			// Assert - the sandbox was destroyed once and nothing else was
-			// done to it, and the task keeps its TaskRunner with no sandbox.
+			// done to it, and the task has no sandbox.
 			sbx, _ := be.Snapshot().Sandbox("c1")
 			assert.DeepEqual(t, sbx, fake.Info{Handle: backend.Handle{Type: "fake", ID: "c1"}, State: fake.Gone, Destroys: 1})
-			assert.Equal(t, m.Runner(1), tr)
 			assertTracked(t, m, be, store, 1, nil)
 		})
 	}
