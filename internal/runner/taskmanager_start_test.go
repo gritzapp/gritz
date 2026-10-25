@@ -7,17 +7,14 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/docker/docker/api/types/container"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
-	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/runner"
@@ -29,7 +26,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/dockerx"
 	"github.com/gritzapp/gritz/internal/x/testx"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -256,69 +252,18 @@ func TestTaskManagerSpec_Secrets(t *testing.T) {
 	})
 }
 
-// runEnvBackend is a fake backend whose sandboxes have no environment of their
-// own.
-type runEnvBackend struct {
-	*fake.Backend
-	env map[string]string
-}
-
-func (b runEnvBackend) RunEnv(*workspace.Workspace) map[string]string { return b.env }
-
-// runSpecs is a Connect interceptor recording the spec of every Run request a
-// driver receives that starts a run.
-type runSpecs struct {
-	mu    sync.Mutex
-	specs []*driverv1.RunSpec
-}
-
-func (r *runSpecs) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc { return next }
-
-func (r *runSpecs) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (r *runSpecs) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		return next(ctx, &runSpecsConn{StreamingHandlerConn: conn, r: r})
-	}
-}
-
-// Specs returns the specs recorded so far.
-func (r *runSpecs) Specs() []*driverv1.RunSpec {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]*driverv1.RunSpec(nil), r.specs...)
-}
-
-// runSpecsConn records the spec of the Run request received on it.
-type runSpecsConn struct {
-	connect.StreamingHandlerConn
-	r *runSpecs
-}
-
-func (c *runSpecsConn) Receive(msg any) error {
-	if err := c.StreamingHandlerConn.Receive(msg); err != nil {
-		return err
-	}
-	if req, ok := msg.(*driverv1.RunRequest); ok && req.GetSpec() != nil {
-		c.r.mu.Lock()
-		defer c.r.mu.Unlock()
-		c.r.specs = append(c.r.specs, proto.Clone(req.GetSpec()).(*driverv1.RunSpec))
-	}
-	return nil
-}
-
 // TestTaskManagerRunSpec_RunEnv asserts a backend's RunEnv reaches the run's
 // environment under the TaskManager's own.
 func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	t.Parallel()
-	// Arrange - a driver recording the spec of the run it is asked to start.
-	rec := &runSpecs{}
-	be := runEnvBackend{
-		Backend: newFake(t, driverHandler(t, 1, nil, connect.WithInterceptors(rec))),
-		env:     map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"},
-	}
+	// Arrange - a backend whose runs get an environment of their own.
+	be := fake.New(fake.Options{
+		Driver: drivers(driverHandler(t, 1, nil)),
+		RunEnv: func(*workspace.Workspace) map[string]string {
+			return map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"}
+		},
+	})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	m, _, _ := testManager(t, be, testStore(t))
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
 
@@ -326,11 +271,11 @@ func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	assert.NilError(t, m.Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
-	// Assert - the run's environment is RunEnv's, overridden by the
-	// TaskManager's.
-	specs := rec.Specs()
-	assert.Assert(t, cmp.Len(specs, 1))
-	assert.DeepEqual(t, specs[0].GetEnv(), map[string]string{
+	// Assert - the environment of the run the driver was asked to start is
+	// RunEnv's, overridden by the TaskManager's.
+	sbx, _ := be.Snapshot().Sandbox("c1")
+	assert.Assert(t, cmp.Len(sbx.RunSpecs, 1))
+	assert.DeepEqual(t, sbx.RunSpecs[0].GetEnv(), map[string]string{
 		"FOO":           "bar",
 		"GRITZ_TASK_ID": "1",
 		"GRITZ_TOKEN":   "t",

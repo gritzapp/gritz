@@ -40,9 +40,10 @@ It is deliberately small:
   documents).
 - It does not import `driverserver`. A sandbox's driver is an `http.Handler`
   the test provides (see [Driver hookup](#driver-hookup)).
-- It does not implement `backend.RunEnver`. The one test that needs it embeds
-  `*fake.Backend` in a test type that adds `RunEnv`, as `runEnvBackend` embeds
-  `*backend.BackendMock` today.
+- It implements `backend.RunEnver` unconditionally. `RunEnv` returns
+  `Options.RunEnv(ws)` when that is set, and nil otherwise, which
+  `TaskManager.runSpec`'s `maps.Copy` treats as no environment. This replaces
+  `runEnvBackend`, which embeds `*backend.BackendMock` today.
 - `ValidateWorkspace` accepts every workspace.
 
 ### State machine
@@ -140,6 +141,10 @@ the sandbox's driver without changing its state (a network blip). It replaces
   not counted. A no-op is: `Start` on an up sandbox counts, because the runner
   made the call. That is what lets a trailing `Start` prove which sandbox a
   `TaskRunner` holds (see [Probing what a TaskRunner holds](#probing-what-a-taskrunner-holds)).
+  `Info.RunSpecs` is a deep copy of the `RunSpec` of every `Run` request
+  with one (a request to start a run) that the sandbox's driver served, in
+  order (see [Driver hookup](#driver-hookup)). This replaces the tests that
+  call `m.runSpec` directly.
 - `Specs`: a deep copy of every `Spec` passed to `Create`, in call order,
   including those that failed. This replaces `be.CreateCalls()[0].Spec` and
   the tests that read `m.spec` directly.
@@ -161,11 +166,14 @@ first `Dial`, and serves the result on an `httptest.Server` it owns. `Dial`
 returns `driverv1connect.NewDriverServiceClient` over that server. In
 `runner_test` the handler is a real `driverserver.Server`'s (`srv.Handler()`
 on a mux), built by the same code as today's `newDriver`, so the fake never
-imports `driverserver`. Wrapping the handler (a `ready` gate, a Connect
-interceptor that records `RunRequest.Spec`) needs no fake support.
+imports `driverserver`. Wrapping the handler (a `ready` gate) needs no fake
+support.
 
 The fake's server makes the driver follow the sandbox's state:
 
+- A `Run` request it serves has its `RunSpec`, if it has one, recorded in
+  the sandbox's `Info.RunSpecs`. The fake decodes it from the request's
+  Connect envelope, so the test's handler needs no interceptor.
 - A request to a sandbox that is not up gets `503`, which Connect reports as
   `CodeUnavailable`, the same as a driver that is not answering. A nil
   `Driver`, or a `Driver` that returns nil, gives a sandbox whose driver never
@@ -204,6 +212,9 @@ type Options struct {
 	// Driver returns the handler serving the driver.v1 API of the sandbox
 	// with handle h; nil means its driver never answers.
 	Driver func(h backend.Handle) http.Handler
+	// RunEnv returns the environment RunEnv gives runs of a workspace's
+	// sandboxes; nil means none.
+	RunEnv func(ws *workspace.Workspace) map[string]string
 }
 
 // New returns a Backend with no sandboxes.
@@ -211,6 +222,9 @@ func New(opts Options) *Backend
 
 // ValidateWorkspace accepts every workspace.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error
+
+// RunEnv returns Options.RunEnv's environment for ws, or nil without one.
+func (b *Backend) RunEnv(ws *workspace.Workspace) map[string]string
 
 // Create records spec and adds a created sandbox for it.
 func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandbox, error)
@@ -300,6 +314,8 @@ type Info struct {
 	Spec *backend.Spec
 	// Starts, Parks, Destroys and Dials count the calls that succeeded, no-ops included.
 	Starts, Parks, Destroys, Dials int
+	// RunSpecs is the spec of every Run request the sandbox's driver served that has one, in order.
+	RunSpecs []*driverv1.RunSpec
 }
 ```
 
@@ -409,7 +425,7 @@ two test files touch today, and the black-box replacement:
 | `m.sem` (`startTask`, `waitReleased`) | ~10 tests | `m.Start` directly (`Release` floors at zero), then `m.Wait` | `Wait` |
 | `m.sem` (Load's seeding check, StartStillRunning's "slot is free") | Load, StartStillRunning | behaviour, through `Poll` at `Concurrency: 1`: a pending START for a second task gets no `Create` while the slot is held, and gets one once it is free | — |
 | `m.spec` | Spec_PreCreatesLogDir, Spec_Secrets | `Snapshot().Specs` after `m.Start`; the real Docker backend is no longer needed | — |
-| `m.runSpec` | RunSpec_RunEnv | the `RunRequest.Spec` the driver receives, recorded by a Connect interceptor on the test's driver handler; `RunEnv` from a test type embedding `*fake.Backend` | — |
+| `m.runSpec` | RunSpec_RunEnv | the `RunRequest.Spec` the driver receives, recorded by the fake in `Info.RunSpecs`; `RunEnv` from `fake.Options.RunEnv` | — |
 | `m.run` | Remove_Running | `Load` of a record whose fake sandbox is up | — |
 | `tr.send` | HandleEvents_Lost, Send_Shutdown | a real lost run (`be.Set(id, fake.Gone)` under an attached run). For Send_Shutdown, a `NewTaskRunner` whose `Events` nobody reads, and a ctx cancelled while `Run` is blocked sending | — |
 | `m.events` | Restore test's `NewTaskRunner` | a channel the test makes | — |
