@@ -53,7 +53,8 @@ calls `Create`.
 
 ### Visualization
 
-The Motion Canvas project for this proposal: its path
+Only when the user explicitly asked for a visualization; otherwise omit this
+section. The Motion Canvas project for this proposal: its path
 (`diagrams/src/projects/proposals/<slug>.ts`) and one line per scene saying which
 flow it shows. View it with `mise run motioncanvas`.
 
