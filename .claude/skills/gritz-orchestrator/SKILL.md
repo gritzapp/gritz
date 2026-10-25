@@ -17,8 +17,11 @@ The mode spans two cadences that share the same posture:
 - **Execute a settled plan** — once the approach is agreed (usually an accepted proposal with
   a layer-cake breakdown), deliver it as a stack of thin PRs, one layer at a time, gated on
   merge. See [Executing a settled plan](#executing-a-settled-plan).
+- **Refactor interactively** — for a refactor, no proposal and no upfront plan: decide each
+  next step with the user against the code as it stands, delegate it, merge, repeat. See
+  [The interactive refactoring loop](#the-interactive-refactoring-loop).
 
-Both delegate the work and review what comes back; only the cadence differs. Everything you
+All of them delegate the work and review what comes back; only the cadence differs. Everything you
 drive is tracked on [the board](#the-board), so state survives across sessions even though
 gritz tasks get auto-archived.
 
@@ -76,7 +79,9 @@ Two kinds of card live on it:
   Lifecycle: `Backlog → Ready → In progress → Done`. An effort that is broken into layers
   **skips In review** (its layers carry that state). A small effort with no layers — a
   single-PR fix, or an investigation — has no sub-issues and passes through **In review**
-  itself while its one PR is open.
+  itself while its one PR is open. A [refactoring loop](#the-interactive-refactoring-loop)
+  effort also has no sub-issues: it stays **In progress** for its whole life, its step PRs
+  are linked from it, and it moves to Done only when the user calls the refactor finished.
 - **Layer — a GitHub sub-issue.** For an effort executed as a layer cake, one **sub-issue**
   per layer, linked under the parent so the parent shows N/M sub-issue progress. Lifecycle:
   `Ready → In progress → In review → Done`. A layer **skips Backlog**. Title format:
@@ -160,6 +165,8 @@ settled, skip to [Executing a settled plan](#executing-a-settled-plan).
 
 1. **Scope** — Take a top-level issue from Ready and understand the problem with the user;
    settle on an approach. Ask clarifying questions when a decision is genuinely theirs to make.
+   **If the work is a refactor, ask the user whether to use [the interactive refactoring
+   loop](#the-interactive-refactoring-loop)** before reaching for a proposal.
 2. **Validate (optional)** — If an approach has technical unknowns, prototype locally to
    de-risk it. Read the relevant code, probe APIs, confirm feasibility. Keep notes; throw
    the code away.
@@ -301,6 +308,53 @@ Default to strictly sequential. Only run layers concurrently if the user explici
 **and** the slices are genuinely independent (no shared files, no ordering dependency). If you
 do, unmute each task you create and track them separately on the board — but the merge-gate
 remains the standard.
+
+## The interactive refactoring loop
+
+Refactoring is iterative: the right next step only becomes clear once the previous one has
+landed and you can look at the code again. A proposal with a layer-cake plan fixes a type,
+its API and its slices before anyone has seen the code, and the real design then gets worked
+out through PR review round-trips — slow, and every round rewrites the proposal too. The
+refactoring loop skips the plan: the design happens in conversation, one step at a time, and
+the delegated task only implements a shape that's already decided.
+
+**Ask first.** When the user asks for a refactor, ask whether they want the interactive
+refactoring loop or the usual route (a proposal, then [execution](#executing-a-settled-plan)).
+Don't pick for them.
+
+**On the board:** one top-level issue, no sub-issues. It states the goal — what should be
+easier or clearer afterwards (e.g. "forwarding becomes one more case in the read loop"), not
+a list of steps. Move it to In progress when the loop starts; it stays there between steps.
+Link each step's PR from it (the PR body says `Part of #<issue>` — **never `Closes`**). It
+moves to Done only when the user says the refactor is finished.
+
+**The loop:**
+
+1. **Look at the code as it is now.** Read the current state of the code being refactored —
+   on `master`, after the last step merged. This is the one place where you do read before
+   delegating: the next step is decided from the code, not from a plan.
+2. **Decide the next step with the user.** Propose a candidate step and talk it through.
+   Settle its shape before delegating: which functions change, their signatures, where the
+   code lives, what stays untouched. Expect the user to reshape it — that conversation is the
+   design work. Only one step is ever decided; don't plan further ahead.
+3. **Delegate the step.** One task, one PR. The instruction pins the shape agreed in step 2
+   (functions, signatures, scope boundaries) so the agent implements rather than designs. State
+   the contract: the step preserves behaviour, and the existing tests pass. Tests are added or
+   changed only where behaviour deliberately changes, and always through the existing public
+   surface — no dedicated harness for internals. Conventional-commit type `refactor` (or
+   `test` / `fix` where that's what the step is). `channel_unmute` the task.
+4. **Review against the shape.** The PR should match what was agreed; deviations are design
+   decisions the agent made, so surface them to the user (core rule 6). Relay changes as usual
+   ([Relaying feedback to the task](#relaying-feedback-to-the-task)).
+5. **Merge, then go back to step 1.** The user merges. Tell them what landed, then look at the
+   code again and decide the next step together.
+
+**Ending.** The loop ends when the user says the goal holds (or drops it). Move the issue to
+Done and close it.
+
+**Resuming.** A refactoring-loop issue in In progress with no sub-issues: find its linked PRs.
+An open one is the step in review; if all are merged, you are at step 1 — read the code and
+ask the user what's next. Never invent the next step from an old conversation.
 
 ## Handling task notifications
 
