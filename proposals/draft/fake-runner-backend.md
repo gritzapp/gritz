@@ -129,7 +129,18 @@ A test changes the fake from outside the runner through three methods:
 
 A fourth method, `Drop(id)`, cuts every `Run` call the runner has open on the
 sandbox's driver without changing its state (a network blip). It replaces
-`hs.CloseClientConnections()` in `TestTaskRunnerRun_Reattach`.
+`hs.CloseClientConnections()` in `TestTaskRunnerRun_Reattach`, which becomes
+`waitRuns(1)`, one `Drop`, `waitRuns(2)` and `stopRun`, with no sleep loop.
+
+A fifth, `SetDriverReady(id, ready)`, models a sandbox that is up while its
+driver is not listening yet: while the sandbox is up and its driver is not
+ready, `Status`, `Run` and `Stop` fail with `CodeUnavailable`, and making it
+not ready cuts the open `Run` calls, as `Drop` does. Drivers are ready unless
+`Options.DriverNotReady` is set, which makes every sandbox, added or created,
+start with its driver not ready. This replaces the `ready` channel that
+`newDriver` wrapped around the driver as a 503 gate (`Poll_SlowDriver`,
+`Run_NotReady`, `Start_NotReady`, `Wait_Done`). Readiness is not in `Info`:
+the test that sets it knows it.
 
 ### Observations
 
@@ -147,7 +158,13 @@ sandbox's driver without changing its state (a network blip). It replaces
   `Info.RunSpecs` is a deep copy of the `RunSpec` of every `Run` request
   with one (a request to start a run) sent to the sandbox's driver while up, in
   order (see [Driver hookup](#driver-hookup)). This replaces the tests that
-  call `m.runSpec` directly.
+  call `m.runSpec` directly. `Info.Runs` counts the `Run` calls that went
+  through, incremented in the same critical section that registers the
+  call's cancelable context. Since `Drop`, leaving up and `Close` cancel
+  every registered call, `Runs >= n` means the n-th stream can be cut
+  deterministically. Tests wait on it (`waitRuns`) for "the runner has
+  attached", rather than on `Dials`, which a `Dial` bumps before any stream is
+  opened.
 - `Specs`: a deep copy of every `Spec` passed to `Create`, in call order,
   including those that failed. This replaces `be.CreateCalls()[0].Spec` and
   the tests that read `m.spec` directly.
@@ -158,8 +175,9 @@ sandbox's driver without changing its state (a network blip). It replaces
 the current snapshot, or `ctx` is done. Every change to the table (a state
 change, a counter, a spec) closes and replaces a `changed` channel, and `Wait`
 re-checks `cond` each time it fires. Nothing polls. `WaitState(ctx, id,
-state)` is the common case. This replaces `waitDialed` and the `parked`
-channel `testSandbox` returns.
+state)` is the common case. This replaces the mock-counting `waitDialed`
+(now `waitRuns`, on `Info.Runs`) and the `parked` channel `testSandbox`
+returns.
 
 ### Driver hookup
 
@@ -167,22 +185,23 @@ channel `testSandbox` returns.
 returns the test's client to a sandbox's driver. In `runner_test` that is the
 client `serveDriver` already gives the test, over an `httptest.Server`
 serving a real `driverserver.Server`'s handler, so the fake never imports
-`driverserver`. Gating that server (a `ready` channel for a slow driver)
-needs no fake support.
+`driverserver`. A driver that is not listening yet is the fake's
+`SetDriverReady` (see [Controls](#controls)), not a gate on that server.
 
 The fake calls `Options.Dial` on every `Dial`, without its lock held, and
 wraps the result in its own `DriverServiceClient`, which makes the driver
 follow the sandbox's state:
 
 - `Status` and `Stop` fail with `CodeUnavailable` while the sandbox is not
-  up, the same as a driver that is not answering, and call through
-  otherwise. A nil `Dial`, or a `Dial` that returns nil, gives a sandbox
+  up or its driver is not ready, the same as a driver that is not answering,
+  and call through otherwise. A nil `Dial`, or a `Dial` that returns nil, gives a sandbox
   whose driver never answers (`TestTaskRunnerRun_DriverUnreachable`).
-- `Run` makes the same check. Then it records the request's `RunSpec`, if it
-  has one (a request to start a run), in the sandbox's `Info.RunSpecs`, and
-  calls through with a context the fake cancels when the sandbox leaves up
-  (`Park`, `Destroy`, or `Set` to `Parked` or `Gone`), as stopping a
-  container kills its driver, and on `Drop` and `Close`. An attached `Run`
+- `Run` makes the same check. Then it counts the call in `Info.Runs`,
+  records the request's `RunSpec`, if it has one (a request to start a run),
+  in `Info.RunSpecs`, and calls through with a context the fake cancels when
+  the sandbox leaves up (`Park`, `Destroy`, or `Set` to `Parked` or `Gone`),
+  as stopping a container kills its driver, on `Drop`, when its driver is
+  made not ready, and on `Close`. An attached `Run`
   stream ends, and `attach` then sees the new `Status`. This is what lets a
   test make a sandbox vanish under a run with one call.
 
@@ -191,6 +210,12 @@ real dropped connection gives. `attach` treats it like any drop and
 reattaches. `startRun`'s accept loop only retries `CodeUnavailable`, though,
 so a test must not cut a sandbox while a start is being accepted: the start
 would fail rather than be retried.
+
+The fake forgets a call's cancel func only when the call's context is done:
+`ServerStreamForClient` is a concrete type, so it cannot see the stream
+close. `attach` opens stream after stream on the run's context, so one entry
+accumulates per reattach for the life of a run. That is harmless in a test,
+and noted in the code.
 
 The in-process driver outlives the sandbox's state. Parking the fake does not
 stop the run inside `driverserver`, and starting the fake again does not
@@ -217,6 +242,8 @@ type Options struct {
 	// Dial returns the test's client to the driver of the sandbox with
 	// handle h; nil means its driver never answers.
 	Dial func(h backend.Handle) driverv1connect.DriverServiceClient
+	// DriverNotReady makes every sandbox start with its driver not ready, until SetDriverReady.
+	DriverNotReady bool
 	// RunEnv returns the environment RunEnv gives runs of a workspace's
 	// sandboxes; nil means none.
 	RunEnv func(ws *workspace.Workspace) map[string]string
@@ -282,6 +309,9 @@ func (b *Backend) Set(id string, state State)
 // FailNext makes the next op call on sandbox id return err; id "" matches any sandbox.
 func (b *Backend) FailNext(op Op, id string, err error)
 
+// SetDriverReady makes sandbox id's driver ready or not; while the sandbox is up and its driver not ready, every driver call fails as Unavailable.
+func (b *Backend) SetDriverReady(id string, ready bool)
+
 // Drop cuts every Run call open on sandbox id's driver.
 func (b *Backend) Drop(id string)
 
@@ -320,13 +350,15 @@ type Info struct {
 	Spec *backend.Spec
 	// Starts, Parks, Destroys and Dials count the calls that succeeded, no-ops included.
 	Starts, Parks, Destroys, Dials int
+	// Runs counts the Run calls on the sandbox's driver that went through, and so can be cut.
+	Runs int
 	// RunSpecs is the spec of every Run request with one sent to the sandbox's driver while up, in order.
 	RunSpecs []*driverv1.RunSpec
 }
 ```
 
-**How it fits:** a `runner_test` test calls `fake.New` with a `Driver` built
-from a real `driverserver`, and passes the result as
+**How it fits:** a `runner_test` test calls `fake.New` with a `Dial` giving
+its client to a real `driverserver`, and passes the result as
 `TaskManagerOptions.Backend` or `TaskRunnerOptions.Backend`. It arranges
 sandboxes with `Add`, `Set` and `FailNext`, drives the runner through its
 exported API, and asserts on `Snapshot` and `Wait`, next to the
@@ -480,8 +512,12 @@ fake and the two additions above. They assume these helpers in
 
 - `testStore(t, recs...)`, `submitted`, `waitQueued`: unchanged.
 - `testManager(t, be, store, tune...)`: unchanged, but with `runner.` prefixes.
-- `driverClient(t, version, ready) driverv1connect.DriverServiceClient`:
-  today's `newDriver`, returning only the test's client.
+- `driverClient(t, version) driverv1connect.DriverServiceClient`: today's
+  `newDriver`, returning only the test's client, and without its `ready`
+  channel: a slow driver is `fake.Options.DriverNotReady` and
+  `SetDriverReady`.
+- `waitRuns(t, be, id, n)`: waits on `be.Wait` until `Info.Runs >= n`, for
+  "the runner has attached".
 - `serveDriver(t, taskID, version, cfg) driverv1connect.DriverServiceClient`:
   as today, returning the test's client, which also goes in
   `fake.Options.Dial`.
@@ -601,7 +637,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	first, _, _ := testManager(t, be, store)
 	ctx, cancel := context.WithCancel(t.Context())
 	assert.NilError(t, first.Load(ctx))
-	waitDialed(t, be, "c1", 1)
+	waitRuns(t, be, "c1", 1)
 	cancel()
 	assert.NilError(t, first.Wait(t.Context()))
 	// The sandbox stays up for next-boot rehydration.
@@ -613,7 +649,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	// own Open of the same sandbox; then the run finishes.
 	m, _, queue := testManager(t, be, store)
 	assert.NilError(t, m.Load(t.Context()))
-	waitDialed(t, be, "c1", sbx.Dials+1)
+	waitRuns(t, be, "c1", sbx.Runs+1)
 	stopRun(t, client, 3)
 	assert.NilError(t, m.Wait(t.Context()))
 
@@ -626,12 +662,13 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	assert.Equal(t, n, 0)
 }
 
-// waitDialed waits until sandbox id's driver has been dialed at least n times.
-func waitDialed(t *testing.T, be *fake.Backend, id string, n int) {
+// waitRuns waits until the runner has made at least n Run calls on sandbox
+// id's driver that went through.
+func waitRuns(t *testing.T, be *fake.Backend, id string, n int) {
 	t.Helper()
 	_, err := be.Wait(t.Context(), func(s fake.Snapshot) bool {
 		sbx, _ := s.Sandbox(id)
-		return sbx.Dials >= n
+		return sbx.Runs >= n
 	})
 	assert.NilError(t, err)
 }
@@ -758,7 +795,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// Arrange - task 8's recorded sandbox, restored parked, is then removed
 	// behind the runner's back.
 	rec := taskstate.Record{TaskID: 8, Version: 1, Type: "fake", ID: "c1"}
-	be := fake.New(fake.Options{Dial: drivers(driverClient(t, 3, nil))})
+	be := fake.New(fake.Options{Dial: drivers(driverClient(t, 3))})
 	be.Add("c1", fake.Parked)
 	store := testStore(t, rec)
 	m, _, queue := testManager(t, be, store)
@@ -860,7 +897,8 @@ nothing.
 6. **TaskManager start/stop tests** — Delivers: the Start, Poll, Kill,
    Remove and Spec tests from `taskmanager_test.go` moved to `runner_test` on
    the fake, the Spec tests without the Docker backend. The fake gains
-   `Options.RunEnv`, `Info.RunSpecs` and `OpDial`, and its driver hookup
+   `Options.RunEnv`, `Info.RunSpecs`, `Info.Runs`, `SetDriverReady` with
+   `Options.DriverNotReady`, and `OpDial`, and its driver hookup
    moves from `Options.Driver` (a handler) to `Options.Dial` (a client it
    wraps; see [Driver hookup](#driver-hookup)). Depends on: (5).
    Verifiable by: the runner test suite.
