@@ -137,10 +137,10 @@ func (TaskLostEvent) taskEvent()  {}
 // sandbox.
 var errRemoved = errors.New("sandbox removed")
 
-// errRunning is returned by Start when a Run still follows the task's previous
+// ErrRunning is returned by Start when a Run still follows the task's previous
 // run, so nothing was started. Running can report false then: the sandbox may
 // already be parking after its run (a Lambda VM suspending).
-var errRunning = errors.New("sandbox is still running")
+var ErrRunning = errors.New("sandbox is still running")
 
 // recordHandle returns the handle a record tracks.
 func recordHandle(rec taskstate.Record) backend.Handle {
@@ -232,13 +232,13 @@ func (tr *TaskRunner) Running(ctx context.Context) (bool, error) {
 // sandbox, and returns backend.ErrGone: the caller reports the run failed, and
 // the next Start creates a fresh sandbox. Any other failure to start it keeps
 // the sandbox and its record, so Destroy can still destroy it. If a Run still
-// follows the task's previous run, Start returns errRunning without doing
+// follows the task's previous run, Start returns ErrRunning without doing
 // anything.
 func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	if tr.running {
-		return errRunning
+		return ErrRunning
 	}
 	if tr.sbx == nil {
 		if err := tr.create(ctx, &spec); err != nil {
