@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"connectrpc.com/connect"
@@ -35,8 +34,6 @@ type RunStreamOptions struct {
 	// the first Accepted. Otherwise Run reattaches to a run already started,
 	// and start is always false.
 	Start bool
-	// Log is the logger; defaults to slog.Default().
-	Log *slog.Logger
 	// RetryInterval is the first pause between attempts to reach the driver
 	// or reattach to the run; defaults to 250ms.
 	RetryInterval time.Duration
@@ -53,6 +50,9 @@ type RunStreamOptions struct {
 
 	// OnAccepted is called when the driver accepts a stream; optional.
 	OnAccepted func(ctx context.Context, a *driverv1.Accepted) error
+	// OnDropped is called with why a stream failed each time Run is about to
+	// retry it, before the backoff; optional.
+	OnDropped func(ctx context.Context, err error) error
 	// OnFinished is called with the run's Finished; terminal. Required.
 	OnFinished func(ctx context.Context, f *driverv1.Finished) error
 	// OnLost is called when the run's Finished can never arrive; terminal.
@@ -123,13 +123,15 @@ func NewRunStream(opts RunStreamOptions) *RunStream {
 	case opts.OnUnreachable == nil:
 		panic("runner: RunStreamOptions.OnUnreachable is required")
 	}
-	opts.Log = cmp.Or(opts.Log, slog.Default())
 	opts.RetryInterval = cmp.Or(opts.RetryInterval, defaultRetryInterval)
 	opts.RetryMaxInterval = cmp.Or(opts.RetryMaxInterval, defaultRetryMaxInterval)
 	opts.LostTimeout = cmp.Or(opts.LostTimeout, defaultLostTimeout)
 	opts.ReadyTimeout = cmp.Or(opts.ReadyTimeout, defaultReadyTimeout)
 	if opts.OnAccepted == nil {
 		opts.OnAccepted = func(context.Context, *driverv1.Accepted) error { return nil }
+	}
+	if opts.OnDropped == nil {
+		opts.OnDropped = func(context.Context, error) error { return nil }
 	}
 	return &RunStream{opts: opts, starting: opts.Start, stopReady: func() bool { return false }}
 }
@@ -155,6 +157,9 @@ func NewRunStream(opts RunStreamOptions) *RunStream {
 // a lost run. Once LostTimeout has passed without an accepted stream, each
 // failed reattach calls OnUnreachable, which decides whether to stop or keep
 // following.
+//
+// Every failed stream that Run is about to retry, while starting or after,
+// is passed to OnDropped before the backoff. Run logs nothing itself.
 func (r *RunStream) Run(ctx context.Context) error {
 	opts := r.opts
 	readyCtx := ctx
@@ -167,7 +172,6 @@ func (r *RunStream) Run(ctx context.Context) error {
 	readyBo := doubling(opts.RetryInterval, readyMaxInterval)
 	lastGood := time.Now()
 	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
-	var lastErr string
 	for {
 		start := r.starting
 		streamCtx := ctx
@@ -189,22 +193,24 @@ func (r *RunStream) Run(ctx context.Context) error {
 		if r.starting {
 			switch {
 			case readyCtx.Err() != nil:
-				return r.startFailed(ctx, fmt.Errorf("driver server did not become ready: %w", err))
+				return opts.OnLost(ctx, LostStartFailed, fmt.Errorf("driver server did not become ready: %w", err))
 			case errors.Is(err, ErrSandboxDown), connect.CodeOf(err) != connect.CodeUnavailable:
-				return r.startFailed(ctx, fmt.Errorf("failed to start run: %w", err))
+				return opts.OnLost(ctx, LostStartFailed, fmt.Errorf("failed to start run: %w", err))
+			}
+			if cbErr := opts.OnDropped(ctx, err); cbErr != nil {
+				return cbErr
 			}
 			if !common.SleepContext(readyCtx, readyBo.NextBackOff()) {
 				if ctx.Err() != nil {
 					return context.Cause(ctx)
 				}
-				return r.startFailed(ctx, fmt.Errorf("driver server did not become ready: %w", err))
+				return opts.OnLost(ctx, LostStartFailed, fmt.Errorf("driver server did not become ready: %w", err))
 			}
 			continue
 		}
 		if isTerminal(err) {
 			// The driver has no run with this version (or has moved past it),
 			// so its Finished will never come.
-			opts.Log.Error("driver has no such run", "err", err)
 			reason := LostSuperseded
 			if connect.CodeOf(err) == connect.CodeNotFound {
 				reason = LostNoRun
@@ -212,7 +218,6 @@ func (r *RunStream) Run(ctx context.Context) error {
 			return opts.OnLost(ctx, reason, err)
 		}
 		if errors.Is(err, ErrSandboxDown) {
-			opts.Log.Error("sandbox stopped before its run finished", "err", err)
 			return opts.OnLost(ctx, LostSandboxDown, err)
 		}
 		if accepted {
@@ -220,27 +225,19 @@ func (r *RunStream) Run(ctx context.Context) error {
 			// would have ended it otherwise.
 			lastGood = time.Now()
 			bo.Reset()
-			lastErr = ""
 		}
 		if time.Since(lastGood) >= opts.LostTimeout {
 			if stop, cbErr := opts.OnUnreachable(ctx, err); cbErr != nil || stop {
 				return cbErr
 			}
 		}
-		if msg := err.Error(); msg != lastErr {
-			opts.Log.Warn("run stream dropped, reattaching", "err", err)
-			lastErr = msg
+		if cbErr := opts.OnDropped(ctx, err); cbErr != nil {
+			return cbErr
 		}
 		if !common.SleepContext(ctx, bo.NextBackOff()) {
 			return context.Cause(ctx)
 		}
 	}
-}
-
-// startFailed reports a start that failed before its first Accepted.
-func (r *RunStream) startFailed(ctx context.Context, err error) error {
-	r.opts.Log.Error("failed to start run", "err", err)
-	return r.opts.OnLost(ctx, LostStartFailed, err)
 }
 
 // readStream opens a Run stream and reads it until the run's Finished, which

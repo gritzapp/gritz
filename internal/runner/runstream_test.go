@@ -57,7 +57,11 @@ type recorder struct {
 	unreachable func(n int) bool
 	// unreachables counts the OnUnreachable calls.
 	unreachables int
-	// errs is what each callback returns, by call name; nil by default.
+	// dropped records the error of every OnDropped. It is kept apart from
+	// calls, as how many drops a test sees depends on timing.
+	dropped testx.SafeSlice[error]
+	// errs is what each callback returns, by call name ("dropped" for
+	// OnDropped); nil by default.
 	errs map[string]error
 }
 
@@ -71,6 +75,10 @@ func (r *recorder) options(opts runner.RunStreamOptions) runner.RunStreamOptions
 		r.calls.Append(call{Name: "accepted", Accepted: a})
 		r.accepted <- a
 		return r.errs["accepted"]
+	}
+	opts.OnDropped = func(_ context.Context, err error) error {
+		r.dropped.Append(err)
+		return r.errs["dropped"]
 	}
 	opts.OnFinished = func(_ context.Context, f *driverv1.Finished) error {
 		r.calls.Append(call{Name: "finished", Finished: f})
@@ -455,6 +463,11 @@ func TestRunStream_StartUnavailableRetried(t *testing.T) {
 	}, protocmp.Transform())
 	assertTerminalLast(t, calls)
 	assert.DeepEqual(t, opens.Slice(), []bool{true, true, false})
+	// OnDropped saw the rejected start and the start stream that ended.
+	dropped := rec.dropped.Slice()
+	assert.Assert(t, cmp.Len(dropped, 2))
+	assert.Equal(t, connect.CodeOf(dropped[0]), connect.CodeUnavailable)
+	assert.ErrorContains(t, dropped[1], "run stream ended before Finished")
 	assert.Equal(t, starts.Load(), int32(2))
 	info, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, info.Runs, 3)
@@ -650,12 +663,13 @@ func TestRunStream_OpenErrorRetries(t *testing.T) {
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	open := openSandbox(addSandbox(t, be), 3, nil)
+	errOpen := errors.New("open failed")
 	var opens atomic.Int32
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
 		Open: func(ctx context.Context, start bool) (*connect.ServerStreamForClient[driverv1.RunResponse], error) {
 			if opens.Add(1) == 2 {
-				return nil, errors.New("open failed")
+				return nil, errOpen
 			}
 			return open(ctx, start)
 		},
@@ -681,6 +695,10 @@ func TestRunStream_OpenErrorRetries(t *testing.T) {
 	}, protocmp.Transform())
 	assertTerminalLast(t, calls)
 	assert.Assert(t, opens.Load() >= 3)
+	// OnDropped saw the drop, then the failed Open, each before its retry.
+	dropped := rec.dropped.Slice()
+	assert.Assert(t, cmp.Len(dropped, 2))
+	assert.ErrorIs(t, dropped[1], errOpen)
 }
 
 func TestRunStream_Unreachable(t *testing.T) {
@@ -876,12 +894,17 @@ func TestRunStream_CallbackError(t *testing.T) {
 			fail: "unreachable",
 			want: []call{{Name: "unreachable"}},
 		},
+		{
+			name: "dropped",
+			fail: "dropped",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange - OnUnreachable keeps following, so only its error can
-			// end the run there.
+			// end the run there. Without a driver, the first Open fails and
+			// is dropped.
 			var driver driverv1connect.DriverServiceClient
 			if tt.driver != nil {
 				driver = testrunner.NewDriver(t, tt.driver)
@@ -909,7 +932,11 @@ func TestRunStream_CallbackError(t *testing.T) {
 			// Assert - Run stopped at the failing callback and returned its
 			// error.
 			assert.ErrorIs(t, err, errCallback)
-			assert.DeepEqual(t, rec.calls.Slice(), tt.want, protocmp.Transform(), ignoreErr)
+			assert.DeepEqual(t, rec.calls.Slice(), tt.want, protocmp.Transform(), ignoreErr, cmpopts.EquateEmpty())
+			if tt.fail == "dropped" {
+				// The first Open failed, and nothing was retried after it.
+				assert.Assert(t, cmp.Len(rec.dropped.Slice(), 1))
+			}
 		})
 	}
 }
