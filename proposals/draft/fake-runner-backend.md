@@ -968,9 +968,13 @@ Settled in review:
   returns from `m.Run`, and its deferred `m.Close()` closes the backend while
   Run goroutines may still be unwinding. Calling `m.Wait` in between is a
   behaviour change, so it is a separate `fix:` PR, not part of this stack.
-- **`eventoutbox_test.go` moves** to `runner_test` in slice 7. It only uses
-  the exported `NewRunnerEventOutbox`. After the migration, `internal_test.go`
-  (`TestDoubling`) is the only test file left in `package runner`.
+- **`eventoutbox_test.go` moves** to `runner_test` in slice 7. Its
+  `TestIsPermanentError` called the unexported `isPermanentError`, so it
+  becomes `TestRunnerEventOutbox_Permanent`: an event delivered through
+  `NewRunnerEventOutbox` whose first `SubmitRunnerEvents` fails, asserting
+  whether the store dead-lettered it (`Drop(true)`) or it was retried. After
+  the migration, `internal_test.go` (`TestDoubling`) is the only test file
+  left in `package runner`.
 - **No `FailAlways`, no `FailNext` count** until a test needs one. Every
   failure today's tests inject is a single call.
 - **`backendtest` comes after the migration**, as a follow-up outside this

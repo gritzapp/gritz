@@ -464,3 +464,42 @@ func TestTaskRunnerRestore(t *testing.T) {
 		})
 	}
 }
+
+// TestTaskRunnerSend_Shutdown covers a lost run with nothing handling events:
+// Run's send returns once ctx is done, dropping the event.
+func TestTaskRunnerSend_Shutdown(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run followed on an up sandbox by a TaskRunner whose events
+	// nobody reads.
+	client := serveDriver(t, 1, 3, sleepForever)
+	be := newFake(t, client)
+	be.Add("c1", fake.Up)
+	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
+	tr := runner.NewTaskRunner(runner.TaskRunnerOptions{
+		TaskID:  1,
+		Backend: be,
+		Store:   testStore(t, rec),
+		Events:  make(chan runner.TaskEvent),
+	})
+	_, err := tr.Restore(t.Context(), rec)
+	assert.NilError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := runAsync(ctx, tr, nil)
+	waitRuns(t, be, "c1", 1)
+	// The sandbox stops under the run. Run parks it, which is the last thing
+	// it does before sending the lost run.
+	be.Set("c1", fake.Parked)
+	_, err = be.Wait(t.Context(), func(s fake.Snapshot) bool {
+		sbx, _ := s.Sandbox("c1")
+		return sbx.Parks == 1
+	})
+	assert.NilError(t, err)
+
+	// Act - the runner shuts down.
+	cancel()
+
+	// Assert - Run returned without an error: the run was lost, not shut
+	// down, and its event was dropped.
+	assert.NilError(t, waitDone(t, done))
+}
