@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
@@ -57,6 +58,14 @@ func testWorkspaces() *workspace.Config {
 // manager's TaskRunners before they are built.
 func testManager(t *testing.T, be backend.Backend, store *taskstate.Store, tune ...func(*runner.TaskRunnerOptions)) (*runner.TaskManager, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
 	t.Helper()
+	return newTestManager(t, runner.TaskManagerOptions{Backend: be, Store: store}, tune...)
+}
+
+// newTestManager is testManager with opts, whose Client, Queue, RunnerID,
+// Concurrency, Workspaces and NewTaskRunner it sets: Workspaces only if opts
+// has none.
+func newTestManager(t *testing.T, opts runner.TaskManagerOptions, tune ...func(*runner.TaskRunnerOptions)) (*runner.TaskManager, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
+	t.Helper()
 	mock := &gritzclient.ClientMock{
 		CreateTaskTokenFunc: func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
 			return &gritzv1.CreateTaskTokenResponse{Token: "t"}, nil
@@ -72,7 +81,14 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store, tune 
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	newTaskRunner := func(opts runner.TaskRunnerOptions) *runner.TaskRunner {
+	opts.Client = mock
+	opts.Queue = queue
+	opts.RunnerID = "test-runner"
+	opts.Concurrency = 1
+	if opts.Workspaces == nil {
+		opts.Workspaces = testWorkspaces()
+	}
+	opts.NewTaskRunner = func(opts runner.TaskRunnerOptions) *runner.TaskRunner {
 		opts.RetryInterval = 10 * time.Millisecond
 		opts.RetryMaxInterval = 50 * time.Millisecond
 		opts.LostTimeout = 10 * time.Second
@@ -82,7 +98,7 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store, tune 
 		}
 		return runner.NewTaskRunner(opts)
 	}
-	m, err := runner.NewTaskManager(runner.TaskManagerOptions{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces(), NewTaskRunner: newTaskRunner})
+	m, err := runner.NewTaskManager(opts)
 	assert.NilError(t, err)
 	go m.HandleEvents(t.Context())
 	return m, mock, queue
@@ -231,16 +247,17 @@ func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (http.H
 // for tasks on version. It reads the agent config from where the TaskManager's
 // spec provisions it, so a Run with that spec runs the workspace's agent.
 // Until ready is closed every call fails Unavailable, as from a driver that is
-// not up yet; a nil ready is open.
-func driverHandler(t *testing.T, version int64, ready <-chan struct{}) http.Handler {
+// not up yet; a nil ready is open. opts configure the driver.v1 handler, as
+// an interceptor recording the requests the driver receives.
+func driverHandler(t *testing.T, version int64, ready <-chan struct{}, opts ...connect.HandlerOption) http.Handler {
 	t.Helper()
-	h, _ := newDriver(t, version, ready)
+	h, _ := newDriver(t, version, ready, opts...)
 	return h
 }
 
 // newDriver is driverHandler, also returning the store the driver reads agent
 // configs from.
-func newDriver(t *testing.T, version int64, ready <-chan struct{}) (http.Handler, agent.ConfigStore) {
+func newDriver(t *testing.T, version int64, ready <-chan struct{}, opts ...connect.HandlerOption) (http.Handler, agent.ConfigStore) {
 	t.Helper()
 	dir := t.TempDir()
 	root := filepath.Join(dir, "root")
@@ -277,7 +294,7 @@ func newDriver(t *testing.T, version int64, ready <-chan struct{}) (http.Handler
 		assert.NilError(t, srv.Shutdown(ctx))
 	})
 	mux := http.NewServeMux()
-	mux.Handle(srv.Handler())
+	mux.Handle(driverv1connect.NewDriverServiceHandler(srv, opts...))
 	if ready == nil {
 		return mux, configs
 	}
@@ -305,6 +322,29 @@ func stopRun(t *testing.T, client driverv1connect.DriverServiceClient, version i
 		if time.Now().After(deadline) {
 			t.Fatal("run was never running")
 		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// waitFinished waits until run version has finished, attaching to it over
+// the test's client to the driver, and retrying while another Run stream is
+// still open.
+func waitFinished(t *testing.T, client driverv1connect.DriverServiceClient, version int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	for {
+		stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
+		assert.NilError(t, err)
+		for stream.Receive() {
+			if stream.Msg().GetFinished() != nil {
+				assert.NilError(t, stream.Close())
+				return
+			}
+		}
+		err = stream.Err()
+		assert.NilError(t, stream.Close())
+		assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable, "stream ended before finished: %v", err)
 		time.Sleep(5 * time.Millisecond)
 	}
 }
