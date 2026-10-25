@@ -903,10 +903,11 @@ nothing.
    No `taskmanager_test.go` is left in `package runner`. Depends on: (6).
    Verifiable by: the runner test suite, and `grep -l '^package runner$'
    internal/runner/*_test.go` listing only `internal_test.go`.
-8. **Drop the backend mocks** — Delivers: `Backend` and `Sandbox` removed
+8. ~~**Drop the backend mocks** — Delivers: `Backend` and `Sandbox` removed
    from `backend`'s `//go:generate moq` line, `backend_moq.go` deleted.
    Nothing outside the runner tests uses them. Depends on: (7). Verifiable by:
-   `go build ./... && go vet ./...` and the test suite.
+   `go build ./... && go vet ./...` and the test suite.~~ **Dropped:** the
+   backend moq mocks were kept (#1789 closed as not planned).
 
 ## Trade-offs
 

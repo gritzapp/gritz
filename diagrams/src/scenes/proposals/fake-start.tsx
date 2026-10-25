@@ -4,7 +4,7 @@ import {fakeBackendLayout} from '../../layouts/fakebackend';
 import {Colors} from '../../theme';
 
 // A run on the fake backend, traced from
-// proposals/draft/fake-runner-backend.md (State machine, Observations, Driver
+// proposals/implemented/fake-runner-backend.md (State machine, Observations, Driver
 // hookup, "a sandbox that fails to start"): the test calls TaskManager.Start,
 // the fake records the Spec and takes c1 created -> up -> parked, its driver
 // answers only while c1 is up, and the test waits with TaskManager.Wait and
