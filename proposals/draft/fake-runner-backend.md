@@ -133,11 +133,13 @@ the sandbox's driver without changing its state (a network blip). It replaces
 
 - `Sandboxes`: every sandbox the fake has held, in creation order, gone ones
   included. Each is an `Info` with its handle, task, state, the `Spec` it was
-  created from (nil for `Add`), and how many times each operation took effect
-  on it (`Starts`, `Parks`, `Destroys`, `Dials`). These counters replace
-  `sb.StartCalls()`, `ParkCalls()`, `DestroyCalls()` and `DialCalls()`. A call
-  that `FailNext` failed is not counted, and neither is a call that made no
-  change (`Start` on an up sandbox, `Park` on a parked one).
+  created from (nil for `Add`), and how many calls of each operation
+  succeeded on it (`Starts`, `Parks`, `Destroys`, `Dials`). These counters
+  replace `sb.StartCalls()`, `ParkCalls()`, `DestroyCalls()` and
+  `DialCalls()`. A call that `FailNext` failed, or that returned `ErrGone`, is
+  not counted. A no-op is: `Start` on an up sandbox counts, because the runner
+  made the call. That is what lets a trailing `Start` prove which sandbox a
+  `TaskRunner` holds (see [Probing what a TaskRunner holds](#probing-what-a-taskrunner-holds)).
 - `Specs`: a deep copy of every `Spec` passed to `Create`, in call order,
   including those that failed. This replaces `be.CreateCalls()[0].Spec` and
   the tests that read `m.spec` directly.
@@ -296,7 +298,7 @@ type Info struct {
 	State  State
 	// Spec is the spec the sandbox was created from, or nil for Add.
 	Spec *backend.Spec
-	// Starts, Parks, Destroys and Dials count the calls that took effect.
+	// Starts, Parks, Destroys and Dials count the calls that succeeded, no-ops included.
 	Starts, Parks, Destroys, Dials int
 }
 ```
@@ -310,8 +312,10 @@ exported API, and asserts on `Snapshot` and `Wait`, next to the
 
 ### Exported runner API the tests need
 
-The rewrites below need three additions to `internal/runner`. The `TaskRunner`
-and `TaskManager` surfaces stay as #1758 left them otherwise.
+The rewrites below need two additions to `internal/runner`. The `TaskRunner`
+and `TaskManager` surfaces stay as #1758 left them otherwise. In particular,
+there is no accessor for what a `TaskRunner` holds: tests find that out by
+driving it (see [Probing what a TaskRunner holds](#probing-what-a-taskrunner-holds)).
 
 ```go
 package runner // github.com/gritzapp/gritz/internal/runner
@@ -319,25 +323,14 @@ package runner // github.com/gritzapp/gritz/internal/runner
 // ErrRunning is returned by TaskRunner.Start when a Run still follows the task's previous run. // new: replaces errRunning
 var ErrRunning = errors.New("sandbox is still running")
 
-// Record returns the task's record as the TaskRunner holds it, and false if it has no sandbox. // new
-func (tr *TaskRunner) Record() (taskstate.Record, bool)
-
-// Wait blocks until every Run goroutine the manager started has returned, or ctx is done. // new
+// Wait blocks until every Run goroutine the manager started has returned, or ctx is done.
+// It must not be called while the manager can still start runs (Poll, Load, or Run's loop). // new
 func (m *TaskManager) Wait(ctx context.Context) error
 ```
 
 - **`ErrRunning`.** `TestTaskRunnerStart` and `TestTaskRunnerStart_Concurrent`
   assert that a second `Start` refuses with it. It is part of `Start`'s
   documented contract, and `Poll` already branches on it.
-- **`TaskRunner.Record`.** `assertTracked` checks two things: the record in
-  `taskstate/`, and the `TaskRunner`'s in-memory copy (`tr.rec`, `tr.sbx !=
-  nil`). The store is the test's own, so the first needs nothing. The second is
-  what the refactor's rule is about: "no sandbox" is now `tr.sbx == nil`, not a
-  missing registry entry. In `TestTaskManagerHandleEvents_Fatal` the store's
-  directory is removed, so a missing record proves nothing, and only the
-  `TaskRunner` can show that the failed write left it with no sandbox. `Version()` cannot stand in,
-  because a version-0 record (`TestTaskManagerLoad_VersionScopedBackstop`) and
-  no sandbox both read as 0. `Record` is a read under `tr.mu`, like `Version`.
 - **`TaskManager.Wait`.** "The Run is done" is what `waitIdle` and
   `waitReleased` wait for, and every negative assertion after a run needs it:
   `attach` parks the sandbox *before* `Run` sends its `TaskLostEvent`. So
@@ -345,14 +338,54 @@ func (m *TaskManager) Wait(ctx context.Context) error
   The fake sees the park; only the manager sees the goroutine return. A
   `sync.WaitGroup` around `m.run`'s goroutine (`Done` deferred, so it runs
   after `Release` and `Wake`, and on the shutdown path that skips them) gives
-  that without exposing `m.sem`. It is also the missing step in
-  `gritz runner`'s shutdown, where the deferred `m.Close()` closes the backend
-  while Run goroutines may still be unwinding (see
-  [Open Questions](#open-questions)).
+  that without exposing `m.sem`.
+
+  `Wait` is only for when nothing can start another run: `Poll`, `Load` and
+  `Run`'s loop must all be done or not yet called. Each of them reaches
+  `m.run`, whose `WaitGroup.Add` from a zero count while `WaitGroup.Wait` is
+  blocked is a misuse of `sync.WaitGroup`. Shutdown meets that condition
+  (`Run` has returned). A test meets it by calling `Wait` only after its last
+  `Load`, `Poll` or `Start` has returned, and never while `m.Run` is running.
+
+  It is also the missing step in `gritz runner`'s shutdown, where the deferred
+  `m.Close()` closes the backend while Run goroutines may still be unwinding.
+  Wiring it in there is a separate `fix:` PR (see [Decisions](#decisions)).
 
 Calling `TaskManager.Start` directly without holding a slot, as the
 rewritten tests do, is harmless: `safesem.Release` floors at zero. So
 `startTask`'s `TryAcquire` goes away. Tests about admission go through `Poll`.
+
+### Probing what a TaskRunner holds
+
+Today's tests read `tr.sbx` and `tr.rec` to see whether a `TaskRunner` still
+holds a sandbox. The rewritten tests find out by driving it: they call `Start`
+on it and look at what the fake saw.
+
+- **A new `Create`** (one more entry in `Snapshot().Specs`, a new sandbox
+  `c2`) means it held no sandbox.
+- **No `Create`, and one more `Start` on `c1`** (its `Starts` counter went up)
+  means it still held `c1`.
+- **`ErrRunning`** means it is claimed, and nothing about the sandbox can be
+  learned that way. Only `Restore` on an up sandbox claims without a `Run`, and
+  it claims in the same lock acquisition that installs the sandbox, so for
+  `Restore` the claim is itself the proof that the sandbox was adopted.
+
+The record half needs no probe: the store is the test's own. The fake half
+needs no probe either: `Snapshot` shows what is live and what was destroyed.
+
+The probe changes state. It may create a sandbox, starts one, and restamps
+the record with the probe's version, so it is always the **last** thing a test
+does with that `TaskRunner`. In the middle of a test, the next act usually
+already is the probe: in `Start_Gone`, the second `Start` creating `c2`
+proves that the first one left nothing behind. Where it is not, the test
+checks only the store and the fake at that point.
+
+`TestTaskManagerHandleEvents_Fatal` uses the same probe. Its store's
+directory is removed, so a missing record proves nothing. A trailing
+`m.Runner(1).Start` makes a second `Create` (two `Specs`), which proves the
+failed write left the `TaskRunner` with no sandbox. The probe's own record
+write fails as well and sends a second `TaskFatalEvent`, which is harmless:
+the first cause wins.
 
 ### Replacing internal access, re-checked
 
@@ -369,7 +402,7 @@ two test files touch today, and the black-box replacement:
 | `m.die` | `TestTaskManagerRun` | a durable write that fails: an `outbox.StoreMock` whose `Append` fails, as `TestTaskManagerDie_StopWithoutSandbox` does | — |
 | `m.store` | many | the `*taskstate.Store` the test passed in | — |
 | `m.backend.Open`, `recordHandle` (`seed`) | `seed`, assertions on `OpenCalls` | `be.Add`, the record in the store, then `tr.Restore` or `Load`. Assertions on the opened handle become assertions on the fake sandbox's state and counters | — |
-| `tr.sbx`, `tr.rec` (`track`, `assertTracked`, Restore and Fatal tests) | ~25 tests | the store, plus `TaskRunner.Record()` | `Record` |
+| `tr.sbx`, `tr.rec` (`track`, `assertTracked`, Restore and Fatal tests) | ~25 tests | the store for the record, the fake for the sandboxes, and a trailing `Start` for what the `TaskRunner` holds (see [Probing](#probing-what-a-taskrunner-holds)) | — |
 | `m.tasks` (`registered`, Prune's key list) | Start_Gone, Prune, Run | `m.Runner(id)` pointer identity: the same pointer is kept, a new one was dropped. `TestTaskManagerRun` waits on `Snapshot().Destroyed` instead of polling the registry | — |
 | `tr.running` (`claim`) | StartStillRunning, Prune, Remove_Running, `runAsync` | `tr.Restore` on an up sandbox claims, as `Load` does. "Claimed but not up" is `Restore` on `Up`, then `be.Set(id, fake.Parked)` | — |
 | `tr.running` (`waitIdle`) | Run_Finished, Run_Shutdown, RestartReattaches | a synchronous `tr.Run` returning is idle already (the `running` reset is deferred inside `Run`). A manager's Run goroutines use `m.Wait`. "Claimed" as an assertion (Restore test) is probed with `Start` returning `ErrRunning` | `Wait`, `ErrRunning` |
@@ -382,7 +415,8 @@ two test files touch today, and the black-box replacement:
 | `m.events` | Restore test's `NewTaskRunner` | a channel the test makes | — |
 | `errRunning` | TaskRunnerStart, Start_Concurrent | `ErrRunning` | `ErrRunning` |
 | `errRemoved` | none directly | only the lost reason string is asserted | — |
-| `tr.opts` (defaults), `doubling` | TestNewTaskRunner, TestDoubling | keep a small `internal_test.go` in `package runner` with these two tests only; the panics half of TestNewTaskRunner moves out | — |
+| `tr.opts` (defaults), `tr.sbx` in TestNewTaskRunner | TestNewTaskRunner | the panics half moves to `runner_test`. The defaults half is dropped: it only restates the `default*` constants | — |
+| `doubling` | TestDoubling | stays in `internal_test.go`, the only test left in `package runner` | — |
 | `SandboxMock.*Calls()`, `BackendMock.*Calls()` | most | `Info` counters, `Snapshot().Specs`, `Destroyed` | — |
 
 Differences from #1760's table:
@@ -397,6 +431,9 @@ Differences from #1760's table:
   plus the claim of an up sandbox.
 - **No timing fields** need adding: #1758 already put them on
   `TaskRunnerOptions`.
+- **No accessor for what a `TaskRunner` holds.** The issue left `tr.sbx` to
+  "the fake's live sandboxes". Those show what exists, not what the
+  `TaskRunner` holds, so the tests add a trailing `Start` probe.
 
 ### Shared helpers and `backendtest`
 
@@ -416,7 +453,7 @@ Neither is needed for the fake, so both stay out of this proposal:
 ### Validation: rewritten tests
 
 The tests below are today's, rewritten as `package runner_test` against the
-fake and the three additions above. They assume these helpers in
+fake and the two additions above. They assume these helpers in
 `helpers_test.go`, ported from today's:
 
 - `testStore(t, recs...)`, `submitted`, `waitQueued`: unchanged.
@@ -429,31 +466,56 @@ fake and the three additions above. They assume these helpers in
 - `drivers(h) func(backend.Handle) http.Handler`: every sandbox gets driver
   `h`.
 
-`assertTracked` itself becomes:
+`assertRecord` checks the store only, so it can go anywhere in a test.
+`assertTracked` adds the probe, so it goes last:
 
 ```go
-// assertTracked asserts that the task has a record and its TaskRunner holds
-// that record, or, with want nil, that it has neither.
-func assertTracked(t *testing.T, m *runner.TaskManager, store *taskstate.Store, taskID int64, want *taskstate.Record) {
+// assertRecord asserts the task's record in store: *want, or none with want
+// nil.
+func assertRecord(t *testing.T, store *taskstate.Store, taskID int64, want *taskstate.Record) {
 	t.Helper()
 	rec, ok, err := store.Read(taskID)
 	assert.NilError(t, err)
-	held, has := m.Runner(taskID).Record()
 	if want == nil {
 		assert.Assert(t, !ok, "task %d has a record", taskID)
-		assert.Assert(t, !has, "task %d has a sandbox", taskID)
 		return
 	}
 	assert.Assert(t, ok, "no record for task %d", taskID)
 	assert.DeepEqual(t, rec, *want)
-	assert.Assert(t, has, "task %d has no sandbox", taskID)
-	assert.DeepEqual(t, held, *want)
+}
+
+// probeVersion is the version assertTracked's probe Start runs.
+const probeVersion = 1000
+
+// assertTracked asserts the task's record, as assertRecord does, and that
+// its TaskRunner holds sandbox want.ID, or, with want nil, no sandbox. It
+// finds out by starting the TaskRunner, which changes its state and the
+// record, so it is the last thing a test does with the task.
+func assertTracked(t *testing.T, m *runner.TaskManager, be *fake.Backend, store *taskstate.Store, taskID int64, want *taskstate.Record) {
+	t.Helper()
+	assertRecord(t, store, taskID, want)
+	before := be.Snapshot()
+	err := m.Runner(taskID).Start(t.Context(), backend.Spec{TaskID: taskID, Version: probeVersion})
+	after := be.Snapshot()
+	assert.Assert(t, !errors.Is(err, runner.ErrRunning), "task %d's TaskRunner is claimed, so it cannot be probed", taskID)
+	if want == nil {
+		// A TaskRunner with no sandbox creates one.
+		assert.Equal(t, len(after.Specs), len(before.Specs)+1, "task %d's TaskRunner holds a sandbox", taskID)
+		return
+	}
+	// A TaskRunner holding want.ID starts it, and creates nothing.
+	assert.NilError(t, err)
+	assert.Equal(t, len(after.Specs), len(before.Specs), "task %d's TaskRunner held no sandbox", taskID)
+	was, _ := before.Sandbox(want.ID)
+	now, _ := after.Sandbox(want.ID)
+	assert.Equal(t, now.Starts, was.Starts+1, "task %d's TaskRunner does not hold %s", taskID, want.ID)
 }
 ```
 
 `m.Runner` registers a `TaskRunner` for a task that has none. The old helper
 told "no `TaskRunner`" apart from "a `TaskRunner` with no sandbox". #1758 made
-that difference meaningless, so the two cases merge here.
+that difference meaningless, so the two cases merge here: either way, the
+probe creates.
 
 #### `assertTracked`: a sandbox that fails to start
 
@@ -477,7 +539,7 @@ func TestTaskManagerStart_StartFails(t *testing.T) {
 	// The record surviving the failed start also shows it was written before
 	// the sandbox was started.
 	assert.ErrorIs(t, err, boom)
-	assertTracked(t, m, store, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"})
+	assertRecord(t, store, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"})
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Created)
 	assert.Equal(t, sbx.Dials, 0)
@@ -485,15 +547,20 @@ func TestTaskManagerStart_StartFails(t *testing.T) {
 	// Act - the task's sandbox is removed.
 	assert.NilError(t, m.Runner(1).Destroy(t.Context()))
 
-	// Assert
+	// Assert - Destroy found c1, so the TaskRunner still held it; now it holds
+	// nothing, and the record is gone.
 	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
-	assertTracked(t, m, store, 1, nil)
+	assertTracked(t, m, be, store, 1, nil)
 }
 ```
 
 Replaced: `testSandbox(nil)` + `StartFunc`, `BackendMock.CreateFunc`,
 `startTask` (the slot), `sb.DialCalls()`, `sb.DestroyCalls()`, and the private
-`assertTracked`.
+`assertTracked`. The first `assertTracked` of the original, in the middle of
+the test, becomes `assertRecord` plus the fake's view: a probe there would
+start `c1`. The `Destroy` that follows is the drive that shows the
+`TaskRunner` still held `c1`. The trailing `assertTracked` probes with a
+`Start` that creates `c2`.
 
 #### `waitIdle`: a runner restart mid-run
 
@@ -575,7 +642,7 @@ func TestTaskRunnerRestore(t *testing.T) {
 		wantStatus  backend.Status
 		wantErr     bool
 		wantSandbox bool // the sandbox and record are kept
-		wantClaimed bool
+		wantClaimed bool // which also shows the sandbox was adopted
 	}{
 		{name: "up", state: fake.Up, wantStatus: backend.StatusUp, wantSandbox: true, wantClaimed: true},
 		{name: "parked", state: fake.Parked, wantStatus: backend.StatusParked, wantSandbox: true},
@@ -617,23 +684,32 @@ func TestTaskRunnerRestore(t *testing.T) {
 				assert.NilError(t, err)
 				assert.Equal(t, st, tt.wantStatus)
 			}
-			got, ok, err := store.Read(rec.TaskID)
-			assert.NilError(t, err)
-			held, has := tr.Record()
 			if tt.wantSandbox {
-				assert.Assert(t, ok, "record was deleted")
-				assert.DeepEqual(t, got, rec)
-				assert.Assert(t, has, "TaskRunner has no sandbox")
-				assert.DeepEqual(t, held, rec)
+				assertRecord(t, store, rec.TaskID, &rec)
 			} else {
-				assert.Assert(t, !ok, "record was kept")
-				assert.Assert(t, !has, "TaskRunner kept a sandbox")
+				assertRecord(t, store, rec.TaskID, nil)
 			}
 			// Restore never destroys, even a gone sandbox.
 			assert.Assert(t, cmp.Len(be.Snapshot().Destroyed, 0))
-			// A claimed TaskRunner refuses the next Start.
+
+			// Probe, last - a Start shows what the TaskRunner holds: claimed
+			// refuses, c1 is started, and no sandbox means a Create.
+			before := be.Snapshot()
 			err = tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
-			assert.Equal(t, errors.Is(err, runner.ErrRunning), tt.wantClaimed)
+			after := be.Snapshot()
+			was, _ := before.Sandbox("c1")
+			now, _ := after.Sandbox("c1")
+			switch {
+			case tt.wantClaimed:
+				assert.ErrorIs(t, err, runner.ErrRunning)
+			case tt.wantSandbox:
+				assert.NilError(t, err)
+				assert.Equal(t, now.Starts, was.Starts+1, "TaskRunner does not hold c1")
+				assert.Equal(t, len(after.Specs), 0, "TaskRunner held no sandbox")
+			default:
+				assert.NilError(t, err)
+				assert.Equal(t, len(after.Specs), 1, "TaskRunner kept a sandbox")
+			}
 		})
 	}
 }
@@ -643,9 +719,11 @@ The `gone` row and the new `never existed` row are the gone-sandbox restore:
 a sandbox that vanished since the record was written, and a record whose ID
 the platform never knew. Both give `StatusGone` through the stale-handle rule
 with no mock. Before, each was a `StatusFunc` returning the constant. The
-claim is probed through `Start`, which only acts at the end of the test. The
 "claimed" (`tr.running`) and "has a sandbox" (`tr.sbx`) assertions no longer
-read fields.
+read fields: one trailing `Start` answers both. It refuses when claimed,
+starts `c1` when the `TaskRunner` kept it, and creates when it did not. The
+`status error` row shows why a no-op `Start` counts: `c1` is already up, and
+the probe still has to see the `TaskRunner` reach it.
 
 #### Gone at Start, then a fresh sandbox
 
@@ -676,10 +754,11 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// and the TaskRunner was kept with no sandbox.
 	assert.ErrorIs(t, err, backend.ErrGone)
 	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0))
-	assertTracked(t, m, store, 8, nil)
+	assertRecord(t, store, 8, nil)
 	assert.Equal(t, m.Runner(8), tr)
 
-	// Act - the task is started again.
+	// Act - the task is started again. This Start is also the probe for the
+	// first one: a Create means it left the TaskRunner with no sandbox.
 	task.Version = 3
 	assert.NilError(t, m.Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
@@ -695,16 +774,19 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	n, err := queue.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
-	assertTracked(t, m, store, 8, &taskstate.Record{TaskID: 8, Version: 3, Type: "fake", ID: "c2"})
 	// The runner never destroyed the vanished sandbox; it only dropped it.
 	assert.Assert(t, cmp.Len(snap.Destroyed, 0))
+	assertTracked(t, m, be, store, 8, &taskstate.Record{TaskID: 8, Version: 3, Type: "fake", ID: "c2"})
 }
 ```
 
 Before, this test needed two mocks wired differently (`OpenFunc` returning
 `gone`, `CreateFunc` returning `fresh`) and a `StartFunc` returning `ErrGone`.
 Now it needs one `Set`. The fresh sandbox's ID (`c2`, not a second `c1`) and
-the empty `Destroyed` are behaviour the mocks could not express.
+the empty `Destroyed` are behaviour the mocks could not express. The original
+`assertTracked(t, m, 8, nil)` in the middle becomes `assertRecord`. The
+second `m.Start` creating `c2` is the probe that shows the `TaskRunner` held
+nothing.
 
 ### Visualization
 
@@ -741,15 +823,16 @@ the empty `Destroyed` are behaviour the mocks could not express.
    `http.Handler` (no `driverserver`) showing a request answered while up,
    `Unavailable` while parked, and an open stream closed by `Park` and by
    `Set(Gone)`.
-4. **Runner exports** — Delivers: `ErrRunning` (renamed from `errRunning`),
-   `TaskRunner.Record`, and `TaskManager.Wait` with its WaitGroup. Depends on:
-   nothing (parallel to 1–3). Verifiable by: the existing internal tests,
-   updated for the rename, plus internal tests for `Record` after
-   Start/Destroy and for `Wait` returning once a run finishes.
+4. **Runner exports** — Delivers: `ErrRunning` (renamed from `errRunning`)
+   and `TaskManager.Wait` with its WaitGroup, documented as not to be called
+   while the manager can still start runs. Depends on: nothing (parallel to
+   1–3). Verifiable by: the existing internal tests, updated for the rename,
+   plus a test that `Wait` returns once a run finishes and on a ctx that is
+   done.
 5. **TaskRunner tests to `runner_test`** — Delivers: `helpers_test.go`
    (`package runner_test`), `taskrunner_test.go` moved and rewritten on the
-   fake, and `internal_test.go` keeping `TestDoubling` and the defaults half of
-   `TestNewTaskRunner`. Depends on: (2), (3), (4). Verifiable by: `mise run
+   fake, the panics half of `TestNewTaskRunner` (its defaults half is
+   dropped), and `internal_test.go` keeping `TestDoubling` only. Depends on: (2), (3), (4). Verifiable by: `mise run
    test -- ./internal/runner/...`, and renaming `tr.sbx` locally to confirm
    the moved file still compiles.
 6. **TaskManager start/stop tests** — Delivers: the Start, Poll, Kill,
@@ -757,11 +840,10 @@ the empty `Destroyed` are behaviour the mocks could not express.
    the fake, the Spec tests without the Docker backend. Depends on: (5).
    Verifiable by: the runner test suite.
 7. **TaskManager load/prune/events tests** — Delivers: the Load, Prune, Run,
-   HandleEvents, Die and outbox tests moved. `taskmanager_test.go` no longer
-   exists in `package runner`. Depends on: (6). Verifiable by: the runner test
-   suite, and `grep -L 'package runner$' internal/runner/*_test.go` leaving
-   only `internal_test.go` and `eventoutbox_test.go` (if that one stays
-   internal).
+   HandleEvents, Die and outbox tests moved, `eventoutbox_test.go` included.
+   No `taskmanager_test.go` is left in `package runner`. Depends on: (6).
+   Verifiable by: the runner test suite, and `grep -l '^package runner$'
+   internal/runner/*_test.go` listing only `internal_test.go`.
 8. **Drop the backend mocks** — Delivers: `Backend` and `Sandbox` removed
    from `backend`'s `//go:generate moq` line, `backend_moq.go` deleted.
    Nothing outside the runner tests uses them. Depends on: (7). Verifiable by:
@@ -791,28 +873,42 @@ the empty `Destroyed` are behaviour the mocks could not express.
 - **`TaskManager.Wait` over a `Claimed()` accessor.** `TaskRunner.Claimed()`
   would expose the claim flag and still need polling to wait on it. `Wait`
   is a blocking primitive with a production use.
+- **Probing over a `TaskRunner.Record()` accessor.** An accessor for the
+  in-memory record would let `assertTracked` check the `TaskRunner` without
+  changing it, and could go anywhere in a test. But it asserts on state
+  rather than behaviour, and it would be API that exists for tests only. A
+  trailing `Start` checks what matters, that the next run lands on the right
+  sandbox, through the API production uses. The cost is that the probe
+  changes state and must go last, and that it cannot see past a claim. The
+  only claim without a `Run` is `Restore` on an up sandbox, and that claim is
+  itself the proof.
 - **`m.Runner` in `assertTracked`.** It registers a `TaskRunner` for an
   unknown task. A `TaskManager.Registered(id)` accessor would avoid that, but
   would expose the registry purely for tests. Since #1758, "no `TaskRunner`"
   and "no sandbox" mean the same thing to every caller.
+- **Dropping the defaults half of `TestNewTaskRunner`.** Keeping it would
+  need either `tr.opts` (internal) or an options accessor. It only restates
+  the `default*` constants, so it is dropped rather than kept internal.
 - **Helpers stay in `helpers_test.go`.** A `runnertest` package now would
   export test helpers with one importer, and turn their signatures into an
   API to maintain.
 
+## Decisions
+
+Settled in review:
+
+- **`TaskManager.Wait` in `gritz runner`.** `internal/command/runner.go`
+  returns from `m.Run`, and its deferred `m.Close()` closes the backend while
+  Run goroutines may still be unwinding. Calling `m.Wait` in between is a
+  behaviour change, so it is a separate `fix:` PR, not part of this stack.
+- **`eventoutbox_test.go` moves** to `runner_test` in slice 7. It only uses
+  the exported `NewRunnerEventOutbox`. After the migration, `internal_test.go`
+  (`TestDoubling`) is the only test file left in `package runner`.
+- **No `FailAlways`, no `FailNext` count** until a test needs one. Every
+  failure today's tests inject is a single call.
+- **`backendtest` comes after the migration**, as a follow-up outside this
+  plan. The fake's state-table test is shaped so that suite can lift it.
+
 ## Open Questions
 
-- **Wire `TaskManager.Wait` into `gritz runner`?** `internal/command/runner.go`
-  returns from `m.Run` and its deferred `m.Close()` closes the backend while
-  Run goroutines may still be unwinding. Calling `m.Wait` with a short
-  timeout in between would make shutdown ordered. That is a behaviour change,
-  so it would be its own `fix:` PR, not part of this stack.
-- **Keep `eventoutbox_test.go` internal?** It only uses exported
-  `NewRunnerEventOutbox`, so it can move with slice 7 or stay. Proposed:
-  move it, so the only internal test file is `internal_test.go`.
-- **Persistent failures.** `FailNext` fails one call. No test today needs "every
-  `Status` on c7 fails", but Prune retries would. Add `FailAlways(op, id,
-  err)` when a test needs it, or make `FailNext` take a count?
-- **`backendtest` timing.** The fake's state-table test is shaped to be
-  lifted into a conformance suite. Should that follow right after slice 3, to
-  catch drift between the fake and Docker early, or wait until after the
-  migration?
+None.
