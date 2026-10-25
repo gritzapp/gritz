@@ -11,25 +11,30 @@ import (
 	"connectrpc.com/connect"
 
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/x/common"
 )
 
-// ErrSandboxDown is returned, wrapped, by a RunStreamOptions.Dial that could
+// ErrSandboxDown is returned, wrapped, by a RunStreamOptions.Open that could
 // not reach the driver because its sandbox is not up. It tells the RunStream
 // to give up: the run's Finished can never arrive.
 var ErrSandboxDown = errors.New("sandbox is not up")
 
+// errReadyTimeout cancels the streams of a start that has had no Accepted
+// within RunStreamOptions.ReadyTimeout.
+var errReadyTimeout = errors.New("ready timeout")
+
 // RunStreamOptions configures a RunStream.
 type RunStreamOptions struct {
-	// Dial returns a client to the driver once the driver answers. An error
-	// wrapping ErrSandboxDown ends the run; any other error is retried.
-	// Required.
-	Dial func(ctx context.Context) (driverv1connect.DriverServiceClient, error)
-	// Version is the run to follow.
-	Version int64
-	// Spec starts the run; nil reattaches to a run already started.
-	Spec *driverv1.RunSpec
+	// Open opens a Run stream to the driver. start is true until the
+	// RunStream has received an Accepted, and only then may the request
+	// carry the spec: a reattach that carried it would start the run again
+	// on a driver that has lost its record of it. An error wrapping
+	// ErrSandboxDown ends the run. Required.
+	Open func(ctx context.Context, start bool) (*connect.ServerStreamForClient[driverv1.RunResponse], error)
+	// Start makes Run start the run: Open is called with start true until
+	// the first Accepted. Otherwise Run reattaches to a run already started,
+	// and start is always false.
+	Start bool
 	// Log is the logger; defaults to slog.Default().
 	Log *slog.Logger
 	// RetryInterval is the first pause between attempts to reach the driver
@@ -40,8 +45,8 @@ type RunStreamOptions struct {
 	// LostTimeout is how long reattaching goes on with no accepted stream
 	// before OnUnreachable is called; defaults to 2m.
 	LostTimeout time.Duration
-	// ReadyTimeout bounds starting the run, up to its Accepted; defaults to
-	// 1m.
+	// ReadyTimeout bounds starting the run, up to its first Accepted;
+	// defaults to 1m.
 	ReadyTimeout time.Duration
 
 	// Every callback returns an error; a non-nil one ends Run with it.
@@ -62,15 +67,16 @@ type RunStreamOptions struct {
 type LostReason int
 
 const (
-	// LostStartFailed: the run could not be started; err says why.
+	// LostStartFailed: the run could not be started, up to its first
+	// Accepted; err says why.
 	LostStartFailed LostReason = iota + 1
 	// LostNoRun: the driver has no run with the version (NotFound).
 	LostNoRun
 	// LostSuperseded: the driver has moved past the version or runs another
 	// one (FailedPrecondition, Aborted).
 	LostSuperseded
-	// LostSandboxDown: Dial returned ErrSandboxDown after a drop; err is
-	// Dial's error.
+	// LostSandboxDown: Open returned ErrSandboxDown after the first
+	// Accepted; err is Open's error.
 	LostSandboxDown
 )
 
@@ -92,18 +98,24 @@ func (r LostReason) String() string {
 
 // RunStream follows one run on a driver over driver.v1 Run streams, from its
 // start or reattach until it ends. It reaches the driver only through its
-// options' Dial, and reports every outcome through their callbacks.
+// options' Open, and reports every outcome through their callbacks. It knows
+// neither the run's version nor its spec.
 type RunStream struct {
 	// opts is the RunStream's configuration, with its defaults applied.
 	opts RunStreamOptions
+	// starting is true while Run is starting the run: until the first
+	// Accepted.
+	starting bool
+	// stopReady stops the ready timer once the start is accepted.
+	stopReady func() bool
 }
 
-// NewRunStream returns a RunStream for opts. It panics if Dial, OnFinished,
+// NewRunStream returns a RunStream for opts. It panics if Open, OnFinished,
 // OnLost or OnUnreachable is nil.
 func NewRunStream(opts RunStreamOptions) *RunStream {
 	switch {
-	case opts.Dial == nil:
-		panic("runner: RunStreamOptions.Dial is required")
+	case opts.Open == nil:
+		panic("runner: RunStreamOptions.Open is required")
 	case opts.OnFinished == nil:
 		panic("runner: RunStreamOptions.OnFinished is required")
 	case opts.OnLost == nil:
@@ -119,7 +131,7 @@ func NewRunStream(opts RunStreamOptions) *RunStream {
 	if opts.OnAccepted == nil {
 		opts.OnAccepted = func(context.Context, *driverv1.Accepted) error { return nil }
 	}
-	return &RunStream{opts: opts}
+	return &RunStream{opts: opts, starting: opts.Start, stopReady: func() bool { return false }}
 }
 
 // Run follows the run. The callbacks run synchronously on Run's goroutine
@@ -128,98 +140,43 @@ func NewRunStream(opts RunStreamOptions) *RunStream {
 // callback (OnFinished, OnLost, or OnUnreachable returning true) has
 // returned, or ctx's cause, with no terminal callback called. Call it once.
 //
-// With a spec, Run first starts the run: it dials the driver, backing off
-// exponentially while Dial fails, then opens a Run stream with the spec and
-// closes it after its Accepted, which leaves the run going. A Run that is
-// rejected because another stream is open is retried. The driver has
-// ReadyTimeout to do both; a start that fails, or a Dial that returns
-// ErrSandboxDown, is reported through OnLost(LostStartFailed). Run then
-// follows the run as for a reattach.
-func (r *RunStream) Run(ctx context.Context) error {
-	opts := r.opts
-	if opts.Spec != nil {
-		accepted, err := r.start(ctx)
-		if ctx.Err() != nil {
-			return context.Cause(ctx)
-		}
-		if err != nil {
-			opts.Log.Error("failed to start run", "version", opts.Version, "err", err)
-			return opts.OnLost(ctx, LostStartFailed, err)
-		}
-		if err := opts.OnAccepted(ctx, accepted); err != nil {
-			return err
-		}
-	}
-	return r.follow(ctx)
-}
-
-// start dials the driver until it answers, then starts the run with the spec,
-// and returns the Accepted it was answered with, all within ReadyTimeout.
-func (r *RunStream) start(ctx context.Context) (*driverv1.Accepted, error) {
-	opts := r.opts
-	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
-	defer cancel()
-	bo := doubling(opts.RetryInterval, readyMaxInterval)
-	var client driverv1connect.DriverServiceClient
-	for {
-		var err error
-		client, err = opts.Dial(ctx)
-		if err == nil {
-			break
-		}
-		if errors.Is(err, ErrSandboxDown) {
-			return nil, err
-		}
-		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return nil, fmt.Errorf("driver server did not become ready: %w", err)
-		}
-	}
-	for {
-		accepted, err := r.accept(ctx, client, &driverv1.RunRequest{Version: opts.Version, Spec: opts.Spec})
-		if err == nil {
-			return accepted, nil
-		}
-		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, opts.RetryInterval) {
-			return nil, fmt.Errorf("failed to start run %d: %w", opts.Version, err)
-		}
-	}
-}
-
-// accept opens a Run stream and closes it after its Accepted, which it
-// returns: the run keeps going without it.
-func (r *RunStream) accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) (*driverv1.Accepted, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := client.Run(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	defer stream.Close()
-	if !stream.Receive() {
-		return nil, cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted"))
-	}
-	accepted := stream.Msg().GetAccepted()
-	if accepted == nil {
-		return nil, fmt.Errorf("unexpected first run response: %v", stream.Msg())
-	}
-	return accepted, nil
-}
-
-// follow attaches to the run and follows it until it ends, through a terminal
-// callback or a callback's error, or ctx is done, when it returns ctx's cause.
+// Run opens a stream, reads its Accepted and then the stream until the
+// run's Finished, and opens another stream when one drops. With Start, it
+// starts the run first: until the first Accepted, Open is called with start
+// true, a stream rejected as Unavailable (a driver not answering yet, or
+// another stream open) is retried with backoff, and ReadyTimeout bounds it
+// all. A start that fails or times out, or an Open that returns
+// ErrSandboxDown, is reported through OnLost(LostStartFailed). The stream
+// that is accepted is kept: the start is only different up to its Accepted.
 //
-// A dropped stream is reattached, backing off exponentially, while Dial does
-// not return ErrSandboxDown. A Dial that does, or a driver with no such run,
-// is a lost run. Once LostTimeout has passed without an accepted stream, each
+// After the first Accepted, or from the first stream without Start, a
+// dropped stream is reopened, backing off exponentially, while Open does not
+// return ErrSandboxDown. An Open that does, or a driver with no such run, is
+// a lost run. Once LostTimeout has passed without an accepted stream, each
 // failed reattach calls OnUnreachable, which decides whether to stop or keep
 // following.
-func (r *RunStream) follow(ctx context.Context) error {
+func (r *RunStream) Run(ctx context.Context) error {
 	opts := r.opts
+	readyCtx := ctx
+	if r.starting {
+		var cancel context.CancelCauseFunc
+		readyCtx, cancel = context.WithCancelCause(ctx)
+		defer cancel(nil)
+		r.stopReady = time.AfterFunc(opts.ReadyTimeout, func() { cancel(errReadyTimeout) }).Stop
+	}
+	readyBo := doubling(opts.RetryInterval, readyMaxInterval)
 	lastGood := time.Now()
 	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
 	var lastErr string
 	for {
-		finished, accepted, err, cbErr := r.attachOnce(ctx)
+		start := r.starting
+		streamCtx := ctx
+		if start {
+			// The stream outlives the start once it is accepted, and only the
+			// ready timer cancels readyCtx before Run returns.
+			streamCtx = readyCtx
+		}
+		finished, accepted, err, cbErr := r.readStream(streamCtx, start)
 		if cbErr != nil {
 			return cbErr
 		}
@@ -229,10 +186,25 @@ func (r *RunStream) follow(ctx context.Context) error {
 		if finished != nil {
 			return opts.OnFinished(ctx, finished)
 		}
+		if r.starting {
+			switch {
+			case readyCtx.Err() != nil:
+				return r.startFailed(ctx, fmt.Errorf("driver server did not become ready: %w", err))
+			case errors.Is(err, ErrSandboxDown), connect.CodeOf(err) != connect.CodeUnavailable:
+				return r.startFailed(ctx, fmt.Errorf("failed to start run: %w", err))
+			}
+			if !common.SleepContext(readyCtx, readyBo.NextBackOff()) {
+				if ctx.Err() != nil {
+					return context.Cause(ctx)
+				}
+				return r.startFailed(ctx, fmt.Errorf("driver server did not become ready: %w", err))
+			}
+			continue
+		}
 		if isTerminal(err) {
 			// The driver has no run with this version (or has moved past it),
 			// so its Finished will never come.
-			opts.Log.Error("driver has no such run", "version", opts.Version, "err", err)
+			opts.Log.Error("driver has no such run", "err", err)
 			reason := LostSuperseded
 			if connect.CodeOf(err) == connect.CodeNotFound {
 				reason = LostNoRun
@@ -240,7 +212,7 @@ func (r *RunStream) follow(ctx context.Context) error {
 			return opts.OnLost(ctx, reason, err)
 		}
 		if errors.Is(err, ErrSandboxDown) {
-			opts.Log.Error("sandbox stopped before its run finished", "version", opts.Version, "err", err)
+			opts.Log.Error("sandbox stopped before its run finished", "err", err)
 			return opts.OnLost(ctx, LostSandboxDown, err)
 		}
 		if accepted {
@@ -256,7 +228,7 @@ func (r *RunStream) follow(ctx context.Context) error {
 			}
 		}
 		if msg := err.Error(); msg != lastErr {
-			opts.Log.Warn("run stream dropped, reattaching", "version", opts.Version, "err", err)
+			opts.Log.Warn("run stream dropped, reattaching", "err", err)
 			lastErr = msg
 		}
 		if !common.SleepContext(ctx, bo.NextBackOff()) {
@@ -265,17 +237,19 @@ func (r *RunStream) follow(ctx context.Context) error {
 	}
 }
 
-// attachOnce dials the driver, opens a Run stream for the version without a
-// spec and reads it until the run's Finished, which it returns, calling
-// OnAccepted on the stream's first Accepted. Otherwise it returns why the
-// stream ended, or OnAccepted's error as cbErr. accepted reports whether the
-// driver accepted the stream before it ended.
-func (r *RunStream) attachOnce(ctx context.Context) (finished *driverv1.Finished, accepted bool, err, cbErr error) {
-	client, err := r.opts.Dial(ctx)
-	if err != nil {
-		return nil, false, err, nil
-	}
-	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: r.opts.Version})
+// startFailed reports a start that failed before its first Accepted.
+func (r *RunStream) startFailed(ctx context.Context, err error) error {
+	r.opts.Log.Error("failed to start run", "err", err)
+	return r.opts.OnLost(ctx, LostStartFailed, err)
+}
+
+// readStream opens a Run stream and reads it until the run's Finished, which
+// it returns. On the stream's first Accepted it ends the start, if Run is
+// starting, and calls OnAccepted. Otherwise it returns why the stream ended,
+// or OnAccepted's error as cbErr. accepted reports whether the driver
+// accepted the stream before it ended.
+func (r *RunStream) readStream(ctx context.Context, start bool) (finished *driverv1.Finished, accepted bool, err, cbErr error) {
+	stream, err := r.opts.Open(ctx, start)
 	if err != nil {
 		return nil, false, err, nil
 	}
@@ -284,6 +258,12 @@ func (r *RunStream) attachOnce(ctx context.Context) (finished *driverv1.Finished
 		msg := stream.Msg()
 		if a := msg.GetAccepted(); a != nil && !accepted {
 			accepted = true
+			if r.starting {
+				// The run is started. If the ready timer fired meanwhile, it
+				// cancels this stream, which drops and is reopened.
+				r.starting = false
+				r.stopReady()
+			}
 			if err := r.opts.OnAccepted(ctx, a); err != nil {
 				return nil, accepted, nil, err
 			}
