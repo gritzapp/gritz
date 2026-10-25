@@ -52,9 +52,9 @@ type TaskManager struct {
 	// events is the unbuffered channel the TaskRunners send their events on;
 	// HandleEvents drains it.
 	events chan TaskEvent
-	// opts is the template of the manager's TaskRunners' options; taskRunner
-	// copies it and fills in TaskID.
-	opts TaskRunnerOptions
+	// newTaskRunner builds the manager's TaskRunners; see
+	// TaskManagerOptions.NewTaskRunner.
+	newTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 
 	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
 	// task the runner has seen, from its first command (or its record, at
@@ -100,6 +100,10 @@ type TaskManagerOptions struct {
 	// CancelCauseFunc here. When nil it defaults to a no-op, so die never crashes
 	// (durable-write failures fall back to the pre-existing behaviour).
 	Fatal context.CancelCauseFunc
+	// NewTaskRunner builds the TaskRunner of each task the manager registers.
+	// Its options carry the task's ID and the manager's Backend, Store, events
+	// channel and Log; it may fill in the rest. Defaults to NewTaskRunner.
+	NewTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 }
 
 var reRunnerID = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
@@ -139,28 +143,28 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		fatal = func(error) {}
 	}
 
-	m := &TaskManager{
-		backend:      opts.Backend,
-		store:        opts.Store,
-		client:       opts.Client,
-		serverURL:    opts.ServerURL,
-		workspaces:   opts.Workspaces,
-		runnerID:     opts.RunnerID,
-		concurrency:  concurrency,
-		sem:          safesem.New(concurrency),
-		log:          log,
-		queue:        opts.Queue,
-		wake:         wakeup.New(),
-		pollInterval: cmp.Or(opts.PollInterval, defaultPollInterval),
-		fatal:        fatal,
-		events:       make(chan TaskEvent),
-		tasks:        map[int64]*TaskRunner{},
+	newTaskRunner := opts.NewTaskRunner
+	if newTaskRunner == nil {
+		newTaskRunner = NewTaskRunner
 	}
-	m.opts = TaskRunnerOptions{
-		Backend: opts.Backend,
-		Store:   opts.Store,
-		Events:  m.events,
-		Log:     log,
+
+	m := &TaskManager{
+		backend:       opts.Backend,
+		store:         opts.Store,
+		client:        opts.Client,
+		serverURL:     opts.ServerURL,
+		workspaces:    opts.Workspaces,
+		runnerID:      opts.RunnerID,
+		concurrency:   concurrency,
+		sem:           safesem.New(concurrency),
+		log:           log,
+		queue:         opts.Queue,
+		wake:          wakeup.New(),
+		pollInterval:  cmp.Or(opts.PollInterval, defaultPollInterval),
+		fatal:         fatal,
+		events:        make(chan TaskEvent),
+		newTaskRunner: newTaskRunner,
+		tasks:         map[int64]*TaskRunner{},
 	}
 	return m, nil
 }
@@ -342,7 +346,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 				// the command, exactly like the start handler's already-running
 				// guard. A legacy version-0 record never matches a live task's
 				// version (>= 1), so the guard is a no-op for those.
-				if m.taskRunner(task.ID).Version() == task.Version {
+				if m.lookup(task.ID).Version() == task.Version {
 					m.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
 					return nil
 				}
@@ -462,7 +466,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		tr := m.taskRunner(rec.TaskID)
+		tr := m.lookup(rec.TaskID)
 		st, err := tr.Restore(ctx, rec)
 		if err != nil {
 			m.log.Error("load: restore", "task", rec.TaskID, "err", err)
@@ -510,16 +514,20 @@ func (m *TaskManager) failIfTaskRunning(ctx context.Context, taskID, version int
 	}
 }
 
-// taskRunner returns the task's TaskRunner, registering one with no sandbox if
+// lookup returns the task's TaskRunner, registering one with no sandbox if
 // the task has none.
-func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
+func (m *TaskManager) lookup(taskID int64) *TaskRunner {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	tr := m.tasks[taskID]
 	if tr == nil {
-		opts := m.opts
-		opts.TaskID = taskID
-		tr = NewTaskRunner(opts)
+		tr = m.newTaskRunner(TaskRunnerOptions{
+			TaskID:  taskID,
+			Backend: m.backend,
+			Store:   m.store,
+			Events:  m.events,
+			Log:     m.log,
+		})
 		m.tasks[taskID] = tr
 	}
 	return tr
@@ -527,19 +535,19 @@ func (m *TaskManager) taskRunner(taskID int64) *TaskRunner {
 
 // Running reports whether the task's sandbox is up.
 func (m *TaskManager) Running(ctx context.Context, taskID int64) (bool, error) {
-	return m.taskRunner(taskID).Running(ctx)
+	return m.lookup(taskID).Running(ctx)
 }
 
 // Remove destroys the task's sandbox and deletes its record; see
 // TaskRunner.Destroy.
 func (m *TaskManager) Remove(ctx context.Context, taskID int64) error {
-	return m.taskRunner(taskID).Destroy(ctx)
+	return m.lookup(taskID).Destroy(ctx)
 }
 
 // Kill asks the driver of the task's sandbox to stop the recorded run, and
 // reports whether a running run was stopped; see TaskRunner.Kill.
 func (m *TaskManager) Kill(ctx context.Context, task *model.Task) (bool, error) {
-	return m.taskRunner(task.ID).Kill(ctx)
+	return m.lookup(task.ID).Kill(ctx)
 }
 
 // spec assembles the sandbox spec for a task: the task token, the run's
@@ -629,7 +637,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 // without starting anything, and the caller gives back the concurrency slot it
 // acquired. The task token minted for the spec then goes unused.
 func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
-	tr := m.taskRunner(task.ID)
+	tr := m.lookup(task.ID)
 	spec, err := m.spec(ctx, task)
 	if err != nil {
 		return err

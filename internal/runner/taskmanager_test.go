@@ -532,8 +532,9 @@ func testSandbox(client driverv1connect.DriverServiceClient) (sb *backend.Sandbo
 
 // testManager returns a manager with the "test" workspace whose client mints
 // task tokens, with reattach timings shortened for tests, and its HandleEvents
-// running until the test ends.
-func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*TaskManager, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
+// running until the test ends. Each tune then adjusts the options of the
+// manager's TaskRunners before they are built.
+func testManager(t *testing.T, be backend.Backend, store *taskstate.Store, tune ...func(*TaskRunnerOptions)) (*TaskManager, *gritzclient.ClientMock, *outbox.Outbox[model.RunnerEvent]) {
 	t.Helper()
 	mock := &gritzclient.ClientMock{
 		CreateTaskTokenFunc: func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
@@ -550,12 +551,18 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	m, err := NewTaskManager(TaskManagerOptions{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces()})
+	newTaskRunner := func(opts TaskRunnerOptions) *TaskRunner {
+		opts.RetryInterval = 10 * time.Millisecond
+		opts.RetryMaxInterval = 50 * time.Millisecond
+		opts.LostTimeout = 10 * time.Second
+		opts.ReadyTimeout = 10 * time.Second
+		for _, f := range tune {
+			f(&opts)
+		}
+		return NewTaskRunner(opts)
+	}
+	m, err := NewTaskManager(TaskManagerOptions{Client: mock, Backend: be, Store: store, RunnerID: "test-runner", Concurrency: 1, Queue: queue, Workspaces: testWorkspaces(), NewTaskRunner: newTaskRunner})
 	assert.NilError(t, err)
-	m.opts.RetryInterval = 10 * time.Millisecond
-	m.opts.RetryMaxInterval = 50 * time.Millisecond
-	m.opts.LostTimeout = 10 * time.Second
-	m.opts.ReadyTimeout = 10 * time.Second
 	go m.HandleEvents(t.Context())
 	return m, mock, queue
 }
@@ -565,7 +572,7 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store) (*Tas
 func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
 	t.Helper()
 	assert.NilError(t, m.store.Write(rec))
-	tr := m.taskRunner(rec.TaskID)
+	tr := m.lookup(rec.TaskID)
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	tr.sb, tr.rec = sb, rec
@@ -716,7 +723,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	assert.NilError(t, first.Load(ctx))
 	waitDialed(t, sb, 1)
 	cancel()
-	waitIdle(t, first.taskRunner(1))
+	waitIdle(t, first.lookup(1))
 	// The sandbox stays up for next-boot rehydration, and the slot held.
 	assert.Assert(t, cmp.Len(sb.ParkCalls(), 0))
 	assert.Assert(t, !first.sem.TryAcquire(1))
@@ -924,8 +931,9 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
 		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
-	m, mock, queue := testManager(t, be, testStore(t))
-	m.opts.ReadyTimeout = 100 * time.Millisecond
+	m, mock, queue := testManager(t, be, testStore(t), func(opts *TaskRunnerOptions) {
+		opts.ReadyTimeout = 100 * time.Millisecond
+	})
 
 	// Act
 	assert.NilError(t, startTask(t, m, task))
@@ -995,7 +1003,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	}
 	m, _, queue := testManager(t, be, testStore(t))
 	seed(t, m, taskstate.Record{TaskID: 8, Version: 1, Type: "docker", ID: "old-id"})
-	tr := m.taskRunner(8)
+	tr := m.lookup(8)
 
 	// Act
 	err := startTask(t, m, task)
@@ -1043,7 +1051,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
 	seed(t, m, legacyRecord(1, "c1"))
-	claim(m.taskRunner(1))
+	claim(m.lookup(1))
 
 	// Act
 	err := m.Poll(t.Context())
@@ -1332,7 +1340,7 @@ func TestTaskManagerPrune(t *testing.T) {
 		legacyRecord(7, "c7"),
 	)
 	// Task 6 is archived, and its TaskRunner has no sandbox.
-	tr6 := m.taskRunner(6)
+	tr6 := m.lookup(6)
 	// Task 8 is archived, and its TaskRunner's run is claimed.
 	tr8 := track(t, m, legacyRecord(8, "c8"), &backend.SandboxMock{})
 	claim(tr8)
@@ -1366,8 +1374,8 @@ func TestTaskManagerPrune(t *testing.T) {
 	m.mu.Unlock()
 	assert.DeepEqual(t, tasks, []int64{2, 3, 7, 8})
 	// The next command for a dropped task gets a fresh TaskRunner.
-	assert.Assert(t, m.taskRunner(6) != tr6)
-	assert.Equal(t, m.taskRunner(8), tr8)
+	assert.Assert(t, m.lookup(6) != tr6)
+	assert.Equal(t, m.lookup(8), tr8)
 }
 
 // TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
@@ -1555,7 +1563,7 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 			assert.NilError(t, m.Remove(t.Context(), 1))
 		}},
 		{name: "version", op: func(t *testing.T, m *TaskManager) {
-			assert.Equal(t, m.taskRunner(1).Version(), int64(0))
+			assert.Equal(t, m.lookup(1).Version(), int64(0))
 		}},
 	}
 	for _, tt := range tests {
@@ -1571,7 +1579,7 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 			}
 			m, _, _ := testManager(t, be, testStore(t))
 			seed(t, m, legacyRecord(1, "c1"))
-			tr := m.taskRunner(1)
+			tr := m.lookup(1)
 			assert.NilError(t, m.Remove(t.Context(), 1))
 
 			// Act
@@ -1941,7 +1949,7 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to record task handle")
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 0))
-	assert.Assert(t, m.taskRunner(1).sb == nil)
+	assert.Assert(t, m.lookup(1).sb == nil)
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):

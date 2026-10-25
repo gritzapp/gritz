@@ -224,8 +224,9 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	hs := httptest.NewServer(http.NotFoundHandler())
 	hs.Close()
 	sb, parked := testSandbox(driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL))
-	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t))
-	m.opts.LostTimeout = 100 * time.Millisecond
+	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t), func(opts *TaskRunnerOptions) {
+		opts.LostTimeout = 100 * time.Millisecond
+	})
 	tr := track(t, m, taskstate.Record{TaskID: 2, Version: 4, Type: "docker", ID: "c1"}, sb)
 
 	// Act
@@ -269,8 +270,9 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 	// Arrange
 	_, client, _ := newDriver(t, 1, make(chan struct{}))
 	sb, parked := testSandbox(client)
-	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t))
-	m.opts.ReadyTimeout = 100 * time.Millisecond
+	m, mock, queue := testManager(t, &backend.BackendMock{}, testStore(t), func(opts *TaskRunnerOptions) {
+		opts.ReadyTimeout = 100 * time.Millisecond
+	})
 	tr := track(t, m, taskstate.Record{TaskID: 1, Version: 1, Type: "docker", ID: "c1"}, sb)
 
 	// Act
@@ -410,7 +412,7 @@ func TestTaskRunnerStart_Create(t *testing.T) {
 		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
 	m, _, _ := testManager(t, be, store)
-	tr := m.taskRunner(1)
+	tr := m.lookup(1)
 
 	// Act
 	err := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
@@ -444,7 +446,7 @@ func TestTaskRunnerStart_Concurrent(t *testing.T) {
 	// Act
 	errs := make(chan error, 2)
 	for range 2 {
-		go func() { errs <- m.taskRunner(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
+		go func() { errs <- m.lookup(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
 	}
 	first, second := <-errs, <-errs
 
@@ -497,9 +499,12 @@ func TestTaskRunnerRestore(t *testing.T) {
 				},
 			}
 			m, _, _ := testManager(t, be, testStore(t, rec))
-			opts := m.opts
-			opts.TaskID = rec.TaskID
-			tr := NewTaskRunner(opts)
+			tr := NewTaskRunner(TaskRunnerOptions{
+				TaskID:  rec.TaskID,
+				Backend: be,
+				Store:   m.store,
+				Events:  m.events,
+			})
 
 			// Act
 			st, err := tr.Restore(t.Context(), rec)
