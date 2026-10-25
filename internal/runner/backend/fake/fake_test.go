@@ -3,6 +3,9 @@ package fake_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +14,7 @@ import (
 	"gotest.tools/v3/assert/cmp"
 
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
@@ -284,6 +288,188 @@ func TestSandboxDial_NoDriver(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 }
 
+func TestSandboxDial_Driver(t *testing.T) {
+	t.Parallel()
+	// Arrange - an up sandbox dialed twice.
+	drv := &stubDriver{}
+	var handles []backend.Handle
+	be := newDriverBackend(t, func(h backend.Handle) http.Handler {
+		handles = append(handles, h)
+		return drv.handler()
+	})
+	sb := mustOpen(t, be, be.Add("c1", fake.Up))
+	first := mustDial(t, sb)
+	second := mustDial(t, sb)
+
+	// Act
+	_, err1 := first.Status(t.Context(), &driverv1.StatusRequest{})
+	_, err2 := second.Status(t.Context(), &driverv1.StatusRequest{})
+
+	// Assert - both clients reach the one driver Driver gave, with their
+	// JWT as a bearer token.
+	assert.NilError(t, err1)
+	assert.NilError(t, err2)
+	assert.DeepEqual(t, handles, []backend.Handle{{Type: "fake", ID: "c1"}})
+	assert.DeepEqual(t, drv.bearers(), []string{"Bearer jwt", "Bearer jwt"})
+	got, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, got.Dials, 2)
+}
+
+func TestSandboxDial_DriverPerSandbox(t *testing.T) {
+	t.Parallel()
+	// Arrange - two up sandboxes, each with its own driver.
+	drivers := map[string]*stubDriver{"a": {}, "b": {}}
+	be := newDriverBackend(t, func(h backend.Handle) http.Handler {
+		return drivers[h.ID].handler()
+	})
+	a := mustDial(t, mustOpen(t, be, be.Add("a", fake.Up)))
+	mustDial(t, mustOpen(t, be, be.Add("b", fake.Up)))
+
+	// Act
+	_, err := a.Status(t.Context(), &driverv1.StatusRequest{})
+
+	// Assert - only a's driver was called.
+	assert.NilError(t, err)
+	assert.Equal(t, len(drivers["a"].bearers()), 1)
+	assert.Equal(t, len(drivers["b"].bearers()), 0)
+}
+
+func TestSandboxDial_NotUp(t *testing.T) {
+	t.Parallel()
+	for _, state := range []fake.State{fake.Created, fake.Parked, fake.Gone} {
+		t.Run(state.String(), func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			drv := &stubDriver{}
+			be := newDriverBackend(t, func(backend.Handle) http.Handler { return drv.handler() })
+			client := mustDial(t, mustOpen(t, be, be.Add("c1", state)))
+
+			// Act
+			_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+
+			// Assert - the call fails as for a driver that is not answering,
+			// without reaching it.
+			assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+			assert.Equal(t, len(drv.bearers()), 0)
+		})
+	}
+}
+
+func TestSandboxDial_Started(t *testing.T) {
+	t.Parallel()
+	// Arrange - a parked sandbox dialed before it is started.
+	drv := &stubDriver{}
+	be := newDriverBackend(t, func(backend.Handle) http.Handler { return drv.handler() })
+	sb := mustOpen(t, be, be.Add("c1", fake.Parked))
+	client := mustDial(t, sb)
+	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+
+	// Act
+	assert.NilError(t, sb.Start(t.Context()))
+
+	// Assert - the same client now reaches the driver.
+	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.NilError(t, err)
+}
+
+func TestSandboxDial_NilHandler(t *testing.T) {
+	t.Parallel()
+	// Arrange - a Driver that gives the sandbox no handler.
+	be := newDriverBackend(t, func(backend.Handle) http.Handler { return nil })
+	client := mustDial(t, mustOpen(t, be, be.Add("c1", fake.Up)))
+
+	// Act
+	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+
+	// Assert - the sandbox's driver never answers.
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+}
+
+// TestSandboxDial_LeaveUp covers every way out of up: each closes an open
+// stream, and the driver stops answering.
+func TestSandboxDial_LeaveUp(t *testing.T) {
+	t.Parallel()
+	tests := map[string]func(t *testing.T, be *fake.Backend, sb backend.Sandbox){
+		"park":       func(t *testing.T, _ *fake.Backend, sb backend.Sandbox) { assert.NilError(t, sb.Park(t.Context())) },
+		"destroy":    func(t *testing.T, _ *fake.Backend, sb backend.Sandbox) { assert.NilError(t, sb.Destroy(t.Context())) },
+		"set parked": func(_ *testing.T, be *fake.Backend, _ backend.Sandbox) { be.Set("c1", fake.Parked) },
+		"set gone":   func(_ *testing.T, be *fake.Backend, _ backend.Sandbox) { be.Set("c1", fake.Gone) },
+	}
+	for name, leave := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - an open stream to an up sandbox's driver.
+			drv := &stubDriver{}
+			be := newDriverBackend(t, func(backend.Handle) http.Handler { return drv.handler() })
+			sb := mustOpen(t, be, be.Add("c1", fake.Up))
+			client := mustDial(t, sb)
+			stream := openRun(t, client)
+
+			// Act
+			leave(t, be, sb)
+
+			// Assert
+			assert.Assert(t, !stream.Receive())
+			assert.Assert(t, stream.Err() != nil)
+			_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+			assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+		})
+	}
+}
+
+func TestBackendDrop(t *testing.T) {
+	t.Parallel()
+	// Arrange - an open stream to an up sandbox's driver.
+	drv := &stubDriver{}
+	be := newDriverBackend(t, func(backend.Handle) http.Handler { return drv.handler() })
+	client := mustDial(t, mustOpen(t, be, be.Add("c1", fake.Up)))
+	stream := openRun(t, client)
+	want := be.Snapshot()
+
+	// Act
+	be.Drop("c1")
+
+	// Assert - the stream is closed, but the sandbox is still up and its
+	// driver answers the next call.
+	assert.Assert(t, !stream.Receive())
+	assert.Assert(t, stream.Err() != nil)
+	assert.DeepEqual(t, be.Snapshot(), want)
+	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.NilError(t, err)
+}
+
+func TestBackendDrop_Panics(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	be := fake.New(fake.Options{})
+
+	// Act
+	got := panicValue(func() { be.Drop("c9") })
+
+	// Assert
+	assert.Equal(t, got, `fake: Drop("c9"): unknown id`)
+}
+
+func TestBackendClose(t *testing.T) {
+	t.Parallel()
+	// Arrange - an open stream to an up sandbox's driver.
+	drv := &stubDriver{}
+	be := fake.New(fake.Options{Driver: func(backend.Handle) http.Handler { return drv.handler() }})
+	client := mustDial(t, mustOpen(t, be, be.Add("c1", fake.Up)))
+	stream := openRun(t, client)
+
+	// Act
+	assert.NilError(t, be.Close())
+
+	// Assert - the stream is closed, and the driver no longer answers.
+	assert.Assert(t, !stream.Receive())
+	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+	got, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, got.State, fake.Up)
+}
+
 func TestBackendValidateWorkspace(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -494,7 +680,10 @@ func TestBackendFailNext(t *testing.T) {
 			return mustOpen(t, be, h).Park(t.Context())
 		},
 		fake.OpStatus: func(t *testing.T, be *fake.Backend) error {
-			_, err := mustOpen(t, be, h).Status(t.Context())
+			// A Status that fails reports StatusUnknown; one that does not
+			// never does.
+			st, err := mustOpen(t, be, h).Status(t.Context())
+			assert.Equal(t, st == backend.StatusUnknown, err != nil)
 			return err
 		},
 		fake.OpDestroy: func(t *testing.T, be *fake.Backend) error {
@@ -623,6 +812,73 @@ func TestBackendFailNext_Panics(t *testing.T) {
 			assert.Equal(t, got, tt.want)
 		})
 	}
+}
+
+// stubDriver is a driver.v1 server that answers Status, and whose Run sends
+// Accepted and then holds the stream open until the client goes away. It
+// records the Authorization header of every call.
+type stubDriver struct {
+	driverv1connect.UnimplementedDriverServiceHandler
+
+	mu   sync.Mutex
+	auth []string
+}
+
+func (d *stubDriver) handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(driverv1connect.NewDriverServiceHandler(d))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d.mu.Lock()
+		d.auth = append(d.auth, r.Header.Get("Authorization"))
+		d.mu.Unlock()
+		mux.ServeHTTP(w, r)
+	})
+}
+
+func (d *stubDriver) Status(context.Context, *driverv1.StatusRequest) (*driverv1.StatusResponse, error) {
+	return &driverv1.StatusResponse{}, nil
+}
+
+func (d *stubDriver) Run(ctx context.Context, _ *driverv1.RunRequest, stream *connect.ServerStream[driverv1.RunResponse]) error {
+	err := stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}}})
+	if err != nil {
+		return err
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (d *stubDriver) bearers() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.auth)
+}
+
+// newDriverBackend returns a Backend serving drivers from driver, closed
+// when t ends.
+func newDriverBackend(t *testing.T, driver func(backend.Handle) http.Handler) *fake.Backend {
+	t.Helper()
+	be := fake.New(fake.Options{Driver: driver})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
+	return be
+}
+
+func mustDial(t *testing.T, sb backend.Sandbox) driverv1connect.DriverServiceClient {
+	t.Helper()
+	client, err := sb.Dial(t.Context(), "jwt")
+	assert.NilError(t, err)
+	return client
+}
+
+// openRun opens a Run stream on client and waits for its Accepted.
+func openRun(t *testing.T, client driverv1connect.DriverServiceClient) *connect.ServerStreamForClient[driverv1.RunResponse] {
+	t.Helper()
+	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = stream.Close() })
+	assert.Assert(t, stream.Receive(), stream.Err())
+	assert.Assert(t, stream.Msg().GetAccepted() != nil)
+	return stream
 }
 
 func mustOpen(t *testing.T, be *fake.Backend, h backend.Handle) backend.Sandbox {
