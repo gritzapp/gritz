@@ -689,15 +689,13 @@ func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 // runner is shutting down: then the slot stays held and the sandbox is left
 // for the next boot.
 func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.RunSpec) {
-	m.runs.Add(1)
-	go func() {
-		defer m.runs.Done()
+	m.runs.Go(func() {
 		if err := tr.Run(ctx, spec); err != nil {
 			return
 		}
 		m.sem.Release(1)
 		m.wake.Wake()
-	}()
+	})
 }
 
 // Prune removes the sandboxes of archived and deleted tasks, and drops their
