@@ -75,15 +75,18 @@ type TaskRunnerOptions struct {
 }
 
 const (
-	// defaultRetryInterval is TaskRunnerOptions.RetryInterval's default.
+	// defaultRetryInterval is TaskRunnerOptions.RetryInterval's and
+	// ReadStreamOptions.RetryInterval's default.
 	defaultRetryInterval = 250 * time.Millisecond
-	// defaultRetryMaxInterval is TaskRunnerOptions.RetryMaxInterval's default.
+	// defaultRetryMaxInterval is TaskRunnerOptions.RetryMaxInterval's and
+	// ReadStreamOptions.RetryMaxInterval's default.
 	defaultRetryMaxInterval = 10 * time.Second
-	// defaultLostTimeout is TaskRunnerOptions.LostTimeout's default.
+	// defaultLostTimeout is TaskRunnerOptions.LostTimeout's and
+	// ReadStreamOptions.LostTimeout's default.
 	defaultLostTimeout = 2 * time.Minute
-	// defaultReadyTimeout is TaskRunnerOptions.ReadyTimeout's default. It
-	// counts whatever the image's entrypoint does before it execs the driver,
-	// and a Lambda VM's boot.
+	// defaultReadyTimeout is TaskRunnerOptions.ReadyTimeout's and
+	// ReadStreamOptions.ReadyTimeout's default. It counts whatever the image's
+	// entrypoint does before it execs the driver, and a Lambda VM's boot.
 	defaultReadyTimeout = time.Minute
 	// readyMaxInterval caps the backoff between attempts to reach a starting
 	// driver.

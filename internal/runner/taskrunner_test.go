@@ -40,7 +40,8 @@ func runAsync(ctx context.Context, tr *runner.TaskRunner, spec *driverv1.RunSpec
 	return done
 }
 
-// waitDone waits for the error of a Run started with runAsync.
+// waitDone waits for the error of a Run started with runAsync, or of a
+// ReadStream started with readAsync.
 func waitDone(t *testing.T, done <-chan error) error {
 	t.Helper()
 	select {
