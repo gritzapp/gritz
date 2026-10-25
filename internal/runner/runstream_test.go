@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -56,6 +57,8 @@ type recorder struct {
 	unreachable func(n int) bool
 	// unreachables counts the OnUnreachable calls.
 	unreachables int
+	// errs is what each callback returns, by call name; nil by default.
+	errs map[string]error
 }
 
 func newRecorder() *recorder {
@@ -64,21 +67,24 @@ func newRecorder() *recorder {
 
 // options returns opts with r's callbacks.
 func (r *recorder) options(opts runner.RunStreamOptions) runner.RunStreamOptions {
-	opts.OnAccepted = func(_ context.Context, a *driverv1.Accepted) {
+	opts.OnAccepted = func(_ context.Context, a *driverv1.Accepted) error {
 		r.calls.Append(call{Name: "accepted", Accepted: a})
 		r.accepted <- a
+		return r.errs["accepted"]
 	}
-	opts.OnFinished = func(_ context.Context, f *driverv1.Finished) {
+	opts.OnFinished = func(_ context.Context, f *driverv1.Finished) error {
 		r.calls.Append(call{Name: "finished", Finished: f})
+		return r.errs["finished"]
 	}
-	opts.OnLost = func(_ context.Context, reason runner.LostReason, err error) {
+	opts.OnLost = func(_ context.Context, reason runner.LostReason, err error) error {
 		r.calls.Append(call{Name: "lost", Reason: reason, Err: err})
+		return r.errs["lost"]
 	}
-	opts.OnUnreachable = func(_ context.Context, err error) bool {
+	opts.OnUnreachable = func(_ context.Context, err error) (bool, error) {
 		r.unreachables++
 		stop := r.unreachable == nil || r.unreachable(r.unreachables)
 		r.calls.Append(call{Name: "unreachable", Err: err, Stop: stop})
-		return stop
+		return stop, r.errs["unreachable"]
 	}
 	return opts
 }
@@ -132,6 +138,32 @@ func addSandbox(t *testing.T, be *fake.Backend) backend.Sandbox {
 	return sbx
 }
 
+// dialSandbox returns a RunStreamOptions.Dial for sbx, as TaskRunner's will
+// be: it dials sbx's driver and asks it for Status. When the driver does not
+// answer, it checks sbx's status: a sandbox that is not up ends the run with
+// runner.ErrSandboxDown (wrapping backend.ErrGone if it is gone), and any
+// other failure is returned to be retried.
+func dialSandbox(sbx backend.Sandbox) func(context.Context) (driverv1connect.DriverServiceClient, error) {
+	return func(ctx context.Context) (driverv1connect.DriverServiceClient, error) {
+		client, err := sbx.Dial(ctx, "")
+		if err == nil {
+			if _, err = client.Status(ctx, &driverv1.StatusRequest{}); err == nil {
+				return client, nil
+			}
+		}
+		status, stErr := sbx.Status(ctx)
+		switch {
+		case stErr != nil:
+			return nil, fmt.Errorf("%w (status: %w)", err, stErr)
+		case status == backend.StatusGone:
+			return nil, fmt.Errorf("%w: %w: %w", runner.ErrSandboxDown, backend.ErrGone, err)
+		case status != backend.StatusUp:
+			return nil, fmt.Errorf("%w (%v): %w", runner.ErrSandboxDown, status, err)
+		}
+		return nil, err
+	}
+}
+
 // dummySpec returns the spec of a run of task 1 by a dummy agent with opts,
 // which provisions the agent's config where NewDriver's driver reads it.
 func dummySpec(t *testing.T, opts *agent.DummyOptions) *driverv1.RunSpec {
@@ -156,18 +188,18 @@ func streamAsync(ctx context.Context, opts runner.RunStreamOptions) <-chan error
 
 func TestNewRunStream(t *testing.T) {
 	t.Parallel()
-	sbx := addSandbox(t, testrunner.NewBackend(t, nil))
-	onFinished := func(context.Context, *driverv1.Finished) {}
-	onLost := func(context.Context, runner.LostReason, error) {}
-	onUnreachable := func(context.Context, error) bool { return true }
+	dial := dialSandbox(addSandbox(t, testrunner.NewBackend(t, nil)))
+	onFinished := func(context.Context, *driverv1.Finished) error { return nil }
+	onLost := func(context.Context, runner.LostReason, error) error { return nil }
+	onUnreachable := func(context.Context, error) (bool, error) { return true, nil }
 	tests := []struct {
 		name string
 		opts runner.RunStreamOptions
 	}{
-		{name: "no sandbox", opts: runner.RunStreamOptions{OnFinished: onFinished, OnLost: onLost, OnUnreachable: onUnreachable}},
-		{name: "no OnFinished", opts: runner.RunStreamOptions{Sandbox: sbx, OnLost: onLost, OnUnreachable: onUnreachable}},
-		{name: "no OnLost", opts: runner.RunStreamOptions{Sandbox: sbx, OnFinished: onFinished, OnUnreachable: onUnreachable}},
-		{name: "no OnUnreachable", opts: runner.RunStreamOptions{Sandbox: sbx, OnFinished: onFinished, OnLost: onLost}},
+		{name: "no Dial", opts: runner.RunStreamOptions{OnFinished: onFinished, OnLost: onLost, OnUnreachable: onUnreachable}},
+		{name: "no OnFinished", opts: runner.RunStreamOptions{Dial: dial, OnLost: onLost, OnUnreachable: onUnreachable}},
+		{name: "no OnLost", opts: runner.RunStreamOptions{Dial: dial, OnFinished: onFinished, OnUnreachable: onUnreachable}},
+		{name: "no OnUnreachable", opts: runner.RunStreamOptions{Dial: dial, OnFinished: onFinished, OnLost: onLost}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -185,7 +217,7 @@ func TestRunStream_StartFinished(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial:             dialSandbox(sbx),
 		Version:          1,
 		Spec:             dummySpec(t, nil),
 		RetryInterval:    10 * time.Millisecond,
@@ -219,7 +251,7 @@ func TestRunStream_StartNotReady(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:       sbx,
+		Dial:          dialSandbox(sbx),
 		Version:       1,
 		Spec:          dummySpec(t, nil),
 		RetryInterval: 10 * time.Millisecond,
@@ -248,7 +280,7 @@ func TestRunStream_StartBecomesReady(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial:             dialSandbox(sbx),
 		Version:          1,
 		Spec:             dummySpec(t, nil),
 		RetryInterval:    10 * time.Millisecond,
@@ -288,7 +320,7 @@ func TestRunStream_StartNoAccepted(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:      sbx,
+		Dial:         dialSandbox(sbx),
 		Version:      1,
 		Spec:         dummySpec(t, nil),
 		ReadyTimeout: 100 * time.Millisecond,
@@ -309,7 +341,6 @@ func TestRunStream_StartNoAccepted(t *testing.T) {
 
 func TestRunStream_StartFailed(t *testing.T) {
 	t.Parallel()
-	errDial := errors.New("dial failed")
 	tests := []struct {
 		name    string
 		arrange func(be *fake.Backend)
@@ -318,12 +349,12 @@ func TestRunStream_StartFailed(t *testing.T) {
 		want func(t *testing.T, err error)
 	}{
 		{
-			name:    "dial fails",
-			arrange: func(be *fake.Backend) { be.FailNext(fake.OpDial, "c1", errDial) },
+			name:    "sandbox down",
+			arrange: func(be *fake.Backend) { be.Set("c1", fake.Parked) },
 			run: func(context.Context, *driverv1.RunRequest, *connect.ServerStream[driverv1.RunResponse]) error {
 				return errors.New("unreachable")
 			},
-			want: func(t *testing.T, err error) { assert.ErrorIs(t, err, errDial) },
+			want: func(t *testing.T, err error) { assert.ErrorIs(t, err, runner.ErrSandboxDown) },
 		},
 		{
 			name:    "run rejected",
@@ -346,7 +377,7 @@ func TestRunStream_StartFailed(t *testing.T) {
 			tt.arrange(be)
 			rec := newRecorder()
 			opts := rec.options(runner.RunStreamOptions{
-				Sandbox:       sbx,
+				Dial:          dialSandbox(sbx),
 				Version:       1,
 				Spec:          dummySpec(t, nil),
 				RetryInterval: 10 * time.Millisecond,
@@ -388,7 +419,7 @@ func TestRunStream_StartUnavailableRetried(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:       sbx,
+		Dial:          dialSandbox(sbx),
 		Version:       1,
 		Spec:          dummySpec(t, nil),
 		RetryInterval: 10 * time.Millisecond,
@@ -447,7 +478,7 @@ func TestRunStream_Finished(t *testing.T) {
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
 			opts := rec.options(runner.RunStreamOptions{
-				Sandbox:          sbx,
+				Dial:             dialSandbox(sbx),
 				Version:          3,
 				RetryInterval:    10 * time.Millisecond,
 				RetryMaxInterval: 50 * time.Millisecond,
@@ -490,7 +521,7 @@ func TestRunStream_Terminal(t *testing.T) {
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
 			opts := rec.options(runner.RunStreamOptions{
-				Sandbox:          sbx,
+				Dial:             dialSandbox(sbx),
 				Version:          3,
 				RetryInterval:    10 * time.Millisecond,
 				RetryMaxInterval: 50 * time.Millisecond,
@@ -516,11 +547,11 @@ func TestRunStream_Terminal(t *testing.T) {
 func TestRunStream_SandboxStopped(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		state  fake.State
-		reason runner.LostReason
+		state fake.State
+		gone  bool
 	}{
-		{state: fake.Parked, reason: runner.LostSandboxParked},
-		{state: fake.Gone, reason: runner.LostSandboxGone},
+		{state: fake.Parked},
+		{state: fake.Gone, gone: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.state.String(), func(t *testing.T) {
@@ -531,7 +562,7 @@ func TestRunStream_SandboxStopped(t *testing.T) {
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
 			opts := rec.options(runner.RunStreamOptions{
-				Sandbox:          sbx,
+				Dial:             dialSandbox(sbx),
 				Version:          3,
 				RetryInterval:    10 * time.Millisecond,
 				RetryMaxInterval: 50 * time.Millisecond,
@@ -542,14 +573,17 @@ func TestRunStream_SandboxStopped(t *testing.T) {
 			// Act - the platform stops the sandbox under the stream.
 			be.Set("c1", tt.state)
 
-			// Assert - RunStream left the sandbox as the platform did.
+			// Assert - the reattach's Dial gave up; RunStream left the sandbox
+			// as the platform did.
 			assert.NilError(t, waitDone(t, done))
 			calls := rec.calls.Slice()
 			assert.DeepEqual(t, calls, []call{
 				{Name: "accepted", Accepted: &driverv1.Accepted{Attached: true}},
-				{Name: "lost", Reason: tt.reason},
+				{Name: "lost", Reason: runner.LostSandboxDown},
 			}, protocmp.Transform(), ignoreErr)
 			assertTerminalLast(t, calls)
+			assert.ErrorIs(t, calls[1].Err, runner.ErrSandboxDown)
+			assert.Equal(t, errors.Is(calls[1].Err, backend.ErrGone), tt.gone)
 			info, _ := be.Snapshot().Sandbox("c1")
 			assert.Equal(t, info.State, tt.state)
 			assert.Equal(t, info.Parks, 0)
@@ -558,16 +592,21 @@ func TestRunStream_SandboxStopped(t *testing.T) {
 	}
 }
 
-func TestRunStream_StatusErrorRetries(t *testing.T) {
+func TestRunStream_DialErrorRetries(t *testing.T) {
 	t.Parallel()
-	// Arrange - a run that keeps going, on a sandbox whose next Status fails.
+	// Arrange - a run that keeps going, and a Dial whose second call fails.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	sbx := addSandbox(t, be)
-	be.FailNext(fake.OpStatus, "c1", errors.New("status failed"))
+	dial := dialSandbox(addSandbox(t, be))
+	var dials atomic.Int32
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial: func(ctx context.Context) (driverv1connect.DriverServiceClient, error) {
+			if dials.Add(1) == 2 {
+				return nil, errors.New("dial failed")
+			}
+			return dial(ctx)
+		},
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
@@ -575,13 +614,13 @@ func TestRunStream_StatusErrorRetries(t *testing.T) {
 	done := streamAsync(t.Context(), opts)
 	rec.waitAccepted(t)
 
-	// Act - drop the stream, so the failing Status follows; then stop the run
+	// Act - drop the stream, so the failing Dial follows; then stop the run
 	// once it is reattached.
 	be.Drop("c1")
 	rec.waitAccepted(t)
 	testrunner.StopRun(t, client, 3)
 
-	// Assert - the failed Status was not taken for a stopped sandbox.
+	// Assert - the failed Dial was retried, not taken for a lost run.
 	assert.NilError(t, waitDone(t, done))
 	calls := rec.calls.Slice()
 	assert.DeepEqual(t, calls, []call{
@@ -590,8 +629,7 @@ func TestRunStream_StatusErrorRetries(t *testing.T) {
 		{Name: "finished", Finished: &driverv1.Finished{Version: 3, Reported: true}},
 	}, protocmp.Transform())
 	assertTerminalLast(t, calls)
-	info, _ := be.Snapshot().Sandbox("c1")
-	assert.Assert(t, info.Runs >= 2)
+	assert.Assert(t, dials.Load() >= 3)
 }
 
 func TestRunStream_Unreachable(t *testing.T) {
@@ -601,7 +639,7 @@ func TestRunStream_Unreachable(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial:             dialSandbox(sbx),
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
@@ -640,7 +678,7 @@ func TestRunStream_UnreachableKeepGoing(t *testing.T) {
 		return false
 	}
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial:             dialSandbox(sbx),
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
@@ -680,7 +718,7 @@ func TestRunStream_LostTimeoutReset(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial:             dialSandbox(sbx),
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
@@ -720,7 +758,7 @@ func TestRunStream_Cancelled(t *testing.T) {
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
 	opts := rec.options(runner.RunStreamOptions{
-		Sandbox:          sbx,
+		Dial:             dialSandbox(sbx),
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
@@ -743,4 +781,89 @@ func TestRunStream_Cancelled(t *testing.T) {
 	info, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, info.State, fake.Up)
 	assert.Equal(t, info.Parks, 0)
+}
+
+func TestRunStream_CallbackError(t *testing.T) {
+	t.Parallel()
+	errCallback := errors.New("callback failed")
+	tests := []struct {
+		name string
+		// fail names the callback that returns errCallback.
+		fail string
+		// driver is the sandbox's driver; nil never answers.
+		driver *testrunner.DriverOptions
+		// spec starts the run.
+		spec bool
+		want []call
+	}{
+		{
+			name:   "accepted",
+			fail:   "accepted",
+			driver: &testrunner.DriverOptions{Version: 1, Agent: testrunner.SleepForever},
+			want:   []call{{Name: "accepted", Accepted: &driverv1.Accepted{Attached: true}}},
+		},
+		{
+			name:   "accepted on start",
+			fail:   "accepted",
+			driver: &testrunner.DriverOptions{},
+			spec:   true,
+			want:   []call{{Name: "accepted", Accepted: &driverv1.Accepted{}}},
+		},
+		{
+			name:   "finished",
+			fail:   "finished",
+			driver: &testrunner.DriverOptions{Version: 1, Agent: &agent.Config{Type: agent.TypeDummy}},
+			want: []call{
+				{Name: "accepted", Accepted: &driverv1.Accepted{Attached: true}},
+				{Name: "finished", Finished: &driverv1.Finished{Version: 1, Reported: true}},
+			},
+		},
+		{
+			name:   "lost",
+			fail:   "lost",
+			driver: &testrunner.DriverOptions{Version: 1},
+			want:   []call{{Name: "lost", Reason: runner.LostNoRun}},
+		},
+		{
+			name: "unreachable",
+			fail: "unreachable",
+			want: []call{{Name: "unreachable"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - OnUnreachable keeps following, so only its error can
+			// end the run there.
+			var driver driverv1connect.DriverServiceClient
+			if tt.driver != nil {
+				driver = testrunner.NewDriver(t, tt.driver)
+			}
+			be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: driver})
+			sbx := addSandbox(t, be)
+			rec := newRecorder()
+			rec.errs = map[string]error{tt.fail: errCallback}
+			rec.unreachable = func(int) bool { return false }
+			var spec *driverv1.RunSpec
+			if tt.spec {
+				spec = dummySpec(t, nil)
+			}
+			opts := rec.options(runner.RunStreamOptions{
+				Dial:             dialSandbox(sbx),
+				Version:          1,
+				Spec:             spec,
+				RetryInterval:    10 * time.Millisecond,
+				RetryMaxInterval: 50 * time.Millisecond,
+				LostTimeout:      100 * time.Millisecond,
+			})
+
+			// Act
+			err := runner.NewRunStream(opts).Run(t.Context())
+
+			// Assert - Run stopped at the failing callback and returned its
+			// error.
+			assert.ErrorIs(t, err, errCallback)
+			assert.DeepEqual(t, rec.calls.Slice(), tt.want, protocmp.Transform(), ignoreErr)
+		})
+	}
 }

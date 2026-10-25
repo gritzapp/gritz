@@ -33,21 +33,29 @@ what to do about it are interleaved in the same loops.
 ### Summary
 
 A new type in `internal/runner`, `RunStream`, follows **one run** end to
-end on a `backend.Sandbox`:
+end over the driver.v1 `Run` stream:
 
 - the readiness wait and the start, bounded by `ReadyTimeout`, on a stream
   that is kept;
 - reattaching dropped streams with backoff, sending the version only;
 - the stream protocol checks;
-- the ready and `LostTimeout` timeouts, and the idle timeout in a later slice;
-- the sandbox `Status` check after a drop.
+- the ready and `LostTimeout` timeouts, and the idle timeout in a later slice.
 
-`RunStream.Run` returns only ctx's error. Every outcome is reported through
-callbacks that `TaskRunner` attaches: `OnAccepted`, `OnFinished`, `OnLost` and
-`OnUnreachable`. `RunStream` never parks the sandbox. Every park decision,
-including the lost-timeout case, is made in `TaskRunner`'s callbacks.
-`TaskRunner.Run` shrinks to: claim, build the callbacks, run the stream, then
-send a `TaskLostEvent` if a callback recorded a lost run.
+`RunStream` knows nothing about sandboxes. It reaches the driver only through
+a `Dial` func that `TaskRunner` supplies. `TaskRunner`'s `Dial` dials the
+sandbox and asks the driver for `Status`. When the driver does not answer, the
+`Dial` checks the sandbox's status, and if the sandbox is not up it returns
+an error wrapping the sentinel `ErrSandboxDown`, which tells `RunStream` to
+give up. Any other `Dial` error is retried.
+
+Every outcome is reported through callbacks that `TaskRunner` attaches:
+`OnAccepted`, `OnFinished`, `OnLost` and `OnUnreachable`. Each returns an
+`error`, and a non-nil one ends `Run` with that error. Otherwise `Run` returns
+nil after a terminal callback, or ctx's cause. `RunStream` never parks the
+sandbox. Every park decision, including the lost-timeout case, is made in
+`TaskRunner`'s callbacks. `TaskRunner.Run` shrinks to: claim, build the `Dial`
+and the callbacks, run the stream, then send a `TaskLostEvent` if a callback
+recorded a lost run.
 
 ### A type in `internal/runner`: `RunStream`
 
@@ -57,8 +65,9 @@ send a `TaskLostEvent` if a callback recorded a lost run.
 exported so its tests (`runstream_test.go`, `package runner_test`) are
 black-box, like the rest of the runner's tests. `RunStream` reads everything
 it needs from its options and touches none of `TaskRunner`'s lock, record or
-events, so the separation a package would enforce holds by construction: the
-only way in is the options, and the only way out is the callbacks.
+events, and no `backend.Sandbox`, so the separation a package would enforce
+holds by construction: the only way in is the options (`Dial` included), and
+the only way out is the callbacks.
 
 `RunStream` reuses what `internal/runner` already has, rather than copying
 it:
@@ -75,12 +84,62 @@ unexported methods of `RunStream`, which holds the options with their defaults
 applied.
 
 The reason `OnLost` is called with is a `LostReason`, with constants
-`LostStartFailed`, `LostNoRun`, `LostSuperseded`, `LostSandboxParked`,
-`LostSandboxGone` (and later `LostProtocol`). A bare `Reason` would read
+`LostStartFailed`, `LostNoRun`, `LostSuperseded`, `LostSandboxDown` (and
+later `LostProtocol`). There is one `LostSandboxDown`, not a parked and a gone
+reason, because `RunStream` does not know a sandbox's status. `TaskRunner`'s
+`Dial` wraps `backend.ErrGone` into its error when the sandbox is gone, so
+`OnLost` tells the two apart with `errors.Is`. A bare `Reason` would read
 ambiguously in package `runner`, next to `TaskLostEvent.Reason` (the string
 reported to the server); the `Lost` prefix ties the type and its constants to
 `OnLost`, and reads as the outcome (`LostNoRun`: lost, no run), the way
 `backend.StatusUp` reads for `backend.Status`.
+
+### Dial and ErrSandboxDown
+
+`RunStreamOptions.Dial` returns a client to the driver once the driver
+answers. `RunStream` calls it at the start and before every reattach:
+
+- **nil error**: `RunStream` uses the client for one `Run` stream.
+- **an error wrapping `ErrSandboxDown`**: the run's `Finished` can never
+  arrive. On the start this is `OnLost(LostStartFailed, err)` at once, with no
+  wait for `ReadyTimeout`; on a reattach it is `OnLost(LostSandboxDown, err)`.
+- **any other error**: retried, with the ready backoff on the start (until
+  `ReadyTimeout`) and the reattach backoff afterwards, where it counts towards
+  `LostTimeout` like a dropped stream.
+
+The sandbox status check is an implementation detail of `TaskRunner`'s
+`Dial`, and it runs only when the driver does not answer:
+
+```go
+// sketch of TaskRunner's Dial
+func (tr *TaskRunner) dial(sbx backend.Sandbox) func(context.Context) (driverv1connect.DriverServiceClient, error) {
+	return func(ctx context.Context) (driverv1connect.DriverServiceClient, error) {
+		client, err := sbx.Dial(ctx, "")
+		if err == nil {
+			if _, err = client.Status(ctx, &driverv1.StatusRequest{}); err == nil {
+				return client, nil
+			}
+		}
+		status, stErr := sbx.Status(ctx)
+		switch {
+		case stErr != nil:
+			return nil, fmt.Errorf("%w (status: %w)", err, stErr)
+		case status == backend.StatusGone:
+			return nil, fmt.Errorf("%w: %w: %w", ErrSandboxDown, backend.ErrGone, err)
+		case status != backend.StatusUp:
+			return nil, fmt.Errorf("%w (%v): %w", ErrSandboxDown, status, err)
+		}
+		return nil, err
+	}
+}
+```
+
+The driver `Status` call is what "connect" means: `backend.Sandbox.Dial` does
+no I/O, so a stopped sandbox only shows up when the driver is asked
+something. The same call makes the start's readiness wait: a driver that is
+not listening yet fails `Status`, the sandbox is up, so `Dial` returns a plain
+error and `RunStream` backs off and dials again. `RunStream` no longer polls
+`Status` itself.
 
 ### Following a run
 
@@ -88,7 +147,7 @@ reported to the server); the `Lost` prefix ties the type and its constants to
 runner.NewRunStream(opts).Run(ctx)
 
  Spec != nil:                                    ┐
-   Dial; Status with backoff until it answers    │ ReadyTimeout
+   Dial with backoff until it succeeds           │ ReadyTimeout
    Run{version, spec}; Unavailable → retry       │ (ends at Accepted)
    read Accepted → OnAccepted ───────────────────┘
    └─ keep reading this stream ─┐
@@ -97,14 +156,16 @@ runner.NewRunStream(opts).Run(ctx)
    stream ends: NotFound                          ─▶ OnLost(NoRun)         ▣
                 FailedPrecondition / Aborted      ─▶ OnLost(Superseded)    ▣
                 protocol violation                ─▶ OnLost(Protocol)      ▣
-                Status parked / gone              ─▶ OnLost(Parked / Gone) ▣
                 LostTimeout since last Accepted   ─▶ OnUnreachable(err)
                                                        true  → ▣
                                                        false → go on
-                back off; Dial; Run{version}; Accepted → OnAccepted …
+                back off; Dial ── ErrSandboxDown  ─▶ OnLost(SandboxDown)   ▣
+                          └─ Run{version}; Accepted → OnAccepted …
 
- start fails before Accepted                      ─▶ OnLost(StartFailed)   ▣
- ▣ = terminal: Run returns nil
+ start fails before Accepted, or Dial
+ returns ErrSandboxDown on the start              ─▶ OnLost(StartFailed)   ▣
+ ▣ = terminal: Run returns the callback's error (nil if none)
+ any callback returning an error ends Run with it
 ```
 
 A started run keeps its start stream. If that stream drops after `Accepted`,
@@ -116,11 +177,15 @@ only different up to and including `Accepted`.
 - Callbacks run synchronously on `Run`'s goroutine, one at a time, with
   `Run`'s ctx. They may block, and `OnUnreachable` does (it parks). While a
   callback runs, nothing is read from the stream.
+- Every callback returns an `error`. A non-nil one ends `Run` at once, and
+  `Run` returns it as is. This holds for `OnAccepted` and for `OnUnreachable`
+  returning false too: `RunStream` stops following.
 - **Terminal callbacks** are `OnFinished`, `OnLost`, and `OnUnreachable` when
-  it returns true. Exactly one of them is called, after which `Run` returns
-  nil. If ctx is done first, `Run` returns `context.Cause(ctx)` and no
-  terminal callback has been called. These are the only two ways `Run`
-  returns.
+  it returns true. At most one of them is called, after which `Run` returns
+  its error (nil if it returned nil). If ctx is done first, `Run` returns
+  `context.Cause(ctx)` and no terminal callback has been called. If a
+  non-terminal callback fails, `Run` returns its error and no terminal
+  callback has been called. These are the only ways `Run` returns.
 - `OnAccepted` is called once per accepted stream, including the start
   stream, before any other callback for that stream.
 - `OnUnreachable` is the only callback that can let the run go on. It is
@@ -132,7 +197,7 @@ only different up to and including `Accepted`.
   accepted stream resets the clock, and a `Finished` still ends the run
   through `OnFinished`.
 - `OnFinished`, `OnLost` and `OnUnreachable` are required, and `NewRunStream`
-  panics without them, as it does without a `Sandbox`. `OnAccepted` is
+  panics without them, as it does without a `Dial`. `OnAccepted` is
   optional.
 
 ### Stream protocol checks
@@ -169,10 +234,17 @@ in "driver unreachable".
 ```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
+// ErrSandboxDown is returned, wrapped, by a RunStreamOptions.Dial that could
+// not reach the driver because its sandbox is not up. It tells the RunStream
+// to give up: the run's Finished can never arrive.
+var ErrSandboxDown = errors.New("sandbox is not up")
+
 // RunStreamOptions configures a RunStream.
 type RunStreamOptions struct {
-	// Sandbox runs the driver. Required.
-	Sandbox backend.Sandbox
+	// Dial returns a client to the driver once the driver answers. An error
+	// wrapping ErrSandboxDown ends the run; any other error is retried.
+	// Required.
+	Dial func(ctx context.Context) (driverv1connect.DriverServiceClient, error)
 	// Version is the run to follow.
 	Version int64
 	// Spec starts the run; nil reattaches to a run already started.
@@ -191,28 +263,32 @@ type RunStreamOptions struct {
 	// 1m.
 	ReadyTimeout time.Duration
 
+	// Every callback returns an error; a non-nil one ends Run with it.
+
 	// OnAccepted is called when the driver accepts a stream; optional.
-	OnAccepted func(ctx context.Context, a *driverv1.Accepted)
+	OnAccepted func(ctx context.Context, a *driverv1.Accepted) error
 	// OnFinished is called with the run's Finished; terminal. Required.
-	OnFinished func(ctx context.Context, f *driverv1.Finished)
+	OnFinished func(ctx context.Context, f *driverv1.Finished) error
 	// OnLost is called when the run's Finished can never arrive; terminal.
 	// Required.
-	OnLost func(ctx context.Context, reason LostReason, err error)
+	OnLost func(ctx context.Context, reason LostReason, err error) error
 	// OnUnreachable is called after each failed reattach once LostTimeout has
 	// passed; returning true ends the run, false keeps following. Required.
-	OnUnreachable func(ctx context.Context, err error) (stop bool)
+	OnUnreachable func(ctx context.Context, err error) (stop bool, cbErr error)
 }
 
-// RunStream follows one run on a sandbox's driver over driver.v1 Run streams,
-// from its start or reattach until it ends.
+// RunStream follows one run on a driver over driver.v1 Run streams, from its
+// start or reattach until it ends. It reaches the driver only through its
+// options' Dial, and reports every outcome through their callbacks.
 type RunStream struct{ ... }
 
-// NewRunStream returns a RunStream for opts. It panics if Sandbox,
-// OnFinished, OnLost or OnUnreachable is nil.
+// NewRunStream returns a RunStream for opts. It panics if Dial, OnFinished,
+// OnLost or OnUnreachable is nil.
 func NewRunStream(opts RunStreamOptions) *RunStream
 
-// Run follows the run. It returns nil once exactly one terminal callback has
-// returned; otherwise it returns ctx's cause. Call it once.
+// Run follows the run. A callback that returns an error ends Run at once,
+// and Run returns that error. Otherwise Run returns nil once exactly one
+// terminal callback has returned, or ctx's cause. Call it once.
 func (r *RunStream) Run(ctx context.Context) error
 
 // LostReason says why RunStreamOptions.OnLost was called.
@@ -226,10 +302,9 @@ const (
 	// LostSuperseded: the driver has moved past the version or runs another
 	// one (FailedPrecondition, Aborted).
 	LostSuperseded
-	// LostSandboxParked: the sandbox was parked or stopping after a drop.
-	LostSandboxParked
-	// LostSandboxGone: the sandbox was gone after a drop.
-	LostSandboxGone
+	// LostSandboxDown: Dial returned ErrSandboxDown after a drop; err is
+	// Dial's error.
+	LostSandboxDown
 	// LostProtocol: the driver broke the stream protocol; err is a
 	// *ProtocolError.
 	LostProtocol
@@ -258,9 +333,11 @@ func (e *ProtocolError) Error() string
 ```
 
 **How it fits:** `TaskRunner.Run` captures `sbx` and `version` under `tr.mu`,
-as it does today. It builds `NewRunStream` with its timings, its logger
-(with `"task", TaskID` attached) and four closures over a local `lost string`,
-and calls `Run(runCtx)`. On an error it applies today's rule unchanged:
+as it does today. It builds `NewRunStream` with `tr.dial(sbx)`, its timings,
+its logger (with `"task", TaskID` attached) and four closures over a local
+`lost string`, and calls `Run(runCtx)`. Its callbacks never return an error,
+so `Run`'s error is still only ctx's. On an error it applies today's rule
+unchanged:
 `context.Cause(runCtx)` is `errRemoved` → `lost = "sandbox removed before the
 run finished"`, and anything else means shutdown, so it returns the error.
 Then, as today, it logs and sends a `TaskLostEvent` on ctx if `lost != ""`. A
@@ -272,26 +349,28 @@ called only from the callbacks.
 // sketch of TaskRunner.Run's callbacks
 var lost string
 s := NewRunStream(RunStreamOptions{
-	Sandbox: sbx, Version: version, Spec: spec, Log: log, /* timings */
-	OnFinished: func(ctx context.Context, f *driverv1.Finished) {
+	Dial: tr.dial(sbx), Version: version, Spec: spec, Log: log, /* timings */
+	OnFinished: func(ctx context.Context, f *driverv1.Finished) error {
 		tr.park(ctx, sbx)
 		if !f.GetReported() {
 			lost = "driver did not report the run's outcome"
 		}
+		return nil
 	},
-	OnLost: func(ctx context.Context, reason LostReason, err error) {
+	OnLost: func(ctx context.Context, reason LostReason, err error) error {
 		lost = lostText(reason, err)
-		if parkOnLost(reason) {
+		if parkOnLost(reason, err) {
 			tr.park(ctx, sbx)
 		}
+		return nil
 	},
-	OnUnreachable: func(ctx context.Context, err error) bool {
+	OnUnreachable: func(ctx context.Context, err error) (bool, error) {
 		if parkErr := sbx.Park(ctx); parkErr != nil && !errors.Is(parkErr, backend.ErrGone) {
 			log.Warn("failed to park sandbox of lost run", "err", parkErr, "driver", err)
-			return false // keep following; RunStream retries
+			return false, nil // keep following; RunStream retries
 		}
 		lost = "driver unreachable"
-		return true
+		return true, nil
 	},
 })
 ```
@@ -305,14 +384,14 @@ tests do not change.
 
 | Outcome (today's code) | Today | Callback | TaskRunner's callback | Lost reason |
 |---|---|---|---|---|
-| Start fails before `Accepted`: ready timeout, `Dial` error, non-`Unavailable` `Run` error (`run`/`startRun`) | park; lost | `OnLost(LostStartFailed, err)` | park | `err.Error()` |
+| Start fails before `Accepted`: ready timeout, `Dial` returning `ErrSandboxDown`, non-`Unavailable` `Run` error (`run`/`startRun`) | park; lost | `OnLost(LostStartFailed, err)` | park | `err.Error()` |
 | `Finished{reported: true}` (`attach`) | park | `OnFinished(f)` | park | — |
 | `Finished{reported: false}` (`attach`) | park; lost | `OnFinished(f)` | park | "driver did not report the run's outcome" |
 | `NotFound` on reattach (`attach`) | park; lost | `OnLost(LostNoRun, err)` | park: nothing runs on it | "driver has no such run" |
 | `FailedPrecondition`/`Aborted` on reattach (`attach`) | no park; lost | `OnLost(LostSuperseded, err)` | **no park**: a newer run is active | "driver has no such run" |
-| Drop, `Status` = parked (`attach`) | park (let it settle); lost | `OnLost(LostSandboxParked, err)` | park | "sandbox stopped before the run finished" |
-| Drop, `Status` = gone (`attach`) | no park; lost | `OnLost(LostSandboxGone, err)` | **no park** | "sandbox stopped before the run finished" |
-| Drop, `Status` fails or is up, within `LostTimeout` (`attach`) | back off; reattach | none (logged in RunStream) | — | — |
+| Drop, `Status` = parked (`attach`) | park (let it settle); lost | `Dial` → `ErrSandboxDown`; `OnLost(LostSandboxDown, err)` | park | "sandbox stopped before the run finished" |
+| Drop, `Status` = gone (`attach`) | no park; lost | `Dial` → `ErrSandboxDown` + `backend.ErrGone`; `OnLost(LostSandboxDown, err)` | **no park** (`errors.Is(err, backend.ErrGone)`) | "sandbox stopped before the run finished" |
+| Drop, `Status` fails or is up, within `LostTimeout` (`attach`) | back off; reattach | `Dial` returns a plain error, or succeeds; none (logged in RunStream) | — | — |
 | `LostTimeout`, park succeeds or `ErrGone` (`attach`) | lost | `OnUnreachable(err)` → true | park | "driver unreachable" |
 | `LostTimeout`, park fails (`attach`) | keep reattaching | `OnUnreachable(err)` → false | park attempt failed; logged | — (later callback decides) |
 | `LostTimeout`, park fails, then the driver comes back with `Finished` (`attach`) | not lost | `OnUnreachable` → false, …, `OnFinished(f)` | park | per `reported` |
@@ -320,7 +399,8 @@ tests do not change.
 | Protocol violation (new) | ignored / accepted | `OnLost(LostProtocol, err)` | park | "driver protocol error: " + `err` |
 
 `lostText` and `parkOnLost` are small switches over `LostReason` in
-`taskrunner.go`. The reason texts stay in `TaskRunner`, because they are the
+`taskrunner.go`; `parkOnLost` also checks `errors.Is(err, backend.ErrGone)`
+for `LostSandboxDown`. The reason texts stay in `TaskRunner`, because they are the
 `TaskLostEvent.Reason` the existing tests assert. Because `OnLost` carries the
 underlying error next to the `LostReason`, `TaskRunner` can still distinguish
 `Aborted` from `FailedPrecondition` with `connect.CodeOf(err)` if it ever needs
@@ -331,8 +411,8 @@ to (see [Open Questions](#open-questions)).
 With a spec, the first stream starts the run, and `RunStream` keeps reading
 it as the first attempt of the follow loop. There is no more
 accept-then-close. `ReadyTimeout` bounds the driver coming up and `Accepted`
-arriving: `Dial`, the `Status` readiness poll (capped at `readyMaxInterval`),
-the `Run{version, spec}` call with its `Unavailable` retries, and the wait for
+arriving: the `Dial` retries (backing off up to `readyMaxInterval`), the
+`Run{version, spec}` call with its `Unavailable` retries, and the wait for
 the first `Accepted`.
 
 The start stream cannot be opened on the `ReadyTimeout` context, because
@@ -382,6 +462,15 @@ reasons and park counts, is preserved.
 3. `Run` returns `context.Cause(ctx)` instead of `ctx.Err()`. On
    shutdown the cause is `context.Canceled`, so `TestTaskRunnerRun_Shutdown`'s
    `ErrorIs(…, context.Canceled)` still holds.
+4. The sandbox status check moves from right after a drop to the next
+   `Dial`, after the reattach backoff, and runs only when the driver does not
+   answer `Status`. A run on a stopped sandbox is reported lost one backoff
+   later than today.
+5. On the start, a failing `sbx.Dial` is retried until `ReadyTimeout`, like a
+   driver that does not answer `Status` yet, instead of failing the start at
+   once. A sandbox that is not up fails the start at once (`ErrSandboxDown`)
+   instead of after `ReadyTimeout`. Neither backend's `Dial` does I/O, so
+   only the fake's `FailNext(OpDial)` reaches the first case.
 
 ### Testing
 
@@ -398,9 +487,11 @@ the callback returned false and `RunStream` asked again.
 (`package runner_test`, so they may import `testrunner`, which imports
 `runner`). They build sandboxes with `testrunner.NewBackend` on the fake and
 drivers with `testrunner.NewDriver`, or `testrunner.NewStubDriver` with a stub
-handler written in the test file. They record callbacks into a slice, call
-`Run`, and assert on the recorded calls, `Run`'s error and
-`fake.Snapshot`. They never reach into `RunStream`'s internals or wrap the
+handler written in the test file. Their `Dial` is a test helper,
+`dialSandbox`, written like `TaskRunner`'s (see [Dial and
+ErrSandboxDown](#dial-and-errsandboxdown)), and wrapped where a test needs a
+`Dial` to fail. They record callbacks into a slice, call `Run`, and assert on
+the recorded calls, `Run`'s error and `fake.Snapshot`. They never reach into `RunStream`'s internals or wrap the
 fake's client. Each test asserts its recorded callbacks directly, including
 that exactly one terminal callback was called and that it was last.
 
@@ -418,24 +509,25 @@ inject park failures through the callback, not the fake.
 
 | Test | Arrange | Assert (recorded callbacks) |
 |---|---|---|
-| `TestNewRunStream` | missing `Sandbox`, `OnFinished`, `OnLost`, `OnUnreachable` | panics |
+| `TestNewRunStream` | missing `Dial`, `OnFinished`, `OnLost`, `OnUnreachable` | panics |
 | `TestRunStream_StartFinished` | `NewDriver` with no run; spec; dummy agent that finishes | `OnAccepted{attached: false}`, `OnFinished{reported: true}`; `Runs == 1`, `len(RunSpecs) == 1`; `Parks == 0` (RunStream never parks) |
 | `TestRunStream_StartReattach` | spec; `SleepForever`; `Drop` after the first `OnAccepted`, then `StopRun` | two `OnAccepted` (second `attached: true`), `OnFinished`; `Runs == 2`, `len(RunSpecs) == 1` |
 | `TestRunStream_StartNotReady` | `DriverNotReady`; short `ReadyTimeout` | `OnLost(LostStartFailed)` with "did not become ready" |
 | `TestRunStream_StartBecomesReady` | `DriverNotReady`; `SetDriverReady(true)` once the start has dialed | `OnAccepted`, `OnFinished` |
-| `TestRunStream_StartFailed` | `FailNext(OpDial)`; stub `Run` returning `Internal` | `OnLost(LostStartFailed)` with the dial error / the code |
+| `TestRunStream_StartFailed` | parked sandbox; stub `Run` returning `Internal` | `OnLost(LostStartFailed)` with `ErrSandboxDown` (`errors.Is`) / the code |
 | `TestRunStream_StartNoAccepted` | stub whose `Run` blocks without sending; short `ReadyTimeout` | `OnLost(LostStartFailed)` |
 | `TestRunStream_StartUnavailableRetried` | stub `Run` returns `Unavailable` once, then accepts and finishes | `OnAccepted`, `OnFinished`; two stub `Run` calls with a spec |
 | `TestRunStream_Finished` | reattach; real driver (`reported: true`) and stub (`reported: false`) | `OnAccepted{attached: true}`, `OnFinished` with that `reported` |
 | `TestRunStream_Terminal` | reattach v3 to: a driver with no run; a driver at v4; a driver running v2 | `OnLost(LostNoRun)`; `OnLost(LostSuperseded)` ×2, with `connect` codes `FailedPrecondition`/`Aborted` |
-| `TestRunStream_SandboxStopped` | reattach; `Set(Parked)` / `Set(Gone)` after `OnAccepted` | `OnLost(LostSandboxParked)` / `OnLost(LostSandboxGone)`; sandbox state untouched by RunStream |
-| `TestRunStream_StatusErrorRetries` | `FailNext(OpStatus)`, then `Drop`, then `StopRun` | no `OnLost`; reattached (`Runs >= 2`); `OnFinished` |
+| `TestRunStream_SandboxStopped` | reattach; `Set(Parked)` / `Set(Gone)` after `OnAccepted` | `OnLost(LostSandboxDown)` with `ErrSandboxDown`, and `backend.ErrGone` only when gone; sandbox state untouched by RunStream |
+| `TestRunStream_DialErrorRetries` | `Dial` fails once with a plain error after a `Drop`, then `StopRun` | no `OnLost`; reattached; `OnFinished` |
 | `TestRunStream_Unreachable` | driver never answers; short `LostTimeout`; `OnUnreachable` returns true | one `OnUnreachable`; nothing else; sandbox still `Up` |
 | `TestRunStream_UnreachableKeepGoing` | as above, but `OnUnreachable` returns false until the 3rd call, which makes the driver ready (`SetDriverReady(true)`) and returns false; then `StopRun` | ≥3 `OnUnreachable`, then `OnAccepted`, `OnFinished`: following went on after a false |
 | `TestRunStream_LostTimeoutReset` | `SleepForever`; `Drop` after each `OnAccepted`, for longer than `LostTimeout` in total | no `OnUnreachable`; `OnFinished` after `StopRun` |
 | `TestRunStream_Protocol` | stub sends: `KeepAlive` first / `Accepted` twice / `attached: false` on reattach / `Finished` for another version / empty oneof | `OnLost(LostProtocol)` with a `*ProtocolError` (`errors.As`) |
 | `TestRunStream_MessageAfterFinished` | stub sends `Accepted`, `Finished`, `KeepAlive` | `OnAccepted`, `OnFinished` |
 | `TestRunStream_Cancelled` | `SleepForever`; cancel ctx with a cause after `OnAccepted` | `Run` returns the cause; no terminal callback |
+| `TestRunStream_CallbackError` | `OnAccepted` (reattach and start), `OnFinished`, `OnLost`, `OnUnreachable` (returning false) each return an error | `Run` returns that error; no callback after it |
 
 The idle slice adds `TestRunStream_Idle`. A stub that accepts and then goes
 silent, with a short `IdleTimeout`, gets two `OnAccepted` and `Runs == 2`. A
@@ -449,16 +541,20 @@ Each slice keeps every existing test green and unchanged in behaviour.
    Depends on: nothing. Verifiable by: a test that serves a stub through
    `NewBackend` and reads its scripted stream through a fake sandbox's `Dial`.
 2. **RunStream, today's behaviour** — Delivers: `RunStream`, `NewRunStream`,
-   `Run`, `RunStreamOptions` and `LostReason` in `internal/runner/runstream.go`,
-   reusing the package's timing defaults, `doubling`, `readyMaxInterval` and
-   `isTerminal`. Same behaviour as today's
-   `startRun`/`accept`/`attach`/`attachOnce` (still accept-then-close, no
-   protocol checks, no `LostProtocol` yet), but every outcome goes through the
-   callbacks and it never parks. Not used by `TaskRunner` yet. Depends on:
-   (1). Verifiable by: `runstream_test.go` for every non-protocol row of the
-   mapping table (`StartFinished` asserting today's `Runs == 2`).
-3. **TaskRunner on RunStream** — Delivers: `TaskRunner.Run` builds the
-   callbacks of the mapping table and runs a `RunStream`. It deletes `run`,
+   `Run`, `RunStreamOptions`, `LostReason` and `ErrSandboxDown` in
+   `internal/runner/runstream.go`, reusing the package's timing defaults,
+   `doubling`, `readyMaxInterval` and `isTerminal`. It reaches the driver only
+   through `Dial`, and its callbacks return errors. Same behaviour as today's
+   `startRun`/`accept`/`attach`/`attachOnce` apart from behaviour changes 4
+   and 5 (still accept-then-close, no protocol checks, no `LostProtocol`
+   yet), but every outcome goes through the callbacks and it never parks.
+   Not used by `TaskRunner` yet. Depends on: (1). Verifiable by:
+   `runstream_test.go` for every non-protocol row of the mapping table
+   (`StartFinished` asserting today's `Runs == 2`), with `dialSandbox` as the
+   `Dial`.
+3. **TaskRunner on RunStream** — Delivers: `TaskRunner.dial`, and
+   `TaskRunner.Run` builds the callbacks of the mapping table and runs a
+   `RunStream`. It deletes `run`,
    `startRun`, `accept`, `attach` and `attachOnce` from `taskrunner.go`;
    `doubling`, `isTerminal`, `readyMaxInterval`, the timing defaults and
    `TestDoubling` stay. Depends on: (2). Verifiable by: every existing runner
@@ -509,6 +605,13 @@ Each slice keeps every existing test green and unchanged in behaviour.
   code needs its options in every step, so it lives in a struct either way;
   exporting that struct instead of wrapping it in a function keeps one name
   for the concept and the code.
+- **Status check in `Dial` vs. in `RunStream`, or an extra callback.**
+  `RunStream` could take the sandbox and check its status after each drop, as
+  `attach` does, or call an `OnDropped`-style callback for `TaskRunner` to
+  check it. Putting the check in `TaskRunner`'s `Dial` keeps `RunStream` free
+  of `backend`, adds no callback, and runs the check only when the driver
+  does not answer. The cost is one driver `Status` call per reattach, and the
+  check moving one backoff later (behaviour change 4).
 - **Protocol violations as drops** (reattach, and let `LostTimeout` decide) are
   more forgiving. But they turn a deterministic driver bug into a two-minute
   hang that ends in a misleading "driver unreachable".
