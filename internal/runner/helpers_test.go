@@ -247,17 +247,16 @@ func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (http.H
 // for tasks on version. It reads the agent config from where the TaskManager's
 // spec provisions it, so a Run with that spec runs the workspace's agent.
 // Until ready is closed every call fails Unavailable, as from a driver that is
-// not up yet; a nil ready is open. opts configure the driver.v1 handler, as
-// an interceptor recording the requests the driver receives.
-func driverHandler(t *testing.T, version int64, ready <-chan struct{}, opts ...connect.HandlerOption) http.Handler {
+// not up yet; a nil ready is open.
+func driverHandler(t *testing.T, version int64, ready <-chan struct{}) http.Handler {
 	t.Helper()
-	h, _ := newDriver(t, version, ready, opts...)
+	h, _ := newDriver(t, version, ready)
 	return h
 }
 
 // newDriver is driverHandler, also returning the store the driver reads agent
 // configs from.
-func newDriver(t *testing.T, version int64, ready <-chan struct{}, opts ...connect.HandlerOption) (http.Handler, agent.ConfigStore) {
+func newDriver(t *testing.T, version int64, ready <-chan struct{}) (http.Handler, agent.ConfigStore) {
 	t.Helper()
 	dir := t.TempDir()
 	root := filepath.Join(dir, "root")
@@ -294,7 +293,7 @@ func newDriver(t *testing.T, version int64, ready <-chan struct{}, opts ...conne
 		assert.NilError(t, srv.Shutdown(ctx))
 	})
 	mux := http.NewServeMux()
-	mux.Handle(driverv1connect.NewDriverServiceHandler(srv, opts...))
+	mux.Handle(srv.Handler())
 	if ready == nil {
 		return mux, configs
 	}

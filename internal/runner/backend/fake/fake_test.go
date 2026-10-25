@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 
@@ -386,6 +387,41 @@ func TestSandboxDial_NilHandler(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 }
 
+// TestSandboxDial_RunSpecs covers the run specs the fake records: the spec of
+// each Run request that starts a run, served while the sandbox is up.
+func TestSandboxDial_RunSpecs(t *testing.T) {
+	t.Parallel()
+	// Arrange - a parked sandbox's driver.
+	drv := &stubDriver{}
+	be := newDriverBackend(t, func(backend.Handle) http.Handler { return drv.handler() })
+	sb := mustOpen(t, be, be.Add("c1", fake.Parked))
+	client := mustDial(t, sb)
+	spec := &driverv1.RunSpec{TaskId: 1, Env: map[string]string{"A": "1"}}
+
+	// Act - a start while parked, then once up a start and an attach.
+	parked, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1, Spec: &driverv1.RunSpec{TaskId: 9}})
+	assert.NilError(t, err)
+	assert.Assert(t, !parked.Receive())
+	assert.Equal(t, connect.CodeOf(parked.Err()), connect.CodeUnavailable)
+	assert.NilError(t, sb.Start(t.Context()))
+	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 2, Spec: spec})
+	assert.NilError(t, err)
+	assert.Assert(t, stream.Receive(), stream.Err())
+	assert.NilError(t, stream.Close())
+	openRun(t, client)
+
+	// Assert - only the start the driver served is recorded.
+	got, _ := be.Snapshot().Sandbox("c1")
+	assert.DeepEqual(t, got.RunSpecs, []*driverv1.RunSpec{spec}, protocmp.Transform())
+
+	// Act - change the snapshot's copy.
+	got.RunSpecs[0].Env["A"] = "changed"
+
+	// Assert - the fake's own is unchanged.
+	again, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, again.RunSpecs[0].Env["A"], "1")
+}
+
 // TestSandboxDial_LeaveUp covers every way out of up: each closes an open
 // stream, and the driver stops answering.
 func TestSandboxDial_LeaveUp(t *testing.T) {
@@ -480,6 +516,35 @@ func TestBackendValidateWorkspace(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
+}
+
+func TestBackendRunEnv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		runEnv func(*workspace.Workspace) map[string]string
+		want   map[string]string
+	}{
+		{name: "none"},
+		{
+			name:   "set",
+			runEnv: func(ws *workspace.Workspace) map[string]string { return map[string]string{"IMAGE": ws.Container.Image} },
+			want:   map[string]string{"IMAGE": "alpine"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			var be backend.RunEnver = fake.New(fake.Options{RunEnv: tt.runEnv})
+
+			// Act
+			env := be.RunEnv(&workspace.Workspace{Container: workspace.Container{Image: "alpine"}})
+
+			// Assert
+			assert.DeepEqual(t, env, tt.want)
+		})
+	}
 }
 
 func TestSnapshot_Copy(t *testing.T) {

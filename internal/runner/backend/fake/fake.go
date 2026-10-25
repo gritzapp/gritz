@@ -3,24 +3,33 @@
 // platform: no transitional states, no images, no files. Tests arrange
 // sandboxes with Add, Set, FailNext and Drop, serve their drivers through
 // Options.Driver, drive them through the backend.Backend and backend.Sandbox
-// interfaces, and observe them with Snapshot and Wait. See
+// interfaces, and observe them with Snapshot and Wait. It implements
+// backend.RunEnver as well, with the environment Options.RunEnv gives, and
+// records the spec of every run its sandboxes' drivers are asked to start. See
 // proposals/draft/fake-runner-backend.md.
 //
 // Production code never imports it.
 package fake
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"sync"
 
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // DefaultType is the handle type of a Backend's sandboxes when Options.Type is
@@ -104,6 +113,9 @@ type Options struct {
 	// Dial, without its lock held. nil, or a Driver returning nil, means the
 	// sandbox's driver never answers.
 	Driver func(h backend.Handle) http.Handler
+	// RunEnv returns the environment RunEnv gives runs of a workspace's
+	// sandboxes; nil means none.
+	RunEnv func(ws *workspace.Workspace) map[string]string
 }
 
 // Backend is an in-memory backend.Backend whose sandboxes follow the
@@ -115,6 +127,7 @@ type Options struct {
 type Backend struct {
 	typ       string
 	newDriver func(backend.Handle) http.Handler
+	runEnv    func(*workspace.Workspace) map[string]string
 
 	mu sync.Mutex
 	// sandboxes is every sandbox the fake has held, by ID; order is their
@@ -136,7 +149,10 @@ type Backend struct {
 	closed bool
 }
 
-var _ backend.Backend = (*Backend)(nil)
+var (
+	_ backend.Backend  = (*Backend)(nil)
+	_ backend.RunEnver = (*Backend)(nil)
+)
 
 // New returns a Backend with no sandboxes.
 func New(opts Options) *Backend {
@@ -147,6 +163,7 @@ func New(opts Options) *Backend {
 	return &Backend{
 		typ:       typ,
 		newDriver: opts.Driver,
+		runEnv:    opts.RunEnv,
 		sandboxes: map[string]*Info{},
 		drivers:   map[string]*driver{},
 		failures:  map[failKey][]error{},
@@ -158,6 +175,14 @@ func New(opts Options) *Backend {
 // ValidateWorkspace accepts every workspace.
 func (b *Backend) ValidateWorkspace(*workspace.Workspace) error {
 	return nil
+}
+
+// RunEnv returns Options.RunEnv's environment for ws, or nil without one.
+func (b *Backend) RunEnv(ws *workspace.Workspace) map[string]string {
+	if b.runEnv == nil {
+		return nil
+	}
+	return b.runEnv(ws)
 }
 
 // Create records spec and adds a created sandbox for it, named c1, c2, ... in
@@ -426,15 +451,73 @@ func (b *Backend) dial(id string) *httptest.Server {
 }
 
 // gate serves h while sandbox id is up, and 503 otherwise, which Connect
-// reports as Unavailable, as for a driver that is not answering.
+// reports as Unavailable, as for a driver that is not answering. It records
+// the spec of every Run request it serves that has one in the sandbox's
+// Info.RunSpecs.
 func (b *Backend) gate(id string, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !b.up(id) {
 			http.Error(w, "fake: sandbox is not up", http.StatusServiceUnavailable)
 			return
 		}
+		if r.URL.Path == driverv1connect.DriverServiceRunProcedure {
+			req, err := readRunRequest(r)
+			if err != nil {
+				http.Error(w, "fake: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if spec := req.GetSpec(); spec != nil {
+				b.recordRunSpec(id, spec)
+			}
+		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+// readRunRequest decodes the RunRequest r carries, and leaves r's body to be
+// read again. Run is server-streaming, so the body is a single enveloped
+// message, uncompressed as the Connect client sends it by default.
+func readRunRequest(r *http.Request) (*driverv1.RunRequest, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read Run request: %w", err)
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if len(body) < 5 {
+		return nil, errors.New("no message in Run request")
+	}
+	if body[0]&1 != 0 {
+		return nil, errors.New("compressed Run request")
+	}
+	n := binary.BigEndian.Uint32(body[1:5])
+	if uint64(len(body)-5) < uint64(n) {
+		return nil, errors.New("truncated Run request")
+	}
+	msg := body[5 : 5+n]
+	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	req := &driverv1.RunRequest{}
+	switch ct {
+	case "application/connect+proto", "application/grpc", "application/grpc+proto":
+		err = proto.Unmarshal(msg, req)
+	case "application/connect+json", "application/grpc+json":
+		err = protojson.Unmarshal(msg, req)
+	default:
+		return nil, fmt.Errorf("unsupported content type %q of Run request", ct)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("decode Run request: %w", err)
+	}
+	return req, nil
+}
+
+// recordRunSpec adds spec to sandbox id's RunSpecs.
+func (b *Backend) recordRunSpec(id string, spec *driverv1.RunSpec) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if sbx := b.sandboxes[id]; sbx != nil {
+		sbx.RunSpecs = append(sbx.RunSpecs, spec)
+		b.changedLocked()
+	}
 }
 
 // changedLocked wakes every Wait. b.mu must be held.
@@ -450,6 +533,13 @@ func (b *Backend) snapshotLocked() Snapshot {
 		sbx := *b.sandboxes[id]
 		if sbx.Spec != nil {
 			sbx.Spec = sbx.Spec.Clone()
+		}
+		if sbx.RunSpecs != nil {
+			specs := make([]*driverv1.RunSpec, len(sbx.RunSpecs))
+			for i, spec := range sbx.RunSpecs {
+				specs[i] = proto.CloneOf(spec)
+			}
+			sbx.RunSpecs = specs
 		}
 		snap.Sandboxes = append(snap.Sandboxes, sbx)
 	}
@@ -690,4 +780,8 @@ type Info struct {
 	// included. A call that returned backend.ErrGone, or that FailNext
 	// failed, is not counted.
 	Starts, Parks, Destroys, Dials int
+	// RunSpecs is the spec of every Run request the sandbox's driver served
+	// that has one, a request to start a run, in order. A request made while
+	// the sandbox was not up never reached its driver, and is not in it.
+	RunSpecs []*driverv1.RunSpec
 }
