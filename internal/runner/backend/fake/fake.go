@@ -1,8 +1,9 @@
 // Package fake is an in-memory backend.Backend for tests. Its sandboxes follow
 // the state machine documented on backend.Sandbox and nothing else of a
 // platform: no transitional states, no images, no files. Tests arrange
-// sandboxes with Add, Set and FailNext, drive them through the backend.Backend and
-// backend.Sandbox interfaces, and observe them with Snapshot and Wait. See
+// sandboxes with Add, Set, FailNext and Drop, serve their drivers through
+// Options.Driver, drive them through the backend.Backend and backend.Sandbox
+// interfaces, and observe them with Snapshot and Wait. See
 // proposals/draft/fake-runner-backend.md.
 //
 // Production code never imports it.
@@ -13,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"sync"
 
@@ -97,6 +99,11 @@ func (o Op) String() string {
 type Options struct {
 	// Type is the handle type of the sandboxes; defaults to DefaultType.
 	Type string
+	// Driver returns the handler serving the driver.v1 API of the sandbox
+	// with handle h. The Backend calls it once per sandbox, on its first
+	// Dial, without its lock held. nil, or a Driver returning nil, means the
+	// sandbox's driver never answers.
+	Driver func(h backend.Handle) http.Handler
 }
 
 // Backend is an in-memory backend.Backend whose sandboxes follow the
@@ -106,7 +113,8 @@ type Options struct {
 // so every handle to one ID sees and changes the same sandbox. IDs are never
 // reused, and a gone sandbox stays in the table.
 type Backend struct {
-	typ string
+	typ       string
+	newDriver func(backend.Handle) http.Handler
 
 	mu sync.Mutex
 	// sandboxes is every sandbox the fake has held, by ID; order is their
@@ -122,6 +130,10 @@ type Backend struct {
 	next int
 	// changed is closed and replaced on every change to the table.
 	changed chan struct{}
+	// drivers is the driver of every sandbox that was dialed, by ID.
+	drivers map[string]*driver
+	// closed is set by Close; no driver is started after it.
+	closed bool
 }
 
 var _ backend.Backend = (*Backend)(nil)
@@ -134,7 +146,9 @@ func New(opts Options) *Backend {
 	}
 	return &Backend{
 		typ:       typ,
+		newDriver: opts.Driver,
 		sandboxes: map[string]*Info{},
+		drivers:   map[string]*driver{},
 		failures:  map[failKey][]error{},
 		next:      1,
 		changed:   make(chan struct{}),
@@ -191,8 +205,23 @@ func (b *Backend) Open(h backend.Handle) (backend.Sandbox, error) {
 	return &sandbox{b: b, id: h.ID}, nil
 }
 
-// Close releases the Backend. Its sandboxes keep working.
+// Close closes the sandboxes' driver servers, and the runner's connections
+// to them. Their state is unchanged, but their drivers no longer answer, and
+// sandboxes dialed for the first time after Close get none.
 func (b *Backend) Close() error {
+	b.mu.Lock()
+	b.closed = true
+	drivers := b.drivers
+	b.drivers = map[string]*driver{}
+	b.mu.Unlock()
+	for _, d := range drivers {
+		if srv := d.server(); srv != nil {
+			// Server.Close waits for the requests in flight; closing
+			// their connections first ends the open streams.
+			srv.CloseClientConnections()
+			srv.Close()
+		}
+	}
 	return nil
 }
 
@@ -227,16 +256,36 @@ func (b *Backend) Set(id string, state State) {
 		panic(fmt.Sprintf("fake: Set(%q) with invalid %v", id, state))
 	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	sbx := b.sandboxes[id]
 	if sbx == nil {
+		b.mu.Unlock()
 		panic(fmt.Sprintf("fake: Set(%q): unknown id", id))
 	}
 	if sbx.State == Gone && state != Gone {
+		b.mu.Unlock()
 		panic(fmt.Sprintf("fake: Set(%q, %v): sandbox is gone", id, state))
 	}
+	from := sbx.State
 	sbx.State = state
 	b.changedLocked()
+	d := b.leftUpLocked(id, from)
+	b.mu.Unlock()
+	d.drop()
+}
+
+// Drop closes every connection the runner has open to sandbox id's driver,
+// as a network blip would, without changing its state. Calls on those
+// connections fail; the next ones connect again. It panics if id is
+// unknown: that is a test bug.
+func (b *Backend) Drop(id string) {
+	b.mu.Lock()
+	if b.sandboxes[id] == nil {
+		b.mu.Unlock()
+		panic(fmt.Sprintf("fake: Drop(%q): unknown id", id))
+	}
+	d := b.drivers[id]
+	b.mu.Unlock()
+	d.drop()
 }
 
 // FailNext makes the next call of op on sandbox id return err, without
@@ -325,6 +374,69 @@ func (b *Backend) addLocked(sbx *Info) {
 	b.changedLocked()
 }
 
+// leftUpLocked returns the driver whose connections must be closed when
+// sandbox id moves from state from to its current state: its own if it was up
+// and is not any more, as stopping a sandbox kills its driver, or nil. b.mu
+// must be held.
+func (b *Backend) leftUpLocked(id string, from State) *driver {
+	if from != Up || b.sandboxes[id].State == Up {
+		return nil
+	}
+	return b.drivers[id]
+}
+
+// up reports whether sandbox id is up.
+func (b *Backend) up(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	sbx := b.sandboxes[id]
+	return sbx != nil && sbx.State == Up
+}
+
+// dial counts a Dial of sandbox id and returns its driver server, starting
+// it on the first Dial. It returns nil for a sandbox whose driver never
+// answers: one the fake never had, one whose Driver gave no handler, and
+// any first dialed after Close.
+func (b *Backend) dial(id string) *httptest.Server {
+	b.mu.Lock()
+	sbx := b.sandboxes[id]
+	if sbx == nil {
+		// A sandbox the fake never had has no counters; Dial succeeds anyway.
+		b.mu.Unlock()
+		return nil
+	}
+	sbx.Dials++
+	b.changedLocked()
+	d := b.drivers[id]
+	if d != nil || b.closed || b.newDriver == nil {
+		b.mu.Unlock()
+		return d.server()
+	}
+	d = &driver{ready: make(chan struct{})}
+	b.drivers[id] = d
+	b.mu.Unlock()
+
+	// Start the driver without the lock: concurrent Dials of the sandbox
+	// wait for it in server.
+	if h := b.newDriver(b.handle(id)); h != nil {
+		d.srv = httptest.NewServer(b.gate(id, h))
+	}
+	close(d.ready)
+	return d.srv
+}
+
+// gate serves h while sandbox id is up, and 503 otherwise, which Connect
+// reports as Unavailable, as for a driver that is not answering.
+func (b *Backend) gate(id string, h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !b.up(id) {
+			http.Error(w, "fake: sandbox is not up", http.StatusServiceUnavailable)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
 // changedLocked wakes every Wait. b.mu must be held.
 func (b *Backend) changedLocked() {
 	close(b.changed)
@@ -389,21 +501,26 @@ func (s *sandbox) Park(context.Context) error {
 // Destroy moves the sandbox to gone. Destroying a gone sandbox is a no-op.
 func (s *sandbox) Destroy(context.Context) error {
 	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
 	if err := s.b.failLocked(OpDestroy, s.id); err != nil {
+		s.b.mu.Unlock()
 		return err
 	}
 	sbx := s.b.sandboxes[s.id]
 	if sbx == nil {
 		// A handle the fake never had is gone already.
+		s.b.mu.Unlock()
 		return nil
 	}
+	from := sbx.State
 	if sbx.State != Gone {
 		sbx.State = Gone
 		s.b.destroyed = append(s.b.destroyed, s.id)
 	}
 	sbx.Destroys++
 	s.b.changedLocked()
+	d := s.b.leftUpLocked(s.id, from)
+	s.b.mu.Unlock()
+	d.drop()
 	return nil
 }
 
@@ -413,7 +530,7 @@ func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if err := s.b.failLocked(OpStatus, s.id); err != nil {
-		return backend.StatusGone, err
+		return backend.StatusUnknown, err
 	}
 	sbx := s.b.sandboxes[s.id]
 	if sbx == nil {
@@ -429,45 +546,96 @@ func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	}
 }
 
-// Dial returns a client for the sandbox's driver, whatever its state. The
-// sandbox has no driver, so no call on the client is ever answered: each
+// Dial returns a client for the sandbox's driver, whatever its state, which
+// sends jwt as a bearer token. The driver is the handler Options.Driver gave
+// for the sandbox: it answers while the sandbox is up, and fails every call
+// as Unavailable otherwise. A sandbox with no driver never answers: each call
 // fails as Unavailable, as for a driver that is not listening.
-func (s *sandbox) Dial(context.Context, string) (driverv1connect.DriverServiceClient, error) {
-	s.b.mu.Lock()
-	// A sandbox the fake never had has no counters; Dial succeeds anyway.
-	if sbx := s.b.sandboxes[s.id]; sbx != nil {
-		sbx.Dials++
-		s.b.changedLocked()
+func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverServiceClient, error) {
+	srv := s.b.dial(s.id)
+	if srv == nil {
+		httpClient := &http.Client{Transport: noDriver{}}
+		return driverv1connect.NewDriverServiceClient(httpClient, "http://driver"), nil
 	}
-	s.b.mu.Unlock()
-	httpClient := &http.Client{Transport: noDriver{}}
-	return driverv1connect.NewDriverServiceClient(httpClient, "http://driver"), nil
+	httpClient := &http.Client{Transport: &bearerTransport{base: srv.Client().Transport, token: jwt}}
+	return driverv1connect.NewDriverServiceClient(httpClient, srv.URL), nil
 }
 
 // update applies fn, the body of op, to the sandbox under the lock, and wakes
 // every Wait if fn succeeds. A failure FailNext queued for op is returned
 // without calling fn; a sandbox the fake never had returns backend.ErrGone.
+//
+// If fn moves the sandbox out of up, the runner's connections to its driver
+// are closed once the lock is released.
 func (s *sandbox) update(op Op, fn func(sbx *Info) error) error {
+	d, err := s.updateLocked(op, fn)
+	d.drop()
+	return err
+}
+
+func (s *sandbox) updateLocked(op Op, fn func(sbx *Info) error) (*driver, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if err := s.b.failLocked(op, s.id); err != nil {
-		return err
+		return nil, err
 	}
 	sbx := s.b.sandboxes[s.id]
 	if sbx == nil {
-		return backend.ErrGone
+		return nil, backend.ErrGone
 	}
+	from := sbx.State
 	if err := fn(sbx); err != nil {
-		return err
+		return nil, err
 	}
 	s.b.changedLocked()
-	return nil
+	return s.b.leftUpLocked(s.id, from), nil
 }
 
 // failKey is a FailNext queue: an op on one sandbox, or on any if id is "".
 type failKey struct {
 	op Op
 	id string
+}
+
+// driver is the driver server of one sandbox, started on its first Dial.
+type driver struct {
+	// ready is closed once srv is set.
+	ready chan struct{}
+	// srv serves the sandbox's driver, or is nil if it has none.
+	srv *httptest.Server
+}
+
+// server waits for d to start and returns its server; nil for a nil d.
+func (d *driver) server() *httptest.Server {
+	if d == nil {
+		return nil
+	}
+	<-d.ready
+	return d.srv
+}
+
+// drop closes every connection to d's server; a nil d, or one with no
+// server, has none.
+func (d *driver) drop() {
+	if srv := d.server(); srv != nil {
+		srv.CloseClientConnections()
+	}
+}
+
+// bearerTransport adds token to every request as a bearer token, unless it is
+// empty.
+type bearerTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.token == "" {
+		return t.base.RoundTrip(req)
+	}
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
 }
 
 // noDriver is the transport of a sandbox with no driver: every request fails.
