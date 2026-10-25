@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/agent"
@@ -187,6 +190,71 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 	assert.Equal(t, events[0].Event, "failed")
 	assert.Equal(t, events[0].Version, int64(1))
 	assert.Assert(t, cmp.Contains(events[0].Reason, "driver server did not become ready"))
+}
+
+// finishingDriver is a driver that accepts every Run and finishes it at
+// once, reported.
+type finishingDriver struct {
+	driverv1connect.UnimplementedDriverServiceHandler
+}
+
+func (finishingDriver) Status(context.Context, *driverv1.StatusRequest) (*driverv1.StatusResponse, error) {
+	return &driverv1.StatusResponse{}, nil
+}
+
+func (finishingDriver) Run(_ context.Context, req *driverv1.RunRequest, stream *connect.ServerStream[driverv1.RunResponse]) error {
+	if err := stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}}}); err != nil {
+		return err
+	}
+	return stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_Finished{Finished: &driverv1.Finished{Version: req.GetVersion(), Reported: true}}})
+}
+
+// TestTaskRunnerRun_Started covers a run started with a spec: the stream that
+// starts it is the one Run follows to its Finished.
+func TestTaskRunnerRun_Started(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, finishingDriver{})})
+	be.Add("c1", fake.Up)
+	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
+
+	// Act
+	err := tr.Run(t.Context(), &driverv1.RunSpec{TaskId: 1})
+
+	// Assert - one Run stream, with the spec; the driver reported, and the
+	// sandbox is parked after Finished.
+	assert.NilError(t, err)
+	sbx, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, sbx.Runs, 1)
+	assert.Assert(t, cmp.Len(sbx.RunSpecs, 1))
+	assert.Equal(t, sbx.State, fake.Parked)
+	assert.Equal(t, m.Queued(t), 0)
+}
+
+// TestTaskRunnerRun_StartSandboxDown covers a run started on a sandbox that is
+// not up: the start fails at once rather than after ReadyTimeout.
+func TestTaskRunnerRun_StartSandboxDown(t *testing.T) {
+	t.Parallel()
+	// Arrange - a parked sandbox, with a ReadyTimeout well past waitDone's.
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, finishingDriver{})})
+	be.Add("c1", fake.Parked)
+	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
+		opts.ReadyTimeout = time.Hour
+	})
+
+	// Act
+	err := waitDone(t, runAsync(t.Context(), tr, &driverv1.RunSpec{TaskId: 1}))
+
+	// Assert - the run is reported failed, and nothing was started.
+	assert.NilError(t, err)
+	sbx, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, sbx.Runs, 0)
+	m.WaitQueued(t, 1)
+	events := m.Submitted(t)
+	assert.Assert(t, cmp.Len(events, 1))
+	assert.Equal(t, events[0].Event, "failed")
+	assert.Equal(t, events[0].Version, int64(3))
+	assert.Assert(t, cmp.Contains(events[0].Reason, "sandbox is parked"))
 }
 
 func TestTaskRunnerRun_Shutdown(t *testing.T) {

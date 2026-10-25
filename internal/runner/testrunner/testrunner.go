@@ -323,7 +323,6 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 		Fatal:        opts.Fatal,
 		NewTaskRunner: func(o runner.TaskRunnerOptions) *runner.TaskRunner {
 			o.RetryInterval = 10 * time.Millisecond
-			o.RetryMaxInterval = 50 * time.Millisecond
 			o.LostTimeout = 10 * time.Second
 			o.ReadyTimeout = 10 * time.Second
 			if opts.TaskRunner != nil {

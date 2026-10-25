@@ -14,7 +14,6 @@ import (
 	"github.com/cenkalti/backoff/v5"
 
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/x/common"
@@ -64,10 +63,8 @@ type TaskRunnerOptions struct {
 	// RetryInterval is the first pause between attempts to reach the driver
 	// or reattach to a run; defaults to 250ms.
 	RetryInterval time.Duration
-	// RetryMaxInterval caps the reattach backoff; defaults to 10s.
-	RetryMaxInterval time.Duration
-	// LostTimeout is how long Run keeps reattaching without a good message
-	// from the driver before it gives up on the run; defaults to 2m.
+	// LostTimeout is how long Run keeps reattaching to a run whose stream
+	// dropped before it gives up on the run; defaults to 2m.
 	LostTimeout time.Duration
 	// ReadyTimeout is how long a started sandbox's driver has to answer and
 	// accept its run; defaults to 1m.
@@ -77,16 +74,14 @@ type TaskRunnerOptions struct {
 const (
 	// defaultRetryInterval is TaskRunnerOptions.RetryInterval's default.
 	defaultRetryInterval = 250 * time.Millisecond
-	// defaultRetryMaxInterval is TaskRunnerOptions.RetryMaxInterval's default.
-	defaultRetryMaxInterval = 10 * time.Second
 	// defaultLostTimeout is TaskRunnerOptions.LostTimeout's default.
 	defaultLostTimeout = 2 * time.Minute
 	// defaultReadyTimeout is TaskRunnerOptions.ReadyTimeout's default. It
 	// counts whatever the image's entrypoint does before it execs the driver,
 	// and a Lambda VM's boot.
 	defaultReadyTimeout = time.Minute
-	// readyMaxInterval caps the backoff between attempts to reach a starting
-	// driver.
+	// readyMaxInterval caps the backoff between attempts to open a Run
+	// stream.
 	readyMaxInterval = 2 * time.Second
 )
 
@@ -104,7 +99,6 @@ func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 	}
 	opts.Log = cmp.Or(opts.Log, slog.Default())
 	opts.RetryInterval = cmp.Or(opts.RetryInterval, defaultRetryInterval)
-	opts.RetryMaxInterval = cmp.Or(opts.RetryMaxInterval, defaultRetryMaxInterval)
 	opts.LostTimeout = cmp.Or(opts.LostTimeout, defaultLostTimeout)
 	opts.ReadyTimeout = cmp.Or(opts.ReadyTimeout, defaultReadyTimeout)
 	return &TaskRunner{opts: opts}
@@ -447,100 +441,157 @@ func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int6
 		<-ctx.Done()
 		return "", ctx.Err()
 	}
+	var stream *connect.ServerStreamForClient[driverv1.RunResponse]
 	if spec != nil {
-		if err := tr.startRun(ctx, sbx, version, spec); err != nil {
+		req := &driverv1.RunRequest{Version: version, Spec: spec}
+		stream, err = tr.open(ctx, sbx, req, tr.opts.ReadyTimeout)
+		if err != nil {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
+			err = fmt.Errorf("failed to start run %d: %w", version, err)
 			tr.opts.Log.Error("failed to start run", "task", tr.opts.TaskID, "version", version, "err", err)
 			tr.park(ctx, sbx)
 			return err.Error(), nil
 		}
 	}
-	return tr.attach(ctx, sbx, version)
+	return tr.attach(ctx, sbx, version, stream)
 }
 
-// startRun waits for sb's driver to answer Status, backing off
-// exponentially, then starts run version with spec on it, returning once the
-// driver has accepted it. A Run that is rejected because another stream is
-// open is retried. The driver has the runner's readyTimeout to do both.
-func (tr *TaskRunner) startRun(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) error {
-	opts := tr.opts
-	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
-	defer cancel()
-	client, err := sbx.Dial(ctx, "")
-	if err != nil {
-		return err
-	}
-	bo := doubling(opts.RetryInterval, readyMaxInterval)
-	for {
-		_, err := client.Status(ctx, &driverv1.StatusRequest{})
-		if err == nil {
-			break
-		}
-		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return fmt.Errorf("driver server did not become ready: %w", err)
-		}
-	}
-	for {
-		err := accept(ctx, client, &driverv1.RunRequest{Version: version, Spec: spec})
-		if err == nil {
-			return nil
-		}
-		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, opts.RetryInterval) {
-			return fmt.Errorf("failed to start run %d: %w", version, err)
-		}
-	}
+// sandboxDownError is open's error when the sandbox is not up, so its driver
+// cannot answer until it is started again.
+type sandboxDownError struct {
+	// Status is the sandbox's status: StatusParked or StatusGone.
+	Status backend.Status
+	// Err is the error of the attempt that found the sandbox down.
+	Err error
 }
 
-// accept opens a Run stream and closes it after its Accepted: the run keeps
-// going without it.
-func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := client.Run(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
-	if !stream.Receive() {
-		return cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted"))
-	}
-	if stream.Msg().GetAccepted() == nil {
-		return fmt.Errorf("unexpected first run response: %v", stream.Msg())
-	}
-	return nil
+func (e *sandboxDownError) Error() string {
+	return fmt.Sprintf("sandbox is %v: %v", e.Status, e.Err)
 }
 
-// attach follows run version on sb until its Finished, then parks sb. It returns why the driver's report of the run's outcome was lost, or
-// "" if the driver reported it. The only error is ctx's.
+func (e *sandboxDownError) Unwrap() error { return e.Err }
+
+// open dials sbx, waits for its driver to answer Status, opens a Run stream
+// with req and reads its Accepted, retrying within timeout. It returns the
+// stream past its Accepted. Any error means give up.
 //
-// A dropped stream is reattached while the sandbox is up, backing off
-// exponentially. A sandbox that is parked or gone before Finished arrived, or a
-// driver with no such run, is a lost run. Reattaching gives up once lostTimeout
-// has passed without a good message — an accepted stream — from the driver:
-// attach parks the sandbox and reports the run lost. It returns only once the
-// park succeeded or the sandbox is gone, so the sandbox is never up with no
-// Run following it; while the platform cannot park it, attach keeps
-// retrying.
-func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64) (lost string, err error) {
-	opts, taskID := tr.opts, tr.opts.TaskID
-	lastGood := time.Now()
-	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
-	var lastErr string
+// An attempt that fails with an isTerminal error is not retried, nor is one
+// made on a sandbox that is not up, which returns a *sandboxDownError. Any
+// other failure is retried, backing off exponentially, until timeout has
+// passed; the last attempt's error is returned then.
+func (tr *TaskRunner) open(ctx context.Context, sbx backend.Sandbox, req *driverv1.RunRequest, timeout time.Duration) (*connect.ServerStreamForClient[driverv1.RunResponse], error) {
+	openCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	bo := doubling(tr.opts.RetryInterval, readyMaxInterval)
 	for {
-		finished, accepted, err := attachOnce(ctx, sbx, version)
+		stream, err := tr.openOnce(openCtx, ctx, sbx, req)
+		if err == nil {
+			return stream, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if isTerminal(err) {
+			return nil, err
+		}
+		if status, stErr := sbx.Status(ctx); stErr != nil {
+			err = fmt.Errorf("%w (status: %w)", err, stErr)
+		} else if status != backend.StatusUp {
+			return nil, &sandboxDownError{Status: status, Err: err}
+		}
+		tr.opts.Log.Debug("failed to open run stream, retrying", "task", tr.opts.TaskID, "version", req.GetVersion(), "err", err)
+		if !common.SleepContext(openCtx, bo.NextBackOff()) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, err
+		}
+	}
+}
+
+// openOnce is one attempt of open, bounded by openCtx. The stream it returns
+// lives on ctx instead, which openCtx derives from, so it outlives open.
+func (tr *TaskRunner) openOnce(openCtx, ctx context.Context, sbx backend.Sandbox, req *driverv1.RunRequest) (*connect.ServerStreamForClient[driverv1.RunResponse], error) {
+	client, err := sbx.Dial(openCtx, "")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := client.Status(openCtx, &driverv1.StatusRequest{}); err != nil {
+		return nil, fmt.Errorf("driver server did not become ready: %w", err)
+	}
+	// Cut the stream if openCtx ends before its Accepted arrives. Once it has,
+	// the stream is cancelled with ctx, or ends when the caller closes it.
+	streamCtx, streamCancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(openCtx, streamCancel)
+	stream, err := client.Run(streamCtx, req)
+	if err == nil {
+		if !stream.Receive() {
+			err = cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted"))
+		} else if stream.Msg().GetAccepted() == nil {
+			err = fmt.Errorf("unexpected first run response: %v", stream.Msg())
+		}
+	}
+	if !stop() && err == nil {
+		// Accepted raced openCtx's end, which cut the stream.
+		err = fmt.Errorf("run stream accepted too late: %w", context.Cause(openCtx))
+	}
+	if err != nil {
+		if stream != nil {
+			_ = stream.Close()
+		}
+		streamCancel()
+		return nil, err
+	}
+	return stream, nil
+}
+
+// attach follows run version on sb until its Finished, then parks sb. It
+// reads stream first if it is not nil: a stream open's caller already opened
+// past its Accepted. It returns why the driver's report of the run's outcome
+// was lost, or "" if the driver reported it. The only error is ctx's.
+//
+// A dropped stream is reopened with open, within lostTimeout. A sandbox that
+// is parked or gone before Finished arrived, or a driver with no such run, is
+// a lost run. If open times out, attach parks the sandbox and reports the run
+// lost. It returns only once the park succeeded or the sandbox is gone, so the
+// sandbox is never up with no Run following it; while the platform cannot
+// park it, attach keeps reopening.
+func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64, stream *connect.ServerStreamForClient[driverv1.RunResponse]) (lost string, err error) {
+	opts, taskID := tr.opts, tr.opts.TaskID
+	req := &driverv1.RunRequest{Version: version}
+	if stream == nil {
+		stream, err = tr.open(ctx, sbx, req, opts.LostTimeout)
+	}
+	for {
+		if err == nil {
+			var finished *driverv1.Finished
+			for finished == nil && stream.Receive() {
+				finished = stream.Msg().GetFinished()
+			}
+			err = cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
+			_ = stream.Close()
+			if finished != nil {
+				tr.park(ctx, sbx)
+				if !finished.GetReported() {
+					return "driver did not report the run's outcome", nil
+				}
+				return "", nil
+			}
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			opts.Log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
+			stream, err = tr.open(ctx, sbx, req, opts.LostTimeout)
+			continue
+		}
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		if finished != nil {
-			tr.park(ctx, sbx)
-			if !finished.GetReported() {
-				return "driver did not report the run's outcome", nil
-			}
-			return "", nil
-		}
-		if isTerminal(err) {
+		var down *sandboxDownError
+		switch {
+		case isTerminal(err):
 			// The driver has no run with this version (or has moved past it),
 			// so its Finished will never come.
 			opts.Log.Error("driver has no such run", "task", taskID, "version", version, "err", err)
@@ -551,69 +602,25 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 				tr.park(ctx, sbx)
 			}
 			return "driver has no such run", nil
-		}
-		if status, stErr := sbx.Status(ctx); stErr != nil {
-			err = fmt.Errorf("%w (status: %w)", err, stErr)
-		} else if status != backend.StatusUp {
-			opts.Log.Error("sandbox stopped before its run finished", "task", taskID, "status", status, "version", version, "err", err)
-			if status == backend.StatusParked {
+		case errors.As(err, &down):
+			opts.Log.Error("sandbox stopped before its run finished", "task", taskID, "status", down.Status, "version", version, "err", down.Err)
+			if down.Status == backend.StatusParked {
 				// Let a sandbox that is still stopping (a SUSPENDING VM)
 				// settle, so it is not reported up once Run is done.
 				tr.park(ctx, sbx)
 			}
 			return "sandbox stopped before the run finished", nil
 		}
-		if accepted {
-			// The stream was live until it dropped: the driver's idle watchdog
-			// would have ended it otherwise.
-			lastGood = time.Now()
-			bo.Reset()
-			lastErr = ""
+		// Give up on the driver; park the sandbox instead. While that fails,
+		// keep reopening too in case the driver is back.
+		parkErr := sbx.Park(ctx)
+		if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
+			opts.Log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
+			return "driver unreachable", nil
 		}
-		if time.Since(lastGood) >= opts.LostTimeout {
-			// Give up on the driver; park the sandbox instead. While that
-			// fails, keep retrying the attach too in case the driver is back.
-			parkErr := sbx.Park(ctx)
-			if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
-				opts.Log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
-				return "driver unreachable", nil
-			}
-			err = fmt.Errorf("failed to park sandbox of lost run: %w (driver: %w)", parkErr, err)
-		}
-		if msg := err.Error(); msg != lastErr {
-			opts.Log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
-			lastErr = msg
-		}
-		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return "", ctx.Err()
-		}
+		opts.Log.Warn("failed to park sandbox of lost run, reattaching", "task", taskID, "version", version, "err", parkErr, "driver", err)
+		stream, err = tr.open(ctx, sbx, req, opts.LostTimeout)
 	}
-}
-
-// attachOnce opens a Run stream for version without a spec and reads it until
-// the run's Finished, which it returns. Otherwise it returns why the stream
-// ended. accepted reports whether the driver accepted the stream before it
-// ended.
-func attachOnce(ctx context.Context, sb backend.Sandbox, version int64) (finished *driverv1.Finished, accepted bool, err error) {
-	client, err := sb.Dial(ctx, "")
-	if err != nil {
-		return nil, false, err
-	}
-	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
-	if err != nil {
-		return nil, false, err
-	}
-	defer stream.Close()
-	for stream.Receive() {
-		msg := stream.Msg()
-		if msg.GetAccepted() != nil {
-			accepted = true
-		}
-		if finished := msg.GetFinished(); finished != nil {
-			return finished, accepted, nil
-		}
-	}
-	return nil, accepted, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
 }
 
 // isTerminal reports whether a Run error means the run can never be attached
