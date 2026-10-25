@@ -2,6 +2,8 @@
 
 Issue: https://github.com/icholy/gritz/issues/1221
 
+> **Status: rejected.**
+
 ## Problem
 
 The in-sandbox shim (`internal/microvmshim/`) is the supervisor that runs inside
