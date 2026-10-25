@@ -107,23 +107,12 @@ func TestTaskRunnerRun_Reattach(t *testing.T) {
 	be.Add("c1", fake.Up)
 	tr, _, _, _, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	done := runAsync(t.Context(), tr, nil)
-	waitDialed(t, be, "c1", 1)
+	waitRuns(t, be, "c1", 1)
 
-	// Act - drop every connection to the driver, the attached stream with
-	// them, until Run has dialed again; then stop the run.
-	dialed := func() int {
-		sbx, _ := be.Snapshot().Sandbox("c1")
-		return sbx.Dials
-	}
-	dials := dialed()
-	deadline := time.Now().Add(10 * time.Second)
-	for dialed() == dials {
-		if time.Now().After(deadline) {
-			t.Fatal("Run did not reattach")
-		}
-		be.Drop("c1")
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Act - cut the attached stream, wait for Run to reattach, then stop the
+	// run.
+	be.Drop("c1")
+	waitRuns(t, be, "c1", 2)
 	stopRun(t, client, 3)
 
 	// Assert - the reattached stream saw Finished: the driver reported, the
@@ -163,7 +152,7 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, so attaching to version 3 is
 	// NotFound.
-	be := newFake(t, driverClient(t, 3, nil))
+	be := newFake(t, driverClient(t, 3))
 	be.Add("c1", fake.Up)
 	tr, _, _, mock, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 
@@ -186,7 +175,8 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 func TestTaskRunnerRun_NotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := newFake(t, driverClient(t, 1, make(chan struct{})))
+	be := fake.New(fake.Options{Dial: drivers(driverClient(t, 1)), DriverNotReady: true})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	be.Add("c1", fake.Up)
 	tr, _, _, mock, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
 		opts.ReadyTimeout = 100 * time.Millisecond
@@ -216,7 +206,7 @@ func TestTaskRunnerRun_Shutdown(t *testing.T) {
 	tr, _, _, _, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	ctx, cancel := context.WithCancel(t.Context())
 	done := runAsync(ctx, tr, nil)
-	waitDialed(t, be, "c1", 1)
+	waitRuns(t, be, "c1", 1)
 
 	// Act - the runner shuts down.
 	cancel()
@@ -240,7 +230,7 @@ func TestTaskRunnerRun_Destroyed(t *testing.T) {
 	be.Add("c1", fake.Up)
 	tr, m, store, mock, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	done := runAsync(t.Context(), tr, nil)
-	waitDialed(t, be, "c1", 1)
+	waitRuns(t, be, "c1", 1)
 
 	// Act - the sandbox is destroyed under the run.
 	assert.NilError(t, tr.Destroy(t.Context()))

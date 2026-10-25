@@ -427,8 +427,10 @@ func TestSandboxDial_RunSpecs(t *testing.T) {
 	assert.NilError(t, stream.Close())
 	openRun(t, client)
 
-	// Assert - only the start the driver served is recorded.
+	// Assert - both calls made while up are counted, and the start's spec is
+	// recorded; the call made while parked is neither.
 	got, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, got.Runs, 2)
 	assert.DeepEqual(t, got.RunSpecs, []*driverv1.RunSpec{spec}, protocmp.Transform())
 
 	// Act - change the snapshot's copy.
@@ -471,6 +473,86 @@ func TestSandboxDial_LeaveUp(t *testing.T) {
 	}
 }
 
+// TestBackendSetDriverReady covers an up sandbox whose driver is not ready:
+// every call fails as Unavailable without reaching it, and goes through again
+// once it is ready.
+func TestBackendSetDriverReady(t *testing.T) {
+	t.Parallel()
+	// Arrange - an open stream to an up sandbox's driver.
+	drv := newStubDriver(t)
+	be := newDriverBackend(t, drv.dial)
+	client := mustDial(t, mustOpen(t, be, be.Add("c1", fake.Up)))
+	stream := openRun(t, client)
+	calls := drv.calls()
+
+	// Act
+	be.SetDriverReady("c1", false)
+
+	// Assert - the stream is cut, and no call reaches the driver; the
+	// sandbox is still up.
+	assert.Assert(t, !stream.Receive())
+	assert.Equal(t, connect.CodeOf(stream.Err()), connect.CodeCanceled)
+	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+	_, err = client.Run(t.Context(), &driverv1.RunRequest{Version: 1})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
+	assert.Equal(t, drv.calls(), calls)
+	got, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, got.State, fake.Up)
+	assert.Equal(t, got.Runs, 1)
+
+	// Act
+	be.SetDriverReady("c1", true)
+
+	// Assert - the driver answers again.
+	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
+	assert.NilError(t, err)
+}
+
+// TestBackendDriverNotReady covers Options.DriverNotReady: every sandbox,
+// added or created, starts with its driver not ready.
+func TestBackendDriverNotReady(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	drv := newStubDriver(t)
+	be := fake.New(fake.Options{Dial: drv.dial, DriverNotReady: true})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
+	added := mustOpen(t, be, be.Add("a", fake.Up))
+	created, err := be.Create(t.Context(), &backend.Spec{TaskID: 1})
+	assert.NilError(t, err)
+	assert.NilError(t, created.Start(t.Context()))
+
+	// Act
+	_, errAdded := mustDial(t, added).Status(t.Context(), &driverv1.StatusRequest{})
+	_, errCreated := mustDial(t, created).Status(t.Context(), &driverv1.StatusRequest{})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(errAdded), connect.CodeUnavailable)
+	assert.Equal(t, connect.CodeOf(errCreated), connect.CodeUnavailable)
+	assert.Equal(t, drv.calls(), 0)
+
+	// Act - the created sandbox's driver comes up.
+	be.SetDriverReady(created.Handle().ID, true)
+
+	// Assert
+	_, err = mustDial(t, created).Status(t.Context(), &driverv1.StatusRequest{})
+	assert.NilError(t, err)
+}
+
+func TestBackendSetDriverReady_Panics(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	be := fake.New(fake.Options{})
+
+	// Act
+	got := panicValue(func() { be.SetDriverReady("c9", true) })
+
+	// Assert
+	assert.Equal(t, got, `fake: SetDriverReady("c9"): unknown id`)
+}
+
 func TestBackendDrop(t *testing.T) {
 	t.Parallel()
 	// Arrange - an open stream to an up sandbox's driver.
@@ -487,10 +569,12 @@ func TestBackendDrop(t *testing.T) {
 	// answers the next calls.
 	assert.Assert(t, !stream.Receive())
 	assert.Equal(t, connect.CodeOf(stream.Err()), connect.CodeCanceled)
-	openRun(t, client)
 	assert.DeepEqual(t, be.Snapshot(), want)
 	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
 	assert.NilError(t, err)
+	openRun(t, client)
+	got, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, got.Runs, 2)
 }
 
 func TestBackendDrop_Panics(t *testing.T) {

@@ -168,7 +168,7 @@ func TestTaskManagerStart(t *testing.T) {
 func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := newFake(t, driverClient(t, 1, nil))
+	be := newFake(t, driverClient(t, 1))
 	m, _, _ := newTestManager(t, runner.TaskManagerOptions{
 		Backend:   be,
 		Store:     testStore(t),
@@ -211,7 +211,7 @@ func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
 func TestTaskManagerSpec_Secrets(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := newFake(t, driverClient(t, 1, nil))
+	be := newFake(t, driverClient(t, 1))
 	m, _, _ := newTestManager(t, runner.TaskManagerOptions{
 		Backend:   be,
 		Store:     testStore(t),
@@ -258,7 +258,7 @@ func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	t.Parallel()
 	// Arrange - a backend whose runs get an environment of their own.
 	be := fake.New(fake.Options{
-		Dial: drivers(driverClient(t, 1, nil)),
+		Dial: drivers(driverClient(t, 1)),
 		RunEnv: func(*workspace.Workspace) map[string]string {
 			return map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"}
 		},
@@ -351,8 +351,8 @@ func TestTaskManagerPoll_StopSignalled(t *testing.T) {
 // started once the driver answers.
 func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 	t.Parallel()
-	// Arrange - a pending task with no record, whose driver fails every call
-	// until ready is closed.
+	// Arrange - a pending task with no record, whose sandbox's driver is not
+	// listening yet.
 	task := &model.Task{
 		ID:        1,
 		Runner:    "test-runner",
@@ -361,23 +361,28 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   1,
 	}
-	ready := make(chan struct{})
-	be := newFake(t, driverClient(t, 1, ready))
+	be := fake.New(fake.Options{Dial: drivers(driverClient(t, 1)), DriverNotReady: true})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	m, mock, queue := testManager(t, be, testStore(t))
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
 
-	// Act - poll while the driver is not up, then bring it up.
+	// Act - poll while the driver is not up.
 	assert.NilError(t, m.Poll(t.Context()))
-	waitDialed(t, be, "c1", 1)
-	close(ready)
+
+	// Assert - Poll returned with the sandbox started and the run pending.
+	sbx, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, sbx.State, fake.Up)
+	assert.Equal(t, sbx.Runs, 0)
+
+	// Act - the driver comes up.
+	be.SetDriverReady("c1", true)
 	assert.NilError(t, m.Wait(t.Context()))
 
-	// Assert - Poll returned with the sandbox started and the run pending; the
-	// run then started, and the driver reported it, so no event is owed and
-	// the sandbox is parked.
-	sbx, _ := be.Snapshot().Sandbox("c1")
+	// Assert - the run started, and the driver reported it, so no event is
+	// owed and the sandbox is parked.
+	sbx, _ = be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.Starts, 1)
 	assert.Equal(t, sbx.State, fake.Parked)
 	n, err := queue.Len()
@@ -401,7 +406,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   4,
 	}
-	be := newFake(t, driverClient(t, 1, nil))
+	be := newFake(t, driverClient(t, 1))
 	be.Add("c1", fake.Up)
 	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
 	m, mock, queue := testManager(t, be, testStore(t, rec))
@@ -451,7 +456,7 @@ func TestTaskManagerStart_Create(t *testing.T) {
 	// Arrange - a task with no record, whose created sandbox's driver runs the
 	// workspace's agent to completion.
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	be := newFake(t, driverClient(t, 1, nil))
+	be := newFake(t, driverClient(t, 1))
 	store := testStore(t)
 	m, _, queue := testManager(t, be, store)
 
@@ -518,7 +523,7 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 			// Arrange - the recorded sandbox is parked, and its driver has
 			// never run version 4.
 			task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 4}
-			be := newFake(t, driverClient(t, 4, nil))
+			be := newFake(t, driverClient(t, 4))
 			be.Add("c1", fake.Parked)
 			store := testStore(t, tt.record)
 			m, _, queue := testManager(t, be, store)
@@ -551,7 +556,7 @@ func TestTaskManagerWait(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	be := newFake(t, driverClient(t, 1, nil))
+	be := newFake(t, driverClient(t, 1))
 	m, _, _ := testManager(t, be, testStore(t))
 	assert.NilError(t, m.Start(t.Context(), task))
 
@@ -570,10 +575,10 @@ func TestTaskManagerWait(t *testing.T) {
 // followed: it returns ctx's cause without waiting for the run.
 func TestTaskManagerWait_Done(t *testing.T) {
 	t.Parallel()
-	// Arrange - a run whose driver fails every call until ready is closed.
+	// Arrange - a run whose sandbox's driver is not listening yet.
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	ready := make(chan struct{})
-	be := newFake(t, driverClient(t, 1, ready))
+	be := fake.New(fake.Options{Dial: drivers(driverClient(t, 1)), DriverNotReady: true})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	m, _, _ := testManager(t, be, testStore(t))
 	assert.NilError(t, m.Start(t.Context(), task))
 	boom := errors.New("boom")
@@ -586,7 +591,7 @@ func TestTaskManagerWait_Done(t *testing.T) {
 	// Assert - Wait returned ctx's cause; once the driver comes up, the run
 	// finishes and Wait returns nil.
 	assert.ErrorIs(t, err, boom)
-	close(ready)
+	be.SetDriverReady("c1", true)
 	ctx, cancelTimeout := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancelTimeout()
 	assert.NilError(t, m.Wait(ctx))
@@ -598,7 +603,8 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	be := newFake(t, driverClient(t, 1, make(chan struct{})))
+	be := fake.New(fake.Options{Dial: drivers(driverClient(t, 1)), DriverNotReady: true})
+	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	store := testStore(t)
 	m, mock, queue := testManager(t, be, store, func(opts *runner.TaskRunnerOptions) {
 		opts.ReadyTimeout = 100 * time.Millisecond
@@ -661,7 +667,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// Arrange - task 8's recorded sandbox, restored parked, is then removed
 	// behind the runner's back.
 	rec := taskstate.Record{TaskID: 8, Version: 1, Type: "fake", ID: "c1"}
-	be := newFake(t, driverClient(t, 3, nil))
+	be := newFake(t, driverClient(t, 3))
 	be.Add("c1", fake.Parked)
 	store := testStore(t, rec)
 	m, _, queue := testManager(t, be, store)
@@ -897,7 +903,7 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	m, mock, queue := testManager(t, be, store)
 	assert.NilError(t, m.Load(t.Context()))
-	waitDialed(t, be, "c1", 1)
+	waitRuns(t, be, "c1", 1)
 
 	// Act - the sandbox is removed under the run.
 	assert.NilError(t, m.Runner(1).Destroy(t.Context()))
