@@ -1,7 +1,7 @@
 // Package fake is an in-memory backend.Backend for tests. Its sandboxes follow
 // the state machine documented on backend.Sandbox and nothing else of a
 // platform: no transitional states, no images, no files. Tests arrange
-// sandboxes with Add, drive them through the backend.Backend and
+// sandboxes with Add, Set and FailNext, drive them through the backend.Backend and
 // backend.Sandbox interfaces, and observe them with Snapshot and Wait. See
 // proposals/draft/fake-runner-backend.md.
 //
@@ -55,6 +55,44 @@ func (s State) String() string {
 	}
 }
 
+// Op names a sandbox or backend operation for FailNext.
+type Op int
+
+const (
+	// OpCreate is Backend.Create.
+	OpCreate Op = iota + 1
+	// OpOpen is Backend.Open.
+	OpOpen
+	// OpStart is Sandbox.Start.
+	OpStart
+	// OpPark is Sandbox.Park.
+	OpPark
+	// OpStatus is Sandbox.Status.
+	OpStatus
+	// OpDestroy is Sandbox.Destroy.
+	OpDestroy
+)
+
+// String returns the op's name.
+func (o Op) String() string {
+	switch o {
+	case OpCreate:
+		return "create"
+	case OpOpen:
+		return "open"
+	case OpStart:
+		return "start"
+	case OpPark:
+		return "park"
+	case OpStatus:
+		return "status"
+	case OpDestroy:
+		return "destroy"
+	default:
+		return fmt.Sprintf("Op(%d)", int(o))
+	}
+}
+
 // Options configures a Backend.
 type Options struct {
 	// Type is the handle type of the sandboxes; defaults to DefaultType.
@@ -77,6 +115,9 @@ type Backend struct {
 	order     []string
 	specs     []backend.Spec
 	destroyed []string
+	// failures queues the errors FailNext injected, by op and sandbox ID; ""
+	// matches any sandbox.
+	failures map[failKey][]error
 	// next is the number of the next ID Create tries.
 	next int
 	// changed is closed and replaced on every change to the table.
@@ -94,6 +135,7 @@ func New(opts Options) *Backend {
 	return &Backend{
 		typ:       typ,
 		sandboxes: map[string]*Info{},
+		failures:  map[failKey][]error{},
 		next:      1,
 		changed:   make(chan struct{}),
 	}
@@ -105,11 +147,16 @@ func (b *Backend) ValidateWorkspace(*workspace.Workspace) error {
 }
 
 // Create records spec and adds a created sandbox for it, named c1, c2, ... in
-// call order, skipping IDs Add already used.
+// call order, skipping IDs Add already used. A Create that FailNext fails
+// records spec and adds no sandbox.
 func (b *Backend) Create(_ context.Context, spec *backend.Spec) (backend.Sandbox, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.specs = append(b.specs, *spec.Clone())
+	if err := b.failLocked(OpCreate, ""); err != nil {
+		b.changedLocked()
+		return nil, err
+	}
 	id := fmt.Sprintf("c%d", b.next)
 	for b.sandboxes[id] != nil {
 		b.next++
@@ -135,6 +182,11 @@ func (b *Backend) Open(h backend.Handle) (backend.Sandbox, error) {
 	}
 	if h.ID == "" {
 		return nil, errors.New("handle has no sandbox id")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if err := b.failLocked(OpOpen, h.ID); err != nil {
+		return nil, err
 	}
 	return &sandbox{b: b, id: h.ID}, nil
 }
@@ -162,6 +214,51 @@ func (b *Backend) Add(id string, state State) backend.Handle {
 	h := b.handle(id)
 	b.addLocked(&Info{Handle: h, State: state})
 	return h
+}
+
+// Set moves sandbox id to state without going through the runner, as the
+// platform or an operator would: Gone is a removed container or a terminated
+// VM, Parked a container that exited, Up someone starting it. It changes no
+// counter, and a Set to Gone is not recorded in Snapshot.Destroyed. It panics
+// if id is unknown, state is not a State, or the sandbox is gone and state is
+// not: those are test bugs.
+func (b *Backend) Set(id string, state State) {
+	if state < Created || state > Gone {
+		panic(fmt.Sprintf("fake: Set(%q) with invalid %v", id, state))
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	sbx := b.sandboxes[id]
+	if sbx == nil {
+		panic(fmt.Sprintf("fake: Set(%q): unknown id", id))
+	}
+	if sbx.State == Gone && state != Gone {
+		panic(fmt.Sprintf("fake: Set(%q, %v): sandbox is gone", id, state))
+	}
+	sbx.State = state
+	b.changedLocked()
+}
+
+// FailNext makes the next call of op on sandbox id return err, without
+// changing its state or counting the call. id "" matches any sandbox, and is
+// the only id OpCreate accepts. Failures queue: each FailNext fails one more
+// call. A call takes a failure queued for its own sandbox before one queued
+// for "". It panics if op is not an Op, err is nil, or op is OpCreate with an
+// id: those are test bugs.
+func (b *Backend) FailNext(op Op, id string, err error) {
+	if op < OpCreate || op > OpDestroy {
+		panic(fmt.Sprintf("fake: FailNext with invalid %v", op))
+	}
+	if err == nil {
+		panic(fmt.Sprintf("fake: FailNext(%v, %q) with a nil error", op, id))
+	}
+	if op == OpCreate && id != "" {
+		panic(fmt.Sprintf("fake: FailNext(%v, %q): Create has no sandbox id", op, id))
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	k := failKey{op: op, id: id}
+	b.failures[k] = append(b.failures[k], err)
 }
 
 // Snapshot returns a copy of the fake's current state.
@@ -208,6 +305,19 @@ func (b *Backend) handle(id string) backend.Handle {
 	return backend.Handle{Type: b.typ, ID: id}
 }
 
+// failLocked takes the next failure FailNext queued for op on sandbox id,
+// trying id's own queue before the one for any sandbox. It returns nil if
+// there is none. b.mu must be held.
+func (b *Backend) failLocked(op Op, id string) error {
+	for _, k := range []failKey{{op: op, id: id}, {op: op}} {
+		if q := b.failures[k]; len(q) > 0 {
+			b.failures[k] = q[1:]
+			return q[0]
+		}
+	}
+	return nil
+}
+
 // addLocked adds sbx to the table. b.mu must be held.
 func (b *Backend) addLocked(sbx *Info) {
 	b.sandboxes[sbx.Handle.ID] = sbx
@@ -251,7 +361,7 @@ func (s *sandbox) Handle() backend.Handle {
 // Start moves a created or parked sandbox to up. Starting an up sandbox is a
 // no-op; a gone one returns backend.ErrGone.
 func (s *sandbox) Start(context.Context) error {
-	return s.update(func(sbx *Info) error {
+	return s.update(OpStart, func(sbx *Info) error {
 		if sbx.State == Gone {
 			return backend.ErrGone
 		}
@@ -264,7 +374,7 @@ func (s *sandbox) Start(context.Context) error {
 // Park moves an up sandbox to parked. Parking a created or parked sandbox is
 // a no-op that leaves its state as it is; a gone one returns backend.ErrGone.
 func (s *sandbox) Park(context.Context) error {
-	return s.update(func(sbx *Info) error {
+	return s.update(OpPark, func(sbx *Info) error {
 		switch sbx.State {
 		case Gone:
 			return backend.ErrGone
@@ -278,19 +388,23 @@ func (s *sandbox) Park(context.Context) error {
 
 // Destroy moves the sandbox to gone. Destroying a gone sandbox is a no-op.
 func (s *sandbox) Destroy(context.Context) error {
-	err := s.update(func(sbx *Info) error {
-		if sbx.State != Gone {
-			sbx.State = Gone
-			s.b.destroyed = append(s.b.destroyed, s.id)
-		}
-		sbx.Destroys++
-		return nil
-	})
-	if errors.Is(err, backend.ErrGone) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if err := s.b.failLocked(OpDestroy, s.id); err != nil {
+		return err
+	}
+	sbx := s.b.sandboxes[s.id]
+	if sbx == nil {
 		// A handle the fake never had is gone already.
 		return nil
 	}
-	return err
+	if sbx.State != Gone {
+		sbx.State = Gone
+		s.b.destroyed = append(s.b.destroyed, s.id)
+	}
+	sbx.Destroys++
+	s.b.changedLocked()
+	return nil
 }
 
 // Status reports a created or parked sandbox as parked, an up one as up, and
@@ -298,6 +412,9 @@ func (s *sandbox) Destroy(context.Context) error {
 func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	if err := s.b.failLocked(OpStatus, s.id); err != nil {
+		return backend.StatusGone, err
+	}
 	sbx := s.b.sandboxes[s.id]
 	if sbx == nil {
 		return backend.StatusGone, nil
@@ -316,21 +433,26 @@ func (s *sandbox) Status(context.Context) (backend.Status, error) {
 // sandbox has no driver, so no call on the client is ever answered: each
 // fails as Unavailable, as for a driver that is not listening.
 func (s *sandbox) Dial(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+	s.b.mu.Lock()
 	// A sandbox the fake never had has no counters; Dial succeeds anyway.
-	_ = s.update(func(sbx *Info) error {
+	if sbx := s.b.sandboxes[s.id]; sbx != nil {
 		sbx.Dials++
-		return nil
-	})
+		s.b.changedLocked()
+	}
+	s.b.mu.Unlock()
 	httpClient := &http.Client{Transport: noDriver{}}
 	return driverv1connect.NewDriverServiceClient(httpClient, "http://driver"), nil
 }
 
-// update applies fn to the sandbox under the lock, and wakes every Wait if fn
-// succeeds. A sandbox the fake never had returns backend.ErrGone without
-// calling fn.
-func (s *sandbox) update(fn func(sbx *Info) error) error {
+// update applies fn, the body of op, to the sandbox under the lock, and wakes
+// every Wait if fn succeeds. A failure FailNext queued for op is returned
+// without calling fn; a sandbox the fake never had returns backend.ErrGone.
+func (s *sandbox) update(op Op, fn func(sbx *Info) error) error {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	if err := s.b.failLocked(op, s.id); err != nil {
+		return err
+	}
 	sbx := s.b.sandboxes[s.id]
 	if sbx == nil {
 		return backend.ErrGone
@@ -340,6 +462,12 @@ func (s *sandbox) update(fn func(sbx *Info) error) error {
 	}
 	s.b.changedLocked()
 	return nil
+}
+
+// failKey is a FailNext queue: an op on one sandbox, or on any if id is "".
+type failKey struct {
+	op Op
+	id string
 }
 
 // noDriver is the transport of a sandbox with no driver: every request fails.
@@ -353,9 +481,11 @@ func (noDriver) RoundTrip(*http.Request) (*http.Response, error) {
 type Snapshot struct {
 	// Sandboxes is every sandbox the fake has held, in creation order.
 	Sandboxes []Info
-	// Specs is every spec passed to Create, in call order.
+	// Specs is every spec passed to Create, in call order, including those
+	// of calls that failed.
 	Specs []backend.Spec
-	// Destroyed is the IDs Destroy moved to gone, in order.
+	// Destroyed is the IDs Destroy moved to gone, in order. A Set to Gone is
+	// not in it.
 	Destroyed []string
 }
 
@@ -389,6 +519,7 @@ type Info struct {
 	// Spec is the spec the sandbox was created from, or nil for Add.
 	Spec *backend.Spec
 	// Starts, Parks, Destroys and Dials count the calls that succeeded, no-ops
-	// included. A call that returned backend.ErrGone is not counted.
+	// included. A call that returned backend.ErrGone, or that FailNext
+	// failed, is not counted.
 	Starts, Parks, Destroys, Dials int
 }
