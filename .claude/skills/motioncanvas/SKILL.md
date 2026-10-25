@@ -31,7 +31,7 @@ project that plays it with the `@motion-canvas/player` web component:
   `/pr/<number>/`, keeps one PR comment with the link, and removes the preview
   when the PR closes. PRs from forks get no preview.
 
-Link the preview page of a proposal's project (e.g.
+When a proposal has a project, link its preview page (e.g.
 `https://gritzapp.github.io/gritz/pr/<number>/proposals/<flow>/`) in the PR so
 reviewers can watch it. `site.ts` generates the pages during `pnpm build`
 (`cd diagrams && pnpm build`, output in `dist/`); every URL in it is relative
@@ -51,6 +51,9 @@ diagrams/src/
   projects/<flow>.ts        One project per scene (what the editor lists)
   projects/proposals/       Projects for designs that only exist in a proposal
 ```
+
+Proposals only get a project when the user explicitly asks for a
+visualization; the `proposal` skill does not add one by default.
 
 `vite.config.ts` loads `./src/projects/**/*.ts`. Every `.ts` file under
 `src/projects/` becomes a project (and a page on the published site), so never
