@@ -1,34 +1,29 @@
 // Package fake is an in-memory backend.Backend for tests. Its sandboxes follow
 // the state machine documented on backend.Sandbox and nothing else of a
 // platform: no transitional states, no images, no files. Tests arrange
-// sandboxes with Add, Set, FailNext and Drop, serve their drivers through
-// Options.Driver, drive them through the backend.Backend and backend.Sandbox
-// interfaces, and observe them with Snapshot and Wait. It implements
-// backend.RunEnver as well, with the environment Options.RunEnv gives, and
-// records the spec of every run its sandboxes' drivers are asked to start. See
+// sandboxes with Add, Set, FailNext and Drop, reach their drivers through the
+// clients Options.Dial gives, drive them through the backend.Backend and
+// backend.Sandbox interfaces, and observe them with Snapshot and Wait. It
+// implements backend.RunEnver as well, with the environment Options.RunEnv
+// gives, and records the spec of every run its sandboxes' drivers are asked to
+// start. See
 // proposals/draft/fake-runner-backend.md.
 //
 // Production code never imports it.
 package fake
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
-	"net/http"
-	"net/http/httptest"
 	"slices"
 	"sync"
 
+	"connectrpc.com/connect"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -82,6 +77,8 @@ const (
 	OpStatus
 	// OpDestroy is Sandbox.Destroy.
 	OpDestroy
+	// OpDial is Sandbox.Dial.
+	OpDial
 )
 
 // String returns the op's name.
@@ -99,6 +96,8 @@ func (o Op) String() string {
 		return "status"
 	case OpDestroy:
 		return "destroy"
+	case OpDial:
+		return "dial"
 	default:
 		return fmt.Sprintf("Op(%d)", int(o))
 	}
@@ -108,11 +107,12 @@ func (o Op) String() string {
 type Options struct {
 	// Type is the handle type of the sandboxes; defaults to DefaultType.
 	Type string
-	// Driver returns the handler serving the driver.v1 API of the sandbox
-	// with handle h. The Backend calls it once per sandbox, on its first
-	// Dial, without its lock held. nil, or a Driver returning nil, means the
-	// sandbox's driver never answers.
-	Driver func(h backend.Handle) http.Handler
+	// Dial returns the test's client to the driver of the sandbox with
+	// handle h. The Backend calls it on every Dial, without its lock held,
+	// and wraps the client so the driver answers only while the sandbox is
+	// up. nil, or a Dial returning nil, means the sandbox's driver never
+	// answers.
+	Dial func(h backend.Handle) driverv1connect.DriverServiceClient
 	// RunEnv returns the environment RunEnv gives runs of a workspace's
 	// sandboxes; nil means none.
 	RunEnv func(ws *workspace.Workspace) map[string]string
@@ -126,7 +126,7 @@ type Options struct {
 // reused, and a gone sandbox stays in the table.
 type Backend struct {
 	typ       string
-	newDriver func(backend.Handle) http.Handler
+	dial   func(backend.Handle) driverv1connect.DriverServiceClient
 	runEnv    func(*workspace.Workspace) map[string]string
 
 	mu sync.Mutex
@@ -143,9 +143,12 @@ type Backend struct {
 	next int
 	// changed is closed and replaced on every change to the table.
 	changed chan struct{}
-	// drivers is the driver of every sandbox that was dialed, by ID.
-	drivers map[string]*driver
-	// closed is set by Close; no driver is started after it.
+	// runs cancels the context of every Run call open on a sandbox's
+	// driver, by sandbox ID and then by call.
+	runs map[string]map[int]context.CancelFunc
+	// nextRun is the key of the next Run call in runs.
+	nextRun int
+	// closed is set by Close; no driver answers after it.
 	closed bool
 }
 
@@ -162,10 +165,10 @@ func New(opts Options) *Backend {
 	}
 	return &Backend{
 		typ:       typ,
-		newDriver: opts.Driver,
+		dial:      opts.Dial,
 		runEnv:    opts.RunEnv,
 		sandboxes: map[string]*Info{},
-		drivers:   map[string]*driver{},
+		runs:      map[string]map[int]context.CancelFunc{},
 		failures:  map[failKey][]error{},
 		next:      1,
 		changed:   make(chan struct{}),
@@ -230,23 +233,17 @@ func (b *Backend) Open(h backend.Handle) (backend.Sandbox, error) {
 	return &sandbox{b: b, id: h.ID}, nil
 }
 
-// Close closes the sandboxes' driver servers, and the runner's connections
-// to them. Their state is unchanged, but their drivers no longer answer, and
-// sandboxes dialed for the first time after Close get none.
+// Close cancels every Run call open on the sandboxes' drivers. Their state is
+// unchanged, but their drivers no longer answer.
 func (b *Backend) Close() error {
 	b.mu.Lock()
 	b.closed = true
-	drivers := b.drivers
-	b.drivers = map[string]*driver{}
-	b.mu.Unlock()
-	for _, d := range drivers {
-		if srv := d.server(); srv != nil {
-			// Server.Close waits for the requests in flight; closing
-			// their connections first ends the open streams.
-			srv.CloseClientConnections()
-			srv.Close()
-		}
+	var cancels []context.CancelFunc
+	for id := range b.runs {
+		cancels = append(cancels, b.cutLocked(id)...)
 	}
+	b.mu.Unlock()
+	cancelAll(cancels)
 	return nil
 }
 
@@ -293,24 +290,23 @@ func (b *Backend) Set(id string, state State) {
 	from := sbx.State
 	sbx.State = state
 	b.changedLocked()
-	d := b.leftUpLocked(id, from)
+	cancels := b.leftUpLocked(id, from)
 	b.mu.Unlock()
-	d.drop()
+	cancelAll(cancels)
 }
 
-// Drop closes every connection the runner has open to sandbox id's driver,
-// as a network blip would, without changing its state. Calls on those
-// connections fail; the next ones connect again. It panics if id is
-// unknown: that is a test bug.
+// Drop cancels every Run call open on sandbox id's driver, as a network blip
+// would, without changing its state. Those streams fail; the next calls go
+// through again. It panics if id is unknown: that is a test bug.
 func (b *Backend) Drop(id string) {
 	b.mu.Lock()
 	if b.sandboxes[id] == nil {
 		b.mu.Unlock()
 		panic(fmt.Sprintf("fake: Drop(%q): unknown id", id))
 	}
-	d := b.drivers[id]
+	cancels := b.cutLocked(id)
 	b.mu.Unlock()
-	d.drop()
+	cancelAll(cancels)
 }
 
 // FailNext makes the next call of op on sandbox id return err, without
@@ -320,7 +316,7 @@ func (b *Backend) Drop(id string) {
 // for "". It panics if op is not an Op, err is nil, or op is OpCreate with an
 // id: those are test bugs.
 func (b *Backend) FailNext(op Op, id string, err error) {
-	if op < OpCreate || op > OpDestroy {
+	if op < OpCreate || op > OpDial {
 		panic(fmt.Sprintf("fake: FailNext with invalid %v", op))
 	}
 	if err == nil {
@@ -399,124 +395,33 @@ func (b *Backend) addLocked(sbx *Info) {
 	b.changedLocked()
 }
 
-// leftUpLocked returns the driver whose connections must be closed when
-// sandbox id moves from state from to its current state: its own if it was up
-// and is not any more, as stopping a sandbox kills its driver, or nil. b.mu
-// must be held.
-func (b *Backend) leftUpLocked(id string, from State) *driver {
+// leftUpLocked takes the cancel funcs of the Run calls to cut when sandbox id
+// moves from state from to its current state: all of its own if it was up and
+// is not any more, as stopping a sandbox kills its driver, or none. The caller
+// calls them once b.mu is released. b.mu must be held.
+func (b *Backend) leftUpLocked(id string, from State) []context.CancelFunc {
 	if from != Up || b.sandboxes[id].State == Up {
 		return nil
 	}
-	return b.drivers[id]
+	return b.cutLocked(id)
 }
 
-// up reports whether sandbox id is up.
-func (b *Backend) up(id string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	sbx := b.sandboxes[id]
-	return sbx != nil && sbx.State == Up
+// cutLocked takes the cancel funcs of every Run call open on sandbox id's
+// driver. The caller calls them once b.mu is released. b.mu must be held.
+func (b *Backend) cutLocked(id string) []context.CancelFunc {
+	runs := b.runs[id]
+	delete(b.runs, id)
+	cancels := make([]context.CancelFunc, 0, len(runs))
+	for _, cancel := range runs {
+		cancels = append(cancels, cancel)
+	}
+	return cancels
 }
 
-// dial counts a Dial of sandbox id and returns its driver server, starting
-// it on the first Dial. It returns nil for a sandbox whose driver never
-// answers: one the fake never had, one whose Driver gave no handler, and
-// any first dialed after Close.
-func (b *Backend) dial(id string) *httptest.Server {
-	b.mu.Lock()
-	sbx := b.sandboxes[id]
-	if sbx == nil {
-		// A sandbox the fake never had has no counters; Dial succeeds anyway.
-		b.mu.Unlock()
-		return nil
-	}
-	sbx.Dials++
-	b.changedLocked()
-	d := b.drivers[id]
-	if d != nil || b.closed || b.newDriver == nil {
-		b.mu.Unlock()
-		return d.server()
-	}
-	d = &driver{ready: make(chan struct{})}
-	b.drivers[id] = d
-	b.mu.Unlock()
-
-	// Start the driver without the lock: concurrent Dials of the sandbox
-	// wait for it in server.
-	if h := b.newDriver(b.handle(id)); h != nil {
-		d.srv = httptest.NewServer(b.gate(id, h))
-	}
-	close(d.ready)
-	return d.srv
-}
-
-// gate serves h while sandbox id is up, and 503 otherwise, which Connect
-// reports as Unavailable, as for a driver that is not answering. It records
-// the spec of every Run request it serves that has one in the sandbox's
-// Info.RunSpecs.
-func (b *Backend) gate(id string, h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !b.up(id) {
-			http.Error(w, "fake: sandbox is not up", http.StatusServiceUnavailable)
-			return
-		}
-		if r.URL.Path == driverv1connect.DriverServiceRunProcedure {
-			req, err := readRunRequest(r)
-			if err != nil {
-				http.Error(w, "fake: "+err.Error(), http.StatusBadRequest)
-				return
-			}
-			if spec := req.GetSpec(); spec != nil {
-				b.recordRunSpec(id, spec)
-			}
-		}
-		h.ServeHTTP(w, r)
-	})
-}
-
-// readRunRequest decodes the RunRequest r carries, and leaves r's body to be
-// read again. Run is server-streaming, so the body is a single enveloped
-// message, uncompressed as the Connect client sends it by default.
-func readRunRequest(r *http.Request) (*driverv1.RunRequest, error) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read Run request: %w", err)
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	if len(body) < 5 {
-		return nil, errors.New("no message in Run request")
-	}
-	if body[0]&1 != 0 {
-		return nil, errors.New("compressed Run request")
-	}
-	n := binary.BigEndian.Uint32(body[1:5])
-	if uint64(len(body)-5) < uint64(n) {
-		return nil, errors.New("truncated Run request")
-	}
-	msg := body[5 : 5+n]
-	ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	req := &driverv1.RunRequest{}
-	switch ct {
-	case "application/connect+proto", "application/grpc", "application/grpc+proto":
-		err = proto.Unmarshal(msg, req)
-	case "application/connect+json", "application/grpc+json":
-		err = protojson.Unmarshal(msg, req)
-	default:
-		return nil, fmt.Errorf("unsupported content type %q of Run request", ct)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("decode Run request: %w", err)
-	}
-	return req, nil
-}
-
-// recordRunSpec adds spec to sandbox id's RunSpecs.
-func (b *Backend) recordRunSpec(id string, spec *driverv1.RunSpec) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if sbx := b.sandboxes[id]; sbx != nil {
-		sbx.RunSpecs = append(sbx.RunSpecs, spec)
-		b.changedLocked()
+// cancelAll calls every cancel func; b.mu must not be held.
+func cancelAll(cancels []context.CancelFunc) {
+	for _, cancel := range cancels {
+		cancel()
 	}
 }
 
@@ -608,9 +513,9 @@ func (s *sandbox) Destroy(context.Context) error {
 	}
 	sbx.Destroys++
 	s.b.changedLocked()
-	d := s.b.leftUpLocked(s.id, from)
+	cancels := s.b.leftUpLocked(s.id, from)
 	s.b.mu.Unlock()
-	d.drop()
+	cancelAll(cancels)
 	return nil
 }
 
@@ -636,34 +541,43 @@ func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	}
 }
 
-// Dial returns a client for the sandbox's driver, whatever its state, which
-// sends jwt as a bearer token. The driver is the handler Options.Driver gave
-// for the sandbox: it answers while the sandbox is up, and fails every call
-// as Unavailable otherwise. A sandbox with no driver never answers: each call
-// fails as Unavailable, as for a driver that is not listening.
-func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverServiceClient, error) {
-	srv := s.b.dial(s.id)
-	if srv == nil {
-		httpClient := &http.Client{Transport: noDriver{}}
-		return driverv1connect.NewDriverServiceClient(httpClient, "http://driver"), nil
+// Dial returns a client for the sandbox's driver, whatever its state. The
+// driver is the client Options.Dial gives for the sandbox, wrapped so it
+// answers while the sandbox is up and fails every call as Unavailable
+// otherwise. A sandbox with no driver never answers: each call fails as
+// Unavailable, as for a driver that is not listening. jwt is ignored.
+func (s *sandbox) Dial(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+	s.b.mu.Lock()
+	if err := s.b.failLocked(OpDial, s.id); err != nil {
+		s.b.mu.Unlock()
+		return nil, err
 	}
-	httpClient := &http.Client{Transport: &bearerTransport{base: srv.Client().Transport, token: jwt}}
-	return driverv1connect.NewDriverServiceClient(httpClient, srv.URL), nil
+	// A sandbox the fake never had has no counters; Dial succeeds anyway.
+	if sbx := s.b.sandboxes[s.id]; sbx != nil {
+		sbx.Dials++
+		s.b.changedLocked()
+	}
+	s.b.mu.Unlock()
+	c := &client{b: s.b, id: s.id}
+	if s.b.dial != nil {
+		c.driver = s.b.dial(s.Handle())
+	}
+	return c, nil
 }
 
 // update applies fn, the body of op, to the sandbox under the lock, and wakes
 // every Wait if fn succeeds. A failure FailNext queued for op is returned
 // without calling fn; a sandbox the fake never had returns backend.ErrGone.
 //
-// If fn moves the sandbox out of up, the runner's connections to its driver
-// are closed once the lock is released.
+// If fn moves the sandbox out of up, the Run calls open on its driver are
+// cancelled once the lock is released.
 func (s *sandbox) update(op Op, fn func(sbx *Info) error) error {
-	d, err := s.updateLocked(op, fn)
-	d.drop()
+	cancels, err := s.updateLocked(op, fn)
+	cancelAll(cancels)
 	return err
 }
 
-func (s *sandbox) updateLocked(op Op, fn func(sbx *Info) error) (*driver, error) {
+func (s *sandbox) updateLocked(op Op, fn func(sbx *Info) error) ([]context.CancelFunc, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if err := s.b.failLocked(op, s.id); err != nil {
@@ -687,52 +601,82 @@ type failKey struct {
 	id string
 }
 
-// driver is the driver server of one sandbox, started on its first Dial.
-type driver struct {
-	// ready is closed once srv is set.
-	ready chan struct{}
-	// srv serves the sandbox's driver, or is nil if it has none.
-	srv *httptest.Server
+// client is the client Dial returns: it calls through to the test's client to
+// the sandbox's driver while the sandbox is up, and fails as Unavailable
+// otherwise.
+type client struct {
+	b  *Backend
+	id string
+	// driver is the test's client to the sandbox's driver, or nil if it has
+	// none.
+	driver driverv1connect.DriverServiceClient
 }
 
-// server waits for d to start and returns its server; nil for a nil d.
-func (d *driver) server() *httptest.Server {
-	if d == nil {
-		return nil
+// checkLocked returns the error of a call to the sandbox's driver that cannot reach
+// it, or nil. b.mu must be held.
+func (c *client) checkLocked() error {
+	if c.b.closed {
+		return connect.NewError(connect.CodeUnavailable, errors.New("fake: backend is closed"))
 	}
-	<-d.ready
-	return d.srv
-}
-
-// drop closes every connection to d's server; a nil d, or one with no
-// server, has none.
-func (d *driver) drop() {
-	if srv := d.server(); srv != nil {
-		srv.CloseClientConnections()
+	if sbx := c.b.sandboxes[c.id]; sbx == nil || sbx.State != Up {
+		return connect.NewError(connect.CodeUnavailable, errors.New("fake: sandbox is not up"))
 	}
-}
-
-// bearerTransport adds token to every request as a bearer token, unless it is
-// empty.
-type bearerTransport struct {
-	base  http.RoundTripper
-	token string
-}
-
-func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.token == "" {
-		return t.base.RoundTrip(req)
+	if c.driver == nil {
+		return connect.NewError(connect.CodeUnavailable, errors.New("fake: sandbox has no driver"))
 	}
-	req = req.Clone(req.Context())
-	req.Header.Set("Authorization", "Bearer "+t.token)
-	return t.base.RoundTrip(req)
+	return nil
 }
 
-// noDriver is the transport of a sandbox with no driver: every request fails.
-type noDriver struct{}
+func (c *client) Status(ctx context.Context, req *driverv1.StatusRequest) (*driverv1.StatusResponse, error) {
+	c.b.mu.Lock()
+	err := c.checkLocked()
+	c.b.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return c.driver.Status(ctx, req)
+}
 
-func (noDriver) RoundTrip(*http.Request) (*http.Response, error) {
-	return nil, errors.New("fake: sandbox has no driver")
+func (c *client) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1.StopResponse, error) {
+	c.b.mu.Lock()
+	err := c.checkLocked()
+	c.b.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return c.driver.Stop(ctx, req)
+}
+
+// Run records the spec of a request that has one in the sandbox's
+// Info.RunSpecs, and calls through on a context the fake cancels when the
+// sandbox leaves up, on Drop and on Close. A stream it cuts fails as
+// Canceled.
+func (c *client) Run(ctx context.Context, req *driverv1.RunRequest) (*connect.ServerStreamForClient[driverv1.RunResponse], error) {
+	c.b.mu.Lock()
+	if err := c.checkLocked(); err != nil {
+		c.b.mu.Unlock()
+		return nil, err
+	}
+	if spec := req.GetSpec(); spec != nil {
+		sbx := c.b.sandboxes[c.id]
+		sbx.RunSpecs = append(sbx.RunSpecs, proto.CloneOf(spec))
+		c.b.changedLocked()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	key := c.b.nextRun
+	c.b.nextRun++
+	if c.b.runs[c.id] == nil {
+		c.b.runs[c.id] = map[int]context.CancelFunc{}
+	}
+	c.b.runs[c.id][key] = cancel
+	c.b.mu.Unlock()
+	// Forget the call once its context is done, by the caller or a cut.
+	context.AfterFunc(runCtx, func() {
+		c.b.mu.Lock()
+		defer c.b.mu.Unlock()
+		delete(c.b.runs[c.id], key)
+	})
+	return c.driver.Run(runCtx, req)
 }
 
 // Snapshot is a copy of the fake's state at one point.
@@ -780,8 +724,9 @@ type Info struct {
 	// included. A call that returned backend.ErrGone, or that FailNext
 	// failed, is not counted.
 	Starts, Parks, Destroys, Dials int
-	// RunSpecs is the spec of every Run request the sandbox's driver served
-	// that has one, a request to start a run, in order. A request made while
-	// the sandbox was not up never reached its driver, and is not in it.
+	// RunSpecs is the spec of every Run request that has one, a request to
+	// start a run, that the sandbox's driver was sent, in order. A request
+	// made while the sandbox was not up never reached its driver, and is not
+	// in it.
 	RunSpecs []*driverv1.RunSpec
 }
