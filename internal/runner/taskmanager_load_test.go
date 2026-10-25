@@ -266,14 +266,12 @@ func TestTaskManagerPrune(t *testing.T) {
 		}
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: req.Id != 2}}, nil
 	}
-	trs := map[int64]*runner.TaskRunner{}
 	for _, rec := range recs {
-		trs[rec.TaskID] = m.Runner(rec.TaskID)
-		_, err := trs[rec.TaskID].Restore(t.Context(), rec)
+		_, err := m.Runner(rec.TaskID).Restore(t.Context(), rec)
 		assert.NilError(t, err)
 	}
 	// Task 6 is archived, and its TaskRunner has no sandbox.
-	trs[6] = m.Runner(6)
+	m.Runner(6)
 	// Behind the runner's back, c3 is started and c5 vanishes; c7's status
 	// check will fail.
 	be.Set("c3", fake.Up)
@@ -294,17 +292,26 @@ func TestTaskManagerPrune(t *testing.T) {
 	slices.Sort(looked)
 	assert.DeepEqual(t, looked, []int64{1, 2, 3, 4, 5, 6, 7, 8})
 	// Archived/deleted tasks' sandboxes are destroyed, including the one
-	// that had already vanished.
+	// that had already vanished, and the others are left as they were.
 	snap := be.Snapshot()
 	destroyed := slices.Sorted(slices.Values(snap.Destroyed))
 	assert.DeepEqual(t, destroyed, []string{"c1", "c4"})
-	c5, _ := snap.Sandbox("c5")
-	assert.Equal(t, c5.Destroys, 1)
-	var live []string
-	for _, sbx := range snap.Live() {
-		live = append(live, sbx.Handle.ID)
+	for id, want := range map[string]struct {
+		state    fake.State
+		destroys int
+	}{
+		"c1": {fake.Gone, 1},
+		"c2": {fake.Parked, 0},
+		"c3": {fake.Up, 0},
+		"c4": {fake.Gone, 1},
+		"c5": {fake.Gone, 1},
+		"c7": {fake.Parked, 0},
+		"c8": {fake.Parked, 0},
+	} {
+		sbx, _ := snap.Sandbox(id)
+		assert.Equal(t, sbx.State, want.state, "sandbox %s", id)
+		assert.Equal(t, sbx.Destroys, want.destroys, "sandbox %s", id)
 	}
-	assert.DeepEqual(t, live, []string{"c2", "c3", "c7", "c8"})
 	// The retired tasks' records are removed.
 	stored, err := store.List()
 	assert.NilError(t, err)
@@ -314,15 +321,6 @@ func TestTaskManagerPrune(t *testing.T) {
 	}
 	slices.Sort(kept)
 	assert.DeepEqual(t, kept, []int64{2, 3, 7, 8})
-	// The registry kept the TaskRunners of the kept tasks, including the
-	// claimed one. It dropped the retired tasks' TaskRunners, including the
-	// one with no sandbox, so their next command gets a fresh one.
-	for _, id := range []int64{2, 3, 7, 8} {
-		assert.Equal(t, m.Runner(id), trs[id], "task %d's TaskRunner was dropped", id)
-	}
-	for _, id := range []int64{1, 4, 5, 6} {
-		assert.Assert(t, m.Runner(id) != trs[id], "task %d's TaskRunner was kept", id)
-	}
 }
 
 // TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
@@ -373,8 +371,7 @@ func TestTaskManagerRun(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	go m.HandleEvents(ctx)
-	tr := m.Runner(1)
-	_, err = tr.Restore(t.Context(), rec)
+	_, err = m.Runner(1).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 
 	// Act
@@ -402,9 +399,6 @@ func TestTaskManagerRun(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return")
 	}
-	// Run has returned, so the prune pass is over: it dropped the task's
-	// TaskRunner.
-	assert.Assert(t, m.Runner(1) != tr)
 }
 
 func TestTaskManagerRunning(t *testing.T) {
