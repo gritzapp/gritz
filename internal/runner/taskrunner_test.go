@@ -80,8 +80,8 @@ func TestNewTaskRunner(t *testing.T) {
 func TestTaskRunnerRun_Finished(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that finishes on its own, on an up sandbox.
-	h, _ := serveDriver(t, 1, 3, &agent.Config{Type: agent.TypeDummy})
-	be := newFake(t, h)
+	client := serveDriver(t, 1, 3, &agent.Config{Type: agent.TypeDummy})
+	be := newFake(t, client)
 	be.Add("c1", fake.Up)
 	tr, _, _, _, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 
@@ -102,8 +102,8 @@ func TestTaskRunnerRun_Finished(t *testing.T) {
 func TestTaskRunnerRun_Reattach(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going until it is stopped.
-	h, client := serveDriver(t, 1, 3, sleepForever)
-	be := newFake(t, h)
+	client := serveDriver(t, 1, 3, sleepForever)
+	be := newFake(t, client)
 	be.Add("c1", fake.Up)
 	tr, _, _, _, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	done := runAsync(t.Context(), tr, nil)
@@ -163,7 +163,7 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, so attaching to version 3 is
 	// NotFound.
-	be := newFake(t, driverHandler(t, 3, nil))
+	be := newFake(t, driverClient(t, 3, nil))
 	be.Add("c1", fake.Up)
 	tr, _, _, mock, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 
@@ -186,7 +186,7 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 func TestTaskRunnerRun_NotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := newFake(t, driverHandler(t, 1, make(chan struct{})))
+	be := newFake(t, driverClient(t, 1, make(chan struct{})))
 	be.Add("c1", fake.Up)
 	tr, _, _, mock, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
 		opts.ReadyTimeout = 100 * time.Millisecond
@@ -210,8 +210,8 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 func TestTaskRunnerRun_Shutdown(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going.
-	h, _ := serveDriver(t, 1, 3, sleepForever)
-	be := newFake(t, h)
+	client := serveDriver(t, 1, 3, sleepForever)
+	be := newFake(t, client)
 	be.Add("c1", fake.Up)
 	tr, _, _, _, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -235,8 +235,8 @@ func TestTaskRunnerRun_Shutdown(t *testing.T) {
 func TestTaskRunnerRun_Destroyed(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going, on a recorded sandbox.
-	h, _ := serveDriver(t, 1, 3, sleepForever)
-	be := newFake(t, h)
+	client := serveDriver(t, 1, 3, sleepForever)
+	be := newFake(t, client)
 	be.Add("c1", fake.Up)
 	tr, m, store, mock, queue := testTaskRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	done := runAsync(t.Context(), tr, nil)

@@ -168,7 +168,7 @@ func TestTaskManagerStart(t *testing.T) {
 func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := newFake(t, driverHandler(t, 1, nil))
+	be := newFake(t, driverClient(t, 1, nil))
 	m, _, _ := newTestManager(t, runner.TaskManagerOptions{
 		Backend:   be,
 		Store:     testStore(t),
@@ -211,7 +211,7 @@ func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
 func TestTaskManagerSpec_Secrets(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := newFake(t, driverHandler(t, 1, nil))
+	be := newFake(t, driverClient(t, 1, nil))
 	m, _, _ := newTestManager(t, runner.TaskManagerOptions{
 		Backend:   be,
 		Store:     testStore(t),
@@ -258,7 +258,7 @@ func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	t.Parallel()
 	// Arrange - a backend whose runs get an environment of their own.
 	be := fake.New(fake.Options{
-		Driver: drivers(driverHandler(t, 1, nil)),
+		Dial: drivers(driverClient(t, 1, nil)),
 		RunEnv: func(*workspace.Workspace) map[string]string {
 			return map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"}
 		},
@@ -324,8 +324,8 @@ func TestTaskManagerPoll_StopSignalled(t *testing.T) {
 		Command:   model.TaskCommandStop,
 		Version:   3,
 	}
-	h, client := serveDriver(t, 7, 3, sleepForever)
-	be := newFake(t, h)
+	client := serveDriver(t, 7, 3, sleepForever)
+	be := newFake(t, client)
 	be.Add("c7", fake.Up)
 	rec := taskstate.Record{TaskID: 7, Version: 3, Type: "fake", ID: "c7"}
 	m, mock, queue := testManager(t, be, testStore(t, rec))
@@ -362,7 +362,7 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 		Version:   1,
 	}
 	ready := make(chan struct{})
-	be := newFake(t, driverHandler(t, 1, ready))
+	be := newFake(t, driverClient(t, 1, ready))
 	m, mock, queue := testManager(t, be, testStore(t))
 	mock.ListRunnerTasksFunc = func(_ context.Context, _ *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
@@ -401,7 +401,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   4,
 	}
-	be := newFake(t, driverHandler(t, 1, nil))
+	be := newFake(t, driverClient(t, 1, nil))
 	be.Add("c1", fake.Up)
 	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
 	m, mock, queue := testManager(t, be, testStore(t, rec))
@@ -451,7 +451,7 @@ func TestTaskManagerStart_Create(t *testing.T) {
 	// Arrange - a task with no record, whose created sandbox's driver runs the
 	// workspace's agent to completion.
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	be := newFake(t, driverHandler(t, 1, nil))
+	be := newFake(t, driverClient(t, 1, nil))
 	store := testStore(t)
 	m, _, queue := testManager(t, be, store)
 
@@ -518,7 +518,7 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 			// Arrange - the recorded sandbox is parked, and its driver has
 			// never run version 4.
 			task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 4}
-			be := newFake(t, driverHandler(t, 4, nil))
+			be := newFake(t, driverClient(t, 4, nil))
 			be.Add("c1", fake.Parked)
 			store := testStore(t, tt.record)
 			m, _, queue := testManager(t, be, store)
@@ -551,7 +551,7 @@ func TestTaskManagerWait(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	be := newFake(t, driverHandler(t, 1, nil))
+	be := newFake(t, driverClient(t, 1, nil))
 	m, _, _ := testManager(t, be, testStore(t))
 	assert.NilError(t, m.Start(t.Context(), task))
 
@@ -573,7 +573,7 @@ func TestTaskManagerWait_Done(t *testing.T) {
 	// Arrange - a run whose driver fails every call until ready is closed.
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
 	ready := make(chan struct{})
-	be := newFake(t, driverHandler(t, 1, ready))
+	be := newFake(t, driverClient(t, 1, ready))
 	m, _, _ := testManager(t, be, testStore(t))
 	assert.NilError(t, m.Start(t.Context(), task))
 	boom := errors.New("boom")
@@ -598,7 +598,7 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
-	be := newFake(t, driverHandler(t, 1, make(chan struct{})))
+	be := newFake(t, driverClient(t, 1, make(chan struct{})))
 	store := testStore(t)
 	m, mock, queue := testManager(t, be, store, func(opts *runner.TaskRunnerOptions) {
 		opts.ReadyTimeout = 100 * time.Millisecond
@@ -661,7 +661,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// Arrange - task 8's recorded sandbox, restored parked, is then removed
 	// behind the runner's back.
 	rec := taskstate.Record{TaskID: 8, Version: 1, Type: "fake", ID: "c1"}
-	be := newFake(t, driverHandler(t, 3, nil))
+	be := newFake(t, driverClient(t, 3, nil))
 	be.Add("c1", fake.Parked)
 	store := testStore(t, rec)
 	m, _, queue := testManager(t, be, store)
@@ -766,11 +766,11 @@ func TestTaskManagerKill(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			h, client := serveDriver(t, 1, 3, tt.agent)
+			client := serveDriver(t, 1, 3, tt.agent)
 			if tt.finish {
 				waitFinished(t, client, 3)
 			}
-			be := newFake(t, h)
+			be := newFake(t, client)
 			m, _, _ := testManager(t, be, testStore(t))
 			if tt.state != 0 {
 				rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
@@ -891,8 +891,8 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going on an up sandbox, recorded, and
 	// followed by the Run goroutine Load starts for it.
-	h, _ := serveDriver(t, 1, 3, sleepForever)
-	be := newFake(t, h)
+	client := serveDriver(t, 1, 3, sleepForever)
+	be := newFake(t, client)
 	be.Add("c1", fake.Up)
 	store := testStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
 	m, mock, queue := testManager(t, be, store)

@@ -200,16 +200,18 @@ func waitDialed(t *testing.T, be *fake.Backend, id string, n int) {
 	assert.NilError(t, err, "sandbox %s was not dialed %d times", id, n)
 }
 
-// drivers returns a fake.Options.Driver that gives every sandbox driver h.
-func drivers(h http.Handler) func(backend.Handle) http.Handler {
-	return func(backend.Handle) http.Handler { return h }
+// drivers returns a fake.Options.Dial that gives every sandbox the driver
+// client reaches.
+func drivers(client driverv1connect.DriverServiceClient) func(backend.Handle) driverv1connect.DriverServiceClient {
+	return func(backend.Handle) driverv1connect.DriverServiceClient { return client }
 }
 
-// newFake returns a fake backend whose every sandbox has driver h, closed
-// when the test ends so its driver servers do not leak.
-func newFake(t *testing.T, h http.Handler) *fake.Backend {
+// newFake returns a fake backend whose every sandbox has the driver client
+// reaches, closed when the test ends so the runner's open Run calls to it are
+// cut.
+func newFake(t *testing.T, client driverv1connect.DriverServiceClient) *fake.Backend {
 	t.Helper()
-	be := fake.New(fake.Options{Driver: drivers(h)})
+	be := fake.New(fake.Options{Dial: drivers(client)})
 	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	return be
 }
@@ -217,19 +219,15 @@ func newFake(t *testing.T, h http.Handler) *fake.Backend {
 // sleepForever is an agent config whose dummy agent runs until it is stopped.
 var sleepForever = &agent.Config{Type: agent.TypeDummy, Dummy: &agent.DummyOptions{Sleep: -1}}
 
-// serveDriver returns the handler of a driver server, and the test's own
-// client to it over its own server. With cfg set, it starts run version of
-// taskID with that agent config and closes the run's stream once the run is
-// accepted, which leaves the run going; with cfg nil the driver has never
-// run.
-func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (http.Handler, driverv1connect.DriverServiceClient) {
+// serveDriver serves a driver server and returns the test's client to it.
+// With cfg set, it starts run version of taskID with that agent config and
+// closes the run's stream once the run is accepted, which leaves the run
+// going; with cfg nil the driver has never run.
+func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) driverv1connect.DriverServiceClient {
 	t.Helper()
-	h, configs := newDriver(t, version, nil)
-	hs := httptest.NewServer(h)
-	t.Cleanup(hs.Close)
-	client := driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
+	client, configs := newDriver(t, version, nil)
 	if cfg == nil {
-		return h, client
+		return client
 	}
 	assert.NilError(t, configs.Save(taskID, cfg))
 	stream, err := client.Run(t.Context(), &driverv1.RunRequest{
@@ -240,23 +238,23 @@ func serveDriver(t *testing.T, taskID, version int64, cfg *agent.Config) (http.H
 	defer func() { assert.NilError(t, stream.Close()) }()
 	assert.Assert(t, stream.Receive(), "Run: %v", stream.Err())
 	assert.Assert(t, stream.Msg().GetAccepted() != nil, "first message is %v, want accepted", stream.Msg())
-	return h, client
+	return client
 }
 
-// driverHandler returns the handler of a driver server that has never run,
-// for tasks on version. It reads the agent config from where the TaskManager's
-// spec provisions it, so a Run with that spec runs the workspace's agent.
-// Until ready is closed every call fails Unavailable, as from a driver that is
-// not up yet; a nil ready is open.
-func driverHandler(t *testing.T, version int64, ready <-chan struct{}) http.Handler {
+// driverClient serves a driver server that has never run, for tasks on
+// version, and returns the test's client to it. The driver reads the agent
+// config from where the TaskManager's spec provisions it, so a Run with that
+// spec runs the workspace's agent. Until ready is closed every call fails
+// Unavailable, as from a driver that is not up yet; a nil ready is open.
+func driverClient(t *testing.T, version int64, ready <-chan struct{}) driverv1connect.DriverServiceClient {
 	t.Helper()
-	h, _ := newDriver(t, version, ready)
-	return h
+	client, _ := newDriver(t, version, ready)
+	return client
 }
 
-// newDriver is driverHandler, also returning the store the driver reads agent
+// newDriver is driverClient, also returning the store the driver reads agent
 // configs from.
-func newDriver(t *testing.T, version int64, ready <-chan struct{}) (http.Handler, agent.ConfigStore) {
+func newDriver(t *testing.T, version int64, ready <-chan struct{}) (driverv1connect.DriverServiceClient, agent.ConfigStore) {
 	t.Helper()
 	dir := t.TempDir()
 	root := filepath.Join(dir, "root")
@@ -294,17 +292,20 @@ func newDriver(t *testing.T, version int64, ready <-chan struct{}) (http.Handler
 	})
 	mux := http.NewServeMux()
 	mux.Handle(srv.Handler())
-	if ready == nil {
-		return mux, configs
+	var h http.Handler = mux
+	if ready != nil {
+		h = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			select {
+			case <-ready:
+				mux.ServeHTTP(w, req)
+			default:
+				http.Error(w, "driver is starting", http.StatusServiceUnavailable)
+			}
+		})
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		select {
-		case <-ready:
-			mux.ServeHTTP(w, req)
-		default:
-			http.Error(w, "driver is starting", http.StatusServiceUnavailable)
-		}
-	}), configs
+	hs := httptest.NewServer(h)
+	t.Cleanup(hs.Close)
+	return driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL), configs
 }
 
 // stopRun stops the running run version, retrying until the driver has it
