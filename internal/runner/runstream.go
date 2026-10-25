@@ -59,8 +59,9 @@ type RunStreamOptions struct {
 	// Required.
 	OnLost func(ctx context.Context, reason LostReason, err error) error
 	// OnUnreachable is called after each failed reattach once LostTimeout has
-	// passed; returning true ends the run, false keeps following. Required.
-	OnUnreachable func(ctx context.Context, err error) (stop bool, cbErr error)
+	// passed. Returning nil keeps following; an error ends Run with it, as
+	// for every callback. Required.
+	OnUnreachable func(ctx context.Context, err error) error
 }
 
 // LostReason says why RunStreamOptions.OnLost was called.
@@ -139,8 +140,8 @@ func NewRunStream(opts RunStreamOptions) *RunStream {
 // Run follows the run. The callbacks run synchronously on Run's goroutine
 // with ctx. A callback that returns an error ends Run at once, and Run
 // returns that error. Otherwise Run returns nil once exactly one terminal
-// callback (OnFinished, OnLost, or OnUnreachable returning true) has
-// returned, or ctx's cause, with no terminal callback called. Call it once.
+// callback (OnFinished or OnLost) has returned, or ctx's cause, with no
+// terminal callback called. Call it once.
 //
 // Run opens a stream, reads its Accepted and then the stream until the
 // run's Finished, and opens another stream when one drops. With Start, it
@@ -155,7 +156,7 @@ func NewRunStream(opts RunStreamOptions) *RunStream {
 // dropped stream is reopened, backing off exponentially, while Open does not
 // return ErrSandboxDown. An Open that does, or a driver with no such run, is
 // a lost run. Once LostTimeout has passed without an accepted stream, each
-// failed reattach calls OnUnreachable, which decides whether to stop or keep
+// failed reattach calls OnUnreachable: its error ends Run, and nil keeps
 // following.
 //
 // Every failed stream that Run is about to retry, while starting or after,
@@ -227,7 +228,7 @@ func (r *RunStream) Run(ctx context.Context) error {
 			bo.Reset()
 		}
 		if time.Since(lastGood) >= opts.LostTimeout {
-			if stop, cbErr := opts.OnUnreachable(ctx, err); cbErr != nil || stop {
+			if cbErr := opts.OnUnreachable(ctx, err); cbErr != nil {
 				return cbErr
 			}
 		}

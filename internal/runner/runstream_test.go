@@ -34,13 +34,11 @@ type call struct {
 	Reason runner.LostReason
 	// Err is OnLost's or OnUnreachable's error.
 	Err error
-	// Stop is what OnUnreachable returned.
-	Stop bool
 }
 
 // terminal reports whether c ends the run.
 func (c call) terminal() bool {
-	return c.Name == "finished" || c.Name == "lost" || c.Name == "unreachable" && c.Stop
+	return c.Name == "finished" || c.Name == "lost"
 }
 
 // ignoreErr drops call.Err from a comparison of recorded calls; tests assert
@@ -52,9 +50,9 @@ type recorder struct {
 	calls testx.SafeSlice[call]
 	// accepted receives every Accepted once it is recorded.
 	accepted chan *driverv1.Accepted
-	// unreachable returns what the n-th OnUnreachable returns, counting from
-	// 1; nil stops at once.
-	unreachable func(n int) bool
+	// unreachable is called by the n-th OnUnreachable, counting from 1,
+	// before it returns errs["unreachable"]; optional.
+	unreachable func(n int)
 	// unreachables counts the OnUnreachable calls.
 	unreachables int
 	// dropped records the error of every OnDropped. It is kept apart from
@@ -88,11 +86,13 @@ func (r *recorder) options(opts runner.RunStreamOptions) runner.RunStreamOptions
 		r.calls.Append(call{Name: "lost", Reason: reason, Err: err})
 		return r.errs["lost"]
 	}
-	opts.OnUnreachable = func(_ context.Context, err error) (bool, error) {
+	opts.OnUnreachable = func(_ context.Context, err error) error {
 		r.unreachables++
-		stop := r.unreachable == nil || r.unreachable(r.unreachables)
-		r.calls.Append(call{Name: "unreachable", Err: err, Stop: stop})
-		return stop, r.errs["unreachable"]
+		if r.unreachable != nil {
+			r.unreachable(r.unreachables)
+		}
+		r.calls.Append(call{Name: "unreachable", Err: err})
+		return r.errs["unreachable"]
 	}
 	return opts
 }
@@ -212,7 +212,7 @@ func TestNewRunStream(t *testing.T) {
 	open := openSandbox(addSandbox(t, testrunner.NewBackend(t, nil)), 1, nil)
 	onFinished := func(context.Context, *driverv1.Finished) error { return nil }
 	onLost := func(context.Context, runner.LostReason, error) error { return nil }
-	onUnreachable := func(context.Context, error) (bool, error) { return true, nil }
+	onUnreachable := func(context.Context, error) error { return nil }
 	tests := []struct {
 		name string
 		opts runner.RunStreamOptions
@@ -704,9 +704,12 @@ func TestRunStream_OpenErrorRetries(t *testing.T) {
 func TestRunStream_Unreachable(t *testing.T) {
 	t.Parallel()
 	// Arrange - a sandbox that stays up while its driver never answers.
+	// OnUnreachable gives up at once, with the caller's own error.
 	be := testrunner.NewBackend(t, nil)
 	sbx := addSandbox(t, be)
+	errGiveUp := errors.New("driver unreachable")
 	rec := newRecorder()
+	rec.errs = map[string]error{"unreachable": errGiveUp}
 	opts := rec.options(runner.RunStreamOptions{
 		Open:             openSandbox(sbx, 3, nil),
 		RetryInterval:    10 * time.Millisecond,
@@ -717,13 +720,13 @@ func TestRunStream_Unreachable(t *testing.T) {
 	// Act
 	err := runner.NewRunStream(opts).Run(t.Context())
 
-	// Assert - OnUnreachable stopped the run; RunStream did not park.
-	assert.NilError(t, err)
+	// Assert - Run returned OnUnreachable's error as is, after no terminal
+	// callback; RunStream did not park.
+	assert.Equal(t, err, errGiveUp)
 	calls := rec.calls.Slice()
 	assert.DeepEqual(t, calls, []call{
-		{Name: "unreachable", Stop: true},
+		{Name: "unreachable"},
 	}, ignoreErr)
-	assertTerminalLast(t, calls)
 	assert.Equal(t, connect.CodeOf(calls[0].Err), connect.CodeUnavailable)
 	info, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, info.State, fake.Up)
@@ -733,17 +736,16 @@ func TestRunStream_Unreachable(t *testing.T) {
 func TestRunStream_UnreachableKeepGoing(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going, behind a driver that does not answer
-	// until the third OnUnreachable makes it ready. OnUnreachable never stops
-	// the run.
+	// until the third OnUnreachable makes it ready. OnUnreachable always
+	// returns nil, so the run is never given up.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client, DriverNotReady: true})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	rec.unreachable = func(n int) bool {
+	rec.unreachable = func(n int) {
 		if n == 3 {
 			be.SetDriverReady("c1", true)
 		}
-		return false
 	}
 	opts := rec.options(runner.RunStreamOptions{
 		Open:             openSandbox(sbx, 3, nil),
@@ -757,7 +759,7 @@ func TestRunStream_UnreachableKeepGoing(t *testing.T) {
 	rec.waitAccepted(t)
 	testrunner.StopRun(t, client, 3)
 
-	// Assert - following went on after each false, until the Finished. The
+	// Assert - following went on after each nil, until the Finished. The
 	// driver may still turn a reattach away while its previous stream
 	// closes, so there can be more than three OnUnreachable.
 	assert.NilError(t, waitDone(t, done))
@@ -902,8 +904,8 @@ func TestRunStream_CallbackError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			// Arrange - OnUnreachable keeps following, so only its error can
-			// end the run there. Without a driver, the first Open fails and
+			// Arrange - OnUnreachable returns nil unless it is the one that
+			// fails, so only its error can end the run there. Without a driver, the first Open fails and
 			// is dropped.
 			var driver driverv1connect.DriverServiceClient
 			if tt.driver != nil {
@@ -913,7 +915,6 @@ func TestRunStream_CallbackError(t *testing.T) {
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
 			rec.errs = map[string]error{tt.fail: errCallback}
-			rec.unreachable = func(int) bool { return false }
 			var spec *driverv1.RunSpec
 			if tt.spec {
 				spec = dummySpec(t, nil)
