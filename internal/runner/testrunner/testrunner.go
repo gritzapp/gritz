@@ -172,6 +172,19 @@ func NewDriver(t *testing.T, opts *DriverOptions) driverv1connect.DriverServiceC
 	return client
 }
 
+// NewStubDriver serves h as a driver and returns the test's client to it, so
+// a test can script what a driver sends, including what the real one never
+// does. h embeds driverv1connect.UnimplementedDriverServiceHandler for the
+// calls it does not script. The server is shut down when the test ends.
+func NewStubDriver(t *testing.T, h driverv1connect.DriverServiceHandler) driverv1connect.DriverServiceClient {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.Handle(driverv1connect.NewDriverServiceHandler(h))
+	hs := httptest.NewServer(mux)
+	t.Cleanup(hs.Close)
+	return driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
+}
+
 // TaskOptions configures Task. Zero values are replaced with sensible
 // defaults.
 type TaskOptions struct {
