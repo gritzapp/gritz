@@ -5,473 +5,514 @@ Issue: https://github.com/gritzapp/gritz/issues/1796
 ## Problem
 
 `TaskRunner` (`internal/runner/taskrunner.go`) does two jobs. It follows a run
-over the driver.v1 `Run` stream, and it acts on how that run ended. The
-following part is split across four functions:
+over the driver.v1 `Run` stream, and it decides what to do about how that run
+ended. The following part is spread over four functions:
 
-- `startRun` dials the sandbox and polls `Status` with backoff until the driver
-  answers. It then calls `accept`, which opens a `Run` stream with the spec,
-  reads `Accepted` and **closes the stream**. Both steps run under a
+- `startRun` dials the sandbox and polls `Status` with backoff until the
+  driver answers. It then calls `accept`, which opens a `Run` stream with the
+  spec, reads `Accepted` and **closes the stream**. All of this runs under a
   `ReadyTimeout` context.
-- `attach` then opens a new stream to follow the run. It loops over
-  `attachOnce`, with a reattach backoff, the `LostTimeout` since the last
-  accepted stream, a sandbox `Status` check after each drop, and a park that
-  it retries inside the loop.
-- `attachOnce` reads one stream until `Finished`. It does not check the order
-  of messages, duplicates, or `Finished.version`. `accept` checks only the
-  first message.
-- The idle timeout is not in the runner at all. It lives in
-  `driverclient`'s interceptor, which the Docker and Lambda backends wrap
-  around the client `Dial` returns. The fake backend does not use that
-  interceptor, so the runner's tests see `KeepAlive`s and never hit an idle
-  timeout.
+- `attach` opens a new stream to follow the run. It loops over `attachOnce`
+  with a reattach backoff, a `LostTimeout` counted from the last accepted
+  stream, a sandbox `Status` check after each drop, and a park that it retries
+  inside the loop.
+- `attachOnce` reads one stream until `Finished`. It does not check message
+  order, duplicates, or `Finished.version`. `accept` checks only the first
+  message.
+- The idle timeout lives in `driverclient`'s interceptor, which the Docker and
+  Lambda backends wrap around the client `Dial` returns. The fake backend does
+  not use that interceptor, so the runner's tests see `KeepAlive`s and never
+  hit the idle timeout.
 
-`run` and `attach` also park the sandbox. Depending on the outcome, they park
-it at five different points, and `Run` then turns the result into a
-`TaskLostEvent`. So the "how did it end" decision and the "what do we do about
-it" decision are mixed together.
+The stream code also parks the sandbox, at five different points, and `Run`
+then turns the result into a `TaskLostEvent`. Following the run and deciding
+what to do about it are interleaved in the same loops.
 
 ## Design
 
 ### Summary
 
-An exported `RunStream` follows **one run** end to end. Its inputs are a
-`backend.Sandbox`, a version and an optional spec. It covers:
+A new package, `internal/runner/runstream`, follows **one run** end to end on
+a `backend.Sandbox`:
 
-- the readiness wait and the start, bounded by `ReadyTimeout`;
+- the readiness wait and the start, bounded by `ReadyTimeout`, on a stream
+  that is kept;
 - reattaching dropped streams with backoff, sending the version only;
 - the stream protocol checks;
-- the ready and `LostTimeout` timeouts (the idle timeout too, as a later step:
-  see [Idle timeout](#3-idle-timeout-stays-in-driverclient-for-now-moves-later));
+- the ready and `LostTimeout` timeouts, and the idle timeout in a later slice;
 - the sandbox `Status` check after a drop.
 
-It returns how the run ended as a `RunEnd` value. `TaskRunner.Run` shrinks to
-four steps: claim, `RunStream.Run`, park if `RunEnd.Park`, and send a
-`TaskLostEvent` if `RunEnd.Lost != ""`.
+`RunStream.Run` returns only ctx's error. Every outcome is reported through
+callbacks that `TaskRunner` attaches: `OnAccepted`, `OnFinished`, `OnLost` and
+`OnUnreachable`. `RunStream` never parks the sandbox. Every park decision,
+including the lost-timeout case, is made in `TaskRunner`'s callbacks.
+`TaskRunner.Run` shrinks to: claim, build the callbacks, run the stream, then
+send a `TaskLostEvent` if a callback recorded a lost run.
 
-### Where it lives: `internal/runner`
+### Package: `internal/runner/runstream`
 
-`RunStream` goes in `internal/runner/runstream.go`, next to `TaskRunner`, and
-not in a package of its own.
+`RunStream` gets its own package with its own black-box tests
+(`package runstream_test`). `internal/runner` imports it. The package depends
+only on `backend`, `driverv1`/`driverv1connect`, `connect` and the backoff
+library, and never on `internal/runner`. That is what lets the compiler keep
+it free of `TaskRunner`'s lock, record and events.
 
-- **The dependencies are already there.** `RunStream` needs `backend.Sandbox`
-  (`Dial`, `Status`, and `Park` in one case, see
-  [§1](#1-park-on-the-lost-timeout-runstream-keeps-it-inside-its-loop)),
-  `driverv1`, `connect` and the `doubling` backoff. `internal/runner` already
-  imports all of these. A new package would need `doubling` and the default
-  timings (`defaultRetryInterval` ...) to move with it, and those are shared
-  with `TaskRunnerOptions`.
-- **It has one consumer.** Only `TaskRunner.Run` follows runs. Nothing outside
-  the runner (backends, `driverserver`, the CLI) needs `RunStream`. A separate
-  package would exist only to be imported by `internal/runner`.
-- **Exporting it is enough for black-box tests.** Because `RunStream` is
-  exported, `package runner_test` can build one directly on a
-  `fake.Backend` sandbox, with the `testrunner` helpers it already uses. A
-  package boundary is not needed for that.
-- **No stutter.** It stays `runner.RunStream` / `runner.RunEnd`, not
-  `runstream.RunStream`.
+These move into it from `taskrunner.go`:
 
-The cost is that the compiler does not stop `RunStream` from touching
-`TaskRunner`'s state. The constructor keeps that boundary instead: it takes a
-`backend.Sandbox` and plain values, never a `*TaskRunner`. `RunStream` has no
-lock and no access to the record or the events channel. If a second consumer
-ever shows up (for example a `gritz shell` that follows a run), moving the
-file to `internal/runner/runstream` is a mechanical change.
+- `startRun`, `accept`, `attach`, `attachOnce` and `isTerminal`, now unexported
+  methods and functions of the stream;
+- `doubling` and `readyMaxInterval`. `TestDoubling` moves with them, from
+  `internal/runner/internal_test.go` to `runstream/internal_test.go`, unchanged;
+- the defaults for the four timings, exported as `runstream.Default*`.
+  `TaskRunnerOptions` keeps its fields, and `NewTaskRunner` fills its defaults
+  from these constants, so `TaskManager` and testrunner's
+  `NewTaskRunner` hook stay unchanged.
 
-`driverclient` was also considered as a home, since it is the package about
-driver clients. It is the wrong layer. The backends import it to build the
-client `Dial` returns, while `RunStream` sits above `Dial`. Putting
-`RunStream` there would make `driverclient` import `backend`, and the
-backends would then import a package that imports their own interface.
+To avoid the stutter of `runstream.RunStream`, the type is `runstream.Stream`
+(built with `runstream.New`). The rest of this document calls it RunStream.
 
 ### Following a run
 
 ```
-NewRunStream(sbx, version, spec, opts).Run(ctx)
+runstream.New(opts).Run(ctx)
 
- spec != nil:                                    ┐
+ Spec != nil:                                    ┐
    Dial; Status with backoff until it answers    │ ReadyTimeout
    Run{version, spec}; Unavailable → retry       │ (ends at Accepted)
-   read Accepted ────────────────────────────────┘
+   read Accepted → OnAccepted ───────────────────┘
    └─ keep reading this stream ─┐
                                 ▼
- follow loop:   read KeepAlive* … Finished ── checks ──▶ RunEnd{Finished, …}
-   on a drop:   NotFound / FailedPrecondition / Aborted ─▶ RunEnd{Lost, Park?}
-                Status != up                             ─▶ RunEnd{Lost, Park?}
-                LostTimeout since last Accepted: Park until it succeeds
-                                                         ─▶ RunEnd{Lost}
-                otherwise back off; Dial; Run{version}; read Accepted …
+ follow loop:   KeepAlive* … Finished ── checks ──▶ OnFinished            ▣
+   stream ends: NotFound                          ─▶ OnLost(NoRun)         ▣
+                FailedPrecondition / Aborted      ─▶ OnLost(Superseded)    ▣
+                protocol violation                ─▶ OnLost(Protocol)      ▣
+                Status parked / gone              ─▶ OnLost(Parked / Gone) ▣
+                LostTimeout since last Accepted   ─▶ OnUnreachable(err)
+                                                       true  → ▣
+                                                       false → go on
+                back off; Dial; Run{version}; Accepted → OnAccepted …
+
+ start fails before Accepted                      ─▶ OnLost(StartFailed)   ▣
+ ▣ = terminal: Run returns nil
 ```
 
 A started run keeps its start stream. If that stream drops after `Accepted`,
-the drop goes through the same follow loop as any later stream. The start
-step is only different up to and including `Accepted`.
+the drop goes through the same follow loop as any later stream. The start is
+only different up to and including `Accepted`.
+
+### Callback contract
+
+- Callbacks run synchronously on `Run`'s goroutine, one at a time, with
+  `Run`'s ctx. They may block, and `OnUnreachable` does (it parks). While a
+  callback runs, nothing is read from the stream.
+- **Terminal callbacks** are `OnFinished`, `OnLost`, and `OnUnreachable` when
+  it returns true. Exactly one of them is called, after which `Run` returns
+  nil. If ctx is done first, `Run` returns `context.Cause(ctx)` and no
+  terminal callback has been called. These are the only two ways `Run`
+  returns.
+- `OnAccepted` is called once per accepted stream, including the start
+  stream, before any other callback for that stream.
+- `OnUnreachable` is the only callback that can let the run go on. It is
+  called after each failed reattach once `LostTimeout` has passed since the
+  last accepted stream (or since `Run` began, if no stream has been accepted).
+  Returning false means "keep following": `RunStream` backs off and reattaches
+  as usual, then calls `OnUnreachable` again after the next failure. A later
+  accepted stream resets the clock, and a `Finished` still ends the run
+  through `OnFinished`.
+- `OnFinished`, `OnLost` and `OnUnreachable` are required, and `New` panics
+  without them. `OnAccepted` is optional.
 
 ### Stream protocol checks
 
 The driver.v1 contract (`proto/driver/v1/driver.proto` and
 `driverserver.Server.Run`) is: `Accepted` first and once, then any number of
 `KeepAlive`s, then at most one `Finished` carrying the stream's version, and
-then the stream ends. `RunStream` reads each stream through one function that
-enforces this contract and returns a `*ProtocolError` when a message breaks
-it:
+then the stream ends. `RunStream` reads every stream through a single
+function that enforces this contract, and reports a violation as
+`OnLost(ReasonProtocol, *ProtocolError)`:
 
 | Message | Allowed when | Otherwise |
 |---|---|---|
-| `Accepted` | first message, once | `ProtocolError` |
-| `Accepted{attached: false}` | on the start stream only (no spec means no start: the driver answers `NotFound`) | `ProtocolError` |
-| `KeepAlive` | after `Accepted` | `ProtocolError` |
-| `Finished` | after `Accepted`, and `Finished.version == version` | `ProtocolError` |
-| any message | not after `Finished` | logged as a `ProtocolError`; the `Finished` stands |
-| unset `event` oneof | never | `ProtocolError` |
+| `Accepted` | first message, once | protocol error |
+| `Accepted{attached: false}` | on the start stream only (no spec means no start, so the driver answers `NotFound`) | protocol error |
+| `KeepAlive` | after `Accepted` | protocol error |
+| `Finished` | after `Accepted`, and `Finished.version == version` | protocol error |
+| unset `event` oneof | never | protocol error |
+| any message | not after `Finished` | logged; `OnFinished` still called |
 
-After `Finished`, `RunStream` calls `Receive` once more and expects the stream
-to end. A message at that point is logged and nothing else happens: the
-`Finished` has already been checked, and turning a reported run into a lost
-one would make the runner's fallback `failed` contradict the outcome the
-driver already reported. A transport error at that point is ignored.
+After `Finished`, `RunStream` calls `Receive` once more, before
+`OnFinished`, and expects the stream to end. A message there is only logged.
+The `Finished` has already been checked, and reporting a reported run as lost
+would send the runner's fallback `failed` over an outcome the driver already
+reported. A transport error at that point is ignored.
 
-Any other `ProtocolError` ends the run as lost, with
-`Lost: "driver protocol error: …"` and `Park: true`. The driver broke the
-contract, so nothing it says next can be trusted. Reattaching would most
-likely repeat the error until `LostTimeout`. Parking stops the sandbox, so it
-is not left up with nothing following it, which is the same rule `attach`
-applies to `NotFound`.
+A protocol violation is terminal and is not treated as a drop. A driver that
+breaks the contract once will most likely do it again, so reattaching would
+only stretch a bug that shows up at once into a `LostTimeout` wait that ends
+in "driver unreachable".
 
 ### API
 
 ```go
-package runner // github.com/gritzapp/gritz/internal/runner
+package runstream // github.com/gritzapp/gritz/internal/runner/runstream
 
-// RunStream follows one run on a sandbox's driver over driver.v1 Run streams,
-// from its start or reattach until it ends. // new
-type RunStream struct{ ... }
+// Default timings, used for zero Options fields.
+const (
+	// DefaultRetryInterval is the first pause between attempts to reach the driver.
+	DefaultRetryInterval = 250 * time.Millisecond
+	// DefaultRetryMaxInterval caps the reattach backoff.
+	DefaultRetryMaxInterval = 10 * time.Second
+	// DefaultLostTimeout is how long reattaching goes on with no accepted stream
+	// before OnUnreachable is called.
+	DefaultLostTimeout = 2 * time.Minute
+	// DefaultReadyTimeout bounds starting a run, up to its Accepted.
+	DefaultReadyTimeout = time.Minute
+)
 
-// RunStreamOptions tunes a RunStream. Zero fields take the defaults of the
-// TaskRunnerOptions fields of the same name. // new
-type RunStreamOptions struct {
+// Stream follows one run on a sandbox's driver over driver.v1 Run streams,
+// from its start or reattach until it ends.
+type Stream struct{ ... }
+
+// Options configures a Stream.
+type Options struct {
+	// Sandbox runs the driver. Required.
+	Sandbox backend.Sandbox
+	// Version is the run to follow.
+	Version int64
+	// Spec starts the run; nil reattaches to a run already started.
+	Spec *driverv1.RunSpec
 	// Log is the logger; defaults to slog.Default().
 	Log *slog.Logger
-	// RetryInterval is the first pause between attempts to reach the driver.
+	// RetryInterval defaults to DefaultRetryInterval.
 	RetryInterval time.Duration
-	// RetryMaxInterval caps the reattach backoff.
+	// RetryMaxInterval defaults to DefaultRetryMaxInterval.
 	RetryMaxInterval time.Duration
-	// LostTimeout is how long reattaching goes on with no accepted stream.
+	// LostTimeout defaults to DefaultLostTimeout.
 	LostTimeout time.Duration
-	// ReadyTimeout bounds starting a run, up to its Accepted.
+	// ReadyTimeout defaults to DefaultReadyTimeout.
 	ReadyTimeout time.Duration
+
+	// OnAccepted is called when the driver accepts a stream; optional.
+	OnAccepted func(ctx context.Context, a *driverv1.Accepted)
+	// OnFinished is called with the run's Finished; terminal. Required.
+	OnFinished func(ctx context.Context, f *driverv1.Finished)
+	// OnLost is called when the run's Finished can never arrive; terminal.
+	// Required.
+	OnLost func(ctx context.Context, reason Reason, err error)
+	// OnUnreachable is called after each failed reattach once LostTimeout has
+	// passed; returning true ends the run, false keeps following. Required.
+	OnUnreachable func(ctx context.Context, err error) (stop bool)
 }
 
-// NewRunStream returns a RunStream for run version on sbx that starts the run
-// with spec, or reattaches to it if spec is nil. It panics if sbx is nil. // new
-func NewRunStream(sbx backend.Sandbox, version int64, spec *driverv1.RunSpec, opts RunStreamOptions) *RunStream
+// New returns a Stream for opts. It panics if Sandbox, OnFinished, OnLost or
+// OnUnreachable is nil.
+func New(opts Options) *Stream
 
-// Run follows the run until it ends and reports how it ended. Its only error
-// is ctx's cause. Call it once. // new
-func (s *RunStream) Run(ctx context.Context) (RunEnd, error)
+// Run follows the run until a terminal callback returns, then returns nil;
+// otherwise it returns ctx's cause. Call it once.
+func (s *Stream) Run(ctx context.Context) error
 
-// RunEnd is how a followed run ended. // new
-type RunEnd struct {
-	// Finished reports whether the driver sent the run's Finished.
-	Finished bool
-	// Lost is why the driver's report of the run's outcome is missing, or ""
-	// if the driver reported it.
-	Lost string
-	// Park reports whether the sandbox should be parked: nothing runs on it.
-	Park bool
-}
+// Reason says why OnLost was called.
+type Reason int
 
-// ProtocolError is a Run stream message that breaks the driver.v1 contract. // new
+const (
+	// ReasonStartFailed: the run could not be started; err says why.
+	ReasonStartFailed Reason = iota + 1
+	// ReasonNoRun: the driver has no run with the version (NotFound).
+	ReasonNoRun
+	// ReasonSuperseded: the driver has moved past the version or runs another
+	// one (FailedPrecondition, Aborted).
+	ReasonSuperseded
+	// ReasonSandboxParked: the sandbox was parked or stopping after a drop.
+	ReasonSandboxParked
+	// ReasonSandboxGone: the sandbox was gone after a drop.
+	ReasonSandboxGone
+	// ReasonProtocol: the driver broke the stream protocol; err is a
+	// *ProtocolError.
+	ReasonProtocol
+)
+
+// String returns the reason's name.
+func (r Reason) String() string
+
+// ProtocolError is a Run stream message that breaks the driver.v1 contract.
 type ProtocolError struct {
 	// Msg is the offending message.
 	Msg *driverv1.RunResponse
-	// Reason says which rule it broke.
-	Reason string
+	// Rule says which rule it broke.
+	Rule string
 }
 
-// Error describes the violation. // new
+// Error describes the violation.
 func (e *ProtocolError) Error() string
-
-// TaskRunnerOptions is unchanged; TaskRunner passes its RetryInterval,
-// RetryMaxInterval, LostTimeout and ReadyTimeout through to RunStreamOptions.
 ```
 
-Removed (unexported): `TaskRunner.run`, `TaskRunner.startRun`, `accept`,
-`TaskRunner.attach`, `attachOnce`. `isTerminal` and `doubling` stay, now used
-by `RunStream`. `TaskRunner.park` stays and is now called only from `Run`.
+```go
+package runner // github.com/gritzapp/gritz/internal/runner
+
+// TaskRunnerOptions is unchanged; its timing defaults now come from
+// runstream.Default*.
+
+// removed: TaskRunner.run, TaskRunner.startRun, accept, TaskRunner.attach,
+// attachOnce, isTerminal, doubling, readyMaxInterval, the default* timing
+// constants.
+```
 
 **How it fits:** `TaskRunner.Run` captures `sbx` and `version` under `tr.mu`,
-as it does today, and builds
-`NewRunStream(sbx, version, spec, tr.opts.runStream())`. It calls `Run(runCtx)`
-on the result. On an error it applies today's rule unchanged:
-`context.Cause(runCtx)` is `errRemoved` → lost `"sandbox removed before the
+as it does today. It builds `runstream.New` with its timings, its logger
+(with `"task", TaskID` attached) and four closures over a local `lost string`.
+It calls `Run(runCtx)`. On an error it applies today's rule unchanged:
+`context.Cause(runCtx)` is `errRemoved` → `lost = "sandbox removed before the
 run finished"`, and anything else means shutdown, so it returns the error.
-Otherwise it parks if `end.Park`, logs, and sends a `TaskLostEvent` if
-`end.Lost != ""`. A nil `sbx` (destroyed between `Start` and `Run`) never
-reaches `RunStream`: `Run` keeps waiting on the cancelled context.
-`TaskManager` and the testrunner hook that shortens `TaskRunnerOptions` timings
-do not change.
+Then, as today, it logs and sends a `TaskLostEvent` on ctx if `lost != ""`. A
+nil `sbx` (destroyed between `Start` and `Run`) never reaches `runstream`:
+`Run` keeps waiting on the cancelled context. `TaskRunner.park` stays and is
+called only from the callbacks.
 
-### Decisions
+```go
+// sketch of TaskRunner.Run's callbacks
+var lost string
+s := runstream.New(runstream.Options{
+	Sandbox: sbx, Version: version, Spec: spec, Log: log, /* timings */
+	OnFinished: func(ctx context.Context, f *driverv1.Finished) {
+		tr.park(ctx, sbx)
+		if !f.GetReported() {
+			lost = "driver did not report the run's outcome"
+		}
+	},
+	OnLost: func(ctx context.Context, reason runstream.Reason, err error) {
+		lost = lostReason(reason, err)
+		if parkOnLost(reason) {
+			tr.park(ctx, sbx)
+		}
+	},
+	OnUnreachable: func(ctx context.Context, err error) bool {
+		if parkErr := sbx.Park(ctx); parkErr != nil && !errors.Is(parkErr, backend.ErrGone) {
+			log.Warn("failed to park sandbox of lost run", "err", parkErr, "driver", err)
+			return false // keep following; RunStream retries
+		}
+		lost = "driver unreachable"
+		return true
+	},
+})
+```
 
-#### 1. Park on the lost timeout: RunStream keeps it inside its loop
+### Park decisions, mapped
 
-**Recommendation:** keep today's behaviour. When `LostTimeout` has passed
-since the last accepted stream, `RunStream` calls `Sandbox.Park` itself and
-returns `RunEnd{Lost: "driver unreachable"}` only once the park succeeds or
-returns `backend.ErrGone`. While the park fails, it keeps reattaching with
-the same backoff. If the driver comes back and its `Finished` arrives, the
-run ends as `Finished` and is not lost. `Park` is false in this `RunEnd`,
-because the sandbox is already parked, so `TaskRunner` does not make a second,
-no-op `Park` call. That keeps `Parks` counts in the existing tests unchanged.
+Every outcome `attach` and `startRun` handle today, and the callback it now
+goes through. The park decision is the TaskRunner column. It matches today's
+behaviour row for row, so `Parks` counts and lost reasons in the existing
+tests do not change.
 
-This is the one place where `RunStream` changes the sandbox. In every other
-outcome, parking is a *consequence* of the end, decided by `TaskRunner`, done
-best effort and only logged on failure. On the lost timeout, a successful
-park is the *condition* for declaring the end: "give up on the driver only
-once nothing can still be running." That condition is part of following the
-run.
+| Outcome (today's code) | Today | Callback | TaskRunner's callback | Lost reason |
+|---|---|---|---|---|
+| Start fails before `Accepted`: ready timeout, `Dial` error, non-`Unavailable` `Run` error (`run`/`startRun`) | park; lost | `OnLost(StartFailed, err)` | park | `err.Error()` |
+| `Finished{reported: true}` (`attach`) | park | `OnFinished(f)` | park | — |
+| `Finished{reported: false}` (`attach`) | park; lost | `OnFinished(f)` | park | "driver did not report the run's outcome" |
+| `NotFound` on reattach (`attach`) | park; lost | `OnLost(NoRun, err)` | park: nothing runs on it | "driver has no such run" |
+| `FailedPrecondition`/`Aborted` on reattach (`attach`) | no park; lost | `OnLost(Superseded, err)` | **no park**: a newer run is active | "driver has no such run" |
+| Drop, `Status` = parked (`attach`) | park (let it settle); lost | `OnLost(SandboxParked, err)` | park | "sandbox stopped before the run finished" |
+| Drop, `Status` = gone (`attach`) | no park; lost | `OnLost(SandboxGone, err)` | **no park** | "sandbox stopped before the run finished" |
+| Drop, `Status` fails or is up, within `LostTimeout` (`attach`) | back off; reattach | none (logged in RunStream) | — | — |
+| `LostTimeout`, park succeeds or `ErrGone` (`attach`) | lost | `OnUnreachable(err)` → true | park | "driver unreachable" |
+| `LostTimeout`, park fails (`attach`) | keep reattaching | `OnUnreachable(err)` → false | park attempt failed; logged | — (later callback decides) |
+| `LostTimeout`, park fails, then the driver comes back with `Finished` (`attach`) | not lost | `OnUnreachable` → false, …, `OnFinished(f)` | park | per `reported` |
+| ctx done (any) | return `ctx.Err()`; no park | none; `Run` returns ctx's cause | — | `errRemoved` → "sandbox removed …"; shutdown → none |
+| Protocol violation (new) | ignored / accepted | `OnLost(Protocol, err)` | park | "driver protocol error: " + `err` |
 
-**Trade-offs:**
+`lostReason` and `parkOnLost` are small switches over `Reason` in
+`taskrunner.go`. The reason texts stay in `TaskRunner`, because they are the
+`TaskLostEvent.Reason` the existing tests assert. Because `OnLost` carries the
+underlying error next to the `Reason`, `TaskRunner` can still distinguish
+`Aborted` from `FailedPrecondition` with `connect.CodeOf(err)` if it ever needs
+to (see [Open Questions](#open-questions)).
 
-- *A `Park func(ctx) error` hook in `RunStreamOptions`* keeps `RunStream`
-  read-only on the sandbox, but its only possible value is `sbx.Park`, which
-  `RunStream` already holds. It would add an option with a nil case, and that
-  nil case would need its own semantics.
-- *Returning `{Lost, Park: true}` and retrying the park in `TaskRunner`* stops
-  reattaching during the park retries. The driver reports to the server
-  itself, so a driver that comes back and reports `completed` while
-  `TaskRunner` is still retrying the park would be followed by the runner's
-  fallback `failed` for the same version. Today's loop catches that case by
-  reattaching and seeing `Finished{reported: true}`. `TaskRunner` would also
-  need a second backoff loop of its own.
+### Keep the start stream; what ReadyTimeout bounds
 
-#### 2. The start stream is kept; ReadyTimeout bounds it up to Accepted
+With a spec, the first stream starts the run, and `RunStream` keeps reading
+it as the first attempt of the follow loop. There is no more
+accept-then-close. `ReadyTimeout` bounds the driver coming up and `Accepted`
+arriving: `Dial`, the `Status` readiness poll (capped at `readyMaxInterval`),
+the `Run{version, spec}` call with its `Unavailable` retries, and the wait for
+the first `Accepted`.
 
-**Recommendation:** with a spec, the first stream starts the run and
-`RunStream` keeps reading it as the first attempt of the follow loop. There is
-no more accept-then-close.
+The start stream cannot be opened on the `ReadyTimeout` context, because
+cancelling that context would kill a stream that should outlive it. It is
+opened on a child of `Run`'s context instead. A timer started at the beginning
+of the start cancels that child with `errReadyTimeout` if `Accepted` has not
+arrived by the deadline, and `Accepted` stops the timer. From then on only
+`LostTimeout` (and later the idle timeout) apply, and the `LostTimeout` clock
+starts at that `Accepted`. A start that fails before `Accepted` goes to
+`OnLost(ReasonStartFailed, err)`. Its error text is unchanged (`"driver server
+did not become ready: …"`, `"failed to start run N: …"`), so
+`TestTaskRunnerRun_NotReady` still passes.
 
-`ReadyTimeout` still bounds the whole start, now measured up to the first
-`Accepted`: `Dial`, the `Status` readiness poll (capped at
-`readyMaxInterval`), the `Run{version, spec}` call including its `Unavailable`
-retries, and the wait for `Accepted`. The start stream cannot be opened on the
-`ReadyTimeout` context, because cancelling that context would kill a stream
-that should outlive it. It is opened on a child of the run context instead. A
-timer started at the beginning of the start step cancels that stream with
-`errReadyTimeout` if `Accepted` has not arrived by the deadline, and is
-stopped at `Accepted`. After `Accepted`, only `LostTimeout` and the idle
-timeout apply, and the `LostTimeout` clock starts at that `Accepted`.
+### Idle timeout: a later slice
 
-A start that fails before `Accepted` is a failed start, exactly as today:
-`RunEnd{Lost: err.Error(), Park: true}`. The error text is unchanged
-(`"driver server did not become ready: …"`, `"failed to start run N: …"`), so
-`TestTaskRunnerRun_NotReady` keeps passing.
+`RunStream` first works with `driverclient` unchanged. Its stream reader skips
+`KeepAlive`s, which it already has to do on the fake, which does not filter
+them. A later slice then:
 
-**Trade-off:** each started run saves one `Run` call and one detach/attach
-cycle on the driver, and the gap after start where no stream is open goes
-away. In exchange, `RunStream` needs the ready timer instead of a plain
-`context.WithTimeout`. Keeping accept-then-close would be simpler, but it
-leaves the split that #1796 asks to remove, and it is the only reason
-`attach` exists separately from the start.
+- adds `Options.IdleTimeout` (default `DefaultIdleTimeout`, 45s, moved from
+  `driverclient`): one timer per stream, reset on every message, `KeepAlive`
+  included, that cancels the stream with `ErrStreamIdle`. An idle stream is a
+  drop like any other;
+- makes the Docker and Lambda `Dial` return a plain
+  `driverv1connect.NewDriverServiceClient`. Their `idleTimeout` fields go,
+  and `lambdamicrovm_test`'s `te.be.idleTimeout = time.Second` is dropped;
+- deletes `internal/runner/driverclient`. Its idle and `KeepAlive` cases move
+  to `runstream`'s tests.
 
-#### 3. Idle timeout: stays in driverclient for now, moves later
+After that slice every stream timeout is in one package, and the idle path
+can be tested on the fake. Today no runner test covers it, because the fake
+bypasses `driverclient`.
 
-**Recommendation:** the extraction leaves `driverclient` alone. Moving the
-idle timeout into `RunStream` is its own later slice (6 in the plan), not part
-of the extraction.
+### Behaviour changes
 
-When that slice lands, `RunStreamOptions.IdleTimeout` (default
-`driverclient.DefaultIdleTimeout`, 45s) is a timer per stream. It is reset on
-every message, `KeepAlive` included, and cancels the stream with
-`ErrStreamIdle`. `RunStream` already has to skip `KeepAlive`s, because the
-fake does not filter them. The Docker and Lambda backends' `Dial` then return
-a plain `driverv1connect.NewDriverServiceClient`. Their `idleTimeout` fields
-go away, `lambdamicrovm_test`'s `te.be.idleTimeout = time.Second` is dropped,
-and `driverclient` is deleted along with its tests, which move to
-`RunStream`'s idle tests.
-
-**Trade-offs:** moving the timeout puts every stream timeout in one place and
-makes the idle path testable on the fake. Today no runner test covers it,
-because the fake bypasses `driverclient`. The `KeepAlive` handling also
-becomes the same in production and in tests. Doing it in the same step,
-though, would mix a pure extraction with a change to two backends and their
-tests. As a separate slice it can be reviewed, and reverted, on its own.
-
-#### 4. No callbacks: only the returned RunEnd
-
-**Recommendation:** `RunStream` has no `OnAccepted` or other callbacks.
-Nothing in `TaskRunner` acts on progress today. Its only uses of it are the
-`lastGood` reset and the logs, and both move into `RunStream`. A callback with
-no caller can't be tested for anything meaningful, and it fixes a concurrency
-contract (which goroutine, whether the callback may block, whether it may take
-`tr.mu`) before anything needs it.
-
-**Trade-off:** #1757 (driver WAL) will need `TaskRunner` to persist
-`Record.Seq` while the run is still going. That is when a hook gets added,
-shaped by what it needs (for example `OnEvent(seq)`), as a small addition to
-`RunStreamOptions`. Until then, the returned value is the whole interface.
-
-#### 5. Mapping today's outcomes to RunEnd
-
-| Outcome (today's code) | Today | `RunEnd` | `TaskRunner.Run` |
-|---|---|---|---|
-| Start fails before `Accepted`: ready timeout, `Dial` error, non-`Unavailable` `Run` error (`run`/`startRun`) | park; lost = `err.Error()` | `{Lost: err.Error(), Park: true}` | park, `TaskLostEvent` |
-| `Finished{reported: true}` (`attach`) | park; not lost | `{Finished: true, Park: true}` | park |
-| `Finished{reported: false}` (`attach`) | park; lost | `{Finished: true, Lost: "driver did not report the run's outcome", Park: true}` | park, `TaskLostEvent` |
-| `NotFound` on reattach (`attach`) | park; lost | `{Lost: "driver has no such run", Park: true}` | park, `TaskLostEvent` |
-| `FailedPrecondition` / `Aborted` on reattach (`attach`) | no park (a newer run is active); lost | `{Lost: "driver has no such run"}` | `TaskLostEvent` |
-| Drop, `Status` = parked (`attach`) | park (let it settle); lost | `{Lost: "sandbox stopped before the run finished", Park: true}` | park, `TaskLostEvent` |
-| Drop, `Status` = gone (`attach`) | lost | `{Lost: "sandbox stopped before the run finished"}` | `TaskLostEvent` |
-| Drop, `Status` fails (`attach`) | error folded in; retry | not an end; retry | — |
-| Drop, `Status` = up, within `LostTimeout` (`attach`) | back off; reattach | not an end; reattach | — |
-| `LostTimeout`, park succeeds or `ErrGone` (`attach`) | lost | `{Lost: "driver unreachable"}` (already parked) | `TaskLostEvent` |
-| `LostTimeout`, park fails (`attach`) | keep reattaching | not an end; keep reattaching and parking | — |
-| `ctx` done (any) | return `ctx.Err()` | error (`ctx`'s) | `errRemoved` → lost; else return the error |
-| Protocol violation (new) | ignored / accepted | `{Lost: "driver protocol error: …", Park: true}` | park, `TaskLostEvent` |
-
-**Behaviour changes**, all deliberate:
+All of these are deliberate. Everything else, including log texts, lost
+reasons and park counts, is preserved.
 
 1. A started run has one `Run` stream from start to finish, not two
    (`Info.Runs` is one lower). No existing test counts `Runs` across a start.
    The tests that use `WaitRuns` reattach with a nil spec.
-2. `ReadyTimeout` now ends at the kept stream's `Accepted` instead of at
-   `accept`'s close. The bound is the same.
-3. The protocol checks are new. Today, a first message that is not
-   `Accepted` (on reattach), a duplicate `Accepted`, `attached: false` on
-   reattach, and a `Finished` for another version are all accepted. Under the
-   new checks they end the run as lost, and a message after `Finished` is
-   logged. The real driver never sends any of these.
-4. The `ctx.Err()` returned on shutdown becomes `context.Cause(ctx)`.
-   `TaskRunner` already reads the cause, and the shutdown cause is
-   `context.Canceled`, so `TestTaskRunnerRun_Shutdown`'s
+2. The protocol checks are new. Today, a non-`Accepted` first message on
+   reattach, a duplicate `Accepted`, `attached: false` on reattach, and a
+   `Finished` for another version are all accepted. They now end the run as
+   lost, and a message after `Finished` is logged. The real driver never sends
+   any of these.
+3. `Run` returns `context.Cause(ctx)` instead of `ctx.Err()`. On shutdown the
+   cause is `context.Canceled`, so `TestTaskRunnerRun_Shutdown`'s
    `ErrorIs(…, context.Canceled)` still holds.
-
-Log lines keep their text and fields, now under `RunStream`. `RunStream`'s
-logger is `TaskRunner`'s logger with `"task", TaskID` attached.
 
 ### Testing
 
-The existing tests (`taskrunner_test.go`, `taskmanager_*_test.go`, all
-`package runner_test`) stay unchanged and must pass at every slice. Together
-they already cover each row of the table through `TaskRunner`.
+The existing runner tests (`taskrunner_test.go`, `taskmanager_*_test.go`, all
+`package runner_test`) stay unchanged, apart from `TestDoubling` moving
+packages, and must pass at every slice. They already cover every row of the
+mapping table through `TaskRunner`, including the park decisions made in its
+callbacks. One test is added there for the one decision that moves across the
+package boundary. `TestTaskRunnerRun_DriverUnreachableParkFails` queues
+`FailNext(OpPark)` on a sandbox whose driver never answers, and asserts that
+the run is still reported "driver unreachable" with `Parks == 1`. This shows
+the callback returned false and `RunStream` asked again.
 
-`RunStream` gets its own black-box tests in
-`internal/runner/runstream_test.go` (`package runner_test`). They build
-sandboxes on `testrunner.NewBackend`, call
-`runner.NewRunStream(sbx, …).Run(ctx)` and assert on the returned `RunEnd`
-and on `fake.Snapshot`. They never import `internal/runner` internals or wrap
-the fake's client.
+`runstream` gets black-box tests in `internal/runner/runstream/stream_test.go`
+(`package runstream_test`). They build sandboxes with `testrunner.NewBackend`
+on the fake and drivers with `testrunner.NewDriver`. An external test package
+may import `testrunner` even though `testrunner` imports `runner`, which
+imports `runstream`. They record callbacks into a slice, call `Run`, and
+assert on the recorded calls, `Run`'s error and `fake.Snapshot`. They never
+reach into `runstream` internals or wrap the fake's client.
 
-Two test helpers are needed. Each is added and tested in its own slice:
+One helper is added, in its own slice:
+**`testrunner.NewStubDriver(t, h driverv1connect.DriverServiceHandler)`**. It
+serves `h` over `httptest` and returns the client, like `NewDriver` but with a
+handler the test writes (embedding
+`driverv1connect.UnimplementedDriverServiceHandler`). The protocol and
+start tests need a driver that sends what the real one never does, and only
+a real server can produce a `connect.ServerStreamForClient`. The stub goes in
+through `BackendOptions.Driver`, the documented way to give the fake a
+driver, so the fake still decides whether that driver answers. The fake
+itself needs no changes: since parking moved out of `RunStream`, its tests
+inject park failures through the callback, not the fake.
 
-- **`testrunner.NewStubDriver(t, h driverv1connect.DriverServiceHandler)`**
-  serves `h` over `httptest` and returns the client, like `NewDriver` but
-  with a handler the test writes (embedding
-  `driverv1connect.UnimplementedDriverServiceHandler`). The protocol tests
-  need a driver that sends messages the real one never does, and
-  `connect.ServerStreamForClient` is a concrete type, so only a real server
-  can produce one. The stub goes in through `BackendOptions.Driver`, the
-  documented way to give the fake a driver, so the fake still decides
-  whether that driver answers.
-- **`fake.Backend.Fail(op, id, err)`** fails every call of `op` on sandbox
-  `id` until `Fail(op, id, nil)` clears it, and **`Info.Failed[op]`** counts
-  the calls an injected failure failed. With these, the "park keeps failing"
-  case can be set up, and a test can wait for it with
-  `be.Wait(… Failed[OpPark] >= 2 …)`, without queueing an arbitrary number of
-  `FailNext` errors or sleeping.
-
-Cases, one test per outcome (table-driven where the setup matches):
-
-| Test | Arrange | Assert |
+| Test | Arrange | Assert (recorded callbacks) |
 |---|---|---|
-| `TestRunStream_StartFinished` | `NewDriver` with no run; spec; dummy agent that finishes | `{Finished: true, Park: true}`; `Runs == 1`, `len(RunSpecs) == 1` (start stream kept) |
-| `TestRunStream_StartReattach` | spec; `SleepForever`; `Drop` after `WaitRuns(1)`, then `StopRun` | `{Finished: true, Park: true}`; `Runs == 2`, `len(RunSpecs) == 1` (reattach sends no spec) |
-| `TestRunStream_StartNotReady` | `DriverNotReady`; short `ReadyTimeout` | `Lost` contains `"did not become ready"`, `Park` |
-| `TestRunStream_StartBecomesReady` | `DriverNotReady`; `SetDriverReady(true)` after `Dials >= 2` | `{Finished: true, Park: true}` |
-| `TestRunStream_StartNoAccepted` | stub whose `Run` blocks without sending; short `ReadyTimeout` | `Lost` starts with `"failed to start run"`, `Park` |
-| `TestRunStream_StartUnavailableRetried` | stub `Run` returns `Unavailable` once, then acts as a driver | `{Finished: true, …}`; two `Run` calls |
-| `TestRunStream_Finished` | reattach; `reported` true and false (stub for false) | `Finished`, `Park`, `Lost` per table |
-| `TestRunStream_Terminal` | reattach to a driver with no run / a newer run (v4 vs v3) / a running v3 when following v4 | `NotFound` → `Park`; `FailedPrecondition`, `Aborted` → no `Park`; `Lost: "driver has no such run"` |
-| `TestRunStream_SandboxStopped` | reattach; `Set(Parked)` / `Set(Gone)` after `WaitRuns(1)` | `Lost: "sandbox stopped …"`; `Park` only for parked |
-| `TestRunStream_StatusErrorRetries` | `FailNext(OpStatus)` then `Drop` | keeps reattaching (`Runs` grows), then finishes |
-| `TestRunStream_LostTimeout` | driver never answers; short `LostTimeout` | `{Lost: "driver unreachable"}`, `Park` false, sandbox `Parked`, `Parks == 1` |
-| `TestRunStream_LostTimeoutParkFails` | as above, plus `Fail(OpPark)`; wait `Failed[OpPark] >= 2`; `SetDriverReady(true)`; driver run finishes | `{Finished: true, Park: true}`: reattaching went on during park retries and saw `Finished` |
-| `TestRunStream_LostTimeoutResetByAccepted` | `SleepForever`; `Drop` repeatedly, each after a new `WaitRuns`, past `LostTimeout` in total | still following (not lost) until `StopRun` |
-| `TestRunStream_Protocol` | stub sends: `KeepAlive` first / `Accepted` twice / `attached: false` on reattach / `Finished` for another version / empty oneof | `Lost` has prefix `"driver protocol error"`, `Park` |
-| `TestRunStream_MessageAfterFinished` | stub sends `Accepted`, `Finished`, `KeepAlive` | `{Finished: true, Park: true}` (logged only) |
-| `TestRunStream_Cancelled` | `SleepForever`; cancel `ctx` with a cause | error is the cause; `Parks == 0`, sandbox `Up` |
-| `TestNewRunStream` | nil sandbox | panics |
+| `TestNew` | missing `Sandbox`, `OnFinished`, `OnLost`, `OnUnreachable` | panics |
+| `TestStream_StartFinished` | `NewDriver` with no run; spec; dummy agent that finishes | `OnAccepted{attached: false}`, `OnFinished{reported: true}`; `Runs == 1`, `len(RunSpecs) == 1`; `Parks == 0` (RunStream never parks) |
+| `TestStream_StartReattach` | spec; `SleepForever`; `Drop` after the first `OnAccepted`, then `StopRun` | two `OnAccepted` (second `attached: true`), `OnFinished`; `Runs == 2`, `len(RunSpecs) == 1` |
+| `TestStream_StartNotReady` | `DriverNotReady`; short `ReadyTimeout` | `OnLost(StartFailed)` with "did not become ready" |
+| `TestStream_StartBecomesReady` | `DriverNotReady`; `SetDriverReady(true)` once `Dials >= 2` | `OnAccepted`, `OnFinished` |
+| `TestStream_StartNoAccepted` | stub whose `Run` blocks without sending; short `ReadyTimeout` | `OnLost(StartFailed)` |
+| `TestStream_StartUnavailableRetried` | stub `Run` returns `Unavailable` once, then accepts and finishes | `OnAccepted`, `OnFinished`; two stub `Run` calls |
+| `TestStream_Finished` | reattach; real driver (`reported: true`) and stub (`reported: false`) | `OnAccepted{attached: true}`, `OnFinished` with that `reported` |
+| `TestStream_Terminal` | reattach v3 to: a driver with no run; a driver at v4; a driver running v2 | `OnLost(NoRun)`; `OnLost(Superseded)` ×2, with `connect` codes `FailedPrecondition`/`Aborted` |
+| `TestStream_SandboxStopped` | reattach; `Set(Parked)` / `Set(Gone)` after `OnAccepted` | `OnLost(SandboxParked)` / `OnLost(SandboxGone)`; sandbox state untouched by RunStream |
+| `TestStream_StatusErrorRetries` | `FailNext(OpStatus)`, then `Drop`, then `StopRun` | no `OnLost`; reattached (`Runs == 2`); `OnFinished` |
+| `TestStream_Unreachable` | driver never answers; short `LostTimeout`; `OnUnreachable` returns true | one `OnUnreachable`; nothing else; sandbox still `Up` |
+| `TestStream_UnreachableKeepGoing` | as above, but `OnUnreachable` returns false until the 3rd call, which makes the driver ready (`SetDriverReady(true)`) and returns false; then `StopRun` | ≥3 `OnUnreachable`, then `OnAccepted`, `OnFinished`: following went on after a false |
+| `TestStream_LostTimeoutReset` | `SleepForever`; `Drop` after each `OnAccepted`, for longer than `LostTimeout` in total | no `OnUnreachable`; `OnFinished` after `StopRun` |
+| `TestStream_Protocol` | stub sends: `KeepAlive` first / `Accepted` twice / `attached: false` on reattach / `Finished` for another version / empty oneof | `OnLost(Protocol)` with a `*ProtocolError` (`errors.As`) |
+| `TestStream_MessageAfterFinished` | stub sends `Accepted`, `Finished`, `KeepAlive` | `OnAccepted`, `OnFinished` |
+| `TestStream_Cancelled` | `SleepForever`; cancel ctx with a cause after `OnAccepted` | `Run` returns the cause; no terminal callback |
+| `TestStream_ExactlyOneTerminal` | runs every case above through a recorder | exactly one terminal callback, last |
 
-Slice 6 adds `TestRunStream_Idle`: a stub that accepts and then goes silent
-with a short `IdleTimeout`. `RunStream` reattaches (`Runs == 2`). A stub that
-sends `KeepAlive`s faster than `IdleTimeout` is not reattached.
+The idle slice adds `TestStream_Idle`. A stub that accepts and then goes
+silent, with a short `IdleTimeout`, gets two `OnAccepted` and `Runs == 2`. A
+stub that sends `KeepAlive`s faster than `IdleTimeout` is not reattached.
 
 ## Implementation Plan
 
-Each slice keeps every existing test green, unchanged.
+Each slice keeps every existing test green and unchanged in behaviour.
 
-1. **fake: persistent failures** — Delivers: `fake.Backend.Fail(op, id, err)`
-   and `Info.Failed`, documented in the package comment. Depends on: nothing.
-   Verifiable by: new cases in `fake_test.go` (fails until cleared, precedence
-   over `FailNext`, `Failed` counts, `Wait` wakes on a failed call).
-2. **testrunner: stub driver** — Delivers: `testrunner.NewStubDriver`.
-   Depends on: nothing. Verifiable by: a test serving a stub through
-   `NewBackend` and reading its scripted stream through a fake sandbox's
-   `Dial`.
-3. **Extract RunStream, behaviour preserved** — Delivers: `runstream.go`
-   with `RunStream`, `RunStreamOptions`, `RunEnd`, `NewRunStream`, `Run`.
-   `startRun`/`accept`/`attach`/`attachOnce` move into it unchanged in
-   behaviour (still accept-then-close, no new checks), and `TaskRunner.Run`
-   switches to claim → `RunStream.Run` → park if `Park` → `TaskLostEvent` if
-   `Lost`. Depends on: (1), (2). Verifiable by: the existing runner tests
-   unchanged, plus `runstream_test.go` for every row of the mapping table
-   except the protocol rows (start-stream `Runs` asserted as today's 2).
+1. **testrunner: stub driver** — Delivers: `testrunner.NewStubDriver`.
+   Depends on: nothing. Verifiable by: a test that serves a stub through
+   `NewBackend` and reads its scripted stream through a fake sandbox's `Dial`.
+2. **runstream package, today's behaviour** — Delivers:
+   `internal/runner/runstream` with `Stream`, `Options`, `New`, `Run`,
+   `Reason`, the defaults, `doubling` and `isTerminal` (copied for now). Same
+   behaviour as today's `startRun`/`accept`/`attach`/`attachOnce` (still
+   accept-then-close, no protocol checks, no `ReasonProtocol` yet), but every
+   outcome goes through the callbacks and it never parks. Not used by the
+   runner yet. Depends on: (1). Verifiable by: `stream_test.go` for every
+   non-protocol row of the mapping table (`StartFinished` asserting today's
+   `Runs == 2`).
+3. **TaskRunner on runstream** — Delivers: `TaskRunner.Run` builds the
+   callbacks of the mapping table and runs a `runstream.Stream`. It deletes
+   `run`, `startRun`, `accept`, `attach`, `attachOnce`, `isTerminal`,
+   `doubling` and the timing defaults from `internal/runner`, and moves
+   `TestDoubling`. Depends on: (2). Verifiable by: every existing runner test
+   unchanged, plus `TestTaskRunnerRun_DriverUnreachableParkFails`.
 4. **Keep the start stream** — Delivers: no accept-then-close, and the ready
-   timer that ends at `Accepted`. Depends on: (3). Verifiable by:
-   `TestRunStream_StartFinished` now asserting `Runs == 1`, plus
-   `StartNoAccepted` and `StartReattach`. Existing tests unchanged.
-5. **Protocol checks** — Delivers: `ProtocolError`, the per-stream checks,
-   and the read-after-`Finished`. Depends on: (3) (independent of (4)).
-   Verifiable by: `TestRunStream_Protocol` and
-   `TestRunStream_MessageAfterFinished` on the stub driver.
-6. **Move the idle timeout into RunStream** — Delivers:
-   `RunStreamOptions.IdleTimeout`; the Docker and Lambda `Dial` return plain
-   clients, their `idleTimeout` fields go, and `driverclient` is deleted.
-   Depends on: (3). Verifiable by: `TestRunStream_Idle`; the backend tests,
-   which only call `Status` and `Run` through `Dial`, still pass;
-   `TestTaskManager*` unchanged.
-7. **Mark the proposal implemented** — Delivers: move this file to
+   timer that ends at `Accepted`. Depends on: (2). Verifiable by:
+   `StartFinished` now asserting `Runs == 1`, plus `StartReattach`,
+   `StartNoAccepted` and `StartUnavailableRetried`. The existing runner tests
+   are unchanged.
+5. **Protocol checks** — Delivers: `ReasonProtocol`, `ProtocolError`, the
+   per-stream checks and the read after `Finished`, plus `TaskRunner`'s
+   mapping of `ReasonProtocol` (park, "driver protocol error: …"). Depends on:
+   (3), and is independent of (4). Verifiable by: `TestStream_Protocol`,
+   `TestStream_MessageAfterFinished`.
+6. **Idle timeout into runstream; remove driverclient** — Delivers:
+   `Options.IdleTimeout` and `DefaultIdleTimeout`, plain clients from the
+   Docker and Lambda `Dial`, and `driverclient` deleted. Depends on: (3).
+   Verifiable by: `TestStream_Idle`; the backend tests (which only call
+   `Status` and `Run` through `Dial`) and the runner tests unchanged.
+7. **Mark implemented** — Delivers: this file moved to
    `proposals/implemented/`. Depends on: (4)–(6).
 
 ## Trade-offs
 
-- **Its own package** (`internal/runner/runstream`) would make the compiler
-  enforce the boundary with `TaskRunner`, but it would move `doubling` and the
-  default timings, make `TaskRunnerOptions` and `RunStreamOptions` share
-  defaults across packages, and only `internal/runner` would ever import it.
-  See [Where it lives](#where-it-lives-internalrunner).
-- **A function instead of a type** (`FollowRun(ctx, sbx, version, spec, opts)
-  (RunEnd, error)`) would carry the same information. The type is what #1796
-  asks for, and it is where per-run state (`lastGood`, the backoff, which
-  stream is the start stream) lives without being passed between helpers. It
-  is also where the #1757 hooks will go.
-- **Errors instead of `RunEnd.Lost` strings** (typed sentinel errors such as
-  `ErrDriverUnreachable`) would be more structured, but the only consumer of
-  the reason is the `TaskLostEvent.Reason` text, and existing tests assert
-  those exact strings. A typed reason can be added to `RunEnd` if a consumer
-  ever branches on it.
-- **Treating protocol violations as drops** (reattach, and let `LostTimeout`
-  decide) is more forgiving, but a driver that breaks the contract once will
-  most likely do it again, so that would turn a bug that shows up at once
-  into a two-minute hang that ends with "driver unreachable".
+- **Callbacks vs. a returned value** (`RunEnd{Finished, Lost, Park}`). A value
+  is simpler to test, but it cannot express the lost-timeout case: "try to
+  park; if that fails, keep following" has to run *inside* the loop. With a
+  value, either `RunStream` parks itself, or `TaskRunner` retries the park
+  without reattaching, and then a driver that comes back and reports
+  `completed` gets a contradicting fallback `failed`. `OnUnreachable`'s
+  `stop bool` keeps today's behaviour while the decision stays in
+  `TaskRunner`. The cost is a contract to state and test: synchronous,
+  exactly one terminal callback, `Run`'s ctx.
+- **One `OnLost(reason, err)` vs. one callback per outcome** (`OnNoRun`,
+  `OnSandboxStopped`, …). Per-outcome callbacks would make each park decision
+  its own function, but `TaskRunner`'s choices for six outcomes reduce to two
+  switches (`lostReason`, `parkOnLost`), and a new `Reason` is one constant
+  rather than a new required field. `OnUnreachable` is separate because it
+  alone returns a decision, and `OnFinished` because it carries the
+  `Finished`.
+- **`runstream.Stream` vs. `runstream.RunStream`.** The name avoids the stutter.
+  `RunStream` stays the concept's name in issues and docs.
+- **Protocol violations as drops** (reattach, and let `LostTimeout` decide) are
+  more forgiving. But they turn a deterministic driver bug into a two-minute
+  hang that ends in a misleading "driver unreachable".
+- **Moving the idle timeout in the same slice as the extraction** would put
+  every timeout in one place sooner. It is kept separate so the extraction
+  touches no backend, and the backend change can be reviewed and reverted on
+  its own.
 
 ## Open Questions
 
-- Should `Aborted`/`FailedPrecondition` on the **start** stream keep parking
-  (today's `startRun` behaviour, kept here), or follow the reattach rule and
-  not park because a newer run is active? It cannot happen with today's
-  `TaskRunner` claim, so this proposal keeps the current behaviour and leaves
-  the question open.
-- Should `RunEnd` carry the `ProtocolError` itself (for example
-  `RunEnd.Err error`) so `TaskRunner` can log it with structure? This
-  proposal folds it into `Lost` and logs it inside `RunStream`.
+- `Aborted`/`FailedPrecondition` on the **start** stream go to
+  `OnLost(ReasonStartFailed, err)`, and `TaskRunner` parks, as `startRun` does
+  today. Should `TaskRunner` follow the reattach rule there instead, and not
+  park when `connect.CodeOf(err)` shows that a newer run is active? It cannot
+  happen with today's claim, so this proposal keeps the current behaviour.
