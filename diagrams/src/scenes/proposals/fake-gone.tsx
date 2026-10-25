@@ -4,7 +4,7 @@ import {fakeBackendLayout} from '../../layouts/fakebackend';
 import {Colors} from '../../theme';
 
 // A sandbox the test makes gone, traced from
-// proposals/draft/fake-runner-backend.md (Controls, Driver hookup, State
+// proposals/implemented/fake-runner-backend.md (Controls, Driver hookup, State
 // machine, "Gone at Start, then a fresh sandbox"): Set(c1, Gone) drops the
 // attached stream, attach finds StatusGone and the run is lost; the next
 // Start finds c1 gone through the stale-handle rule; the one after creates

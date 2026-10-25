@@ -4,7 +4,7 @@ import {fakeBackendLayout} from '../../layouts/fakebackend';
 import {Colors} from '../../theme';
 
 // Two runner processes over one fake, traced from
-// proposals/draft/fake-runner-backend.md (State machine: handles share state;
+// proposals/implemented/fake-runner-backend.md (State machine: handles share state;
 // TaskManager.Wait; "a runner restart mid-run"): the test Adds an up c1 with
 // its record, the first manager's Load reattaches and then shuts down, and
 // the second manager's Load opens the same c1 and follows the run to its end.

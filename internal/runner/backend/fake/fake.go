@@ -7,7 +7,7 @@
 // implements backend.RunEnver as well, with the environment Options.RunEnv
 // gives, and records the spec of every run its sandboxes' drivers are asked to
 // start. See
-// proposals/draft/fake-runner-backend.md.
+// proposals/implemented/fake-runner-backend.md.
 //
 // Production code never imports it.
 package fake
