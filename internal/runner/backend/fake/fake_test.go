@@ -395,3 +395,246 @@ func TestBackendWait_Done(t *testing.T) {
 	assert.Assert(t, cmp.Len(snap.Sandboxes, 1))
 	assert.ErrorIs(t, be.WaitState(ctx, "c1", fake.Up), context.DeadlineExceeded)
 }
+
+func TestBackendSet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		from, to   fake.State
+		wantStatus backend.Status
+	}{
+		{from: fake.Up, to: fake.Parked, wantStatus: backend.StatusParked},
+		{from: fake.Parked, to: fake.Up, wantStatus: backend.StatusUp},
+		{from: fake.Created, to: fake.Up, wantStatus: backend.StatusUp},
+		{from: fake.Up, to: fake.Gone, wantStatus: backend.StatusGone},
+		{from: fake.Gone, to: fake.Gone, wantStatus: backend.StatusGone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.from.String()+"/"+tt.to.String(), func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			be := fake.New(fake.Options{})
+			sb, err := be.Open(be.Add("c1", tt.from))
+			assert.NilError(t, err)
+
+			// Act
+			be.Set("c1", tt.to)
+
+			// Assert - the sandbox moved, no call was counted, and a Set to
+			// gone is not a Destroy.
+			st, err := sb.Status(t.Context())
+			assert.NilError(t, err)
+			assert.Equal(t, st, tt.wantStatus)
+			assert.DeepEqual(t, be.Snapshot(), fake.Snapshot{
+				Sandboxes: []fake.Info{{Handle: backend.Handle{Type: "fake", ID: "c1"}, State: tt.to}},
+			})
+		})
+	}
+}
+
+func TestBackendSet_Wakes(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	be := fake.New(fake.Options{})
+	be.Add("c1", fake.Up)
+	go be.Set("c1", fake.Gone)
+
+	// Act
+	err := be.WaitState(t.Context(), "c1", fake.Gone)
+
+	// Assert
+	assert.NilError(t, err)
+}
+
+func TestBackendSet_Panics(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		id    string
+		state fake.State
+		want  string
+	}{
+		{name: "unknown id", id: "c9", state: fake.Up, want: `fake: Set("c9"): unknown id`},
+		{name: "leave gone", id: "gone", state: fake.Up, want: `fake: Set("gone", up): sandbox is gone`},
+		{name: "invalid state", id: "up", state: fake.State(0), want: `fake: Set("up") with invalid State(0)`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			be := fake.New(fake.Options{})
+			be.Add("gone", fake.Gone)
+			be.Add("up", fake.Up)
+			want := be.Snapshot()
+
+			// Act
+			got := panicValue(func() { be.Set(tt.id, tt.state) })
+
+			// Assert
+			assert.Equal(t, got, tt.want)
+			assert.DeepEqual(t, be.Snapshot(), want)
+		})
+	}
+}
+
+// TestBackendFailNext fails each op once on its sandbox: the call returns the
+// error, and the sandbox's state and counters do not change.
+func TestBackendFailNext(t *testing.T) {
+	t.Parallel()
+	errBoom := errors.New("boom")
+	h := backend.Handle{Type: "fake", ID: "c1"}
+	ops := map[fake.Op]func(t *testing.T, be *fake.Backend) error{
+		fake.OpOpen: func(_ *testing.T, be *fake.Backend) error {
+			_, err := be.Open(h)
+			return err
+		},
+		fake.OpStart: func(t *testing.T, be *fake.Backend) error {
+			return mustOpen(t, be, h).Start(t.Context())
+		},
+		fake.OpPark: func(t *testing.T, be *fake.Backend) error {
+			return mustOpen(t, be, h).Park(t.Context())
+		},
+		fake.OpStatus: func(t *testing.T, be *fake.Backend) error {
+			_, err := mustOpen(t, be, h).Status(t.Context())
+			return err
+		},
+		fake.OpDestroy: func(t *testing.T, be *fake.Backend) error {
+			return mustOpen(t, be, h).Destroy(t.Context())
+		},
+	}
+	for op, call := range ops {
+		for _, from := range []fake.State{fake.Up, fake.Parked} {
+			t.Run(op.String()+"/"+from.String(), func(t *testing.T) {
+				t.Parallel()
+				// Arrange
+				be := fake.New(fake.Options{})
+				be.Add("c1", from)
+				want := be.Snapshot()
+				be.FailNext(op, "c1", errBoom)
+
+				// Act
+				err := call(t, be)
+
+				// Assert - the failure is consumed, and the next call succeeds.
+				assert.ErrorIs(t, err, errBoom)
+				assert.DeepEqual(t, be.Snapshot(), want)
+				assert.NilError(t, call(t, be))
+			})
+		}
+	}
+}
+
+func TestBackendFailNext_PerSandbox(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	errBoom := errors.New("boom")
+	be := fake.New(fake.Options{})
+	a := mustOpen(t, be, be.Add("a", fake.Parked))
+	b := mustOpen(t, be, be.Add("b", fake.Parked))
+	be.FailNext(fake.OpStart, "b", errBoom)
+
+	// Act
+	errA := a.Start(t.Context())
+	errB := b.Start(t.Context())
+
+	// Assert - only b's Start failed.
+	assert.NilError(t, errA)
+	assert.ErrorIs(t, errB, errBoom)
+	gotA, _ := be.Snapshot().Sandbox("a")
+	gotB, _ := be.Snapshot().Sandbox("b")
+	assert.Equal(t, gotA.State, fake.Up)
+	assert.Equal(t, gotB.State, fake.Parked)
+}
+
+func TestBackendFailNext_Queued(t *testing.T) {
+	t.Parallel()
+	// Arrange - two failures for c1, then one for any sandbox.
+	err1, err2, errAny := errors.New("one"), errors.New("two"), errors.New("any")
+	be := fake.New(fake.Options{})
+	sb := mustOpen(t, be, be.Add("c1", fake.Up))
+	other := mustOpen(t, be, be.Add("c2", fake.Up))
+	be.FailNext(fake.OpPark, "", errAny)
+	be.FailNext(fake.OpPark, "c1", err1)
+	be.FailNext(fake.OpPark, "c1", err2)
+
+	// Act
+	got := []error{
+		sb.Park(t.Context()),
+		sb.Park(t.Context()),
+		sb.Park(t.Context()),
+		sb.Park(t.Context()),
+		other.Park(t.Context()),
+	}
+
+	// Assert - c1's own failures come first, in order, then the one for any
+	// sandbox; once they are used up, calls succeed.
+	assert.ErrorIs(t, got[0], err1)
+	assert.ErrorIs(t, got[1], err2)
+	assert.ErrorIs(t, got[2], errAny)
+	assert.NilError(t, got[3])
+	assert.NilError(t, got[4])
+	c1, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, c1.State, fake.Parked)
+	assert.Equal(t, c1.Parks, 1)
+}
+
+func TestBackendFailNext_Create(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	errBoom := errors.New("boom")
+	be := fake.New(fake.Options{})
+	be.FailNext(fake.OpCreate, "", errBoom)
+
+	// Act
+	sb, err := be.Create(t.Context(), &backend.Spec{TaskID: 1})
+
+	// Assert - no sandbox, but the spec is recorded; the next Create takes c1.
+	assert.ErrorIs(t, err, errBoom)
+	assert.Assert(t, sb == nil)
+	assert.DeepEqual(t, be.Snapshot(), fake.Snapshot{Specs: []backend.Spec{{TaskID: 1}}})
+	sb, err = be.Create(t.Context(), &backend.Spec{TaskID: 2})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, sb.Handle(), backend.Handle{Type: "fake", ID: "c1"})
+	assert.Equal(t, len(be.Snapshot().Specs), 2)
+}
+
+func TestBackendFailNext_Panics(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		op   fake.Op
+		id   string
+		err  error
+		want string
+	}{
+		{name: "invalid op", op: fake.Op(0), err: errors.New("boom"), want: "fake: FailNext with invalid Op(0)"},
+		{name: "nil error", op: fake.OpStart, id: "c1", want: `fake: FailNext(start, "c1") with a nil error`},
+		{name: "create with id", op: fake.OpCreate, id: "c1", err: errors.New("boom"), want: `fake: FailNext(create, "c1"): Create has no sandbox id`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			be := fake.New(fake.Options{})
+
+			// Act
+			got := panicValue(func() { be.FailNext(tt.op, tt.id, tt.err) })
+
+			// Assert
+			assert.Equal(t, got, tt.want)
+		})
+	}
+}
+
+func mustOpen(t *testing.T, be *fake.Backend, h backend.Handle) backend.Sandbox {
+	t.Helper()
+	sb, err := be.Open(h)
+	assert.NilError(t, err)
+	return sb
+}
+
+// panicValue returns what fn panics with, or nil.
+func panicValue(fn func()) (v any) {
+	defer func() { v = recover() }()
+	fn()
+	return nil
+}
