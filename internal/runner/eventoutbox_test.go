@@ -13,6 +13,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
+	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"github.com/gritzapp/gritz/internal/x/outbox"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -67,7 +68,7 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 			assert.NilError(t, queue.Enqueue(model.RunnerEvent{TaskID: 1, Event: model.RunnerEventStarted}))
 
 			// Act
-			submitted(t, mock, queue)
+			testrunner.Drain(t, queue)
 
 			// Assert - the event left the queue once, dead-lettered only on a
 			// permanent error.
@@ -114,8 +115,8 @@ func TestTaskManagerEventsSurviveRestart(t *testing.T) {
 
 	// The events survived the restart and are redelivered in FIFO order, with
 	// their TaskId/Version/Reason intact.
-	events := submitted(t, mock, restarted)
-	assert.DeepEqual(t, events, []*gritzv1.RunnerEvent{
+	testrunner.Drain(t, restarted)
+	assert.DeepEqual(t, mock.SubmittedRunnerEvents(), []*gritzv1.RunnerEvent{
 		{Event: "started", TaskId: 1},
 		{Event: "failed", TaskId: 2, Version: 5, Reason: "boom"},
 	}, protocmp.Transform())
