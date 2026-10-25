@@ -84,7 +84,7 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     8,
-    'The test asserts on the store, on m.Runner(42).Record(), and on Snapshot: Specs and c1 parked.',
+    'The test asserts on its store and on Snapshot (Specs, c1 parked), then probes last with a Start.',
   );
   yield* a.tester.updateActivity('assert');
   yield* links.controls.send('Snapshot()', {color: Colors.client});
@@ -93,5 +93,16 @@ export default makeScene2D(function* (view) {
     color: Colors.store,
   });
   yield* all(a.snapshot.flash(), a.sandboxes.flash('c1'), a.taskstate.flash());
+
+  yield* a.caption.show(
+    9,
+    'Probe, last: Start on TaskRunner 42 starts c1 again with no Create, so it still holds c1.',
+  );
+  yield* a.tester.updateActivity('m.Runner(42).Start (probe)');
+  yield* links.api.send('Start(probe)', {color: Colors.client});
+  yield* links.calls.send('Start(spec)', {color: Colors.runner});
+  yield* links.sandbox.rpc('Start', 'nil', {color: Colors.runner});
+  yield* a.sandboxes.setRow('c1', 'up · starts 2');
+  yield* a.snapshot.flash('Specs');
   yield* waitFor(2);
 });
