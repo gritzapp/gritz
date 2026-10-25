@@ -16,8 +16,8 @@ import (
 	"github.com/gritzapp/gritz/internal/x/common"
 )
 
-// ReadStreamOptions configures a ReadStream.
-type ReadStreamOptions struct {
+// RunStreamOptions configures a RunStream.
+type RunStreamOptions struct {
 	// Sandbox runs the driver. Required.
 	Sandbox backend.Sandbox
 	// Version is the run to follow.
@@ -50,7 +50,7 @@ type ReadStreamOptions struct {
 	OnUnreachable func(ctx context.Context, err error) (stop bool)
 }
 
-// LostReason says why ReadStreamOptions.OnLost was called.
+// LostReason says why RunStreamOptions.OnLost was called.
 type LostReason int
 
 const (
@@ -85,30 +85,26 @@ func (r LostReason) String() string {
 	}
 }
 
-// ReadStream follows one run on opts.Sandbox's driver over driver.v1 Run
-// streams, from its start or reattach until it ends. Every outcome is reported
-// through opts' callbacks, which run synchronously on ReadStream's goroutine
-// with ctx; ReadStream never parks the sandbox. It returns nil once exactly
-// one terminal callback (OnFinished, OnLost, or OnUnreachable returning true)
-// has returned; otherwise it returns ctx's cause, and no terminal callback was
-// called. It panics if Sandbox, OnFinished, OnLost or OnUnreachable is nil.
-//
-// With a spec, ReadStream first starts the run: it waits for the driver to
-// answer Status, backing off exponentially, then opens a Run stream with the
-// spec and closes it after its Accepted, which leaves the run going. A Run
-// that is rejected because another stream is open is retried. The driver has
-// ReadyTimeout to do both; a start that fails is reported through
-// OnLost(LostStartFailed). ReadStream then follows the run as for a reattach.
-func ReadStream(ctx context.Context, opts ReadStreamOptions) error {
+// RunStream follows one run on a sandbox's driver over driver.v1 Run streams,
+// from its start or reattach until it ends. Every outcome is reported through
+// its options' callbacks; it never parks the sandbox.
+type RunStream struct {
+	// opts is the RunStream's configuration, with its defaults applied.
+	opts RunStreamOptions
+}
+
+// NewRunStream returns a RunStream for opts. It panics if Sandbox,
+// OnFinished, OnLost or OnUnreachable is nil.
+func NewRunStream(opts RunStreamOptions) *RunStream {
 	switch {
 	case opts.Sandbox == nil:
-		panic("runner: ReadStreamOptions.Sandbox is required")
+		panic("runner: RunStreamOptions.Sandbox is required")
 	case opts.OnFinished == nil:
-		panic("runner: ReadStreamOptions.OnFinished is required")
+		panic("runner: RunStreamOptions.OnFinished is required")
 	case opts.OnLost == nil:
-		panic("runner: ReadStreamOptions.OnLost is required")
+		panic("runner: RunStreamOptions.OnLost is required")
 	case opts.OnUnreachable == nil:
-		panic("runner: ReadStreamOptions.OnUnreachable is required")
+		panic("runner: RunStreamOptions.OnUnreachable is required")
 	}
 	opts.Log = cmp.Or(opts.Log, slog.Default())
 	opts.RetryInterval = cmp.Or(opts.RetryInterval, defaultRetryInterval)
@@ -118,7 +114,22 @@ func ReadStream(ctx context.Context, opts ReadStreamOptions) error {
 	if opts.OnAccepted == nil {
 		opts.OnAccepted = func(context.Context, *driverv1.Accepted) {}
 	}
-	r := &streamReader{opts: opts}
+	return &RunStream{opts: opts}
+}
+
+// Run follows the run. The callbacks run synchronously on Run's goroutine
+// with ctx. Run returns nil once exactly one terminal callback (OnFinished,
+// OnLost, or OnUnreachable returning true) has returned; otherwise it returns
+// ctx's cause, and no terminal callback was called. Call it once.
+//
+// With a spec, Run first starts the run: it waits for the driver to answer
+// Status, backing off exponentially, then opens a Run stream with the spec and
+// closes it after its Accepted, which leaves the run going. A Run that is
+// rejected because another stream is open is retried. The driver has
+// ReadyTimeout to do both; a start that fails is reported through
+// OnLost(LostStartFailed). Run then follows the run as for a reattach.
+func (r *RunStream) Run(ctx context.Context) error {
+	opts := r.opts
 	if opts.Spec != nil {
 		accepted, err := r.start(ctx)
 		if ctx.Err() != nil {
@@ -134,16 +145,10 @@ func ReadStream(ctx context.Context, opts ReadStreamOptions) error {
 	return r.follow(ctx)
 }
 
-// streamReader is the state of a ReadStream.
-type streamReader struct {
-	// opts is the ReadStream's configuration, with its defaults applied.
-	opts ReadStreamOptions
-}
-
 // start waits for the driver to answer Status, then starts the run with the
 // spec, and returns the Accepted it was answered with, all within
 // ReadyTimeout.
-func (r *streamReader) start(ctx context.Context) (*driverv1.Accepted, error) {
+func (r *RunStream) start(ctx context.Context) (*driverv1.Accepted, error) {
 	opts := r.opts
 	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
 	defer cancel()
@@ -174,7 +179,7 @@ func (r *streamReader) start(ctx context.Context) (*driverv1.Accepted, error) {
 
 // accept opens a Run stream and closes it after its Accepted, which it
 // returns: the run keeps going without it.
-func (r *streamReader) accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) (*driverv1.Accepted, error) {
+func (r *RunStream) accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) (*driverv1.Accepted, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stream, err := client.Run(ctx, req)
@@ -200,7 +205,7 @@ func (r *streamReader) accept(ctx context.Context, client driverv1connect.Driver
 // a driver with no such run, is a lost run. Once LostTimeout has passed
 // without an accepted stream, each failed reattach calls OnUnreachable, which
 // decides whether to stop or keep following.
-func (r *streamReader) follow(ctx context.Context) error {
+func (r *RunStream) follow(ctx context.Context) error {
 	opts := r.opts
 	lastGood := time.Now()
 	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
@@ -260,7 +265,7 @@ func (r *streamReader) follow(ctx context.Context) error {
 // until the run's Finished, which it returns, calling OnAccepted on the
 // stream's first Accepted. Otherwise it returns why the stream ended.
 // accepted reports whether the driver accepted the stream before it ended.
-func (r *streamReader) attachOnce(ctx context.Context) (finished *driverv1.Finished, accepted bool, err error) {
+func (r *RunStream) attachOnce(ctx context.Context) (finished *driverv1.Finished, accepted bool, err error) {
 	client, err := r.opts.Sandbox.Dial(ctx, "")
 	if err != nil {
 		return nil, false, err

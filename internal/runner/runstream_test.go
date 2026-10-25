@@ -23,7 +23,7 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// call is one callback a ReadStream made, as a recorder records it.
+// call is one callback a RunStream made, as a recorder records it.
 type call struct {
 	// Name is "accepted", "finished", "lost" or "unreachable".
 	Name     string
@@ -46,7 +46,7 @@ func (c call) terminal() bool {
 // it on its own.
 var ignoreErr = cmpopts.IgnoreFields(call{}, "Err")
 
-// recorder records a ReadStream's callbacks.
+// recorder records a RunStream's callbacks.
 type recorder struct {
 	calls testx.SafeSlice[call]
 	// accepted receives every Accepted once it is recorded.
@@ -63,7 +63,7 @@ func newRecorder() *recorder {
 }
 
 // options returns opts with r's callbacks.
-func (r *recorder) options(opts runner.ReadStreamOptions) runner.ReadStreamOptions {
+func (r *recorder) options(opts runner.RunStreamOptions) runner.RunStreamOptions {
 	opts.OnAccepted = func(_ context.Context, a *driverv1.Accepted) {
 		r.calls.Append(call{Name: "accepted", Accepted: a})
 		r.accepted <- a
@@ -83,7 +83,7 @@ func (r *recorder) options(opts runner.ReadStreamOptions) runner.ReadStreamOptio
 	return opts
 }
 
-// waitAccepted waits for the ReadStream's next OnAccepted.
+// waitAccepted waits for the RunStream's next OnAccepted.
 func (r *recorder) waitAccepted(t *testing.T) *driverv1.Accepted {
 	t.Helper()
 	select {
@@ -146,15 +146,15 @@ func dummySpec(t *testing.T, opts *agent.DummyOptions) *driverv1.RunSpec {
 	}
 }
 
-// readAsync calls ReadStream with opts on its own goroutine, and returns the
-// channel its error is sent on, for waitDone.
-func readAsync(ctx context.Context, opts runner.ReadStreamOptions) <-chan error {
+// streamAsync calls a RunStream's Run with opts on its own goroutine, and
+// returns the channel its error is sent on, for waitDone.
+func streamAsync(ctx context.Context, opts runner.RunStreamOptions) <-chan error {
 	done := make(chan error, 1)
-	go func() { done <- runner.ReadStream(ctx, opts) }()
+	go func() { done <- runner.NewRunStream(opts).Run(ctx) }()
 	return done
 }
 
-func TestReadStream_Required(t *testing.T) {
+func TestNewRunStream(t *testing.T) {
 	t.Parallel()
 	sbx := addSandbox(t, testrunner.NewBackend(t, nil))
 	onFinished := func(context.Context, *driverv1.Finished) {}
@@ -162,29 +162,29 @@ func TestReadStream_Required(t *testing.T) {
 	onUnreachable := func(context.Context, error) bool { return true }
 	tests := []struct {
 		name string
-		opts runner.ReadStreamOptions
+		opts runner.RunStreamOptions
 	}{
-		{name: "no sandbox", opts: runner.ReadStreamOptions{OnFinished: onFinished, OnLost: onLost, OnUnreachable: onUnreachable}},
-		{name: "no OnFinished", opts: runner.ReadStreamOptions{Sandbox: sbx, OnLost: onLost, OnUnreachable: onUnreachable}},
-		{name: "no OnLost", opts: runner.ReadStreamOptions{Sandbox: sbx, OnFinished: onFinished, OnUnreachable: onUnreachable}},
-		{name: "no OnUnreachable", opts: runner.ReadStreamOptions{Sandbox: sbx, OnFinished: onFinished, OnLost: onLost}},
+		{name: "no sandbox", opts: runner.RunStreamOptions{OnFinished: onFinished, OnLost: onLost, OnUnreachable: onUnreachable}},
+		{name: "no OnFinished", opts: runner.RunStreamOptions{Sandbox: sbx, OnLost: onLost, OnUnreachable: onUnreachable}},
+		{name: "no OnLost", opts: runner.RunStreamOptions{Sandbox: sbx, OnFinished: onFinished, OnUnreachable: onUnreachable}},
+		{name: "no OnUnreachable", opts: runner.RunStreamOptions{Sandbox: sbx, OnFinished: onFinished, OnLost: onLost}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Act & Assert
-			assert.Assert(t, cmp.Panics(func() { _ = runner.ReadStream(t.Context(), tt.opts) }))
+			assert.Assert(t, cmp.Panics(func() { runner.NewRunStream(tt.opts) }))
 		})
 	}
 }
 
-func TestReadStream_StartFinished(t *testing.T) {
+func TestRunStream_StartFinished(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, and a spec whose agent finishes.
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          1,
 		Spec:             dummySpec(t, nil),
@@ -193,10 +193,10 @@ func TestReadStream_StartFinished(t *testing.T) {
 	})
 
 	// Act
-	err := runner.ReadStream(t.Context(), opts)
+	err := runner.NewRunStream(opts).Run(t.Context())
 
 	// Assert - the start stream is accepted and closed, and a second stream
-	// reattaches and gets the Finished. ReadStream left the sandbox as it was.
+	// reattaches and gets the Finished. RunStream left the sandbox as it was.
 	assert.NilError(t, err)
 	calls := rec.calls.Slice()
 	assert.DeepEqual(t, calls, []call{
@@ -212,13 +212,13 @@ func TestReadStream_StartFinished(t *testing.T) {
 	assert.Equal(t, info.State, fake.Up)
 }
 
-func TestReadStream_StartNotReady(t *testing.T) {
+func TestRunStream_StartNotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that never becomes ready.
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil), DriverNotReady: true})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:       sbx,
 		Version:       1,
 		Spec:          dummySpec(t, nil),
@@ -227,7 +227,7 @@ func TestReadStream_StartNotReady(t *testing.T) {
 	})
 
 	// Act
-	err := runner.ReadStream(t.Context(), opts)
+	err := runner.NewRunStream(opts).Run(t.Context())
 
 	// Assert
 	assert.NilError(t, err)
@@ -241,20 +241,20 @@ func TestReadStream_StartNotReady(t *testing.T) {
 	assert.Equal(t, info.Parks, 0)
 }
 
-func TestReadStream_StartBecomesReady(t *testing.T) {
+func TestRunStream_StartBecomesReady(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that is not ready when the start reaches for it.
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil), DriverNotReady: true})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          1,
 		Spec:             dummySpec(t, nil),
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
 	})
-	done := readAsync(t.Context(), opts)
+	done := streamAsync(t.Context(), opts)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	_, err := be.Wait(ctx, func(s fake.Snapshot) bool {
@@ -277,7 +277,7 @@ func TestReadStream_StartBecomesReady(t *testing.T) {
 	assertTerminalLast(t, calls)
 }
 
-func TestReadStream_StartNoAccepted(t *testing.T) {
+func TestRunStream_StartNoAccepted(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver whose Run never sends anything.
 	stub := &stubDriver{run: func(ctx context.Context, _ *driverv1.RunRequest, _ *connect.ServerStream[driverv1.RunResponse]) error {
@@ -287,7 +287,7 @@ func TestReadStream_StartNoAccepted(t *testing.T) {
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, stub)})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:      sbx,
 		Version:      1,
 		Spec:         dummySpec(t, nil),
@@ -295,7 +295,7 @@ func TestReadStream_StartNoAccepted(t *testing.T) {
 	})
 
 	// Act
-	err := runner.ReadStream(t.Context(), opts)
+	err := runner.NewRunStream(opts).Run(t.Context())
 
 	// Assert
 	assert.NilError(t, err)
@@ -307,7 +307,7 @@ func TestReadStream_StartNoAccepted(t *testing.T) {
 	assert.ErrorContains(t, calls[0].Err, "failed to start run 1")
 }
 
-func TestReadStream_StartFailed(t *testing.T) {
+func TestRunStream_StartFailed(t *testing.T) {
 	t.Parallel()
 	errDial := errors.New("dial failed")
 	tests := []struct {
@@ -345,7 +345,7 @@ func TestReadStream_StartFailed(t *testing.T) {
 			sbx := addSandbox(t, be)
 			tt.arrange(be)
 			rec := newRecorder()
-			opts := rec.options(runner.ReadStreamOptions{
+			opts := rec.options(runner.RunStreamOptions{
 				Sandbox:       sbx,
 				Version:       1,
 				Spec:          dummySpec(t, nil),
@@ -353,7 +353,7 @@ func TestReadStream_StartFailed(t *testing.T) {
 			})
 
 			// Act
-			err := runner.ReadStream(t.Context(), opts)
+			err := runner.NewRunStream(opts).Run(t.Context())
 
 			// Assert
 			assert.NilError(t, err)
@@ -367,7 +367,7 @@ func TestReadStream_StartFailed(t *testing.T) {
 	}
 }
 
-func TestReadStream_StartUnavailableRetried(t *testing.T) {
+func TestRunStream_StartUnavailableRetried(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that rejects the first start as Unavailable, accepts
 	// the second, and finishes the run for the reattach.
@@ -387,7 +387,7 @@ func TestReadStream_StartUnavailableRetried(t *testing.T) {
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, stub)})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:       sbx,
 		Version:       1,
 		Spec:          dummySpec(t, nil),
@@ -395,7 +395,7 @@ func TestReadStream_StartUnavailableRetried(t *testing.T) {
 	})
 
 	// Act
-	err := runner.ReadStream(t.Context(), opts)
+	err := runner.NewRunStream(opts).Run(t.Context())
 
 	// Assert - two starts, then the reattach.
 	assert.NilError(t, err)
@@ -412,7 +412,7 @@ func TestReadStream_StartUnavailableRetried(t *testing.T) {
 	assert.Assert(t, cmp.Len(info.RunSpecs, 2))
 }
 
-func TestReadStream_Finished(t *testing.T) {
+func TestRunStream_Finished(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -446,7 +446,7 @@ func TestReadStream_Finished(t *testing.T) {
 			be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: tt.driver(t)})
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
-			opts := rec.options(runner.ReadStreamOptions{
+			opts := rec.options(runner.RunStreamOptions{
 				Sandbox:          sbx,
 				Version:          3,
 				RetryInterval:    10 * time.Millisecond,
@@ -454,7 +454,7 @@ func TestReadStream_Finished(t *testing.T) {
 			})
 
 			// Act
-			err := runner.ReadStream(t.Context(), opts)
+			err := runner.NewRunStream(opts).Run(t.Context())
 
 			// Assert
 			assert.NilError(t, err)
@@ -470,7 +470,7 @@ func TestReadStream_Finished(t *testing.T) {
 	}
 }
 
-func TestReadStream_Terminal(t *testing.T) {
+func TestRunStream_Terminal(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name   string
@@ -489,7 +489,7 @@ func TestReadStream_Terminal(t *testing.T) {
 			be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, tt.driver)})
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
-			opts := rec.options(runner.ReadStreamOptions{
+			opts := rec.options(runner.RunStreamOptions{
 				Sandbox:          sbx,
 				Version:          3,
 				RetryInterval:    10 * time.Millisecond,
@@ -497,7 +497,7 @@ func TestReadStream_Terminal(t *testing.T) {
 			})
 
 			// Act
-			err := runner.ReadStream(t.Context(), opts)
+			err := runner.NewRunStream(opts).Run(t.Context())
 
 			// Assert
 			assert.NilError(t, err)
@@ -513,7 +513,7 @@ func TestReadStream_Terminal(t *testing.T) {
 	}
 }
 
-func TestReadStream_SandboxStopped(t *testing.T) {
+func TestRunStream_SandboxStopped(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		state  fake.State
@@ -530,19 +530,19 @@ func TestReadStream_SandboxStopped(t *testing.T) {
 			be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 			sbx := addSandbox(t, be)
 			rec := newRecorder()
-			opts := rec.options(runner.ReadStreamOptions{
+			opts := rec.options(runner.RunStreamOptions{
 				Sandbox:          sbx,
 				Version:          3,
 				RetryInterval:    10 * time.Millisecond,
 				RetryMaxInterval: 50 * time.Millisecond,
 			})
-			done := readAsync(t.Context(), opts)
+			done := streamAsync(t.Context(), opts)
 			rec.waitAccepted(t)
 
 			// Act - the platform stops the sandbox under the stream.
 			be.Set("c1", tt.state)
 
-			// Assert - ReadStream left the sandbox as the platform did.
+			// Assert - RunStream left the sandbox as the platform did.
 			assert.NilError(t, waitDone(t, done))
 			calls := rec.calls.Slice()
 			assert.DeepEqual(t, calls, []call{
@@ -558,7 +558,7 @@ func TestReadStream_SandboxStopped(t *testing.T) {
 	}
 }
 
-func TestReadStream_StatusErrorRetries(t *testing.T) {
+func TestRunStream_StatusErrorRetries(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going, on a sandbox whose next Status fails.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
@@ -566,13 +566,13 @@ func TestReadStream_StatusErrorRetries(t *testing.T) {
 	sbx := addSandbox(t, be)
 	be.FailNext(fake.OpStatus, "c1", errors.New("status failed"))
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
 	})
-	done := readAsync(t.Context(), opts)
+	done := streamAsync(t.Context(), opts)
 	rec.waitAccepted(t)
 
 	// Act - drop the stream, so the failing Status follows; then stop the run
@@ -594,13 +594,13 @@ func TestReadStream_StatusErrorRetries(t *testing.T) {
 	assert.Assert(t, info.Runs >= 2)
 }
 
-func TestReadStream_Unreachable(t *testing.T) {
+func TestRunStream_Unreachable(t *testing.T) {
 	t.Parallel()
 	// Arrange - a sandbox that stays up while its driver never answers.
 	be := testrunner.NewBackend(t, nil)
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
@@ -609,9 +609,9 @@ func TestReadStream_Unreachable(t *testing.T) {
 	})
 
 	// Act
-	err := runner.ReadStream(t.Context(), opts)
+	err := runner.NewRunStream(opts).Run(t.Context())
 
-	// Assert - OnUnreachable stopped the run; ReadStream did not park.
+	// Assert - OnUnreachable stopped the run; RunStream did not park.
 	assert.NilError(t, err)
 	calls := rec.calls.Slice()
 	assert.DeepEqual(t, calls, []call{
@@ -624,7 +624,7 @@ func TestReadStream_Unreachable(t *testing.T) {
 	assert.Equal(t, info.Parks, 0)
 }
 
-func TestReadStream_UnreachableKeepGoing(t *testing.T) {
+func TestRunStream_UnreachableKeepGoing(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going, behind a driver that does not answer
 	// until the third OnUnreachable makes it ready. OnUnreachable never stops
@@ -639,14 +639,14 @@ func TestReadStream_UnreachableKeepGoing(t *testing.T) {
 		}
 		return false
 	}
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
 		RetryMaxInterval: 50 * time.Millisecond,
 		LostTimeout:      100 * time.Millisecond,
 	})
-	done := readAsync(t.Context(), opts)
+	done := streamAsync(t.Context(), opts)
 
 	// Act - stop the run once the driver is back.
 	rec.waitAccepted(t)
@@ -670,7 +670,7 @@ func TestReadStream_UnreachableKeepGoing(t *testing.T) {
 	assertTerminalLast(t, calls)
 }
 
-func TestReadStream_LostTimeoutReset(t *testing.T) {
+func TestRunStream_LostTimeoutReset(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going, and a LostTimeout shorter than the
 	// streams take in total.
@@ -679,7 +679,7 @@ func TestReadStream_LostTimeoutReset(t *testing.T) {
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
@@ -687,7 +687,7 @@ func TestReadStream_LostTimeoutReset(t *testing.T) {
 		LostTimeout:      lostTimeout,
 	})
 	start := time.Now()
-	done := readAsync(t.Context(), opts)
+	done := streamAsync(t.Context(), opts)
 
 	// Act - drop each accepted stream, for longer than LostTimeout in total,
 	// then stop the run.
@@ -712,14 +712,14 @@ func TestReadStream_LostTimeoutReset(t *testing.T) {
 	assertTerminalLast(t, calls)
 }
 
-func TestReadStream_Cancelled(t *testing.T) {
+func TestRunStream_Cancelled(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	sbx := addSandbox(t, be)
 	rec := newRecorder()
-	opts := rec.options(runner.ReadStreamOptions{
+	opts := rec.options(runner.RunStreamOptions{
 		Sandbox:          sbx,
 		Version:          3,
 		RetryInterval:    10 * time.Millisecond,
@@ -727,14 +727,14 @@ func TestReadStream_Cancelled(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancelCause(t.Context())
 	defer cancel(nil)
-	done := readAsync(ctx, opts)
+	done := streamAsync(ctx, opts)
 	rec.waitAccepted(t)
 	errCause := errors.New("removed")
 
 	// Act
 	cancel(errCause)
 
-	// Assert - ReadStream returns the cause, with no terminal callback; the sandbox
+	// Assert - Run returns the cause, with no terminal callback; the sandbox
 	// is untouched.
 	assert.ErrorIs(t, waitDone(t, done), errCause)
 	assert.DeepEqual(t, rec.calls.Slice(), []call{
