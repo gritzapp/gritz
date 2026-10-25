@@ -125,9 +125,9 @@ type Options struct {
 // so every handle to one ID sees and changes the same sandbox. IDs are never
 // reused, and a gone sandbox stays in the table.
 type Backend struct {
-	typ       string
+	typ    string
 	dial   func(backend.Handle) driverv1connect.DriverServiceClient
-	runEnv    func(*workspace.Workspace) map[string]string
+	runEnv func(*workspace.Workspace) map[string]string
 
 	mu sync.Mutex
 	// sandboxes is every sandbox the fake has held, by ID; order is their
