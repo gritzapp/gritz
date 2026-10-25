@@ -412,7 +412,7 @@ func TestTaskRunnerStart_Create(t *testing.T) {
 		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
 	}
 	m, _, _ := testManager(t, be, store)
-	tr := m.lookup(1)
+	tr := m.Runner(1)
 
 	// Act
 	err := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
@@ -446,7 +446,7 @@ func TestTaskRunnerStart_Concurrent(t *testing.T) {
 	// Act
 	errs := make(chan error, 2)
 	for range 2 {
-		go func() { errs <- m.lookup(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
+		go func() { errs <- m.Runner(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
 	}
 	first, second := <-errs, <-errs
 
