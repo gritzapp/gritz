@@ -15,6 +15,8 @@ package backend
 import (
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
@@ -70,4 +72,22 @@ type Spec struct {
 	// the run's environment and masked in the log the driver ships.
 	Secrets map[string]string
 	Files   []File // agent config; the driver binary is the backend's job
+}
+
+// Clone returns a copy of s that shares no maps or slices with it. The
+// workspace is copied one level deep: the runner shares it between tasks and
+// never changes it.
+func (s *Spec) Clone() *Spec {
+	c := *s
+	if s.Workspace != nil {
+		ws := *s.Workspace
+		c.Workspace = &ws
+	}
+	c.Env = maps.Clone(s.Env)
+	c.Secrets = maps.Clone(s.Secrets)
+	c.Files = slices.Clone(s.Files)
+	for i := range c.Files {
+		c.Files[i].Data = slices.Clone(c.Files[i].Data)
+	}
+	return &c
 }

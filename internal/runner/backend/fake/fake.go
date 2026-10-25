@@ -12,7 +12,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -110,19 +109,18 @@ func (b *Backend) ValidateWorkspace(*workspace.Workspace) error {
 func (b *Backend) Create(_ context.Context, spec *backend.Spec) (backend.Sandbox, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.specs = append(b.specs, cloneSpec(spec))
+	b.specs = append(b.specs, *spec.Clone())
 	id := fmt.Sprintf("c%d", b.next)
 	for b.sandboxes[id] != nil {
 		b.next++
 		id = fmt.Sprintf("c%d", b.next)
 	}
 	b.next++
-	created := cloneSpec(spec)
 	b.addLocked(&Info{
 		Handle: b.handle(id),
 		TaskID: spec.TaskID,
 		State:  Created,
-		Spec:   &created,
+		Spec:   spec.Clone(),
 	})
 	return &sandbox{b: b, id: id}, nil
 }
@@ -229,33 +227,14 @@ func (b *Backend) snapshotLocked() Snapshot {
 	for _, id := range b.order {
 		sbx := *b.sandboxes[id]
 		if sbx.Spec != nil {
-			spec := cloneSpec(sbx.Spec)
-			sbx.Spec = &spec
+			sbx.Spec = sbx.Spec.Clone()
 		}
 		snap.Sandboxes = append(snap.Sandboxes, sbx)
 	}
 	for i := range b.specs {
-		snap.Specs = append(snap.Specs, cloneSpec(&b.specs[i]))
+		snap.Specs = append(snap.Specs, *b.specs[i].Clone())
 	}
 	return snap
-}
-
-// cloneSpec copies spec, so that neither the caller's later changes nor a
-// Snapshot's reader reach the fake's records. The workspace is copied one
-// level deep: the runner shares it between tasks and never changes it.
-func cloneSpec(spec *backend.Spec) backend.Spec {
-	c := *spec
-	if spec.Workspace != nil {
-		ws := *spec.Workspace
-		c.Workspace = &ws
-	}
-	c.Env = maps.Clone(spec.Env)
-	c.Secrets = maps.Clone(spec.Secrets)
-	c.Files = slices.Clone(spec.Files)
-	for i := range c.Files {
-		c.Files[i].Data = slices.Clone(c.Files[i].Data)
-	}
-	return c
 }
 
 // sandbox is a handle to one sandbox in b's table. It holds nothing but the
