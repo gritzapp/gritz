@@ -34,9 +34,9 @@ type TaskRunner struct {
 	// mu serializes the TaskRunner's methods. Run holds it only to capture the
 	// sandbox it follows and to release its claim.
 	mu sync.Mutex
-	// sb is the task's sandbox, or nil while it has none. It is set by Start,
+	// sbx is the task's sbx, or nil while it has none. It is set by Start,
 	// which creates it, or by Restore, and cleared by clear. Guarded by mu.
-	sb backend.Sandbox
+	sbx backend.Sandbox
 	// rec is sb's record, as last written to taskstate/; zero while sb is nil.
 	// Guarded by mu.
 	rec taskstate.Record
@@ -198,7 +198,7 @@ func (tr *TaskRunner) clear() {
 	if err := tr.opts.Store.Remove(tr.opts.TaskID); err != nil {
 		tr.opts.Log.Error("failed to remove record", "task", tr.opts.TaskID, "err", err)
 	}
-	tr.sb, tr.rec = nil, taskstate.Record{}
+	tr.sbx, tr.rec = nil, taskstate.Record{}
 }
 
 // Version returns the version the task's record is stamped with, or 0 if it
@@ -213,10 +213,10 @@ func (tr *TaskRunner) Version() int64 {
 func (tr *TaskRunner) Running(ctx context.Context) (bool, error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	if tr.sb == nil {
+	if tr.sbx == nil {
 		return false, nil
 	}
-	st, err := tr.sb.Status(ctx)
+	st, err := tr.sbx.Status(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -240,16 +240,16 @@ func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error {
 	if tr.running {
 		return errRunning
 	}
-	if tr.sb == nil {
+	if tr.sbx == nil {
 		if err := tr.create(ctx, &spec); err != nil {
 			return err
 		}
-	} else if rec := tr.record(tr.sb, spec.Version); !reflect.DeepEqual(rec, tr.rec) {
+	} else if rec := tr.record(tr.sbx, spec.Version); !reflect.DeepEqual(rec, tr.rec) {
 		if err := tr.write(ctx, rec); err != nil {
 			return err
 		}
 	}
-	if err := tr.sb.Start(ctx); errors.Is(err, backend.ErrGone) {
+	if err := tr.sbx.Start(ctx); errors.Is(err, backend.ErrGone) {
 		tr.clear()
 		return backend.ErrGone
 	} else if err != nil {
@@ -274,7 +274,7 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 		}
 		return err
 	}
-	tr.sb = sb
+	tr.sbx = sb
 	return nil
 }
 
@@ -295,7 +295,7 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backen
 		tr.clear()
 		return backend.StatusUnknown, fmt.Errorf("failed to open sandbox: %w", err)
 	}
-	tr.sb, tr.rec = sb, rec
+	tr.sbx, tr.rec = sb, rec
 	st, err := sb.Status(ctx)
 	if err != nil {
 		return backend.StatusUnknown, fmt.Errorf("failed to get sandbox status: %w", err)
@@ -317,17 +317,17 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backen
 func (tr *TaskRunner) Kill(ctx context.Context) (bool, error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	if tr.sb == nil {
+	if tr.sbx == nil {
 		return false, nil
 	}
-	st, err := tr.sb.Status(ctx)
+	status, err := tr.sbx.Status(ctx)
 	if err != nil {
 		return false, err
 	}
-	if st != backend.StatusUp {
+	if status != backend.StatusUp {
 		return false, nil
 	}
-	client, err := tr.sb.Dial(ctx, "")
+	client, err := tr.sbx.Dial(ctx, "")
 	if err != nil {
 		return false, err
 	}
@@ -348,10 +348,10 @@ func (tr *TaskRunner) Kill(ctx context.Context) (bool, error) {
 func (tr *TaskRunner) Destroy(ctx context.Context) error {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	if tr.sb == nil {
+	if tr.sbx == nil {
 		return nil
 	}
-	if err := tr.sb.Destroy(ctx); err != nil {
+	if err := tr.sbx.Destroy(ctx); err != nil {
 		return err
 	}
 	if tr.cancel != nil {
@@ -371,17 +371,17 @@ func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 	if tr.running {
 		return false, nil
 	}
-	if tr.sb == nil {
+	if tr.sbx == nil {
 		return true, nil
 	}
-	st, err := tr.sb.Status(ctx)
+	status, err := tr.sbx.Status(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to get sandbox status: %w", err)
 	}
-	if st == backend.StatusUp {
+	if status == backend.StatusUp {
 		return false, nil
 	}
-	if err := tr.sb.Destroy(ctx); err != nil {
+	if err := tr.sbx.Destroy(ctx); err != nil {
 		return false, fmt.Errorf("failed to remove sandbox: %w", err)
 	}
 	tr.clear()
@@ -409,8 +409,8 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 	tr.mu.Lock()
 	tr.running = true
 	tr.cancel = cancel
-	sb, version := tr.sb, tr.rec.Version
-	if sb == nil {
+	sbx, version := tr.sbx, tr.rec.Version
+	if sbx == nil {
 		// Destroyed between Start and Run.
 		cancel(errRemoved)
 	}
@@ -422,7 +422,7 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 		tr.cancel = nil
 	}()
 
-	lost, err := tr.run(runCtx, sb, version, spec)
+	lost, err := tr.run(runCtx, sbx, version, spec)
 	if err != nil {
 		if !errors.Is(context.Cause(runCtx), errRemoved) {
 			return err // shutdown: leave the sandbox alive for next-boot rehydration
@@ -442,33 +442,33 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 // attaches to it. A run that could not be started is reported lost with why,
 // after sb is parked: nothing runs on it. The only error is ctx's, which is
 // all a nil sb, destroyed before Run began, gets.
-func (tr *TaskRunner) run(ctx context.Context, sb backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
-	if sb == nil {
+func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
+	if sbx == nil {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}
 	if spec != nil {
-		if err := tr.startRun(ctx, sb, version, spec); err != nil {
+		if err := tr.startRun(ctx, sbx, version, spec); err != nil {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
 			tr.opts.Log.Error("failed to start run", "task", tr.opts.TaskID, "version", version, "err", err)
-			tr.park(ctx, sb)
+			tr.park(ctx, sbx)
 			return err.Error(), nil
 		}
 	}
-	return tr.attach(ctx, sb, version)
+	return tr.attach(ctx, sbx, version)
 }
 
 // startRun waits for sb's driver to answer Status, backing off
 // exponentially, then starts run version with spec on it, returning once the
 // driver has accepted it. A Run that is rejected because another stream is
 // open is retried. The driver has the runner's readyTimeout to do both.
-func (tr *TaskRunner) startRun(ctx context.Context, sb backend.Sandbox, version int64, spec *driverv1.RunSpec) error {
+func (tr *TaskRunner) startRun(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) error {
 	opts := tr.opts
 	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
 	defer cancel()
-	client, err := sb.Dial(ctx, "")
+	client, err := sbx.Dial(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -523,18 +523,18 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // park succeeded or the sandbox is gone, so the sandbox is never up with no
 // Run following it; while the platform cannot park it, attach keeps
 // retrying.
-func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version int64) (lost string, err error) {
+func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64) (lost string, err error) {
 	opts, taskID := tr.opts, tr.opts.TaskID
 	lastGood := time.Now()
 	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
 	var lastErr string
 	for {
-		finished, accepted, err := attachOnce(ctx, sb, version)
+		finished, accepted, err := attachOnce(ctx, sbx, version)
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		if finished != nil {
-			tr.park(ctx, sb)
+			tr.park(ctx, sbx)
 			if !finished.GetReported() {
 				return "driver did not report the run's outcome", nil
 			}
@@ -548,18 +548,18 @@ func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version in
 				// Nothing runs on the sandbox, which would otherwise stay up.
 				// On FailedPrecondition or Aborted a newer run is active on
 				// it, which parking would kill.
-				tr.park(ctx, sb)
+				tr.park(ctx, sbx)
 			}
 			return "driver has no such run", nil
 		}
-		if st, stErr := sb.Status(ctx); stErr != nil {
+		if status, stErr := sbx.Status(ctx); stErr != nil {
 			err = fmt.Errorf("%w (status: %w)", err, stErr)
-		} else if st != backend.StatusUp {
-			opts.Log.Error("sandbox stopped before its run finished", "task", taskID, "status", st, "version", version, "err", err)
-			if st == backend.StatusParked {
+		} else if status != backend.StatusUp {
+			opts.Log.Error("sandbox stopped before its run finished", "task", taskID, "status", status, "version", version, "err", err)
+			if status == backend.StatusParked {
 				// Let a sandbox that is still stopping (a SUSPENDING VM)
 				// settle, so it is not reported up once Run is done.
-				tr.park(ctx, sb)
+				tr.park(ctx, sbx)
 			}
 			return "sandbox stopped before the run finished", nil
 		}
@@ -573,7 +573,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sb backend.Sandbox, version in
 		if time.Since(lastGood) >= opts.LostTimeout {
 			// Give up on the driver; park the sandbox instead. While that
 			// fails, keep retrying the attach too in case the driver is back.
-			parkErr := sb.Park(ctx)
+			parkErr := sbx.Park(ctx)
 			if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
 				opts.Log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
 				return "driver unreachable", nil
