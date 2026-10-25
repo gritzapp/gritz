@@ -572,7 +572,7 @@ func testManager(t *testing.T, be backend.Backend, store *taskstate.Store, tune 
 func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbox) *TaskRunner {
 	t.Helper()
 	assert.NilError(t, m.store.Write(rec))
-	tr := m.lookup(rec.TaskID)
+	tr := m.Runner(rec.TaskID)
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	tr.sb, tr.rec = sb, rec
@@ -691,10 +691,10 @@ func TestTaskManagerRemove_Running(t *testing.T) {
 	waitDialed(t, sb, 1)
 
 	// Act - the sandbox is removed under the run.
-	assert.NilError(t, m.Remove(t.Context(), 1))
+	assert.NilError(t, m.Runner(1).Destroy(t.Context()))
 	waitReleased(t, m)
 
-	// Assert - Remove destroyed the sandbox Run holds, the task's record is
+	// Assert - Destroy destroyed the sandbox Run holds, the task's record is
 	// gone and its TaskRunner has no sandbox, and the run is lost.
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assertTracked(t, m, 1, nil)
@@ -723,7 +723,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	assert.NilError(t, first.Load(ctx))
 	waitDialed(t, sb, 1)
 	cancel()
-	waitIdle(t, first.lookup(1))
+	waitIdle(t, first.Runner(1))
 	// The sandbox stays up for next-boot rehydration, and the slot held.
 	assert.Assert(t, cmp.Len(sb.ParkCalls(), 0))
 	assert.Assert(t, !first.sem.TryAcquire(1))
@@ -951,7 +951,7 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 }
 
 // TestTaskManagerStart_StartFails covers a sandbox that cannot be started after
-// Create: the record is kept, and Remove destroys the sandbox.
+// Create: the record is kept, and Destroy destroys the sandbox.
 func TestTaskManagerStart_StartFails(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -959,7 +959,7 @@ func TestTaskManagerStart_StartFails(t *testing.T) {
 	boom := errors.New("boom")
 	sb, _ := testSandbox(nil)
 	sb.StartFunc = func(context.Context) error { return boom }
-	// Open is unmocked: Remove destroys the sandbox Start created.
+	// Open is unmocked: Destroy destroys the sandbox Start created.
 	be := &backend.BackendMock{
 		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
 		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
@@ -976,7 +976,7 @@ func TestTaskManagerStart_StartFails(t *testing.T) {
 	assert.Assert(t, cmp.Len(sb.DialCalls(), 0))
 
 	// Act - the task's sandbox is removed.
-	assert.NilError(t, m.Remove(t.Context(), 1))
+	assert.NilError(t, m.Runner(1).Destroy(t.Context()))
 
 	// Assert
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
@@ -1003,7 +1003,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	}
 	m, _, queue := testManager(t, be, testStore(t))
 	seed(t, m, taskstate.Record{TaskID: 8, Version: 1, Type: "docker", ID: "old-id"})
-	tr := m.lookup(8)
+	tr := m.Runner(8)
 
 	// Act
 	err := startTask(t, m, task)
@@ -1051,7 +1051,7 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 		return &gritzv1.ListRunnerTasksResponse{Tasks: []*gritzv1.Task{task.Proto("")}}, nil
 	}
 	seed(t, m, legacyRecord(1, "c1"))
-	claim(m.lookup(1))
+	claim(m.Runner(1))
 
 	// Act
 	err := m.Poll(t.Context())
@@ -1340,7 +1340,7 @@ func TestTaskManagerPrune(t *testing.T) {
 		legacyRecord(7, "c7"),
 	)
 	// Task 6 is archived, and its TaskRunner has no sandbox.
-	tr6 := m.lookup(6)
+	tr6 := m.Runner(6)
 	// Task 8 is archived, and its TaskRunner's run is claimed.
 	tr8 := track(t, m, legacyRecord(8, "c8"), &backend.SandboxMock{})
 	claim(tr8)
@@ -1374,8 +1374,8 @@ func TestTaskManagerPrune(t *testing.T) {
 	m.mu.Unlock()
 	assert.DeepEqual(t, tasks, []int64{2, 3, 7, 8})
 	// The next command for a dropped task gets a fresh TaskRunner.
-	assert.Assert(t, m.lookup(6) != tr6)
-	assert.Equal(t, m.lookup(8), tr8)
+	assert.Assert(t, m.Runner(6) != tr6)
+	assert.Equal(t, m.Runner(8), tr8)
 }
 
 // TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
@@ -1453,7 +1453,7 @@ func TestTaskManagerRunning(t *testing.T) {
 			seed(t, m, tt.records...)
 
 			// Act
-			running, err := m.Running(t.Context(), 1)
+			running, err := m.Runner(1).Running(t.Context())
 
 			// Assert
 			if tt.err != nil {
@@ -1517,7 +1517,7 @@ func TestTaskManagerRemove(t *testing.T) {
 			seed(t, m, tt.records...)
 
 			// Act
-			err = m.Remove(t.Context(), 1)
+			err = m.Runner(1).Destroy(t.Context())
 
 			// Assert
 			if tt.wantErr {
@@ -1550,20 +1550,20 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 		op   func(t *testing.T, m *TaskManager)
 	}{
 		{name: "kill", op: func(t *testing.T, m *TaskManager) {
-			stopped, err := m.Kill(t.Context(), &model.Task{ID: 1, Version: 4})
+			stopped, err := m.Runner(1).Kill(t.Context())
 			assert.NilError(t, err)
 			assert.Assert(t, !stopped)
 		}},
 		{name: "running", op: func(t *testing.T, m *TaskManager) {
-			running, err := m.Running(t.Context(), 1)
+			running, err := m.Runner(1).Running(t.Context())
 			assert.NilError(t, err)
 			assert.Assert(t, !running)
 		}},
 		{name: "remove", op: func(t *testing.T, m *TaskManager) {
-			assert.NilError(t, m.Remove(t.Context(), 1))
+			assert.NilError(t, m.Runner(1).Destroy(t.Context()))
 		}},
 		{name: "version", op: func(t *testing.T, m *TaskManager) {
-			assert.Equal(t, m.lookup(1).Version(), int64(0))
+			assert.Equal(t, m.Runner(1).Version(), int64(0))
 		}},
 	}
 	for _, tt := range tests {
@@ -1579,8 +1579,8 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 			}
 			m, _, _ := testManager(t, be, testStore(t))
 			seed(t, m, legacyRecord(1, "c1"))
-			tr := m.lookup(1)
-			assert.NilError(t, m.Remove(t.Context(), 1))
+			tr := m.Runner(1)
+			assert.NilError(t, m.Runner(1).Destroy(t.Context()))
 
 			// Act
 			tt.op(t, m)
@@ -1787,7 +1787,7 @@ func TestTaskManagerKill(t *testing.T) {
 			seed(t, m, recs...)
 
 			// Act
-			signalled, err := m.Kill(t.Context(), &model.Task{ID: 1, Version: 3})
+			signalled, err := m.Runner(1).Kill(t.Context())
 
 			// Assert
 			if tt.wantErr {
@@ -1949,7 +1949,7 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to record task handle")
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 0))
-	assert.Assert(t, m.lookup(1).sb == nil)
+	assert.Assert(t, m.Runner(1).sb == nil)
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):

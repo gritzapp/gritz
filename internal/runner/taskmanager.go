@@ -308,7 +308,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 		switch task.Command {
 		case model.TaskCommandStop:
 			g.Go(func() error {
-				signalled, err := m.Kill(ctx, task)
+				signalled, err := m.Runner(task.ID).Kill(ctx)
 				if err != nil {
 					// The stop command survives, so the kill is retried on
 					// the next poll.
@@ -346,7 +346,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 				// the command, exactly like the start handler's already-running
 				// guard. A legacy version-0 record never matches a live task's
 				// version (>= 1), so the guard is a no-op for those.
-				if m.lookup(task.ID).Version() == task.Version {
+				if m.Runner(task.ID).Version() == task.Version {
 					m.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
 					return nil
 				}
@@ -354,7 +354,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 				// is rejected by the status guard while the restart command is
 				// pending, so the command survives until the new run's
 				// "started" consumes it.
-				if _, err := m.Kill(ctx, task); err != nil {
+				if _, err := m.Runner(task.ID).Kill(ctx); err != nil {
 					m.log.Error("failed to kill task for restart", "task", task.ID, "err", err)
 				}
 				// Atomically acquire a semaphore slot before starting
@@ -395,7 +395,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 					return nil
 				}
 				// Check if the sandbox is already running
-				running, err := m.Running(ctx, task.ID)
+				running, err := m.Runner(task.ID).Running(ctx)
 				if err != nil {
 					m.log.Error("failed to check if task is running", "task", task.ID, "err", err)
 					return nil
@@ -466,7 +466,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	var running int64
 	for _, rec := range recs {
-		tr := m.lookup(rec.TaskID)
+		tr := m.Runner(rec.TaskID)
 		st, err := tr.Restore(ctx, rec)
 		if err != nil {
 			m.log.Error("load: restore", "task", rec.TaskID, "err", err)
@@ -514,9 +514,10 @@ func (m *TaskManager) failIfTaskRunning(ctx context.Context, taskID, version int
 	}
 }
 
-// lookup returns the task's TaskRunner, registering one with no sandbox if
-// the task has none.
-func (m *TaskManager) lookup(taskID int64) *TaskRunner {
+// Runner returns the task's TaskRunner, registering one with no sandbox if the
+// task has none. The TaskRunner stays registered until Prune drops it; nothing
+// else does.
+func (m *TaskManager) Runner(taskID int64) *TaskRunner {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	tr := m.tasks[taskID]
@@ -531,23 +532,6 @@ func (m *TaskManager) lookup(taskID int64) *TaskRunner {
 		m.tasks[taskID] = tr
 	}
 	return tr
-}
-
-// Running reports whether the task's sandbox is up.
-func (m *TaskManager) Running(ctx context.Context, taskID int64) (bool, error) {
-	return m.lookup(taskID).Running(ctx)
-}
-
-// Remove destroys the task's sandbox and deletes its record; see
-// TaskRunner.Destroy.
-func (m *TaskManager) Remove(ctx context.Context, taskID int64) error {
-	return m.lookup(taskID).Destroy(ctx)
-}
-
-// Kill asks the driver of the task's sandbox to stop the recorded run, and
-// reports whether a running run was stopped; see TaskRunner.Kill.
-func (m *TaskManager) Kill(ctx context.Context, task *model.Task) (bool, error) {
-	return m.lookup(task.ID).Kill(ctx)
 }
 
 // spec assembles the sandbox spec for a task: the task token, the run's
@@ -637,7 +621,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 // without starting anything, and the caller gives back the concurrency slot it
 // acquired. The task token minted for the spec then goes unused.
 func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
-	tr := m.lookup(task.ID)
+	tr := m.Runner(task.ID)
 	spec, err := m.spec(ctx, task)
 	if err != nil {
 		return err
