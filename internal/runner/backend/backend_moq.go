@@ -217,6 +217,9 @@ var _ Sandbox = &SandboxMock{}
 //
 //		// make and configure a mocked Sandbox
 //		mockedSandbox := &SandboxMock{
+//			BootFunc: func(ctx context.Context) error {
+//				panic("mock out the Boot method")
+//			},
 //			DestroyFunc: func(ctx context.Context) error {
 //				panic("mock out the Destroy method")
 //			},
@@ -229,9 +232,6 @@ var _ Sandbox = &SandboxMock{}
 //			ParkFunc: func(ctx context.Context) error {
 //				panic("mock out the Park method")
 //			},
-//			StartFunc: func(ctx context.Context) error {
-//				panic("mock out the Start method")
-//			},
 //			StatusFunc: func(ctx context.Context) (Status, error) {
 //				panic("mock out the Status method")
 //			},
@@ -242,6 +242,9 @@ var _ Sandbox = &SandboxMock{}
 //
 //	}
 type SandboxMock struct {
+	// BootFunc mocks the Boot method.
+	BootFunc func(ctx context.Context) error
+
 	// DestroyFunc mocks the Destroy method.
 	DestroyFunc func(ctx context.Context) error
 
@@ -254,14 +257,16 @@ type SandboxMock struct {
 	// ParkFunc mocks the Park method.
 	ParkFunc func(ctx context.Context) error
 
-	// StartFunc mocks the Start method.
-	StartFunc func(ctx context.Context) error
-
 	// StatusFunc mocks the Status method.
 	StatusFunc func(ctx context.Context) (Status, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Boot holds details about calls to the Boot method.
+		Boot []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+		}
 		// Destroy holds details about calls to the Destroy method.
 		Destroy []struct {
 			// Ctx is the ctx argument value.
@@ -282,23 +287,50 @@ type SandboxMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// Start holds details about calls to the Start method.
-		Start []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-		}
 		// Status holds details about calls to the Status method.
 		Status []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
 	}
+	lockBoot    sync.RWMutex
 	lockDestroy sync.RWMutex
 	lockDial    sync.RWMutex
 	lockHandle  sync.RWMutex
 	lockPark    sync.RWMutex
-	lockStart   sync.RWMutex
 	lockStatus  sync.RWMutex
+}
+
+// Boot calls BootFunc.
+func (mock *SandboxMock) Boot(ctx context.Context) error {
+	if mock.BootFunc == nil {
+		panic("SandboxMock.BootFunc: method is nil but Sandbox.Boot was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockBoot.Lock()
+	mock.calls.Boot = append(mock.calls.Boot, callInfo)
+	mock.lockBoot.Unlock()
+	return mock.BootFunc(ctx)
+}
+
+// BootCalls gets all the calls that were made to Boot.
+// Check the length with:
+//
+//	len(mockedSandbox.BootCalls())
+func (mock *SandboxMock) BootCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockBoot.RLock()
+	calls = mock.calls.Boot
+	mock.lockBoot.RUnlock()
+	return calls
 }
 
 // Destroy calls DestroyFunc.
@@ -425,38 +457,6 @@ func (mock *SandboxMock) ParkCalls() []struct {
 	mock.lockPark.RLock()
 	calls = mock.calls.Park
 	mock.lockPark.RUnlock()
-	return calls
-}
-
-// Start calls StartFunc.
-func (mock *SandboxMock) Start(ctx context.Context) error {
-	if mock.StartFunc == nil {
-		panic("SandboxMock.StartFunc: method is nil but Sandbox.Start was just called")
-	}
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockStart.Lock()
-	mock.calls.Start = append(mock.calls.Start, callInfo)
-	mock.lockStart.Unlock()
-	return mock.StartFunc(ctx)
-}
-
-// StartCalls gets all the calls that were made to Start.
-// Check the length with:
-//
-//	len(mockedSandbox.StartCalls())
-func (mock *SandboxMock) StartCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockStart.RLock()
-	calls = mock.calls.Start
-	mock.lockStart.RUnlock()
 	return calls
 }
 

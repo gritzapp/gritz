@@ -23,24 +23,24 @@ import (
 // TaskRunner is the runner's state for a task: its sandbox, the task's record
 // in taskstate/, and the run being followed on it. It is the runner's object
 // for the task, not for one sandbox: it may have no sandbox yet, and it
-// outlives the sandbox it has. Start creates a sandbox and writes its record,
+// outlives the sandbox it has. Boot creates a sandbox and writes its record,
 // and Restore adopts the record a previous process wrote; Destroy and Retire
-// destroy the sandbox and delete its record, and Start and Restore delete the
+// destroy the sandbox and delete its record, and Boot and Restore delete the
 // record of a sandbox they find gone. The TaskRunner stays usable throughout,
-// and the next Start creates a fresh sandbox.
+// and the next Boot creates a fresh sandbox.
 type TaskRunner struct {
 	// opts is the TaskRunner's configuration, with its defaults applied.
 	opts TaskRunnerOptions
 	// mu serializes the TaskRunner's methods. Run holds it only to capture the
 	// sandbox it follows and to release its claim.
 	mu sync.Mutex
-	// sbx is the task's sbx, or nil while it has none. It is set by Start,
+	// sbx is the task's sbx, or nil while it has none. It is set by Boot,
 	// which creates it, or by Restore, and cleared by clear. Guarded by mu.
 	sbx backend.Sandbox
 	// rec is sb's record, as last written to taskstate/; zero while sb is nil.
 	// Guarded by mu.
 	rec taskstate.Record
-	// running is set from Start (or Restore) until Run returns, so a second run
+	// running is set from Boot (or Restore) until Run returns, so a second run
 	// is not started meanwhile. Guarded by mu.
 	running bool
 	// cancel cancels the context of the Run in progress, or is nil. Guarded by
@@ -52,7 +52,7 @@ type TaskRunner struct {
 type TaskRunnerOptions struct {
 	// TaskID is the task the TaskRunner runs.
 	TaskID int64
-	// Backend creates the sandbox Start needs, and opens the sandbox of a
+	// Backend creates the sandbox Boot needs, and opens the sandbox of a
 	// record Restore adopts. Required.
 	Backend backend.Backend
 	// Store holds the task's record. Required.
@@ -91,7 +91,7 @@ const (
 )
 
 // NewTaskRunner returns a TaskRunner for opts.TaskID with no sandbox. It has no
-// side effects: Start creates the sandbox and Restore adopts a record. It
+// side effects: Boot creates the sandbox and Restore adopts a record. It
 // panics if Backend, Store or Events is missing.
 func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 	switch {
@@ -137,7 +137,7 @@ func (TaskLostEvent) taskEvent()  {}
 // sandbox.
 var errRemoved = errors.New("sandbox removed")
 
-// ErrRunning is returned by Start when a Run still follows the task's previous
+// ErrRunning is returned by Boot when a Run still follows the task's previous
 // run, so nothing was started. Running can report false then: the sandbox may
 // already be parking after its run (a Lambda VM suspending).
 var ErrRunning = errors.New("sandbox is still running")
@@ -191,7 +191,7 @@ func (tr *TaskRunner) send(ctx context.Context, ev TaskEvent) {
 
 // clear deletes the task's record and leaves tr with no sandbox, which it
 // always does: a record that cannot be deleted is only logged, since it tracks
-// a sandbox that is gone or destroyed. The next Start overwrites it, and if
+// a sandbox that is gone or destroyed. The next Boot overwrites it, and if
 // there is none, the next boot's Load finds the sandbox gone and drops it. The
 // caller holds tr.mu.
 func (tr *TaskRunner) clear() {
@@ -223,18 +223,18 @@ func (tr *TaskRunner) Running(ctx context.Context) (bool, error) {
 	return st == backend.StatusUp, nil
 }
 
-// Start brings up the task's sandbox for run spec.Version, claiming tr for the
-// run Run then starts. With no sandbox, Start creates one from spec and records
+// Boot brings up the task's sandbox for run spec.Version, claiming tr for the
+// run Run then starts. With no sandbox, Boot creates one from spec and records
 // its handle; with one, it stamps the record with spec.Version and reuses it,
-// since a task is bound 1:1 to its sandbox. Then it starts the sandbox.
+// since a task is bound 1:1 to its sandbox. Then it boots the sandbox.
 //
-// If the sandbox is gone, Start deletes its record, leaving tr with no
+// If the sandbox is gone, Boot deletes its record, leaving tr with no
 // sandbox, and returns backend.ErrGone: the caller reports the run failed, and
-// the next Start creates a fresh sandbox. Any other failure to start it keeps
+// the next Boot creates a fresh sandbox. Any other failure to boot it keeps
 // the sandbox and its record, so Destroy can still destroy it. If a Run still
-// follows the task's previous run, Start returns ErrRunning without doing
+// follows the task's previous run, Boot returns ErrRunning without doing
 // anything.
-func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error {
+func (tr *TaskRunner) Boot(ctx context.Context, spec backend.Spec) error {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	if tr.running {
@@ -249,7 +249,7 @@ func (tr *TaskRunner) Start(ctx context.Context, spec backend.Spec) error {
 			return err
 		}
 	}
-	if err := tr.sbx.Start(ctx); errors.Is(err, backend.ErrGone) {
+	if err := tr.sbx.Boot(ctx); errors.Is(err, backend.ErrGone) {
 		tr.clear()
 		return backend.ErrGone
 	} else if err != nil {
@@ -281,7 +281,7 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 // Restore adopts rec, a record a previous process wrote, on a TaskRunner with
 // no sandbox yet, and reports the status of the sandbox it opens from rec's
 // handle. An up sandbox claims tr for a Run reattaching to the recorded run, in
-// the same lock acquisition that installs it, as Start does for a new run.
+// the same lock acquisition that installs it, as Boot does for a new run.
 //
 // A handle that cannot be opened, or a sandbox that is gone, leaves tr with no
 // sandbox and its record deleted; see clear. A failed status check keeps the
@@ -411,7 +411,7 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 	tr.cancel = cancel
 	sbx, version := tr.sbx, tr.rec.Version
 	if sbx == nil {
-		// Destroyed between Start and Run.
+		// Destroyed between Boot and Run.
 		cancel(errRemoved)
 	}
 	tr.mu.Unlock()

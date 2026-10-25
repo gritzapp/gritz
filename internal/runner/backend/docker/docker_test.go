@@ -43,7 +43,7 @@ func TestDial_TunnelsThroughExec(t *testing.T) {
 		t.Cleanup(func() {
 			_ = be.docker.ContainerRemove(context.Background(), sb.Handle().ID, container.RemoveOptions{Force: true})
 		})
-		assert.NilError(t, sb.Start(t.Context()))
+		assert.NilError(t, sb.Boot(t.Context()))
 
 		dialReady(t, sb)
 	}

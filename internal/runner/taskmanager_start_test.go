@@ -315,7 +315,7 @@ func TestTaskManagerPoll_StopSignalled(t *testing.T) {
 }
 
 // TestTaskManagerPoll_SlowDriver covers a driver that is slow to come up: Poll
-// returns once the sandbox is started, without waiting for it, and the run is
+// returns once the sandbox is booted, without waiting for it, and the run is
 // started once the driver answers.
 func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 	t.Parallel()
@@ -328,7 +328,7 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 	// Act - poll while the driver is not up.
 	assert.NilError(t, m.Poll(t.Context()))
 
-	// Assert - Poll returned with the sandbox started and the run pending.
+	// Assert - Poll returned with the sandbox booted and the run pending.
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Up)
 	assert.Equal(t, sbx.Runs, 0)
@@ -340,7 +340,7 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 	// Assert - the run started, and the driver reported it, so no event is
 	// owed and the sandbox is parked.
 	sbx, _ = be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.Starts, 1)
+	assert.Equal(t, sbx.Boots, 1)
 	assert.Equal(t, sbx.State, fake.Parked)
 	assert.Equal(t, m.Queued(t), 0)
 }
@@ -366,11 +366,11 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 	err = m.Poll(t.Context())
 	assert.NilError(t, err)
 
-	// Assert - no sandbox started or created, and no event.
+	// Assert - no sandbox booted or created, and no event.
 	snap := be.Snapshot()
 	assert.Assert(t, cmp.Len(snap.Specs, 0))
 	sbx, _ := snap.Sandbox("c1")
-	assert.Equal(t, sbx.Starts, 0)
+	assert.Equal(t, sbx.Boots, 0)
 	assert.Equal(t, m.Queued(t), 0)
 
 	// Act - a start command for another task.
@@ -395,14 +395,14 @@ func TestTaskManagerStart_Create(t *testing.T) {
 	// Act
 	err := m.Start(t.Context(), task)
 
-	// Assert - the sandbox was created for the task's run and started.
+	// Assert - the sandbox was created for the task's run and booted.
 	assert.NilError(t, err)
 	snap := be.Snapshot()
 	assert.Assert(t, cmp.Len(snap.Specs, 1))
 	assert.Equal(t, snap.Specs[0].TaskID, int64(1))
 	assert.Equal(t, snap.Specs[0].Version, int64(1))
 	sbx, _ := snap.Sandbox("c1")
-	assert.Equal(t, sbx.Starts, 1)
+	assert.Equal(t, sbx.Boots, 1)
 
 	// Assert - the driver ran the run and reported it, so no event is owed,
 	// and the sandbox is parked.
@@ -463,12 +463,12 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 			assert.NilError(t, m.Wait(t.Context()))
 
 			// Assert - no second sandbox was created: the recorded one was
-			// started and ran the new version, which the driver reported.
+			// booted and ran the new version, which the driver reported.
 			assert.NilError(t, err)
 			snap := be.Snapshot()
 			assert.Assert(t, cmp.Len(snap.Specs, 0))
 			sbx, _ := snap.Sandbox("c1")
-			assert.Equal(t, sbx.Starts, 1)
+			assert.Equal(t, sbx.Boots, 1)
 			assert.Equal(t, sbx.State, fake.Parked)
 			assert.Equal(t, m.Queued(t), 0)
 			m.AssertTracked(t, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "fake", ID: "c1"})
@@ -549,23 +549,23 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 	m.AssertTracked(t, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"})
 }
 
-// TestTaskManagerStart_StartFails covers a sandbox that cannot be started after
+// TestTaskManagerStart_BootFails covers a sandbox that cannot be booted after
 // Create: the record is kept, and Destroy destroys the sandbox.
-func TestTaskManagerStart_StartFails(t *testing.T) {
+func TestTaskManagerStart_BootFails(t *testing.T) {
 	t.Parallel()
-	// Arrange - the sandbox Start creates refuses to start.
+	// Arrange - the sandbox Start creates refuses to boot.
 	task := testrunner.Task(nil)
 	boom := errors.New("boom")
 	be := testrunner.NewBackend(t, nil)
-	be.FailNext(fake.OpStart, "", boom)
+	be.FailNext(fake.OpBoot, "", boom)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 
 	// Act
 	err := m.Start(t.Context(), task)
 
 	// Assert - Start failed with the record and sandbox kept and nothing run.
-	// The record surviving the failed start also shows it was written before
-	// the sandbox was started.
+	// The record surviving the failed boot also shows it was written before
+	// the sandbox was booted.
 	assert.ErrorIs(t, err, boom)
 	m.AssertRecord(t, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"})
 	sbx, _ := be.Snapshot().Sandbox("c1")

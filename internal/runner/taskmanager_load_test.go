@@ -497,13 +497,13 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	err = m.Start(t.Context(), testrunner.Task(nil))
 
 	// Assert - Start failed, the unrecorded sandbox was destroyed without
-	// being started, and the runner's root ctx is cancelled with a FatalError
+	// being booted, and the runner's root ctx is cancelled with a FatalError
 	// cause.
 	assert.ErrorContains(t, err, "failed to record task handle")
 	snap := be.Snapshot()
 	assert.DeepEqual(t, snap.Destroyed, []string{"c1"})
 	c1, _ := snap.Sandbox("c1")
-	assert.Equal(t, c1.Starts, 0)
+	assert.Equal(t, c1.Boots, 0)
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):
@@ -512,9 +512,9 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	var fatal runner.FatalError
 	assert.Assert(t, errors.As(context.Cause(ctx), &fatal))
 
-	// Probe, last - a Start creates again, so the failed write left the
+	// Probe, last - a Boot creates again, so the failed write left the
 	// TaskRunner with no sandbox. Its own write fails as well.
-	err = m.Runner(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: testrunner.ProbeVersion})
+	err = m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: testrunner.ProbeVersion})
 	assert.ErrorContains(t, err, "failed to record task handle")
 	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 2))
 }

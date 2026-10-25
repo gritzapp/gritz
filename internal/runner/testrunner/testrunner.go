@@ -39,7 +39,7 @@ const (
 	RunnerID = "test-runner"
 	// Workspace is the workspace a Manager has by default, and a Task uses.
 	Workspace = "test"
-	// ProbeVersion is the version AssertTracked's probe Start runs.
+	// ProbeVersion is the version AssertTracked's probe Boot runs.
 	ProbeVersion = 1000
 )
 
@@ -424,13 +424,13 @@ func (m *Manager) AssertRecord(t *testing.T, taskID int64, want *taskstate.Recor
 
 // AssertTracked asserts the task's record, as AssertRecord does, and that
 // its TaskRunner holds sandbox want.ID, or, with want nil, no sandbox. It
-// finds out by starting the TaskRunner at ProbeVersion, which changes its
+// finds out by booting the TaskRunner at ProbeVersion, which changes its
 // state and the record, so it is the last thing a test does with the task.
 func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *taskstate.Record) {
 	t.Helper()
 	m.AssertRecord(t, taskID, want)
 	before := m.Backend.Snapshot()
-	err := m.Runner(taskID).Start(t.Context(), backend.Spec{TaskID: taskID, Version: ProbeVersion})
+	err := m.Runner(taskID).Boot(t.Context(), backend.Spec{TaskID: taskID, Version: ProbeVersion})
 	after := m.Backend.Snapshot()
 	assert.Assert(t, !errors.Is(err, runner.ErrRunning), "task %d's TaskRunner is claimed, so it cannot be probed", taskID)
 	if want == nil {
@@ -438,12 +438,12 @@ func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *taskstate.Reco
 		assert.Equal(t, len(after.Specs), len(before.Specs)+1, "task %d's TaskRunner holds a sandbox", taskID)
 		return
 	}
-	// A TaskRunner holding want.ID starts it, and creates nothing.
+	// A TaskRunner holding want.ID boots it, and creates nothing.
 	assert.NilError(t, err)
 	assert.Equal(t, len(after.Specs), len(before.Specs), "task %d's TaskRunner held no sandbox", taskID)
 	was, _ := before.Sandbox(want.ID)
 	now, _ := after.Sandbox(want.ID)
-	assert.Equal(t, now.Starts, was.Starts+1, "task %d's TaskRunner does not hold %s", taskID, want.ID)
+	assert.Equal(t, now.Boots, was.Boots+1, "task %d's TaskRunner does not hold %s", taskID, want.ID)
 }
 
 // WaitRuns waits until the runner has made at least n Run calls on sandbox
