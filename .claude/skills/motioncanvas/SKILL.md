@@ -1,6 +1,6 @@
 ---
 name: motioncanvas
-description: Build animated architecture diagrams of gritz flows (server, runner, driver, sandbox backends) with Motion Canvas in diagrams/. Apply when asked to create, update, or fix a flow diagram or animation, or to visualize how components interact for a feature or a proposal.
+description: Build animated architecture diagrams of gritz flows (server, runner, driver, sandbox backends) with Motion Canvas in diagrams/. Apply when asked to create, update, or fix a flow diagram or animation, or to visualize how components interact for a feature or a proposal. Also apply when asked to step through a function line by line like a debugger, with the source beside the diagram.
 ---
 
 # Flow Diagrams (Motion Canvas)
@@ -45,7 +45,7 @@ diagrams/src/
   theme.ts                  Colors (one accent per component kind) and Fonts
   components/               Reusable building blocks (see below)
   layouts/
-    common.tsx              scaffold() (background, title, caption), linker()
+    common.tsx              scaffold() (background, title, caption), linker(), stepper()
     docker.tsx              Docker backend: client, server, postgres, runner host, container
   scenes/<flow>.tsx         One flow per scene
   projects/<flow>.ts        One project per scene (what the editor lists)
@@ -69,6 +69,7 @@ only show up after restarting the editor.
 | `StateTable` | State a component owns: a DB row, a directory, in-memory counters, a file on disk. Anchor with `offset={[0, -1]}` so it grows downward. | `addRow`, `setRow` (adds if missing), `dropRow`, `flash(key?)`; `putRow` sets rows without animating, for initial state |
 | `Link` | A standing connection between two components, labelled with the protocol. Endpoints track the components. | `send(text, {back, color})`, `rpc(req, resp, opts)` |
 | `Caption` | The numbered narration bar at the bottom. | `show(step, text)` |
+| `CodeView` | A panel of Go source (highlighted with `@lezer/go`) with a debugger-style current line: lit and marked by a bar, the rest dimmed. Takes `code`, `fontSize`, `lineHeight`. | `goto(line)`; `lineOf(text, nth?)` finds a line by its text |
 
 Packets are colored by the **sender's** accent (`Colors.runner`,
 `Colors.server`, `Colors.driver`, `Colors.client` for AWS/clients).
@@ -117,6 +118,31 @@ Packets are colored by the **sender's** accent (`Colors.runner`,
    overlapping each other or panel titles, and tables overflowing their
    panels. Fix by moving components, then by moving labels with the link's
    `labelAt` (0 = from, 1 = to). Delete the screenshots afterwards.
+
+## Code walkthroughs
+
+A walkthrough steps through one function like a debugger: the source sits on
+the left in a `CodeView`, a reduced architecture diagram sits on the right,
+and each step moves the current line and animates that line's effect (a
+packet, a row change, an activity update). The function's locals are a
+`StateTable` beside the component that runs it.
+
+- **Layout.** Split the 1920x1080 canvas: `CodeView` around `x={-440}`,
+  `width={1000}`, `height={876}`; the components in panels on the right half
+  (`x` around 500, `width` ~840). Only include the components the function
+  touches. A 44-line function fits at `fontSize={15}` `lineHeight={18}`.
+- **Source.** Paste the function as a string constant in the scene, cut down
+  to fit: drop logging and error wrapping, wrap a long signature, keep every
+  branch. Say in the header comment what was removed.
+- **Steps.** `const step = stepper(a.source, a.caption)` from `common.tsx`;
+  `yield* step('attachOnce(', 'caption')` moves to the first line containing
+  that text (pass `nth` for a repeated line). Each step is a slide: in the
+  editor's presentation mode Space or → advances one line (Enter is not
+  bound). Normal playback and the published player play straight through.
+- **Scenario.** Pick one concrete run that loops more than once and takes the
+  interesting branches (a retry, a reset, the exit). Step into a branch's
+  body only when it is taken; for a skipped guard, stop on the `if` line
+  and say why it does not fire.
 
 ## Gotchas
 

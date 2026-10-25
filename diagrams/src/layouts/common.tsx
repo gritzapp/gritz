@@ -1,6 +1,6 @@
 import {Layout, Node, Txt, View2D} from '@motion-canvas/2d';
-import {createRef} from '@motion-canvas/core';
-import {Caption, Link} from '../components';
+import {all, beginSlide, createRef, waitFor} from '@motion-canvas/core';
+import {Caption, CodeView, Link} from '../components';
 import {Colors, Fonts} from '../theme';
 
 // Scaffold is the frame every layout shares: background, title, and caption.
@@ -42,5 +42,19 @@ export function linker(view: View2D) {
     const link = new Link({from, to, label, labelAt});
     layer().add(link);
     return link;
+  };
+}
+
+// stepper returns a function that steps a CodeView like a debugger: each call
+// is a slide (Space or → advances it in presentation mode) that moves the
+// current line to the first line containing needle (or its nth match) and
+// shows the next numbered caption. Animate the line's effects after it.
+export function stepper(source: CodeView, caption: Caption) {
+  let n = 0;
+  return function* step(needle: string, text: string, nth?: number) {
+    yield* waitFor(0.6);
+    n++;
+    yield* beginSlide(`step ${n}`);
+    yield* all(source.goto(source.lineOf(needle, nth)), caption.show(n, text));
   };
 }

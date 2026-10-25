@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@lezer/go':
+        specifier: ^1.0.1
+        version: 1.0.1
       '@motion-canvas/2d':
         specifier: 3.17.2
         version: 3.17.2
@@ -182,6 +185,9 @@ packages:
 
   '@lezer/common@1.5.3':
     resolution: {integrity: sha512-H0iErY4e43LpXbYDyBci5W4v/RwTgGV3YzYOlJPiGZ8RY8w51kVE+xLn1tg3Z6UmSfyETvtsUK3r7YsgDQEI7Q==}
+
+  '@lezer/go@1.0.1':
+    resolution: {integrity: sha512-xToRsYxwsgJNHTgNdStpcvmbVuKxTapV0dM0wey1geMMRc9aggoVyKgzYp41D2/vVOx+Ii4hmE206kvxIXBVXQ==}
 
   '@lezer/highlight@1.2.5':
     resolution: {integrity: sha512-O1GMVKgtf5YspFaRzpmqkVgMtIk2HG9uMAbH6wdAIdNh3TVzCsch/+cRi+6l2//UGDKe6NB9BW3cvuR5ezMQ0w==}
@@ -691,6 +697,12 @@ snapshots:
     optional: true
 
   '@lezer/common@1.5.3': {}
+
+  '@lezer/go@1.0.1':
+    dependencies:
+      '@lezer/common': 1.5.3
+      '@lezer/highlight': 1.2.5
+      '@lezer/lr': 1.4.10
 
   '@lezer/highlight@1.2.5':
     dependencies:
