@@ -917,6 +917,69 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 	assertReported(t, m, queue, parked)
 }
 
+// TestTaskManagerWait covers Wait after a run: it returns once the run's
+// goroutine has, with the slot released and the sandbox parked.
+func TestTaskManagerWait(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
+	_, client, _ := newDriver(t, 1, nil)
+	sb, parked := testSandbox(client)
+	sb.StartFunc = func(context.Context) error { return nil }
+	be := &backend.BackendMock{
+		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
+	}
+	m, _, _ := testManager(t, be, testStore(t))
+	assert.NilError(t, startTask(t, m, task))
+
+	// Act
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	err := m.Wait(ctx)
+
+	// Assert - the run is done: its slot is free and its sandbox parked.
+	assert.NilError(t, err)
+	assert.Assert(t, m.sem.TryAcquire(1))
+	select {
+	case <-parked:
+	default:
+		t.Fatal("sandbox was not parked")
+	}
+}
+
+// TestTaskManagerWait_Done covers Wait on a done ctx while a run is still
+// followed: it returns ctx's cause without waiting for the run.
+func TestTaskManagerWait_Done(t *testing.T) {
+	t.Parallel()
+	// Arrange - a run whose driver fails every call until ready is closed.
+	task := &model.Task{ID: 1, Runner: "test-runner", Workspace: "test", Version: 1}
+	ready := make(chan struct{})
+	_, client, _ := newDriver(t, 1, ready)
+	sb, _ := testSandbox(client)
+	sb.StartFunc = func(context.Context) error { return nil }
+	be := &backend.BackendMock{
+		ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+		CreateFunc:            func(context.Context, *backend.Spec) (backend.Sandbox, error) { return sb, nil },
+	}
+	m, _, _ := testManager(t, be, testStore(t))
+	assert.NilError(t, startTask(t, m, task))
+	boom := errors.New("boom")
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(boom)
+
+	// Act
+	err := m.Wait(ctx)
+
+	// Assert - Wait returned ctx's cause; once the driver comes up, the run
+	// finishes and Wait returns nil.
+	assert.ErrorIs(t, err, boom)
+	close(ready)
+	ctx, cancelTimeout := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancelTimeout()
+	assert.NilError(t, m.Wait(ctx))
+}
+
 // TestTaskManagerStart_NotReady covers a driver that never comes up: the run
 // is reported failed, the sandbox parked and the slot released, and the record
 // kept.

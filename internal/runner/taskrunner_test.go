@@ -389,7 +389,7 @@ func TestTaskRunnerStart(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.ErrorIs(t, again, errRunning)
+	assert.ErrorIs(t, again, ErrRunning)
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})
 }
@@ -453,7 +453,7 @@ func TestTaskRunnerStart_Concurrent(t *testing.T) {
 	// Assert - one Start created and started the sandbox, the other started
 	// nothing.
 	assert.Assert(t, (first == nil) != (second == nil), "first: %v, second: %v", first, second)
-	assert.ErrorIs(t, errors.Join(first, second), errRunning)
+	assert.ErrorIs(t, errors.Join(first, second), ErrRunning)
 	assert.Assert(t, cmp.Len(be.CreateCalls(), 1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 1))
 	assertTracked(t, m, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "docker", ID: "c1"})

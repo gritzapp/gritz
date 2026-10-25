@@ -55,6 +55,9 @@ type TaskManager struct {
 	// newTaskRunner builds the manager's TaskRunners; see
 	// TaskManagerOptions.NewTaskRunner.
 	newTaskRunner func(opts TaskRunnerOptions) *TaskRunner
+	// runs counts the Run goroutines run started that have not returned; see
+	// Wait.
+	runs sync.WaitGroup
 
 	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
 	// task the runner has seen, from its first command (or its record, at
@@ -263,6 +266,24 @@ func (m *TaskManager) Run(ctx context.Context) error {
 	}
 }
 
+// Wait blocks until every Run goroutine the manager started has returned, or
+// ctx is done, when it returns ctx's cause. It must not be called while the
+// manager can still start runs (Poll, Load, or Run's loop): each of them can
+// start a Run goroutine, which must not join the wait once it has begun.
+func (m *TaskManager) Wait(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.runs.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	}
+}
+
 func (m *TaskManager) Close() error {
 	return m.backend.Close()
 }
@@ -363,7 +384,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 					return nil
 				}
 				err := m.Start(ctx, task)
-				if errors.Is(err, errRunning) {
+				if errors.Is(err, ErrRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
 					m.sem.Release(1)
@@ -413,7 +434,7 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 					return nil
 				}
 				err = m.Start(ctx, task)
-				if errors.Is(err, errRunning) {
+				if errors.Is(err, ErrRunning) {
 					// Nothing was started, so the slot goes back; the
 					// command is retried on a later poll.
 					m.sem.Release(1)
@@ -617,7 +638,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 // driver and starting the run happen in Run, so a slow sandbox does not hold
 // up the poll pass. A failure there is reported as the run's "failed".
 //
-// If a Run still follows the task's previous run, Start returns errRunning
+// If a Run still follows the task's previous run, Start returns ErrRunning
 // without starting anything, and the caller gives back the concurrency slot it
 // acquired. The task token minted for the spec then goes unused.
 func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
@@ -668,7 +689,9 @@ func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 // runner is shutting down: then the slot stays held and the sandbox is left
 // for the next boot.
 func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.RunSpec) {
+	m.runs.Add(1)
 	go func() {
+		defer m.runs.Done()
 		if err := tr.Run(ctx, spec); err != nil {
 			return
 		}
