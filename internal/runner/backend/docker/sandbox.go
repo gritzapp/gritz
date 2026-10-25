@@ -56,8 +56,8 @@ func (s *sandbox) Handle() backend.Handle {
 	return backend.Handle{Type: HandleType, ID: s.id}
 }
 
-// Start starts the container. Starting a running container is a no-op.
-func (s *sandbox) Start(ctx context.Context) error {
+// Boot starts the container. Booting a running container is a no-op.
+func (s *sandbox) Boot(ctx context.Context) error {
 	err := s.b.docker.ContainerStart(ctx, s.id, container.StartOptions{})
 	if cerrdefs.IsNotFound(err) {
 		return backend.ErrGone

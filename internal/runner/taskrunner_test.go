@@ -237,15 +237,15 @@ func TestTaskRunnerRun_Destroyed(t *testing.T) {
 }
 
 // TestTaskRunnerRun_DestroyedBeforeRun covers a TaskRunner destroyed after
-// Start claimed it but before its Run began: the run is lost without being
+// Boot claimed it but before its Run began: the run is lost without being
 // started.
 func TestTaskRunnerRun_DestroyedBeforeRun(t *testing.T) {
 	t.Parallel()
-	// Arrange - a parked sandbox, started and then destroyed.
+	// Arrange - a parked sandbox, booted and then destroyed.
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Parked)
 	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
-	assert.NilError(t, tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}))
+	assert.NilError(t, tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4}))
 	assert.NilError(t, tr.Destroy(t.Context()))
 
 	// Act
@@ -264,10 +264,10 @@ func TestTaskRunnerRun_DestroyedBeforeRun(t *testing.T) {
 	m.AssertTracked(t, 1, nil)
 }
 
-// TestTaskRunnerStart covers starting runs on a TaskRunner: Start stamps the
+// TestTaskRunnerBoot covers booting a TaskRunner for runs: Boot stamps the
 // record with the run's version, and refuses a second run while the first is
 // claimed.
-func TestTaskRunnerStart(t *testing.T) {
+func TestTaskRunnerBoot(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	be := testrunner.NewBackend(t, nil)
@@ -275,10 +275,10 @@ func TestTaskRunnerStart(t *testing.T) {
 	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
 
 	// Act
-	err := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
-	again := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 5})
+	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+	again := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 5})
 
-	// Assert - the first Start reused c1 and started it; the second, refused,
+	// Assert - the first Boot reused c1 and booted it; the second, refused,
 	// left the record at the first's version. The refusal shows the TaskRunner
 	// is claimed, which also rules out probing it.
 	assert.NilError(t, err)
@@ -287,13 +287,13 @@ func TestTaskRunnerStart(t *testing.T) {
 	assert.Assert(t, cmp.Len(snap.Specs, 0))
 	sbx, _ := snap.Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Starts, 1)
+	assert.Equal(t, sbx.Boots, 1)
 	m.AssertRecord(t, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "fake", ID: "c1"})
 }
 
-// TestTaskRunnerStart_Create covers starting a TaskRunner with no sandbox:
-// Start creates one from the spec, records its handle, and starts it.
-func TestTaskRunnerStart_Create(t *testing.T) {
+// TestTaskRunnerBoot_Create covers booting a TaskRunner with no sandbox:
+// Boot creates one from the spec, records its handle, and boots it.
+func TestTaskRunnerBoot_Create(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	be := testrunner.NewBackend(t, nil)
@@ -301,7 +301,7 @@ func TestTaskRunnerStart_Create(t *testing.T) {
 	tr := m.Runner(1)
 
 	// Act
-	err := tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
 
 	// Assert - the TaskRunner is claimed, so the store and the fake tell what
 	// it did.
@@ -310,37 +310,37 @@ func TestTaskRunnerStart_Create(t *testing.T) {
 	assert.DeepEqual(t, snap.Specs, []backend.Spec{{TaskID: 1, Version: 4}})
 	sbx, _ := snap.Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Starts, 1)
+	assert.Equal(t, sbx.Boots, 1)
 	m.AssertRecord(t, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "fake", ID: "c1"})
 }
 
-// TestTaskRunnerStart_StartFails covers a sandbox Start creates but cannot
-// start: the error is returned, and the TaskRunner keeps the sandbox and its
+// TestTaskRunnerBoot_BootFails covers a sandbox Boot creates but cannot
+// boot: the error is returned, and the TaskRunner keeps the sandbox and its
 // record, unclaimed.
-func TestTaskRunnerStart_StartFails(t *testing.T) {
+func TestTaskRunnerBoot_BootFails(t *testing.T) {
 	t.Parallel()
-	// Arrange - the sandbox Start creates refuses to start.
+	// Arrange - the sandbox Boot creates refuses to boot.
 	boom := errors.New("boom")
 	be := testrunner.NewBackend(t, nil)
-	be.FailNext(fake.OpStart, "", boom)
+	be.FailNext(fake.OpBoot, "", boom)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 
 	// Act
-	err := m.Runner(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+	err := m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
 
-	// Assert - the record surviving the failed start shows it was written
-	// before the sandbox was started.
+	// Assert - the record surviving the failed boot shows it was written
+	// before the sandbox was booted.
 	assert.ErrorIs(t, err, boom)
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Created)
-	assert.Equal(t, sbx.Starts, 0)
+	assert.Equal(t, sbx.Boots, 0)
 	m.AssertTracked(t, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "fake", ID: "c1"})
 }
 
-// TestTaskRunnerStart_Concurrent covers two Starts racing on a task with no
-// sandbox: one sandbox is created and started, and the other Start finds it
+// TestTaskRunnerBoot_Concurrent covers two Boots racing on a task with no
+// sandbox: one sandbox is created and booted, and the other Boot finds it
 // claimed.
-func TestTaskRunnerStart_Concurrent(t *testing.T) {
+func TestTaskRunnerBoot_Concurrent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	be := testrunner.NewBackend(t, nil)
@@ -349,18 +349,18 @@ func TestTaskRunnerStart_Concurrent(t *testing.T) {
 	// Act
 	errs := make(chan error, 2)
 	for range 2 {
-		go func() { errs <- m.Runner(1).Start(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
+		go func() { errs <- m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
 	}
 	first, second := <-errs, <-errs
 
-	// Assert - one Start created and started the sandbox, the other started
+	// Assert - one Boot created and booted the sandbox, the other booted
 	// nothing.
 	assert.Assert(t, (first == nil) != (second == nil), "first: %v, second: %v", first, second)
 	assert.ErrorIs(t, errors.Join(first, second), runner.ErrRunning)
 	snap := be.Snapshot()
 	assert.Assert(t, cmp.Len(snap.Specs, 1))
 	sbx, _ := snap.Sandbox("c1")
-	assert.Equal(t, sbx.Starts, 1)
+	assert.Equal(t, sbx.Boots, 1)
 	m.AssertRecord(t, 1, &taskstate.Record{TaskID: 1, Version: 4, Type: "fake", ID: "c1"})
 }
 
@@ -430,10 +430,10 @@ func TestTaskRunnerRestore(t *testing.T) {
 			// Restore never destroys, even a gone sandbox.
 			assert.Assert(t, cmp.Len(be.Snapshot().Destroyed, 0))
 
-			// Probe, last - a Start shows what the TaskRunner holds: claimed
-			// refuses, c1 is started, and no sandbox means a Create.
+			// Probe, last - a Boot shows what the TaskRunner holds: claimed
+			// refuses, c1 is booted, and no sandbox means a Create.
 			before := be.Snapshot()
-			err = tr.Start(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+			err = tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
 			after := be.Snapshot()
 			was, _ := before.Sandbox("c1")
 			now, _ := after.Sandbox("c1")
@@ -442,7 +442,7 @@ func TestTaskRunnerRestore(t *testing.T) {
 				assert.ErrorIs(t, err, runner.ErrRunning)
 			case tt.wantSandbox:
 				assert.NilError(t, err)
-				assert.Equal(t, now.Starts, was.Starts+1, "TaskRunner does not hold c1")
+				assert.Equal(t, now.Boots, was.Boots+1, "TaskRunner does not hold c1")
 				assert.Equal(t, len(after.Specs), 0, "TaskRunner held no sandbox")
 			default:
 				assert.NilError(t, err)

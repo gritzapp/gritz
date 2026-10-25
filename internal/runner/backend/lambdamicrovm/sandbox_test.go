@@ -43,7 +43,7 @@ func open(t *testing.T, be *Backend, h backend.Handle) backend.Sandbox {
 	return sb
 }
 
-// A sandbox goes through its whole life: created, started, dialed, parked,
+// A sandbox goes through its whole life: created, booted, dialed, parked,
 // resumed and destroyed, after which it is gone.
 func TestSandbox_Lifecycle(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy})
@@ -56,11 +56,11 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStatePending)
 	assertStatus(t, sb, backend.StatusParked)
 
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateRunning)
 	assertStatus(t, sb, backend.StatusUp)
-	// Starting a running VM is a no-op.
-	assert.NilError(t, sb.Start(t.Context()))
+	// Booting a running VM is a no-op.
+	assert.NilError(t, sb.Boot(t.Context()))
 
 	client, err := sb.Dial(t.Context(), "jwt")
 	assert.NilError(t, err)
@@ -73,12 +73,12 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	// Parking a suspended VM is a no-op.
 	assert.NilError(t, sb.Park(t.Context()))
 
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateRunning)
 
 	assert.NilError(t, sb.Destroy(t.Context()))
 	assertStatus(t, sb, backend.StatusGone)
-	assert.ErrorIs(t, sb.Start(t.Context()), backend.ErrGone)
+	assert.ErrorIs(t, sb.Boot(t.Context()), backend.ErrGone)
 	assert.ErrorIs(t, sb.Park(t.Context()), backend.ErrGone)
 	assert.NilError(t, sb.Destroy(t.Context()))
 
@@ -157,7 +157,7 @@ func TestSandbox_Status(t *testing.T) {
 	}
 }
 
-func TestSandbox_Start(t *testing.T) {
+func TestSandbox_Boot(t *testing.T) {
 	tests := []struct {
 		state   types.MicrovmState // "" for a VM that is not found
 		resumed bool
@@ -168,7 +168,7 @@ func TestSandbox_Start(t *testing.T) {
 		{state: types.MicrovmStatePending, final: types.MicrovmStateRunning},
 		{state: types.MicrovmStateRunning, final: types.MicrovmStateRunning},
 		{state: types.MicrovmStateSuspended, resumed: true, final: types.MicrovmStateRunning},
-		// Start's GetMicrovm settles the fake's suspend; it is not resumed.
+		// Boot's GetMicrovm settles the fake's suspend; it is not resumed.
 		{state: types.MicrovmStateSuspending, final: types.MicrovmStateSuspended, errMsg: "still suspending"},
 		{state: types.MicrovmStateTerminating, final: types.MicrovmStateTerminating, err: backend.ErrGone},
 		{state: types.MicrovmStateTerminated, final: types.MicrovmStateTerminated, err: backend.ErrGone},
@@ -182,7 +182,7 @@ func TestSandbox_Start(t *testing.T) {
 			}
 			sb := open(t, be, sandboxHandle("mvm-9", "vm.example.com"))
 
-			err := sb.Start(t.Context())
+			err := sb.Boot(t.Context())
 
 			switch {
 			case tt.err != nil:
@@ -333,7 +333,7 @@ func TestSandbox_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
-			assert.Check(t, sb.Start(t.Context()))
+			assert.Check(t, sb.Boot(t.Context()))
 			_, err := sb.Status(t.Context())
 			assert.Check(t, err)
 			client, err := sb.Dial(t.Context(), "jwt")

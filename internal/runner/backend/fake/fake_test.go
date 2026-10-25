@@ -32,7 +32,7 @@ func TestSandbox(t *testing.T) {
 			_, err := sb.Status(ctx)
 			return err
 		},
-		"start":   func(ctx context.Context, sb backend.Sandbox) error { return sb.Start(ctx) },
+		"boot":    func(ctx context.Context, sb backend.Sandbox) error { return sb.Boot(ctx) },
 		"park":    func(ctx context.Context, sb backend.Sandbox) error { return sb.Park(ctx) },
 		"destroy": func(ctx context.Context, sb backend.Sandbox) error { return sb.Destroy(ctx) },
 		"dial": func(ctx context.Context, sb backend.Sandbox) error {
@@ -58,28 +58,28 @@ func TestSandbox(t *testing.T) {
 		want       fake.Info
 	}{
 		{from: fake.Created, op: "status", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created}},
-		{from: fake.Created, op: "start", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Starts: 1}},
+		{from: fake.Created, op: "boot", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Boots: 1}},
 		{from: fake.Created, op: "park", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created, Parks: 1}},
 		{from: fake.Created, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
 		{from: fake.Created, op: "dial", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created, Dials: 1}},
 		{from: fake.Created, op: "handle", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created}},
 
 		{from: fake.Up, op: "status", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up}},
-		{from: fake.Up, op: "start", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Starts: 1}},
+		{from: fake.Up, op: "boot", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Boots: 1}},
 		{from: fake.Up, op: "park", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked, Parks: 1}},
 		{from: fake.Up, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
 		{from: fake.Up, op: "dial", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Dials: 1}},
 		{from: fake.Up, op: "handle", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up}},
 
 		{from: fake.Parked, op: "status", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked}},
-		{from: fake.Parked, op: "start", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Starts: 1}},
+		{from: fake.Parked, op: "boot", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Boots: 1}},
 		{from: fake.Parked, op: "park", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked, Parks: 1}},
 		{from: fake.Parked, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
 		{from: fake.Parked, op: "dial", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked, Dials: 1}},
 		{from: fake.Parked, op: "handle", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked}},
 
 		{from: fake.Gone, op: "status", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
-		{from: fake.Gone, op: "start", wantErr: backend.ErrGone, wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
+		{from: fake.Gone, op: "boot", wantErr: backend.ErrGone, wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
 		{from: fake.Gone, op: "park", wantErr: backend.ErrGone, wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
 		{from: fake.Gone, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
 		{from: fake.Gone, op: "dial", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Dials: 1}},
@@ -170,8 +170,8 @@ func TestBackendOpen_AfterCreate(t *testing.T) {
 	opened, err := be.Open(created.Handle())
 	assert.NilError(t, err)
 
-	// Act - start through the opened handle.
-	assert.NilError(t, opened.Start(t.Context()))
+	// Act - boot through the opened handle.
+	assert.NilError(t, opened.Boot(t.Context()))
 
 	// Assert - the created handle sees it, and changes the same sandbox.
 	st, err := created.Status(t.Context())
@@ -180,7 +180,7 @@ func TestBackendOpen_AfterCreate(t *testing.T) {
 	assert.NilError(t, created.Park(t.Context()))
 	got, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, got.State, fake.Parked)
-	assert.Equal(t, got.Starts, 1)
+	assert.Equal(t, got.Boots, 1)
 	assert.Equal(t, got.Parks, 1)
 }
 
@@ -201,7 +201,7 @@ func TestBackendOpen_Shared(t *testing.T) {
 	st, err := second.Status(t.Context())
 	assert.NilError(t, err)
 	assert.Equal(t, st, backend.StatusGone)
-	assert.ErrorIs(t, second.Start(t.Context()), backend.ErrGone)
+	assert.ErrorIs(t, second.Boot(t.Context()), backend.ErrGone)
 	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
 }
 
@@ -256,7 +256,7 @@ func TestSandbox_Stale(t *testing.T) {
 
 	// Act
 	st, statusErr := sb.Status(t.Context())
-	startErr := sb.Start(t.Context())
+	bootErr := sb.Boot(t.Context())
 	parkErr := sb.Park(t.Context())
 	destroyErr := sb.Destroy(t.Context())
 	client, dialErr := sb.Dial(t.Context(), "jwt")
@@ -264,7 +264,7 @@ func TestSandbox_Stale(t *testing.T) {
 	// Assert
 	assert.NilError(t, statusErr)
 	assert.Equal(t, st, backend.StatusGone)
-	assert.ErrorIs(t, startErr, backend.ErrGone)
+	assert.ErrorIs(t, bootErr, backend.ErrGone)
 	assert.ErrorIs(t, parkErr, backend.ErrGone)
 	assert.NilError(t, destroyErr)
 	assert.NilError(t, dialErr)
@@ -375,9 +375,9 @@ func TestSandboxDial_NotUp(t *testing.T) {
 	}
 }
 
-func TestSandboxDial_Started(t *testing.T) {
+func TestSandboxDial_Booted(t *testing.T) {
 	t.Parallel()
-	// Arrange - a parked sandbox dialed before it is started.
+	// Arrange - a parked sandbox dialed before it is booted.
 	drv := newStubDriver(t)
 	be := newDriverBackend(t, drv.dial)
 	sb := mustOpen(t, be, be.Add("c1", fake.Parked))
@@ -386,7 +386,7 @@ func TestSandboxDial_Started(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 
 	// Act
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 
 	// Assert - the same client now reaches the driver.
 	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
@@ -420,7 +420,7 @@ func TestSandboxDial_RunSpecs(t *testing.T) {
 	// Act - a start while parked, then once up a start and an attach.
 	_, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1, Spec: &driverv1.RunSpec{TaskId: 9}})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 2, Spec: spec})
 	assert.NilError(t, err)
 	assert.Assert(t, stream.Receive(), stream.Err())
@@ -522,7 +522,7 @@ func TestBackendDriverNotReady(t *testing.T) {
 	added := mustOpen(t, be, be.Add("a", fake.Up))
 	created, err := be.Create(t.Context(), &backend.Spec{TaskID: 1})
 	assert.NilError(t, err)
-	assert.NilError(t, created.Start(t.Context()))
+	assert.NilError(t, created.Boot(t.Context()))
 
 	// Act
 	_, errAdded := mustDial(t, added).Status(t.Context(), &driverv1.StatusRequest{})
@@ -690,14 +690,14 @@ func TestSnapshotLive(t *testing.T) {
 
 func TestBackendWait(t *testing.T) {
 	t.Parallel()
-	// Arrange - a sandbox another goroutine starts once Wait is blocked.
+	// Arrange - a sandbox another goroutine boots once Wait is blocked.
 	be := fake.New(fake.Options{})
 	sb, err := be.Open(be.Add("c1", fake.Parked))
 	assert.NilError(t, err)
 	checked := make(chan struct{}, 1)
 	go func() {
 		<-checked
-		_ = sb.Start(context.Background())
+		_ = sb.Boot(context.Background())
 	}()
 
 	// Act
@@ -714,7 +714,7 @@ func TestBackendWait(t *testing.T) {
 	assert.NilError(t, err)
 	got, _ := snap.Sandbox("c1")
 	assert.Equal(t, got.State, fake.Up)
-	assert.Equal(t, got.Starts, 1)
+	assert.Equal(t, got.Boots, 1)
 }
 
 func TestBackendWaitState(t *testing.T) {
@@ -841,8 +841,8 @@ func TestBackendFailNext(t *testing.T) {
 			_, err := be.Open(h)
 			return err
 		},
-		fake.OpStart: func(t *testing.T, be *fake.Backend) error {
-			return mustOpen(t, be, h).Start(t.Context())
+		fake.OpBoot: func(t *testing.T, be *fake.Backend) error {
+			return mustOpen(t, be, h).Boot(t.Context())
 		},
 		fake.OpPark: func(t *testing.T, be *fake.Backend) error {
 			return mustOpen(t, be, h).Park(t.Context())
@@ -894,13 +894,13 @@ func TestBackendFailNext_PerSandbox(t *testing.T) {
 	be := fake.New(fake.Options{})
 	a := mustOpen(t, be, be.Add("a", fake.Parked))
 	b := mustOpen(t, be, be.Add("b", fake.Parked))
-	be.FailNext(fake.OpStart, "b", errBoom)
+	be.FailNext(fake.OpBoot, "b", errBoom)
 
 	// Act
-	errA := a.Start(t.Context())
-	errB := b.Start(t.Context())
+	errA := a.Boot(t.Context())
+	errB := b.Boot(t.Context())
 
-	// Assert - only b's Start failed.
+	// Assert - only b's Boot failed.
 	assert.NilError(t, errA)
 	assert.ErrorIs(t, errB, errBoom)
 	gotA, _ := be.Snapshot().Sandbox("a")
@@ -971,7 +971,7 @@ func TestBackendFailNext_Panics(t *testing.T) {
 		want string
 	}{
 		{name: "invalid op", op: fake.Op(0), err: errors.New("boom"), want: "fake: FailNext with invalid Op(0)"},
-		{name: "nil error", op: fake.OpStart, id: "c1", want: `fake: FailNext(start, "c1") with a nil error`},
+		{name: "nil error", op: fake.OpBoot, id: "c1", want: `fake: FailNext(boot, "c1") with a nil error`},
 		{name: "create with id", op: fake.OpCreate, id: "c1", err: errors.New("boom"), want: `fake: FailNext(create, "c1"): Create has no sandbox id`},
 	}
 	for _, tt := range tests {

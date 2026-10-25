@@ -113,10 +113,10 @@ func (s *sandbox) observe(vm *lambdamicrovms.GetMicrovmOutput) {
 	s.endpoint = aws.ToString(vm.Endpoint)
 }
 
-// Start waits for a PENDING VM to be RUNNING, or resumes a SUSPENDED one and
+// Boot waits for a PENDING VM to be RUNNING, or resumes a SUSPENDED one and
 // waits. A RUNNING VM is left as it is. A SUSPENDING VM is a plain error, and a
 // terminating, terminated or missing one backend.ErrGone.
-func (s *sandbox) Start(ctx context.Context) error {
+func (s *sandbox) Boot(ctx context.Context) error {
 	vm, err := s.b.boot(ctx, s.id())
 	if err != nil {
 		return err

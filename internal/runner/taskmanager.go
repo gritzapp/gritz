@@ -632,7 +632,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 // Start brings up the task's sandbox and starts the task's run on it, on a Run
 // goroutine. The task's TaskRunner creates the sandbox if it has none, or
 // reuses it, and stamps the record with the task's version; see
-// TaskRunner.Start for what a failure leaves behind.
+// TaskRunner.Boot for what a failure leaves behind.
 //
 // Start returns once the platform reports the sandbox running: waiting for the
 // driver and starting the run happen in Run, so a slow sandbox does not hold
@@ -647,7 +647,7 @@ func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
 	if err != nil {
 		return err
 	}
-	if err := tr.Start(ctx, *spec); err != nil {
+	if err := tr.Boot(ctx, *spec); err != nil {
 		return err
 	}
 	// Follow the run on the runner's root context: the run is started there,

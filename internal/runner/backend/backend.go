@@ -4,7 +4,7 @@
 // proposals/accepted/runner-backend-interface.md and
 // proposals/draft/shared-runner-taskstate.md.
 //
-// Backends do runtime work only — create, start, park, destroy — over opaque
+// Backends do runtime work only — create, boot, park, destroy — over opaque
 // Handles. They never persist, discover, or reconcile task→sandbox
 // state: the runner owns the taskstate store and is the only writer. It
 // translates between a backend.Handle and a taskstate.Record at the boundary.
@@ -21,7 +21,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 )
 
-// ErrGone means a sandbox no longer exists: Sandbox's Start and Park return
+// ErrGone means a sandbox no longer exists: Sandbox's Boot and Park return
 // it for a sandbox that is gone.
 var ErrGone = errors.New("backend: sandbox is gone")
 

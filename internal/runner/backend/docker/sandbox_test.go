@@ -63,7 +63,7 @@ func dialReady(t *testing.T, sb backend.Sandbox) {
 	}, poll.WithTimeout(30*time.Second), poll.WithDelay(250*time.Millisecond))
 }
 
-// A sandbox goes through its whole life: created, started, dialed, parked,
+// A sandbox goes through its whole life: created, booted, dialed, parked,
 // restarted and destroyed, after which it is gone.
 func TestSandbox_Lifecycle(t *testing.T) {
 	be := newTestBackend(t)
@@ -79,10 +79,10 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assert.Equal(t, info.State.Status, "created")
 	assertStatus(t, sb, backend.StatusParked)
 
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 	assertStatus(t, sb, backend.StatusUp)
-	// Starting a running container is a no-op.
-	assert.NilError(t, sb.Start(t.Context()))
+	// Booting a running container is a no-op.
+	assert.NilError(t, sb.Boot(t.Context()))
 	dialReady(t, sb)
 
 	assert.NilError(t, sb.Park(t.Context()))
@@ -95,13 +95,13 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
 	assert.Assert(t, err != nil)
 
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 	assertStatus(t, sb, backend.StatusUp)
 	dialReady(t, sb)
 
 	assert.NilError(t, sb.Destroy(t.Context()))
 	assertStatus(t, sb, backend.StatusGone)
-	assert.ErrorIs(t, sb.Start(t.Context()), backend.ErrGone)
+	assert.ErrorIs(t, sb.Boot(t.Context()), backend.ErrGone)
 	assert.ErrorIs(t, sb.Park(t.Context()), backend.ErrGone)
 	assert.NilError(t, sb.Destroy(t.Context()))
 }
@@ -110,7 +110,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 func TestSandbox_Reopen(t *testing.T) {
 	be := newTestBackend(t)
 	sb := create(t, be)
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 
 	reopened, err := be.Open(sb.Handle())
 	assert.NilError(t, err)
@@ -157,7 +157,7 @@ func TestSandbox_Status(t *testing.T) {
 	_, paused := startContainer(t, []string{"sleep", "30"})
 	assert.NilError(t, docker.ContainerPause(t.Context(), paused))
 	assertStatus(t, open(paused), backend.StatusParked)
-	assert.Assert(t, open(paused).Start(t.Context()) != nil)
+	assert.Assert(t, open(paused).Boot(t.Context()) != nil)
 
 	_, exited := startContainer(t, []string{"sh", "-c", "trap 'exit 0' TERM; sleep 300 & wait"})
 	assert.NilError(t, docker.ContainerStop(t.Context(), exited, container.StopOptions{}))
@@ -171,13 +171,13 @@ func TestSandbox_Status(t *testing.T) {
 func TestSandbox_Concurrent(t *testing.T) {
 	be := newTestBackend(t)
 	sb := create(t, be)
-	assert.NilError(t, sb.Start(t.Context()))
+	assert.NilError(t, sb.Boot(t.Context()))
 	dialReady(t, sb)
 
 	var wg sync.WaitGroup
 	for range 4 {
 		wg.Go(func() {
-			assert.Check(t, sb.Start(t.Context()))
+			assert.Check(t, sb.Boot(t.Context()))
 			st, err := sb.Status(t.Context())
 			assert.Check(t, err)
 			assert.Check(t, st == backend.StatusUp)

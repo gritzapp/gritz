@@ -69,8 +69,8 @@ const (
 	OpCreate Op = iota + 1
 	// OpOpen is Backend.Open.
 	OpOpen
-	// OpStart is Sandbox.Start.
-	OpStart
+	// OpBoot is Sandbox.Boot.
+	OpBoot
 	// OpPark is Sandbox.Park.
 	OpPark
 	// OpStatus is Sandbox.Status.
@@ -88,8 +88,8 @@ func (o Op) String() string {
 		return "create"
 	case OpOpen:
 		return "open"
-	case OpStart:
-		return "start"
+	case OpBoot:
+		return "boot"
 	case OpPark:
 		return "park"
 	case OpStatus:
@@ -503,15 +503,15 @@ func (s *sandbox) Handle() backend.Handle {
 	return s.b.handle(s.id)
 }
 
-// Start moves a created or parked sandbox to up. Starting an up sandbox is a
+// Boot moves a created or parked sandbox to up. Booting an up sandbox is a
 // no-op; a gone one returns backend.ErrGone.
-func (s *sandbox) Start(context.Context) error {
-	return s.update(OpStart, func(sbx *Info) error {
+func (s *sandbox) Boot(context.Context) error {
+	return s.update(OpBoot, func(sbx *Info) error {
 		if sbx.State == Gone {
 			return backend.ErrGone
 		}
 		sbx.State = Up
-		sbx.Starts++
+		sbx.Boots++
 		return nil
 	})
 }
@@ -770,10 +770,10 @@ type Info struct {
 	State  State
 	// Spec is the spec the sandbox was created from, or nil for Add.
 	Spec *backend.Spec
-	// Starts, Parks, Destroys and Dials count the calls that succeeded, no-ops
+	// Boots, Parks, Destroys and Dials count the calls that succeeded, no-ops
 	// included. A call that returned backend.ErrGone, or that FailNext
 	// failed, is not counted.
-	Starts, Parks, Destroys, Dials int
+	Boots, Parks, Destroys, Dials int
 	// Runs counts the Run calls on the sandbox's driver that went through:
 	// made while it was up and its driver ready, and so cut by Drop, by
 	// leaving up and by Close.

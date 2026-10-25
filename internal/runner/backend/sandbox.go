@@ -44,19 +44,19 @@ type RunEnver interface {
 // token). Its methods are safe for concurrent use.
 //
 // A Sandbox can be stale: the platform may have destroyed the sandbox since
-// Create or Open. Every method handles that: Status reports StatusGone, Start
+// Create or Open. Every method handles that: Status reports StatusGone, Boot
 // and Park return ErrGone, and Destroy returns nil.
 type Sandbox interface {
 	// Handle identifies the sandbox for taskstate/. It is fixed at Create and
 	// never changes over the sandbox's life.
 	Handle() Handle
 
-	// Start boots a created sandbox or resumes a parked one, and blocks until
-	// the platform reports it running. Starting a running sandbox is a no-op. A
+	// Boot boots a created sandbox or resumes a parked one, and blocks until
+	// the platform reports it running. Booting a running sandbox is a no-op. A
 	// gone sandbox returns ErrGone; a sandbox in a transitional state
-	// (SUSPENDING, pausing) returns a plain error. Start never creates a
+	// (SUSPENDING, pausing) returns a plain error. Boot never creates a
 	// sandbox.
-	Start(ctx context.Context) error
+	Boot(ctx context.Context) error
 
 	// Dial returns a client for the sandbox's driver server. Every call it
 	// makes carries jwt as a bearer token, plus any platform credentials
