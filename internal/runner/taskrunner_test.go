@@ -147,7 +147,7 @@ func TestNewTaskRunner(t *testing.T) {
 			}
 			tr := NewTaskRunner(opts)
 			assert.Assert(t, tr.opts == tt.want(store), "got %+v", tr.opts)
-			assert.Assert(t, tr.sb == nil)
+			assert.Assert(t, tr.sbx == nil)
 			assert.Equal(t, tr.Version(), int64(0))
 			// No side effects: no record written, no sandbox touched.
 			recs, err := store.List()
@@ -523,11 +523,11 @@ func TestTaskRunnerRestore(t *testing.T) {
 			if tt.wantSandbox {
 				assert.Assert(t, ok, "record was deleted")
 				assert.DeepEqual(t, got, rec)
-				assert.Equal(t, tr.sb, backend.Sandbox(sb))
+				assert.Equal(t, tr.sbx, backend.Sandbox(sb))
 				assert.DeepEqual(t, tr.rec, rec)
 			} else {
 				assert.Assert(t, !ok, "record was kept")
-				assert.Assert(t, tr.sb == nil)
+				assert.Assert(t, tr.sbx == nil)
 				assert.DeepEqual(t, tr.rec, taskstate.Record{})
 			}
 			assert.Equal(t, tr.running, tt.wantClaimed)

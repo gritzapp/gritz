@@ -575,7 +575,7 @@ func track(t *testing.T, m *TaskManager, rec taskstate.Record, sb backend.Sandbo
 	tr := m.Runner(rec.TaskID)
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	tr.sb, tr.rec = sb, rec
+	tr.sbx, tr.rec = sb, rec
 	return tr
 }
 
@@ -618,7 +618,7 @@ func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.R
 		if tr != nil {
 			tr.mu.Lock()
 			defer tr.mu.Unlock()
-			assert.Assert(t, tr.sb == nil, "task %d has a sandbox", taskID)
+			assert.Assert(t, tr.sbx == nil, "task %d has a sandbox", taskID)
 		}
 		return
 	}
@@ -628,7 +628,7 @@ func assertTracked(t *testing.T, m *TaskManager, taskID int64, want *taskstate.R
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	assert.DeepEqual(t, tr.rec, *want)
-	assert.Assert(t, tr.sb != nil)
+	assert.Assert(t, tr.sbx != nil)
 }
 
 // waitIdle waits until no Run follows tr's run.
@@ -1949,7 +1949,7 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	assert.ErrorContains(t, err, "failed to record task handle")
 	assert.Assert(t, cmp.Len(sb.DestroyCalls(), 1))
 	assert.Assert(t, cmp.Len(sb.StartCalls(), 0))
-	assert.Assert(t, m.Runner(1).sb == nil)
+	assert.Assert(t, m.Runner(1).sbx == nil)
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):
