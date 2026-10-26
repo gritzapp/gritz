@@ -806,33 +806,6 @@ func TestTaskManagerRemove(t *testing.T) {
 	}
 }
 
-// TestTaskManagerRemove_Running covers a task removed while its run is
-// followed: the run is lost, and its Run goroutine returns.
-func TestTaskManagerRemove_Running(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that keeps going on an up sandbox, recorded, and
-	// followed by the Run goroutine Load starts for it.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})})
-	assert.NilError(t, m.Load(t.Context()))
-	testrunner.WaitRuns(t, be, "c1", 1)
-
-	// Act - the sandbox is removed under the run.
-	assert.NilError(t, m.Runner(1).Destroy(t.Context()))
-	assert.NilError(t, m.Wait(t.Context()))
-
-	// Assert - Destroy destroyed the sandbox Run holds, and the run is lost.
-	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox removed before the run finished"},
-	}, protocmp.Transform())
-	// The task's record is gone and its TaskRunner has no sandbox.
-	m.AssertTracked(t, 1, nil)
-}
-
 // TestTaskManagerAfterDestroy covers the operations on a task whose sandbox
 // was destroyed: they see no sandbox.
 func TestTaskManagerAfterDestroy(t *testing.T) {

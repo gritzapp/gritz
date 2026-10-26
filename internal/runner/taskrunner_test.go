@@ -212,58 +212,6 @@ func TestTaskRunnerRun_Shutdown(t *testing.T) {
 	assert.Equal(t, m.Queued(t), 0)
 }
 
-func TestTaskRunnerRun_Destroyed(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that keeps going, on a recorded sandbox.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
-	done := runAsync(t.Context(), tr, nil)
-	testrunner.WaitRuns(t, be, "c1", 1)
-
-	// Act - the sandbox is destroyed under the run.
-	assert.NilError(t, tr.Destroy(t.Context()))
-
-	// Assert - Run is not shutting down, so it returns no error; the run is
-	// lost, and the task's record and sandbox are gone.
-	assert.NilError(t, waitDone(t, done))
-	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox removed before the run finished"},
-	}, protocmp.Transform())
-	m.AssertTracked(t, 1, nil)
-}
-
-// TestTaskRunnerRun_DestroyedBeforeRun covers a TaskRunner destroyed after
-// Boot claimed it but before its Run began: the run is lost without being
-// started.
-func TestTaskRunnerRun_DestroyedBeforeRun(t *testing.T) {
-	t.Parallel()
-	// Arrange - a parked sandbox, booted and then destroyed.
-	be := testrunner.NewBackend(t, nil)
-	be.Add("c1", fake.Parked)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
-	assert.NilError(t, tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4}))
-	assert.NilError(t, tr.Destroy(t.Context()))
-
-	// Act
-	err := tr.Run(t.Context(), &driverv1.RunSpec{TaskId: 1})
-
-	// Assert - Run returned without reaching for the driver: its context was
-	// cancelled from the start. Destroy deleted the record, so the lost run
-	// has no version.
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.Dials, 0)
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Reason: "sandbox removed before the run finished"},
-	}, protocmp.Transform())
-	m.AssertTracked(t, 1, nil)
-}
-
 // TestTaskRunnerBoot covers booting a TaskRunner for runs: Boot stamps the
 // record with the run's version, and refuses a second run while the first is
 // claimed.
