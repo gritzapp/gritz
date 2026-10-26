@@ -423,15 +423,18 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 var (
 	// errNotReady wraps the error of a driver Status call that failed.
 	errNotReady = errors.New("driver server did not become ready")
-	// errNotAccepted is the cause stream cancels its context with when the
-	// driver has not accepted the stream within its timeout.
+	// errNotAccepted wraps why a stream ended before the driver accepted it.
 	errNotAccepted = errors.New("driver did not accept the run")
+	// errNotFinished wraps why an accepted stream ended before the run's
+	// Finished.
+	errNotFinished = errors.New("run stream ended before Finished")
 )
 
 // stream dials sbx, waits for its driver, opens a Run stream with req and
-// yields each message until the stream ends. No Accepted within timeout
-// ends it. The last element is always (nil, err), saying why it ended, unless
-// it is the run's Finished.
+// yields each message after its Accepted until the stream ends. No Accepted
+// within timeout ends it. The last element is always (nil, err), saying why
+// it ended, unless it is the run's Finished: err wraps errNotAccepted if the
+// driver never accepted the stream, and errNotFinished if it did.
 //
 // Each range over the iterator makes one attempt: it asks the driver's Status
 // once, wrapping a failure in errNotReady, and retries nothing. The caller
@@ -444,9 +447,10 @@ func (tr *TaskRunner) stream(ctx context.Context, sbx backend.Sandbox, req *driv
 		defer timer.Stop()
 		fail := func(err error) {
 			if errors.Is(context.Cause(ctx), errNotAccepted) {
-				err = fmt.Errorf("%w within %v: %w", errNotAccepted, timeout, err)
+				yield(nil, fmt.Errorf("%w within %v: %w", errNotAccepted, timeout, err))
+			} else {
+				yield(nil, fmt.Errorf("%w: %w", errNotAccepted, err))
 			}
-			yield(nil, err)
 		}
 		client, err := sbx.Dial(ctx, "")
 		if err != nil {
@@ -472,16 +476,17 @@ func (tr *TaskRunner) stream(ctx context.Context, sbx backend.Sandbox, req *driv
 			return
 		}
 		timer.Stop()
-		for {
+		for stream.Receive() {
 			msg := stream.Msg()
 			if !yield(msg, nil) || msg.GetFinished() != nil {
 				return
 			}
-			if !stream.Receive() {
-				break
-			}
 		}
-		yield(nil, cmp.Or(stream.Err(), errors.New("run stream ended before Finished")))
+		if err := stream.Err(); err != nil {
+			yield(nil, fmt.Errorf("%w: %w", errNotFinished, err))
+		} else {
+			yield(nil, errNotFinished)
+		}
 	}
 }
 
@@ -520,11 +525,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			deadline, _ := start.Deadline()
 			timeout = time.Until(deadline)
 		}
-		accepted := false
 		for msg, msgErr := range tr.stream(ctx, sbx, req, timeout) {
-			if msg.GetAccepted() != nil {
-				accepted = true
-			}
 			if finished := msg.GetFinished(); finished != nil {
 				tr.park(ctx, sbx)
 				if !finished.GetReported() {
@@ -534,6 +535,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			}
 			err = msgErr
 		}
+		accepted := !errors.Is(err, errNotAccepted)
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
