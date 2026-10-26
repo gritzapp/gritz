@@ -63,3 +63,37 @@ func ListEventsByTask(ctx context.Context, c Client, req *gritzv1.ListEventsByTa
 		}
 	}
 }
+
+// EventLister is the slice of the gritz service that ListAllEventsByTask needs.
+// Both Client and the server-side GritzServiceHandler satisfy it.
+type EventLister interface {
+	ListEventsByTask(context.Context, *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error)
+}
+
+// ListAllEventsByTask returns a task's whole event stream, oldest-first,
+// optionally filtered to types (empty = all types). It opens at the newest page
+// and follows prev_page_token back through history, prepending each older page,
+// until More reports nothing older remains.
+func ListAllEventsByTask(ctx context.Context, c EventLister, taskID int64, types []string) ([]*gritzv1.Event, error) {
+	req := &gritzv1.ListEventsByTaskRequest{
+		TaskId:   taskID,
+		PageSize: allEventsPageSize,
+		Types:    types,
+	}
+	var events []*gritzv1.Event
+	for {
+		resp, err := c.ListEventsByTask(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		events = append(resp.GetEvents(), events...)
+		if !resp.GetMore() || resp.GetPrevPageToken() == "" {
+			return events, nil
+		}
+		req.PageToken = resp.GetPrevPageToken()
+	}
+}
+
+// allEventsPageSize is the server's max page size, so ListAllEventsByTask
+// makes as few round trips as possible.
+const allEventsPageSize = 200

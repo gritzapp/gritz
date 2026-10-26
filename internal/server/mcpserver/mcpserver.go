@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/x/mcpx"
@@ -192,7 +193,7 @@ func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input 
 	if err != nil {
 		return mcpx.ErrorResult("failed to get task: %v", err), nil, nil
 	}
-	eventsResp, err := h.service.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: input.ID})
+	events, err := gritzclient.ListAllEventsByTask(ctx, h.service, input.ID, nil)
 	if err != nil {
 		return mcpx.ErrorResult("failed to list events: %v", err), nil, nil
 	}
@@ -238,7 +239,7 @@ func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input 
 	// Marshal events with protojson so their arms serialize under their proper
 	// wire names (the fat Event proto doesn't round-trip through encoding/json).
 	marshalOpts := protojson.MarshalOptions{Indent: "  "}
-	for _, event := range eventsResp.Events {
+	for _, event := range events {
 		data, err := marshalOpts.Marshal(event)
 		if err != nil {
 			return mcpx.ErrorResult("failed to format event: %v", err), nil, nil

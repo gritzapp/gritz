@@ -111,10 +111,7 @@ func (s *Server) getMyTask(ctx context.Context, req *mcp.CallToolRequest, input 
 		return mcpx.ErrorResult("failed to get task: %v", err), nil, nil
 	}
 
-	events, err := s.client.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: s.task.ID,
-		Types:  []string{model.EventTypeInstruction, model.EventTypeExternal},
-	})
+	events, err := gritzclient.ListAllEventsByTask(ctx, s.client, s.task.ID, []string{model.EventTypeInstruction, model.EventTypeExternal})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get task events: %v", err), nil, nil
 	}
@@ -124,7 +121,7 @@ func (s *Server) getMyTask(ctx context.Context, req *mcp.CallToolRequest, input 
 		return mcpx.ErrorResult("failed to get task links: %v", err), nil, nil
 	}
 
-	return mcpx.JSONResult(taskDetailsToMap(task.GetTask(), events.GetEvents(), links.GetLinks())), nil, nil
+	return mcpx.JSONResult(taskDetailsToMap(task.GetTask(), events, links.GetLinks())), nil, nil
 }
 
 type updateMyTaskInput struct {

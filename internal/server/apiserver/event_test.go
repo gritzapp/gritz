@@ -323,29 +323,6 @@ func TestListEventsByTask(t *testing.T) {
 	}, protocmp.Transform())
 }
 
-func TestListEventsByTask_LegacyNoTokens(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
-	taskID := createTestTask(t, srv, ctx)
-	assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
-		TaskID:  taskID,
-		OrgID:   org.OrgID,
-		Payload: &model.ExternalPayload{Description: "Event 1"},
-	}))
-
-	// Act - no pagination fields → the legacy unpaged path.
-	resp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskID})
-
-	// Assert - full ascending list, no tokens (exactly today's behavior).
-	assert.NilError(t, err)
-	assert.Assert(t, len(resp.Events) >= 2) // lifecycle CREATED + the external event
-	assert.Equal(t, resp.PrevPageToken, "")
-	assert.Equal(t, resp.NextPageToken, "")
-}
-
 func TestListEventsByTask_Paged(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -361,10 +338,10 @@ func TestListEventsByTask_Paged(t *testing.T) {
 		}))
 	}
 
-	// The legacy unpaged list is the ground-truth ascending order.
-	full, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskID})
+	// The store's unpaged list is the ground-truth ascending order.
+	full, err := srv.store.ListEventsByTask(ctx, nil, taskID, org.OrgID, nil)
 	assert.NilError(t, err)
-	fullIDs := testx.ExtractField(full.Events, "Id").([]int64)
+	fullIDs := testx.ExtractField(full, "ID").([]int64)
 	total := len(fullIDs)
 	assert.Assert(t, total > 2) // multiple pages at page size 2
 
