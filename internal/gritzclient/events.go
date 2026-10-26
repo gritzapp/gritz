@@ -77,7 +77,7 @@ type EventLister interface {
 func ListAllEventsByTask(ctx context.Context, c EventLister, taskID int64, types []string) ([]*gritzv1.Event, error) {
 	req := &gritzv1.ListEventsByTaskRequest{
 		TaskId:   taskID,
-		PageSize: allEventsPageSize,
+		PageSize: 200, // the server's max, for the fewest round trips
 		Types:    types,
 	}
 	var events []*gritzv1.Event
@@ -93,7 +93,3 @@ func ListAllEventsByTask(ctx context.Context, c EventLister, taskID int64, types
 		req.PageToken = resp.GetPrevPageToken()
 	}
 }
-
-// allEventsPageSize is the server's max page size, so ListAllEventsByTask
-// makes as few round trips as possible.
-const allEventsPageSize = 200
