@@ -1,0 +1,79 @@
+.gritz-line-button {
+  position: absolute;
+  /* Sits to the left of GitHub's Copilot button group. */
+  right: 72px;
+  z-index: 2;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--button-default-bgColor-rest, #f6f8fa);
+  border: 1px solid var(--button-default-borderColor-rest, #d1d9e0);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.gritz-line-button:hover {
+  background: var(--button-default-bgColor-hover, #eff2f5);
+}
+
+.gritz-dialog {
+  width: min(560px, calc(100vw - 32px));
+  padding: 16px;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--overlay-bgColor, #fff);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 12px;
+}
+
+.gritz-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.gritz-dialog h3 {
+  margin: 0 0 4px;
+}
+
+.gritz-dialog .gritz-context {
+  margin-bottom: 12px;
+  font-family: var(--fontStack-monospace, monospace);
+  font-size: 12px;
+  color: var(--fgColor-muted, #59636e);
+}
+
+.gritz-dialog label {
+  display: block;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.gritz-dialog select,
+.gritz-dialog input,
+.gritz-dialog textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 5px 8px;
+  font-weight: normal;
+  color: inherit;
+  background: var(--bgColor-default, #fff);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 6px;
+}
+
+.gritz-dialog .gritz-status {
+  min-height: 20px;
+  margin-bottom: 8px;
+}
+
+.gritz-dialog .gritz-error {
+  color: var(--fgColor-danger, #d1242f);
+}
+
+.gritz-dialog .gritz-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

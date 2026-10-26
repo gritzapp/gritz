@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "gritz for GitHub",
+  "version": "0.1.0",
+  "description": "Start a gritz task from selected lines in the GitHub code view.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "github-ext@gritz.app",
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://github.com/*"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "options_ui": {
+    "page": "options.html"
+  }
+}
