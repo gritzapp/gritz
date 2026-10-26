@@ -467,6 +467,8 @@ func TestTaskRunnerSend_Shutdown(t *testing.T) {
 		Backend: be,
 		Store:   testrunner.NewStore(t, rec),
 		Events:  make(chan runner.TaskEvent),
+		// The parked sandbox's driver is unreachable until LostTimeout.
+		LostTimeout: 100 * time.Millisecond,
 	})
 	_, err := tr.Restore(t.Context(), rec)
 	assert.NilError(t, err)
@@ -474,8 +476,8 @@ func TestTaskRunnerSend_Shutdown(t *testing.T) {
 	defer cancel()
 	done := runAsync(ctx, tr, nil)
 	testrunner.WaitRuns(t, be, "c1", 1)
-	// The sandbox stops under the run. Run parks it, which is the last thing
-	// it does before sending the lost run.
+	// The sandbox stops under the run. Once LostTimeout passes, Run parks it,
+	// which is the last thing it does before sending the lost run.
 	be.Set("c1", fake.Parked)
 	_, err = be.Wait(t.Context(), func(s fake.Snapshot) bool {
 		sbx, _ := s.Sandbox("c1")
