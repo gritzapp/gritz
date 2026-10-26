@@ -515,11 +515,12 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // attach follows run version on sb until its Finished, then parks sb. It returns why the driver's report of the run's outcome was lost, or
 // "" if the driver reported it. The only error is ctx's.
 //
-// A dropped stream is reattached while the sandbox is up, backing off
-// exponentially. A sandbox that is parked or gone before Finished arrived, or a
-// driver with no such run, is a lost run. Reattaching gives up once lostTimeout
-// has passed without a good message — an accepted stream — from the driver:
-// attach parks the sandbox and reports the run lost. It returns only once the
+// A dropped stream is reattached, backing off exponentially. A driver with no
+// such run is a lost run. Reattaching gives up once lostTimeout has passed
+// without a good message — an accepted stream — from the driver: attach parks
+// the sandbox and reports the run lost. That covers a sandbox that went down
+// under the run too, which only happens when something outside the runner
+// fails: the runner never parks a sandbox it is following a run on. It returns only once the
 // park succeeded or the sandbox is gone, so the sandbox is never up with no
 // Run following it; while the platform cannot park it, attach keeps
 // retrying.
@@ -551,17 +552,6 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 				tr.park(ctx, sbx)
 			}
 			return "driver has no such run", nil
-		}
-		if status, stErr := sbx.Status(ctx); stErr != nil {
-			err = fmt.Errorf("%w (status: %w)", err, stErr)
-		} else if status != backend.StatusUp {
-			opts.Log.Error("sandbox stopped before its run finished", "task", taskID, "status", status, "version", version, "err", err)
-			if status == backend.StatusParked {
-				// Let a sandbox that is still stopping (a SUSPENDING VM)
-				// settle, so it is not reported up once Run is done.
-				tr.park(ctx, sbx)
-			}
-			return "sandbox stopped before the run finished", nil
 		}
 		if accepted {
 			// The stream was live until it dropped: the driver's idle watchdog

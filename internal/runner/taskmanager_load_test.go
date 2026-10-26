@@ -463,18 +463,25 @@ func TestTaskManagerHandleEvents_Lost(t *testing.T) {
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}),
+		TaskRunner: func(opts *runner.TaskRunnerOptions) {
+			opts.LostTimeout = 100 * time.Millisecond
+		},
+	})
 	assert.NilError(t, m.Load(t.Context()))
 	testrunner.WaitRuns(t, be, "c1", 1)
 
-	// Act - the sandbox vanishes under the run, which is lost.
+	// Act - the sandbox vanishes under the run: its driver is unreachable
+	// until LostTimeout, and the run is lost.
 	be.Set("c1", fake.Gone)
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert
 	m.WaitQueued(t, 1)
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox stopped before the run finished"},
+		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver unreachable"},
 	}, protocmp.Transform())
 }
 
