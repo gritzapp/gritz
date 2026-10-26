@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 14px system-ui, sans-serif; padding: 12px; }
+      label { display: block; margin-bottom: 10px; }
+      input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 4px; }
+      #status { margin-left: 8px; }
+    </style>
+  </head>
+  <body>
+    <label>
+      Server URL
+      <input id="serverUrl" type="url" placeholder="https://gritz.example.com" />
+    </label>
+    <label>
+      API key
+      <input id="apiKey" type="password" />
+    </label>
+    <label>
+      Default workspace (optional)
+      <input id="defaultWorkspace" type="text" />
+    </label>
+    <button id="save">Save</button><span id="status"></span>
+    <script src="options.js"></script>
+  </body>
+</html>
