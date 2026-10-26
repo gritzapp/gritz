@@ -95,20 +95,7 @@ func (s *Server) ListEventsByTask(ctx context.Context, req *gritzv1.ListEventsBy
 			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read task"))
 		}
 	}
-	// Legacy unpaged path: no pagination fields → all events, ascending. nil types
-	// → all event types. The store returns ascending (chronological) stream order
-	// (ORDER BY id), which is what the only order-sensitive consumer — the activity
-	// timeline — wants, so pass it through as-is.
-	if req.PageSize == 0 && req.PageToken == "" {
-		events, err := s.store.ListEventsByTask(ctx, nil, req.TaskId, caller.OrgID, nil)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		return &gritzv1.ListEventsByTaskResponse{
-			Events: model.ProtoMap(events),
-		}, nil
-	}
-	// Paged path: bidirectional keyset page (empty token → newest page).
+	// Bidirectional keyset page (empty token → newest page).
 	page, err := s.store.ListEventsByTaskPage(ctx, nil, store.ListEventsByTaskPageParams{
 		TaskID:    req.TaskId,
 		OrgID:     caller.OrgID,

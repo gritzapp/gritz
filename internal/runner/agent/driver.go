@@ -309,9 +309,7 @@ func (d *Driver) setup(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-// eventPageSize bounds each ListEventsByTask page the drain walks. A non-zero
-// size selects the paged live-follow path (an empty page_token with size 0
-// takes the legacy unpaged path instead).
+// eventPageSize bounds each ListEventsByTask page the drain walks.
 const eventPageSize = 50
 
 // drainEvents walks the task's event stream forward from cfg.NextEventToken to

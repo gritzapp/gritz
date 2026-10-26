@@ -3403,11 +3403,10 @@ func (*DeleteEventResponse) Descriptor() ([]byte, []int) {
 }
 
 type ListEventsByTaskRequest struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	TaskId   int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	PageSize int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"` // Max events per page (default 50, max 200). 0 with an empty
-	// page_token selects the legacy unpaged path (all events, ascending).
-	PageToken string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // Opaque bidirectional cursor (encodes a boundary id + direction).
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	TaskId    int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	PageSize  int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // Max events per page (default 50, max 200).
+	PageToken string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // Opaque bidirectional cursor (encodes a boundary id + direction).
 	// Empty returns the newest page.
 	Types         []string `protobuf:"bytes,4,rep,name=types,proto3" json:"types,omitempty"` // Event-type filter (e.g. "instruction", "external"); empty = all types.
 	unknownFields protoimpl.UnknownFields
@@ -3474,10 +3473,10 @@ func (x *ListEventsByTaskRequest) GetTypes() []string {
 
 type ListEventsByTaskResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Events        []*Event               `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`                                      // Always oldest-first (ascending id), every page and path.
+	Events        []*Event               `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`                                      // Always oldest-first (ascending id), every page.
 	PrevPageToken string                 `protobuf:"bytes,2,opt,name=prev_page_token,json=prevPageToken,proto3" json:"prev_page_token,omitempty"` // Older page (scroll back); empty when history is exhausted.
-	NextPageToken string                 `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"` // Newer page (scroll forward / live-follow); ALWAYS populated in
-	// the paged path so a client can keep polling the tail for appends.
+	NextPageToken string                 `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"` // Newer page (scroll forward / live-follow); ALWAYS populated so a
+	// client can keep polling the tail for appends.
 	More          bool `protobuf:"varint,4,opt,name=more,proto3" json:"more,omitempty"` // Whether another page exists beyond `events` in the direction just
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

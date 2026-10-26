@@ -1332,15 +1332,13 @@ export type ListEventsByTaskRequest = Message<"gritz.v1.ListEventsByTaskRequest"
   taskId: bigint;
 
   /**
-   * Max events per page (default 50, max 200). 0 with an empty
+   * Max events per page (default 50, max 200).
    *
    * @generated from field: int32 page_size = 2;
    */
   pageSize: number;
 
   /**
-   * page_token selects the legacy unpaged path (all events, ascending).
-   *
    * Opaque bidirectional cursor (encodes a boundary id + direction).
    *
    * @generated from field: string page_token = 3;
@@ -1369,7 +1367,7 @@ export const ListEventsByTaskRequestSchema: GenMessage<ListEventsByTaskRequest> 
  */
 export type ListEventsByTaskResponse = Message<"gritz.v1.ListEventsByTaskResponse"> & {
   /**
-   * Always oldest-first (ascending id), every page and path.
+   * Always oldest-first (ascending id), every page.
    *
    * @generated from field: repeated gritz.v1.Event events = 1;
    */
@@ -1383,14 +1381,14 @@ export type ListEventsByTaskResponse = Message<"gritz.v1.ListEventsByTaskRespons
   prevPageToken: string;
 
   /**
-   * Newer page (scroll forward / live-follow); ALWAYS populated in
+   * Newer page (scroll forward / live-follow); ALWAYS populated so a
    *
    * @generated from field: string next_page_token = 3;
    */
   nextPageToken: string;
 
   /**
-   * the paged path so a client can keep polling the tail for appends.
+   * client can keep polling the tail for appends.
    *
    * Whether another page exists beyond `events` in the direction just
    *
