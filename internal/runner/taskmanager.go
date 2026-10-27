@@ -699,15 +699,22 @@ func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.Ru
 }
 
 // Prune removes the sandboxes of archived and deleted tasks, and drops their
-// TaskRunners from the registry. It goes through a snapshot of the registry.
-// Run calls it between Poll passes, so it never acts on a task Poll is
-// handling.
+// TaskRunners from the registry. It also parks every up sandbox with no run
+// claimed, whatever its task's state (see TaskRunner.ParkIdle), so no sandbox
+// is left up with no Run following it: a Run that cannot park its sandbox
+// leaves that to Prune, and a park that fails is retried on the next pass. A
+// stale task's sandbox parked this way is destroyed on the next pass. It goes
+// through a snapshot of the registry. Run calls it between Poll passes, so it
+// never acts on a task Poll is handling.
 func (m *TaskManager) Prune(ctx context.Context) error {
 	m.mu.Lock()
 	tasks := maps.Clone(m.tasks)
 	m.mu.Unlock()
 	for taskID, tr := range tasks {
 		m.prune(ctx, taskID, tr)
+		if err := tr.ParkIdle(ctx); err != nil {
+			m.log.Error("failed to park idle sandbox", "task", taskID, "err", err)
+		}
 	}
 	return nil
 }

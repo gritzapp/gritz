@@ -359,7 +359,8 @@ func (tr *TaskRunner) Destroy(ctx context.Context) error {
 // Retire destroys the task's sandbox, as Destroy does, if tr is idle: no run
 // is claimed, and the sandbox is not up. Both a parked husk and a gone sandbox
 // count as "no live sandbox". It reports whether tr is now idle with no
-// sandbox, which it also is if it had none.
+// sandbox, which it also is if it had none. An up sandbox with no run claimed
+// is left to ParkIdle, which TaskManager.Prune calls too.
 func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
@@ -381,6 +382,33 @@ func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 	}
 	tr.clear()
 	return true, nil
+}
+
+// ParkIdle parks the task's sandbox if no run is claimed and the sandbox is
+// up, so it is not left up with no Run following it: a Run whose park failed
+// leaves it so. It holds tr.mu throughout, so it cannot race Boot or Restore
+// claiming tr. A sandbox that turns out gone is left for Boot or Retire to
+// drop.
+func (tr *TaskRunner) ParkIdle(ctx context.Context) error {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if tr.running || tr.sbx == nil {
+		return nil
+	}
+	status, err := tr.sbx.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get sandbox status: %w", err)
+	}
+	if status != backend.StatusUp {
+		return nil
+	}
+	if err := tr.sbx.Park(ctx); errors.Is(err, backend.ErrGone) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("failed to park sandbox: %w", err)
+	}
+	tr.opts.Log.Info("idle sandbox parked", "task", tr.opts.TaskID)
+	return nil
 }
 
 // Run follows the run version tr's record is stamped with: it starts the run
@@ -497,10 +525,9 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 // without a good message — an accepted stream — from the driver: attach parks
 // the sandbox and reports the run lost. That covers a sandbox that went down
 // under the run too, which only happens when something outside the runner
-// fails: the runner never parks a sandbox it is following a run on. It returns only once the
-// park succeeded or the sandbox is gone, so the sandbox is never up with no
-// Run following it; while the platform cannot park it, attach keeps
-// retrying.
+// fails: the runner never parks a sandbox it is following a run on. A failed
+// park is only logged: the run is lost either way, and TaskManager.Prune parks
+// a sandbox left up with no Run following it.
 func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64) (lost string, err error) {
 	opts, taskID := tr.opts, tr.opts.TaskID
 	lastGood := time.Now()
@@ -538,14 +565,11 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			lastErr = ""
 		}
 		if time.Since(lastGood) >= opts.LostTimeout {
-			// Give up on the driver; park the sandbox instead. While that
-			// fails, keep retrying the attach too in case the driver is back.
-			parkErr := sbx.Park(ctx)
-			if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
-				opts.Log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
-				return "driver unreachable", nil
-			}
-			err = fmt.Errorf("failed to park sandbox of lost run: %w (driver: %w)", parkErr, err)
+			// Give up on the driver; park the sandbox instead. If that fails,
+			// the sandbox stays up until Prune parks it.
+			opts.Log.Error("run lost: driver unreachable", "task", taskID, "version", version, "err", err)
+			tr.park(ctx, sbx)
+			return "driver unreachable", nil
 		}
 		if msg := err.Error(); msg != lastErr {
 			opts.Log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
