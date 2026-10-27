@@ -307,6 +307,12 @@ Do **not** collapse when:
 - there is only a **single** field to check -- assert it directly (`assert.Equal(t, got.Field, want)`);
 - the asserts are a **deliberate projection** of a big struct you don't fully control (a handful of fields of a DB row with many generated ones). Leave them field-by-field, or reach for `cmpx.OnlyFields` only when it documents intent -- it adds no coverage, so don't pretend it does.
 
+## Don't Test Impossible Call Orders
+
+Test what production code can actually do. Don't write tests for call orders or states no production caller can produce (for example, destroying a sandbox while its run is still being followed). Code asserts those invariants with a panic instead of handling them (see "Invariants" in `CLAUDE.md`), and those panics are not tested either.
+
+If an existing test is the only thing exercising a branch, check whether production can reach that branch. If it can't, delete the branch and the test together.
+
 ## Prefer Duplication Over Helpers
 
 Do NOT create little factory/helper functions that build a struct for a couple of call sites. Inline and duplicate the values in each test case -- duplication in tests is preferred over this kind of indirection.

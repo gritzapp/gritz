@@ -412,6 +412,11 @@ instruction that uniquely determines the right outcome.
   gotcha. Leave the rediscoverable details (file paths, type names, exact code) to the
   agent.
 - **Name the deliverable and the conventional-commit type** for the PR.
+- **Constrain usage, don't handle impossible cases.** Don't ask for handling, error
+  returns or tests for call orders no production caller makes. Ask for an assertion (a
+  panic naming the invariant, untested) instead, per "Invariants" in `CLAUDE.md`. When
+  pointing the agent at earlier code to reuse, check that the branches you're pointing at
+  are still reachable.
 - **Don't explore just to write the instruction.** If you find yourself grepping the
   codebase to fill in the task, stop — that's the agent's job. (Validating a genuine
   technical unknown before committing to an approach is the exception, per workflow step
@@ -430,6 +435,10 @@ instruction](#writing-a-layers-task-instruction).
 - Confirm the design references real code (files, types, RPCs) and isn't hand-waving.
 - During execution, also confirm the layer is thin and stays inside its slice — it must not
   reach into a later layer's scope.
+- For each new branch, error return or test, ask which production path reaches it. Handling
+  for a state no production caller can produce should be an assertion instead (see
+  "Invariants" in `CLAUDE.md`). A refactor that makes a case unreachable should delete its
+  handling, not carry it forward.
 
 ## Related skills
 

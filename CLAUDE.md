@@ -94,6 +94,14 @@ gritz github     # GitHub integration
 
 Service definitions in `proto/gritz/v1/gritz.proto`; generated code is written to `internal/proto/` (checked in) by `mise run generate`.
 
+## Invariants
+
+Constrain usage; don't support every call order. When a method is only valid in some states (for example after `Boot`, or while no run is claimed), assert the precondition with a panic that names the broken invariant, rather than adding branches, error returns or fallback behaviour for call orders that no production caller makes. Narrower contracts give simpler implementations.
+
+- Don't write tests for these assertions, and don't test call orders that production code can't produce.
+- When a change makes a case unreachable, delete its handling in the same change rather than carrying it forward.
+- Before adding handling for a scenario, check that some production path can actually reach it. If none can, assert instead.
+
 ## Conventional Commits & Releases
 
 Commit messages and PR titles must follow the [Conventional Commits](https://www.conventionalcommits.org/) spec. The format is enforced by `conform` (see `.conform.yaml`):
