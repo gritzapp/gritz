@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -14,7 +15,6 @@ import (
 	"github.com/cenkalti/backoff/v5"
 
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/x/common"
@@ -407,7 +407,7 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 		tr.running = false
 	}()
 
-	lost, err := tr.run(ctx, sbx, version, spec)
+	lost, err := tr.attach(ctx, sbx, version, spec)
 	if err != nil {
 		return err // shutdown: leave the sandbox alive for next-boot rehydration
 	}
@@ -420,103 +420,154 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 	return nil
 }
 
-// run starts the run version on sb with spec, unless spec is nil, then
-// attaches to it. A run that could not be started is reported lost with why,
-// after sb is parked: nothing runs on it. The only error is ctx's.
-func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
-	if spec != nil {
-		if err := tr.startRun(ctx, sbx, version, spec); err != nil {
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			tr.opts.Log.Error("failed to start run", "task", tr.opts.TaskID, "version", version, "err", err)
-			tr.park(ctx, sbx)
-			return err.Error(), nil
-		}
-	}
-	return tr.attach(ctx, sbx, version)
-}
+var (
+	// errNotReady wraps the error of a driver Status call that failed.
+	errNotReady = errors.New("driver server did not become ready")
+	// errNotAccepted wraps why a stream ended before the driver accepted it.
+	errNotAccepted = errors.New("driver did not accept the run")
+	// errNotFinished wraps why an accepted stream ended before the run's
+	// Finished.
+	errNotFinished = errors.New("run stream ended before Finished")
+)
 
-// startRun waits for sb's driver to answer Status, backing off
-// exponentially, then starts run version with spec on it, returning once the
-// driver has accepted it. A Run that is rejected because another stream is
-// open is retried. The driver has the runner's readyTimeout to do both.
-func (tr *TaskRunner) startRun(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) error {
-	opts := tr.opts
-	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
-	defer cancel()
-	client, err := sbx.Dial(ctx, "")
-	if err != nil {
-		return err
-	}
-	bo := doubling(opts.RetryInterval, readyMaxInterval)
-	for {
-		_, err := client.Status(ctx, &driverv1.StatusRequest{})
-		if err == nil {
-			break
-		}
-		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return fmt.Errorf("driver server did not become ready: %w", err)
-		}
-	}
-	for {
-		err := accept(ctx, client, &driverv1.RunRequest{Version: version, Spec: spec})
-		if err == nil {
-			return nil
-		}
-		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, opts.RetryInterval) {
-			return fmt.Errorf("failed to start run %d: %w", version, err)
-		}
-	}
-}
-
-// accept opens a Run stream and closes it after its Accepted: the run keeps
-// going without it.
-func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := client.Run(ctx, req)
-	if err != nil {
-		return err
-	}
-	defer stream.Close()
-	if !stream.Receive() {
-		return cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted"))
-	}
-	if stream.Msg().GetAccepted() == nil {
-		return fmt.Errorf("unexpected first run response: %v", stream.Msg())
-	}
-	return nil
-}
-
-// attach follows run version on sb until its Finished, then parks sb. It returns why the driver's report of the run's outcome was lost, or
-// "" if the driver reported it. The only error is ctx's.
+// stream dials sbx, waits for its driver, opens a Run stream with req and
+// yields each message after its Accepted until the stream ends. No Accepted
+// within timeout ends it. The last element is always (nil, err), saying why
+// it ended, unless it is the run's Finished: err wraps errNotAccepted if the
+// driver never accepted the stream, and errNotFinished if it did.
 //
-// A dropped stream is reattached, backing off exponentially. A driver with no
-// such run is a lost run. Reattaching gives up once lostTimeout has passed
-// without a good message — an accepted stream — from the driver: attach parks
-// the sandbox and reports the run lost. That covers a sandbox that went down
-// under the run too, which only happens when something outside the runner
-// fails: the runner never parks a sandbox it is following a run on. It returns only once the
-// park succeeded or the sandbox is gone, so the sandbox is never up with no
-// Run following it; while the platform cannot park it, attach keeps
-// retrying.
-func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64) (lost string, err error) {
+// Each range over the iterator makes one attempt: it asks the driver's Status
+// once, wrapping a failure in errNotReady, and retries nothing. The caller
+// decides whether to range over it again.
+func (tr *TaskRunner) stream(ctx context.Context, sbx backend.Sandbox, req *driverv1.RunRequest, timeout time.Duration) iter.Seq2[*driverv1.RunResponse, error] {
+	return func(yield func(*driverv1.RunResponse, error) bool) {
+		ctx, cancel := context.WithCancelCause(ctx)
+		defer cancel(nil)
+		timer := time.AfterFunc(timeout, func() { cancel(errNotAccepted) })
+		defer timer.Stop()
+		fail := func(err error) {
+			if errors.Is(context.Cause(ctx), errNotAccepted) {
+				yield(nil, fmt.Errorf("%w within %v: %w", errNotAccepted, timeout, err))
+			} else {
+				yield(nil, fmt.Errorf("%w: %w", errNotAccepted, err))
+			}
+		}
+		client, err := sbx.Dial(ctx, "")
+		if err != nil {
+			fail(err)
+			return
+		}
+		if _, err := client.Status(ctx, &driverv1.StatusRequest{}); err != nil {
+			fail(fmt.Errorf("%w: %w", errNotReady, err))
+			return
+		}
+		stream, err := client.Run(ctx, req)
+		if err != nil {
+			fail(err)
+			return
+		}
+		defer stream.Close()
+		if !stream.Receive() {
+			fail(cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted")))
+			return
+		}
+		if stream.Msg().GetAccepted() == nil {
+			fail(fmt.Errorf("unexpected first run response: %v", stream.Msg()))
+			return
+		}
+		timer.Stop()
+		for stream.Receive() {
+			msg := stream.Msg()
+			if !yield(msg, nil) || msg.GetFinished() != nil {
+				return
+			}
+		}
+		if err := stream.Err(); err != nil {
+			yield(nil, fmt.Errorf("%w: %w", errNotFinished, err))
+		} else {
+			yield(nil, errNotFinished)
+		}
+	}
+}
+
+// attach follows run version on sb until its Finished, then parks sb. It
+// returns why the driver's report of the run's outcome was lost, or "" if the
+// driver reported it. The only error is ctx's.
+//
+// With spec, attach starts the run first: the spec is sent until the driver
+// first accepts a stream, which it has readyTimeout to do. A driver that does
+// not answer Status is retried, backing off exponentially, and so is a Run
+// that is rejected because another stream is open. A run that could not be
+// started is reported lost with why, after sb is parked: nothing runs on it.
+//
+// A dropped stream is reattached, without the spec, backing off exponentially.
+// A driver with no such run is a lost run. Reattaching gives up once
+// lostTimeout has passed without a good message — an accepted stream — from
+// the driver: attach parks the sandbox and reports the run lost. That covers a
+// sandbox that went down under the run too, which only happens when something
+// outside the runner fails: the runner never parks a sandbox it is following a
+// run on. It returns only once the park succeeded or the sandbox is gone, so
+// the sandbox is never up with no Run following it; while the platform cannot
+// park it, attach keeps retrying.
+func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
 	opts, taskID := tr.opts, tr.opts.TaskID
+	req := &driverv1.RunRequest{Version: version, Spec: spec}
+	// start bounds the start: the wait for the first Accepted.
+	start, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
+	defer cancel()
+	startBo := doubling(opts.RetryInterval, readyMaxInterval)
 	lastGood := time.Now()
 	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
 	var lastErr string
 	for {
-		finished, accepted, err := attachOnce(ctx, sbx, version)
+		timeout := opts.LostTimeout
+		if req.GetSpec() != nil {
+			deadline, _ := start.Deadline()
+			timeout = time.Until(deadline)
+		}
+		for msg, msgErr := range tr.stream(ctx, sbx, req, timeout) {
+			if finished := msg.GetFinished(); finished != nil {
+				tr.park(ctx, sbx)
+				if !finished.GetReported() {
+					return "driver did not report the run's outcome", nil
+				}
+				return "", nil
+			}
+			err = msgErr
+		}
+		accepted := !errors.Is(err, errNotAccepted)
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		if finished != nil {
-			tr.park(ctx, sbx)
-			if !finished.GetReported() {
-				return "driver did not report the run's outcome", nil
+		if req.GetSpec() != nil && !accepted {
+			var wait time.Duration
+			switch {
+			case errors.Is(err, errNotReady):
+				wait = startBo.NextBackOff()
+			case connect.CodeOf(err) == connect.CodeUnavailable:
+				wait = opts.RetryInterval
 			}
-			return "", nil
+			if wait > 0 && common.SleepContext(start, wait) {
+				continue
+			}
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			if !errors.Is(err, errNotReady) {
+				err = fmt.Errorf("failed to start run %d: %w", version, err)
+			}
+			opts.Log.Error("failed to start run", "task", taskID, "version", version, "err", err)
+			tr.park(ctx, sbx)
+			return err.Error(), nil
+		}
+		if accepted {
+			// The run is started: reattach to it, never start it again.
+			req = &driverv1.RunRequest{Version: version}
+			// The stream was live until it dropped: the driver's idle watchdog
+			// would have ended it otherwise.
+			lastGood = time.Now()
+			bo.Reset()
+			lastErr = ""
 		}
 		if isTerminal(err) {
 			// The driver has no run with this version (or has moved past it),
@@ -529,13 +580,6 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 				tr.park(ctx, sbx)
 			}
 			return "driver has no such run", nil
-		}
-		if accepted {
-			// The stream was live until it dropped: the driver's idle watchdog
-			// would have ended it otherwise.
-			lastGood = time.Now()
-			bo.Reset()
-			lastErr = ""
 		}
 		if time.Since(lastGood) >= opts.LostTimeout {
 			// Give up on the driver; park the sandbox instead. While that
@@ -555,32 +599,6 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			return "", ctx.Err()
 		}
 	}
-}
-
-// attachOnce opens a Run stream for version without a spec and reads it until
-// the run's Finished, which it returns. Otherwise it returns why the stream
-// ended. accepted reports whether the driver accepted the stream before it
-// ended.
-func attachOnce(ctx context.Context, sb backend.Sandbox, version int64) (finished *driverv1.Finished, accepted bool, err error) {
-	client, err := sb.Dial(ctx, "")
-	if err != nil {
-		return nil, false, err
-	}
-	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
-	if err != nil {
-		return nil, false, err
-	}
-	defer stream.Close()
-	for stream.Receive() {
-		msg := stream.Msg()
-		if msg.GetAccepted() != nil {
-			accepted = true
-		}
-		if finished := msg.GetFinished(); finished != nil {
-			return finished, accepted, nil
-		}
-	}
-	return nil, accepted, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
 }
 
 // isTerminal reports whether a Run error means the run can never be attached
