@@ -1,5 +1,64 @@
 # Changelog
 
+## [4.0.0](https://github.com/gritzapp/gritz/compare/v3.14.0...v4.0.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** a ListEventsByTask request without page_size or page_token returns only the newest page (default 50 events) instead of the whole stream. Clients that need every event must page.
+
+### Features
+
+* **diagrams:** add playback controls to the published diagram pages ([ad661e7](https://github.com/gritzapp/gritz/commit/ad661e7f67dc05f585477b89edc64e4193ad76c0))
+* **firefox-ext:** add Firefox extension to start tasks from GitHub code view ([0eb5680](https://github.com/gritzapp/gritz/commit/0eb5680aedf2d123cf6b5dcd442052b2100c8d6e))
+
+
+### Miscellaneous
+
+* add CodeView and stepper for motion canvas code walkthroughs ([0c63300](https://github.com/gritzapp/gritz/commit/0c6330007d8ab0ddcbd9ca963eebb5708e8b1164))
+* **api:** drop the unpaged ListEventsByTask path ([861cb5e](https://github.com/gritzapp/gritz/commit/861cb5eb0450c06c09ea000b80d698a1ba6536ca))
+* **gritzclient:** inline the ListAllEventsByTask page size ([677479b](https://github.com/gritzapp/gritz/commit/677479b39524325de6d0a88b803b09bf809df9e0))
+* **gritzclient:** take Client in ListAllEventsByTask ([fc117e2](https://github.com/gritzapp/gritz/commit/fc117e2d478f6ca3dfed922cd9b309a93937fb5d))
+* prefer invariant assertions over handling impossible call orders ([27e425a](https://github.com/gritzapp/gritz/commit/27e425aefc474c6b336f1a672a558aa2e9df5a92))
+* **proposals:** reject generic-shim draft ([426b110](https://github.com/gritzapp/gritz/commit/426b1100f85b6180291769882987a46af90205dc))
+* publish motion canvas diagrams to GitHub Pages ([6bbe9dd](https://github.com/gritzapp/gritz/commit/6bbe9dd16f6946e639b39e5c1fe3d633bbd25b63))
+* **runner:** add a stub driver to testrunner ([cbe6f8f](https://github.com/gritzapp/gritz/commit/cbe6f8f872703814ba65c241d8ffae0f5eb477b9))
+* **runner:** add fake backend controls ([92757d4](https://github.com/gritzapp/gritz/commit/92757d474cb18a8a1a43fae0727397d68905a1c7))
+* **runner:** add fake backend driver hookup ([982e92a](https://github.com/gritzapp/gritz/commit/982e92a99041d65a18e0df6e103b32f7c5879687))
+* **runner:** add fake backend state machine ([784e65f](https://github.com/gritzapp/gritz/commit/784e65f91feed16f66d4f22e127d739f13e4fc67))
+* **runner:** add testrunner test utilities ([01c14c8](https://github.com/gritzapp/gritz/commit/01c14c885bd3c2bc95e43dd606eb297353ce0752))
+* **runner:** adopt Load's records through TaskRunner.Restore ([373270e](https://github.com/gritzapp/gritz/commit/373270ea526020efcc78ba02c6b59492e62e8a52))
+* **runner:** assert Prune through the fake's sandboxes, not the registry ([e97e9c9](https://github.com/gritzapp/gritz/commit/e97e9c95e1a40ea31e35e53945d5a7d7aadc804b))
+* **runner:** configure TaskRunner through TaskRunnerOptions ([984ea37](https://github.com/gritzapp/gritz/commit/984ea37427db1b731d2bcc9fce924768baeb63a7))
+* **runner:** count Run calls and model driver readiness in the fake ([93854a1](https://github.com/gritzapp/gritz/commit/93854a1ba6e7ca5e722dceac98898a3b841f12c9))
+* **runner:** create the sandbox in TaskRunner.Start ([10c2e34](https://github.com/gritzapp/gritz/commit/10c2e3437f3f290456a11fd4e549149befe2d601))
+* **runner:** don't destroy a sandbox under a claimed run ([41bea68](https://github.com/gritzapp/gritz/commit/41bea68d5039c70749fc10dc8224dae18bf707ce))
+* **runner:** drop registry assertions from the runner tests ([a21c901](https://github.com/gritzapp/gritz/commit/a21c901db8b1e775a22b1124229a42a67605a6bf))
+* **runner:** drop the sandbox status check from attach ([febea78](https://github.com/gritzapp/gritz/commit/febea782db8067659989607ffddc8b9a5b345f4a))
+* **runner:** drop the stub driver tests ([8cda1b6](https://github.com/gritzapp/gritz/commit/8cda1b6fdad30b7e66ad9cb514edd04cad4fe24c))
+* **runner:** export ErrRunning and add TaskManager.Wait ([c8c4e01](https://github.com/gritzapp/gritz/commit/c8c4e015bd45f2938845a299fec6527f827100f0))
+* **runner:** expose TaskManager.Runner in place of its wrappers ([1965613](https://github.com/gritzapp/gritz/commit/1965613af79c56d054a2e33be564e6469bfe69f0))
+* **runner:** give the fake RunEnv and recorded run specs ([66f90eb](https://github.com/gritzapp/gritz/commit/66f90eb4d2336e49a33992443b33cb43812e1fb4))
+* **runner:** gofmt the fake backend ([8bcba4b](https://github.com/gritzapp/gritz/commit/8bcba4b89cd89fcb81374fca58c12bb5a72fa2c0))
+* **runner:** keep the TaskRunner once its sandbox is gone ([ef78eda](https://github.com/gritzapp/gritz/commit/ef78eda37a91256e83943c7d254a4e72ca64d911))
+* **runner:** move spec copy to backend.Spec.Clone ([f538edd](https://github.com/gritzapp/gritz/commit/f538edd9237b179bb2ed4b9c7183c9d7fa05cc48))
+* **runner:** move TaskManager start/stop tests to runner_test ([7a40460](https://github.com/gritzapp/gritz/commit/7a40460ac95970b5b6e9e9ec1cf390afec1a698b))
+* **runner:** move TaskRunner tests to runner_test on the fake backend ([711d7ab](https://github.com/gritzapp/gritz/commit/711d7ab89cd8ceafcd6cb584b4007ad61c61df18))
+* **runner:** move the poll loop into TaskManager.Run ([8b8c1b9](https://github.com/gritzapp/gritz/commit/8b8c1b94545e98271af7b8736e8d426db39a87d6))
+* **runner:** move the remaining TaskManager tests to runner_test ([991261f](https://github.com/gritzapp/gritz/commit/991261fed8bb6ebe687ad92ce9c24f71fcaca045))
+* **runner:** reach the fake's drivers through a wrapped client ([7e844af](https://github.com/gritzapp/gritz/commit/7e844af2b4957c8c2f93c6f8f4166f68b50d9358))
+* **runner:** rename sandbox & status variables ([ad565a7](https://github.com/gritzapp/gritz/commit/ad565a7855ba00ae0074d38420269d1bd61f8e09))
+* **runner:** rename sandbox Start to Boot ([3aae118](https://github.com/gritzapp/gritz/commit/3aae118cc7310a0e7e78109aa37ebee33efcb26f))
+* **runner:** replace the TaskRunnerOptions template with a NewTaskRunner option ([3191815](https://github.com/gritzapp/gritz/commit/3191815473e4b7afb36897a015f8b365ec196e20)), closes [#1777](https://github.com/gritzapp/gritz/issues/1777)
+* **runner:** report TaskRunner events through a channel ([033857c](https://github.com/gritzapp/gritz/commit/033857cc328f341ba15f000a80c8b99ffd831a98))
+* **runner:** start Run goroutines with WaitGroup.Go ([0498051](https://github.com/gritzapp/gritz/commit/0498051ed0129e7d9c4eb9fddf29ef74610f98af))
+* **runner:** update tests for renamed fields ([5471d20](https://github.com/gritzapp/gritz/commit/5471d2079e2d2f7e792e90bde8a69420e4572372))
+* **skills:** add interactive refactoring loop to gritz-orchestrator ([d09994b](https://github.com/gritzapp/gritz/commit/d09994beb7a0161ea18996fad57b32d6d4e0556d))
+* **skills:** make proposal visualizations opt-in ([541d360](https://github.com/gritzapp/gritz/commit/541d360f387359a548f48cba27f051b3ffa45b13))
+* **skills:** move the proposal template to its own file ([3913475](https://github.com/gritzapp/gritz/commit/39134759ac06e480f665203e990d9f6bfed2cd68))
+* **skills:** require a Go API outline in proposals ([d941588](https://github.com/gritzapp/gritz/commit/d941588a25c72e1d6f45673414a2bbe3dc84627e))
+* **skills:** require a motion canvas visualization in proposals ([8b8359f](https://github.com/gritzapp/gritz/commit/8b8359f773bf54895d05385089cdc573a3646907))
+
 ## [3.14.0](https://github.com/gritzapp/gritz/compare/v3.13.0...v3.14.0) (2026-10-12)
 
 
