@@ -231,10 +231,12 @@ func TestTaskManagerPrune(t *testing.T) {
 	t.Parallel()
 	// Arrange - every record but the deleted task's (4) belongs to an archived
 	// task, except 2's. Each is restored parked, but task 8's, restored up.
+	// Task 3's sandbox is up with no run claimed: Prune parks it, and the next
+	// pass destroys it.
 	recs := []taskstate.Record{
 		legacyRecord(1, "c1"), // archived -> removed
 		legacyRecord(2, "c2"), // not archived -> kept
-		legacyRecord(3, "c3"), // up -> kept
+		legacyRecord(3, "c3"), // up -> parked, kept
 		legacyRecord(4, "c4"), // deleted -> removed
 		legacyRecord(5, "c5"), // archived and gone -> removed
 		legacyRecord(7, "c7"), // status unknown -> kept
@@ -269,7 +271,8 @@ func TestTaskManagerPrune(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - archived/deleted tasks' sandboxes are destroyed, including the one
-	// that had already vanished, and the others are left as they were.
+	// that had already vanished, the idle up one is parked, and the others are
+	// left as they were.
 	snap := be.Snapshot()
 	destroyed := slices.Sorted(slices.Values(snap.Destroyed))
 	assert.DeepEqual(t, destroyed, []string{"c1", "c4"})
@@ -279,7 +282,7 @@ func TestTaskManagerPrune(t *testing.T) {
 	}{
 		"c1": {fake.Gone, 1},
 		"c2": {fake.Parked, 0},
-		"c3": {fake.Up, 0},
+		"c3": {fake.Parked, 0},
 		"c4": {fake.Gone, 1},
 		"c5": {fake.Gone, 1},
 		"c7": {fake.Parked, 0},
@@ -303,6 +306,43 @@ func TestTaskManagerPrune(t *testing.T) {
 // TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
 // archived task's parked sandbox, and once a durable write fails it returns
 // the FatalError cause.
+
+// TestTaskManagerPrune_ParksIdle covers Prune on tasks that are not stale: an
+// up sandbox with no run claimed is parked, and one with a claimed run is left
+// alone.
+func TestTaskManagerPrune_ParksIdle(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 1's sandbox is restored up, which claims it for its Run;
+	// task 2's is restored parked, then started behind the runner's back.
+	recs := []taskstate.Record{
+		{TaskID: 1, Version: 3, Type: "fake", ID: "c1"},
+		{TaskID: 2, Version: 3, Type: "fake", ID: "c2"},
+	}
+	be := testrunner.NewBackend(t, nil)
+	be.Add("c1", fake.Up)
+	be.Add("c2", fake.Parked)
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, recs...)})
+	m.Client.GetTaskFunc = taskRunning
+	for _, rec := range recs {
+		_, err := m.Runner(rec.TaskID).Restore(t.Context(), rec)
+		assert.NilError(t, err)
+	}
+	be.Set("c2", fake.Up)
+
+	// Act
+	err := m.Prune(t.Context())
+	assert.NilError(t, err)
+
+	// Assert
+	snap := be.Snapshot()
+	c1, _ := snap.Sandbox("c1")
+	assert.Equal(t, c1.State, fake.Up)
+	assert.Equal(t, c1.Parks, 0)
+	c2, _ := snap.Sandbox("c2")
+	assert.Equal(t, c2.State, fake.Parked)
+	assert.Equal(t, c2.Parks, 1)
+}
+
 func TestTaskManagerRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - task 1 is archived and its sandbox is parked. The server has

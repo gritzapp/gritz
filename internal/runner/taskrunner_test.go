@@ -120,25 +120,48 @@ func TestTaskRunnerRun_Reattach(t *testing.T) {
 
 func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	t.Parallel()
-	// Arrange - a sandbox that stays up while its driver never answers.
-	be := testrunner.NewBackend(t, nil)
-	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 2, Version: 4, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
-		opts.LostTimeout = 100 * time.Millisecond
-	})
+	tests := []struct {
+		name string
+		// parkErr, when set, fails Run's park of the sandbox.
+		parkErr error
+		// wantState is the sandbox's state once Run returned, and wantParks
+		// its successful parks.
+		wantState fake.State
+		wantParks int
+	}{
+		{name: "parked", wantState: fake.Parked, wantParks: 1},
+		// The run is lost all the same, with no retry: the sandbox stays up
+		// for Prune.
+		{name: "park fails", parkErr: errors.New("boom"), wantState: fake.Up},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - a sandbox that stays up while its driver never answers.
+			be := testrunner.NewBackend(t, nil)
+			be.Add("c1", fake.Up)
+			tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 2, Version: 4, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
+				opts.LostTimeout = 100 * time.Millisecond
+			})
+			if tt.parkErr != nil {
+				be.FailNext(fake.OpPark, "c1", tt.parkErr)
+			}
 
-	// Act
-	err := tr.Run(t.Context(), nil)
+			// Act
+			err := tr.Run(t.Context(), nil)
 
-	// Assert - Run gave up: the sandbox is parked, and the runner's fallback
-	// "failed" is scoped to the run's version.
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Parked)
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 2, Version: 4, Reason: "driver unreachable"},
-	}, protocmp.Transform())
+			// Assert - Run gave up after one park attempt, and the runner's fallback
+			// "failed" is scoped to the run's version.
+			assert.NilError(t, err)
+			sbx, _ := be.Snapshot().Sandbox("c1")
+			assert.Equal(t, sbx.State, tt.wantState)
+			assert.Equal(t, sbx.Parks, tt.wantParks)
+			m.WaitQueued(t, 1)
+			assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
+				{Event: "failed", TaskId: 2, Version: 4, Reason: "driver unreachable"},
+			}, protocmp.Transform())
+		})
+	}
 }
 
 func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
