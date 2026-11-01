@@ -20,6 +20,15 @@ type Replication struct {
 	Cursor string
 }
 
+type RunnerEvent struct {
+	Seq     int64
+	TaskID  int64
+	Event   string
+	Version int64
+	Reason  string
+	Dead    int64
+}
+
 type Sandbox struct {
 	TaskID  int64
 	Version int64

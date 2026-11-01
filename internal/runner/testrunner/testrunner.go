@@ -18,7 +18,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/gritzapp/gritz/internal/gritzclient"
-	"github.com/gritzapp/gritz/internal/model"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -30,7 +29,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/x/outbox"
 	"gotest.tools/v3/assert"
 )
 
@@ -250,9 +248,9 @@ type ManagerOptions struct {
 	PollInterval time.Duration
 	// Fatal is runner.TaskManagerOptions.Fatal.
 	Fatal context.CancelCauseFunc
-	// QueueStore is the store behind the Manager's Queue; defaults to a file
-	// store in a temp dir.
-	QueueStore outbox.Store
+	// QueueStore is the store behind the Manager's Queue; defaults to
+	// RunnerStore.
+	QueueStore *runnerstore.Store
 	// TaskRunner, when set, adjusts the options of the manager's TaskRunners
 	// before they are built, after their reattach timings are shortened.
 	TaskRunner func(*runner.TaskRunnerOptions)
@@ -273,7 +271,7 @@ type Manager struct {
 	Client *gritzclient.ClientMock
 	// Queue is the manager's outbox, delivering to Client. Nothing runs it
 	// until Submitted.
-	Queue *outbox.Outbox[model.RunnerEvent]
+	Queue *runner.RunnerEventOutbox
 }
 
 // NewManager returns a Manager running as RunnerID, with its HandleEvents
@@ -308,15 +306,12 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_COMPLETED}}, nil
 	}
-	var err error
-	m.Queue, err = runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-		Store:    opts.QueueStore,
-		StoreDir: t.TempDir(),
-		Client:   m.Client,
-		Backoff:  backoff.NewConstantBackOff(0),
-		Log:      slog.Default(),
+	m.Queue = runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
+		Store:   cmp.Or(opts.QueueStore, m.RunnerStore),
+		Client:  m.Client,
+		Backoff: backoff.NewConstantBackOff(0),
+		Log:     slog.Default(),
 	})
-	assert.NilError(t, err)
 	workspaces := opts.Workspaces
 	if workspaces == nil {
 		workspaces = &workspace.Config{
@@ -328,6 +323,7 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 			},
 		}
 	}
+	var err error
 	m.TaskManager, err = runner.NewTaskManager(runner.TaskManagerOptions{
 		Client:      m.Client,
 		Backend:     m.Backend,
@@ -452,7 +448,7 @@ func (m *Manager) Submitted(t *testing.T) []*gritzv1.RunnerEvent {
 // Drain runs queue until it has delivered the events it holds. The outbox's
 // first Run pass delivers everything already persisted, so this exercises the
 // same durable path production uses.
-func Drain(t *testing.T, queue *outbox.Outbox[model.RunnerEvent]) {
+func Drain(t *testing.T, queue *runner.RunnerEventOutbox) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

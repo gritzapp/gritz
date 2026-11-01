@@ -82,13 +82,13 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "state-dir",
-			Usage:   "Directory whose parent holds the runner event outbox (outbox/)",
+			Usage:   "Unused; to be removed",
 			Value:   "/var/lib/gritz/tasks",
 			Sources: cli.EnvVars("GRITZ_STATE_DIR"),
 		},
 		&cli.StringFlag{
 			Name:    "state-db",
-			Usage:   "SQLite database for the runner's replica of its tasks' event logs and its task→sandbox-handle records (keep it on the same volume as --state-dir)",
+			Usage:   "SQLite database for the runner's replica of its tasks' event logs, its task→sandbox-handle records and its runner event outbox (keep it on the same volume as --state-dir)",
 			Value:   "/var/lib/gritz/runner.db",
 			Sources: cli.EnvVars("GRITZ_STATE_DB"),
 		},
@@ -155,22 +155,6 @@ var RunnerCommand = &cli.Command{
 			Token:   cfg.Token,
 		})
 
-		// The outbox is durable: it lives under the runner's persistent state
-		// directory (a sibling of --state-dir, on the same volume), so
-		// runner lifecycle events survive a restart and are redelivered on the
-		// next Run pass rather than being lost with an in-memory buffer.
-		queue, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-			StoreDir: filepath.Join(filepath.Dir(cmd.String("state-dir")), "outbox"),
-			Client:   client,
-			// Reproduce the old EventQueue's fixed retry interval (the poll
-			// interval) with a constant backoff, for a drop-in match.
-			Backoff: backoff.NewConstantBackOff(pollInterval),
-			Log:     log,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create runner event outbox: %w", err)
-		}
-
 		backendName := cmd.String("backend")
 		var be backend.Backend
 		switch backendName {
@@ -204,9 +188,9 @@ var RunnerCommand = &cli.Command{
 		}
 
 		// Open the runner's SQLite database, which holds the replica of its
-		// tasks' event logs that the TaskManager acts on, and the task→sandbox-
+		// tasks' event logs that the TaskManager acts on, the task→sandbox-
 		// handle records, the single source of truth for which sandbox belongs
-		// to which task.
+		// to which task, and the runner event outbox.
 		stateDB := cmd.String("state-db")
 		if err := os.MkdirAll(filepath.Dir(stateDB), 0o755); err != nil {
 			return fmt.Errorf("failed to create state db directory: %w", err)
@@ -222,6 +206,18 @@ var RunnerCommand = &cli.Command{
 			RunnerID:     runnerID,
 			PollInterval: pollInterval,
 			Log:          log,
+		})
+
+		// The outbox is durable: runner lifecycle events survive a restart and
+		// are redelivered on the next Run pass rather than being lost with an
+		// in-memory buffer.
+		queue := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
+			Store:  rstore,
+			Client: client,
+			// Reproduce the old EventQueue's fixed retry interval (the poll
+			// interval) with a constant backoff, for a drop-in match.
+			Backoff: backoff.NewConstantBackOff(pollInterval),
+			Log:     log,
 		})
 
 		m, err := runner.NewTaskManager(runner.TaskManagerOptions{

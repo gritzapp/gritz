@@ -2,7 +2,6 @@ package runner_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -18,7 +17,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
-	"github.com/gritzapp/gritz/internal/x/outbox"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -322,8 +320,8 @@ func TestTaskManagerPrune(t *testing.T) {
 func TestTaskManagerRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - task 1 is archived and its sandbox is parked. The server has
-	// no events until the test adds a stop. The outbox's durable write fails,
-	// so the first event the runner persists terminates it.
+	// no events until the test adds a stop. The outbox's store is closed, so
+	// the first event the runner persists fails and terminates it.
 	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Parked)
@@ -334,11 +332,7 @@ func TestTaskManagerRun(t *testing.T) {
 		RunnerStore:  testrunner.NewRunnerStore(t, rec),
 		PollInterval: 10 * time.Millisecond,
 		Fatal:        cancelCause,
-		// The die path is reached through Enqueue → Append alone, so the other
-		// store methods are never called.
-		QueueStore: &outbox.StoreMock{
-			AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") },
-		},
+		QueueStore:   closedStore(t),
 	})
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: req.Id == 1}}, nil
@@ -373,7 +367,7 @@ func TestTaskManagerRun(t *testing.T) {
 	case err := <-done:
 		var fatal runner.FatalError
 		assert.Assert(t, errors.As(err, &fatal), "got %v", err)
-		assert.ErrorContains(t, err, "no space left on device")
+		assert.ErrorContains(t, err, "database is closed")
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return")
 	}
@@ -439,16 +433,12 @@ func TestTaskManagerRunning(t *testing.T) {
 func TestTaskManagerDie_StopWithoutSandbox(t *testing.T) {
 	t.Parallel()
 	// No record, so there is no run to stop → the TaskManager emits "stopped".
-	// Back the outbox with a store whose durable Append fails. The die path is
-	// reached through Enqueue → Append alone, so Peek/Drop/Len are never called
-	// (an unstubbed moq method would panic if they were).
+	// Back the outbox with a closed store, so its durable write fails.
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Fatal: cancelCause,
-		QueueStore: &outbox.StoreMock{
-			AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") },
-		},
+		Fatal:      cancelCause,
+		QueueStore: closedStore(t),
 	})
 	m.RunContext(t, ctx)
 
@@ -567,4 +557,14 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	err = m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: testrunner.ProbeVersion})
 	assert.ErrorContains(t, err, "failed to record task handle")
 	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 2))
+}
+
+// closedStore returns a runner store that is already closed, so every write
+// to it fails.
+func closedStore(t *testing.T) *runnerstore.Store {
+	t.Helper()
+	s, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	assert.NilError(t, s.Close())
+	return s
 }
