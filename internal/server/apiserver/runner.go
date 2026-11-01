@@ -13,8 +13,6 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store"
-	"google.golang.org/protobuf/proto"
 )
 
 func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
@@ -143,7 +141,7 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 	if size < 1 || size > maxRunnerEventsPageSize {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("page_size must be between 1 and %d", maxRunnerEventsPageSize))
 	}
-	after, err := decodeEventCursor(req.Cursor)
+	after, err := model.DecodeEventCursor(req.Cursor)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -159,23 +157,9 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 		resp.Events[i] = e.Proto()
 	}
 	if len(events) > 0 {
-		if resp.NextCursor, err = encodeEventCursor(next); err != nil {
+		if resp.NextCursor, err = next.Encode(); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
 	return resp, nil
-}
-
-// decodeEventCursor decodes a ListRunnerEvents cursor; empty is the start of
-// the log.
-func decodeEventCursor(b []byte) (store.EventCursor, error) {
-	var pb gritzv1.EventCursor
-	if err := proto.Unmarshal(b, &pb); err != nil {
-		return store.EventCursor{}, fmt.Errorf("invalid cursor: %w", err)
-	}
-	return store.EventCursor{XID: pb.Xid, ID: pb.Id}, nil
-}
-
-func encodeEventCursor(c store.EventCursor) ([]byte, error) {
-	return proto.Marshal(&gritzv1.EventCursor{Xid: c.XID, Id: c.ID})
 }

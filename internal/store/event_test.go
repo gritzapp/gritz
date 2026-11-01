@@ -248,7 +248,7 @@ func TestListEventsByTaskPage_BadToken(t *testing.T) {
 // listRunnerEventsN pages the runner's events after cursor until n have been
 // returned. The xid watermark is cluster-wide, so a transaction held open by a
 // concurrent test can briefly hold back rows that have already committed.
-func listRunnerEventsN(t *testing.T, s *store.Store, org *teststore.Org, runner string, after store.EventCursor, n int) ([]*model.Event, store.EventCursor) {
+func listRunnerEventsN(t *testing.T, s *store.Store, org *teststore.Org, runner string, after model.EventCursor, n int) ([]*model.Event, model.EventCursor) {
 	t.Helper()
 	var got []*model.Event
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
@@ -276,7 +276,7 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 	eventA := &model.Event{TaskID: taskA.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
 	eventB := &model.Event{TaskID: taskB.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "b"}}
 	var heldBack []*model.Event
-	var heldBackCursor store.EventCursor
+	var heldBackCursor model.EventCursor
 
 	// Act - Tx A inserts first (lower id), Tx B inserts second and commits
 	// first; read while A is still open, then again once A commits.
@@ -287,21 +287,21 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 			return txB.Commit()
 		})
 		assert.NilError(t, err)
-		heldBack, heldBackCursor, err = s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", store.EventCursor{}, 100)
+		heldBack, heldBackCursor, err = s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", model.EventCursor{}, 100)
 		assert.NilError(t, err)
 		return txA.Commit()
 	})
 	assert.NilError(t, err)
-	got, cursor := listRunnerEventsN(t, s, org, "runner-1", store.EventCursor{}, 2)
+	got, cursor := listRunnerEventsN(t, s, org, "runner-1", model.EventCursor{}, 2)
 
 	// Assert - B's committed row is held back behind A's open transaction,
 	// then both come back in xid order and the cursor names the last one.
 	assert.Assert(t, eventA.ID < eventB.ID)
 	assert.Assert(t, eventA.XID < eventB.XID)
 	assert.Assert(t, cmp.Len(heldBack, 0))
-	assert.Equal(t, heldBackCursor, store.EventCursor{})
+	assert.Equal(t, heldBackCursor, model.EventCursor{})
 	assert.DeepEqual(t, testx.ExtractField(got, "ID"), []int64{eventA.ID, eventB.ID})
-	assert.Equal(t, cursor, store.EventCursor{XID: eventB.XID, ID: eventB.ID})
+	assert.Equal(t, cursor, model.EventCursor{XID: eventB.XID, ID: eventB.ID})
 }
 
 func TestListRunnerEvents_EmptyPage(t *testing.T) {
@@ -312,7 +312,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
 	event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
 	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
-	_, after := listRunnerEventsN(t, s, org, "runner-1", store.EventCursor{}, 1)
+	_, after := listRunnerEventsN(t, s, org, "runner-1", model.EventCursor{}, 1)
 
 	// Act
 	events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", after, 100)
@@ -320,7 +320,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	// Assert - an empty page hands back the request's cursor.
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(events, 0))
-	assert.Equal(t, after, store.EventCursor{XID: event.XID, ID: event.ID})
+	assert.Equal(t, after, model.EventCursor{XID: event.XID, ID: event.ID})
 	assert.Equal(t, next, after)
 }
 
@@ -336,11 +336,11 @@ func TestListRunnerEvents_Pages(t *testing.T) {
 		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
 		want = append(want, event.ID)
 	}
-	listRunnerEventsN(t, s, org, "runner-1", store.EventCursor{}, 5)
+	listRunnerEventsN(t, s, org, "runner-1", model.EventCursor{}, 5)
 
 	// Act - follow the cursor two at a time until a page comes back empty.
 	var got []int64
-	var after store.EventCursor
+	var after model.EventCursor
 	pages := 0
 	for {
 		events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", after, 2)
@@ -377,10 +377,10 @@ func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
 		}
 	}
 	// Wait for the last event to pass the watermark, so the others have too.
-	listRunnerEventsN(t, s, otherOrg, "runner-1", store.EventCursor{}, 1)
+	listRunnerEventsN(t, s, otherOrg, "runner-1", model.EventCursor{}, 1)
 
 	// Act
-	events, _, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", store.EventCursor{}, 100)
+	events, _, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", model.EventCursor{}, 100)
 
 	// Assert
 	assert.NilError(t, err)
