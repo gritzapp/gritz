@@ -45,7 +45,11 @@ func (s *Store) Sandbox(ctx context.Context, taskID int64) (rec SandboxRecord, o
 	if err != nil {
 		return SandboxRecord{}, false, fmt.Errorf("runnerstore: read sandbox %d: %w", taskID, err)
 	}
-	return sandboxRecord(row), true, nil
+	h := backend.Handle{Type: row.Type, ID: row.ID}
+	if len(row.Data) > 0 {
+		h.Data = row.Data // a handle stored without data reads back with nil Data
+	}
+	return SandboxRecord{TaskID: row.TaskID, Version: row.Version, Handle: h}, true, nil
 }
 
 // RemoveSandbox deletes the record for taskID, if any.
@@ -64,17 +68,11 @@ func (s *Store) Sandboxes(ctx context.Context) ([]SandboxRecord, error) {
 	}
 	var recs []SandboxRecord
 	for _, row := range rows {
-		recs = append(recs, sandboxRecord(row))
+		h := backend.Handle{Type: row.Type, ID: row.ID}
+		if len(row.Data) > 0 {
+			h.Data = row.Data // a handle stored without data reads back with nil Data
+		}
+		recs = append(recs, SandboxRecord{TaskID: row.TaskID, Version: row.Version, Handle: h})
 	}
 	return recs, nil
-}
-
-// sandboxRecord returns the record a sandboxes row holds. A handle stored
-// without data reads back with nil Data, as it was written.
-func sandboxRecord(row sqlc.Sandbox) SandboxRecord {
-	h := backend.Handle{Type: row.Type, ID: row.ID}
-	if len(row.Data) > 0 {
-		h.Data = row.Data
-	}
-	return SandboxRecord{TaskID: row.TaskID, Version: row.Version, Handle: h}
 }
