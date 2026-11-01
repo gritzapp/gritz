@@ -36,20 +36,18 @@ entry in `sqlc.yaml`.
 
 ### Schema
 
-`internal/runner/runnerstore/sql/migrations/0004_task_records.sql`:
+`internal/runner/runnerstore/sql/migrations/0004_sandboxes.sql`:
 
 ```sql
-CREATE TABLE task_records (
+CREATE TABLE sandboxes (
     task_id INTEGER PRIMARY KEY,
-    version INTEGER NOT NULL,  -- task.Version at launch
+    version INTEGER NOT NULL,  -- task.Version of the run the sandbox is hosting; expected to go once
+                               -- the driver owns its runs (runner-event-replica.md slices 7–8)
     type    TEXT    NOT NULL,  -- backend handle type; informational
     id      TEXT    NOT NULL,  -- backend handle id
     data    BLOB               -- opaque backend handle data; never decoded
 );
 ```
-
-The table is not called `tasks`: that name is already taken by the replica's
-projection of each task's command and archive state.
 
 `0005_outbox.sql`:
 
@@ -64,24 +62,24 @@ CREATE INDEX outbox_live ON outbox (seq) WHERE dead = 0;
 
 ### Queries
 
-`sql/queries/task_records.sql`: `UpsertTaskRecord` (`INSERT ... ON CONFLICT
-(task_id) DO UPDATE`), `GetTaskRecord`, `DeleteTaskRecord`, `ListTaskRecords`
+`sql/queries/sandboxes.sql`: `UpsertSandbox` (`INSERT ... ON CONFLICT
+(task_id) DO UPDATE`), `GetSandbox`, `DeleteSandbox`, `ListSandboxes`
 (`ORDER BY task_id`).
 
 `sql/queries/outbox.sql`: `InsertOutbox`, `GetOutboxHead` (`WHERE dead = 0
 ORDER BY seq LIMIT 1`), `DeleteOutbox` (by seq), `MarkOutboxDead` (by seq),
 `CountOutbox` (`WHERE dead = 0`).
 
-### Task records
+### Sandboxes
 
 The `taskstate` package is deleted. `taskstate.Record` becomes
-`runnerstore.TaskRecord` with the same fields, and `Write`/`Read`/`Remove`/`List`
+`runnerstore.Sandbox` with the same fields, and `Write`/`Read`/`Remove`/`List`
 become `Store` methods. The mutex, the per-task paths and `parseRecordName`
-go with the package. Behaviour is unchanged: `RemoveTaskRecord` is a no-op for
-an absent record, and a failed `WriteTaskRecord` still ends the runner through
+go with the package. Behaviour is unchanged: `RemoveSandbox` is a no-op for
+an absent record, and a failed `WriteSandbox` still ends the runner through
 `TaskFatalEvent` (`TaskRunner.write`). `TaskManagerOptions.Store` and
 `TaskRunnerOptions.Store` become `*runnerstore.Store`; `Load` reads
-`TaskRecords` where it read `List`.
+`Sandboxes` where it read `List`.
 
 ### Outbox
 
@@ -134,26 +132,29 @@ So upgrade a drained runner: let running tasks finish or stop them first.
 ```go
 package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore
 
-// TaskRecord is the persisted task→sandbox-handle mapping. // new; was taskstate.Record
-type TaskRecord struct {
+// Sandbox is the persisted task→sandbox-handle mapping. // new; was taskstate.Record
+type Sandbox struct {
 	TaskID  int64
-	Version int64           // task.Version at launch
+	// Version is the task.Version of the run the sandbox is hosting. It is
+	// expected to go once the driver owns its runs (runner-event-replica.md
+	// slices 7–8).
+	Version int64
 	Type    string          // backend handle type; informational
 	ID      string          // backend handle id
 	Data    json.RawMessage // opaque, backend-defined; never decoded
 }
 
-// WriteTaskRecord inserts or replaces the record for rec.TaskID. // new
-func (s *Store) WriteTaskRecord(ctx context.Context, rec TaskRecord) error
+// WriteSandbox inserts or replaces the record for rec.TaskID. // new
+func (s *Store) WriteSandbox(ctx context.Context, rec Sandbox) error
 
-// TaskRecord returns the record for taskID; ok is false when there is none. // new
-func (s *Store) TaskRecord(ctx context.Context, taskID int64) (rec TaskRecord, ok bool, err error)
+// Sandbox returns the record for taskID; ok is false when there is none. // new
+func (s *Store) Sandbox(ctx context.Context, taskID int64) (rec Sandbox, ok bool, err error)
 
-// RemoveTaskRecord deletes the record for taskID, if any. // new
-func (s *Store) RemoveTaskRecord(ctx context.Context, taskID int64) error
+// RemoveSandbox deletes the record for taskID, if any. // new
+func (s *Store) RemoveSandbox(ctx context.Context, taskID int64) error
 
-// TaskRecords returns every record, in ascending task id order. // new
-func (s *Store) TaskRecords(ctx context.Context) ([]TaskRecord, error)
+// Sandboxes returns every record, in ascending task id order. // new
+func (s *Store) Sandboxes(ctx context.Context) ([]Sandbox, error)
 
 // Outbox returns the runner event outbox's queue, stored in this database. // new
 func (s *Store) Outbox() outbox.Store
@@ -196,13 +197,13 @@ type TaskRunnerOptions struct {
 `*runnerstore.Store` from `--state-db`, as it does today, and passes it to
 `taskevents.New`, as `TaskManagerOptions.Store`, and as `rstore.Outbox()` to
 `NewRunnerEventOutbox`. `testrunner.NewStore` opens a `runnerstore.Store` in
-`t.TempDir()` seeded with `TaskRecord`s, and `QueueStore` defaults to that
+`t.TempDir()` seeded with `Sandbox` rows, and `QueueStore` defaults to that
 store's `Outbox()`.
 
 ## Implementation Plan
 
-1. **Task records in runnerstore** — Delivers: `0004_task_records.sql`, its
-   queries, `TaskRecord` and the four record methods; the runner,
+1. **Sandboxes in runnerstore** — Delivers: `0004_sandboxes.sql`, its
+   queries, `Sandbox` and the four sandbox methods; the runner,
    `testrunner` and their tests on `*runnerstore.Store`; the `taskstate`
    package deleted. The runner reads `--state-db` for records and still
    accepts `--state-dir` for the outbox location. Depends on: nothing.
