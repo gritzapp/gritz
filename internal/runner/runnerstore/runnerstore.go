@@ -110,7 +110,12 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		if err != nil {
 			return nil, fmt.Errorf("runnerstore: upsert task %d: %w", t.ID, err)
 		}
-		changes = append(changes, taskChange(row))
+		changes = append(changes, TaskChange{
+			ID:       row.ID,
+			Command:  gritzv1.TaskCommand(row.Command.Int64),
+			Version:  row.Version.Int64,
+			Archived: row.Archived.Bool,
+		})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
 		return nil, fmt.Errorf("runnerstore: set cursor: %w", err)
@@ -169,16 +174,12 @@ func (s *Store) UnarchivedTasks(ctx context.Context) ([]TaskChange, error) {
 	}
 	var tasks []TaskChange
 	for _, row := range rows {
-		tasks = append(tasks, taskChange(row))
+		tasks = append(tasks, TaskChange{
+			ID:       row.ID,
+			Command:  gritzv1.TaskCommand(row.Command.Int64),
+			Version:  row.Version.Int64,
+			Archived: row.Archived.Bool,
+		})
 	}
 	return tasks, nil
-}
-
-func taskChange(row sqlc.Task) TaskChange {
-	return TaskChange{
-		ID:       row.ID,
-		Command:  gritzv1.TaskCommand(row.Command.Int64),
-		Version:  row.Version.Int64,
-		Archived: row.Archived.Bool,
-	}
 }
