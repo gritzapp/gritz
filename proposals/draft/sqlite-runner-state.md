@@ -69,8 +69,8 @@ the runner's own connections.
 ### One store
 
 `runnerstore.Store` is the runner's only durable store. It owns the `*sql.DB`
-and serves both the task records and the event outbox; there is no separate
-task store or outbox store type.
+and serves both the task records and the runner event queue; there is no
+separate task store or event store type.
 
 ### Schema and migrations
 
@@ -91,13 +91,17 @@ CREATE TABLE task_records (
     data    BLOB                      -- opaque backend handle data; never decoded
 ) STRICT;
 
-CREATE TABLE outbox (
-    seq     INTEGER PRIMARY KEY AUTOINCREMENT,  -- AUTOINCREMENT: a seq is never reused, even after a drop
-    payload BLOB    NOT NULL,
-    dead    INTEGER NOT NULL DEFAULT 0
+CREATE TABLE runner_events (
+    seq       INTEGER PRIMARY KEY AUTOINCREMENT,  -- AUTOINCREMENT: a seq is never reused, even after a drop
+    task_id   INTEGER NOT NULL,
+    event     TEXT    NOT NULL,                   -- model.RunnerEventType
+    version   INTEGER NOT NULL,
+    reconcile INTEGER NOT NULL,
+    reason    TEXT    NOT NULL,
+    dead      INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
-CREATE INDEX outbox_live ON outbox (seq) WHERE dead = 0;
+CREATE INDEX runner_events_live ON runner_events (seq) WHERE dead = 0;
 ```
 
 ### Task records
@@ -105,7 +109,7 @@ CREATE INDEX outbox_live ON outbox (seq) WHERE dead = 0;
 The `internal/runner/taskstate` package is deleted. `taskstate.Record` moves to
 `runnerstore.TaskRecord` with the same fields, and the four store operations
 become `Store` methods with a `Task` suffix, since the same type also carries
-the outbox methods. `TaskManagerOptions.Store` and `TaskRunnerOptions.Store`
+the runner event methods. `TaskManagerOptions.Store` and `TaskRunnerOptions.Store`
 become `*runnerstore.Store`, and the call sites in `TaskManager`, `TaskRunner`,
 `testrunner` and the runner tests are renamed accordingly.
 
@@ -118,32 +122,50 @@ become `*runnerstore.Store`, and the call sites in `TaskManager`, `TaskRunner`,
 
 The mutex, `path`, `parseRecordName` and the stray-file handling go away with
 the package. `runnerstore` keeps taskstate's leaf rule: it imports
-`database/sql`, the SQLite driver and `internal/x/outbox`, and no backend code.
+`database/sql`, the SQLite driver and `internal/model`, and no backend code.
 A failed `WriteTask` still ends the runner through `TaskFatalEvent`
 (`taskrunner.go`); only the error source changes.
 
-### outbox
+### Runner events
 
-`internal/x/outbox` does not change: the `Store` interface, the `Outbox[T]`
-engine and `FileStore` all stay as they are, so the package remains available
-to other callers (for example the driver). `runnerstore.Store` implements
-`outbox.Store` directly, and the runner passes it as
-`RunnerEventOutboxOptions.Store`.
+The runner event outbox no longer uses `internal/x/outbox`. The package itself
+is unchanged and stays available to other callers (for example the driver);
+the runner simply stops importing it.
 
-| Method          | Query |
-|-----------------|-------|
-| `Append`        | `INSERT INTO outbox (payload) VALUES (?)` |
-| `Peek`          | `SELECT seq, payload FROM outbox WHERE dead = 0 ORDER BY seq LIMIT 1` |
-| `Drop(false)`   | `DELETE FROM outbox WHERE seq = (SELECT min(seq) FROM outbox WHERE dead = 0)` |
-| `Drop(true)`    | `UPDATE outbox SET dead = 1 WHERE seq = (SELECT min(seq) FROM outbox WHERE dead = 0)` |
-| `Len`           | `SELECT count(*) FROM outbox WHERE dead = 0` |
+`runnerstore.Store` stores `model.RunnerEvent` directly, one column per field,
+so the queue can be read with `sqlite3` and there is no JSON payload to decode:
+
+| Method              | Query |
+|---------------------|-------|
+| `AppendRunnerEvent` | `INSERT INTO runner_events (task_id, event, version, reconcile, reason) VALUES (...)` |
+| `PeekRunnerEvent`   | `SELECT seq, ... FROM runner_events WHERE dead = 0 ORDER BY seq LIMIT 1` |
+| `DropRunnerEvent`   | `DELETE FROM runner_events WHERE seq = ?`, or `UPDATE runner_events SET dead = 1 WHERE seq = ?` when dead |
+| `CountRunnerEvents` | `SELECT count(*) FROM runner_events WHERE dead = 0` |
 
 There is no in-memory mirror; the partial index makes the head lookup cheap,
-and the queue only holds events that have not yet reached the server. The
-`outbox` table sits next to the migrations that create it, and
-`internal/x/outbox` stays stdlib-only with no knowledge of SQL.
+and the queue only holds events that have not yet reached the server.
 
-The runner stops using `outbox.FileStore`; the type itself is kept.
+`runner.RunnerEventOutbox` (`internal/runner/eventoutbox.go`) becomes a
+concrete type that owns the delivery loop the runner currently gets from
+`outbox.Outbox[model.RunnerEvent]`:
+
+- `Enqueue` calls `AppendRunnerEvent`, then wakes `Run` (`internal/x/wakeup`).
+- `Run` drains from the head until the queue is empty, then waits for a wake or
+  for ctx to end. The first pass delivers whatever survived a restart.
+- Each event is sent with `SubmitRunnerEvents`. On success it is dropped; on a
+  permanent error (`isPermanentError`, unchanged) it is dropped as dead; on a
+  transient error the loop sleeps for the backoff interval and retries the same
+  head. The backoff resets when the queue empties. A failed peek or drop is
+  logged and retried after the backoff, as today.
+- `Len` calls `CountRunnerEvents`.
+
+The engine's "undecodable payload" case goes away: rows are typed columns, so
+there is nothing to decode.
+
+`RunnerEventOutbox` depends on a small `RunnerEventStore` interface rather than
+on `*runnerstore.Store`, so the tests that inject a failing append ("no space
+left on device", `taskmanager_load_test.go`) keep working with a moq mock in
+place of `outbox.StoreMock`.
 
 ### Upgrading
 
@@ -160,7 +182,7 @@ afterwards.
 ```go
 package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore (new)
 
-// Store is the runner's durable state: task records and the event outbox.
+// Store is the runner's durable state: task records and the runner event queue.
 type Store struct{ ... }
 
 // Open opens the SQLite database at path, creating it if needed, and applies
@@ -192,17 +214,18 @@ func (s *Store) RemoveTask(taskID int64) error
 // ListTasks returns every record, ordered by task id.
 func (s *Store) ListTasks() ([]TaskRecord, error)
 
-// Append durably appends payload to the outbox tail.
-func (s *Store) Append(payload json.RawMessage) error
+// AppendRunnerEvent durably appends ev to the tail of the runner event queue.
+func (s *Store) AppendRunnerEvent(ev model.RunnerEvent) error
 
-// Peek returns the outbox head without removing it.
-func (s *Store) Peek() (outbox.Record, bool, error)
+// PeekRunnerEvent returns the oldest live event and its seq; ok is false when
+// the queue is empty.
+func (s *Store) PeekRunnerEvent() (seq int64, ev model.RunnerEvent, ok bool, err error)
 
-// Drop removes the outbox head, marking it dead instead when dead is true.
-func (s *Store) Drop(dead bool) error
+// DropRunnerEvent removes the event at seq, or marks it dead when dead is true.
+func (s *Store) DropRunnerEvent(seq int64, dead bool) error
 
-// Len reports the number of live outbox records.
-func (s *Store) Len() (int, error)
+// CountRunnerEvents reports the number of live events.
+func (s *Store) CountRunnerEvents() (int, error)
 ```
 
 ```go
@@ -212,19 +235,52 @@ package taskstate // github.com/gritzapp/gritz/internal/runner/taskstate (remove
 ```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
+// RunnerEventStore is the durable queue behind a RunnerEventOutbox. // new
+//
+//go:generate go tool moq -out runnereventstore_moq.go . RunnerEventStore
+type RunnerEventStore interface {
+	AppendRunnerEvent(ev model.RunnerEvent) error
+	PeekRunnerEvent() (seq int64, ev model.RunnerEvent, ok bool, err error)
+	DropRunnerEvent(seq int64, dead bool) error
+	CountRunnerEvents() (int, error)
+}
+
+// RunnerEventOutbox delivers runner events to the server, at least once and in
+// order. // new; replaces *outbox.Outbox[model.RunnerEvent]
+type RunnerEventOutbox struct{ ... }
+
 type RunnerEventOutboxOptions struct {
-	Store    outbox.Store // now required
-	StoreDir string       // removed
+	Store    RunnerEventStore // was outbox.Store; now required
+	StoreDir string           // removed
 	// Client, Backoff, Log unchanged
+}
+
+// NewRunnerEventOutbox returns a RunnerEventOutbox over opts.Store. // no longer returns an error
+func NewRunnerEventOutbox(opts RunnerEventOutboxOptions) *RunnerEventOutbox
+
+// Enqueue durably appends ev and wakes Run.
+func (o *RunnerEventOutbox) Enqueue(ev model.RunnerEvent) error
+
+// Run delivers queued events until ctx is cancelled.
+func (o *RunnerEventOutbox) Run(ctx context.Context)
+
+// Len reports the number of undelivered events.
+func (o *RunnerEventOutbox) Len() (int, error)
+
+type TaskManagerOptions struct {
+	Store *runnerstore.Store // was *taskstate.Store
+	Queue *RunnerEventOutbox // was *outbox.Outbox[model.RunnerEvent]
+	// other fields unchanged
 }
 ```
 
 **How it fits:** `internal/command/runner.go` calls `runnerstore.Open` with
-`--state-db` and passes the one `*runnerstore.Store` as both
-`TaskManagerOptions.Store` and `RunnerEventOutboxOptions.Store`, closing it on
-exit.
-`internal/runner/testrunner` opens a database in `t.TempDir()` the same way;
-tests that inject failures with `outbox.StoreMock` are unchanged.
+`--state-db`, passes the one `*runnerstore.Store` as both
+`TaskManagerOptions.Store` and `RunnerEventOutboxOptions.Store`, starts
+`go queue.Run(ctx)` as today, and closes the store on exit. `TaskManager`'s
+`m.queue.Enqueue(...)` call sites do not change. `internal/runner/testrunner`
+opens a store in `t.TempDir()`; its `QueueStore` option becomes a
+`RunnerEventStore`, so failure-injection tests pass a `RunnerEventStoreMock`.
 
 ## Implementation Plan
 
@@ -232,18 +288,21 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    embedded migrations with `user_version`, `0001_init.sql`; the driver becomes
    a direct dependency. Depends on: nothing. Verifiable by: tests that open a
    fresh file, reopen it (migrations not reapplied), and check the tables exist.
-2. **Outbox methods** — Delivers: `Append`, `Peek`, `Drop` and `Len` on
-   `Store`, satisfying `outbox.Store`. Depends on: (1). Verifiable by: tests
-   mirroring the `FileStore` behaviour tests (FIFO order, dead-lettering, seq
-   never reused, reopen keeps records) against `Store`.
+2. **Runner event methods** — Delivers: `AppendRunnerEvent`,
+   `PeekRunnerEvent`, `DropRunnerEvent` and `CountRunnerEvents` on `Store`.
+   Depends on: (1). Verifiable by: tests for FIFO order, dead-lettering, seq
+   never reused, and reopen keeping events, with every `RunnerEvent` field
+   round-tripped.
 3. **Task methods** — Delivers: `TaskRecord` and `WriteTask`, `ReadTask`,
    `RemoveTask`, `ListTasks`. Depends on: (1). Verifiable by: the existing
    `taskstate` tests ported to `Store`.
-4. **Runner wire-up** — Delivers: `--state-db` replacing `--state-dir`, the
-   runner and its tests moved to `runnerstore.Store`/`TaskRecord`, the
-   `taskstate` package deleted, `RunnerEventOutboxOptions.StoreDir` removed,
+4. **Runner wire-up** — Delivers: `--state-db` replacing `--state-dir`,
+   `RunnerEventStore` and the concrete `RunnerEventOutbox` with its own delivery
+   loop, the runner and its tests moved to `runnerstore.Store`/`TaskRecord`, the
+   `taskstate` package deleted, the runner's `internal/x/outbox` import removed,
    `testrunner` on SQLite, `docker-compose.dev.yml` env updated.
-   Depends on: (2), (3). Verifiable by: runner tests pass; running the dev
+   Depends on: (2), (3). The existing `eventoutbox_test.go` cases (permanent vs.
+   transient errors, redelivery after restart) move to the new type. Verifiable by: runner tests pass; running the dev
    compose stack across a restart with a sandbox up.
 
 ## Trade-offs
@@ -256,11 +315,16 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
   the task records to the server's Postgres for durability across a runner's
   disk. This proposal keeps the runner the owner of its own state on its own
   disk. The two are alternatives for the task records; if that proposal is accepted
-  later, the outbox half of this one still applies.
+  later, the runner event half of this one still applies.
 - **ncruces/go-sqlite3 vs. modernc.org/sqlite vs. mattn/go-sqlite3.** mattn
   needs cgo, which complicates the cross-compiled prebuilt binaries. modernc is
   also cgo-free; ncruces is chosen because it is already in the module graph.
-- **Hand-written `database/sql` vs. sqlc.** There are nine short queries, so
+- **Typed runner events vs. the generic `outbox` engine.** Keeping
+  `outbox.Outbox[model.RunnerEvent]` would mean `Store` exposes raw-JSON
+  `Append`/`Peek`/`Drop`/`Len` methods and the queue stays a payload blob. A
+  runner-owned loop costs roughly the engine's ~100 lines in
+  `eventoutbox.go`, in exchange for typed methods and readable rows.
+- **Hand-written `database/sql` vs. sqlc.** There are only a handful of short queries, so
   hand-written queries avoid a second sqlc config and generated package. If the
   schema grows, a second `sql:` entry with `engine: "sqlite"` can be added
   later.
@@ -272,10 +336,10 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
   it.
 - **One shared database vs. a file per store.** One file keeps both stores on
   the same volume by construction and allows a future change to write a task
-  record and an outbox event in one transaction. This proposal does not add
-  such transactions; both store interfaces stay as they are.
+  record and a runner event in one transaction. This proposal does not add
+  such transactions.
 
 ## Open Questions
 
-- Should dead-lettered outbox rows be kept forever (as `dead/` files are today)
+- Should dead runner event rows be kept forever (as `dead/` files are today)
   or pruned after some age?
