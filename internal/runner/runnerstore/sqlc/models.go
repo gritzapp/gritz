@@ -15,3 +15,8 @@ type Replication struct {
 	ID     int64
 	Cursor string
 }
+
+type Task struct {
+	ID       int64
+	Archived bool
+}

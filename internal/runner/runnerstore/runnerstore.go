@@ -1,7 +1,8 @@
 // Package runnerstore is the runner's local SQLite database. It holds the
 // runner's replica of its tasks' event logs: the replicated events, in the
-// order they arrived from the server, and the replication cursor that follows
-// them. See proposals/draft/runner-event-replica.md.
+// order they arrived from the server, the replication cursor that follows
+// them, and a projection of each task's archive state. See
+// proposals/draft/runner-event-replica.md.
 package runnerstore
 
 import (
@@ -59,35 +60,94 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// AppendEvents stores a page of replicated events and the cursor that
-// follows it in one transaction.
-func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) error {
+// TaskChange is a task becoming active or archived.
+type TaskChange struct {
+	ID       int64
+	Archived bool
+}
+
+// AppendEvents stores a page of replicated events, the cursor that follows
+// it, and the page's effect on the tasks table in one transaction. It returns
+// the page's task changes in order of each task's first event in the page:
+// new tasks that end the page unarchived, and tasks whose archive state
+// flipped. A task that is new and archived within one page was never active,
+// so it is stored as archived but not returned.
+func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) ([]TaskChange, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("runnerstore: begin: %w", err)
+		return nil, fmt.Errorf("runnerstore: begin: %w", err)
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
+	type task struct{ known, before, archived bool }
+	var ids []int64
+	tasks := map[int64]*task{}
 	for _, e := range events {
 		data, err := proto.Marshal(e)
 		if err != nil {
-			return fmt.Errorf("runnerstore: marshal event %d: %w", e.GetId(), err)
+			return nil, fmt.Errorf("runnerstore: marshal event %d: %w", e.GetId(), err)
 		}
 		if err := q.InsertEvent(ctx, sqlc.InsertEventParams{
 			ID:     e.GetId(),
 			TaskID: e.GetTaskId(),
 			Event:  data,
 		}); err != nil {
-			return fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
+			return nil, fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
 		}
+		t, ok := tasks[e.GetTaskId()]
+		if !ok {
+			t = &task{}
+			t.before, err = q.GetTaskArchived(ctx, e.GetTaskId())
+			switch {
+			case err == nil:
+				t.known = true
+			case !errors.Is(err, sql.ErrNoRows):
+				return nil, fmt.Errorf("runnerstore: read task %d: %w", e.GetTaskId(), err)
+			}
+			t.archived = t.before
+			tasks[e.GetTaskId()] = t
+			ids = append(ids, e.GetTaskId())
+		}
+		t.archived = foldArchived(t.archived, e)
+	}
+	var changes []TaskChange
+	for _, id := range ids {
+		t := tasks[id]
+		if t.known && t.before == t.archived {
+			continue
+		}
+		if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
+			ID:       id,
+			Archived: t.archived,
+		}); err != nil {
+			return nil, fmt.Errorf("runnerstore: set task %d: %w", id, err)
+		}
+		if !t.known && t.archived {
+			continue
+		}
+		changes = append(changes, TaskChange{ID: id, Archived: t.archived})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
-		return fmt.Errorf("runnerstore: set cursor: %w", err)
+		return nil, fmt.Errorf("runnerstore: set cursor: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("runnerstore: commit: %w", err)
+		return nil, fmt.Errorf("runnerstore: commit: %w", err)
 	}
-	return nil
+	return changes, nil
+}
+
+// foldArchived returns whether a task is archived after e, given whether it
+// was before. Archived and AutoArchived set it, Unarchived clears it, and any
+// other event, including a payload arm this runner doesn't know, leaves it.
+func foldArchived(archived bool, e *gritzv1.Event) bool {
+	switch e.GetLifecycle().GetKind() {
+	case gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED, gritzv1.LifecycleKind_LIFECYCLE_KIND_AUTO_ARCHIVED:
+		return true
+	case gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED:
+		return false
+	default:
+		return archived
+	}
 }
 
 // EventReplicationCursor returns the replication cursor: the single position
@@ -127,4 +187,14 @@ func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*
 		events = append(events, e)
 	}
 	return events, nil
+}
+
+// UnarchivedTaskIDs returns the ids of every stored task that isn't archived,
+// ascending.
+func (s *Store) UnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
+	ids, err := s.q.ListUnarchivedTaskIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runnerstore: read task ids: %w", err)
+	}
+	return ids, nil
 }

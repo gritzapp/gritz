@@ -21,3 +21,6 @@ sql:
       go:
         package: "sqlc"
         out: "internal/runner/runnerstore/sqlc"
+        overrides:
+          - column: "tasks.archived"
+            go_type: "bool"
