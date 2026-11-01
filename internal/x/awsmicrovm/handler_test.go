@@ -73,6 +73,11 @@ func TestHandlerHookErrorIs500(t *testing.T) {
 	assert.Equal(t, post(t, h, HookRun, `{"microvmId":"x"}`).Code, http.StatusInternalServerError)
 }
 
+func TestHandlerHookInProgressIs503(t *testing.T) {
+	h := &Handler{Validate: func(context.Context, ValidateHookRequest) error { return ErrInProgress }}
+	assert.Equal(t, post(t, h, HookValidate, "").Code, http.StatusServiceUnavailable)
+}
+
 func TestHandlerBadBodyIs400(t *testing.T) {
 	h := &Handler{Run: func(context.Context, RunHookRequest) error { return nil }}
 	assert.Equal(t, post(t, h, HookRun, `{not json`).Code, http.StatusBadRequest)
