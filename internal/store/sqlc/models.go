@@ -18,6 +18,7 @@ type Event struct {
 	Type      string          `json:"type"`
 	Wake      bool            `json:"wake"`
 	Payload   json.RawMessage `json:"payload"`
+	Xid       uint64          `json:"xid"`
 }
 
 type Key struct {

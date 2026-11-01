@@ -202,7 +202,7 @@ type Container struct {
 
 // Environ returns the environment variables as a slice of "key=value" strings.
 func (c *Container) Environ() []string {
-	env := make([]string, 0, len(c.Environment))
+	var env []string
 	for k, v := range c.Environment {
 		env = append(env, k+"="+v)
 	}
@@ -241,15 +241,6 @@ type LambdaMicroVM struct {
 	// --maximum-duration-in-seconds). 0 uses the backend default.
 	MaxDurationSeconds int64             `yaml:"max_duration_seconds"`
 	Environment        map[string]string `yaml:"environment"`
-}
-
-// Environ returns the environment variables as a slice of "key=value" strings.
-func (l *LambdaMicroVM) Environ() []string {
-	env := make([]string, 0, len(l.Environment))
-	for k, v := range l.Environment {
-		env = append(env, k+"="+v)
-	}
-	return env
 }
 
 // NetworkingConfig returns the Docker networking configuration for this container.

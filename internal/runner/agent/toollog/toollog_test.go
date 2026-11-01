@@ -142,7 +142,11 @@ func TestRedact(t *testing.T) {
 			name:  "replaces present keys",
 			input: map[string]any{"old_string": "a", "new_string": "b", "file_path": "f"},
 			keys:  []string{"old_string", "new_string"},
-			want:  map[string]any{"old_string": truncatedPlaceholder, "new_string": truncatedPlaceholder, "file_path": "f"},
+			want: map[string]any{
+				"old_string": truncatedPlaceholder,
+				"new_string": truncatedPlaceholder,
+				"file_path":  "f",
+			},
 		},
 		{
 			name:  "ignores absent keys",

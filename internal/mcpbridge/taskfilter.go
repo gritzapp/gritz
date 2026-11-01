@@ -96,7 +96,7 @@ func (f *TaskFilter) All() bool {
 func (f *TaskFilter) Exceptions() []int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	ids := make([]int64, 0, len(f.except))
+	var ids []int64
 	for id := range f.except {
 		ids = append(ids, id)
 	}

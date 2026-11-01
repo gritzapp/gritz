@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -19,7 +21,11 @@ func TestGetRoutingRules_Default(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
@@ -34,10 +40,26 @@ func TestSetAndGetRoutingRules(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	rules := []*gritzv1.RoutingRule{
-		{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "bot:"}}},
-		{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "mention", Op: "equals", Value: "mybot"}}},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "prefix", Value: "bot:"},
+			},
+		},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "mention", Op: "equals", Value: "mybot"},
+			},
+		},
 	}
 
 	// Act
@@ -62,10 +84,27 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	rules := []*gritzv1.RoutingRule{
-		{Source: "github", Type: "label_added", Conditions: []*gritzv1.RuleCondition{{Attr: "label", Op: "equals", Value: "reviewbot"}}, Namespace: "reviewbot"},
-		{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "bot:"}}},
+		{
+			Source: "github",
+			Type:   "label_added",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "label", Op: "equals", Value: "reviewbot"},
+			},
+			Namespace: "reviewbot",
+		},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "prefix", Value: "bot:"},
+			},
+		},
 	}
 
 	// Act
@@ -92,11 +131,25 @@ func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := teststore.CreateOrg(t, srv.store, nil)
 	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := createCtx(t, orgA)
-	ctxB := createCtx(t, orgB)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.SetRoutingRules(ctxA, &gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
-			{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "a:"}}},
+			{
+				Source: "github",
+				Type:   "issue_comment",
+				Conditions: []*gritzv1.RuleCondition{
+					{Attr: "body", Op: "prefix", Value: "a:"},
+				},
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -114,14 +167,36 @@ func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	cases := map[string]*gritzv1.RoutingRule{
-		"empty type":      {Source: "github"},
-		"unknown type":    {Source: "github", Type: "not_a_type"},
-		"unknown attr":    {Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "nope", Op: "equals", Value: "x"}}},
-		"unknown op":      {Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "regex", Value: "x"}}},
-		"attr wrong type": {Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "assignee", Op: "equals", Value: "x"}}},
+		"empty type":   {Source: "github"},
+		"unknown type": {Source: "github", Type: "not_a_type"},
+		"unknown attr": {
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "nope", Op: "equals", Value: "x"},
+			},
+		},
+		"unknown op": {
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "regex", Value: "x"},
+			},
+		},
+		"attr wrong type": {
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "assignee", Op: "equals", Value: "x"},
+			},
+		},
 	}
 	for name, rule := range cases {
 		t.Run(name, func(t *testing.T) {

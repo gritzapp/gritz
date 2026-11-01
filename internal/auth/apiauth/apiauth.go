@@ -164,7 +164,12 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 	if len(cfg.Scopes) == 0 {
 		// offline_access makes ZITADEL issue a refresh token, which WithRefresh
 		// uses to renew expired sessions.
-		cfg.Scopes = []string{oidc.ScopeOpenID, oidc.ScopeProfile, oidc.ScopeEmail, oidc.ScopeOfflineAccess}
+		cfg.Scopes = []string{
+			oidc.ScopeOpenID,
+			oidc.ScopeProfile,
+			oidc.ScopeEmail,
+			oidc.ScopeOfflineAccess,
+		}
 	}
 	authN, err := authentication.New(ctx,
 		// my zitadel instance domain

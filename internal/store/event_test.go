@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/gritzapp/gritz/internal/x/pagination"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestListEventsByTaskPage(t *testing.T) {
@@ -239,4 +241,169 @@ func TestListEventsByTaskPage_BadToken(t *testing.T) {
 
 	// Assert
 	assert.Assert(t, errors.Is(err, pagination.ErrInvalidRequest))
+}
+
+func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
+	t.Parallel()
+	// Arrange - two tasks on the runner, each written by its own transaction.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	taskA := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	taskB := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	eventA := &model.Event{
+		TaskID:  taskA.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "a"},
+	}
+	eventB := &model.Event{
+		TaskID:  taskB.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "b"},
+	}
+	var heldBack *pagination.Page[*model.Event]
+
+	// Act - Tx A inserts first (lower id), Tx B inserts second and commits
+	// first; read while A is still open, then again once A commits.
+	err := s.WithTx(t.Context(), nil, func(txA *sql.Tx) error {
+		assert.NilError(t, s.CreateEvent(t.Context(), txA, eventA))
+		err := s.WithTx(t.Context(), nil, func(txB *sql.Tx) error {
+			assert.NilError(t, s.CreateEvent(t.Context(), txB, eventB))
+			return txB.Commit()
+		})
+		assert.NilError(t, err)
+		heldBack, err = s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+			OrgID:  org.OrgID,
+			Runner: "runner-1",
+		})
+		assert.NilError(t, err)
+		return txA.Commit()
+	})
+	assert.NilError(t, err)
+	got, _ := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  2,
+	})
+
+	// Assert - B's committed row is held back behind A's open transaction,
+	// then both come back in xid order.
+	assert.Assert(t, eventA.ID < eventB.ID)
+	assert.Assert(t, eventA.XID < eventB.XID)
+	assert.Assert(t, cmp.Len(heldBack.Items, 0))
+	assert.Assert(t, !heldBack.More)
+	assert.DeepEqual(t, testx.ExtractField(got, "ID"), []int64{eventA.ID, eventB.ID})
+}
+
+func TestListRunnerEvents_EmptyPage(t *testing.T) {
+	t.Parallel()
+	// Arrange - read the runner's only event, leaving the token at its end.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	event := &model.Event{
+		TaskID:  task.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "a"},
+	}
+	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+	_, token := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  1,
+	})
+
+	// Act
+	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+		OrgID:     org.OrgID,
+		Runner:    "runner-1",
+		PageToken: token,
+	})
+
+	// Assert - an empty page hands back the request's token.
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(page.Items, 0))
+	assert.Equal(t, page.PrevToken, token)
+}
+
+func TestListRunnerEvents_Pages(t *testing.T) {
+	t.Parallel()
+	// Arrange - five events on one task, committed in separate transactions.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	var want []int64
+	for i := range 5 {
+		event := &model.Event{
+			TaskID:  task.ID,
+			OrgID:   org.OrgID,
+			Payload: &model.ReportPayload{Content: fmt.Sprint(i)},
+		}
+		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+		want = append(want, event.ID)
+	}
+	teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  5,
+	})
+
+	// Act - follow the token two at a time until More reports the tail.
+	var got []int64
+	token := ""
+	pages := 0
+	for {
+		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+			OrgID:     org.OrgID,
+			Runner:    "runner-1",
+			PageSize:  2,
+			PageToken: token,
+		})
+		assert.NilError(t, err)
+		got = append(got, testx.ExtractField(page.Items, "ID").([]int64)...)
+		token = page.PrevToken
+		pages++
+		if !page.More {
+			break
+		}
+	}
+
+	// Assert
+	assert.Equal(t, pages, 3) // 2+2+1
+	assert.DeepEqual(t, got, want)
+}
+
+func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
+	t.Parallel()
+	// Arrange - an event on runner-1's task, on runner-2's task, and on a
+	// runner-1 task in another org.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	otherOrg := teststore.CreateOrg(t, s, nil)
+	mine := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	otherRunner := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-2"})
+	otherOrgs := teststore.CreateTask(t, s, otherOrg, &teststore.TaskOptions{Runner: "runner-1"})
+	var want int64
+	for _, task := range []*model.Task{mine, otherRunner, otherOrgs} {
+		event := &model.Event{
+			TaskID:  task.ID,
+			OrgID:   task.OrgID,
+			Payload: &model.ReportPayload{Content: "x"},
+		}
+		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+		if task == mine {
+			want = event.ID
+		}
+	}
+	// Wait for the last event to pass the watermark, so the others have too.
+	teststore.WaitRunnerEvents(t, s, otherOrg, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  1,
+	})
+
+	// Act
+	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+		OrgID:  org.OrgID,
+		Runner: "runner-1",
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, testx.ExtractField(page.Items, "ID"), []int64{want})
 }

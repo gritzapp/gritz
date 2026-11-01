@@ -56,7 +56,14 @@ func TestHandlerRoutesBuildHooks(t *testing.T) {
 
 func TestHandlerNilFieldsDefaultTo200(t *testing.T) {
 	h := &Handler{} // no hooks set
-	for _, path := range []string{HookRun, HookTerminate, HookSuspend, HookResume, HookReady, HookValidate} {
+	for _, path := range []string{
+		HookRun,
+		HookTerminate,
+		HookSuspend,
+		HookResume,
+		HookReady,
+		HookValidate,
+	} {
 		assert.Equal(t, post(t, h, path, "").Code, http.StatusOK, "path %s with nil hook", path)
 	}
 }
@@ -64,6 +71,11 @@ func TestHandlerNilFieldsDefaultTo200(t *testing.T) {
 func TestHandlerHookErrorIs500(t *testing.T) {
 	h := &Handler{Run: func(context.Context, RunHookRequest) error { return context.Canceled }}
 	assert.Equal(t, post(t, h, HookRun, `{"microvmId":"x"}`).Code, http.StatusInternalServerError)
+}
+
+func TestHandlerHookInProgressIs503(t *testing.T) {
+	h := &Handler{Validate: func(context.Context, ValidateHookRequest) error { return ErrInProgress }}
+	assert.Equal(t, post(t, h, HookValidate, "").Code, http.StatusServiceUnavailable)
 }
 
 func TestHandlerBadBodyIs400(t *testing.T) {

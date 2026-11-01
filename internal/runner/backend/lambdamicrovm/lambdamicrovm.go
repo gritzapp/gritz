@@ -149,11 +149,13 @@ func (b *Backend) runVM(ctx context.Context, spec *backend.Spec) (*lambdamicrovm
 	b.log.Info("running microvm", "task", spec.TaskID, "image", cfg.ImageIdentifier)
 	out, err := b.cloud.RunMicrovm(ctx, &lambdamicrovms.RunMicrovmInput{
 		// One token per launch, so a retried request cannot run a second VM.
-		ClientToken:              aws.String(uuid.NewString()),
-		ImageIdentifier:          aws.String(cfg.ImageIdentifier),
-		ExecutionRoleArn:         aws.String(cfg.ExecutionRole),
-		EgressNetworkConnectors:  []string{cfg.EgressConnector},
-		IngressNetworkConnectors: []string{cmp.Or(cfg.IngressConnector, fmt.Sprintf(allIngressConnector, b.region))},
+		ClientToken:             aws.String(uuid.NewString()),
+		ImageIdentifier:         aws.String(cfg.ImageIdentifier),
+		ExecutionRoleArn:        aws.String(cfg.ExecutionRole),
+		EgressNetworkConnectors: []string{cfg.EgressConnector},
+		IngressNetworkConnectors: []string{
+			cmp.Or(cfg.IngressConnector, fmt.Sprintf(allIngressConnector, b.region)),
+		},
 		MaximumDurationInSeconds: aws.Int32(cmp.Or(int32(cfg.MaxDurationSeconds), defaultMaxDuration)),
 		// No idle policy: the VM is suspended explicitly.
 	})
@@ -168,7 +170,9 @@ func (b *Backend) runVM(ctx context.Context, spec *backend.Spec) (*lambdamicrovm
 // terminated or not found is backend.ErrGone, and one that is still suspending
 // is a plain error.
 func (b *Backend) boot(ctx context.Context, id string) (*lambdamicrovms.GetMicrovmOutput, error) {
-	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{
+		MicrovmIdentifier: aws.String(id),
+	})
 	if isNotFound(err) {
 		return nil, backend.ErrGone
 	}
@@ -184,7 +188,9 @@ func (b *Backend) boot(ctx context.Context, id string) (*lambdamicrovms.GetMicro
 		return out, nil
 	case state == types.MicrovmStateSuspended:
 		b.log.Info("resuming microvm", "microvm", id)
-		if _, err := b.cloud.ResumeMicrovm(ctx, &lambdamicrovms.ResumeMicrovmInput{MicrovmIdentifier: aws.String(id)}); err != nil {
+		if _, err := b.cloud.ResumeMicrovm(ctx, &lambdamicrovms.ResumeMicrovmInput{
+			MicrovmIdentifier: aws.String(id),
+		}); err != nil {
 			if isNotFound(err) {
 				return nil, backend.ErrGone
 			}
@@ -205,7 +211,9 @@ func (b *Backend) await(ctx context.Context, id string, want types.MicrovmState)
 	defer cancel()
 	last := "unknown"
 	for {
-		out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
+		out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{
+			MicrovmIdentifier: aws.String(id),
+		})
 		switch {
 		case isNotFound(err):
 			return nil, backend.ErrGone
@@ -242,7 +250,9 @@ func (b *Backend) newTokenTransport(id string) *tokenTransport {
 			out, err := b.cloud.CreateMicrovmAuthToken(ctx, &lambdamicrovms.CreateMicrovmAuthTokenInput{
 				MicrovmIdentifier:   aws.String(id),
 				ExpirationInMinutes: aws.Int32(int32(tokenLifetime / time.Minute)),
-				AllowedPorts:        []types.PortSpecification{&types.PortSpecificationMemberPort{Value: DriverPort}},
+				AllowedPorts: []types.PortSpecification{
+					&types.PortSpecificationMemberPort{Value: DriverPort},
+				},
 			})
 			if err != nil {
 				return "", fmt.Errorf("failed to mint proxy token: %w", err)
@@ -253,7 +263,7 @@ func (b *Backend) newTokenTransport(id string) *tokenTransport {
 }
 
 // tokenTransport adds a proxy token to every request as
-// awsmicrovm.ProxyAuthHeader. It mints the token on first use and caches it
+// awsmicrovm.ProxyAuthHeader, and forces HTTP/2 to the driver. It mints the token on first use and caches it
 // until tokenRefreshMargin before it expires.
 type tokenTransport struct {
 	base http.RoundTripper
@@ -274,6 +284,7 @@ func (t *tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	req = req.Clone(req.Context())
 	req.Header.Set(awsmicrovm.ProxyAuthHeader, token)
+	req.Header.Set(awsmicrovm.ProxyForceH2Header, "true")
 	return t.base.RoundTrip(req)
 }
 
@@ -294,7 +305,9 @@ func (t *tokenTransport) get(ctx context.Context) (string, error) {
 
 // get returns the VM, or nil if it is not found.
 func (b *Backend) get(ctx context.Context, id string) (*lambdamicrovms.GetMicrovmOutput, error) {
-	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	out, err := b.cloud.GetMicrovm(ctx, &lambdamicrovms.GetMicrovmInput{
+		MicrovmIdentifier: aws.String(id),
+	})
 	if isNotFound(err) {
 		return nil, nil
 	}

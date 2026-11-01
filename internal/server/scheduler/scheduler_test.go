@@ -81,8 +81,9 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		OrgID:     7,
 	})
 
-	// The created event first (ScheduleActor), then one wake instruction event
-	// per template instruction, all against the assigned task id.
+	// The created event first (ScheduleActor) and the start command, then one
+	// wake instruction event per template instruction, all against the assigned
+	// task id.
 	assert.DeepEqual(t, eventPayloads(st.CreateEventCalls()), []*model.Event{
 		{
 			TaskID: 42,
@@ -91,6 +92,16 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 				Kind:     model.LifecycleKindCreated,
 				Actor:    model.ScheduleActor,
 				ToStatus: model.TaskStatusPending.Label(),
+			},
+		},
+		{
+			TaskID: 42,
+			OrgID:  7,
+			Payload: &model.CommandPayload{
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "r",
+				Workspace: "w",
 			},
 		},
 		{

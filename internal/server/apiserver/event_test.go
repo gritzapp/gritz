@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -40,7 +42,11 @@ func TestGetEvent(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	// The CreateEvent RPC is gone, so seed the fixture via the store's append.
 	event := &model.Event{
@@ -79,9 +85,17 @@ func TestGetEvent_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := orgWithWorkspace(t, srv)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := orgWithWorkspace(t, srv)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskA := createTestTask(t, srv, ctxA)
 	event := &model.Event{
 		TaskID:  taskA,
@@ -104,7 +118,11 @@ func TestListEvents(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
 		TaskID:  taskID,
@@ -134,7 +152,11 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 	// CreateLink; both carry an org_id but are not org-feed rows.
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:         "Test Task",
 		Runner:       "test-runner",
@@ -168,7 +190,11 @@ func TestListEventsWithLimit(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 
 	// Create 5 events
@@ -198,9 +224,17 @@ func TestListEvents_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := orgWithWorkspace(t, srv)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := orgWithWorkspace(t, srv)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskA := createTestTask(t, srv, ctxA)
 	taskB := createTestTask(t, srv, ctxB)
 	assert.NilError(t, srv.store.CreateEvent(ctxA, nil, &model.Event{
@@ -235,7 +269,11 @@ func TestDeleteEvent(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	event := &model.Event{
 		TaskID:  taskID,
@@ -260,9 +298,17 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := orgWithWorkspace(t, srv)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := orgWithWorkspace(t, srv)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskA := createTestTask(t, srv, ctxA)
 	event := &model.Event{
 		TaskID:  taskA,
@@ -288,7 +334,11 @@ func TestListEventsByTask(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 
 	assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
@@ -328,7 +378,11 @@ func TestListEventsByTask_Paged(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	for i := range 5 {
 		assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
@@ -376,14 +430,18 @@ func TestListEventsByTask_Paged(t *testing.T) {
 
 func TestListEventsByTask_More(t *testing.T) {
 	t.Parallel()
-	// Arrange - createTestTask seeds one lifecycle CREATED event; add 5 externals
-	// for 6 total, an exact multiple of page size 2 so the oldest page is full
-	// (the exact-page_size boundary).
+	// Arrange - createTestTask seeds a start command event and a lifecycle
+	// CREATED event; add 4 externals for 6 total, an exact multiple of page size
+	// 2 so the oldest page is full (the exact-page_size boundary).
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
-	for i := range 5 {
+	for i := range 4 {
 		assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
 			TaskID:  taskID,
 			OrgID:   org.OrgID,
@@ -420,7 +478,11 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
 		TaskID:  taskID,
@@ -467,7 +529,11 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 	// CREATED event from task creation, plus a seeded instruction and external.
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
 		TaskID:  taskID,
@@ -513,7 +579,11 @@ func TestListEventsByTask_InvalidArgs(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 
 	// A page size past the max → CodeInvalidArgument.
@@ -534,9 +604,17 @@ func TestListEventsByTask_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := orgWithWorkspace(t, srv)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := orgWithWorkspace(t, srv)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskA := createTestTask(t, srv, ctxA)
 	assert.NilError(t, srv.store.CreateEvent(ctxA, nil, &model.Event{
 		TaskID:  taskA,

@@ -1,5 +1,11 @@
 import {Layout, Node, Txt, View2D} from '@motion-canvas/2d';
-import {all, beginSlide, createRef, waitFor} from '@motion-canvas/core';
+import {
+  Vector2,
+  all,
+  beginSlide,
+  createRef,
+  waitFor,
+} from '@motion-canvas/core';
 import {Caption, CodeView, Link} from '../components';
 import {Colors, Fonts} from '../theme';
 
@@ -38,8 +44,14 @@ export function scaffold(view: View2D, title: string): Scaffold {
 export function linker(view: View2D) {
   const layer = createRef<Node>();
   view.add(<Node ref={layer} />);
-  return (from: Layout, to: Layout, label: string, labelAt?: number) => {
-    const link = new Link({from, to, label, labelAt});
+  return (
+    from: Layout,
+    to: Layout,
+    label: string,
+    labelAt?: number,
+    via?: Vector2[],
+  ) => {
+    const link = new Link({from, to, label, labelAt, via});
     layer().add(link);
     return link;
   };
@@ -55,6 +67,6 @@ export function stepper(source: CodeView, caption: Caption) {
     yield* waitFor(0.6);
     n++;
     yield* beginSlide(`step ${n}`);
-    yield* all(source.goto(source.lineOf(needle, nth)), caption.show(n, text));
+    yield* all(source.goto(source.lineOf(needle, nth)), caption.reveal(n, text));
   };
 }

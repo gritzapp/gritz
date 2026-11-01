@@ -57,33 +57,155 @@ func TestSandbox(t *testing.T) {
 		wantStatus backend.Status
 		want       fake.Info
 	}{
-		{from: fake.Created, op: "status", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created}},
-		{from: fake.Created, op: "boot", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Boots: 1}},
-		{from: fake.Created, op: "park", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created, Parks: 1}},
-		{from: fake.Created, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
-		{from: fake.Created, op: "dial", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created, Dials: 1}},
-		{from: fake.Created, op: "handle", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Created}},
+		{
+			from:       fake.Created,
+			op:         "status",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Created},
+		},
+		{
+			from:       fake.Created,
+			op:         "boot",
+			wantStatus: backend.StatusUp,
+			want:       fake.Info{Handle: h, State: fake.Up, Boots: 1},
+		},
+		{
+			from:       fake.Created,
+			op:         "park",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Created, Parks: 1},
+		},
+		{
+			from:       fake.Created,
+			op:         "destroy",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone, Destroys: 1},
+		},
+		{
+			from:       fake.Created,
+			op:         "dial",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Created, Dials: 1},
+		},
+		{
+			from:       fake.Created,
+			op:         "handle",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Created},
+		},
 
-		{from: fake.Up, op: "status", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up}},
-		{from: fake.Up, op: "boot", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Boots: 1}},
-		{from: fake.Up, op: "park", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked, Parks: 1}},
-		{from: fake.Up, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
-		{from: fake.Up, op: "dial", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Dials: 1}},
-		{from: fake.Up, op: "handle", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up}},
+		{
+			from:       fake.Up,
+			op:         "status",
+			wantStatus: backend.StatusUp,
+			want:       fake.Info{Handle: h, State: fake.Up},
+		},
+		{
+			from:       fake.Up,
+			op:         "boot",
+			wantStatus: backend.StatusUp,
+			want:       fake.Info{Handle: h, State: fake.Up, Boots: 1},
+		},
+		{
+			from:       fake.Up,
+			op:         "park",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Parked, Parks: 1},
+		},
+		{
+			from:       fake.Up,
+			op:         "destroy",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone, Destroys: 1},
+		},
+		{
+			from:       fake.Up,
+			op:         "dial",
+			wantStatus: backend.StatusUp,
+			want:       fake.Info{Handle: h, State: fake.Up, Dials: 1},
+		},
+		{
+			from:       fake.Up,
+			op:         "handle",
+			wantStatus: backend.StatusUp,
+			want:       fake.Info{Handle: h, State: fake.Up},
+		},
 
-		{from: fake.Parked, op: "status", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked}},
-		{from: fake.Parked, op: "boot", wantStatus: backend.StatusUp, want: fake.Info{Handle: h, State: fake.Up, Boots: 1}},
-		{from: fake.Parked, op: "park", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked, Parks: 1}},
-		{from: fake.Parked, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
-		{from: fake.Parked, op: "dial", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked, Dials: 1}},
-		{from: fake.Parked, op: "handle", wantStatus: backend.StatusParked, want: fake.Info{Handle: h, State: fake.Parked}},
+		{
+			from:       fake.Parked,
+			op:         "status",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Parked},
+		},
+		{
+			from:       fake.Parked,
+			op:         "boot",
+			wantStatus: backend.StatusUp,
+			want:       fake.Info{Handle: h, State: fake.Up, Boots: 1},
+		},
+		{
+			from:       fake.Parked,
+			op:         "park",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Parked, Parks: 1},
+		},
+		{
+			from:       fake.Parked,
+			op:         "destroy",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone, Destroys: 1},
+		},
+		{
+			from:       fake.Parked,
+			op:         "dial",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Parked, Dials: 1},
+		},
+		{
+			from:       fake.Parked,
+			op:         "handle",
+			wantStatus: backend.StatusParked,
+			want:       fake.Info{Handle: h, State: fake.Parked},
+		},
 
-		{from: fake.Gone, op: "status", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
-		{from: fake.Gone, op: "boot", wantErr: backend.ErrGone, wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
-		{from: fake.Gone, op: "park", wantErr: backend.ErrGone, wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
-		{from: fake.Gone, op: "destroy", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Destroys: 1}},
-		{from: fake.Gone, op: "dial", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone, Dials: 1}},
-		{from: fake.Gone, op: "handle", wantStatus: backend.StatusGone, want: fake.Info{Handle: h, State: fake.Gone}},
+		{
+			from:       fake.Gone,
+			op:         "status",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone},
+		},
+		{
+			from:       fake.Gone,
+			op:         "boot",
+			wantErr:    backend.ErrGone,
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone},
+		},
+		{
+			from:       fake.Gone,
+			op:         "park",
+			wantErr:    backend.ErrGone,
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone},
+		},
+		{
+			from:       fake.Gone,
+			op:         "destroy",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone, Destroys: 1},
+		},
+		{
+			from:       fake.Gone,
+			op:         "dial",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone, Dials: 1},
+		},
+		{
+			from:       fake.Gone,
+			op:         "handle",
+			wantStatus: backend.StatusGone,
+			want:       fake.Info{Handle: h, State: fake.Gone},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.from.String()+"/"+tt.op, func(t *testing.T) {
@@ -139,8 +261,18 @@ func TestBackendCreate(t *testing.T) {
 	assert.DeepEqual(t, be.Snapshot(), fake.Snapshot{
 		Sandboxes: []fake.Info{
 			{Handle: backend.Handle{Type: "fake", ID: "c2"}, State: fake.Parked},
-			{Handle: backend.Handle{Type: "fake", ID: "c1"}, TaskID: 1, State: fake.Created, Spec: &want1},
-			{Handle: backend.Handle{Type: "fake", ID: "c3"}, TaskID: 2, State: fake.Created, Spec: &want2},
+			{
+				Handle: backend.Handle{Type: "fake", ID: "c1"},
+				TaskID: 1,
+				State:  fake.Created,
+				Spec:   &want1,
+			},
+			{
+				Handle: backend.Handle{Type: "fake", ID: "c3"},
+				TaskID: 2,
+				State:  fake.Created,
+				Spec:   &want2,
+			},
 		},
 		Specs: []backend.Spec{want1, want2},
 	})
@@ -212,7 +344,11 @@ func TestBackendOpen_Invalid(t *testing.T) {
 		h       backend.Handle
 		wantErr string
 	}{
-		{name: "other type", h: backend.Handle{Type: "docker", ID: "c1"}, wantErr: `handle type "docker" is not "fake"`},
+		{
+			name:    "other type",
+			h:       backend.Handle{Type: "docker", ID: "c1"},
+			wantErr: `handle type "docker" is not "fake"`,
+		},
 		{name: "no id", h: backend.Handle{Type: "fake"}, wantErr: "handle has no sandbox id"},
 	}
 	for _, tt := range tests {
@@ -312,7 +448,10 @@ func TestSandboxDial_Driver(t *testing.T) {
 	// Assert - both clients reach the driver Dial gave for each.
 	assert.NilError(t, err1)
 	assert.NilError(t, err2)
-	assert.DeepEqual(t, handles, []backend.Handle{{Type: "fake", ID: "c1"}, {Type: "fake", ID: "c1"}})
+	assert.DeepEqual(t, handles, []backend.Handle{
+		{Type: "fake", ID: "c1"},
+		{Type: "fake", ID: "c1"},
+	})
 	assert.Equal(t, drv.calls(), 2)
 	got, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, got.Dials, 2)
@@ -418,7 +557,10 @@ func TestSandboxDial_RunSpecs(t *testing.T) {
 	spec := &driverv1.RunSpec{TaskId: 1, Env: map[string]string{"A": "1"}}
 
 	// Act - a start while parked, then once up a start and an attach.
-	_, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1, Spec: &driverv1.RunSpec{TaskId: 9}})
+	_, err := client.Run(t.Context(), &driverv1.RunRequest{
+		Version: 1,
+		Spec:    &driverv1.RunSpec{TaskId: 9},
+	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 	assert.NilError(t, sb.Boot(t.Context()))
 	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 2, Spec: spec})
@@ -779,7 +921,9 @@ func TestBackendSet(t *testing.T) {
 			assert.NilError(t, err)
 			assert.Equal(t, st, tt.wantStatus)
 			assert.DeepEqual(t, be.Snapshot(), fake.Snapshot{
-				Sandboxes: []fake.Info{{Handle: backend.Handle{Type: "fake", ID: "c1"}, State: tt.to}},
+				Sandboxes: []fake.Info{
+					{Handle: backend.Handle{Type: "fake", ID: "c1"}, State: tt.to},
+				},
 			})
 		})
 	}
@@ -808,8 +952,18 @@ func TestBackendSet_Panics(t *testing.T) {
 		want  string
 	}{
 		{name: "unknown id", id: "c9", state: fake.Up, want: `fake: Set("c9"): unknown id`},
-		{name: "leave gone", id: "gone", state: fake.Up, want: `fake: Set("gone", up): sandbox is gone`},
-		{name: "invalid state", id: "up", state: fake.State(0), want: `fake: Set("up") with invalid State(0)`},
+		{
+			name:  "leave gone",
+			id:    "gone",
+			state: fake.Up,
+			want:  `fake: Set("gone", up): sandbox is gone`,
+		},
+		{
+			name:  "invalid state",
+			id:    "up",
+			state: fake.State(0),
+			want:  `fake: Set("up") with invalid State(0)`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -970,9 +1124,25 @@ func TestBackendFailNext_Panics(t *testing.T) {
 		err  error
 		want string
 	}{
-		{name: "invalid op", op: fake.Op(0), err: errors.New("boom"), want: "fake: FailNext with invalid Op(0)"},
-		{name: "nil error", op: fake.OpBoot, id: "c1", want: `fake: FailNext(boot, "c1") with a nil error`},
-		{name: "create with id", op: fake.OpCreate, id: "c1", err: errors.New("boom"), want: `fake: FailNext(create, "c1"): Create has no sandbox id`},
+		{
+			name: "invalid op",
+			op:   fake.Op(0),
+			err:  errors.New("boom"),
+			want: "fake: FailNext with invalid Op(0)",
+		},
+		{
+			name: "nil error",
+			op:   fake.OpBoot,
+			id:   "c1",
+			want: `fake: FailNext(boot, "c1") with a nil error`,
+		},
+		{
+			name: "create with id",
+			op:   fake.OpCreate,
+			id:   "c1",
+			err:  errors.New("boom"),
+			want: `fake: FailNext(create, "c1"): Create has no sandbox id`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1029,7 +1199,9 @@ func (d *stubDriver) Status(context.Context, *driverv1.StatusRequest) (*driverv1
 }
 
 func (d *stubDriver) Run(ctx context.Context, _ *driverv1.RunRequest, stream *connect.ServerStream[driverv1.RunResponse]) error {
-	err := stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}}})
+	err := stream.Send(&driverv1.RunResponse{
+		Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}},
+	})
 	if err != nil {
 		return err
 	}

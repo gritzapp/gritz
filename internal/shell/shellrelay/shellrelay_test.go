@@ -143,7 +143,10 @@ func TestSessionIdleTimeoutTearsDownEstablishedSession(t *testing.T) {
 	t.Parallel()
 	// Arrange: both legs connected but silent, with a short idle timeout and a long
 	// establishment timeout (so it's unmistakably the idle timer that fires).
-	s := shellrelay.NewSession(shellrelay.SessionOptions{EstablishTimeout: time.Minute, IdleTimeout: 100 * time.Millisecond})
+	s := shellrelay.NewSession(shellrelay.SessionOptions{
+		EstablishTimeout: time.Minute,
+		IdleTimeout:      100 * time.Millisecond,
+	})
 	srv := joinServer(t, s)
 	legA := dialLeg(t, srv)
 	legB := dialLeg(t, srv)
@@ -168,7 +171,10 @@ func TestSessionIdleTimeoutResetByActivity(t *testing.T) {
 	// Arrange: both legs connected, with an idle timeout far shorter than the total
 	// span of traffic we're about to drive across it.
 	const idle = 300 * time.Millisecond
-	s := shellrelay.NewSession(shellrelay.SessionOptions{EstablishTimeout: time.Minute, IdleTimeout: idle})
+	s := shellrelay.NewSession(shellrelay.SessionOptions{
+		EstablishTimeout: time.Minute,
+		IdleTimeout:      idle,
+	})
 	srv := joinServer(t, s)
 	legA := dialLeg(t, srv)
 	legB := dialLeg(t, srv)

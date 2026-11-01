@@ -12,6 +12,8 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 )
 
 func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
@@ -67,9 +69,16 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 				return err
 			}
 			// Append the sandbox lifecycle event beside the status fold (status is
-			// the materialized projection; the fold logic is unchanged). original
-			// carries the pre-fold status; the task carries the post-fold status.
+			// the materialized projection; the fold logic is unchanged), and the
+			// command event when the fold changed the command (a clear, or a
+			// server-issued stop). original carries the pre-fold status and
+			// command; the task carries the post-fold ones.
 			if ev, ok := event.LifecycleEvent(task, original.Status); ok {
+				if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+					return err
+				}
+			}
+			if ev, ok := task.CommandEvent(original.Command); ok {
 				if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 					return err
 				}
@@ -110,4 +119,36 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 		s.publish(notification)
 	}
 	return &gritzv1.SubmitRunnerEventsResponse{}, nil
+}
+
+func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
+	caller := apiauth.MustCaller(ctx)
+	// The read is scoped to the runner's tasks, so the runner identity is the
+	// instance attribute: a key scoped to one runner can read only its events.
+	if !caller.Scopes.Allow(authscope.OpTaskRead, authscope.WithTaskRunner(req.Runner)) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot list runner events"))
+	}
+	if req.Runner == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("runner is required"))
+	}
+	page, err := s.store.ListRunnerEvents(ctx, nil, store.ListRunnerEventsParams{
+		OrgID:     caller.OrgID,
+		Runner:    req.Runner,
+		PageSize:  req.PageSize,
+		PageToken: req.PageToken,
+	})
+	if err != nil {
+		code := connect.CodeInternal
+		if errors.Is(err, pagination.ErrInvalidRequest) {
+			code = connect.CodeInvalidArgument
+		}
+		return nil, connect.NewError(code, err)
+	}
+	// Only the backward (live-follow) walk is served, so the store's PrevToken
+	// is the next page; on an empty page it echoes the request's token.
+	return &gritzv1.ListRunnerEventsResponse{
+		Events:        model.ProtoMap(page.Items),
+		NextPageToken: page.PrevToken,
+		More:          page.More,
+	}, nil
 }

@@ -12,6 +12,10 @@ service GritzService {
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
   rpc ListRunnerTasks(ListRunnerTasksRequest) returns (ListRunnerTasksResponse);
+  // ListRunnerEvents returns the events of the runner's tasks after the
+  // cursor, in log order, from transactions that can no longer commit behind
+  // it. Replaces ListRunnerTasks.
+  rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
   rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
@@ -172,6 +176,23 @@ message ListRunnerTasksRequest {
 
 message ListRunnerTasksResponse {
   repeated Task tasks = 1;
+}
+
+message ListRunnerEventsRequest {
+  string runner = 1;  // Runner ID (required)
+  // Opaque; empty for the start of the log, otherwise a previous
+  // response's next_page_token.
+  string page_token = 2;
+  int32 page_size = 3;  // Max events to return; 0 for the server default
+}
+
+message ListRunnerEventsResponse {
+  repeated Event events = 1;
+  // Resumes after the last event in this page; the request's page_token when
+  // the page is empty. Pass it back unchanged.
+  string next_page_token = 2;
+  // Whether more events are available right now past this page.
+  bool more = 3;
 }
 
 message CreateTaskRequest {
@@ -344,14 +365,15 @@ message Event {
   google.protobuf.Timestamp created_at = 4;
   // The set arm IS the event type — a typed union, not an opaque Struct. There
   // is no separate `type` field on the wire; the db `type` column is
-  // materialized from the arm for indexed filtering (like `direction`). All five
-  // arms are wired (see proposals/draft/unified-task-event-stream.md).
+  // materialized from the arm for indexed filtering (like `direction`). See
+  // proposals/draft/unified-task-event-stream.md.
   oneof payload {
     InstructionPayload instruction = 5;
     ExternalPayload external = 6;
     ReportPayload report = 7;
     LifecyclePayload lifecycle = 8;
     LinkPayload link = 9;
+    CommandPayload command = 10;
   }
 }
 
@@ -400,6 +422,19 @@ message LinkPayload {
   string url = 3;
   string title = 4;
   bool subscribe = 5;
+}
+
+// CommandPayload is the body of a command event: the task's command changed.
+// It is written in the same transaction as the tasks row, so the event log
+// carries every command the runner has to act on, including the withdrawal of
+// a start and the clear when a runner event consumes the command. Command
+// events are not history; timelines skip them (see
+// proposals/draft/runner-event-replica.md).
+message CommandPayload {
+  TaskCommand command = 1;
+  int64 version = 2;
+  string runner = 3;
+  string workspace = 4;
 }
 
 // LifecyclePayload is the body of a lifecycle event — an about-task record of a

@@ -66,7 +66,11 @@ type fakeLogs struct {
 
 // append adds a chunk to the end of the log, as a shipped AppendLogChunk would.
 func (f *fakeLogs) append(data string) {
-	f.chunks = append(f.chunks, &gritzv1.LogChunk{Id: int64(len(f.chunks) + 1), TaskId: 1, Data: []byte(data)})
+	f.chunks = append(f.chunks, &gritzv1.LogChunk{
+		Id:     int64(len(f.chunks) + 1),
+		TaskId: 1,
+		Data:   []byte(data),
+	})
 }
 
 func (f *fakeLogs) list(ctx context.Context, req *gritzv1.ListLogChunksByTaskRequest) (*gritzv1.ListLogChunksByTaskResponse, error) {
@@ -362,7 +366,10 @@ func TestListLogChunksByTask(t *testing.T) {
 	// Arrange - a page and a half of appends landing past a task's tail, which is
 	// the shape a live-follow poll walks.
 	fake, client, _ := newFakeLogs(t, 1)
-	tail, err := fake.list(t.Context(), &gritzv1.ListLogChunksByTaskRequest{TaskId: 1, PageSize: testPageSize})
+	tail, err := fake.list(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId:   1,
+		PageSize: testPageSize,
+	})
 	assert.NilError(t, err)
 	var want strings.Builder
 	for i := 2; i <= testPageSize+2; i++ {
@@ -403,7 +410,9 @@ func TestListLogChunksByTask_Error(t *testing.T) {
 	// Act
 	var pages int
 	var last error
-	for _, err := range gritzclient.ListLogChunksByTask(t.Context(), client, &gritzv1.ListLogChunksByTaskRequest{TaskId: 1}) {
+	for _, err := range gritzclient.ListLogChunksByTask(t.Context(), client, &gritzv1.ListLogChunksByTaskRequest{
+		TaskId: 1,
+	}) {
 		pages++
 		last = err
 	}

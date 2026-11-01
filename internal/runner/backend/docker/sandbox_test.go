@@ -126,7 +126,10 @@ func TestOpen(t *testing.T) {
 	// Open does not check that the container exists.
 	sb, err := be.Open(backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
 	assert.NilError(t, err)
-	assert.DeepEqual(t, sb.Handle(), backend.Handle{Type: HandleType, ID: "nonexistent-container-id"})
+	assert.DeepEqual(t, sb.Handle(), backend.Handle{
+		Type: HandleType,
+		ID:   "nonexistent-container-id",
+	})
 	// A handle recorded by an older runner, which also carries its run's
 	// version, opens the same container.
 	sb, err = be.Open(backend.Handle{Type: HandleType, ID: "c1", Data: []byte(`{"version":1}`)})

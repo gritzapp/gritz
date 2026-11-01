@@ -21,3 +21,10 @@ RUN chmod 0755 /usr/local/bin/gritz
 # hook on the dedicated hook port 9000 (awsmicrovm.HookPort — must match
 # `--hooks port=9000`).
 ENTRYPOINT ["/usr/local/bin/gritz", "driver", "--aws-lambda-hooks"]
+
+# Optional: warm the image. With --aws-lambda-validate the driver runs the
+# script on /validate, and Lambda prefetches what it reads on every later
+# launch. See README.md.
+# COPY validate /usr/local/libexec/gritz-validate
+# RUN chmod 0755 /usr/local/libexec/gritz-validate
+# ENTRYPOINT ["/usr/local/bin/gritz", "driver", "--aws-lambda-hooks", "--aws-lambda-validate=/usr/local/libexec/gritz-validate"]

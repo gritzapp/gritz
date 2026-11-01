@@ -489,8 +489,16 @@ func TestRunnerEvent_LifecycleEvent_FailedReason(t *testing.T) {
 		want   string
 	}{
 		{"empty falls back to constant", "", "container failed"},
-		{"reason passed through as-is", "setup command 0 failed: exit status 1", "setup command 0 failed: exit status 1"},
-		{"multiline reason preserved", "wrapper failed:\ncause here\nmore", "wrapper failed:\ncause here\nmore"},
+		{
+			"reason passed through as-is",
+			"setup command 0 failed: exit status 1",
+			"setup command 0 failed: exit status 1",
+		},
+		{
+			"multiline reason preserved",
+			"wrapper failed:\ncause here\nmore",
+			"wrapper failed:\ncause here\nmore",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -10,6 +10,7 @@ package awsmicrovm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 )
@@ -25,10 +26,12 @@ const (
 	HookTerminate = HookBase + "/terminate"
 
 	// Build-time image hooks, called by Lambda during create-microvm-image (not
-	// at runtime, and before any MicroVM exists). /ready gates the snapshot — it
-	// must return 200 once the application is up; /validate lets the image assert
-	// its own health before the snapshot is finalized. Both are declared to
-	// create-microvm-image via --hooks with per-hook timeouts (≤3600s).
+	// at runtime). /ready runs on the build VM and gates the snapshot — it must
+	// return 200 once the application is up. /validate runs afterwards, on a new
+	// MicroVM started from the image, and Lambda records the snapshot regions
+	// read during it to prefetch them on every later launch. Either may return
+	// 503 to ask Lambda to retry. Both are declared to create-microvm-image via
+	// --hooks with per-hook timeouts (≤3600s).
 	HookReady    = HookBase + "/ready"
 	HookValidate = HookBase + "/validate"
 
@@ -71,20 +74,26 @@ type ResumeHookRequest struct {
 	MicrovmID string
 }
 
-// ReadyHookRequest is delivered to the /ready build hook during image creation
-// to check whether the application is up before the snapshot is taken. It
-// carries no MicroVM id — no MicroVM exists yet at build time.
+// ReadyHookRequest is delivered to the /ready build hook on the build VM to
+// check whether the application is up before the snapshot is taken. Its body
+// carries no MicroVM id.
 type ReadyHookRequest struct{}
 
-// ValidateHookRequest is delivered to the /validate build hook during image
-// creation to let the image assert its own health before the snapshot.
+// ValidateHookRequest is delivered to the /validate build hook on a MicroVM
+// started from the newly created image, after the snapshot.
 type ValidateHookRequest struct{}
+
+// ErrInProgress is returned by a build hook that has not finished; the handler
+// replies 503 so Lambda retries.
+var ErrInProgress = errors.New("awsmicrovm: hook in progress")
 
 // Handler is the http.Handler an application exposes to receive MicroVM
 // lifecycle hooks. It owns routing, the JSON wire format, and status codes; the
 // consumer owns behavior by setting the func fields. A nil field responds 200
-// (the default "acknowledged" reply). A non-nil hook that returns an error
-// responds 500.
+// (the default "acknowledged" reply). A non-nil hook responds 200 when it
+// returns nil, 503 when it returns ErrInProgress, and 500 on any other error.
+// Only the build hooks (Ready, Validate) may return ErrInProgress: Lambda
+// retries a 503 only for those.
 type Handler struct {
 	Run       func(ctx context.Context, req RunHookRequest) error
 	Terminate func(ctx context.Context, req TerminateHookRequest) error
@@ -102,7 +111,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.Run == nil {
 				return nil
 			}
-			return h.Run(r.Context(), RunHookRequest{MicrovmID: body.MicrovmID, Payload: body.RunHookPayload})
+			return h.Run(r.Context(), RunHookRequest{
+				MicrovmID: body.MicrovmID,
+				Payload:   body.RunHookPayload,
+			})
 		})
 	case HookTerminate:
 		h.serve(w, r, func(body hookBody) error {
@@ -159,9 +171,12 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request, dispatch func(ho
 			return
 		}
 	}
-	if err := dispatch(body); err != nil {
+	switch err := dispatch(body); {
+	case err == nil:
+		w.WriteHeader(http.StatusOK)
+	case errors.Is(err, ErrInProgress):
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	default:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
-	w.WriteHeader(http.StatusOK)
 }

@@ -16,7 +16,7 @@ import (
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (task_id, org_id, type, wake, payload, created_at)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id
+RETURNING id, xid
 `
 
 type CreateEventParams struct {
@@ -28,7 +28,12 @@ type CreateEventParams struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (int64, error) {
+type CreateEventRow struct {
+	ID  int64  `json:"id"`
+	Xid uint64 `json:"xid"`
+}
+
+func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (CreateEventRow, error) {
 	row := q.db.QueryRowContext(ctx, createEvent,
 		arg.TaskID,
 		arg.OrgID,
@@ -37,9 +42,9 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (int64
 		arg.Payload,
 		arg.CreatedAt,
 	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+	var i CreateEventRow
+	err := row.Scan(&i.ID, &i.Xid)
+	return i, err
 }
 
 const deleteEvent = `-- name: DeleteEvent :exec
@@ -57,7 +62,7 @@ func (q *Queries) DeleteEvent(ctx context.Context, arg DeleteEventParams) error 
 }
 
 const getEvent = `-- name: GetEvent :one
-SELECT id, org_id, created_at, task_id, type, wake, payload
+SELECT id, org_id, created_at, task_id, type, wake, payload, xid
 FROM events
 WHERE id = $1 AND org_id = $2
 `
@@ -78,12 +83,13 @@ func (q *Queries) GetEvent(ctx context.Context, arg GetEventParams) (Event, erro
 		&i.Type,
 		&i.Wake,
 		&i.Payload,
+		&i.Xid,
 	)
 	return i, err
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT id, org_id, created_at, task_id, type, wake, payload
+SELECT id, org_id, created_at, task_id, type, wake, payload, xid
 FROM events
 WHERE org_id = $1
   AND (cardinality($3::text[]) = 0 OR type = ANY($3::text[]))
@@ -119,6 +125,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 			&i.Type,
 			&i.Wake,
 			&i.Payload,
+			&i.Xid,
 		); err != nil {
 			return nil, err
 		}
@@ -134,7 +141,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 }
 
 const listEventsByTask = `-- name: ListEventsByTask :many
-SELECT id, org_id, created_at, task_id, type, wake, payload
+SELECT id, org_id, created_at, task_id, type, wake, payload, xid
 FROM events
 WHERE task_id = $1 AND org_id = $2
   AND (cardinality($3::text[]) = 0 OR type = ANY($3::text[]))
@@ -169,6 +176,7 @@ func (q *Queries) ListEventsByTask(ctx context.Context, arg ListEventsByTaskPara
 			&i.Type,
 			&i.Wake,
 			&i.Payload,
+			&i.Xid,
 		); err != nil {
 			return nil, err
 		}
@@ -184,7 +192,7 @@ func (q *Queries) ListEventsByTask(ctx context.Context, arg ListEventsByTaskPara
 }
 
 const listEventsByTaskAsc = `-- name: ListEventsByTaskAsc :many
-SELECT id, org_id, created_at, task_id, type, wake, payload
+SELECT id, org_id, created_at, task_id, type, wake, payload, xid
 FROM events
 WHERE task_id = $1
   AND org_id = $2
@@ -228,6 +236,7 @@ func (q *Queries) ListEventsByTaskAsc(ctx context.Context, arg ListEventsByTaskA
 			&i.Type,
 			&i.Wake,
 			&i.Payload,
+			&i.Xid,
 		); err != nil {
 			return nil, err
 		}
@@ -243,7 +252,7 @@ func (q *Queries) ListEventsByTaskAsc(ctx context.Context, arg ListEventsByTaskA
 }
 
 const listEventsByTaskDesc = `-- name: ListEventsByTaskDesc :many
-SELECT id, org_id, created_at, task_id, type, wake, payload
+SELECT id, org_id, created_at, task_id, type, wake, payload, xid
 FROM events
 WHERE task_id = $1
   AND org_id = $2
@@ -290,6 +299,70 @@ func (q *Queries) ListEventsByTaskDesc(ctx context.Context, arg ListEventsByTask
 			&i.Type,
 			&i.Wake,
 			&i.Payload,
+			&i.Xid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunnerEvents = `-- name: ListRunnerEvents :many
+SELECT e.id, e.org_id, e.created_at, e.task_id, e.type, e.wake, e.payload, e.xid
+FROM events e
+JOIN tasks t ON t.id = e.task_id
+WHERE t.runner = $1 AND t.org_id = $2
+  AND (e.xid, e.id) > ($3::xid8, $4::bigint)
+  AND e.xid < pg_snapshot_xmin(pg_current_snapshot())
+ORDER BY e.xid, e.id
+LIMIT $5
+`
+
+type ListRunnerEventsParams struct {
+	Runner    string `json:"runner"`
+	OrgID     int64  `json:"org_id"`
+	AfterXid  uint64 `json:"after_xid"`
+	AfterID   int64  `json:"after_id"`
+	PageLimit int32  `json:"page_limit"`
+}
+
+// The events of a runner's tasks after the (xid, id) cursor, in (xid, id)
+// order, from transactions below the xid watermark: pg_snapshot_xmin is the
+// oldest transaction still running, so every row below it has committed and
+// no row can still commit behind the cursor. Rows from newer transactions are
+// held back until everything older has finished. Covered by idx_events_xid_id.
+// See proposals/draft/runner-event-replica.md.
+func (q *Queries) ListRunnerEvents(ctx context.Context, arg ListRunnerEventsParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, listRunnerEvents,
+		arg.Runner,
+		arg.OrgID,
+		arg.AfterXid,
+		arg.AfterID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Event{}
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.TaskID,
+			&i.Type,
+			&i.Wake,
+			&i.Payload,
+			&i.Xid,
 		); err != nil {
 			return nil, err
 		}

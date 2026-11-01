@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -20,8 +22,16 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Task with Logs",
 		Runner:    "test-runner",
@@ -40,7 +50,9 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - no report (or other) events were created from the dropped entries.
-	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskResp.Task.Id})
+	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: taskResp.Task.Id,
+	})
 	assert.NilError(t, err)
 	for _, e := range events.Events {
 		assert.Assert(t, e.GetReport() == nil, "non-report entries must not become report events")
@@ -51,8 +63,16 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Task with report",
 		Runner:    "test-runner",
@@ -70,7 +90,9 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - the report is a from-agent report event.
-	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskResp.Task.Id})
+	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: taskResp.Task.Id,
+	})
 	assert.NilError(t, err)
 	var reports []*gritzv1.ReportPayload
 	for _, e := range events.Events {
@@ -87,10 +109,26 @@ func TestUploadLogs_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -119,7 +157,11 @@ func TestAppendLogChunk_RoundTrip(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	agentCtx := scopedCtx(t, org, taskScopes(taskID))
 
@@ -157,7 +199,11 @@ func TestAppendLogChunk_Bounds(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 
 	tests := []struct {
@@ -195,7 +241,11 @@ func TestAppendLogChunk_Version(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 
 	// Act
@@ -219,9 +269,18 @@ func TestAppendLogChunk_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := orgWithWorkspace(t, srv)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctxA)
-	ctxB := createCtx(t, orgWithWorkspace(t, srv))
+	orgB := orgWithWorkspace(t, srv)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.AppendLogChunk(ctxA, &gritzv1.AppendLogChunkRequest{
 		TaskId: taskID, Version: 1, Data: []byte("secret\n"),
 	})
@@ -246,7 +305,11 @@ func TestListLogChunksByTask_TaskToken(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	agentCtx := scopedCtx(t, org, taskScopes(taskID))
 	_, err := srv.AppendLogChunk(agentCtx, &gritzv1.AppendLogChunkRequest{
@@ -255,7 +318,9 @@ func TestListLogChunksByTask_TaskToken(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.ListLogChunksByTask(agentCtx, &gritzv1.ListLogChunksByTaskRequest{TaskId: taskID})
+	resp, err := srv.ListLogChunksByTask(agentCtx, &gritzv1.ListLogChunksByTaskRequest{
+		TaskId: taskID,
+	})
 
 	// Assert
 	assert.NilError(t, err)
@@ -271,7 +336,11 @@ func TestListLogChunksByTask_Paged(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	var want []byte
 	for i := range 5 {
@@ -326,7 +395,11 @@ func TestListLogChunksByTask_Follow(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 	_, err := srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
 		TaskId: taskID, Version: 1, Data: []byte("first\n"),
@@ -365,7 +438,11 @@ func TestListLogChunksByTask_BadRequest(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskID := createTestTask(t, srv, ctx)
 
 	tests := []struct {

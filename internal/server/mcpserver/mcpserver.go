@@ -240,6 +240,10 @@ func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input 
 	// wire names (the fat Event proto doesn't round-trip through encoding/json).
 	marshalOpts := protojson.MarshalOptions{Indent: "  "}
 	for _, event := range events {
+		// Command events drive the runner; they are not history.
+		if event.GetCommand() != nil {
+			continue
+		}
 		data, err := marshalOpts.Marshal(event)
 		if err != nil {
 			return mcpx.ErrorResult("failed to format event: %v", err), nil, nil

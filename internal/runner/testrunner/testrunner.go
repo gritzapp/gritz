@@ -1,6 +1,7 @@
 // Package testrunner provides helpers for testing the runner: a TaskManager
-// on a fake backend with a mock server, drivers serving real runs, and the
-// waits and assertions the runner's tests share.
+// on a fake backend with a mock server, drivers serving real runs, an
+// in-memory runner event log (Server), and the waits and assertions the
+// runner's tests share.
 package testrunner
 
 import (

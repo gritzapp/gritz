@@ -82,12 +82,13 @@ func (s *Schedule) Task() *Task {
 }
 
 // Events returns the events to seed onto task for one occurrence: a
-// LifecycleKindCreated event attributed to ScheduleActor, then one wake-carrying
-// InstructionPayload event per template instruction (created event first, so the
-// timeline ordered by event id shows "Created" first). Call it after the task has
-// been inserted so task.ID is populated.
+// LifecycleKindCreated event attributed to ScheduleActor and the task's start
+// command event, then one wake-carrying InstructionPayload event per template
+// instruction (created event first, so the timeline ordered by event id shows
+// "Created" first). Call it after the task has been inserted so task.ID is
+// populated.
 func (s *Schedule) Events(task *Task) []*Event {
-	events := make([]*Event, 0, len(s.Instructions)+1)
+	var events []*Event
 	events = append(events, &Event{
 		TaskID: task.ID,
 		OrgID:  task.OrgID,
@@ -97,6 +98,9 @@ func (s *Schedule) Events(task *Task) []*Event {
 			ToStatus: task.Status.Label(),
 		},
 	})
+	if ev, ok := task.CommandEvent(TaskCommandNone); ok {
+		events = append(events, ev)
+	}
 	for _, inst := range s.Instructions {
 		payload := InstructionPayload(inst)
 		events = append(events, &Event{

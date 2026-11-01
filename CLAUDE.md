@@ -102,6 +102,10 @@ Constrain usage; don't support every call order. When a method is only valid in 
 - When a change makes a case unreachable, delete its handling in the same change rather than carrying it forward.
 - Before adding handling for a scenario, check that some production path can actually reach it. If none can, assert instead.
 
+## Go style
+
+- Don't pre-size slices that are built with `append`: write `var s []T`, not `make([]T, 0, n)`. Since Go 1.26 the compiler gives small appended slices a stack buffer and copies them to an exactly-sized heap slice on return, so pre-sizing adds noise for no gain. Pre-size only when `n` can be large or the path is hot (DB result pages, log chunks, the log shipper, `redact`).
+
 ## Conventional Commits & Releases
 
 Commit messages and PR titles must follow the [Conventional Commits](https://www.conventionalcommits.org/) spec. The format is enforced by `conform` (see `.conform.yaml`):

@@ -34,7 +34,9 @@ func setupDriver(t *testing.T, cfg *Config) (*Driver, *gritzclient.ClientMock) {
 		},
 		// run() forks on shell_session; an empty one takes the normal agent path.
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion}}, nil
+			return &gritzv1.GetTaskResponse{
+				Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion},
+			}, nil
 		},
 		// A first (non-wake) run seeds the event cursor from the tail token.
 		ListEventsByTaskFunc: func(_ context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
@@ -90,7 +92,9 @@ func TestDriverRun_DrainsEventsToTail(t *testing.T) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion}}, nil
+			return &gritzv1.GetTaskResponse{
+				Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion},
+			}, nil
 		},
 		ListEventsByTaskFunc: func(_ context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
 			seenTokens = append(seenTokens, req.GetPageToken())
@@ -121,8 +125,18 @@ func TestDrainEvents_RequestsServerSideTypeFilter(t *testing.T) {
 	page := &gritzv1.ListEventsByTaskResponse{
 		NextPageToken: "tail",
 		Events: []*gritzv1.Event{
-			{Id: 1, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "do the thing"}}},
-			{Id: 3, Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{Description: "PR comment"}}},
+			{
+				Id: 1,
+				Payload: &gritzv1.Event_Instruction{
+					Instruction: &gritzv1.InstructionPayload{Text: "do the thing"},
+				},
+			},
+			{
+				Id: 3,
+				Payload: &gritzv1.Event_External{
+					External: &gritzv1.ExternalPayload{Description: "PR comment"},
+				},
+			},
 		},
 	}
 	var gotTypes []string
@@ -163,7 +177,9 @@ func TestDriverRun_EventTokenNotAdvancedOnError(t *testing.T) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion}}, nil
+			return &gritzv1.GetTaskResponse{
+				Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion},
+			}, nil
 		},
 		ListEventsByTaskFunc: func(_ context.Context, _ *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
 			return &gritzv1.ListEventsByTaskResponse{NextPageToken: "new-token"}, nil

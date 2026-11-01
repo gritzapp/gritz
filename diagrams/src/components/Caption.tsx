@@ -1,5 +1,5 @@
 import {Circle, Rect, RectProps, Txt} from '@motion-canvas/2d';
-import {all, createRef} from '@motion-canvas/core';
+import {all, beginSlide, createRef} from '@motion-canvas/core';
 import {Colors, Fonts} from '../theme';
 
 // Caption narrates the current step of a flow.
@@ -52,7 +52,16 @@ export class Caption extends Rect {
     );
   }
 
+  // show is a slide: presentation mode and the published player's step mode
+  // pause here, on the previous step's end state, until advanced.
   public *show(step: number, text: string) {
+    yield* beginSlide(`step ${step}`);
+    yield* this.reveal(step, text);
+  }
+
+  // reveal swaps in the step's text without beginning a slide, for callers
+  // that begin the slide themselves (stepper).
+  public *reveal(step: number, text: string) {
     yield* all(this.text().opacity(0, 0.15), this.badge().scale(0.8, 0.15));
     this.number().text(String(step));
     this.text().text(text);

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -16,8 +18,16 @@ import (
 func TestGetTask(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Create a task using the API
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -62,7 +72,9 @@ func TestGetTask(t *testing.T) {
 	assert.DeepEqual(t, getResp.Task, expected, protocmp.Transform())
 
 	// The initial instructions are seeded into the stream as instruction events.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: createResp.Task.Id})
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: createResp.Task.Id,
+	})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
 		{Text: "Do something important", Url: "https://example.com/issue/1"},
@@ -86,10 +98,26 @@ func TestGetTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -110,8 +138,16 @@ func TestCreateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -144,7 +180,9 @@ func TestCreateTask(t *testing.T) {
 	assert.DeepEqual(t, resp.Task, expected, protocmp.Transform())
 
 	// The initial instruction is seeded into the stream as an instruction event.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: resp.Task.Id,
+	})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
 		{Text: "Do something", Url: "https://example.com/issue/1"},
@@ -157,8 +195,16 @@ func TestCreateTask_Draft(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -188,14 +234,18 @@ func TestCreateTask_Draft(t *testing.T) {
 
 	// No instruction events, but the Created lifecycle event is still there so
 	// the timeline is not empty.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: resp.Task.Id,
+	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(instructionPayloads(eventsResp.Events)), 0)
 	assert.Equal(t, len(eventsResp.Events), 1)
 	assert.Equal(t, eventsResp.Events[0].GetLifecycle().Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
 
 	// No command, so no runner ever sees it: nothing is launched.
-	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: "test-runner"})
+	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{
+		Runner: "test-runner",
+	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(runnerResp.Tasks), 0)
 }
@@ -207,8 +257,16 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Draft Task",
 		Runner:    "test-runner",
@@ -235,13 +293,17 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	assert.Equal(t, getResp.Task.Version, int64(1))
 
 	// The runner now has work for it.
-	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: "test-runner"})
+	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{
+		Runner: "test-runner",
+	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(runnerResp.Tasks), 1)
 	assert.Equal(t, runnerResp.Tasks[0].Id, resp.Task.Id)
 
 	// The instruction is in the stream and woke the task.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: resp.Task.Id,
+	})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
 		{Text: "Do something"},
@@ -257,8 +319,16 @@ func TestListTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Task 1",
 		Runner:    "test-runner",
@@ -283,11 +353,23 @@ func TestListTasks(t *testing.T) {
 func TestListTasks_IncludeArchived(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// One active task and one archived task in the same org.
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "active", Runner: "test-runner", Workspace: "test-workspace"})
+	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "active",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
 	assert.NilError(t, err)
 	assert.NilError(t, srv.store.CreateTask(ctx, nil, &model.Task{
 		Runner: "test-runner", Workspace: "test-workspace", Status: model.TaskStatusCompleted, OrgID: org.OrgID, Archived: true,
@@ -313,13 +395,29 @@ func TestListTasks_IncludeArchived(t *testing.T) {
 func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Two active and two archived rows so each filter mints a next-page token.
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "active-1", Runner: "test-runner", Workspace: "test-workspace"})
+	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "active-1",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
 	assert.NilError(t, err)
-	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "active-2", Runner: "test-runner", Workspace: "test-workspace"})
+	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "active-2",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
 	assert.NilError(t, err)
 	assert.NilError(t, srv.store.CreateTask(ctx, nil, &model.Task{
 		Runner: "test-runner", Workspace: "test-workspace", Status: model.TaskStatusCompleted, OrgID: org.OrgID, Archived: true,
@@ -332,14 +430,22 @@ func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 	archivedPage, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, Archived: true})
 	assert.NilError(t, err)
 	assert.Assert(t, archivedPage.NextPageToken != "")
-	_, err = srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, PageToken: archivedPage.NextPageToken, Archived: false})
+	_, err = srv.ListTasks(ctx, &gritzv1.ListTasksRequest{
+		PageSize:  1,
+		PageToken: archivedPage.NextPageToken,
+		Archived:  false,
+	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 
 	// And the reverse: an active-minted token replayed under archived=true.
 	activePage, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, Archived: false})
 	assert.NilError(t, err)
 	assert.Assert(t, activePage.NextPageToken != "")
-	_, err = srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, PageToken: activePage.NextPageToken, Archived: true})
+	_, err = srv.ListTasks(ctx, &gritzv1.ListTasksRequest{
+		PageSize:  1,
+		PageToken: activePage.NextPageToken,
+		Archived:  true,
+	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 }
 
@@ -347,10 +453,26 @@ func TestListTasks_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task 1",
 		Runner:    "test-runner",
@@ -384,12 +506,28 @@ func TestListTasks_Permissions(t *testing.T) {
 func TestListTasks_Pagination(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
-	first, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task-1", Runner: "test-runner", Workspace: "test-workspace"})
+	first, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "task-1",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
 	assert.NilError(t, err)
-	second, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task-2", Runner: "test-runner", Workspace: "test-workspace"})
+	second, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "task-2",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
 	assert.NilError(t, err)
 
 	// The first page holds the newest task and a token for the next page.
@@ -400,7 +538,10 @@ func TestListTasks_Pagination(t *testing.T) {
 	assert.Assert(t, page1.NextPageToken != "")
 
 	// Passing that token back returns the next (older) task and no further pages.
-	page2, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, PageToken: page1.NextPageToken})
+	page2, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{
+		PageSize:  1,
+		PageToken: page1.NextPageToken,
+	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(page2.Tasks), 1)
 	assert.Equal(t, page2.Tasks[0].Id, first.Task.Id)
@@ -411,8 +552,16 @@ func TestCreateTask_Namespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -436,8 +585,16 @@ func TestCreateTask_DefaultNamespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act: no namespace set — the default (empty) namespace.
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -457,8 +614,16 @@ func TestCreateTask_DefaultNamespace(t *testing.T) {
 func TestCreateTask_BadRunner(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Bad Task",
@@ -471,8 +636,16 @@ func TestCreateTask_BadRunner(t *testing.T) {
 func TestCreateTask_BadWorkspace(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Bad Task",
@@ -486,8 +659,16 @@ func TestUpdateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Original Name",
 		Runner:    "test-runner",
@@ -512,10 +693,26 @@ func TestUpdateTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -537,10 +734,26 @@ func TestArchiveTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -561,10 +774,26 @@ func TestCancelTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -585,10 +814,26 @@ func TestRestartTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -608,8 +853,16 @@ func TestRestartTask_Permissions(t *testing.T) {
 func TestCreateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	want := 90 * time.Minute
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -631,8 +884,16 @@ func TestCreateTask_AutoArchive(t *testing.T) {
 func TestUpdateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "No archive",
@@ -678,8 +939,16 @@ func TestUpdateTask_AutoArchive(t *testing.T) {
 func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:        "Auto-archive task",

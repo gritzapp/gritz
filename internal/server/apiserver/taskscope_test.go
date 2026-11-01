@@ -25,7 +25,7 @@ import (
 // passes the pre-gate and must be stopped by the post-load Allow.
 
 // scopedCtx returns a context carrying a caller in org with exactly the given
-// scopes — the narrow-token analogue of createCtx (which grants admin).
+// scopes — the narrow-token analogue of the admin-scoped contexts other tests build.
 func scopedCtx(t *testing.T, org *teststore.Org, scopes authscope.Scopes) context.Context {
 	t.Helper()
 	return apiauth.WithUser(t.Context(), &apiauth.UserInfo{
@@ -64,7 +64,11 @@ func newOrgWithTasks(t *testing.T, srv *Server) (context.Context, *teststore.Org
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
 		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
 	})
-	adminCtx := createCtx(t, org)
+	adminCtx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskA, err := srv.CreateTask(adminCtx, &gritzv1.CreateTaskRequest{
 		Name: "A", Runner: "test-runner", Workspace: "test-workspace",
 	})
@@ -151,7 +155,9 @@ func TestTaskScope_ArchivedGating(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 
 	// ...and writes (this is the unarchive-resurrect hole, closed for free).
-	_, err = srv.UnarchiveTask(scopedCtx(t, org, writeScope(archived.Id)), &gritzv1.UnarchiveTaskRequest{Id: archived.Id})
+	_, err = srv.UnarchiveTask(scopedCtx(t, org, writeScope(archived.Id)), &gritzv1.UnarchiveTaskRequest{
+		Id: archived.Id,
+	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
@@ -193,7 +199,10 @@ func taskInstanceHandlers() []struct {
 			return err
 		}},
 		{"CreateLink", func(ctx context.Context, srv *Server, id int64) error {
-			_, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{TaskId: id, Url: "https://example.com/x"})
+			_, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
+				TaskId: id,
+				Url:    "https://example.com/x",
+			})
 			return err
 		}},
 		{"ListLinks", func(ctx context.Context, srv *Server, id int64) error {

@@ -5,6 +5,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
@@ -30,8 +32,16 @@ func lifecycleEvents(t *testing.T, srv *Server, ctx context.Context, taskID int6
 func lifecycleTestServer(t *testing.T) (*Server, context.Context) {
 	t.Helper()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	return srv, createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	return srv, apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 }
 
 func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {

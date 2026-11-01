@@ -42,7 +42,9 @@ func TestRun_ForksIntoShell(t *testing.T) {
 	// A driver whose task carries the shell_session, pointed at the relay.
 	mock := &gritzclient.ClientMock{
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, ShellSession: "s1"}}, nil
+			return &gritzv1.GetTaskResponse{
+				Task: &gritzv1.Task{Id: req.Id, ShellSession: "s1"},
+			}, nil
 		},
 	}
 	d := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, ServerURL: srv.URL, Token: "t"}

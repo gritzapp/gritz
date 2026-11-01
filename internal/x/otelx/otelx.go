@@ -76,7 +76,9 @@ func Setup(ctx context.Context) (*Provider, error) {
 		// stream forever. Views only apply to metrics, so spans keep the attributes.
 		sdkmetric.WithView(sdkmetric.NewView(
 			sdkmetric.Instrument{Scope: instrumentation.Scope{Name: "connectrpc.com/otelconnect"}},
-			sdkmetric.Stream{AttributeFilter: attribute.NewDenyKeysFilter("net.peer.name", "net.peer.port")},
+			sdkmetric.Stream{
+				AttributeFilter: attribute.NewDenyKeysFilter("net.peer.name", "net.peer.port"),
+			},
 		)),
 	)
 	otel.SetMeterProvider(mp)

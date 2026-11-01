@@ -239,7 +239,14 @@ func TestGetTask_EventNative(t *testing.T) {
 					{Id: 1, TaskId: 7, Payload: &gritzv1.Event_Instruction{
 						Instruction: &gritzv1.InstructionPayload{Text: "do it"},
 					}},
-					{Id: 2, TaskId: 7, Payload: &gritzv1.Event_Report{
+					{Id: 2, TaskId: 7, Payload: &gritzv1.Event_Command{
+						Command: &gritzv1.CommandPayload{
+							Command: gritzv1.TaskCommand_START,
+							Version: 1,
+							Runner:  "r1",
+						},
+					}},
+					{Id: 3, TaskId: 7, Payload: &gritzv1.Event_Report{
 						Report: &gritzv1.ReportPayload{Content: "working"},
 					}},
 				},
@@ -285,7 +292,8 @@ func TestGetTask_EventNative(t *testing.T) {
 	assert.Assert(t, ok, "links should be a list")
 	assert.Equal(t, len(links), 1)
 
-	// The raw all-arms stream, in stream order (instruction then report).
+	// The history stream, in stream order (instruction then report); the
+	// command event is not history.
 	events, ok := got["events"].([]any)
 	assert.Assert(t, ok, "events should be a list")
 	assert.Equal(t, len(events), 2)

@@ -26,7 +26,11 @@ func TestTestEvent(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Router: &eventrouter.Router{Store: st}})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	err := srv.store.SetOrgRoutingRules(ctx, nil, org.OrgID, []model.RoutingRule{
 		{Source: "github", Type: "issue_comment", Wakeup: true,
 			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}}},
@@ -64,11 +68,19 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Router: &eventrouter.Router{Store: st}})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	err := srv.store.SetOrgRoutingRules(ctx, nil, org.OrgID, []model.RoutingRule{
 		{Source: "github", Type: "issue_comment",
 			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
-			Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r", Prompt: "Do it."}},
+			Create: &model.CreateTaskAction{
+				Workspace: "default",
+				Runner:    "r",
+				Prompt:    "Do it.",
+			}},
 	})
 	assert.NilError(t, err)
 
@@ -122,7 +134,11 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Router: &eventrouter.Router{Store: st}})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	url := "https://github.com/o/r/issues/1"
 	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
 		Status: model.TaskStatusCompleted,
@@ -193,7 +209,11 @@ func TestTestEventFireSkipsOutboundSideEffects(t *testing.T) {
 	}
 	srv := New(Options{Store: st, Router: router})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	err := srv.store.SetOrgRoutingRules(ctx, nil, org.OrgID, []model.RoutingRule{
 		{Source: "github", Type: "issue_comment",
 			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},

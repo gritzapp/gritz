@@ -12,15 +12,14 @@ import (
 
 // Event type discriminators. These are the values of the events.type column —
 // a storage detail used to pick the concrete payload on read. They are not a
-// field on the Event value; the type is Payload.Type(). The instruction,
-// external, report, and link arms are wired today; later increments add their
-// own discriminator with each arm.
+// field on the Event value; the type is Payload.Type().
 const (
 	EventTypeInstruction = "instruction"
 	EventTypeExternal    = "external"
 	EventTypeReport      = "report"
 	EventTypeLifecycle   = "lifecycle"
 	EventTypeLink        = "link"
+	EventTypeCommand     = "command"
 )
 
 // EventPayload is the sealed set of event bodies — one per arm of the
@@ -124,6 +123,30 @@ func (p *LinkPayload) SetPayloadProto(pb *gritzv1.Event) {
 		Url:       p.URL,
 		Title:     p.Title,
 		Subscribe: p.Subscribe,
+	}}
+}
+
+// CommandPayload is the body of a command event: Task.Command changed. Every
+// site that changes a task's command writes one (see Task.CommandEvent), so the
+// stream carries every command a runner acts on — including a withdrawn start
+// and the clear when a runner event consumes the command. Command events are
+// not history: views that show history skip them.
+type CommandPayload struct {
+	Command   TaskCommand `json:"command"`
+	Version   int64       `json:"version"`
+	Runner    string      `json:"runner"`
+	Workspace string      `json:"workspace"`
+}
+
+func (*CommandPayload) Type() string    { return EventTypeCommand }
+func (*CommandPayload) isEventPayload() {}
+
+func (p *CommandPayload) SetPayloadProto(pb *gritzv1.Event) {
+	pb.Payload = &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
+		Command:   gritzv1.TaskCommand(p.Command),
+		Version:   p.Version,
+		Runner:    p.Runner,
+		Workspace: p.Workspace,
 	}}
 }
 
@@ -277,6 +300,9 @@ type Event struct {
 	Wake      bool         `json:"wake"`
 	Payload   EventPayload `json:"payload"`
 	CreatedAt time.Time    `json:"created_at"`
+	// XID is the id of the transaction that inserted the row (events.xid),
+	// set by the store. It stays on the server: Proto does not carry it.
+	XID uint64 `json:"-"`
 }
 
 // Proto converts an Event to its protobuf representation, delegating the arm
@@ -358,6 +384,13 @@ func EventPayloadFromProto(pb *gritzv1.Event) EventPayload {
 			URL:       arm.Link.Url,
 			Title:     arm.Link.Title,
 			Subscribe: arm.Link.Subscribe,
+		}
+	case *gritzv1.Event_Command:
+		return &CommandPayload{
+			Command:   TaskCommand(arm.Command.Command),
+			Version:   arm.Command.Version,
+			Runner:    arm.Command.Runner,
+			Workspace: arm.Command.Workspace,
 		}
 	default:
 		return nil

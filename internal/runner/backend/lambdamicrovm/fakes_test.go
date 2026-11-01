@@ -44,8 +44,16 @@ func (f *fakeCloud) RunMicrovm(_ context.Context, in *lambdamicrovms.RunMicrovmI
 	f.lastRun = in
 	f.next++
 	id := fmt.Sprintf("mvm-%d", f.next)
-	f.vms[id] = &lambdamicrovms.GetMicrovmOutput{MicrovmId: aws.String(id), State: types.MicrovmStatePending, Endpoint: aws.String(f.endpoint)}
-	return &lambdamicrovms.RunMicrovmOutput{MicrovmId: aws.String(id), State: types.MicrovmStatePending, Endpoint: aws.String(f.endpoint)}, nil
+	f.vms[id] = &lambdamicrovms.GetMicrovmOutput{
+		MicrovmId: aws.String(id),
+		State:     types.MicrovmStatePending,
+		Endpoint:  aws.String(f.endpoint),
+	}
+	return &lambdamicrovms.RunMicrovmOutput{
+		MicrovmId: aws.String(id),
+		State:     types.MicrovmStatePending,
+		Endpoint:  aws.String(f.endpoint),
+	}, nil
 }
 
 func (f *fakeCloud) GetMicrovm(_ context.Context, in *lambdamicrovms.GetMicrovmInput, _ ...func(*lambdamicrovms.Options)) (*lambdamicrovms.GetMicrovmOutput, error) {
@@ -126,7 +134,11 @@ func (f *fakeCloud) CreateMicrovmAuthToken(_ context.Context, in *lambdamicrovms
 func (f *fakeCloud) add(id string, state types.MicrovmState, reason string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	vm := &lambdamicrovms.GetMicrovmOutput{MicrovmId: aws.String(id), State: state, Endpoint: aws.String(f.endpoint)}
+	vm := &lambdamicrovms.GetMicrovmOutput{
+		MicrovmId: aws.String(id),
+		State:     state,
+		Endpoint:  aws.String(f.endpoint),
+	}
 	if reason != "" {
 		vm.StateReason = aws.String(reason)
 	}

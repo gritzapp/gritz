@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file driver/v1/driver.proto.
  */
 export const file_driver_v1_driver: GenFile = /*@__PURE__*/
-  fileDesc("ChZkcml2ZXIvdjEvZHJpdmVyLnByb3RvEglkcml2ZXIudjEivwEKCVJ1blJlY29yZBIPCgd2ZXJzaW9uGAEgASgDEikKBXN0YXRlGAIgASgOMhouZHJpdmVyLnYxLlJ1blJlY29yZC5TdGF0ZRIvCgtmaW5pc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiRQoFU3RhdGUSFQoRU1RBVEVfVU5TUEVDSUZJRUQQABIRCg1TVEFURV9SVU5OSU5HEAESEgoOU1RBVEVfRklOSVNIRUQQAiIPCg1TdGF0dXNSZXF1ZXN0IkAKDlN0YXR1c1Jlc3BvbnNlEiYKA3J1bhgBIAEoCzIULmRyaXZlci52MS5SdW5SZWNvcmRIAIgBAUIGCgRfcnVuIvUBCgdSdW5TcGVjEigKA2VudhgFIAMoCzIbLmRyaXZlci52MS5SdW5TcGVjLkVudkVudHJ5EjAKB3NlY3JldHMYBiADKAsyHy5kcml2ZXIudjEuUnVuU3BlYy5TZWNyZXRzRW50cnkSDwoHdGFza19pZBgIIAEoAxISCgpzZXJ2ZXJfdXJsGAkgASgJEg0KBXRva2VuGAogASgJGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaLgoMU2VjcmV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoKUnVuUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgDEiAKBHNwZWMYAiABKAsyEi5kcml2ZXIudjEuUnVuU3BlYyKUAQoLUnVuUmVzcG9uc2USJwoIYWNjZXB0ZWQYAiABKAsyEy5kcml2ZXIudjEuQWNjZXB0ZWRIABIqCgprZWVwX2FsaXZlGAMgASgLMhQuZHJpdmVyLnYxLktlZXBBbGl2ZUgAEicKCGZpbmlzaGVkGAYgASgLMhMuZHJpdmVyLnYxLkZpbmlzaGVkSABCBwoFZXZlbnQiHAoIQWNjZXB0ZWQSEAoIYXR0YWNoZWQYASABKAgiLQoIRmluaXNoZWQSDwoHdmVyc2lvbhgBIAEoAxIQCghyZXBvcnRlZBgCIAEoCCILCglLZWVwQWxpdmUiHgoLU3RvcFJlcXVlc3QSDwoHdmVyc2lvbhgBIAEoAyIfCgxTdG9wUmVzcG9uc2USDwoHc3RvcHBlZBgBIAEoCDK/AQoNRHJpdmVyU2VydmljZRI9CgZTdGF0dXMSGC5kcml2ZXIudjEuU3RhdHVzUmVxdWVzdBoZLmRyaXZlci52MS5TdGF0dXNSZXNwb25zZRI2CgNSdW4SFS5kcml2ZXIudjEuUnVuUmVxdWVzdBoWLmRyaXZlci52MS5SdW5SZXNwb25zZTABEjcKBFN0b3ASFi5kcml2ZXIudjEuU3RvcFJlcXVlc3QaFy5kcml2ZXIudjEuU3RvcFJlc3BvbnNlQj1aO2dpdGh1Yi5jb20vZ3JpdHphcHAvZ3JpdHovaW50ZXJuYWwvcHJvdG8vZHJpdmVyL3YxO2RyaXZlcnYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChZkcml2ZXIvdjEvZHJpdmVyLnByb3RvEglkcml2ZXIudjEivwEKCVJ1blJlY29yZBIPCgd2ZXJzaW9uGAEgASgDEikKBXN0YXRlGAIgASgOMhouZHJpdmVyLnYxLlJ1blJlY29yZC5TdGF0ZRIvCgtmaW5pc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiRQoFU3RhdGUSFQoRU1RBVEVfVU5TUEVDSUZJRUQQABIRCg1TVEFURV9SVU5OSU5HEAESEgoOU1RBVEVfRklOSVNIRUQQAiIPCg1TdGF0dXNSZXF1ZXN0IkAKDlN0YXR1c1Jlc3BvbnNlEiYKA3J1bhgBIAEoCzIULmRyaXZlci52MS5SdW5SZWNvcmRIAIgBAUIGCgRfcnVuIpUCCgdSdW5TcGVjEigKA2VudhgFIAMoCzIbLmRyaXZlci52MS5SdW5TcGVjLkVudkVudHJ5EjAKB3NlY3JldHMYBiADKAsyHy5kcml2ZXIudjEuUnVuU3BlYy5TZWNyZXRzRW50cnkSHgoFZmlsZXMYByADKAsyDy5kcml2ZXIudjEuRmlsZRIPCgd0YXNrX2lkGAggASgDEhIKCnNlcnZlcl91cmwYCSABKAkSDQoFdG9rZW4YCiABKAkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARouCgxTZWNyZXRzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASI9CgRGaWxlEgwKBHBhdGgYASABKAkSDAoEZGF0YRgCIAEoDBIMCgRtb2RlGAMgASgDEgsKA2RpchgEIAEoCCI/CgpSdW5SZXF1ZXN0Eg8KB3ZlcnNpb24YASABKAMSIAoEc3BlYxgCIAEoCzISLmRyaXZlci52MS5SdW5TcGVjIpQBCgtSdW5SZXNwb25zZRInCghhY2NlcHRlZBgCIAEoCzITLmRyaXZlci52MS5BY2NlcHRlZEgAEioKCmtlZXBfYWxpdmUYAyABKAsyFC5kcml2ZXIudjEuS2VlcEFsaXZlSAASJwoIZmluaXNoZWQYBiABKAsyEy5kcml2ZXIudjEuRmluaXNoZWRIAEIHCgVldmVudCIcCghBY2NlcHRlZBIQCghhdHRhY2hlZBgBIAEoCCItCghGaW5pc2hlZBIPCgd2ZXJzaW9uGAEgASgDEhAKCHJlcG9ydGVkGAIgASgIIgsKCUtlZXBBbGl2ZSIeCgtTdG9wUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgDIh8KDFN0b3BSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIMr8BCg1Ecml2ZXJTZXJ2aWNlEj0KBlN0YXR1cxIYLmRyaXZlci52MS5TdGF0dXNSZXF1ZXN0GhkuZHJpdmVyLnYxLlN0YXR1c1Jlc3BvbnNlEjYKA1J1bhIVLmRyaXZlci52MS5SdW5SZXF1ZXN0GhYuZHJpdmVyLnYxLlJ1blJlc3BvbnNlMAESNwoEU3RvcBIWLmRyaXZlci52MS5TdG9wUmVxdWVzdBoXLmRyaXZlci52MS5TdG9wUmVzcG9uc2VCPVo7Z2l0aHViLmNvbS9ncml0emFwcC9ncml0ei9pbnRlcm5hbC9wcm90by9kcml2ZXIvdjE7ZHJpdmVydjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message driver.v1.RunRecord
@@ -125,6 +125,15 @@ export type RunSpec = Message<"driver.v1.RunSpec"> & {
   secrets: { [key: string]: string };
 
   /**
+   * Agent config and directories. Provisioned once per sandbox, gated by
+   * /gritz/.provisioned, so later runs keep whatever the agent changed in
+   * them.
+   *
+   * @generated from field: repeated driver.v1.File files = 7;
+   */
+  files: File[];
+
+  /**
    * The task to run. The driver fetches it from server_url.
    *
    * @generated from field: int64 task_id = 8;
@@ -154,6 +163,48 @@ export const RunSpecSchema: GenMessage<RunSpec> = /*@__PURE__*/
   messageDesc(file_driver_v1_driver, 3);
 
 /**
+ * File is a file or directory the driver writes into the sandbox.
+ *
+ * @generated from message driver.v1.File
+ */
+export type File = Message<"driver.v1.File"> & {
+  /**
+   * Absolute path inside the sandbox.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * Contents; ignored for a directory.
+   *
+   * @generated from field: bytes data = 2;
+   */
+  data: Uint8Array;
+
+  /**
+   * Permission bits.
+   *
+   * @generated from field: int64 mode = 3;
+   */
+  mode: bigint;
+
+  /**
+   * True for a directory.
+   *
+   * @generated from field: bool dir = 4;
+   */
+  dir: boolean;
+};
+
+/**
+ * Describes the message driver.v1.File.
+ * Use `create(FileSchema)` to create a new message.
+ */
+export const FileSchema: GenMessage<File> = /*@__PURE__*/
+  messageDesc(file_driver_v1_driver, 4);
+
+/**
  * @generated from message driver.v1.RunRequest
  */
 export type RunRequest = Message<"driver.v1.RunRequest"> & {
@@ -175,7 +226,7 @@ export type RunRequest = Message<"driver.v1.RunRequest"> & {
  * Use `create(RunRequestSchema)` to create a new message.
  */
 export const RunRequestSchema: GenMessage<RunRequest> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 4);
+  messageDesc(file_driver_v1_driver, 5);
 
 /**
  * @generated from message driver.v1.RunResponse
@@ -214,7 +265,7 @@ export type RunResponse = Message<"driver.v1.RunResponse"> & {
  * Use `create(RunResponseSchema)` to create a new message.
  */
 export const RunResponseSchema: GenMessage<RunResponse> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 5);
+  messageDesc(file_driver_v1_driver, 6);
 
 /**
  * @generated from message driver.v1.Accepted
@@ -233,7 +284,7 @@ export type Accepted = Message<"driver.v1.Accepted"> & {
  * Use `create(AcceptedSchema)` to create a new message.
  */
 export const AcceptedSchema: GenMessage<Accepted> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 6);
+  messageDesc(file_driver_v1_driver, 7);
 
 /**
  * @generated from message driver.v1.Finished
@@ -257,7 +308,7 @@ export type Finished = Message<"driver.v1.Finished"> & {
  * Use `create(FinishedSchema)` to create a new message.
  */
 export const FinishedSchema: GenMessage<Finished> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 7);
+  messageDesc(file_driver_v1_driver, 8);
 
 /**
  * @generated from message driver.v1.KeepAlive
@@ -270,7 +321,7 @@ export type KeepAlive = Message<"driver.v1.KeepAlive"> & {
  * Use `create(KeepAliveSchema)` to create a new message.
  */
 export const KeepAliveSchema: GenMessage<KeepAlive> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 8);
+  messageDesc(file_driver_v1_driver, 9);
 
 /**
  * @generated from message driver.v1.StopRequest
@@ -287,7 +338,7 @@ export type StopRequest = Message<"driver.v1.StopRequest"> & {
  * Use `create(StopRequestSchema)` to create a new message.
  */
 export const StopRequestSchema: GenMessage<StopRequest> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 9);
+  messageDesc(file_driver_v1_driver, 10);
 
 /**
  * @generated from message driver.v1.StopResponse
@@ -306,7 +357,7 @@ export type StopResponse = Message<"driver.v1.StopResponse"> & {
  * Use `create(StopResponseSchema)` to create a new message.
  */
 export const StopResponseSchema: GenMessage<StopResponse> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 10);
+  messageDesc(file_driver_v1_driver, 11);
 
 /**
  * DriverService is served by `gritz driver` inside the sandbox and

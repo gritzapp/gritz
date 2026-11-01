@@ -17,7 +17,7 @@ func (s *Store) CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event)
 	if err != nil {
 		return fmt.Errorf("marshal event payload: %w", err)
 	}
-	id, err := s.q(tx).CreateEvent(ctx, sqlc.CreateEventParams{
+	row, err := s.q(tx).CreateEvent(ctx, sqlc.CreateEventParams{
 		TaskID:    event.TaskID,
 		OrgID:     event.OrgID,
 		Type:      event.Payload.Type(),
@@ -28,7 +28,8 @@ func (s *Store) CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event)
 	if err != nil {
 		return err
 	}
-	event.ID = id
+	event.ID = row.ID
+	event.XID = row.Xid
 	return nil
 }
 
@@ -181,6 +182,83 @@ func (s *Store) ListEventsByTaskPage(ctx context.Context, tx *sql.Tx, p ListEven
 	})
 }
 
+// runnerEventCursor is the keyset a runner event page token encodes: the
+// (xid, id) order ListRunnerEvents reads in. Rows written by one transaction
+// share an xid, so id breaks the tie.
+type runnerEventCursor struct {
+	XID uint64 `json:"x"`
+	ID  int64  `json:"i"`
+}
+
+// ListRunnerEventsParams mirrors the RPC's pagination fields as plain values
+// so the handler can pass them through untouched.
+type ListRunnerEventsParams struct {
+	OrgID     int64
+	Runner    string
+	PageSize  int32  // 0 → default (200); max 1000
+	PageToken string // opaque cursor; empty for the start of the log
+}
+
+// runnerEventSource implements pagination.Source for the events of a
+// runner's tasks. It serves only the backward (live-follow) walk: ascending
+// (xid, id) after the cursor, below the xid watermark, with a nil cursor at the
+// start of the log.
+type runnerEventSource struct {
+	store  *Store
+	tx     *sql.Tx
+	params ListRunnerEventsParams
+}
+
+func (src runnerEventSource) Query(ctx context.Context, token pagination.Token[runnerEventCursor], limit int) ([]*model.Event, error) {
+	if !token.Backward {
+		return nil, pagination.ErrUnsupportedDirection
+	}
+	var after runnerEventCursor
+	if token.Cursor != nil {
+		after = *token.Cursor
+	}
+	rows, err := src.store.q(src.tx).ListRunnerEvents(ctx, sqlc.ListRunnerEventsParams{
+		Runner:    src.params.Runner,
+		OrgID:     src.params.OrgID,
+		AfterXid:  after.XID,
+		AfterID:   after.ID,
+		PageLimit: int32(limit), // int32 only at the sqlc boundary
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toModelEvents(rows)
+}
+
+func (src runnerEventSource) Cursor(e *model.Event) runnerEventCursor {
+	return runnerEventCursor{XID: e.XID, ID: e.ID}
+}
+
+// ListRunnerEvents returns a page of the events of the runner's tasks, in
+// (xid, id) order, from transactions below the xid watermark. It walks only
+// the backward (live-follow) direction: an empty PageToken is the start of the
+// log, and the page's PrevToken resumes after its last row, or echoes the
+// request's token when the page is empty. A bad PageSize or an undecodable
+// PageToken surfaces as a wrapped pagination.ErrInvalidRequest.
+func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, p ListRunnerEventsParams) (*pagination.Page[*model.Event], error) {
+	token := p.PageToken
+	if token == "" {
+		var err error
+		token, err = pagination.Encode(pagination.Token[runnerEventCursor]{Backward: true})
+		if err != nil {
+			panic(fmt.Sprintf("store: a cursorless runner event token must always encode: %v", err))
+		}
+	}
+	return pagination.List(ctx, pagination.Options[*model.Event, runnerEventCursor]{
+		DefaultPageSize: 200,
+		MaxPageSize:     1000,
+		Reverse:         true,
+		PageSize:        int(p.PageSize),
+		PageToken:       token,
+		Source:          runnerEventSource{store: s, tx: tx, params: p},
+	})
+}
+
 func toModelEvent(row sqlc.Event) (*model.Event, error) {
 	payload, err := toEventPayload(row.Type, row.Payload)
 	if err != nil {
@@ -193,6 +271,7 @@ func toModelEvent(row sqlc.Event) (*model.Event, error) {
 		Wake:      row.Wake,
 		Payload:   payload,
 		CreatedAt: row.CreatedAt,
+		XID:       row.Xid,
 	}, nil
 }
 
@@ -242,6 +321,12 @@ func toEventPayload(typ string, data []byte) (model.EventPayload, error) {
 		var p model.LinkPayload
 		if err := json.Unmarshal(data, &p); err != nil {
 			return nil, fmt.Errorf("unmarshal link payload: %w", err)
+		}
+		return &p, nil
+	case model.EventTypeCommand:
+		var p model.CommandPayload
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("unmarshal command payload: %w", err)
 		}
 		return &p, nil
 	default:

@@ -80,12 +80,14 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	// A schedule change only refreshes the Web UI; it never wakes a runner (the
 	// scheduler worker, L4, creates the tasks), so no Runner is set.
 	s.publish(model.Notification{
-		Type:      "change",
-		Resources: []model.NotificationResource{{Action: "created", Type: "schedule", ID: sched.ID}},
-		OrgID:     caller.OrgID,
-		UserID:    caller.ID,
-		ClientID:  caller.ClientID,
-		Time:      time.Now(),
+		Type: "change",
+		Resources: []model.NotificationResource{
+			{Action: "created", Type: "schedule", ID: sched.ID},
+		},
+		OrgID:    caller.OrgID,
+		UserID:   caller.ID,
+		ClientID: caller.ClientID,
+		Time:     time.Now(),
 	})
 	return &gritzv1.CreateScheduleResponse{Schedule: sched.Proto()}, nil
 }
@@ -187,12 +189,14 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 	}
 	s.log.InfoContext(ctx, "schedule updated", "id", sched.ID, "runner", sched.Runner, "workspace", sched.Workspace)
 	s.publish(model.Notification{
-		Type:      "change",
-		Resources: []model.NotificationResource{{Action: "updated", Type: "schedule", ID: sched.ID}},
-		OrgID:     caller.OrgID,
-		UserID:    caller.ID,
-		ClientID:  caller.ClientID,
-		Time:      time.Now(),
+		Type: "change",
+		Resources: []model.NotificationResource{
+			{Action: "updated", Type: "schedule", ID: sched.ID},
+		},
+		OrgID:    caller.OrgID,
+		UserID:   caller.ID,
+		ClientID: caller.ClientID,
+		Time:     time.Now(),
 	})
 	return &gritzv1.UpdateScheduleResponse{Schedule: sched.Proto()}, nil
 }
@@ -265,12 +269,14 @@ func (s *Server) SetScheduleEnabled(ctx context.Context, req *gritzv1.SetSchedul
 	}
 	s.log.InfoContext(ctx, "schedule enabled set", "id", sched.ID, "enabled", sched.Enabled)
 	s.publish(model.Notification{
-		Type:      "change",
-		Resources: []model.NotificationResource{{Action: "updated", Type: "schedule", ID: sched.ID}},
-		OrgID:     caller.OrgID,
-		UserID:    caller.ID,
-		ClientID:  caller.ClientID,
-		Time:      time.Now(),
+		Type: "change",
+		Resources: []model.NotificationResource{
+			{Action: "updated", Type: "schedule", ID: sched.ID},
+		},
+		OrgID:    caller.OrgID,
+		UserID:   caller.ID,
+		ClientID: caller.ClientID,
+		Time:     time.Now(),
 	})
 	return &gritzv1.SetScheduleEnabledResponse{Schedule: sched.Proto()}, nil
 }

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
@@ -14,8 +16,16 @@ func TestOpenShell(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Create a task and drive it to a terminal (completed) status so it can be
 	// shelled. Runner events use version 0 to bypass the version check.
@@ -63,8 +73,16 @@ func TestOpenShell_RejectsPending(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// A freshly created task is PENDING (non-terminal).
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -89,8 +107,16 @@ func TestOpenShell_RejectsRunning(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Drive the task to RUNNING: opening a shell must not displace a live run.
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -120,10 +146,26 @@ func TestOpenShell_CrossOrgDenied(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
-	ctxB := createCtx(t, orgB)
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Completed task owned by orgA.
 	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
