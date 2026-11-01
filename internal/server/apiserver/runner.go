@@ -154,9 +154,7 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 		NextCursor: req.Cursor,
 	}
 	if len(events) > 0 {
-		if resp.NextCursor, err = next.Encode(); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
+		resp.NextCursor = next.Encode()
 	}
 	return resp, nil
 }
