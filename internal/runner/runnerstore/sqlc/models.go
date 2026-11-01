@@ -24,5 +24,5 @@ type Task struct {
 	ID       int64
 	Command  sql.NullInt64
 	Version  sql.NullInt64
-	Archived bool
+	Archived sql.NullBool
 }

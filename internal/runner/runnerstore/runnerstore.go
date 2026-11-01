@@ -114,7 +114,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 			ID:       row.ID,
 			Command:  gritzv1.TaskCommand(row.Command.Int64),
 			Version:  row.Version.Int64,
-			Archived: row.Archived,
+			Archived: row.Archived.Bool,
 		})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {

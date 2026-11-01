@@ -11,7 +11,7 @@ import (
 )
 
 const listUnarchivedTaskIDs = `-- name: ListUnarchivedTaskIDs :many
-SELECT id FROM tasks WHERE NOT archived ORDER BY id
+SELECT id FROM tasks WHERE archived IS NOT 1 ORDER BY id
 `
 
 func (q *Queries) ListUnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
@@ -39,16 +39,11 @@ func (q *Queries) ListUnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
 
 const upsertTask = `-- name: UpsertTask :one
 INSERT INTO tasks (id, command, version, archived)
-VALUES (
-    ?1,
-    ?2,
-    ?3,
-    coalesce(CAST(?4 AS BOOLEAN), 0)
-)
+VALUES (?1, ?2, ?3, ?4)
 ON CONFLICT (id) DO UPDATE SET
     command  = coalesce(excluded.command, command),
     version  = coalesce(excluded.version, version),
-    archived = coalesce(?4, archived)
+    archived = coalesce(excluded.archived, archived)
 RETURNING id, command, version, archived
 `
 
@@ -60,8 +55,6 @@ type UpsertTaskParams struct {
 }
 
 // Fields the page didn't touch are passed as NULL and keep their stored value.
-// The update reuses ?4 for archived: sqlc doesn't rewrite sqlc.narg inside
-// DO UPDATE SET.
 func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error) {
 	row := q.db.QueryRowContext(ctx, upsertTask,
 		arg.ID,
