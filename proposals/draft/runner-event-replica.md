@@ -163,14 +163,13 @@ timeline, `get_my_task`) filter command events out.
 Replication is hidden from the rest of the runner. A new package,
 `internal/runner/taskevents`, copies the runner's events from the server into
 SQLite and exposes each task's events as a stream. A `TaskRunner` reads one
-task's stream and never sees the cursor, fill-ins or duplicates.
+task's stream and never sees the cursor or duplicates.
 
 `taskevents` guarantees:
 
-- **A stream never has a missing prefix.** A task is reported on `Log.Tasks()`
-  only once nothing earlier in its history is missing, and `Stream.Read`
-  returns nothing for a task before then. The stream keeps growing for as long
-  as the task exists.
+- **A stream has the task's whole history.** `Log` replicates from `(0, 0)`, so
+  by the time a task's first event is stored, nothing earlier is missing. The
+  stream keeps growing for as long as the task exists.
 - **Positions are event ids.** A reader keeps its own position as an
   `events.id` and passes it to `Read`. How an id maps to a place in the log
   stays inside `taskevents`, so readers never see an xid. The driver's
@@ -187,20 +186,27 @@ task's stream and never sees the cursor, fill-ins or duplicates.
 (`Archived`, `AutoArchived`, `Unarchived`) and reports a `TaskState`:
 
 - **Active** (`Archived: false`) the first time an event for the task is
-  stored, once nothing earlier is missing, and again when it is unarchived.
-  `TaskManager` creates a `TaskRunner` for it.
+  stored, and again when it is unarchived. `TaskManager` creates a
+  `TaskRunner` for it.
 - **Archived** (`Archived: true`) when it is archived. `TaskManager` drops its
   `TaskRunner`.
 - **At boot**, `Log` reports every stored task whose latest archive event isn't
   `Archived` or `AutoArchived` as active. Archived tasks get no `TaskRunner`.
 
-With full replication from `(0, 0)`, nothing can be missing when a task's first
-event is stored, because everything before the cursor was already replicated.
-The "nothing earlier is missing" condition only matters if bootstrap fills in
-history on demand (see Open Questions).
-
 An archived task's events are still replicated and stored, so unarchiving
-needs no fetch and the cursor stays simple. Dropping them is compaction.
+needs no fetch and the cursor stays simple.
+
+**Bootstrap** is the same loop from an empty database: the cursor starts at
+`(0, 0)` and the runner replicates the whole history of its tasks, archived
+ones included. There is no snapshot and no separate fill-in path.
+
+**No compaction.** Replicated events are never deleted. The newest row is
+always the cursor, and the row any reader last saw is always there for `Read`
+to resume from.
+
+**No task reassignment.** `tasks.runner` is set when the task is created and
+never changes. `ListRunnerEvents` joins on it, so a task's whole history goes
+to one runner.
 
 #### Inside `taskevents`
 
@@ -230,14 +236,11 @@ CREATE INDEX events_task_xid_id ON events (task_id, xid, id);
    a sync sooner.
 
 Every fetched event is stored, including ones the runner has no use for, so
-the newest row is exactly where the last fetch ended. Compaction must never
-remove the newest row, or the cursor moves backwards.
+the newest row is exactly where the last fetch ended.
 
 After storing a page, `Log` wakes the blocked `Read`s of the tasks in it,
 reports task ids it hasn't seen before as active, and reports archive and
-unarchive events on `Tasks()`. How a task's earlier history is filled in, if
-the log didn't replicate it from the start, is also inside `taskevents` (see
-Open Questions).
+unarchive events on `Tasks()`.
 
 `Stream.Read(after)` resolves `after` to a place in the task's log with:
 
@@ -248,9 +251,7 @@ WHERE task_id = ?
 ORDER BY xid, id;
 ```
 
-Position `0` returns the task's whole log. This needs the row a reader last
-saw to still be in the database, which constrains compaction (see Open
-Questions).
+Position `0` returns the task's whole log.
 
 ### Runner: `TaskRunner` acts on its stream
 
@@ -282,7 +283,8 @@ lost-run backstops stay.
 `Run` no longer starts anything. It opens the connection the runner forwards
 the task's events over:
 
-1. The `TaskRunner` opens the stream once the sandbox is up.
+1. The `TaskRunner` opens the stream once the sandbox is up, and sends the
+   `RunSpec` as its first message.
 2. The driver sends `Hello` with the id of the last event it has stored, and
    its run record.
 3. The `TaskRunner` loops on `Stream.Read(ctx, pos)`, starting from
@@ -291,6 +293,14 @@ the task's events over:
 4. The driver stores each event, then acts on it.
 
 The driver's position is an `events.id`; `0` means "send everything".
+
+**The `RunSpec` is sent on every stream.** Env, secrets, files and the token
+come from the runner's workspace config, not from events, so the runner sends
+them as the first message each time it opens `Run`. The driver keeps the
+latest one in memory and uses it for any run it starts on that stream. The
+spec arrives before any event, so the secrets are known before a run starts
+and before its log ships a byte. A workspace config change reaches the driver
+the next time the stream opens.
 
 **Driver storage.** The driver appends every received event to
 `/gritz/events.jsonl` and fsyncs before acting on it. Its position is the id of
@@ -401,6 +411,8 @@ message RunRequest {
     // The task's events, in (xid, id) order.
     TaskEvents events = 3;
     RunnerEventAck ack = 4;
+    // First message on every stream.
+    RunSpec spec = 5;
   }
 }
 
@@ -437,8 +449,9 @@ message RunEnded {
 }
 ```
 
-`RunRequest.version`/`spec`, `Accepted` and `Finished` are removed with the
-attach-or-start semantics. Where `RunSpec` goes is open.
+`RunRequest.version`, `Accepted` and `Finished` are removed with the
+attach-or-start semantics. `RunSpec` itself is unchanged; it moves into the
+`RunRequest` oneof as the stream's first message.
 
 ### API
 
@@ -623,7 +636,8 @@ on it. Runner events come back up the stream into the runner's
 5. **Docker h2c** — Delivers: unencrypted HTTP/2 on the Docker driver client.
    Depends on: nothing. Verifiable by: the existing Docker backend tests.
 6. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
-   `Run` with `Hello`, and the `TaskRunner` forwarding `Stream.Read` from the
+   `Run` with the `RunSpec` as its first message and `Hello`, and the
+   `TaskRunner` forwarding `Stream.Read` from the
    driver's position. Commands are still acted on as today. Depends on: (4), (5).
    Verifiable by: driverserver tests; a reconnect resends only what the file
    lacks.
@@ -654,8 +668,7 @@ on it. Runner events come back up the stream into the runner's
   instead of one.
 - **A sequence per runner.** A counter row per runner, incremented in each
   command write, so the runner can follow `seq > N`. Rejected: it needs a
-  `runners` table, serializes command writes per runner, and breaks when a task
-  is reassigned.
+  `runners` table and serializes command writes per runner.
 - **Gap detection on `events.id`** (Marten's high water mark). Rejected: a gap
   from a rollback and a gap from a slow transaction look the same, so it needs
   either a timeout, which can skip a slow commit, or inspection of running
@@ -674,27 +687,8 @@ on it. Runner events come back up the stream into the runner's
 
 ## Open Questions
 
-- **Where `RunSpec` goes.** Env, secrets, files and the token come from the
-  runner's workspace config, not from events. Secrets must reach the driver
-  before its log ships a byte. Options: the runner's first stream message,
-  attached to each forwarded start, or a separate unary call before `Run`.
-- **Bootstrapping an empty runner.** A new runner reading from `(0, 0)`
-  replicates the whole history of its tasks, archived ones included. The
-  alternative is to start the cursor at the current watermark and fill in each
-  task's history up to the cursor the first time `Log` sees the task. Either
-  way it stays inside `taskevents`: a task is reported on `Tasks()` only once
-  nothing earlier in its stream is missing.
-- **Compaction.** When can the runner drop a task's events? Never the newest
-  row overall, and never the row a reader of the task's stream last saw.
-  Archive is the natural trigger.
-- **Task reassignment.** `UpdateTask` can change `tasks.runner`. The new runner
-  replicates the task from the beginning; the old one needs an event telling it
-  to stop and drop the task.
 - **Reads on a standby.** Not checked how `pg_current_snapshot()` behaves on a
   hot standby; `ListRunnerEvents` may need to run on the primary.
-- **Upgrade.** A parked sandbox may hold a driver binary that speaks the old
-  `driver.v1`. Drain runners before upgrading, as #1827 does, or keep the old
-  `Run` until those sandboxes are gone.
 - **Live delivery to a running agent.** The driver now receives instructions
   while a run is active. Handing them to the agent mid-run (channels) is left
   to a follow-up.
