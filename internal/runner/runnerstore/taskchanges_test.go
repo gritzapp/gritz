@@ -71,9 +71,9 @@ func TestTaskChanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			changes := runnerstore.NewTaskChanges(tt.events)
+			got := runnerstore.TaskChanges(tt.events)
 
-			assert.DeepEqual(t, changes.Tasks(), tt.want)
+			assert.DeepEqual(t, got, tt.want)
 		})
 	}
 }
