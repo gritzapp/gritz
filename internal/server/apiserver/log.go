@@ -13,7 +13,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store"
-	"github.com/gritzapp/gritz/internal/x/pagination/v2"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 )
 
 // reportLogType is the legacy logs.type value the agent's report tool uploads.

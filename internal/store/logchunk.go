@@ -7,7 +7,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/sqlc"
-	"github.com/gritzapp/gritz/internal/x/pagination/v2"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 )
 
 // CreateLogChunk inserts a single log chunk and stamps it with its assigned ID
