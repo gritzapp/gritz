@@ -403,7 +403,11 @@ Connect bidi streams need HTTP/2. The driver server already accepts
 unencrypted HTTP/2 (`driverserver.ListenAndServe`). The Docker backend's
 client transport (`docker.sandbox.Dial`) is HTTP/1.1 and needs
 `Protocols.SetUnencryptedHTTP2(true)`. The Lambda MicroVM proxy supports bidi
-streams.
+streams, but forwards to the plaintext driver over HTTP/1.1 — on which
+connect-go rejects bidi with 505 — unless the request carries
+`X-aws-proxy-force-h2: true`. The backend's `tokenTransport` sets that header on
+every request rather than relying on an upstream h2c connection, once opened,
+carrying later requests.
 
 ### Proto
 
@@ -685,8 +689,10 @@ sends `RunEnded` up the stream when a run is over.
    cursor, `Tasks()` reports a
    new task once, reports archive and unarchive, skips archived tasks at
    boot, and `Read` blocks until an event after the position is stored.
-5. **Docker h2c** — Delivers: unencrypted HTTP/2 on the Docker driver client.
-   Depends on: nothing. Verifiable by: the existing Docker backend tests.
+5. **Driver HTTP/2** — Delivers: unencrypted HTTP/2 on the Docker driver
+   client, and `X-aws-proxy-force-h2: true` on every Lambda MicroVM driver
+   request. Depends on: nothing. Verifiable by: the existing Docker and Lambda
+   MicroVM backend tests.
 6. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
    `Run` with the `RunSpec` as its first message, `Hello`, `RunEnded` in
    place of `Finished`, and the
