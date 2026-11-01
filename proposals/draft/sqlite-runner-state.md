@@ -94,11 +94,14 @@ CREATE TABLE outbox (
 CREATE INDEX outbox_live ON outbox (seq) WHERE dead = 0;
 ```
 
-### taskstate
+### Task records
 
-`taskstate.Store` keeps its method set, so `TaskManager`, `TaskRunner` and the
-tests' `m.Store.Write/List` call sites do not change. Only construction changes:
-`Open(dir)` becomes `New(db)`.
+The `internal/runner/taskstate` package is deleted. Its record type and store
+move into `runnerstore` as `runnerstore.TaskRecord` and `runnerstore.TaskStore`,
+with the same fields and method set. Importers (`internal/command/runner.go`,
+`TaskManager`, `TaskRunner`, `testrunner` and the runner tests) switch from
+`taskstate.Record`/`*taskstate.Store` to `runnerstore.TaskRecord`/
+`*runnerstore.TaskStore`; the calls themselves do not change.
 
 | Method   | Query |
 |----------|-------|
@@ -107,9 +110,10 @@ tests' `m.Store.Write/List` call sites do not change. Only construction changes:
 | `Remove` | `DELETE FROM task_records WHERE task_id = ?` (still a no-op when absent) |
 | `List`   | `SELECT ... FROM task_records ORDER BY task_id` |
 
-The mutex, `path`, `parseRecordName` and the stray-file handling are removed.
-The package stays a leaf: it imports `database/sql` and no backend code. A
-failed `Write` still ends the runner through `TaskFatalEvent`
+The mutex, `path`, `parseRecordName` and the stray-file handling go away with
+the package. `runnerstore` keeps taskstate's leaf rule: it imports
+`database/sql`, the SQLite driver and `internal/x/outbox`, and no backend code.
+A failed `Write` still ends the runner through `TaskFatalEvent`
 (`taskrunner.go`); only the error source changes.
 
 ### outbox
@@ -141,16 +145,17 @@ Existing runners have JSON files on disk. For one release, `gritz runner` takes
 a hidden `--import-state-dir` flag, defaulting to the old `--state-dir` default
 (`/var/lib/gritz/tasks`). On startup, if that directory exists:
 
-1. Read every record with the current `taskstate` file code and every live and
-   dead outbox record with the current `outbox.FileStore` code.
+1. Decode every `<id>.json` task record and every live `<seq>.json` outbox
+   record. Both formats are a single JSON object, so `Import` reads them
+   directly and does not depend on the deleted `taskstate` package. Dead-lettered
+   outbox records are not imported; they remain in the renamed directory.
 2. Insert them into the database in one transaction, keeping outbox `seq`
    values so order is preserved.
 3. Rename the task directory to `tasks.imported` and the outbox directory to
    `outbox.imported`, so the import runs once and the files remain for a
    rollback.
 
-The release after that deletes the import, the flag and the file-backed
-`taskstate` code. `outbox.FileStore` stays.
+The release after that deletes `Import` and the flag.
 
 ### API
 
@@ -166,6 +171,34 @@ func Open(path string) (*sql.DB, error)
 // taskDir does not exist.
 func Import(db *sql.DB, taskDir, outboxDir string) error
 
+// TaskRecord is the persisted task→sandbox-handle mapping; Data is opaque
+// backend handle data that the store never decodes.
+type TaskRecord struct {
+	TaskID  int64
+	Version int64
+	Type    string
+	ID      string
+	Data    json.RawMessage
+}
+
+// TaskStore persists task records in the task_records table.
+type TaskStore struct{ ... }
+
+// NewTaskStore returns a TaskStore over db.
+func NewTaskStore(db *sql.DB) *TaskStore
+
+// Write inserts or replaces the record for rec.TaskID.
+func (s *TaskStore) Write(rec TaskRecord) error
+
+// Read returns the record for taskID; ok is false when there is none.
+func (s *TaskStore) Read(taskID int64) (rec TaskRecord, ok bool, err error)
+
+// Remove deletes the record for taskID; removing an absent record is not an error.
+func (s *TaskStore) Remove(taskID int64) error
+
+// List returns every record, ordered by task id.
+func (s *TaskStore) List() ([]TaskRecord, error)
+
 // OutboxStore is an outbox.Store backed by the outbox table.
 type OutboxStore struct{ ... }
 
@@ -174,14 +207,7 @@ func NewOutboxStore(db *sql.DB) *OutboxStore
 ```
 
 ```go
-package taskstate // github.com/gritzapp/gritz/internal/runner/taskstate
-
-// Open returns a Store backed by dir. // removed
-
-// New returns a Store backed by db's task_records table. // new
-func New(db *sql.DB) *Store
-
-// Write, Read, Remove and List keep their signatures. // unchanged
+package taskstate // github.com/gritzapp/gritz/internal/runner/taskstate (removed)
 ```
 
 ```go
@@ -195,7 +221,7 @@ type RunnerEventOutboxOptions struct {
 ```
 
 **How it fits:** `internal/command/runner.go` calls `runnerstore.Open` with
-`--state-db`, then `runnerstore.Import`, then builds `taskstate.New(db)` for
+`--state-db`, then `runnerstore.Import`, then builds `runnerstore.NewTaskStore(db)` for
 `TaskManagerOptions.Store` and `runnerstore.NewOutboxStore(db)` for
 `RunnerEventOutboxOptions.Store`, and closes the database on exit.
 `internal/runner/testrunner` opens a database in `t.TempDir()` the same way;
@@ -211,19 +237,20 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    `outbox.Store`. Depends on: (1). Verifiable by: tests mirroring the
    `FileStore` behaviour tests (FIFO order, dead-lettering, seq never reused,
    reopen keeps records) against `OutboxStore`.
-3. **SQL-backed taskstate** — Delivers: `taskstate.New(db)` with the queries
-   above, alongside `Open` for now. Depends on: (1). Verifiable by: the existing
-   `taskstate` tests ported to `New`.
+3. **runnerstore.TaskStore** — Delivers: `TaskRecord` and `TaskStore` with the
+   queries above. Depends on: (1). Verifiable by: the existing `taskstate` tests
+   ported to `TaskStore`.
 4. **Runner wire-up and import** — Delivers: `--state-db`,
-   `runnerstore.Import`, `--import-state-dir`, `RunnerEventOutboxOptions.StoreDir`
-   removed, `testrunner` on SQLite, `docker-compose.dev.yml` env updated.
+   `runnerstore.Import`, `--import-state-dir`, the runner and its tests moved to
+   `runnerstore.TaskRecord`/`TaskStore`, the `taskstate` package deleted,
+   `RunnerEventOutboxOptions.StoreDir` removed, `testrunner` on SQLite,
+   `docker-compose.dev.yml` env updated.
    Depends on: (2), (3). Verifiable by: runner tests pass; an import test that
    lays out legacy files, runs `Import`, and checks the rows and renamed
    directories; running the dev compose stack across a restart with a sandbox
    up.
-5. **Remove the file stores** (next release) — Delivers: deletion of
-   `taskstate.Open`, the file code in `taskstate`, `runnerstore.Import` and
-   `--import-state-dir`. Depends on: (4) having shipped in
+5. **Remove the import** (next release) — Delivers: deletion of
+   `runnerstore.Import` and `--import-state-dir`. Depends on: (4) having shipped in
    a release. Verifiable by: build and tests pass.
 
 ## Trade-offs
@@ -235,7 +262,7 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
 - **Server-side taskstate** (`proposals/draft/server-side-taskstate.md`) moves
   the task records to the server's Postgres for durability across a runner's
   disk. This proposal keeps the runner the owner of its own state on its own
-  disk. The two are alternatives for `taskstate`; if that proposal is accepted
+  disk. The two are alternatives for the task records; if that proposal is accepted
   later, the outbox half of this one still applies.
 - **ncruces/go-sqlite3 vs. modernc.org/sqlite vs. mattn/go-sqlite3.** mattn
   needs cgo, which complicates the cross-compiled prebuilt binaries. modernc is
