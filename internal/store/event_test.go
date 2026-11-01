@@ -248,17 +248,19 @@ func TestCreateEvent_XID(t *testing.T) {
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
 	task := teststore.CreateTask(t, s, org, nil)
-	newEvent := func() *model.Event {
-		return &model.Event{
-			TaskID:  task.ID,
-			OrgID:   org.OrgID,
-			Payload: &model.ReportPayload{Content: "report"},
-		}
-	}
 
 	// Act - two events in one transaction, then one in another.
 	var txXID uint64
-	first, second := newEvent(), newEvent()
+	first := &model.Event{
+		TaskID:  task.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "report"},
+	}
+	second := &model.Event{
+		TaskID:  task.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "report"},
+	}
 	err := s.WithTx(t.Context(), nil, func(tx *sql.Tx) error {
 		assert.NilError(t, s.CreateEvent(t.Context(), tx, first))
 		assert.NilError(t, s.CreateEvent(t.Context(), tx, second))
@@ -266,7 +268,11 @@ func TestCreateEvent_XID(t *testing.T) {
 		return tx.Commit()
 	})
 	assert.NilError(t, err)
-	third := newEvent()
+	third := &model.Event{
+		TaskID:  task.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "report"},
+	}
 	assert.NilError(t, s.CreateEvent(t.Context(), nil, third))
 
 	// Assert - rows carry the inserting transaction's xid, as returned on
