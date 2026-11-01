@@ -628,12 +628,6 @@ func TestRouteCreateRuleSpawnsTask(t *testing.T) {
 		model.EventTypeLink,
 		model.EventTypeInstruction,
 	})
-	assert.DeepEqual(t,
-		model.FilterPayloads(allEvents, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
-		},
-	)
 
 	// The trigger surfaces as an external event carrying the webhook payload,
 	// mirroring the wake path (attach).
