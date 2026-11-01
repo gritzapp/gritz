@@ -274,10 +274,6 @@ func (t *tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	req = req.Clone(req.Context())
 	req.Header.Set(awsmicrovm.ProxyAuthHeader, token)
-	// The proxy forwards to the plaintext driver over HTTP/1.1 unless asked
-	// for HTTP/2, and connect-go rejects bidi streams over HTTP/1.1 with 505.
-	// It is set on every request rather than relying on an upstream h2c
-	// connection, once opened, carrying later requests.
 	req.Header.Set(awsmicrovm.ProxyForceH2Header, "true")
 	return t.base.RoundTrip(req)
 }
