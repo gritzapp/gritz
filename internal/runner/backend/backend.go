@@ -6,8 +6,8 @@
 //
 // Backends do runtime work only — create, boot, park, destroy — over opaque
 // Handles. They never persist, discover, or reconcile task→sandbox
-// state: the runner owns the taskstate store and is the only writer. It
-// translates between a backend.Handle and a taskstate.Record at the boundary.
+// state: the runner owns the sandbox records in its runnerstore and is the
+// only writer.
 package backend
 
 //go:generate go tool moq -out backend_moq.go . Backend Sandbox

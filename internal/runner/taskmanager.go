@@ -24,7 +24,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
-	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/outbox"
 	"github.com/gritzapp/gritz/internal/x/safesem"
@@ -37,7 +36,6 @@ import (
 // concurrency limit, and keeps the registry of the tasks' TaskRunners.
 type TaskManager struct {
 	backend    backend.Backend
-	store      *taskstate.Store
 	client     gritzclient.Client
 	serverURL  string
 	workspaces *workspace.Config
@@ -48,8 +46,9 @@ type TaskManager struct {
 	// tasklog is the runner's replica of its tasks' event logs. Run runs it,
 	// and the followers read their tasks' streams from it.
 	tasklog *taskevents.Log
-	// replica is tasklog's store, where each follower keeps its position.
-	replica *runnerstore.Store
+	// store is tasklog's store, where each follower keeps its position, and
+	// holds the tasks' sandbox records.
+	store *runnerstore.Store
 	// released wakes the followers waiting to retry a command when a run
 	// releases its concurrency slot.
 	released wakeup.Broadcast
@@ -71,8 +70,8 @@ type TaskManager struct {
 	// task the runner has seen, from its first command (or its record, at
 	// Load) until retire drops it once the task is archived or deleted. A
 	// TaskRunner stays registered with no sandbox, before it creates one and
-	// after it destroys it or finds it gone. Only Load reads taskstate/, to
-	// rebuild the registry at boot.
+	// after it destroys it or finds it gone. Only Load reads the sandbox
+	// records, to rebuild the registry at boot.
 	mu    sync.Mutex
 	tasks map[int64]*TaskRunner
 
@@ -98,9 +97,6 @@ type TaskManagerOptions struct {
 	Client gritzclient.Client
 	// Backend is the sandbox runtime that hosts task drivers.
 	Backend backend.Backend
-	// Store is the runner-local source of truth for the task→sandbox-handle
-	// mapping. The runner is the only writer; backends never touch it.
-	Store *taskstate.Store
 	// ServerURL is the server URL injected into sandboxes so the driver and the
 	// injected gritz MCP server connect directly to the server. It is the runner's
 	// own configured --server value; the sandbox reaches the same server the runner
@@ -116,7 +112,9 @@ type TaskManagerOptions struct {
 	// TaskLog is the runner's replica of its tasks' event logs, which Run
 	// runs. Required.
 	TaskLog *taskevents.Log
-	// RunnerStore is TaskLog's store. Required.
+	// RunnerStore is TaskLog's store, and the runner-local source of truth
+	// for the task→sandbox-handle mapping: the runner is the only writer, and
+	// backends never touch it. Required.
 	RunnerStore *runnerstore.Store
 	// PollInterval is how often Run prunes, and the most a follower waits
 	// before it retries a command. Defaults to 30s.
@@ -128,8 +126,9 @@ type TaskManagerOptions struct {
 	// (durable-write failures fall back to the pre-existing behaviour).
 	Fatal context.CancelCauseFunc
 	// NewTaskRunner builds the TaskRunner of each task the manager registers.
-	// Its options carry the task's ID and the manager's Backend, Store, events
-	// channel and Log; it may fill in the rest. Defaults to NewTaskRunner.
+	// Its options carry the task's ID and the manager's Backend, RunnerStore,
+	// events channel and Log; it may fill in the rest. Defaults to
+	// NewTaskRunner.
 	NewTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 }
 
@@ -149,9 +148,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 	}
 	if opts.Backend == nil {
 		return nil, fmt.Errorf("backend is required")
-	}
-	if opts.Store == nil {
-		return nil, fmt.Errorf("store is required")
 	}
 	if opts.TaskLog == nil || opts.RunnerStore == nil {
 		return nil, fmt.Errorf("task log and runner store are required")
@@ -180,7 +176,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 
 	m := &TaskManager{
 		backend:       opts.Backend,
-		store:         opts.Store,
 		client:        opts.Client,
 		serverURL:     opts.ServerURL,
 		workspaces:    opts.Workspaces,
@@ -189,7 +184,7 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		log:           log,
 		queue:         opts.Queue,
 		tasklog:       opts.TaskLog,
-		replica:       opts.RunnerStore,
+		store:         opts.RunnerStore,
 		pollInterval:  cmp.Or(opts.PollInterval, defaultPollInterval),
 		fatal:         fatal,
 		events:        make(chan TaskEvent),
@@ -212,10 +207,10 @@ func (e FatalError) Unwrap() error { return e.err }
 
 // die terminates the runner by cancelling its root context with a
 // FatalError cause. It is the response to a durable local-store write
-// failure (outbox Enqueue or taskstate Write): those failures are non-transient
-// (ENOSPC/EIO/EROFS) and silently dropping a lifecycle event defeats the whole
-// point of the durable store, so the runner fails loud and lets its supervisor
-// restart and alert. Riding ctx cancellation instead of os.Exit preserves the
+// failure (outbox Enqueue or runnerstore WriteSandbox): those failures are
+// non-transient (ENOSPC/EIO/EROFS) and silently dropping a lifecycle event
+// defeats the whole point of the durable store, so the runner fails loud and
+// lets its supervisor restart and alert. Riding ctx cancellation instead of os.Exit preserves the
 // detach-don't-kill teardown — in-flight sandboxes stay alive and are re-adopted
 // by Load on the next boot. First cause wins (WithCancelCause is idempotent), so
 // the first failure is the one reported.
@@ -348,7 +343,7 @@ func (m *TaskManager) unfollow(taskID int64) {
 // goroutines they start must outlive the follower; fctx ends the follower.
 // A store error terminates the runner through die.
 func (m *TaskManager) follow(ctx, fctx context.Context, taskID int64) {
-	handled, err := m.replica.Handled(ctx, taskID)
+	handled, err := m.store.Handled(ctx, taskID)
 	if err != nil {
 		if ctx.Err() == nil {
 			m.die(err)
@@ -383,7 +378,7 @@ func (m *TaskManager) follow(ctx, fctx context.Context, taskID int64) {
 				continue
 			}
 		}
-		if err := m.replica.SetHandled(ctx, taskID, last); err != nil {
+		if err := m.store.SetHandled(ctx, taskID, last); err != nil {
 			if ctx.Err() == nil {
 				m.die(err)
 			}
@@ -628,23 +623,23 @@ func (m *TaskManager) startTask(ctx context.Context, c runnerstore.TaskChange) e
 }
 
 // Load rehydrates this runner's sandboxes at boot, before Run admits new work.
-// The statefile enumerates; Status answers liveness per record. An up sandbox
-// gets the same Run goroutine as the live path, which reattaches
+// The sandbox records enumerate; Status answers liveness per record. An up
+// sandbox gets the same Run goroutine as the live path, which reattaches
 // to the recorded run; a parked husk or a gone sandbox is a lost-report
 // backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
 // or destroy). The semaphore is seeded with the up count last, so it may exceed
 // capacity in over-limit scenarios — that's fine.
 //
 // Load rebuilds the task registry from the records it keeps: it is the only
-// reader of taskstate/. Each record is adopted by its task's TaskRunner through
-// TaskRunner.Restore, which claims the TaskRunner of an up sandbox for its Run.
+// reader of the sandbox records. Each record is adopted by its task's
+// TaskRunner through TaskRunner.Restore, which claims the TaskRunner of an up sandbox for its Run.
 // A record whose handle cannot be opened is dropped like a gone sandbox's,
 // leaving its TaskRunner with no sandbox.
 //
 // HandleEvents must already be running: the Run goroutines Load starts are
 // the first to send it events.
 func (m *TaskManager) Load(ctx context.Context) error {
-	recs, err := m.store.List()
+	recs, err := m.store.Sandboxes(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list records: %w", err)
 	}

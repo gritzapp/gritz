@@ -29,7 +29,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
-	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/outbox"
 	"gotest.tools/v3/assert"
@@ -47,17 +46,6 @@ const (
 
 // SleepForever is an agent config whose dummy agent runs until it is stopped.
 var SleepForever = &agent.Config{Type: agent.TypeDummy, Dummy: &agent.DummyOptions{Sleep: -1}}
-
-// NewStore opens a fresh taskstate store in a temp dir, seeded with recs.
-func NewStore(t *testing.T, recs ...taskstate.Record) *taskstate.Store {
-	t.Helper()
-	s, err := taskstate.Open(t.TempDir())
-	assert.NilError(t, err)
-	for _, rec := range recs {
-		assert.NilError(t, s.Write(rec))
-	}
-	return s
-}
 
 // BackendOptions configures NewBackend. Zero values are replaced with
 // sensible defaults.
@@ -227,13 +215,16 @@ func LifecycleEvent(id, taskID int64, kind gritzv1.LifecycleKind) *gritzv1.Event
 	}
 }
 
-// NewRunnerStore opens a fresh runnerstore in a temp dir, closed when the
-// test ends.
-func NewRunnerStore(t *testing.T) *runnerstore.Store {
+// NewRunnerStore opens a fresh runnerstore in a temp dir, seeded with the
+// sandbox records recs, and closed when the test ends.
+func NewRunnerStore(t *testing.T, recs ...runnerstore.SandboxRecord) *runnerstore.Store {
 	t.Helper()
 	s, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
 	assert.NilError(t, err)
 	t.Cleanup(func() { assert.NilError(t, s.Close()) })
+	for _, rec := range recs {
+		assert.NilError(t, s.WriteSandbox(t.Context(), rec))
+	}
 	return s
 }
 
@@ -242,13 +233,11 @@ func NewRunnerStore(t *testing.T) *runnerstore.Store {
 type ManagerOptions struct {
 	// Backend defaults to a NewBackend whose drivers never answer.
 	Backend *fake.Backend
-	// Store defaults to a NewStore with no records.
-	Store *taskstate.Store
 	// Server is the runner event log the manager replicates; defaults to an
 	// empty one.
 	Server *Server
-	// RunnerStore holds the manager's replica of Server; defaults to a
-	// NewRunnerStore.
+	// RunnerStore holds the manager's replica of Server and its sandbox
+	// records; defaults to a NewRunnerStore with no records.
 	RunnerStore *runnerstore.Store
 	// Workspaces defaults to a config with the Workspace workspace, whose
 	// agent is a dummy.
@@ -273,12 +262,11 @@ type ManagerOptions struct {
 type Manager struct {
 	*runner.TaskManager
 	Backend *fake.Backend
-	Store   *taskstate.Store
 	// Server is the runner event log the manager replicates once it runs; Add
 	// appends to it.
 	Server *Server
-	// RunnerStore holds the manager's replica of Server, and its followers'
-	// positions.
+	// RunnerStore holds the manager's replica of Server, its followers'
+	// positions, and its sandbox records.
 	RunnerStore *runnerstore.Store
 	// Client is the server. It serves Server's events, mints task tokens,
 	// accepts runner events, and reports every task completed.
@@ -297,15 +285,11 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	}
 	m := &Manager{
 		Backend:     opts.Backend,
-		Store:       opts.Store,
 		Server:      opts.Server,
 		RunnerStore: opts.RunnerStore,
 	}
 	if m.Backend == nil {
 		m.Backend = NewBackend(t, nil)
-	}
-	if m.Store == nil {
-		m.Store = NewStore(t)
 	}
 	if m.Server == nil {
 		m.Server = NewServer(ServerOptions{})
@@ -347,7 +331,6 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	m.TaskManager, err = runner.NewTaskManager(runner.TaskManagerOptions{
 		Client:      m.Client,
 		Backend:     m.Backend,
-		Store:       m.Store,
 		ServerURL:   opts.ServerURL,
 		Workspaces:  workspaces,
 		Concurrency: cmp.Or(opts.Concurrency, 1),
@@ -490,9 +473,9 @@ func Drain(t *testing.T, queue *outbox.Outbox[model.RunnerEvent]) {
 
 // AssertRecord asserts the task's record in store: *want, or none with want
 // nil.
-func AssertRecord(t *testing.T, store *taskstate.Store, taskID int64, want *taskstate.Record) {
+func AssertRecord(t *testing.T, store *runnerstore.Store, taskID int64, want *runnerstore.SandboxRecord) {
 	t.Helper()
-	rec, ok, err := store.Read(taskID)
+	rec, ok, err := store.Sandbox(t.Context(), taskID)
 	assert.NilError(t, err)
 	if want == nil {
 		assert.Assert(t, !ok, "task %d has a record", taskID)
@@ -504,16 +487,16 @@ func AssertRecord(t *testing.T, store *taskstate.Store, taskID int64, want *task
 
 // AssertRecord asserts the task's record in the manager's store, as the
 // package's AssertRecord does.
-func (m *Manager) AssertRecord(t *testing.T, taskID int64, want *taskstate.Record) {
+func (m *Manager) AssertRecord(t *testing.T, taskID int64, want *runnerstore.SandboxRecord) {
 	t.Helper()
-	AssertRecord(t, m.Store, taskID, want)
+	AssertRecord(t, m.RunnerStore, taskID, want)
 }
 
 // AssertTracked asserts the task's record, as AssertRecord does, and that
-// its TaskRunner holds sandbox want.ID, or, with want nil, no sandbox. It
+// its TaskRunner holds sandbox want.Handle.ID, or, with want nil, no sandbox. It
 // finds out by booting the TaskRunner at ProbeVersion, which changes its
 // state and the record, so it is the last thing a test does with the task.
-func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *taskstate.Record) {
+func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *runnerstore.SandboxRecord) {
 	t.Helper()
 	m.AssertRecord(t, taskID, want)
 	before := m.Backend.Snapshot()
@@ -525,12 +508,12 @@ func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *taskstate.Reco
 		assert.Equal(t, len(after.Specs), len(before.Specs)+1, "task %d's TaskRunner holds a sandbox", taskID)
 		return
 	}
-	// A TaskRunner holding want.ID boots it, and creates nothing.
+	// A TaskRunner holding want.Handle.ID boots it, and creates nothing.
 	assert.NilError(t, err)
 	assert.Equal(t, len(after.Specs), len(before.Specs), "task %d's TaskRunner held no sandbox", taskID)
-	was, _ := before.Sandbox(want.ID)
-	now, _ := after.Sandbox(want.ID)
-	assert.Equal(t, now.Boots, was.Boots+1, "task %d's TaskRunner does not hold %s", taskID, want.ID)
+	was, _ := before.Sandbox(want.Handle.ID)
+	now, _ := after.Sandbox(want.Handle.ID)
+	assert.Equal(t, now.Boots, was.Boots+1, "task %d's TaskRunner does not hold %s", taskID, want.Handle.ID)
 }
 
 // WaitRuns waits until the runner has made at least n Run calls on sandbox

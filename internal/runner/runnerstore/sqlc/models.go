@@ -20,6 +20,14 @@ type Replication struct {
 	Cursor string
 }
 
+type Sandbox struct {
+	TaskID  int64
+	Version int64
+	Type    string
+	ID      string
+	Data    []byte
+}
+
 type Task struct {
 	ID        int64
 	Command   sql.NullInt64
