@@ -81,12 +81,6 @@ var RunnerCommand = &cli.Command{
 			Sources: cli.EnvVars("GRITZ_BACKEND"),
 		},
 		&cli.StringFlag{
-			Name:    "state-dir",
-			Usage:   "Unused; to be removed",
-			Value:   "/var/lib/gritz/tasks",
-			Sources: cli.EnvVars("GRITZ_STATE_DIR"),
-		},
-		&cli.StringFlag{
 			Name:    "state-db",
 			Usage:   "SQLite database holding the runner's state",
 			Value:   "/var/lib/gritz/runner.db",
