@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
+	"gotest.tools/v3/poll"
 )
 
 // New creates a *store.Store connected to the test database.
@@ -162,4 +163,25 @@ func CreateOrg(t *testing.T, s *store.Store, opts *OrgOptions) *Org {
 		}
 	}
 	return result
+}
+
+// WaitRunnerEvents pages the runner's event log from token until n events have
+// passed the xid watermark (parallel tests' open transactions hold it back
+// briefly), and returns them with the token after the last one.
+func WaitRunnerEvents(t *testing.T, s *store.Store, org *Org, runner, token string, n int) ([]*model.Event, string) {
+	t.Helper()
+	var got []*model.Event
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: runner, PageToken: token})
+		if err != nil {
+			return poll.Error(err)
+		}
+		got = append(got, page.Items...)
+		token = page.PrevToken
+		if len(got) < n {
+			return poll.Continue("got %d of %d events", len(got), n)
+		}
+		return poll.Success()
+	}, poll.WithTimeout(10*time.Second), poll.WithDelay(20*time.Millisecond))
+	return got, token
 }
