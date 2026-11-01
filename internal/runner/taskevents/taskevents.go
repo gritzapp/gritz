@@ -163,6 +163,12 @@ type Stream struct {
 	taskID int64
 }
 
+// Stored returns the events after the event with id after (0 for the start)
+// that are stored now, which may be none, without blocking.
+func (s *Stream) Stored(ctx context.Context, after int64) ([]*gritzv1.Event, error) {
+	return s.log.store.TaskEventsAfter(ctx, s.taskID, after)
+}
+
 // Read returns the task's events after the event with id after (0 for the
 // start), blocking until there is at least one or ctx ends.
 func (s *Stream) Read(ctx context.Context, after int64) ([]*gritzv1.Event, error) {

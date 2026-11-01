@@ -30,7 +30,7 @@ GRITZ is an async agent orchestrator using a central control plane architecture 
 
 - **Server** (`internal/server/`) - Connect RPC API + Web UI, stores tasks and logs in PostgreSQL
 - **Runner** (`internal/runner/`) - Polls for pending tasks and manages task sandboxes through a backend (`internal/runner/backend/`: `docker`, `lambdamicrovm`)
-- **Driver** (`internal/runner/driverserver/`, `gritz driver`) - Long-lived driver server inside each sandbox; the runner starts and stops runs over the driver.v1 Connect API
+- **Driver** (`internal/runner/driverserver/`, `gritz driver`) - Long-lived driver server inside each sandbox; the runner forwards the task's events over the driver.v1 `Run` stream, and the driver starts, restarts and stops runs from the commands among them
 - **Agent** (`internal/runner/agent/`) - Agent CLI integrations the driver runs for each run (Claude Code, Codex, Cursor, Copilot, ...)
 - **Store** (`internal/store/`) - PostgreSQL persistence layer using pgx driver
 

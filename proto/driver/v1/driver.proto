@@ -9,28 +9,20 @@ option go_package = "github.com/gritzapp/gritz/internal/proto/driver/v1;driverv1
 // DriverService is served by `gritz driver` inside the sandbox and
 // called by the runner. Runs execute in-process, one at a time.
 service DriverService {
-  // Run is the runner's connection to the driver for one run. The runner
-  // sends a RunRequest with the version to start or attach to first, the
-  // driver answers Hello, and the runner sends the task's events after the
-  // driver's position as TaskEvents. The driver stores them in its event file.
+  // Run is the runner's connection to the driver for one busy period. The
+  // runner sends a first message, with the RunSpec to start runs with, and
+  // the driver answers Hello. The runner then sends the task's events after
+  // the driver's position as TaskEvents: first one batch, possibly empty,
+  // with every event it has, then new ones as they are replicated. The driver
+  // stores them in its event file and acts on the latest command among them:
+  // it starts, restarts and stops runs itself, running consecutive versions
+  // on the same stream. Once it has the first batch, it sends Idle and ends
+  // the stream when no run is in progress and no newer start or restart is
+  // pending.
   //
-  // The first message is attach-or-start, keyed on its version:
-  //   another Run stream already open      -> Unavailable (retry)
-  //   record.version > version             -> FailedPrecondition (stale)
-  //   record.version == version            -> attach, spec ignored
-  //   no record / older version, idle      -> start the run (spec required,
-  //                                           NotFound without one)
-  //   another version running              -> Aborted (busy)
-  // At most one Run stream is open at a time. The stream ends after the run's
-  // Idle has been sent. A dropped or closed stream detaches and nothing else:
-  // the run keeps going.
+  // At most one Run stream is open at a time; another is Unavailable. A
+  // dropped or closed stream detaches and nothing else: the run keeps going.
   rpc Run(stream RunRequest) returns (stream RunResponse);
-
-  // Stop gracefully stops the run with the given version: cancel the run
-  // context with ErrStop (agents and setup commands SIGTERM their process
-  // groups); the run reports its terminal event and sends Idle as usual.
-  // A no-op if that version is not the active run.
-  rpc Stop(StopRequest) returns (StopResponse);
 }
 
 // RunSpec carries everything the driver reads from its flags and its
@@ -67,14 +59,13 @@ message File {
 }
 
 message RunRequest {
-  reserved 2;
-  // The run to start or attach to. Set on the first message only.
-  int64 version = 1;
+  reserved 1, 2;
   oneof msg {
     // The task's events, in log order. Never on the first message.
     TaskEvents events = 3;
-    // Starts run version if the driver has none. Only on the first message;
-    // omitted to attach.
+    // The spec the driver starts runs with, until a later stream brings
+    // another. Only on the first message; omitted, the driver keeps the one
+    // it has.
     RunSpec spec = 5;
   }
 }
@@ -88,8 +79,8 @@ message RunResponse {
     KeepAlive keep_alive = 3;
     // First message on every stream.
     Hello hello = 7;
-    // Last message of a stream: the run has ended. Sent after its terminal
-    // runner event.
+    // Last message of a stream: no run is in progress and no newer start or
+    // restart is pending. Sent after the last run's terminal runner event.
     Idle idle = 8;
   }
 }
@@ -99,9 +90,10 @@ message Hello {
   int64 last_event_id = 1;
 }
 
-// Idle is the last message of a Run stream: the run it opened has ended.
+// Idle is the last message of a Run stream: the driver's run has ended and
+// no newer start or restart is pending in its event file.
 message Idle {
-  // Version of the run.
+  // Version of the last run; 0 if the driver has never run one.
   int64 version = 1;
   // Whether the driver's SubmitRunnerEvents call for the run's terminal event
   // succeeded. False makes the runner report the run failed.
@@ -109,12 +101,3 @@ message Idle {
 }
 
 message KeepAlive {}
-
-message StopRequest {
-  int64 version = 1;
-}
-
-message StopResponse {
-  // True if a running run with this version was stopped.
-  bool stopped = 1;
-}

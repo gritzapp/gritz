@@ -19,9 +19,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
 )
 
-// ErrShutdown is returned by Executor.Start once Shutdown has been called.
-var ErrShutdown = errors.New("driver is shutting down")
-
 // ExecutorOptions configures an Executor. Every field takes its default when
 // zero.
 type ExecutorOptions struct {
@@ -46,7 +43,9 @@ type ExecutorOptions struct {
 }
 
 // Executor owns the agent process: at most one run at a time, and the run
-// record. It lives as long as the driver process, across Run streams.
+// record. It lives as long as the driver process, across Run streams. It
+// decides nothing: the driver loop tells it which run to start and when to
+// stop it.
 type Executor struct {
 	recordPath string
 	logPath    string
@@ -68,6 +67,8 @@ type Executor struct {
 	hasRec bool
 	// cancel cancels the current run; nil before the first run.
 	cancel context.CancelCauseFunc
+	// stopping is set once the current run has been cancelled.
+	stopping bool
 	// done is closed once the current run has finished and its record is
 	// written. It starts closed.
 	done chan struct{}
@@ -122,9 +123,11 @@ func (e *Executor) Done() <-chan struct{} {
 	return e.done
 }
 
-// Start provisions the spec's files, writes the run record and starts run
-// version in the background. It returns ErrShutdown once Shutdown has been
-// called. It must not be called while a run is in progress.
+// Start writes the run record and starts run version in the background,
+// which provisions the spec's files first. The record is written before
+// anything else, so a run that fails to provision is still a run of version:
+// it finishes unreported. Start must not be called while a run is in
+// progress, or once Shutdown has been called.
 func (e *Executor) Start(version int64, spec *driverv1.RunSpec) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -132,10 +135,7 @@ func (e *Executor) Start(version int64, spec *driverv1.RunSpec) error {
 		panic("driverserver: Executor.Start called while a run is in progress")
 	}
 	if e.closed {
-		return ErrShutdown
-	}
-	if err := e.provision(spec.GetFiles()); err != nil {
-		return err
+		panic("driverserver: Executor.Start called after Shutdown")
 	}
 	rec := runrecord.Record{Version: version, State: runrecord.Running}
 	if err := runrecord.Write(e.recordPath, rec); err != nil {
@@ -145,7 +145,7 @@ func (e *Executor) Start(version int64, spec *driverv1.RunSpec) error {
 	// Only Stop and Shutdown cancel a run; no request's context reaches it.
 	ctx, cancel := context.WithCancelCause(context.Background())
 	done := make(chan struct{})
-	e.cancel, e.done = cancel, done
+	e.cancel, e.done, e.stopping = cancel, done, false
 	e.runs.Go(func() {
 		defer cancel(nil)
 		e.execute(ctx, version, spec, done)
@@ -204,8 +204,34 @@ func writeFile(path string, f *driverv1.File) error {
 	return os.Chmod(path, mode)
 }
 
-// execute runs the driver for spec, then records the outcome and closes done.
+// execute provisions spec's files and runs the driver for spec, then records
+// the outcome and closes done.
 func (e *Executor) execute(ctx context.Context, version int64, spec *driverv1.RunSpec, done chan struct{}) {
+	err := e.provision(spec.GetFiles())
+	if err == nil {
+		err = e.runAgent(ctx, spec)
+	}
+	if err != nil {
+		e.log.Error("run not reported", "version", version, "err", err)
+	}
+	rec := runrecord.Record{
+		Version:    version,
+		State:      runrecord.Finished,
+		FinishedAt: time.Now(),
+		Reported:   err == nil,
+	}
+	if err := runrecord.Write(e.recordPath, rec); err != nil {
+		e.log.Error("failed to write run record", "version", version, "err", err)
+	}
+	e.mu.Lock()
+	e.rec = rec
+	close(done)
+	e.mu.Unlock()
+}
+
+// runAgent runs the driver for spec, and returns an error if it did not
+// report the run's terminal event.
+func (e *Executor) runAgent(ctx context.Context, spec *driverv1.RunSpec) error {
 	client := e.newClient(spec.GetServerUrl(), spec.GetToken())
 
 	// Built before anything touches the server, so the mask is in place before
@@ -228,50 +254,35 @@ func (e *Executor) execute(ctx context.Context, version int64, spec *driverv1.Ru
 		Env:       Env(e.environ, spec),
 	}
 	err := driver.Run(ctx)
-	if err != nil {
-		e.log.Error("run not reported", "version", version, "err", err)
-	}
 	_ = log.Close()
 	stopShipper()
-
-	rec := runrecord.Record{
-		Version:    version,
-		State:      runrecord.Finished,
-		FinishedAt: time.Now(),
-		Reported:   err == nil,
-	}
-	if err := runrecord.Write(e.recordPath, rec); err != nil {
-		e.log.Error("failed to write run record", "version", version, "err", err)
-	}
-	e.mu.Lock()
-	e.rec = rec
-	close(done)
-	e.mu.Unlock()
+	return err
 }
 
-// Stop cancels run version with agent.ErrStop, if it is in progress, and
-// reports whether it did. It does not wait for the run to finish.
-func (e *Executor) Stop(version int64) bool {
+// Stop cancels the run in progress, if any, with agent.ErrStop. It does not
+// wait for the run to finish; Done does.
+func (e *Executor) Stop() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.stop(version)
+	e.stop()
 }
 
 // stop is Stop with e.mu held.
-func (e *Executor) stop(version int64) bool {
-	if !e.hasRec || e.rec.State != runrecord.Running || e.rec.Version != version {
-		return false
+func (e *Executor) stop() {
+	if !e.hasRec || e.rec.State != runrecord.Running || e.stopping {
+		return
 	}
+	e.log.Info("stopping run", "version", e.rec.Version)
+	e.stopping = true
 	e.cancel(agent.ErrStop)
-	return true
 }
 
 // Shutdown stops the current run, if any, and waits for it to finish and
-// report, or for ctx to expire. No run starts after Shutdown is called.
+// report, or for ctx to expire. No run may start after Shutdown is called.
 func (e *Executor) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 	e.closed = true
-	e.stop(e.rec.Version)
+	e.stop()
 	e.mu.Unlock()
 	done := make(chan struct{})
 	go func() {

@@ -3,6 +3,7 @@ package fake_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -404,7 +405,7 @@ func TestSandboxDial_NoDriver(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 
 	// Assert - the call fails as for a driver that is not listening.
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
@@ -427,8 +428,8 @@ func TestSandboxDial_Driver(t *testing.T) {
 	second := mustDial(t, sb)
 
 	// Act
-	_, err1 := first.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
-	_, err2 := second.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err1 := call(t.Context(), first)
+	err2 := call(t.Context(), second)
 
 	// Assert - both clients reach the driver Dial gave for each.
 	assert.NilError(t, err1)
@@ -453,7 +454,7 @@ func TestSandboxDial_DriverPerSandbox(t *testing.T) {
 	mustDial(t, mustOpen(t, be, be.Add("b", fake.Up)))
 
 	// Act
-	_, err := a.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err := call(t.Context(), a)
 
 	// Assert - only a's driver was called.
 	assert.NilError(t, err)
@@ -466,10 +467,6 @@ func TestSandboxDial_DriverPerSandbox(t *testing.T) {
 func TestSandboxDial_NotUp(t *testing.T) {
 	t.Parallel()
 	calls := map[string]func(ctx context.Context, client driverv1connect.DriverServiceClient) error{
-		"stop": func(ctx context.Context, client driverv1connect.DriverServiceClient) error {
-			_, err := client.Stop(ctx, &driverv1.StopRequest{Version: 1})
-			return err
-		},
 		"run": func(ctx context.Context, client driverv1connect.DriverServiceClient) error {
 			_, err := client.Run(ctx)
 			return err
@@ -502,14 +499,14 @@ func TestSandboxDial_Booted(t *testing.T) {
 	be := newDriverBackend(t, drv.dial)
 	sb := mustOpen(t, be, be.Add("c1", fake.Suspended))
 	client := mustDial(t, sb)
-	_, err := client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err := call(t.Context(), client)
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 
 	// Act
 	assert.NilError(t, sb.Boot(t.Context()))
 
 	// Assert - the same client now reaches the driver.
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 	assert.NilError(t, err)
 }
 
@@ -520,7 +517,7 @@ func TestSandboxDial_NilClient(t *testing.T) {
 	client := mustDial(t, mustOpen(t, be, be.Add("c1", fake.Up)))
 
 	// Act
-	_, err := client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err := call(t.Context(), client)
 
 	// Assert - the sandbox's driver never answers.
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
@@ -552,7 +549,7 @@ func TestSandboxDial_LeaveUp(t *testing.T) {
 			// Assert
 			_, err := stream.Receive()
 			assert.Equal(t, connect.CodeOf(err), connect.CodeCanceled)
-			_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+			err = call(t.Context(), client)
 			assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 		})
 	}
@@ -577,9 +574,9 @@ func TestBackendSetDriverReady(t *testing.T) {
 	// sandbox is still up.
 	_, err := stream.Receive()
 	assert.Equal(t, connect.CodeOf(err), connect.CodeCanceled)
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 	_, err = client.Run(t.Context())
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
@@ -592,7 +589,7 @@ func TestBackendSetDriverReady(t *testing.T) {
 	be.SetDriverReady("c1", true)
 
 	// Assert - the driver answers again.
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 	assert.NilError(t, err)
 }
 
@@ -610,8 +607,8 @@ func TestBackendDriverNotReady(t *testing.T) {
 	assert.NilError(t, created.Boot(t.Context()))
 
 	// Act
-	_, errAdded := mustDial(t, added).Stop(t.Context(), &driverv1.StopRequest{Version: 1})
-	_, errCreated := mustDial(t, created).Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	errAdded := call(t.Context(), mustDial(t, added))
+	errCreated := call(t.Context(), mustDial(t, created))
 
 	// Assert
 	assert.Equal(t, connect.CodeOf(errAdded), connect.CodeUnavailable)
@@ -622,7 +619,7 @@ func TestBackendDriverNotReady(t *testing.T) {
 	be.SetDriverReady(created.Handle().ID, true)
 
 	// Assert
-	_, err = mustDial(t, created).Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), mustDial(t, created))
 	assert.NilError(t, err)
 }
 
@@ -655,11 +652,11 @@ func TestBackendDrop(t *testing.T) {
 	_, err := stream.Receive()
 	assert.Equal(t, connect.CodeOf(err), connect.CodeCanceled)
 	assert.DeepEqual(t, be.Snapshot(), want)
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 	assert.NilError(t, err)
 	openRun(t, client)
 	got, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, got.Runs, 2)
+	assert.Equal(t, got.Runs, 3)
 }
 
 func TestBackendDrop_Panics(t *testing.T) {
@@ -688,7 +685,7 @@ func TestBackendClose(t *testing.T) {
 	// Assert - the stream is cut, and the driver no longer answers.
 	_, err := stream.Receive()
 	assert.Equal(t, connect.CodeOf(err), connect.CodeCanceled)
-	_, err = client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
+	err = call(t.Context(), client)
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
 	got, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, got.State, fake.Up)
@@ -1102,8 +1099,7 @@ func TestBackendFailNext_Panics(t *testing.T) {
 	}
 }
 
-// stubDriver is a driver.v1 server that answers Stop, and whose Run sends
-// Hello and then holds the stream open until the client goes away. It counts
+// stubDriver is a driver.v1 server whose Run sends Hello and then holds the stream open until the client goes away. It counts
 // the calls it gets.
 type stubDriver struct {
 	driverv1connect.UnimplementedDriverServiceHandler
@@ -1140,10 +1136,6 @@ func (d *stubDriver) dial(backend.Handle) driverv1connect.DriverServiceClient {
 	return d.client
 }
 
-func (d *stubDriver) Stop(context.Context, *driverv1.StopRequest) (*driverv1.StopResponse, error) {
-	return &driverv1.StopResponse{}, nil
-}
-
 func (d *stubDriver) Run(ctx context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
 	if _, err := stream.Receive(); err != nil {
 		return err
@@ -1156,6 +1148,21 @@ func (d *stubDriver) Run(ctx context.Context, stream *connect.BidiStream[driverv
 	}
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+// call makes one call to the driver behind client: it opens a Run stream,
+// reads the driver's Hello and closes the stream.
+func call(ctx context.Context, client driverv1connect.DriverServiceClient) error {
+	stream, err := client.Run(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stream.CloseResponse() }()
+	if err := stream.Send(&driverv1.RunRequest{}); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	_, err = stream.Receive()
+	return err
 }
 
 // calls returns how many calls d got.
@@ -1187,7 +1194,7 @@ func openRun(t *testing.T, client driverv1connect.DriverServiceClient) *connect.
 	stream, err := client.Run(t.Context())
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = stream.CloseResponse() })
-	assert.NilError(t, stream.Send(&driverv1.RunRequest{Version: 1}))
+	assert.NilError(t, stream.Send(&driverv1.RunRequest{}))
 	msg, err := stream.Receive()
 	assert.NilError(t, err)
 	assert.Assert(t, msg.GetHello() != nil)

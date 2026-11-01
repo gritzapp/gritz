@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -169,8 +170,8 @@ func TestSandbox_Status(t *testing.T) {
 	assertStatus(t, open("nonexistent-container-id"), backend.StatusGone)
 }
 
-// A sandbox's methods are safe for concurrent use, as the runner's supervisor,
-// Kill and idle timer make them; run with -race.
+// A sandbox's methods are safe for concurrent use, as the runner's goroutines
+// make them; run with -race.
 func TestSandbox_Concurrent(t *testing.T) {
 	be := newTestBackend(t)
 	sb := create(t, be)
@@ -195,24 +196,28 @@ func TestSandbox_Concurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// reach opens a Run stream on client for a run the driver doesn't have, which
-// proves the driver answers a bidi stream over the transport: it rejects the
-// run with NotFound. It returns any other outcome as an error.
+// reach opens a Run stream on client, which proves the driver answers a bidi
+// stream over the transport: it answers Hello, or, while a concurrent reach
+// holds the driver's one stream, refuses this one. It returns any other
+// outcome as an error.
 func reach(ctx context.Context, client driverv1connect.DriverServiceClient) error {
 	stream, err := client.Run(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = stream.CloseResponse() }()
-	if err := stream.Send(&driverv1.RunRequest{Version: 1}); err != nil && !errors.Is(err, io.EOF) {
+	if err := stream.Send(&driverv1.RunRequest{}); err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	msg, err := stream.Receive()
-	if connect.CodeOf(err) == connect.CodeNotFound {
+	if connect.CodeOf(err) == connect.CodeUnavailable && strings.Contains(err.Error(), "another Run stream is open") {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("unexpected run response: %v", msg)
+	if msg.GetHello() == nil {
+		return fmt.Errorf("unexpected run response: %v", msg)
+	}
+	return nil
 }

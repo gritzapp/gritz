@@ -20,22 +20,14 @@ const testIdle = 100 * time.Millisecond
 // runStream is the driver's end of a Run stream.
 type runStream = connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]
 
-// testDriver is a driver server whose Run and Stop are supplied by the test.
+// testDriver is a driver server whose Run is supplied by the test.
 type testDriver struct {
 	driverv1connect.UnimplementedDriverServiceHandler
-	run  func(ctx context.Context, stream *runStream) error
-	stop func(ctx context.Context) error
+	run func(ctx context.Context, stream *runStream) error
 }
 
 func (d *testDriver) Run(ctx context.Context, stream *runStream) error {
 	return d.run(ctx, stream)
-}
-
-func (d *testDriver) Stop(ctx context.Context, _ *driverv1.StopRequest) (*driverv1.StopResponse, error) {
-	if err := d.stop(ctx); err != nil {
-		return nil, err
-	}
-	return &driverv1.StopResponse{}, nil
 }
 
 // setup serves d over HTTP/2, which bidi streams need, and returns a client
@@ -71,7 +63,7 @@ func open(t *testing.T, client driverv1connect.DriverServiceClient) *connect.Bid
 	stream, err := client.Run(t.Context())
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = stream.CloseResponse() })
-	assert.NilError(t, stream.Send(&driverv1.RunRequest{Version: 1}))
+	assert.NilError(t, stream.Send(&driverv1.RunRequest{}))
 	return stream
 }
 
@@ -160,16 +152,4 @@ func TestRun_LiveStreamKept(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(msgs), 2)
 	assert.Assert(t, msgs[1].GetIdle() != nil, "got %v, want idle", msgs[1])
-}
-
-func TestStop_NotWatched(t *testing.T) {
-	t.Parallel()
-	client := setup(t, &testDriver{stop: func(context.Context) error {
-		time.Sleep(2 * testIdle)
-		return nil
-	}})
-
-	_, err := client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
-
-	assert.NilError(t, err)
 }

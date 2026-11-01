@@ -30,6 +30,13 @@ func events(ids ...int64) []*gritzv1.Event {
 	return out
 }
 
+// mustAppend appends events to f, failing the test on an error.
+func mustAppend(t *testing.T, f *File, events []*gritzv1.Event) {
+	t.Helper()
+	_, err := f.Append(events)
+	assert.NilError(t, err)
+}
+
 func open(t *testing.T, path string) *File {
 	t.Helper()
 	f, err := Open(path)
@@ -63,8 +70,8 @@ func TestAppend(t *testing.T) {
 	f := open(t, filepath.Join(t.TempDir(), "events.jsonl"))
 
 	// Act - two batches, in log order, which is not id order
-	assert.NilError(t, f.Append(events(5, 3)))
-	assert.NilError(t, f.Append(events(8)))
+	mustAppend(t, f, events(5, 3))
+	mustAppend(t, f, events(8))
 
 	// Assert - stored in the order they were appended
 	assert.Equal(t, f.LastID(), int64(8))
@@ -75,13 +82,17 @@ func TestAppend_SkipsStored(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	f := open(t, filepath.Join(t.TempDir(), "events.jsonl"))
-	assert.NilError(t, f.Append(events(5, 3)))
+	mustAppend(t, f, events(5, 3))
 
 	// Act - a batch resending stored events, and one twice
-	assert.NilError(t, f.Append(events(3, 5, 9, 9)))
-	assert.NilError(t, f.Append(events(9)))
+	stored, err := f.Append(events(3, 5, 9, 9))
+	assert.NilError(t, err)
+	again, err := f.Append(events(9))
+	assert.NilError(t, err)
 
-	// Assert
+	// Assert - only what the file lacked was stored, and returned
+	assert.DeepEqual(t, stored, events(9), protocmp.Transform())
+	assert.Equal(t, len(again), 0)
 	assert.Equal(t, f.LastID(), int64(9))
 	assertAfter(t, f, 0, events(5, 3, 9))
 }
@@ -90,7 +101,7 @@ func TestOpen_Reopen(t *testing.T) {
 	t.Parallel()
 	// Arrange - a file a previous process wrote
 	path := filepath.Join(t.TempDir(), "events.jsonl")
-	assert.NilError(t, open(t, path).Append(events(5, 3)))
+	mustAppend(t, open(t, path), events(5, 3))
 
 	// Act
 	f := open(t, path)
@@ -98,7 +109,7 @@ func TestOpen_Reopen(t *testing.T) {
 	// Assert - the events and the position survive, and stored events are
 	// still skipped
 	assert.Equal(t, f.LastID(), int64(3))
-	assert.NilError(t, f.Append(events(5, 7)))
+	mustAppend(t, f, events(5, 7))
 	assertAfter(t, f, 0, events(5, 3, 7))
 }
 
@@ -106,7 +117,7 @@ func TestOpen_TornLine(t *testing.T) {
 	t.Parallel()
 	// Arrange - a crash mid-append left part of a line
 	path := filepath.Join(t.TempDir(), "events.jsonl")
-	assert.NilError(t, open(t, path).Append(events(5)))
+	mustAppend(t, open(t, path), events(5))
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 	assert.NilError(t, err)
 	_, err = file.WriteString(`{"id":"6","taskId"`)
@@ -118,7 +129,7 @@ func TestOpen_TornLine(t *testing.T) {
 
 	// Assert - the torn line is dropped, and appending goes on after it
 	assert.Equal(t, f.LastID(), int64(5))
-	assert.NilError(t, f.Append(events(6)))
+	mustAppend(t, f, events(6))
 	assertAfter(t, f, 0, events(5, 6))
 }
 
@@ -138,7 +149,7 @@ func TestOpen_Corrupt(t *testing.T) {
 func TestAfter(t *testing.T) {
 	t.Parallel()
 	f := open(t, filepath.Join(t.TempDir(), "events.jsonl"))
-	assert.NilError(t, f.Append(events(5, 3, 8)))
+	mustAppend(t, f, events(5, 3, 8))
 	tests := []struct {
 		name string
 		id   int64

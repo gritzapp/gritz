@@ -193,8 +193,6 @@ func (x *File) GetDir() bool {
 
 type RunRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The run to start or attach to. Set on the first message only.
-	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
 	// Types that are valid to be assigned to Msg:
 	//
 	//	*RunRequest_Events
@@ -234,13 +232,6 @@ func (*RunRequest) Descriptor() ([]byte, []int) {
 	return file_driver_v1_driver_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *RunRequest) GetVersion() int64 {
-	if x != nil {
-		return x.Version
-	}
-	return 0
-}
-
 func (x *RunRequest) GetMsg() isRunRequest_Msg {
 	if x != nil {
 		return x.Msg
@@ -276,8 +267,9 @@ type RunRequest_Events struct {
 }
 
 type RunRequest_Spec struct {
-	// Starts run version if the driver has none. Only on the first message;
-	// omitted to attach.
+	// The spec the driver starts runs with, until a later stream brings
+	// another. Only on the first message; omitted, the driver keeps the one
+	// it has.
 	Spec *RunSpec `protobuf:"bytes,5,opt,name=spec,proto3,oneof"`
 }
 
@@ -419,8 +411,8 @@ type RunResponse_Hello struct {
 }
 
 type RunResponse_Idle struct {
-	// Last message of a stream: the run has ended. Sent after its terminal
-	// runner event.
+	// Last message of a stream: no run is in progress and no newer start or
+	// restart is pending. Sent after the last run's terminal runner event.
 	Idle *Idle `protobuf:"bytes,8,opt,name=idle,proto3,oneof"`
 }
 
@@ -475,10 +467,11 @@ func (x *Hello) GetLastEventId() int64 {
 	return 0
 }
 
-// Idle is the last message of a Run stream: the run it opened has ended.
+// Idle is the last message of a Run stream: the driver's run has ended and
+// no newer start or restart is pending in its event file.
 type Idle struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Version of the run.
+	// Version of the last run; 0 if the driver has never run one.
 	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
 	// Whether the driver's SubmitRunnerEvents call for the run's terminal event
 	// succeeded. False makes the runner report the run failed.
@@ -567,95 +560,6 @@ func (*KeepAlive) Descriptor() ([]byte, []int) {
 	return file_driver_v1_driver_proto_rawDescGZIP(), []int{7}
 }
 
-type StopRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       int64                  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StopRequest) Reset() {
-	*x = StopRequest{}
-	mi := &file_driver_v1_driver_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StopRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StopRequest) ProtoMessage() {}
-
-func (x *StopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
-func (*StopRequest) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *StopRequest) GetVersion() int64 {
-	if x != nil {
-		return x.Version
-	}
-	return 0
-}
-
-type StopResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// True if a running run with this version was stopped.
-	Stopped       bool `protobuf:"varint,1,opt,name=stopped,proto3" json:"stopped,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *StopResponse) Reset() {
-	*x = StopResponse{}
-	mi := &file_driver_v1_driver_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StopResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StopResponse) ProtoMessage() {}
-
-func (x *StopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_driver_v1_driver_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
-func (*StopResponse) Descriptor() ([]byte, []int) {
-	return file_driver_v1_driver_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *StopResponse) GetStopped() bool {
-	if x != nil {
-		return x.Stopped
-	}
-	return false
-}
-
 var File_driver_v1_driver_proto protoreflect.FileDescriptor
 
 const file_driver_v1_driver_proto_rawDesc = "" +
@@ -680,13 +584,12 @@ const file_driver_v1_driver_proto_rawDesc = "" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x12\n" +
 	"\x04mode\x18\x03 \x01(\x03R\x04mode\x12\x10\n" +
-	"\x03dir\x18\x04 \x01(\bR\x03dir\"\x8e\x01\n" +
+	"\x03dir\x18\x04 \x01(\bR\x03dir\"z\n" +
 	"\n" +
-	"RunRequest\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x03R\aversion\x12/\n" +
+	"RunRequest\x12/\n" +
 	"\x06events\x18\x03 \x01(\v2\x15.driver.v1.TaskEventsH\x00R\x06events\x12(\n" +
 	"\x04spec\x18\x05 \x01(\v2\x12.driver.v1.RunSpecH\x00R\x04specB\x05\n" +
-	"\x03msgJ\x04\b\x02\x10\x03\"5\n" +
+	"\x03msgJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"5\n" +
 	"\n" +
 	"TaskEvents\x12'\n" +
 	"\x06events\x18\x01 \x03(\v2\x0f.gritz.v1.EventR\x06events\"\x9c\x01\n" +
@@ -701,14 +604,9 @@ const file_driver_v1_driver_proto_rawDesc = "" +
 	"\x04Idle\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x1a\n" +
 	"\breported\x18\x02 \x01(\bR\breported\"\v\n" +
-	"\tKeepAlive\"'\n" +
-	"\vStopRequest\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x03R\aversion\"(\n" +
-	"\fStopResponse\x12\x18\n" +
-	"\astopped\x18\x01 \x01(\bR\astopped2\x82\x01\n" +
+	"\tKeepAlive2I\n" +
 	"\rDriverService\x128\n" +
-	"\x03Run\x12\x15.driver.v1.RunRequest\x1a\x16.driver.v1.RunResponse(\x010\x01\x127\n" +
-	"\x04Stop\x12\x16.driver.v1.StopRequest\x1a\x17.driver.v1.StopResponseB=Z;github.com/gritzapp/gritz/internal/proto/driver/v1;driverv1b\x06proto3"
+	"\x03Run\x12\x15.driver.v1.RunRequest\x1a\x16.driver.v1.RunResponse(\x010\x01B=Z;github.com/gritzapp/gritz/internal/proto/driver/v1;driverv1b\x06proto3"
 
 var (
 	file_driver_v1_driver_proto_rawDescOnce sync.Once
@@ -722,38 +620,34 @@ func file_driver_v1_driver_proto_rawDescGZIP() []byte {
 	return file_driver_v1_driver_proto_rawDescData
 }
 
-var file_driver_v1_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_driver_v1_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_driver_v1_driver_proto_goTypes = []any{
-	(*RunSpec)(nil),      // 0: driver.v1.RunSpec
-	(*File)(nil),         // 1: driver.v1.File
-	(*RunRequest)(nil),   // 2: driver.v1.RunRequest
-	(*TaskEvents)(nil),   // 3: driver.v1.TaskEvents
-	(*RunResponse)(nil),  // 4: driver.v1.RunResponse
-	(*Hello)(nil),        // 5: driver.v1.Hello
-	(*Idle)(nil),         // 6: driver.v1.Idle
-	(*KeepAlive)(nil),    // 7: driver.v1.KeepAlive
-	(*StopRequest)(nil),  // 8: driver.v1.StopRequest
-	(*StopResponse)(nil), // 9: driver.v1.StopResponse
-	nil,                  // 10: driver.v1.RunSpec.EnvEntry
-	nil,                  // 11: driver.v1.RunSpec.SecretsEntry
-	(*v1.Event)(nil),     // 12: gritz.v1.Event
+	(*RunSpec)(nil),     // 0: driver.v1.RunSpec
+	(*File)(nil),        // 1: driver.v1.File
+	(*RunRequest)(nil),  // 2: driver.v1.RunRequest
+	(*TaskEvents)(nil),  // 3: driver.v1.TaskEvents
+	(*RunResponse)(nil), // 4: driver.v1.RunResponse
+	(*Hello)(nil),       // 5: driver.v1.Hello
+	(*Idle)(nil),        // 6: driver.v1.Idle
+	(*KeepAlive)(nil),   // 7: driver.v1.KeepAlive
+	nil,                 // 8: driver.v1.RunSpec.EnvEntry
+	nil,                 // 9: driver.v1.RunSpec.SecretsEntry
+	(*v1.Event)(nil),    // 10: gritz.v1.Event
 }
 var file_driver_v1_driver_proto_depIdxs = []int32{
-	10, // 0: driver.v1.RunSpec.env:type_name -> driver.v1.RunSpec.EnvEntry
-	11, // 1: driver.v1.RunSpec.secrets:type_name -> driver.v1.RunSpec.SecretsEntry
+	8,  // 0: driver.v1.RunSpec.env:type_name -> driver.v1.RunSpec.EnvEntry
+	9,  // 1: driver.v1.RunSpec.secrets:type_name -> driver.v1.RunSpec.SecretsEntry
 	1,  // 2: driver.v1.RunSpec.files:type_name -> driver.v1.File
 	3,  // 3: driver.v1.RunRequest.events:type_name -> driver.v1.TaskEvents
 	0,  // 4: driver.v1.RunRequest.spec:type_name -> driver.v1.RunSpec
-	12, // 5: driver.v1.TaskEvents.events:type_name -> gritz.v1.Event
+	10, // 5: driver.v1.TaskEvents.events:type_name -> gritz.v1.Event
 	7,  // 6: driver.v1.RunResponse.keep_alive:type_name -> driver.v1.KeepAlive
 	5,  // 7: driver.v1.RunResponse.hello:type_name -> driver.v1.Hello
 	6,  // 8: driver.v1.RunResponse.idle:type_name -> driver.v1.Idle
 	2,  // 9: driver.v1.DriverService.Run:input_type -> driver.v1.RunRequest
-	8,  // 10: driver.v1.DriverService.Stop:input_type -> driver.v1.StopRequest
-	4,  // 11: driver.v1.DriverService.Run:output_type -> driver.v1.RunResponse
-	9,  // 12: driver.v1.DriverService.Stop:output_type -> driver.v1.StopResponse
-	11, // [11:13] is the sub-list for method output_type
-	9,  // [9:11] is the sub-list for method input_type
+	4,  // 10: driver.v1.DriverService.Run:output_type -> driver.v1.RunResponse
+	10, // [10:11] is the sub-list for method output_type
+	9,  // [9:10] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -779,7 +673,7 @@ func file_driver_v1_driver_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_driver_v1_driver_proto_rawDesc), len(file_driver_v1_driver_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
