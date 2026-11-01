@@ -234,3 +234,104 @@ func TestListTasksPage_DefaultTokenWireCompatible(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, !strings.Contains(string(raw), `"a"`), "default token must not carry the archived field: %s", raw)
 }
+
+func TestUpdateTask_CommandEvents(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		task   model.Task
+		update func(*model.Task) bool
+		want   []model.EventPayload
+	}{
+		{
+			name: "start",
+			task: model.Task{Status: model.TaskStatusCompleted, Version: 1},
+			update: func(task *model.Task) bool {
+				return task.Start()
+			},
+			want: []model.EventPayload{
+				&model.CommandPayload{Command: model.TaskCommandStart, Version: 2, Runner: "r"},
+			},
+		},
+		{
+			name: "restart",
+			task: model.Task{Status: model.TaskStatusFailed, Version: 1},
+			update: func(task *model.Task) bool {
+				return task.Restart()
+			},
+			want: []model.EventPayload{
+				&model.CommandPayload{Command: model.TaskCommandRestart, Version: 2, Runner: "r"},
+			},
+		},
+		{
+			name: "cancel pending",
+			task: model.Task{Status: model.TaskStatusPending, Command: model.TaskCommandStart, Version: 1},
+			update: func(task *model.Task) bool {
+				return task.Cancel()
+			},
+			want: []model.EventPayload{
+				&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r"},
+				&model.CommandPayload{Command: model.TaskCommandNone, Version: 1, Runner: "r"},
+			},
+		},
+		{
+			name: "wake",
+			task: model.Task{Status: model.TaskStatusRunning, Version: 1},
+			update: func(task *model.Task) bool {
+				return task.Start()
+			},
+			want: []model.EventPayload{
+				&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r"},
+			},
+		},
+		{
+			name: "server-issued stop",
+			task: model.Task{Status: model.TaskStatusCancelled, Version: 1},
+			update: func(task *model.Task) bool {
+				return task.ApplyRunnerEvent(&model.RunnerEvent{Event: model.RunnerEventStarted, Version: 1})
+			},
+			want: []model.EventPayload{
+				&model.CommandPayload{Command: model.TaskCommandStop, Version: 1, Runner: "r"},
+			},
+		},
+		{
+			name: "clear",
+			task: model.Task{Status: model.TaskStatusPending, Command: model.TaskCommandStart, Version: 1},
+			update: func(task *model.Task) bool {
+				return task.ApplyRunnerEvent(&model.RunnerEvent{Event: model.RunnerEventStarted, Version: 1})
+			},
+			want: []model.EventPayload{
+				&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r"},
+				&model.CommandPayload{Command: model.TaskCommandNone, Version: 1, Runner: "r"},
+			},
+		},
+		{
+			name: "unchanged",
+			task: model.Task{Status: model.TaskStatusCompleted, Version: 1},
+			update: func(task *model.Task) bool {
+				task.Name = "renamed"
+				return true
+			},
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			task := tt.task
+			task.Runner = "r"
+			task.Workspace = "w"
+			task.OrgID = org.OrgID
+			assert.NilError(t, s.CreateTask(t.Context(), nil, &task))
+
+			assert.Assert(t, tt.update(&task))
+			assert.NilError(t, s.UpdateTask(t.Context(), nil, &task))
+
+			events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
+			assert.NilError(t, err)
+			assert.DeepEqual(t, model.FilterPayloads(events, model.EventTypeCommand), tt.want)
+		})
+	}
+}

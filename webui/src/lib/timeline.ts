@@ -162,7 +162,8 @@ function lifecycleCategory(p: LifecyclePayload): LifecycleCategory {
 
 // eventsToTimeline projects the task's event stream into timeline items. Events
 // arrive in chronological stream order (ORDER BY id), which is preserved. Every
-// arm of the `payload` oneof is handled; an event with no arm set is skipped.
+// arm of the `payload` oneof is handled; command events and an event with no
+// arm set are skipped.
 export function eventsToTimeline(events: Event[]): TimelineItem[] {
   const items: TimelineItem[] = []
   for (const e of events) {
@@ -227,6 +228,9 @@ export function eventsToTimeline(events: Event[]): TimelineItem[] {
         })
         break
       }
+      // Command events drive the runner; they are not history.
+      case 'command':
+        break
     }
   }
   return items

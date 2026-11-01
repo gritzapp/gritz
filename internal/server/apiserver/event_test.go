@@ -376,14 +376,14 @@ func TestListEventsByTask_Paged(t *testing.T) {
 
 func TestListEventsByTask_More(t *testing.T) {
 	t.Parallel()
-	// Arrange - createTestTask seeds one lifecycle CREATED event; add 5 externals
-	// for 6 total, an exact multiple of page size 2 so the oldest page is full
-	// (the exact-page_size boundary).
+	// Arrange - createTestTask seeds a start command event and a lifecycle
+	// CREATED event; add 4 externals for 6 total, an exact multiple of page size
+	// 2 so the oldest page is full (the exact-page_size boundary).
 	srv := New(Options{Store: teststore.New(t)})
 	org := orgWithWorkspace(t, srv)
 	ctx := createCtx(t, org)
 	taskID := createTestTask(t, srv, ctx)
-	for i := range 5 {
+	for i := range 4 {
 		assert.NilError(t, srv.store.CreateEvent(ctx, nil, &model.Event{
 			TaskID:  taskID,
 			OrgID:   org.OrgID,

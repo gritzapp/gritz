@@ -354,10 +354,12 @@ func (q *Queries) ListTasksPage(ctx context.Context, arg ListTasksPageParams) ([
 	return items, nil
 }
 
-const updateTask = `-- name: UpdateTask :exec
+const updateTask = `-- name: UpdateTask :one
 UPDATE tasks
 SET name = $1, runner = $2, workspace = $3, status = $4, command = $5, version = $6, updated_at = $7, archived = $8, auto_archive = $9, shell_session = $10
-WHERE id = $11 AND org_id = $12
+FROM (SELECT t.id, t.command FROM tasks t WHERE t.id = $11 AND t.org_id = $12 FOR UPDATE) AS prev
+WHERE tasks.id = prev.id
+RETURNING prev.command AS prev_command
 `
 
 type UpdateTaskParams struct {
@@ -375,8 +377,10 @@ type UpdateTaskParams struct {
 	OrgID        int64     `json:"org_id"`
 }
 
-func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) error {
-	_, err := q.db.ExecContext(ctx, updateTask,
+// Returns the command stored before the update, so the store can tell whether
+// the command changed.
+func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (int32, error) {
+	row := q.db.QueryRowContext(ctx, updateTask,
 		arg.Name,
 		arg.Runner,
 		arg.Workspace,
@@ -390,5 +394,7 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) error {
 		arg.ID,
 		arg.OrgID,
 	)
-	return err
+	var prev_command int32
+	err := row.Scan(&prev_command)
+	return prev_command, err
 }
