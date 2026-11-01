@@ -1,5 +1,6 @@
 // Package taskevents replicates the runner's event log from the server into
-// its runnerstore and exposes each task's events as a stream. See
+// its runnerstore and exposes each task's events as a stream and its latest
+// state as a watch. See
 // proposals/draft/runner-event-replica.md.
 package taskevents
 
@@ -7,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
@@ -47,6 +49,11 @@ type Log struct {
 
 	// stored wakes every blocked Read when a page is stored.
 	stored wakeup.Broadcast
+
+	// mu guards watches, each task's latest state; Task adds a task's watch
+	// on first use.
+	mu      sync.Mutex
+	watches map[int64]*TaskWatch
 }
 
 // New returns a Log that replicates the runner's tasks from the server into
@@ -60,10 +67,12 @@ func New(opts Options) *Log {
 		log:      cmp.Or(opts.Log, slog.Default()),
 		wake:     wakeup.New(),
 		tasks:    make(chan runnerstore.TaskChange),
+		watches:  map[int64]*TaskWatch{},
 	}
 }
 
-// Run reports every stored unarchived task on Tasks(), then replicates until
+// Run fills the watches of every stored unarchived task and reports each on
+// Tasks(), then replicates until
 // ctx ends: it syncs with the server, then waits for a Wake or the poll
 // interval, and repeats. A failed fetch is logged and retried at the next
 // sync; a store error ends Run.
@@ -71,6 +80,9 @@ func (l *Log) Run(ctx context.Context) error {
 	tasks, err := l.store.UnarchivedTasks(ctx)
 	if err != nil {
 		return err
+	}
+	for _, t := range tasks {
+		l.Task(t.ID).set(t)
 	}
 	for _, t := range tasks {
 		if err := l.report(ctx, t); err != nil {
@@ -94,7 +106,8 @@ func (l *Log) Run(ctx context.Context) error {
 	}
 }
 
-// sync stores every page the server has after the stored cursor. It returns
+// sync stores every page the server has after the stored cursor, and updates
+// the watches of the tasks each page changes. It returns
 // only store and ctx errors; a failed fetch is logged and ends the sync.
 func (l *Log) sync(ctx context.Context) error {
 	cursor, err := l.store.EventReplicationCursor(ctx)
@@ -117,6 +130,9 @@ func (l *Log) sync(ctx context.Context) error {
 			return err
 		}
 		l.stored.Wake()
+		for _, c := range changes {
+			l.Task(c.ID).set(c)
+		}
 		for _, c := range changes {
 			if err := l.report(ctx, c); err != nil {
 				return err
@@ -149,6 +165,51 @@ func (l *Log) Wake() {
 // received.
 func (l *Log) Tasks() <-chan runnerstore.TaskChange {
 	return l.tasks
+}
+
+// Task returns the watch for one task's latest state.
+func (l *Log) Task(id int64) *TaskWatch {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	w := l.watches[id]
+	if w == nil {
+		w = &TaskWatch{}
+		l.watches[id] = w
+	}
+	return w
+}
+
+// TaskWatch is one task's latest state as the replica knows it.
+type TaskWatch struct {
+	// mu guards latest, the task's latest change, and ok, whether there has
+	// been one.
+	mu     sync.Mutex
+	latest runnerstore.TaskChange
+	ok     bool
+	// changed wakes the task's readers when set stores a change.
+	changed wakeup.Broadcast
+}
+
+// Latest returns the task's latest TaskChange; ok is false before its first
+// report.
+func (w *TaskWatch) Latest() (c runnerstore.TaskChange, ok bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.latest, w.ok
+}
+
+// Changed returns a channel closed by the task's next change. Take it before
+// calling Latest, so a change in between is not missed.
+func (w *TaskWatch) Changed() <-chan struct{} {
+	return w.changed.Wait()
+}
+
+// set stores c as the task's latest change and wakes its readers.
+func (w *TaskWatch) set(c runnerstore.TaskChange) {
+	w.mu.Lock()
+	w.latest, w.ok = c, true
+	w.mu.Unlock()
+	w.changed.Wake()
 }
 
 // Stream returns the task's event stream.

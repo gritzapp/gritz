@@ -187,7 +187,7 @@ func TestLog_Boot(t *testing.T) {
 	reports := []runnerstore.TaskChange{<-l.Tasks(), <-l.Tasks()}
 
 	// Assert - the unarchived tasks are reported in id order, archived 20 is
-	// skipped.
+	// skipped; their watches hold the same state, and 20's has none.
 	assert.DeepEqual(t,
 		reports,
 		[]runnerstore.TaskChange{
@@ -195,6 +195,13 @@ func TestLog_Boot(t *testing.T) {
 			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 2, CommandEventID: 3},
 		},
 	)
+	for _, want := range reports {
+		got, ok := l.Task(want.ID).Latest()
+		assert.Assert(t, ok)
+		assert.DeepEqual(t, got, want)
+	}
+	_, ok := l.Task(20).Latest()
+	assert.Assert(t, !ok)
 }
 
 func TestLog_Tasks(t *testing.T) {
@@ -229,6 +236,73 @@ func TestLog_Tasks(t *testing.T) {
 			{ID: 10, Command: gritzv1.TaskCommand_STOP, Version: 2, CommandEventID: 5},
 		},
 	)
+}
+
+func TestTaskWatch_Latest(t *testing.T) {
+	t.Parallel()
+	// Arrange - a page with task 10's command and an instruction.
+	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 10})
+	srv.Add(
+		&gritzv1.Event{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+		&gritzv1.Event{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
+	)
+	l := taskevents.New(taskevents.Options{
+		Store:    openStore(t, filepath.Join(t.TempDir(), "runner.db")),
+		Client:   srv.Client(),
+		RunnerID: "runner-1",
+	})
+	w := l.Task(10)
+	_, before := w.Latest()
+
+	// Act - run until the page is reported.
+	run(t, l)
+	<-l.Tasks()
+	after, ok := w.Latest()
+
+	// Assert - nothing before the page, its command after it.
+	assert.Assert(t, !before)
+	assert.Assert(t, ok)
+	assert.DeepEqual(t, after, runnerstore.TaskChange{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, CommandEventID: 1})
+}
+
+func TestTaskWatch_Changed(t *testing.T) {
+	t.Parallel()
+	// Arrange - tasks 10 and 20 are replicated.
+	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 10})
+	srv.Add(
+		&gritzv1.Event{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+		&gritzv1.Event{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+	)
+	l := taskevents.New(taskevents.Options{
+		Store:    openStore(t, filepath.Join(t.TempDir(), "runner.db")),
+		Client:   srv.Client(),
+		RunnerID: "runner-1",
+	})
+	run(t, l)
+	<-l.Tasks()
+	<-l.Tasks()
+	changed10 := l.Task(10).Changed()
+	changed20 := l.Task(20).Changed()
+
+	// Act - a page with a command for task 10 only.
+	srv.Add(&gritzv1.Event{Id: 3, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2}}})
+	l.Wake()
+	<-l.Tasks()
+
+	// Assert - task 10's channel is closed, task 20's is not.
+	select {
+	case <-changed10:
+	default:
+		t.Fatal("task 10's Changed is not closed")
+	}
+	select {
+	case <-changed20:
+		t.Fatal("task 20's Changed is closed")
+	default:
+	}
+	got, ok := l.Task(10).Latest()
+	assert.Assert(t, ok)
+	assert.DeepEqual(t, got, runnerstore.TaskChange{ID: 10, Command: gritzv1.TaskCommand_STOP, Version: 2, CommandEventID: 3})
 }
 
 func TestStreamRead_Blocks(t *testing.T) {

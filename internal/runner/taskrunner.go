@@ -19,8 +19,8 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/x/common"
-	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
 // TaskRunner is the runner's state for a task: its sandbox, the task's
@@ -52,15 +52,6 @@ type TaskRunner struct {
 	// see wait.
 	runs sync.WaitGroup
 
-	// changeMu guards change, the task's latest report, and hasChange,
-	// whether there has been one. It is apart from mu, which a command holds
-	// while it boots the sandbox, so Set never waits for one.
-	changeMu  sync.Mutex
-	change    runnerstore.TaskChange
-	hasChange bool
-	// changed wakes Follow when Set stores a report.
-	changed wakeup.Chan
-
 	// stopFollow stops the Follow goroutine follow started, and followDone is
 	// closed once it has returned; both are nil while there is none. Only the
 	// manager's Run goroutine uses them.
@@ -85,6 +76,9 @@ type TaskRunnerOptions struct {
 	// Queue is the outbox the commands' runner events are reported to.
 	// Required to Follow.
 	Queue *RunnerEventOutbox
+	// Watch is the task's latest state in the event log, whose commands
+	// Follow acts on. Required to Follow.
+	Watch *taskevents.TaskWatch
 	// Spec builds the sandbox spec of the task's run c, and the driver.v1
 	// RunSpec its run is started with. Required to Follow or Start.
 	Spec func(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error)
@@ -140,7 +134,7 @@ func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 	opts.LostTimeout = cmp.Or(opts.LostTimeout, defaultLostTimeout)
 	opts.ReadyTimeout = cmp.Or(opts.ReadyTimeout, defaultReadyTimeout)
 	opts.PollInterval = cmp.Or(opts.PollInterval, defaultPollInterval)
-	return &TaskRunner{opts: opts, changed: wakeup.New()}
+	return &TaskRunner{opts: opts}
 }
 
 // TaskEvent is something a TaskRunner reports to its manager, on the
@@ -409,24 +403,9 @@ func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// Set stores c as the task's latest report, replacing the one before it, and
-// wakes Follow.
-func (tr *TaskRunner) Set(c runnerstore.TaskChange) {
-	tr.changeMu.Lock()
-	tr.change, tr.hasChange = c, true
-	tr.changeMu.Unlock()
-	tr.changed.Wake()
-}
-
-// latest returns the task's latest report, and false if there has been none.
-func (tr *TaskRunner) latest() (runnerstore.TaskChange, bool) {
-	tr.changeMu.Lock()
-	defer tr.changeMu.Unlock()
-	return tr.change, tr.hasChange
-}
-
 // follow runs Follow on its own goroutine, on the runner's root context ctx,
-// unless it already runs. The manager calls it when it hands tr a report.
+// unless it already runs. The manager calls it for each report of the
+// unarchived task.
 func (tr *TaskRunner) follow(ctx context.Context) {
 	if tr.followDone != nil {
 		return
@@ -452,15 +431,15 @@ func (tr *TaskRunner) unfollow() {
 }
 
 // Follow is the task's follower. It acts on the command of the task's latest
-// report, which Set stores: commands are a desired state, so the latest
-// supersedes the ones before it, and a report that repeats a command already
-// handled does nothing. Once the command is carried out, it stores the
-// command's event id as handled and waits for the next report.
+// change, which it watches in the event log: commands are a desired state, so
+// the latest supersedes the ones before it, and a change that repeats a
+// command already handled does nothing. Once the command is carried out, it stores the
+// command's event id as handled and waits for the next change.
 //
 // A command that isn't carried out, because its handler failed or there was
 // no concurrency slot for it, leaves handled where it was. The follower tries
-// again once a run releases its slot, the task has a new report, or a backoff
-// ends, acting on the latest report each time, so a newer command takes the
+// again once a run releases its slot, the task has a new change, or a backoff
+// ends, acting on the latest change each time, so a newer command takes the
 // place of the one that waited.
 //
 // Commands are carried out on ctx, the runner's root context, as the Run
@@ -477,13 +456,15 @@ func (tr *TaskRunner) Follow(ctx, fctx context.Context) {
 	}
 	retry := doubling(min(time.Second, opts.PollInterval), opts.PollInterval)
 	for {
-		// Take the signal before handling, so a slot released while the
-		// handler runs still wakes the retry.
+		// Take the signals before reading and handling, so a change stored
+		// meanwhile, or a slot released while the handler runs, still wakes
+		// the follower.
 		released := opts.Slots.Released()
-		c, ok := tr.latest()
+		changed := opts.Watch.Changed()
+		c, ok := opts.Watch.Latest()
 		if !ok || c.CommandEventID <= handled {
 			select {
-			case <-tr.changed:
+			case <-changed:
 				continue
 			case <-fctx.Done():
 				return
@@ -495,7 +476,7 @@ func (tr *TaskRunner) Follow(ctx, fctx context.Context) {
 			} else {
 				opts.Log.Error("failed to handle command", "task", taskID, "command", c.Command, "version", c.Version, "err", err)
 			}
-			if !tr.await(fctx, released, retry.NextBackOff()) {
+			if !await(fctx, released, changed, retry.NextBackOff()) {
 				return
 			}
 			continue
@@ -511,15 +492,15 @@ func (tr *TaskRunner) Follow(ctx, fctx context.Context) {
 	}
 }
 
-// await waits for a reason to try a command again: released firing, a new
-// report for the task, or the backoff d running out. It reports false if ctx
-// ended first.
-func (tr *TaskRunner) await(ctx context.Context, released <-chan struct{}, d time.Duration) bool {
+// await waits for a reason to try a command again: released firing, changed
+// firing on a new change to the task, or the backoff d running out. It
+// reports false if ctx ended first.
+func await(ctx context.Context, released, changed <-chan struct{}, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-released:
-	case <-tr.changed:
+	case <-changed:
 	case <-timer.C:
 	case <-ctx.Done():
 	}

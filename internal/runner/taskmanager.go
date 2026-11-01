@@ -26,9 +26,10 @@ import (
 )
 
 // TaskManager orchestrates the runner's tasks: it replicates their event log,
-// hands each unarchived task's reports to its TaskRunner, whose follower acts
-// on the task's commands, builds the specs their sandboxes are created and run
-// with, and keeps the registry of the tasks' TaskRunners.
+// has each unarchived task's TaskRunner follow it, acting on the task's
+// commands as the log's watch of the task changes, builds the specs their
+// sandboxes are created and run with, and keeps the registry of the tasks'
+// TaskRunners.
 type TaskManager struct {
 	backend    backend.Backend
 	client     gritzclient.Client
@@ -40,7 +41,7 @@ type TaskManager struct {
 	log   *slog.Logger
 	queue *RunnerEventOutbox
 	// tasklog is the runner's replica of its tasks' event logs. Run runs it,
-	// and feeds its task reports to the TaskRunners.
+	// and the TaskRunners' followers watch their tasks' latest state in it.
 	tasklog *taskevents.Log
 	// store is tasklog's store, where each follower keeps its position, and
 	// holds the tasks' sandbox records.
@@ -268,17 +269,15 @@ func (m *TaskManager) Run(ctx context.Context) error {
 }
 
 // apply applies one of the event log's task reports: an archived task is
-// retired, and an unarchived one is handed to its TaskRunner, which starts
-// following the task if it isn't yet. Reports may repeat a task's state, and
+// retired, and an unarchived one has its TaskRunner follow it, which watches
+// the task's latest state in the log. Reports may repeat a task's state, and
 // applying one twice changes nothing.
 func (m *TaskManager) apply(ctx context.Context, c runnerstore.TaskChange) {
 	if c.Archived {
 		m.retire(ctx, c.ID)
 		return
 	}
-	tr := m.Runner(c.ID)
-	tr.Set(c)
-	tr.follow(ctx)
+	m.Runner(c.ID).follow(ctx)
 }
 
 // Wait blocks until every Run goroutine the TaskRunners started has returned,
@@ -414,6 +413,7 @@ func (m *TaskManager) Runner(taskID int64) *TaskRunner {
 			Events:       m.events,
 			Slots:        m.slots,
 			Queue:        m.queue,
+			Watch:        m.tasklog.Task(taskID),
 			Spec:         m.specs,
 			PollInterval: m.pollInterval,
 			Log:          m.log,
