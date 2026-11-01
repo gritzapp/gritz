@@ -15,7 +15,11 @@ func TestCreateKey(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
@@ -35,7 +39,11 @@ func TestCreateKeyStoresAdminScopes(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
@@ -55,7 +63,11 @@ func TestCreateAndListKeys(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
 		Name: "key-1",
 	})
@@ -78,7 +90,11 @@ func TestDeleteKey(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
 		Name: "to-delete",
 	})
@@ -101,9 +117,17 @@ func TestListKeys_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateKey(ctxA, &gritzv1.CreateKeyRequest{
 		Name: "user-a-key",
 	})
@@ -131,9 +155,17 @@ func TestDeleteKey_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateKey(ctxA, &gritzv1.CreateKeyRequest{
 		Name: "user-a-key",
 	})

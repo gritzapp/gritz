@@ -15,7 +15,11 @@ func TestCreateOrg(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{
@@ -33,7 +37,11 @@ func TestListOrgs(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "org-1"})
 	assert.NilError(t, err)
 	_, err = srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "org-2"})
@@ -53,7 +61,11 @@ func TestDeleteOrg(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "to-delete"})
 	assert.NilError(t, err)
 
@@ -72,9 +84,17 @@ func TestDeleteOrg_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateOrg(ctxA, &gritzv1.CreateOrgRequest{Name: "user-a-org"})
 	assert.NilError(t, err)
 
@@ -90,7 +110,11 @@ func TestDeleteOrg_DefaultOrg(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	_, err := srv.DeleteOrg(ctx, &gritzv1.DeleteOrgRequest{Id: org.OrgID})
@@ -104,9 +128,17 @@ func TestAddAndListOrgMembers(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	ownerOrg := teststore.CreateOrg(t, srv.store, nil)
-	owner := createCtx(t, ownerOrg)
+	owner := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     ownerOrg.UserID,
+		OrgID:  ownerOrg.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	memberOrg := teststore.CreateOrg(t, srv.store, nil)
-	member := createCtx(t, memberOrg)
+	member := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     memberOrg.UserID,
+		OrgID:  memberOrg.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	memberEmail := apiauth.Caller(member).ID + "@test.com"
 
 	// Act
@@ -127,7 +159,11 @@ func TestDeleteOrg_WithTasks(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	createResp, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "has-tasks"})
 	assert.NilError(t, err)
 	orgCtx := apiauth.WithUser(ctx, &apiauth.UserInfo{
@@ -165,7 +201,11 @@ func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	err := srv.store.SetOrgGitHubInstallation(ctx, nil, org.OrgID, 12345)
 	assert.NilError(t, err)
 
@@ -182,7 +222,11 @@ func TestGetOrgSettings_NoGitHubInstallation(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Act
 	resp, err := srv.GetOrgSettings(ctx, &gritzv1.GetOrgSettingsRequest{})
@@ -197,9 +241,17 @@ func TestRemoveOrgMember(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	ownerOrg := teststore.CreateOrg(t, srv.store, nil)
-	owner := createCtx(t, ownerOrg)
+	owner := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     ownerOrg.UserID,
+		OrgID:  ownerOrg.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	memberOrg := teststore.CreateOrg(t, srv.store, nil)
-	memberUser := apiauth.Caller(createCtx(t, memberOrg))
+	memberUser := apiauth.Caller(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     memberOrg.UserID,
+		OrgID:  memberOrg.OrgID,
+		Scopes: authscope.Admin(),
+	}))
 	memberEmail := memberUser.ID + "@test.com"
 	_, err := srv.AddOrgMember(owner, &gritzv1.AddOrgMemberRequest{
 		Email: memberEmail,

@@ -3,6 +3,8 @@ package apiserver
 import (
 	"testing"
 
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -14,7 +16,11 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Runner:    "test-runner",
@@ -36,7 +42,11 @@ func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Runner:    "test-runner",
@@ -54,7 +64,11 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
 		Status:    model.TaskStatusCompleted,
 		Runner:    "test-runner",
@@ -78,7 +92,11 @@ func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
 		Status:    model.TaskStatusCompleted,
 		Runner:    "test-runner",
@@ -97,7 +115,11 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
 		Status:    model.TaskStatusFailed,
 		Runner:    "test-runner",
@@ -121,7 +143,11 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Runner:    "test-runner",
 		Workspace: "test-workspace",
@@ -147,7 +173,11 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Runner:    "test-runner",
 		Workspace: "test-workspace",
@@ -174,7 +204,11 @@ func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Runner:    "test-runner",
 		Workspace: "test-workspace",

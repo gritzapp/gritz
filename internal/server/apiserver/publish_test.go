@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
@@ -23,7 +25,11 @@ func TestCreateTask_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -53,7 +59,11 @@ func TestCreateTask_Draft_PublishesWithoutRunner(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w", Draft: true,
@@ -80,7 +90,11 @@ func TestUpdateTask_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -114,7 +128,11 @@ func TestCancelTask_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -145,7 +163,11 @@ func TestArchiveTask_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -185,7 +207,11 @@ func TestUploadLogs_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -218,7 +244,11 @@ func TestCreateLink_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -253,7 +283,11 @@ func TestUpdateTask_ChannelMessage_QueuedOnStart(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -290,7 +324,11 @@ func TestUpdateTask_NoChannelMessage_NameOnly(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -325,7 +363,11 @@ func TestSubmitRunnerEvents_Publishes(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",
@@ -364,7 +406,11 @@ func TestSubmitRunnerEvents_NotApplied_DoesNotPublish(t *testing.T) {
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
 	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name: "test", Runner: "r", Workspace: "w",

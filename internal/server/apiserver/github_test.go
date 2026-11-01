@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -35,7 +37,11 @@ func TestLinkGitHubInstallation(t *testing.T) {
 	installationID := newInstallationID()
 	org := teststore.CreateOrg(t, srv.store, nil)
 	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org.UserID, newGitHubUserID(), "owner"))
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: installationID,
@@ -63,14 +69,22 @@ func TestLinkGitHubInstallation_Shared(t *testing.T) {
 
 	org1 := teststore.CreateOrg(t, srv.store, nil)
 	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org1.UserID, newGitHubUserID(), "owner"))
-	_, err := srv.LinkGitHubInstallation(createCtx(t, org1), &gritzv1.LinkGitHubInstallationRequest{
+	_, err := srv.LinkGitHubInstallation(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org1.UserID,
+		OrgID:  org1.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: installationID,
 	})
 	assert.NilError(t, err)
 
 	org2 := teststore.CreateOrg(t, srv.store, nil)
 	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org2.UserID, newGitHubUserID(), "owner"))
-	_, err = srv.LinkGitHubInstallation(createCtx(t, org2), &gritzv1.LinkGitHubInstallationRequest{
+	_, err = srv.LinkGitHubInstallation(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org2.UserID,
+		OrgID:  org2.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: installationID,
 	})
 	assert.NilError(t, err)
@@ -91,7 +105,11 @@ func TestLinkGitHubInstallation_MissingID(t *testing.T) {
 		},
 	})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
@@ -117,7 +135,11 @@ func TestLinkGitHubInstallation_NotConfigured(t *testing.T) {
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
 	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org.UserID, newGitHubUserID(), "owner"))
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: newInstallationID(),
@@ -134,7 +156,11 @@ func TestLinkGitHubInstallation_NoLinkedGitHubAccount(t *testing.T) {
 		},
 	})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: newInstallationID(),
@@ -155,7 +181,11 @@ func TestLinkGitHubInstallation_AccessDenied(t *testing.T) {
 	})
 	org := teststore.CreateOrg(t, srv.store, nil)
 	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org.UserID, newGitHubUserID(), "owner"))
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: newInstallationID(),
@@ -174,7 +204,11 @@ func TestCreateGitHubToken_Unimplemented(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateGitHubToken(ctx, &gritzv1.CreateGitHubTokenRequest{})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnimplemented)
@@ -192,7 +226,11 @@ func TestStoreClearGitHubInstallation(t *testing.T) {
 	installationID := newInstallationID()
 	org := teststore.CreateOrg(t, srv.store, nil)
 	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org.UserID, newGitHubUserID(), "owner"))
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{
 		InstallationId: installationID,
 	})
