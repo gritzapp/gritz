@@ -21,6 +21,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/outbox"
@@ -325,143 +326,159 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 	g.SetLimit(int(m.concurrency))
 
 	for _, pbTask := range resp.Tasks {
-		task := model.TaskFromProto(pbTask)
-		switch task.Command {
-		case model.TaskCommandStop:
-			g.Go(func() error {
-				signalled, err := m.Runner(task.ID).Kill(ctx)
-				if err != nil {
-					// The stop command survives, so the kill is retried on
-					// the next poll.
-					m.log.Error("failed to stop task", "task", task.ID, "err", err)
-					return nil
-				}
-				if signalled {
-					// The driver owns the terminal report. If it hangs until
-					// SIGKILL, the non-zero exit triggers the monitor's
-					// "failed" instead.
-					return nil
-				}
-				// No running run to stop: there is no driver to complete
-				// the cancel, so emit "stopped" to land the task in
-				// cancelled instead of sticking in cancelling.
-				if err := m.queue.Enqueue(model.RunnerEvent{
-					TaskID:  task.ID,
-					Event:   model.RunnerEventStopped,
-					Version: task.Version,
-				}); err != nil {
-					m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, task.ID, err))
-					return nil
-				}
-				return nil
-			})
-		case model.TaskCommandRestart:
-			g.Go(func() error {
-				// Idempotency guard: the record is stamped with the version of
-				// the run it launched, so a record already on the task's current
-				// version means this restart's new run was launched by an
-				// earlier poll pass. The driver takes ~12s to boot, so any poll
-				// landing in the launch→"started" window still sees the pending
-				// command; killing here would SIGKILL the run we just started
-				// (issue #1520). Do nothing and wait for "started" to consume
-				// the command, exactly like the start handler's already-running
-				// guard. A legacy version-0 record never matches a live task's
-				// version (>= 1), so the guard is a no-op for those.
-				if m.Runner(task.ID).Version() == task.Version {
-					m.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
-					return nil
-				}
-				// Kill existing sandbox if running. The old run's "stopped"
-				// is rejected by the status guard while the restart command is
-				// pending, so the command survives until the new run's
-				// "started" consumes it.
-				if _, err := m.Runner(task.ID).Kill(ctx); err != nil {
-					m.log.Error("failed to kill task for restart", "task", task.ID, "err", err)
-				}
-				// Atomically acquire a semaphore slot before starting
-				if !m.sem.TryAcquire(1) {
-					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
-					return nil
-				}
-				err := m.Start(ctx, task)
-				if errors.Is(err, ErrRunning) {
-					// Nothing was started, so the slot goes back; the
-					// command is retried on a later poll.
-					m.sem.Release(1)
-					m.log.Debug("sandbox still running, not started", "task", task.ID)
-					return nil
-				}
-				if err != nil {
-					m.sem.Release(1) // Release the slot on failure
-					m.log.Error("failed to start task", "task", task.ID, "err", err)
-					err := m.queue.Enqueue(model.RunnerEvent{
-						TaskID:  task.ID,
-						Event:   model.RunnerEventFailed,
-						Version: task.Version,
-						Reason:  err.Error(),
-					})
-					if err != nil {
-						m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
-					}
-					return nil
-				}
-				// The "started" event is submitted by the driver on startup
-				return nil
-			})
-		case model.TaskCommandStart:
-			g.Go(func() error {
-				// Don't bother checking the backend if the status is still running
-				if task.Status == model.TaskStatusRunning {
-					m.log.Debug("start command: task.status=running, waiting for it to finish", "task", task.ID)
-					return nil
-				}
-				// Check if the sandbox is already running
-				running, err := m.Runner(task.ID).Running(ctx)
-				if err != nil {
-					m.log.Error("failed to check if task is running", "task", task.ID, "err", err)
-					return nil
-				}
-				if running {
-					// Sandbox is running - do nothing, let it finish naturally
-					// The command will be processed when it stops
-					m.log.Debug("start command: sandbox already running, waiting for it to finish", "task", task.ID)
-					return nil
-				}
-
-				// Sandbox not running - atomically acquire a semaphore slot before starting
-				if !m.sem.TryAcquire(1) {
-					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
-					return nil
-				}
-				err = m.Start(ctx, task)
-				if errors.Is(err, ErrRunning) {
-					// Nothing was started, so the slot goes back; the
-					// command is retried on a later poll.
-					m.sem.Release(1)
-					m.log.Debug("sandbox still running, not started", "task", task.ID)
-					return nil
-				}
-				if err != nil {
-					m.sem.Release(1) // Release the slot on failure
-					m.log.Error("failed to start task", "task", task.ID, "err", err)
-					err := m.queue.Enqueue(model.RunnerEvent{
-						TaskID:  task.ID,
-						Event:   model.RunnerEventFailed,
-						Version: task.Version,
-						Reason:  err.Error(),
-					})
-					if err != nil {
-						m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
-					}
-					return nil
-				}
-				// The "started" event is submitted by the driver on startup
-				return nil
-			})
+		c := runnerstore.TaskChange{
+			ID:        pbTask.Id,
+			Command:   pbTask.Command,
+			Version:   pbTask.Version,
+			Workspace: pbTask.Workspace,
 		}
+		var handle func(context.Context, runnerstore.TaskChange) error
+		switch c.Command {
+		case gritzv1.TaskCommand_STOP:
+			handle = m.stopTask
+		case gritzv1.TaskCommand_RESTART:
+			handle = m.restartTask
+		case gritzv1.TaskCommand_START:
+			handle = m.startTask
+		default:
+			continue
+		}
+		g.Go(func() error {
+			if err := handle(ctx, c); err != nil {
+				m.log.Error("failed to handle command", "task", c.ID, "command", c.Command, "err", err)
+			}
+			return nil
+		})
 	}
 
 	return g.Wait()
+}
+
+// stopTask, restartTask and startTask each handle one command for a task. A
+// non-nil error means the command wasn't carried out and should be retried;
+// the caller decides when.
+func (m *TaskManager) stopTask(ctx context.Context, c runnerstore.TaskChange) error {
+	signalled, err := m.Runner(c.ID).Kill(ctx)
+	if err != nil {
+		// The stop command survives, so the kill is retried on
+		// the next poll.
+		return fmt.Errorf("failed to stop task: %w", err)
+	}
+	if signalled {
+		// The driver owns the terminal report. If it hangs until
+		// SIGKILL, the non-zero exit triggers the monitor's
+		// "failed" instead.
+		return nil
+	}
+	// No running run to stop: there is no driver to complete
+	// the cancel, so emit "stopped" to land the task in
+	// cancelled instead of sticking in cancelling.
+	if err := m.queue.Enqueue(model.RunnerEvent{
+		TaskID:  c.ID,
+		Event:   model.RunnerEventStopped,
+		Version: c.Version,
+	}); err != nil {
+		m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, c.ID, err))
+		return nil
+	}
+	return nil
+}
+
+func (m *TaskManager) restartTask(ctx context.Context, c runnerstore.TaskChange) error {
+	// Idempotency guard: the record is stamped with the version of
+	// the run it launched, so a record already on the task's current
+	// version means this restart's new run was launched by an
+	// earlier poll pass. The driver takes ~12s to boot, so any poll
+	// landing in the launch→"started" window still sees the pending
+	// command; killing here would SIGKILL the run we just started
+	// (issue #1520). Do nothing and wait for "started" to consume
+	// the command, exactly like the start handler's already-running
+	// guard. A legacy version-0 record never matches a live task's
+	// version (>= 1), so the guard is a no-op for those.
+	if m.Runner(c.ID).Version() == c.Version {
+		m.log.Debug("restart already processed, waiting for started", "task", c.ID, "version", c.Version)
+		return nil
+	}
+	// Kill existing sandbox if running. The old run's "stopped"
+	// is rejected by the status guard while the restart command is
+	// pending, so the command survives until the new run's
+	// "started" consumes it.
+	if _, err := m.Runner(c.ID).Kill(ctx); err != nil {
+		m.log.Error("failed to kill task for restart", "task", c.ID, "err", err)
+	}
+	// Atomically acquire a semaphore slot before starting
+	if !m.sem.TryAcquire(1) {
+		m.log.Debug("concurrency limit reached, skipping task", "task", c.ID, "limit", m.concurrency)
+		return nil
+	}
+	err := m.start(ctx, c)
+	if errors.Is(err, ErrRunning) {
+		// Nothing was started, so the slot goes back; the
+		// command is retried on a later poll.
+		m.sem.Release(1)
+		m.log.Debug("sandbox still running, not started", "task", c.ID)
+		return nil
+	}
+	if err != nil {
+		m.sem.Release(1) // Release the slot on failure
+		m.log.Error("failed to start task", "task", c.ID, "err", err)
+		err := m.queue.Enqueue(model.RunnerEvent{
+			TaskID:  c.ID,
+			Event:   model.RunnerEventFailed,
+			Version: c.Version,
+			Reason:  err.Error(),
+		})
+		if err != nil {
+			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, c.ID, err))
+		}
+		return nil
+	}
+	// The "started" event is submitted by the driver on startup
+	return nil
+}
+
+func (m *TaskManager) startTask(ctx context.Context, c runnerstore.TaskChange) error {
+	// Check if the sandbox is already running
+	running, err := m.Runner(c.ID).Running(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check if task is running: %w", err)
+	}
+	if running {
+		// Sandbox is running - do nothing, let it finish naturally
+		// The command will be processed when it stops
+		m.log.Debug("start command: sandbox already running, waiting for it to finish", "task", c.ID)
+		return nil
+	}
+
+	// Sandbox not running - atomically acquire a semaphore slot before starting
+	if !m.sem.TryAcquire(1) {
+		m.log.Debug("concurrency limit reached, skipping task", "task", c.ID, "limit", m.concurrency)
+		return nil
+	}
+	err = m.start(ctx, c)
+	if errors.Is(err, ErrRunning) {
+		// Nothing was started, so the slot goes back; the
+		// command is retried on a later poll.
+		m.sem.Release(1)
+		m.log.Debug("sandbox still running, not started", "task", c.ID)
+		return nil
+	}
+	if err != nil {
+		m.sem.Release(1) // Release the slot on failure
+		m.log.Error("failed to start task", "task", c.ID, "err", err)
+		err := m.queue.Enqueue(model.RunnerEvent{
+			TaskID:  c.ID,
+			Event:   model.RunnerEventFailed,
+			Version: c.Version,
+			Reason:  err.Error(),
+		})
+		if err != nil {
+			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, c.ID, err))
+		}
+		return nil
+	}
+	// The "started" event is submitted by the driver on startup
+	return nil
 }
 
 // Load rehydrates this runner's sandboxes at boot, before Poll admits new work.
@@ -558,13 +575,13 @@ func (m *TaskManager) Runner(taskID int64) *TaskRunner {
 // spec assembles the sandbox spec for a task: the task token, the run's
 // environment and secrets, and the agent config with the injected gritz MCP
 // server.
-func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec, error) {
-	ws, err := m.workspaces.Get(task.Workspace)
+func (m *TaskManager) spec(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, error) {
+	ws, err := m.workspaces.Get(c.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 	if err := m.backend.ValidateWorkspace(ws); err != nil {
-		return nil, fmt.Errorf("invalid workspace %q: %w", task.Workspace, err)
+		return nil, fmt.Errorf("invalid workspace %q: %w", c.Workspace, err)
 	}
 
 	// Mint the task token via the server rather than signing it locally: the runner
@@ -572,7 +589,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	// task's workspace/runner/org from the row and signs a narrow app JWT. The
 	// driver and injected MCP server present it directly to the server.
 	tokenResp, err := m.client.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
-		TaskId:       task.ID,
+		TaskId:       c.ID,
 		Capabilities: ws.Capabilities,
 	})
 	if err != nil {
@@ -585,9 +602,9 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	mcpArgs := []string{
 		"tool", "agent-mcp",
 		"--server", m.serverURL,
-		"--task", fmt.Sprint(task.ID),
-		"--runner", task.Runner,
-		"--workspace", task.Workspace,
+		"--task", fmt.Sprint(c.ID),
+		"--runner", m.runnerID,
+		"--workspace", c.Workspace,
 		"--token", token,
 	}
 	for _, capability := range ws.Capabilities {
@@ -604,23 +621,23 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	}
 
 	return &backend.Spec{
-		TaskID:    task.ID,
-		Version:   task.Version,
+		TaskID:    c.ID,
+		Version:   c.Version,
 		Workspace: ws,
 		ServerURL: m.serverURL,
 		Token:     token,
 		// The agent's tools (the git credential helper, the GitHub MCP server)
 		// reach the server through these.
 		Env: map[string]string{
-			"GRITZ_TASK_ID": fmt.Sprint(task.ID),
+			"GRITZ_TASK_ID": fmt.Sprint(c.ID),
 			"GRITZ_TOKEN":   token,
 			"GRITZ_SERVER":  m.serverURL,
 		},
 		Secrets: maps.Clone(ws.Secrets),
 		Files: []backend.File{
 			// Allow non-root agents to write to this directory.
-			{Path: path.Dir(agent.DefaultConfigStore.Path(task.ID)), Mode: 0777, Dir: true},
-			{Path: agent.DefaultConfigStore.Path(task.ID), Data: cfgData, Mode: 0666},
+			{Path: path.Dir(agent.DefaultConfigStore.Path(c.ID)), Mode: 0777, Dir: true},
+			{Path: agent.DefaultConfigStore.Path(c.ID), Data: cfgData, Mode: 0666},
 			// Pre-create the log dir 0777 so a non-root driver can write the
 			// append-only /gritz/log file (the driver's MkdirAll is only a
 			// fallback for a directly-invoked driver).
@@ -642,8 +659,18 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 // without starting anything, and the caller gives back the concurrency slot it
 // acquired. The task token minted for the spec then goes unused.
 func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
-	tr := m.Runner(task.ID)
-	spec, err := m.spec(ctx, task)
+	return m.start(ctx, runnerstore.TaskChange{
+		ID:        task.ID,
+		Command:   gritzv1.TaskCommand(task.Command),
+		Version:   task.Version,
+		Workspace: task.Workspace,
+	})
+}
+
+// start is Start for a command event's TaskChange.
+func (m *TaskManager) start(ctx context.Context, c runnerstore.TaskChange) error {
+	tr := m.Runner(c.ID)
+	spec, err := m.spec(ctx, c)
 	if err != nil {
 		return err
 	}
