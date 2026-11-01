@@ -19,8 +19,8 @@ so the standard endpoint overrides (`AWS_ENDPOINT_URL`,
 
 | | Control plane | Driver |
 |---|---|---|
-| first run | `run-microvm` (no run-hook payload), poll until `RUNNING` | `Run(version, spec)` until `Accepted` |
-| run finished | `suspend-microvm`, poll until `SUSPENDED` | `Run(version)` streams `Finished` |
+| first run | `run-microvm` (no run-hook payload), poll until `RUNNING` | `Run(version, spec)` until `Hello`, then the task's events |
+| run finished | `suspend-microvm`, poll until `SUSPENDED` | the `Run` stream ends with `Idle` |
 | next run | `resume-microvm`, poll until `RUNNING` | `Run(version, spec)` |
 | stop | | `Stop(version)` |
 | task archived/deleted | `terminate-microvm` | |

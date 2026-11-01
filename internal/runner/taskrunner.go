@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"reflect"
 	"sync"
@@ -15,10 +16,10 @@ import (
 
 	"github.com/gritzapp/gritz/internal/model"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/x/common"
 	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
@@ -85,6 +86,9 @@ type TaskRunnerOptions struct {
 	// Queue is the outbox the commands' runner events are reported to.
 	// Required to Follow.
 	Queue *RunnerEventOutbox
+	// Stream is the task's event stream, which Run forwards to the driver.
+	// Required to Run.
+	Stream *taskevents.Stream
 	// Spec builds the sandbox spec of the task's run c, and the driver.v1
 	// RunSpec its run is started with. Required to Follow or Start.
 	Spec func(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error)
@@ -733,6 +737,9 @@ func (tr *TaskRunner) wait() { tr.runs.Wait() }
 // shutting down, and the sandbox stays alive for next-boot rehydration. That
 // is the only error.
 func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
+	if tr.opts.Stream == nil {
+		panic("runner: TaskRunnerOptions.Stream is required to Run")
+	}
 	tr.mu.Lock()
 	tr.running = true
 	sbx, version := tr.sbx, tr.rec.Version
@@ -756,12 +763,13 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 	return nil
 }
 
-// run starts the run version on sb with spec, unless spec is nil, then
-// attaches to it. A run that could not be started is reported lost with why,
-// after sb is suspended: nothing runs on it. The only error is ctx's.
+// run follows run version on sb until its Idle, starting it with spec first
+// unless spec is nil. A run that could not be started is reported lost with
+// why, after sb is suspended: nothing runs on it. The only error is ctx's.
 func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
 	if spec != nil {
-		if err := tr.startRun(ctx, sbx, version, spec); err != nil {
+		idle, err := tr.startRun(ctx, sbx, version, spec)
+		if err != nil {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
@@ -769,94 +777,79 @@ func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int6
 			tr.suspend(ctx, sbx)
 			return err.Error(), nil
 		}
+		if idle != nil {
+			return tr.idle(ctx, sbx, idle), nil
+		}
 	}
-	return tr.attach(ctx, sbx, version)
+	return tr.attach(ctx, sbx, version, spec)
 }
 
-// startRun waits for sb's driver to answer Status, backing off
-// exponentially, then starts run version with spec on it, returning once the
-// driver has accepted it. A Run that is rejected because another stream is
-// open is retried. The driver has the runner's readyTimeout to do both.
-func (tr *TaskRunner) startRun(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) error {
+// startRun opens Run streams on sb for version with spec, backing off
+// exponentially, until the driver answers one with Hello: opening Run is the
+// readiness check. The driver has the runner's readyTimeout for it. If the run
+// ended on that stream, startRun returns its Idle; if the stream dropped
+// after the Hello, it returns neither Idle nor an error, and the caller
+// reattaches. Every failure to open is retried except a driver's rejection of
+// the run; see isTerminal.
+func (tr *TaskRunner) startRun(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (*driverv1.Idle, error) {
 	opts := tr.opts
 	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
 	defer cancel()
-	client, err := sbx.Dial(ctx, "")
-	if err != nil {
-		return err
-	}
 	bo := doubling(opts.RetryInterval, readyMaxInterval)
 	for {
-		_, err := client.Status(ctx, &driverv1.StatusRequest{})
-		if err == nil {
-			break
+		idle, hello, err := tr.session(ctx, sbx, version, spec)
+		if idle != nil || hello {
+			return idle, nil
+		}
+		if isTerminal(err) {
+			return nil, fmt.Errorf("failed to start run %d: %w", version, err)
 		}
 		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return fmt.Errorf("driver server did not become ready: %w", err)
-		}
-	}
-	for {
-		err := accept(ctx, client, &driverv1.RunRequest{Version: version, Spec: spec})
-		if err == nil {
-			return nil
-		}
-		if connect.CodeOf(err) != connect.CodeUnavailable || !common.SleepContext(ctx, opts.RetryInterval) {
-			return fmt.Errorf("failed to start run %d: %w", version, err)
+			return nil, fmt.Errorf("driver server did not become ready: %w", err)
 		}
 	}
 }
 
-// accept opens a Run stream and closes it after its Accepted: the run keeps
-// going without it.
-func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req *driverv1.RunRequest) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stream, err := client.Run(ctx, req)
-	if err != nil {
-		return err
+// idle suspends sb once its run has ended with idle, and returns why the
+// driver's report of the run's outcome was lost, or "" if it was reported.
+func (tr *TaskRunner) idle(ctx context.Context, sbx backend.Sandbox, idle *driverv1.Idle) (lost string) {
+	tr.suspend(ctx, sbx)
+	if !idle.GetReported() {
+		return "driver did not report the run's outcome"
 	}
-	defer stream.Close()
-	if !stream.Receive() {
-		return cmp.Or(stream.Err(), errors.New("run stream ended before it was accepted"))
-	}
-	if stream.Msg().GetAccepted() == nil {
-		return fmt.Errorf("unexpected first run response: %v", stream.Msg())
-	}
-	return nil
+	return ""
 }
 
-// attach follows run version on sb until its Finished, then suspends sb. It returns why the driver's report of the run's outcome was lost, or
-// "" if the driver reported it. The only error is ctx's.
+// attach follows run version on sb until its Idle, then suspends sb. It
+// returns why the driver's report of the run's outcome was lost, or "" if the
+// driver reported it. The only error is ctx's. spec, if not nil, goes on
+// every stream it opens, as on the one that started the run.
 //
 // A dropped stream is reattached, backing off exponentially. A driver with no
 // such run is a lost run. Reattaching gives up once lostTimeout has passed
-// without a good message — an accepted stream — from the driver: attach suspends
-// the sandbox and reports the run lost. That covers a sandbox that went down
+// without a good message — a Hello — from the driver: attach suspends the
+// sandbox and reports the run lost. That covers a sandbox that went down
 // under the run too, which only happens when something outside the runner
-// fails: the runner never suspends a sandbox it is following a run on. It returns only once the
-// suspend succeeded or the sandbox is gone, so the sandbox is never up with no
-// Run following it; while the platform cannot suspend it, attach keeps
-// retrying.
-func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64) (lost string, err error) {
+// fails: the runner never suspends a sandbox it is following a run on. It
+// returns only once the suspend succeeded or the sandbox is gone, so the
+// sandbox is never up with no Run following it; while the platform cannot
+// suspend it, attach keeps retrying.
+func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
 	opts, taskID := tr.opts, tr.opts.TaskID
 	lastGood := time.Now()
 	bo := doubling(opts.RetryInterval, opts.RetryMaxInterval)
 	var lastErr string
 	for {
-		finished, accepted, err := attachOnce(ctx, sbx, version)
+		idle, hello, err := tr.session(ctx, sbx, version, spec)
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		if finished != nil {
-			tr.suspend(ctx, sbx)
-			if !finished.GetReported() {
-				return "driver did not report the run's outcome", nil
-			}
-			return "", nil
+		if idle != nil {
+			return tr.idle(ctx, sbx, idle), nil
 		}
 		if isTerminal(err) {
 			// The driver has no run with this version (or has moved past it),
-			// so its Finished will never come.
+			// so its Idle will never come.
 			opts.Log.Error("driver has no such run", "task", taskID, "version", version, "err", err)
 			if connect.CodeOf(err) == connect.CodeNotFound {
 				// Nothing runs on the sandbox, which would otherwise stay up.
@@ -866,7 +859,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			}
 			return "driver has no such run", nil
 		}
-		if accepted {
+		if hello {
 			// The stream was live until it dropped: the driver's idle watchdog
 			// would have ended it otherwise.
 			lastGood = time.Now()
@@ -893,30 +886,97 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 	}
 }
 
-// attachOnce opens a Run stream for version without a spec and reads it until
-// the run's Finished, which it returns. Otherwise it returns why the stream
-// ended. accepted reports whether the driver accepted the stream before it
-// ended.
-func attachOnce(ctx context.Context, sb backend.Sandbox, version int64) (finished *driverv1.Finished, accepted bool, err error) {
-	client, err := sb.Dial(ctx, "")
+// runStream is the runner's end of a driver Run stream.
+type runStream = connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse]
+
+// session opens one Run stream on sb for version, with spec if it is not nil,
+// and holds it until the run's Idle, which it returns. Once the driver has
+// answered Hello, it forwards the task's events after the driver's last
+// stored one, as the task's stream has them, until the stream ends.
+// Otherwise it returns why the stream ended; hello reports whether the
+// driver answered Hello before it did.
+func (tr *TaskRunner) session(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (idle *driverv1.Idle, hello bool, err error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	client, err := sbx.Dial(ctx, "")
 	if err != nil {
 		return nil, false, err
 	}
-	stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
+	stream, err := client.Run(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	defer stream.Close()
-	for stream.Receive() {
-		msg := stream.Msg()
-		if msg.GetAccepted() != nil {
-			accepted = true
+	defer func() { _ = stream.CloseResponse() }()
+	// The HTTP/2 transport doesn't watch the context of a request whose body
+	// is still open: closing the request side is what makes a cancelled
+	// stream's Receive return.
+	stop := context.AfterFunc(ctx, func() { _ = stream.CloseRequest() })
+	defer stop()
+	first := &driverv1.RunRequest{Version: version}
+	if spec != nil {
+		first.Msg = &driverv1.RunRequest_Spec{Spec: spec}
+	}
+	// A Send to a stream the driver has ended fails with io.EOF; Receive has
+	// its error.
+	if err := stream.Send(first); err != nil && !errors.Is(err, io.EOF) {
+		return nil, false, err
+	}
+	msg, err := stream.Receive()
+	if err != nil {
+		return nil, false, err
+	}
+	if msg.GetHello() == nil {
+		return nil, false, fmt.Errorf("unexpected first run response: %v", msg)
+	}
+	var forwarding sync.WaitGroup
+	defer forwarding.Wait()
+	// Cancelled before the wait, so the forwarder stops with the stream.
+	defer cancel(nil)
+	forwarding.Go(func() {
+		if err := tr.forward(ctx, stream, msg.GetHello().GetLastEventId()); err != nil {
+			cancel(err)
 		}
-		if finished := msg.GetFinished(); finished != nil {
-			return finished, accepted, nil
+	})
+	for {
+		msg, err := stream.Receive()
+		if err != nil {
+			if cause := context.Cause(ctx); errors.Is(cause, errReadEvents) {
+				err = cause
+			} else if errors.Is(err, io.EOF) {
+				err = errors.New("run stream ended before Idle")
+			}
+			return nil, true, err
+		}
+		if idle := msg.GetIdle(); idle != nil {
+			return idle, true, nil
 		}
 	}
-	return nil, accepted, cmp.Or(stream.Err(), errors.New("run stream ended before Finished"))
+}
+
+// errReadEvents is what forward's error wraps: the task's stream could not be
+// read, so the Run stream is torn down and reopened.
+var errReadEvents = errors.New("failed to read task events")
+
+// forward sends the task's events after the event with id after on stream,
+// as they are stored, until ctx ends or the stream does. It returns an error,
+// wrapping errReadEvents, only if the task's stream cannot be read.
+func (tr *TaskRunner) forward(ctx context.Context, stream *runStream, after int64) error {
+	for {
+		events, err := tr.opts.Stream.Read(ctx, after)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("%w: %w", errReadEvents, err)
+		}
+		if err := stream.Send(&driverv1.RunRequest{Msg: &driverv1.RunRequest_Events{
+			Events: &driverv1.TaskEvents{Events: events},
+		}}); err != nil {
+			// The stream has ended; session's Receive has why.
+			return nil
+		}
+		after = events[len(events)-1].GetId()
+	}
 }
 
 // isTerminal reports whether a Run error means the run can never be attached

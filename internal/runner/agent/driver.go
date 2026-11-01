@@ -43,7 +43,7 @@ type Driver struct {
 // Run executes the task and reports its outcome to the server. The driver
 // owns the started / stopped / failed runner events (see the
 // driver-owned-events proposal); it returns an error only when it could not
-// report the outcome itself, so the driver server's Finished reports a single
+// report the outcome itself, so the driver server's Idle reports a single
 // bit meaning "did the driver report?".
 //
 // Cancelling ctx with ErrStop as the cause stops the run gracefully: the agent

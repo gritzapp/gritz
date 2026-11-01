@@ -31,7 +31,7 @@ func TestValidateWorkspace(t *testing.T) {
 	})
 }
 
-// A sandbox answers Status through the exec tunnel to the driver's socket,
+// A sandbox answers a Run stream through the exec tunnel to the driver's socket,
 // whatever its network mode — including two sharing the host's network
 // namespace.
 func TestDial_TunnelsThroughExec(t *testing.T) {

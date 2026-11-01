@@ -414,6 +414,7 @@ func (m *TaskManager) Runner(taskID int64) *TaskRunner {
 			Events:       m.events,
 			Slots:        m.slots,
 			Queue:        m.queue,
+			Stream:       m.tasklog.Stream(taskID),
 			Spec:         m.specs,
 			PollInterval: m.pollInterval,
 			Log:          m.log,

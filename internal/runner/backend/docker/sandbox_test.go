@@ -2,14 +2,19 @@ package docker
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"math/rand/v2"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/docker/docker/api/types/container"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"gotest.tools/v3/assert"
@@ -56,7 +61,7 @@ func dialReady(t *testing.T, sb backend.Sandbox) {
 	client, err := sb.Dial(t.Context(), "jwt")
 	assert.NilError(t, err)
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		if _, err := client.Status(t.Context(), &driverv1.StatusRequest{}); err != nil {
+		if err := reach(t.Context(), client); err != nil {
 			return poll.Continue("driver not ready: %v", err)
 		}
 		return poll.Success()
@@ -92,7 +97,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	// A stopped container's driver cannot be reached.
 	client, err := sb.Dial(t.Context(), "jwt")
 	assert.NilError(t, err)
-	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
+	err = reach(t.Context(), client)
 	assert.Assert(t, err != nil)
 
 	assert.NilError(t, sb.Boot(t.Context()))
@@ -183,9 +188,31 @@ func TestSandbox_Concurrent(t *testing.T) {
 			if !assert.Check(t, err) {
 				return
 			}
-			_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
+			err = reach(t.Context(), client)
 			assert.Check(t, err)
 		})
 	}
 	wg.Wait()
+}
+
+// reach opens a Run stream on client for a run the driver doesn't have, which
+// proves the driver answers a bidi stream over the transport: it rejects the
+// run with NotFound. It returns any other outcome as an error.
+func reach(ctx context.Context, client driverv1connect.DriverServiceClient) error {
+	stream, err := client.Run(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stream.CloseResponse() }()
+	if err := stream.Send(&driverv1.RunRequest{Version: 1}); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	msg, err := stream.Receive()
+	if connect.CodeOf(err) == connect.CodeNotFound {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("unexpected run response: %v", msg)
 }

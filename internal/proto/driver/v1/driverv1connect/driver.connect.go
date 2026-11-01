@@ -33,8 +33,6 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// DriverServiceStatusProcedure is the fully-qualified name of the DriverService's Status RPC.
-	DriverServiceStatusProcedure = "/driver.v1.DriverService/Status"
 	// DriverServiceRunProcedure is the fully-qualified name of the DriverService's Run RPC.
 	DriverServiceRunProcedure = "/driver.v1.DriverService/Run"
 	// DriverServiceStopProcedure is the fully-qualified name of the DriverService's Stop RPC.
@@ -43,9 +41,12 @@ const (
 
 // DriverServiceClient is a client for the driver.v1.DriverService service.
 type DriverServiceClient interface {
-	// Status reports that the server is up, plus the current run record.
-	Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error)
-	// Run is attach-or-start, keyed on version:
+	// Run is the runner's connection to the driver for one run. The runner
+	// sends a RunRequest with the version to start or attach to first, the
+	// driver answers Hello, and the runner sends the task's events after the
+	// driver's position as TaskEvents. The driver stores them in its event file.
+	//
+	// The first message is attach-or-start, keyed on its version:
 	//
 	//	another Run stream already open      -> Unavailable (retry)
 	//	record.version > version             -> FailedPrecondition (stale)
@@ -55,12 +56,12 @@ type DriverServiceClient interface {
 	//	another version running              -> Aborted (busy)
 	//
 	// At most one Run stream is open at a time. The stream ends after the run's
-	// Finished has been sent. A dropped or closed stream detaches and nothing
-	// else: the run keeps going.
-	Run(context.Context, *v1.RunRequest) (*connect.ServerStreamForClient[v1.RunResponse], error)
+	// Idle has been sent. A dropped or closed stream detaches and nothing else:
+	// the run keeps going.
+	Run(context.Context) (*connect.BidiStreamForClientSimple[v1.RunRequest, v1.RunResponse], error)
 	// Stop gracefully stops the run with the given version: cancel the run
 	// context with ErrStop (agents and setup commands SIGTERM their process
-	// groups); the run reports its terminal event and sends Finished as usual.
+	// groups); the run reports its terminal event and sends Idle as usual.
 	// A no-op if that version is not the active run.
 	Stop(context.Context, *v1.StopRequest) (*v1.StopResponse, error)
 }
@@ -76,12 +77,6 @@ func NewDriverServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 	baseURL = strings.TrimRight(baseURL, "/")
 	driverServiceMethods := v1.File_driver_v1_driver_proto.Services().ByName("DriverService").Methods()
 	return &driverServiceClient{
-		status: connect.NewClient[v1.StatusRequest, v1.StatusResponse](
-			httpClient,
-			baseURL+DriverServiceStatusProcedure,
-			connect.WithSchema(driverServiceMethods.ByName("Status")),
-			connect.WithClientOptions(opts...),
-		),
 		run: connect.NewClient[v1.RunRequest, v1.RunResponse](
 			httpClient,
 			baseURL+DriverServiceRunProcedure,
@@ -99,23 +94,13 @@ func NewDriverServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // driverServiceClient implements DriverServiceClient.
 type driverServiceClient struct {
-	status *connect.Client[v1.StatusRequest, v1.StatusResponse]
-	run    *connect.Client[v1.RunRequest, v1.RunResponse]
-	stop   *connect.Client[v1.StopRequest, v1.StopResponse]
-}
-
-// Status calls driver.v1.DriverService.Status.
-func (c *driverServiceClient) Status(ctx context.Context, req *v1.StatusRequest) (*v1.StatusResponse, error) {
-	response, err := c.status.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
+	run  *connect.Client[v1.RunRequest, v1.RunResponse]
+	stop *connect.Client[v1.StopRequest, v1.StopResponse]
 }
 
 // Run calls driver.v1.DriverService.Run.
-func (c *driverServiceClient) Run(ctx context.Context, req *v1.RunRequest) (*connect.ServerStreamForClient[v1.RunResponse], error) {
-	return c.run.CallServerStream(ctx, connect.NewRequest(req))
+func (c *driverServiceClient) Run(ctx context.Context) (*connect.BidiStreamForClientSimple[v1.RunRequest, v1.RunResponse], error) {
+	return c.run.CallBidiStreamSimple(ctx)
 }
 
 // Stop calls driver.v1.DriverService.Stop.
@@ -129,9 +114,12 @@ func (c *driverServiceClient) Stop(ctx context.Context, req *v1.StopRequest) (*v
 
 // DriverServiceHandler is an implementation of the driver.v1.DriverService service.
 type DriverServiceHandler interface {
-	// Status reports that the server is up, plus the current run record.
-	Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error)
-	// Run is attach-or-start, keyed on version:
+	// Run is the runner's connection to the driver for one run. The runner
+	// sends a RunRequest with the version to start or attach to first, the
+	// driver answers Hello, and the runner sends the task's events after the
+	// driver's position as TaskEvents. The driver stores them in its event file.
+	//
+	// The first message is attach-or-start, keyed on its version:
 	//
 	//	another Run stream already open      -> Unavailable (retry)
 	//	record.version > version             -> FailedPrecondition (stale)
@@ -141,12 +129,12 @@ type DriverServiceHandler interface {
 	//	another version running              -> Aborted (busy)
 	//
 	// At most one Run stream is open at a time. The stream ends after the run's
-	// Finished has been sent. A dropped or closed stream detaches and nothing
-	// else: the run keeps going.
-	Run(context.Context, *v1.RunRequest, *connect.ServerStream[v1.RunResponse]) error
+	// Idle has been sent. A dropped or closed stream detaches and nothing else:
+	// the run keeps going.
+	Run(context.Context, *connect.BidiStream[v1.RunRequest, v1.RunResponse]) error
 	// Stop gracefully stops the run with the given version: cancel the run
 	// context with ErrStop (agents and setup commands SIGTERM their process
-	// groups); the run reports its terminal event and sends Finished as usual.
+	// groups); the run reports its terminal event and sends Idle as usual.
 	// A no-op if that version is not the active run.
 	Stop(context.Context, *v1.StopRequest) (*v1.StopResponse, error)
 }
@@ -158,13 +146,7 @@ type DriverServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewDriverServiceHandler(svc DriverServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	driverServiceMethods := v1.File_driver_v1_driver_proto.Services().ByName("DriverService").Methods()
-	driverServiceStatusHandler := connect.NewUnaryHandlerSimple(
-		DriverServiceStatusProcedure,
-		svc.Status,
-		connect.WithSchema(driverServiceMethods.ByName("Status")),
-		connect.WithHandlerOptions(opts...),
-	)
-	driverServiceRunHandler := connect.NewServerStreamHandlerSimple(
+	driverServiceRunHandler := connect.NewBidiStreamHandler(
 		DriverServiceRunProcedure,
 		svc.Run,
 		connect.WithSchema(driverServiceMethods.ByName("Run")),
@@ -178,8 +160,6 @@ func NewDriverServiceHandler(svc DriverServiceHandler, opts ...connect.HandlerOp
 	)
 	return "/driver.v1.DriverService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case DriverServiceStatusProcedure:
-			driverServiceStatusHandler.ServeHTTP(w, r)
 		case DriverServiceRunProcedure:
 			driverServiceRunHandler.ServeHTTP(w, r)
 		case DriverServiceStopProcedure:
@@ -193,11 +173,7 @@ func NewDriverServiceHandler(svc DriverServiceHandler, opts ...connect.HandlerOp
 // UnimplementedDriverServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedDriverServiceHandler struct{}
 
-func (UnimplementedDriverServiceHandler) Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("driver.v1.DriverService.Status is not implemented"))
-}
-
-func (UnimplementedDriverServiceHandler) Run(context.Context, *v1.RunRequest, *connect.ServerStream[v1.RunResponse]) error {
+func (UnimplementedDriverServiceHandler) Run(context.Context, *connect.BidiStream[v1.RunRequest, v1.RunResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("driver.v1.DriverService.Run is not implemented"))
 }
 

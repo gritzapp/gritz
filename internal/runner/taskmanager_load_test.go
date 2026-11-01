@@ -63,7 +63,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	testrunner.StopRun(t, client, 3)
 	assert.NilError(t, m.Wait(t.Context()))
 
-	// Assert - the reattached runner saw Finished: the sandbox is suspended and
+	// Assert - the reattached runner saw Idle: the sandbox is suspended and
 	// no event is owed.
 	sbx, _ = be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Suspended)

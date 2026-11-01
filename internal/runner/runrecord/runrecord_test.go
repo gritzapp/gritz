@@ -6,9 +6,6 @@ import (
 	"testing"
 	"time"
 
-	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"gotest.tools/v3/assert"
 )
 
@@ -149,33 +146,4 @@ func TestReconcile_Absent(t *testing.T) {
 	assert.Equal(t, crashed, false)
 	_, err = os.Stat(path)
 	assert.Assert(t, os.IsNotExist(err))
-}
-
-func TestProto(t *testing.T) {
-	finishedAt := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
-	tests := []struct {
-		name string
-		rec  Record
-		want *driverv1.RunRecord
-	}{
-		{
-			"running",
-			Record{Version: 3, State: Running},
-			&driverv1.RunRecord{Version: 3, State: driverv1.RunRecord_STATE_RUNNING},
-		},
-		{
-			"finished",
-			Record{Version: 3, State: Finished, FinishedAt: finishedAt, Reported: true},
-			&driverv1.RunRecord{
-				Version:    3,
-				State:      driverv1.RunRecord_STATE_FINISHED,
-				FinishedAt: timestamppb.New(finishedAt),
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.DeepEqual(t, tt.rec.Proto(), tt.want, protocmp.Transform())
-		})
-	}
 }

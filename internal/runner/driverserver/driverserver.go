@@ -4,8 +4,10 @@
 // mask and environment.
 //
 // See proposals/draft/driver-server.md. The driver reports started / stopped /
-// failed to the gritz server itself, and Finished says whether that report was
-// acknowledged.
+// failed to the gritz server itself, and Idle says whether that report was
+// acknowledged. Every event the runner forwards on a Run stream is stored in
+// the driver's event file (internal/runner/eventfile); the driver doesn't act
+// on them yet.
 package driverserver
 
 import (
@@ -13,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"maps"
@@ -27,7 +30,9 @@ import (
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
+	"github.com/gritzapp/gritz/internal/runner/eventfile"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"github.com/gritzapp/gritz/internal/x/envx"
@@ -40,7 +45,7 @@ import (
 const DefaultKeepAlive = 15 * time.Second
 
 // httpShutdownTimeout bounds the HTTP server's shutdown once the active run
-// has finished, which leaves only streams sending their Finished.
+// has finished, which leaves only streams sending their Idle.
 const httpShutdownTimeout = 5 * time.Second
 
 // ProvisionedPath is the marker a sandbox gets once a run has written its
@@ -51,6 +56,8 @@ const ProvisionedPath = "/gritz/.provisioned"
 type Options struct {
 	// RecordPath is the run record. Defaults to runrecord.Path.
 	RecordPath string
+	// EventsPath is the event file. Defaults to eventfile.Path.
+	EventsPath string
 	// LogPath is the append-only driver log each run appends to. Defaults to
 	// agent.DefaultLogPath.
 	LogPath string
@@ -76,6 +83,7 @@ type Options struct {
 // Server implements driverv1connect.DriverServiceHandler.
 type Server struct {
 	recordPath string
+	events     *eventfile.File
 	logPath    string
 	config     agent.ConfigStore
 	fileRoot   string
@@ -94,7 +102,7 @@ type Server struct {
 	hasRec bool
 	// active is the latest run started by this process, nil if none. It stays
 	// set after the run finishes, so a Run attaching late still gets its
-	// Finished.
+	// Idle.
 	active *run
 	// streaming is true while a Run stream is open.
 	streaming bool
@@ -116,7 +124,7 @@ type run struct {
 
 // New returns a server, reconciling the run record first: a record still
 // running means the previous process died mid-run, so it is rewritten as
-// finished and unreported.
+// finished and unreported. It reads the event file.
 func New(opts Options) (*Server, error) {
 	s := &Server{
 		recordPath: cmp.Or(opts.RecordPath, runrecord.Path),
@@ -133,6 +141,11 @@ func New(opts Options) (*Server, error) {
 			return gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: token})
 		}
 	}
+	events, err := eventfile.Open(cmp.Or(opts.EventsPath, eventfile.Path))
+	if err != nil {
+		return nil, err
+	}
+	s.events = events
 	rec, ok, crashed, err := runrecord.Reconcile(s.recordPath, time.Now())
 	if err != nil {
 		return nil, err
@@ -192,41 +205,58 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return hs.Shutdown(shutdownCtx)
 }
 
-// Status reports the current run record.
-func (s *Server) Status(ctx context.Context, req *driverv1.StatusRequest) (*driverv1.StatusResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	resp := &driverv1.StatusResponse{}
-	if s.hasRec {
-		resp.Run = s.rec.Proto()
+// Run serves the runner's stream for one run. The first message names the
+// run to attach to or start, with the spec to start it with; the server
+// answers Hello with the id of the last event in its event file, then stores
+// every batch of events the runner sends, until the run has ended and its
+// Idle has been sent. The run's context is independent of the request's: a
+// dropped stream detaches and the run keeps going.
+func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
+	req, err := stream.Receive()
+	if err != nil {
+		return err
 	}
-	return resp, nil
-}
-
-// Run attaches to or starts the run with the request's version, then streams
-// until that run's Finished has been sent. The run's context is independent of
-// the request's: a dropped stream detaches and the run keeps going.
-func (s *Server) Run(ctx context.Context, req *driverv1.RunRequest, stream *connect.ServerStream[driverv1.RunResponse]) error {
-	r, attached, err := s.open(req)
+	if req.GetEvents() != nil {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("the first message must not carry events"))
+	}
+	r, err := s.open(req)
 	if err != nil {
 		return err
 	}
 	defer s.release()
-	if err := stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_Accepted{
-		Accepted: &driverv1.Accepted{Attached: attached},
+	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{
+		Hello: &driverv1.Hello{LastEventId: s.events.LastID()},
 	}}); err != nil {
 		return err
 	}
+	// The batches are stored here rather than by receive, so nothing is
+	// stored once Run has returned and released the stream.
+	batches := make(chan batch)
+	done := make(chan struct{})
+	defer close(done)
+	go receive(stream, batches, done)
 	ticker := time.NewTicker(s.keepAlive)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-r.done:
-			return stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_Finished{
-				Finished: &driverv1.Finished{Version: r.version, Reported: r.reported},
+			return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
+				Idle: &driverv1.Idle{Version: r.version, Reported: r.reported},
 			}})
+		case b := <-batches:
+			if errors.Is(b.err, io.EOF) {
+				// The runner has nothing more to send; the run goes on.
+				batches = nil
+				continue
+			}
+			if b.err != nil {
+				return b.err
+			}
+			if err := s.events.Append(b.events); err != nil {
+				return connect.NewError(connect.CodeInternal, err)
+			}
 		case <-ticker.C:
-			if err := stream.Send(&driverv1.RunResponse{Event: &driverv1.RunResponse_KeepAlive{
+			if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_KeepAlive{
 				KeepAlive: &driverv1.KeepAlive{},
 			}}); err != nil {
 				return err
@@ -237,42 +267,74 @@ func (s *Server) Run(ctx context.Context, req *driverv1.RunRequest, stream *conn
 	}
 }
 
+// batch is what receive read from a Run stream: a batch of events, or why
+// the stream ended.
+type batch struct {
+	events []*gritzv1.Event
+	err    error
+}
+
+// receive sends every batch of events the runner sends on stream to batches,
+// until the stream fails or ends, which it sends as the last batch, or done
+// is closed.
+func receive(stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse], batches chan<- batch, done <-chan struct{}) {
+	for {
+		var b batch
+		req, err := stream.Receive()
+		switch {
+		case err != nil:
+			b.err = err
+		case req.GetEvents() == nil:
+			b.err = connect.NewError(connect.CodeInvalidArgument, errors.New("only the first message may omit events"))
+		default:
+			b.events = req.GetEvents().GetEvents()
+		}
+		select {
+		case batches <- b:
+		case <-done:
+			return
+		}
+		if b.err != nil {
+			return
+		}
+	}
+}
+
 // open claims the stream and resolves the request to a run, starting it if
 // needed. On success the caller must release the stream.
-func (s *Server) open(req *driverv1.RunRequest) (r *run, attached bool, err error) {
+func (s *Server) open(req *driverv1.RunRequest) (r *run, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.streaming {
-		return nil, false, connect.NewError(connect.CodeUnavailable, errors.New("another Run stream is open"))
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("another Run stream is open"))
 	}
 	version := req.GetVersion()
 	switch {
 	case s.hasRec && s.rec.Version > version:
-		return nil, false, connect.NewError(connect.CodeFailedPrecondition,
+		return nil, connect.NewError(connect.CodeFailedPrecondition,
 			fmt.Errorf("version %d is stale, the run record is at %d", version, s.rec.Version))
 	case s.hasRec && s.rec.Version == version:
 		r = s.active
 		if r == nil {
-			// Finished before this process started: either it finished in an
+			// Ended before this process started: either it finished in an
 			// earlier process, or Reconcile marked it finished after a crash.
 			r = finishedRun(version, s.rec.Reported)
 		}
-		attached = true
 	case s.hasRec && s.rec.State == runrecord.Running:
-		return nil, false, connect.NewError(connect.CodeAborted,
+		return nil, connect.NewError(connect.CodeAborted,
 			fmt.Errorf("version %d is running", s.rec.Version))
 	case req.GetSpec() == nil:
-		return nil, false, connect.NewError(connect.CodeNotFound,
+		return nil, connect.NewError(connect.CodeNotFound,
 			fmt.Errorf("no run with version %d and no spec to start one", version))
 	case s.closed:
-		return nil, false, connect.NewError(connect.CodeUnavailable, errors.New("driver is shutting down"))
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("driver is shutting down"))
 	default:
 		if r, err = s.start(version, req.GetSpec()); err != nil {
-			return nil, false, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
 	s.streaming = true
-	return r, attached, nil
+	return r, nil
 }
 
 func (s *Server) release() {
@@ -410,7 +472,7 @@ func (s *Server) execute(ctx context.Context, r *run, spec *driverv1.RunSpec) {
 
 // Stop cancels the run with the request's version with ErrStop, if it is
 // running. It does not wait: the run reports stopped and its Run stream gets
-// Finished as usual.
+// Idle as usual.
 func (s *Server) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1.StopResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

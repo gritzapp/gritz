@@ -2,6 +2,8 @@ package driverclient
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,66 +17,89 @@ import (
 
 const testIdle = 100 * time.Millisecond
 
-// testDriver is a driver server whose Run and Status are supplied by the test.
+// runStream is the driver's end of a Run stream.
+type runStream = connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]
+
+// testDriver is a driver server whose Run and Stop are supplied by the test.
 type testDriver struct {
 	driverv1connect.UnimplementedDriverServiceHandler
-	run    func(ctx context.Context, stream *connect.ServerStream[driverv1.RunResponse]) error
-	status func(ctx context.Context) error
+	run  func(ctx context.Context, stream *runStream) error
+	stop func(ctx context.Context) error
 }
 
-func (d *testDriver) Run(ctx context.Context, _ *driverv1.RunRequest, stream *connect.ServerStream[driverv1.RunResponse]) error {
+func (d *testDriver) Run(ctx context.Context, stream *runStream) error {
 	return d.run(ctx, stream)
 }
 
-func (d *testDriver) Status(ctx context.Context, _ *driverv1.StatusRequest) (*driverv1.StatusResponse, error) {
-	if err := d.status(ctx); err != nil {
+func (d *testDriver) Stop(ctx context.Context, _ *driverv1.StopRequest) (*driverv1.StopResponse, error) {
+	if err := d.stop(ctx); err != nil {
 		return nil, err
 	}
-	return &driverv1.StatusResponse{}, nil
+	return &driverv1.StopResponse{}, nil
 }
 
-// setup serves d and returns a client for it built by New.
+// setup serves d over HTTP/2, which bidi streams need, and returns a client
+// for it built by New.
 func setup(t *testing.T, d *testDriver) driverv1connect.DriverServiceClient {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(driverv1connect.NewDriverServiceHandler(d))
-	hs := httptest.NewServer(mux)
+	hs := httptest.NewUnstartedServer(mux)
+	hs.EnableHTTP2 = true
+	hs.StartTLS()
 	t.Cleanup(hs.Close)
 	return New(hs.Client(), hs.URL, Options{IdleTimeout: testIdle})
 }
 
 var (
-	accepted = &driverv1.RunResponse{
-		Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}},
+	hello = &driverv1.RunResponse{
+		Msg: &driverv1.RunResponse_Hello{Hello: &driverv1.Hello{}},
 	}
 	keepAlive = &driverv1.RunResponse{
-		Event: &driverv1.RunResponse_KeepAlive{KeepAlive: &driverv1.KeepAlive{}},
+		Msg: &driverv1.RunResponse_KeepAlive{KeepAlive: &driverv1.KeepAlive{}},
 	}
-	finished = &driverv1.RunResponse{
-		Event: &driverv1.RunResponse_Finished{
-			Finished: &driverv1.Finished{Version: 1, Reported: true},
+	idle = &driverv1.RunResponse{
+		Msg: &driverv1.RunResponse_Idle{
+			Idle: &driverv1.Idle{Version: 1, Reported: true},
 		},
 	}
 )
 
-// receiveAll reads stream to its end, returning every message and its error.
-func receiveAll(stream *connect.ServerStreamForClient[driverv1.RunResponse]) ([]*driverv1.RunResponse, error) {
+// open opens a Run stream on client and sends its first message.
+func open(t *testing.T, client driverv1connect.DriverServiceClient) *connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse] {
+	t.Helper()
+	stream, err := client.Run(t.Context())
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = stream.CloseResponse() })
+	assert.NilError(t, stream.Send(&driverv1.RunRequest{Version: 1}))
+	return stream
+}
+
+// receiveAll reads stream to its end, returning every message and the error
+// it ended with, nil for a clean end.
+func receiveAll(stream *connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse]) ([]*driverv1.RunResponse, error) {
 	var msgs []*driverv1.RunResponse
-	for stream.Receive() {
-		msgs = append(msgs, stream.Msg())
+	for {
+		msg, err := stream.Receive()
+		if errors.Is(err, io.EOF) {
+			return msgs, nil
+		}
+		if err != nil {
+			return msgs, err
+		}
+		msgs = append(msgs, msg)
 	}
-	return msgs, stream.Err()
 }
 
 func TestRun_HidesKeepAlives(t *testing.T) {
 	t.Parallel()
-	client := setup(t, &testDriver{run: func(_ context.Context, stream *connect.ServerStream[driverv1.RunResponse]) error {
+	client := setup(t, &testDriver{run: func(_ context.Context, stream *runStream) error {
 		for _, msg := range []*driverv1.RunResponse{
-			accepted,
+			hello,
 			keepAlive,
 			keepAlive,
 			keepAlive,
-			finished,
+			idle,
 		} {
 			if err := stream.Send(msg); err != nil {
 				return err
@@ -83,44 +108,40 @@ func TestRun_HidesKeepAlives(t *testing.T) {
 		return nil
 	}})
 
-	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1})
-	assert.NilError(t, err)
-	defer stream.Close()
+	stream := open(t, client)
 	msgs, err := receiveAll(stream)
 
 	assert.NilError(t, err)
 	assert.Equal(t, len(msgs), 2)
-	assert.Assert(t, msgs[0].GetAccepted() != nil, "got %v, want accepted", msgs[0])
-	assert.Assert(t, msgs[1].GetFinished() != nil, "got %v, want finished", msgs[1])
+	assert.Assert(t, msgs[0].GetHello() != nil, "got %v, want hello", msgs[0])
+	assert.Assert(t, msgs[1].GetIdle() != nil, "got %v, want idle", msgs[1])
 }
 
 func TestRun_IdleStreamCancelled(t *testing.T) {
 	t.Parallel()
-	client := setup(t, &testDriver{run: func(ctx context.Context, stream *connect.ServerStream[driverv1.RunResponse]) error {
-		// A half-open stream: accepted, then silence.
-		if err := stream.Send(accepted); err != nil {
+	client := setup(t, &testDriver{run: func(ctx context.Context, stream *runStream) error {
+		// A half-open stream: hello, then silence.
+		if err := stream.Send(hello); err != nil {
 			return err
 		}
 		<-ctx.Done()
 		return ctx.Err()
 	}})
 
-	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1})
-	assert.NilError(t, err)
-	defer stream.Close()
+	stream := open(t, client)
 	start := time.Now()
 	msgs, err := receiveAll(stream)
 
 	assert.ErrorIs(t, err, ErrStreamIdle)
 	assert.Equal(t, len(msgs), 1)
-	assert.Assert(t, msgs[0].GetAccepted() != nil, "got %v, want accepted", msgs[0])
+	assert.Assert(t, msgs[0].GetHello() != nil, "got %v, want hello", msgs[0])
 	assert.Assert(t, time.Since(start) < 10*testIdle, "cancelled after %v", time.Since(start))
 }
 
 func TestRun_LiveStreamKept(t *testing.T) {
 	t.Parallel()
-	client := setup(t, &testDriver{run: func(_ context.Context, stream *connect.ServerStream[driverv1.RunResponse]) error {
-		if err := stream.Send(accepted); err != nil {
+	client := setup(t, &testDriver{run: func(_ context.Context, stream *runStream) error {
+		if err := stream.Send(hello); err != nil {
 			return err
 		}
 		// Keep-alives well inside the idle timeout, for several times its length.
@@ -130,27 +151,25 @@ func TestRun_LiveStreamKept(t *testing.T) {
 				return err
 			}
 		}
-		return stream.Send(finished)
+		return stream.Send(idle)
 	}})
 
-	stream, err := client.Run(t.Context(), &driverv1.RunRequest{Version: 1})
-	assert.NilError(t, err)
-	defer stream.Close()
+	stream := open(t, client)
 	msgs, err := receiveAll(stream)
 
 	assert.NilError(t, err)
 	assert.Equal(t, len(msgs), 2)
-	assert.Assert(t, msgs[1].GetFinished() != nil, "got %v, want finished", msgs[1])
+	assert.Assert(t, msgs[1].GetIdle() != nil, "got %v, want idle", msgs[1])
 }
 
-func TestStatus_NotWatched(t *testing.T) {
+func TestStop_NotWatched(t *testing.T) {
 	t.Parallel()
-	client := setup(t, &testDriver{status: func(context.Context) error {
+	client := setup(t, &testDriver{stop: func(context.Context) error {
 		time.Sleep(2 * testIdle)
 		return nil
 	}})
 
-	_, err := client.Status(t.Context(), &driverv1.StatusRequest{})
+	_, err := client.Stop(t.Context(), &driverv1.StopRequest{Version: 1})
 
 	assert.NilError(t, err)
 }

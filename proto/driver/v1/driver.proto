@@ -2,20 +2,19 @@ syntax = "proto3";
 
 package driver.v1;
 
-import "google/protobuf/timestamp.proto";
+import "gritz/v1/gritz.proto";
 
 option go_package = "github.com/gritzapp/gritz/internal/proto/driver/v1;driverv1";
 
 // DriverService is served by `gritz driver` inside the sandbox and
 // called by the runner. Runs execute in-process, one at a time.
-//
-// Field numbers follow proposals/draft/driver-server.md, so the fields later
-// steps add stay wire-compatible with drivers built from this cut.
 service DriverService {
-  // Status reports that the server is up, plus the current run record.
-  rpc Status(StatusRequest) returns (StatusResponse);
-
-  // Run is attach-or-start, keyed on version:
+  // Run is the runner's connection to the driver for one run. The runner
+  // sends a RunRequest with the version to start or attach to first, the
+  // driver answers Hello, and the runner sends the task's events after the
+  // driver's position as TaskEvents. The driver stores them in its event file.
+  //
+  // The first message is attach-or-start, keyed on its version:
   //   another Run stream already open      -> Unavailable (retry)
   //   record.version > version             -> FailedPrecondition (stale)
   //   record.version == version            -> attach, spec ignored
@@ -23,34 +22,15 @@ service DriverService {
   //                                           NotFound without one)
   //   another version running              -> Aborted (busy)
   // At most one Run stream is open at a time. The stream ends after the run's
-  // Finished has been sent. A dropped or closed stream detaches and nothing
-  // else: the run keeps going.
-  rpc Run(RunRequest) returns (stream RunResponse);
+  // Idle has been sent. A dropped or closed stream detaches and nothing else:
+  // the run keeps going.
+  rpc Run(stream RunRequest) returns (stream RunResponse);
 
   // Stop gracefully stops the run with the given version: cancel the run
   // context with ErrStop (agents and setup commands SIGTERM their process
-  // groups); the run reports its terminal event and sends Finished as usual.
+  // groups); the run reports its terminal event and sends Idle as usual.
   // A no-op if that version is not the active run.
   rpc Stop(StopRequest) returns (StopResponse);
-}
-
-message RunRecord {
-  enum State {
-    STATE_UNSPECIFIED = 0;
-    STATE_RUNNING = 1;
-    STATE_FINISHED = 2;
-  }
-  int64 version = 1;
-  State state = 2;
-  // When the run finished.
-  google.protobuf.Timestamp finished_at = 3;
-}
-
-message StatusRequest {}
-
-message StatusResponse {
-  // Absent if this sandbox has never started a run.
-  optional RunRecord run = 1;
 }
 
 // RunSpec carries everything the driver reads from its flags and its
@@ -87,29 +67,44 @@ message File {
 }
 
 message RunRequest {
+  reserved 2;
+  // The run to start or attach to. Set on the first message only.
   int64 version = 1;
-  // Set to start a run. Omitted to attach.
-  RunSpec spec = 2;
-}
-
-message RunResponse {
-  oneof event {
-    // First message on every stream.
-    Accepted accepted = 2;
-    KeepAlive keep_alive = 3;
-    // Last message of a run. Sent after its terminal runner event.
-    Finished finished = 6;
+  oneof msg {
+    // The task's events, in log order. Never on the first message.
+    TaskEvents events = 3;
+    // Starts run version if the driver has none. Only on the first message;
+    // omitted to attach.
+    RunSpec spec = 5;
   }
 }
 
-message Accepted {
-  // True if the call attached to an existing run rather than starting one.
-  bool attached = 1;
+message TaskEvents {
+  repeated gritz.v1.Event events = 1;
 }
 
-message Finished {
+message RunResponse {
+  oneof msg {
+    KeepAlive keep_alive = 3;
+    // First message on every stream.
+    Hello hello = 7;
+    // Last message of a stream: the run has ended. Sent after its terminal
+    // runner event.
+    Idle idle = 8;
+  }
+}
+
+message Hello {
+  // Id of the last event the driver has stored; 0 for none.
+  int64 last_event_id = 1;
+}
+
+// Idle is the last message of a Run stream: the run it opened has ended.
+message Idle {
+  // Version of the run.
   int64 version = 1;
-  // True if the server acknowledged the run's terminal runner event.
+  // Whether the driver's SubmitRunnerEvents call for the run's terminal event
+  // succeeded. False makes the runner report the run failed.
   bool reported = 2;
 }
 
