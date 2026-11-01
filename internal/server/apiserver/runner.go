@@ -150,11 +150,8 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	resp := &gritzv1.ListRunnerEventsResponse{
-		Events:     make([]*gritzv1.Event, len(events)),
+		Events:     model.ProtoMap(events),
 		NextCursor: req.Cursor,
-	}
-	for i, e := range events {
-		resp.Events[i] = e.Proto()
 	}
 	if len(events) > 0 {
 		if resp.NextCursor, err = next.Encode(); err != nil {
