@@ -246,6 +246,12 @@ func toEventPayload(typ string, data []byte) (model.EventPayload, error) {
 			return nil, fmt.Errorf("unmarshal link payload: %w", err)
 		}
 		return &p, nil
+	case model.EventTypeCommand:
+		var p model.CommandPayload
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("unmarshal command payload: %w", err)
+		}
+		return &p, nil
 	default:
 		return nil, fmt.Errorf("unknown event type %q", typ)
 	}

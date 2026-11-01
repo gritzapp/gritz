@@ -38,10 +38,14 @@ FROM tasks
 WHERE runner = $1 AND org_id = $2 AND command != 0 AND archived = FALSE
 ORDER BY created_at DESC;
 
--- name: UpdateTask :exec
+-- name: UpdateTask :one
+-- Returns the command stored before the update, so the store can tell whether
+-- the command changed.
 UPDATE tasks
 SET name = $1, runner = $2, workspace = $3, status = $4, command = $5, version = $6, updated_at = $7, archived = $8, auto_archive = $9, shell_session = $10
-WHERE id = $11 AND org_id = $12;
+FROM (SELECT t.id, t.command FROM tasks t WHERE t.id = $11 AND t.org_id = $12 FOR UPDATE) AS prev
+WHERE tasks.id = prev.id
+RETURNING prev.command AS prev_command;
 
 -- name: ClearShellSession :exec
 UPDATE tasks
