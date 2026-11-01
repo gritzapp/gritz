@@ -67,9 +67,16 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 				return err
 			}
 			// Append the sandbox lifecycle event beside the status fold (status is
-			// the materialized projection; the fold logic is unchanged). original
-			// carries the pre-fold status; the task carries the post-fold status.
+			// the materialized projection; the fold logic is unchanged), and the
+			// command event when the fold changed the command (a clear, or a
+			// server-issued stop). original carries the pre-fold status and
+			// command; the task carries the post-fold ones.
 			if ev, ok := event.LifecycleEvent(task, original.Status); ok {
+				if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+					return err
+				}
+			}
+			if ev, ok := task.CommandEvent(original.Command); ok {
 				if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 					return err
 				}

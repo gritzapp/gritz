@@ -349,6 +349,26 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 	}
 }
 
+// CommandEvent returns the command event for a change from `from` to
+// t.Command, and false when the command didn't change. Every site that changes
+// a task's command captures `from` before the mutation and writes the event in
+// the same transaction, beside its lifecycle event. A task created with a
+// command changes it from TaskCommandNone.
+func (t *Task) CommandEvent(from TaskCommand) (*Event, bool) {
+	if t.Command == from {
+		return nil, false
+	}
+	return &Event{
+		TaskID: t.ID,
+		OrgID:  t.OrgID,
+		Payload: &CommandPayload{
+			Command: t.Command,
+			Version: t.Version,
+			Runner:  t.Runner,
+		},
+	}, true
+}
+
 // IsDone reports whether the task has finished its run: completed, failed,
 // or cancelled. A done task can still be restarted via Start/Restart, so
 // this isn't an absorbing state — just a snapshot that the current run
