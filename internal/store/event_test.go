@@ -9,7 +9,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
-	"github.com/gritzapp/gritz/internal/x/pagination"
+	"github.com/gritzapp/gritz/internal/x/pagination/v2"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"

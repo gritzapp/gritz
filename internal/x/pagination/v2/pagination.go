@@ -15,9 +15,6 @@
 // page costs exactly one query, and derive their continuation tokens from the
 // page's own boundary rows. Page-size validation, the opaque token encoding and
 // ErrInvalidRequest are shared.
-//
-// It replaces the bidirectional internal/x/pagination, which stays in place
-// until its callers move over.
 package pagination
 
 import (

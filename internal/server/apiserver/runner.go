@@ -13,7 +13,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store"
-	"github.com/gritzapp/gritz/internal/x/pagination"
+	"github.com/gritzapp/gritz/internal/x/pagination/v2"
 )
 
 func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
