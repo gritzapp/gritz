@@ -32,12 +32,6 @@ WHERE org_id = sqlc.arg(org_id)
 ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg(page_limit);
 
--- name: ListTasksForRunner :many
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
-FROM tasks
-WHERE runner = $1 AND org_id = $2 AND command != 0 AND archived = FALSE
-ORDER BY created_at DESC;
-
 -- name: UpdateTask :exec
 UPDATE tasks
 SET name = $1, runner = $2, workspace = $3, status = $4, command = $5, version = $6, updated_at = $7, archived = $8, auto_archive = $9, shell_session = $10

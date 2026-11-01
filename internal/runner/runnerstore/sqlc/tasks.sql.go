@@ -10,6 +10,17 @@ import (
 	"database/sql"
 )
 
+const getTaskHandled = `-- name: GetTaskHandled :one
+SELECT handled FROM tasks WHERE id = ?
+`
+
+func (q *Queries) GetTaskHandled(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getTaskHandled, id)
+	var handled int64
+	err := row.Scan(&handled)
+	return handled, err
+}
+
 const listUnarchivedTasks = `-- name: ListUnarchivedTasks :many
 SELECT id, command, version, workspace, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id
 `
@@ -49,6 +60,20 @@ func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]ListUnarchivedTask
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTaskHandled = `-- name: SetTaskHandled :exec
+UPDATE tasks SET handled = ?1 WHERE id = ?2
+`
+
+type SetTaskHandledParams struct {
+	Handled int64
+	ID      int64
+}
+
+func (q *Queries) SetTaskHandled(ctx context.Context, arg SetTaskHandledParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskHandled, arg.Handled, arg.ID)
+	return err
 }
 
 const upsertTask = `-- name: UpsertTask :one

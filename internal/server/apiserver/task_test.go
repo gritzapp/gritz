@@ -242,12 +242,10 @@ func TestCreateTask_Draft(t *testing.T) {
 	assert.Equal(t, len(eventsResp.Events), 1)
 	assert.Equal(t, eventsResp.Events[0].GetLifecycle().Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
 
-	// No command, so no runner ever sees it: nothing is launched.
-	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{
-		Runner: "test-runner",
-	})
+	// No command event, so no runner ever acts on it: nothing is launched.
+	commands, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
 	assert.NilError(t, err)
-	assert.Equal(t, len(runnerResp.Tasks), 0)
+	assert.Equal(t, len(commands), 0)
 }
 
 // The first instruction from the composer starts a draft task: it lands on
@@ -292,13 +290,20 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	// the same run number an ordinary create starts at.
 	assert.Equal(t, getResp.Task.Version, int64(1))
 
-	// The runner now has work for it.
-	runnerResp, err := srv.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{
-		Runner: "test-runner",
-	})
+	// The runner now has work for it: a start for run 1.
+	commands, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
 	assert.NilError(t, err)
-	assert.Equal(t, len(runnerResp.Tasks), 1)
-	assert.Equal(t, runnerResp.Tasks[0].Id, resp.Task.Id)
+	assert.DeepEqual(t,
+		model.FilterPayloads(commands, model.EventTypeCommand),
+		[]model.EventPayload{
+			&model.CommandPayload{
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
+			},
+		},
+	)
 
 	// The instruction is in the stream and woke the task.
 	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{

@@ -1,7 +1,7 @@
 // Package testrunner provides helpers for testing the runner: a TaskManager
 // on a fake backend with a mock server, drivers serving real runs, an
-// in-memory runner event log (Server), and the waits and assertions the
-// runner's tests share.
+// in-memory runner event log (Server) and the events tests add to it, and the
+// waits and assertions the runner's tests share.
 package testrunner
 
 import (
@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +27,8 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/outbox"
@@ -36,9 +36,10 @@ import (
 )
 
 const (
-	// RunnerID is the runner a Manager runs as, and a Task is assigned to.
+	// RunnerID is the runner a Manager runs as, and a CommandEvent is for.
 	RunnerID = "test-runner"
-	// Workspace is the workspace a Manager has by default, and a Task uses.
+	// Workspace is the workspace a Manager has by default, and a
+	// CommandEvent's command runs in.
 	Workspace = "test"
 	// ProbeVersion is the version AssertTracked's probe Boot runs.
 	ProbeVersion = 1000
@@ -186,34 +187,54 @@ func NewStubDriver(t *testing.T, h driverv1connect.DriverServiceHandler) driverv
 	return driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
 }
 
-// TaskOptions configures Task. Zero values are replaced with sensible
-// defaults.
-type TaskOptions struct {
-	// ID defaults to 1.
-	ID int64
-	// Version defaults to 1.
-	Version int64
-	Name    string
-	// Status defaults to pending.
-	Status model.TaskStatus
-	// Command defaults to start.
-	Command model.TaskCommand
+// StartChange returns task taskID's start at version, in the Workspace
+// workspace, as TaskManager.Start takes it.
+func StartChange(taskID, version int64) runnerstore.TaskChange {
+	return runnerstore.TaskChange{
+		ID:        taskID,
+		Command:   gritzv1.TaskCommand_START,
+		Version:   version,
+		Workspace: Workspace,
+	}
 }
 
-// Task returns a task of the Workspace workspace, assigned to RunnerID.
-func Task(opts *TaskOptions) *model.Task {
-	if opts == nil {
-		opts = &TaskOptions{}
+// CommandEvent returns event id of task taskID, the command command at
+// version, in the Workspace workspace.
+func CommandEvent(id, taskID int64, command gritzv1.TaskCommand, version int64) *gritzv1.Event {
+	return &gritzv1.Event{
+		Id:     id,
+		TaskId: taskID,
+		Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
+			Command:   command,
+			Version:   version,
+			Runner:    RunnerID,
+			Workspace: Workspace,
+		}},
 	}
-	return &model.Task{
-		ID:        cmp.Or(opts.ID, 1),
-		Name:      opts.Name,
-		Runner:    RunnerID,
-		Workspace: Workspace,
-		Status:    cmp.Or(opts.Status, model.TaskStatusPending),
-		Command:   cmp.Or(opts.Command, model.TaskCommandStart),
-		Version:   cmp.Or(opts.Version, 1),
+}
+
+// ArchiveEvent returns event id of task taskID, which archives it.
+func ArchiveEvent(id, taskID int64) *gritzv1.Event {
+	return LifecycleEvent(id, taskID, gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED)
+}
+
+// LifecycleEvent returns event id of task taskID, a lifecycle event of kind.
+func LifecycleEvent(id, taskID int64, kind gritzv1.LifecycleKind) *gritzv1.Event {
+	return &gritzv1.Event{
+		Id:      id,
+		TaskId:  taskID,
+		Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: kind}},
 	}
+}
+
+// NewRunnerStore opens a fresh runnerstore in a temp dir, closed when the
+// test ends.
+func NewRunnerStore(t *testing.T) *runnerstore.Store {
+	t.Helper()
+	s, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, s.Close()) })
+	return s
 }
 
 // ManagerOptions configures NewManager. Zero values are replaced with
@@ -223,13 +244,20 @@ type ManagerOptions struct {
 	Backend *fake.Backend
 	// Store defaults to a NewStore with no records.
 	Store *taskstate.Store
+	// Server is the runner event log the manager replicates; defaults to an
+	// empty one.
+	Server *Server
+	// RunnerStore holds the manager's replica of Server; defaults to a
+	// NewRunnerStore.
+	RunnerStore *runnerstore.Store
 	// Workspaces defaults to a config with the Workspace workspace, whose
 	// agent is a dummy.
 	Workspaces *workspace.Config
 	ServerURL  string
 	// Concurrency defaults to 1.
 	Concurrency int
-	// PollInterval defaults to the TaskManager's default.
+	// PollInterval is the TaskManager's and its event log's; defaults to
+	// theirs.
 	PollInterval time.Duration
 	// Fatal is runner.TaskManagerOptions.Fatal.
 	Fatal context.CancelCauseFunc
@@ -246,15 +274,18 @@ type Manager struct {
 	*runner.TaskManager
 	Backend *fake.Backend
 	Store   *taskstate.Store
-	// Client is the server. It mints task tokens, accepts runner events, and
-	// lists the tasks SetTasks sets.
+	// Server is the runner event log the manager replicates once it runs; Add
+	// appends to it.
+	Server *Server
+	// RunnerStore holds the manager's replica of Server, and its followers'
+	// positions.
+	RunnerStore *runnerstore.Store
+	// Client is the server. It serves Server's events, mints task tokens,
+	// accepts runner events, and reports every task completed.
 	Client *gritzclient.ClientMock
 	// Queue is the manager's outbox, delivering to Client. Nothing runs it
 	// until Submitted.
 	Queue *outbox.Outbox[model.RunnerEvent]
-
-	mu    sync.Mutex
-	tasks []*model.Task
 }
 
 // NewManager returns a Manager running as RunnerID, with its HandleEvents
@@ -265,8 +296,10 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 		opts = &ManagerOptions{}
 	}
 	m := &Manager{
-		Backend: opts.Backend,
-		Store:   opts.Store,
+		Backend:     opts.Backend,
+		Store:       opts.Store,
+		Server:      opts.Server,
+		RunnerStore: opts.RunnerStore,
 	}
 	if m.Backend == nil {
 		m.Backend = NewBackend(t, nil)
@@ -274,22 +307,22 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	if m.Store == nil {
 		m.Store = NewStore(t)
 	}
-	m.Client = &gritzclient.ClientMock{
-		CreateTaskTokenFunc: func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
-			return &gritzv1.CreateTaskTokenResponse{Token: "t"}, nil
-		},
-		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
-			return &gritzv1.SubmitRunnerEventsResponse{}, nil
-		},
-		ListRunnerTasksFunc: func(context.Context, *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			resp := &gritzv1.ListRunnerTasksResponse{}
-			for _, task := range m.tasks {
-				resp.Tasks = append(resp.Tasks, task.Proto(""))
-			}
-			return resp, nil
-		},
+	if m.Server == nil {
+		m.Server = NewServer(ServerOptions{})
+	}
+	if m.RunnerStore == nil {
+		m.RunnerStore = NewRunnerStore(t)
+	}
+	m.Client = m.Server.Client()
+	m.Client.CreateTaskTokenFunc = func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
+		return &gritzv1.CreateTaskTokenResponse{Token: "t"}, nil
+	}
+	m.Client.SubmitRunnerEventsFunc = func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+		return &gritzv1.SubmitRunnerEventsResponse{}, nil
+	}
+	// Prune and Load's backstop find every task live and not running.
+	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
+		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_COMPLETED}}, nil
 	}
 	var err error
 	m.Queue, err = runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
@@ -312,14 +345,21 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 		}
 	}
 	m.TaskManager, err = runner.NewTaskManager(runner.TaskManagerOptions{
-		Client:       m.Client,
-		Backend:      m.Backend,
-		Store:        m.Store,
-		ServerURL:    opts.ServerURL,
-		Workspaces:   workspaces,
-		Concurrency:  cmp.Or(opts.Concurrency, 1),
-		RunnerID:     RunnerID,
-		Queue:        m.Queue,
+		Client:      m.Client,
+		Backend:     m.Backend,
+		Store:       m.Store,
+		ServerURL:   opts.ServerURL,
+		Workspaces:  workspaces,
+		Concurrency: cmp.Or(opts.Concurrency, 1),
+		RunnerID:    RunnerID,
+		Queue:       m.Queue,
+		TaskLog: taskevents.New(taskevents.Options{
+			Store:        m.RunnerStore,
+			Client:       m.Client,
+			RunnerID:     RunnerID,
+			PollInterval: opts.PollInterval,
+		}),
+		RunnerStore:  m.RunnerStore,
 		PollInterval: opts.PollInterval,
 		Fatal:        opts.Fatal,
 		NewTaskRunner: func(o runner.TaskRunnerOptions) *runner.TaskRunner {
@@ -338,12 +378,58 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	return m
 }
 
-// SetTasks sets the tasks the server lists for the runner, which Poll acts
-// on. It may be called while the manager polls.
-func (m *Manager) SetTasks(tasks ...*model.Task) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tasks = slices.Clone(tasks)
+// Add appends events to the manager's Server, and has its event log fetch
+// them. It may be called while the manager runs.
+func (m *Manager) Add(events ...*gritzv1.Event) {
+	m.Server.Add(events...)
+	m.Wake()
+}
+
+// Run runs the manager, as TaskManager.Run does, until the test ends. Load
+// must have returned first, if the test calls it.
+func (m *Manager) Run(t *testing.T) {
+	t.Helper()
+	m.RunContext(t, t.Context())
+}
+
+// RunContext runs the manager until ctx is done, and waits for it to stop
+// when the test ends.
+func (m *Manager) RunContext(t *testing.T, ctx context.Context) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = m.TaskManager.Run(ctx)
+	}()
+	t.Cleanup(func() { <-done })
+}
+
+// Handled returns the id of the last event the task's follower handled.
+func (m *Manager) Handled(t *testing.T, taskID int64) int64 {
+	t.Helper()
+	handled, err := m.RunnerStore.Handled(t.Context(), taskID)
+	if err != nil {
+		// The task isn't stored yet.
+		return 0
+	}
+	return handled
+}
+
+// WaitHandled waits until the task's follower has handled event id: it
+// carried out the command it acted on, or found none to act on.
+func (m *Manager) WaitHandled(t *testing.T, taskID, id int64) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got := m.Handled(t, taskID)
+		if got == id {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task %d handled event %d, want %d", taskID, got, id)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // Queued returns the number of events in the manager's outbox.

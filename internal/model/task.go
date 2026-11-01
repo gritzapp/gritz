@@ -526,7 +526,7 @@ func (t *Task) Start() bool {
 
 // PendingRunner returns the runner that has pending work for this task, or ""
 // if no runner action is needed. A runner has work when the task has a command
-// and is not archived — the same condition as ListTasksForRunner.
+// and is not archived.
 func (t *Task) PendingRunner() string {
 	if t.Command == TaskCommandNone || t.Archived {
 		return ""

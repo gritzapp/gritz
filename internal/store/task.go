@@ -140,17 +140,6 @@ func (s *Store) ListTasksPage(ctx context.Context, tx *sql.Tx, p ListTasksPagePa
 	})
 }
 
-func (s *Store) ListTasksForRunner(ctx context.Context, tx *sql.Tx, runner string, orgID int64) ([]*model.Task, error) {
-	rows, err := s.q(tx).ListTasksForRunner(ctx, sqlc.ListTasksForRunnerParams{
-		Runner: runner,
-		OrgID:  orgID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return toModelTasks(rows)
-}
-
 func (s *Store) UpdateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 	task.UpdatedAt = time.Now().UTC()
 	return s.q(tx).UpdateTask(ctx, sqlc.UpdateTaskParams{
