@@ -1,8 +1,8 @@
 package runner
 
 import (
+	"cmp"
 	"context"
-	"fmt"
 	"log/slog"
 
 	"connectrpc.com/connect"
@@ -11,54 +11,138 @@ import (
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/x/outbox"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/x/common"
+	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
 // RunnerEventOutboxOptions configures the runner's durable event outbox.
 type RunnerEventOutboxOptions struct {
-	// Store is the durable backing store. When nil, a FileStore is opened at
-	// StoreDir. Tests pass an already-opened store directly; production supplies
-	// StoreDir and lets the factory open it.
-	Store outbox.Store
-	// StoreDir is the directory for the FileStore opened when Store is nil. It
-	// must be durable (under the runner's persistent state dir), not a temp dir,
-	// so events survive a restart.
-	StoreDir string
+	// Store holds the queue of runner events. Required.
+	Store *runnerstore.Store
 	// Client delivers events to the server via SubmitRunnerEvents.
 	Client gritzclient.Client
-	// Backoff is the retry policy for transient delivery failures.
+	// Backoff is the retry policy for transient delivery failures. It
+	// defaults to a capped exponential policy when nil.
 	Backoff backoff.BackOff
-	// Log receives delivery diagnostics.
+	// Log receives delivery diagnostics. Defaults to slog.Default when nil.
 	Log *slog.Logger
 }
 
-// NewRunnerEventOutbox builds the durable outbox that delivers runner lifecycle
-// events (started/stopped/failed) to the server. It is the single source of
-// truth for the Deliver closure — proto conversion + SubmitRunnerEvents, with
-// permanence classified by isPermanentError so unrecoverable events are
-// dead-lettered rather than retried forever — shared by the production wiring
-// and the tests. When opts.Store is nil, it opens a durable FileStore at
-// opts.StoreDir.
-func NewRunnerEventOutbox(opts RunnerEventOutboxOptions) (*outbox.Outbox[model.RunnerEvent], error) {
-	store := opts.Store
-	if store == nil {
-		fileStore, err := outbox.Open(opts.StoreDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open outbox store: %w", err)
-		}
-		store = fileStore
+// RunnerEventOutbox delivers runner lifecycle events (started/stopped/failed)
+// to the server in order, at least once. Each event is stored before delivery
+// and removed only after the server accepts it, so a crash between the two
+// redelivers it on restart. Delivery is strict FIFO with head-of-line
+// blocking.
+type RunnerEventOutbox struct {
+	store   *runnerstore.Store
+	client  gritzclient.Client
+	notify  wakeup.Chan
+	backoff backoff.BackOff
+	log     *slog.Logger
+}
+
+// NewRunnerEventOutbox returns a RunnerEventOutbox over opts.Store.
+func NewRunnerEventOutbox(opts RunnerEventOutboxOptions) *RunnerEventOutbox {
+	return &RunnerEventOutbox{
+		store:   opts.Store,
+		client:  opts.Client,
+		notify:  wakeup.New(),
+		backoff: cmp.Or[backoff.BackOff](opts.Backoff, backoff.NewExponentialBackOff()),
+		log:     cmp.Or(opts.Log, slog.Default()),
 	}
-	return outbox.New(outbox.Options[model.RunnerEvent]{
-		Store: store,
-		Deliver: func(ctx context.Context, ev model.RunnerEvent) (permanent bool, err error) {
-			_, err = opts.Client.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-				Events: []*gritzv1.RunnerEvent{ev.Proto()},
-			})
-			return isPermanentError(err), err
-		},
-		Backoff: opts.Backoff,
-		Log:     opts.Log,
-	}), nil
+}
+
+// Enqueue durably adds ev to the queue and wakes Run. It returns an error
+// only if the event could not be stored.
+func (o *RunnerEventOutbox) Enqueue(ev model.RunnerEvent) error {
+	if err := o.store.AddRunnerEvent(context.Background(), ev); err != nil {
+		return err
+	}
+	o.notify.Wake()
+	return nil
+}
+
+// Len returns the number of undelivered events.
+func (o *RunnerEventOutbox) Len() (int, error) {
+	return o.store.CountRunnerEvents(context.Background())
+}
+
+// Run delivers queued events until ctx is cancelled. Its first pass delivers
+// whatever is already stored, so events that survived a restart are
+// redelivered without a separate recovery path.
+func (o *RunnerEventOutbox) Run(ctx context.Context) {
+	for {
+		o.drain(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-o.notify:
+		}
+	}
+}
+
+// drain delivers the oldest pending event until none is left or ctx is
+// cancelled. On a transient failure it sleeps for the backoff interval and
+// retries the same event; on a permanent one (isPermanentError) it
+// dead-letters the event and moves on. A failed store call is logged and
+// retried after the backoff. The backoff resets once the queue empties.
+func (o *RunnerEventOutbox) drain(ctx context.Context) {
+	for ctx.Err() == nil {
+		seq, ev, ok, err := o.store.OldestRunnerEvent(ctx)
+		if err != nil {
+			o.log.Warn("runner event outbox read failed, will retry", "err", err)
+			if !common.SleepContext(ctx, o.backoff.NextBackOff()) {
+				return
+			}
+			continue
+		}
+		if !ok {
+			o.backoff.Reset()
+			return
+		}
+		_, err = o.client.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
+			Events: []*gritzv1.RunnerEvent{ev.Proto()},
+		})
+		switch {
+		case err == nil:
+			o.log.Debug("runner event delivered", "seq", seq)
+			if !o.settle(ctx, seq, false) {
+				return
+			}
+		case isPermanentError(err):
+			o.log.Warn("runner event dead-lettered due to permanent error", "seq", seq, "err", err)
+			if !o.settle(ctx, seq, true) {
+				return
+			}
+		default:
+			o.log.Warn("runner event delivery failed, will retry", "seq", seq, "err", err)
+			if !common.SleepContext(ctx, o.backoff.NextBackOff()) {
+				return
+			}
+		}
+	}
+}
+
+// settle deletes the event at seq, or dead-letters it when dead, retrying
+// with backoff if the store fails, so a delivered event is not submitted
+// again. It returns false if ctx was cancelled while retrying.
+func (o *RunnerEventOutbox) settle(ctx context.Context, seq int64, dead bool) bool {
+	for {
+		var err error
+		if dead {
+			err = o.store.MarkRunnerEventDead(ctx, seq)
+		} else {
+			err = o.store.DeleteRunnerEvent(ctx, seq)
+		}
+		if err == nil {
+			return true
+		}
+		o.log.Error("runner event outbox write failed, will retry", "seq", seq, "dead", dead, "err", err)
+		if !common.SleepContext(ctx, o.backoff.NextBackOff()) {
+			return false
+		}
+	}
 }
 
 // isPermanentError returns true if the error indicates a condition that will

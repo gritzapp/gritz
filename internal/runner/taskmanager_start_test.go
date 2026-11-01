@@ -93,14 +93,13 @@ func TestTaskManagerStart(t *testing.T) {
 	client := gritzclient.New(gritzclient.Options{BaseURL: ts.URL})
 	be, err := docker.New(docker.Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
-	queue, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-		StoreDir: t.TempDir(),
-		Client:   client,
-		Backoff:  backoff.NewConstantBackOff(0),
-		Log:      slog.Default(),
-	})
-	assert.NilError(t, err)
 	rstore := testrunner.NewRunnerStore(t)
+	queue := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
+		Store:   rstore,
+		Client:  client,
+		Backoff: backoff.NewConstantBackOff(0),
+		Log:     slog.Default(),
+	})
 	m, err := runner.NewTaskManager(runner.TaskManagerOptions{
 		Client:      client,
 		Backend:     be,

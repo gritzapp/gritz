@@ -25,7 +25,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/x/outbox"
 	"github.com/gritzapp/gritz/internal/x/safesem"
 	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
@@ -42,7 +41,7 @@ type TaskManager struct {
 	runnerID   string
 	sem        *safesem.Semaphore
 	log        *slog.Logger
-	queue      *outbox.Outbox[model.RunnerEvent]
+	queue      *RunnerEventOutbox
 	// tasklog is the runner's replica of its tasks' event logs. Run runs it,
 	// and the followers read their tasks' streams from it.
 	tasklog *taskevents.Log
@@ -108,7 +107,7 @@ type TaskManagerOptions struct {
 	Log         *slog.Logger
 	// Queue is the durable outbox that delivers runner lifecycle events to the
 	// server, buffering them across transient outages and restarts.
-	Queue *outbox.Outbox[model.RunnerEvent]
+	Queue *RunnerEventOutbox
 	// TaskLog is the runner's replica of its tasks' event logs, which Run
 	// runs. Required.
 	TaskLog *taskevents.Log

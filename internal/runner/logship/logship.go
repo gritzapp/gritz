@@ -47,7 +47,7 @@ const (
 // chunks, one per AppendLogChunk request. Write never blocks and never returns
 // an error; a full buffer drops bytes rather than stall the run.
 //
-// It borrows the shape of the runner's outbox.Outbox — in-order delivery,
+// It borrows the shape of the runner's RunnerEventOutbox — in-order delivery,
 // head-of-line retry with backoff, permanent-vs-transient classification —
 // without its on-disk durability: log bytes are diagnostics whose durable copy
 // is already in /gritz/log, so persisting them a second time to ship them is

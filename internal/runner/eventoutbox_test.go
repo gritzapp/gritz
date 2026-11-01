@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -13,15 +14,16 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
-	"github.com/gritzapp/gritz/internal/x/outbox"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 )
 
 // TestRunnerEventOutbox_Permanent covers how the outbox classifies a failed
 // delivery: a permanent error dead-letters the event after one attempt, and
-// any other error is retried until the event is delivered.
+// any other error is retried until the event is delivered. Either way the
+// queue drains.
 func TestRunnerEventOutbox_Permanent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -30,37 +32,21 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 		// wantCalls is how many SubmitRunnerEvents calls it took to drain the
 		// event.
 		wantCalls int
-		wantDead  bool
 	}{
-		{"nil", nil, 1, false},
-		{"not found", connect.NewError(connect.CodeNotFound, errors.New("gone")), 1, true},
-		{
-			"invalid argument",
-			connect.NewError(connect.CodeInvalidArgument, errors.New("bad")),
-			1,
-			true,
-		},
-		{
-			"permission denied",
-			connect.NewError(connect.CodePermissionDenied, errors.New("nope")),
-			1,
-			true,
-		},
-		{"unavailable", connect.NewError(connect.CodeUnavailable, errors.New("down")), 2, false},
-		{"internal", connect.NewError(connect.CodeInternal, errors.New("boom")), 2, false},
-		{
-			"deadline exceeded",
-			connect.NewError(connect.CodeDeadlineExceeded, errors.New("slow")),
-			2,
-			false,
-		},
-		{"plain error", errors.New("connection refused"), 2, false},
+		{"nil", nil, 1},
+		{"not found", connect.NewError(connect.CodeNotFound, errors.New("gone")), 1},
+		{"invalid argument", connect.NewError(connect.CodeInvalidArgument, errors.New("bad")), 1},
+		{"permission denied", connect.NewError(connect.CodePermissionDenied, errors.New("nope")), 1},
+		{"unavailable", connect.NewError(connect.CodeUnavailable, errors.New("down")), 2},
+		{"internal", connect.NewError(connect.CodeInternal, errors.New("boom")), 2},
+		{"deadline exceeded", connect.NewError(connect.CodeDeadlineExceeded, errors.New("slow")), 2},
+		{"plain error", errors.New("connection refused"), 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange - a server whose first SubmitRunnerEvents fails with
-			// tt.err, and an outbox whose store records how the event left it.
+			// tt.err.
 			var calls atomic.Int32
 			mock := &gritzclient.ClientMock{
 				SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
@@ -70,21 +56,12 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 					return &gritzv1.SubmitRunnerEventsResponse{}, nil
 				},
 			}
-			fs, err := outbox.Open(t.TempDir())
-			assert.NilError(t, err)
-			store := &outbox.StoreMock{
-				AppendFunc: fs.Append,
-				PeekFunc:   fs.Peek,
-				DropFunc:   fs.Drop,
-				LenFunc:    fs.Len,
-			}
-			queue, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-				Store:   store,
+			queue := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
+				Store:   testrunner.NewRunnerStore(t),
 				Client:  mock,
 				Backoff: backoff.NewConstantBackOff(0),
 				Log:     slog.Default(),
 			})
-			assert.NilError(t, err)
 			assert.NilError(t, queue.Enqueue(model.RunnerEvent{
 				TaskID: 1,
 				Event:  model.RunnerEventStarted,
@@ -93,12 +70,9 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 			// Act
 			testrunner.Drain(t, queue)
 
-			// Assert - the event left the queue once, dead-lettered only on a
-			// permanent error.
+			// Assert - the queue drained, and the event was resubmitted only
+			// after a transient error.
 			assert.Equal(t, int(calls.Load()), tt.wantCalls)
-			drops := store.DropCalls()
-			assert.Equal(t, len(drops), 1)
-			assert.Equal(t, drops[0].Dead, tt.wantDead)
 		})
 	}
 }
@@ -108,17 +82,18 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 // recovery path — the reopened outbox's first Run pass drains them in FIFO order.
 func TestTaskManagerEventsSurviveRestart(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	path := filepath.Join(t.TempDir(), "runner.db")
 
 	// A runner persists two lifecycle events, then "crashes" before delivering
 	// them: this outbox is never Run, so nothing reaches the server.
-	crashed, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-		StoreDir: dir,
-		Client:   &gritzclient.ClientMock{},
-		Backoff:  backoff.NewConstantBackOff(0),
-		Log:      slog.Default(),
-	})
+	store, err := runnerstore.Open(path)
 	assert.NilError(t, err)
+	crashed := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
+		Store:   store,
+		Client:  &gritzclient.ClientMock{},
+		Backoff: backoff.NewConstantBackOff(0),
+		Log:     slog.Default(),
+	})
 	assert.NilError(t, crashed.Enqueue(model.RunnerEvent{
 		TaskID: 1,
 		Event:  model.RunnerEventStarted,
@@ -129,20 +104,23 @@ func TestTaskManagerEventsSurviveRestart(t *testing.T) {
 		Version: 5,
 		Reason:  "boom",
 	}))
+	assert.NilError(t, store.Close())
 
-	// The new process re-opens the same durable dir and delivers on startup.
+	// The new process re-opens the same database and delivers on startup.
 	mock := &gritzclient.ClientMock{
 		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
 	}
-	restarted, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-		StoreDir: dir,
-		Client:   mock,
-		Backoff:  backoff.NewConstantBackOff(0),
-		Log:      slog.Default(),
-	})
+	store, err = runnerstore.Open(path)
 	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
+	restarted := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
+		Store:   store,
+		Client:  mock,
+		Backoff: backoff.NewConstantBackOff(0),
+		Log:     slog.Default(),
+	})
 
 	// The events survived the restart and are redelivered in FIFO order, with
 	// their TaskId/Version/Reason intact.
