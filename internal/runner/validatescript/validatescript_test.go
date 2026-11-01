@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,7 +28,18 @@ func waitFinished(t *testing.T, s *Script) error {
 	return err
 }
 
+// writeScript writes an executable script to path. It holds syscall.ForkLock
+// for reading while the file is open for writing, so a parallel test's fork
+// can't inherit the write fd and make exec fail with "text file busy".
+func writeScript(t *testing.T, path, script string) {
+	t.Helper()
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	assert.NilError(t, os.WriteFile(path, []byte(script), 0o755))
+}
+
 func TestNew_Missing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "validate")
 
 	_, err := New(t.Context(), Options{Path: path})
@@ -36,6 +48,7 @@ func TestNew_Missing(t *testing.T) {
 }
 
 func TestNew_NotExecutable(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "validate")
 	assert.NilError(t, os.WriteFile(path, []byte("#!/bin/sh\n"), 0o644))
 
@@ -45,6 +58,7 @@ func TestNew_NotExecutable(t *testing.T) {
 }
 
 func TestNew_Directory(t *testing.T) {
+	t.Parallel()
 	path := t.TempDir()
 
 	_, err := New(t.Context(), Options{Path: path})
@@ -53,13 +67,14 @@ func TestNew_Directory(t *testing.T) {
 }
 
 func TestValidate_InProgressRunsOnce(t *testing.T) {
+	t.Parallel()
 	// Arrange: the script records each start, then waits for release.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "validate")
-	assert.NilError(t, os.WriteFile(path, []byte(`#!/bin/sh
+	writeScript(t, path, `#!/bin/sh
 echo run >> "$DIR/runs"
 while [ ! -e "$DIR/release" ]; do sleep 0.01; done
-`), 0o755))
+`)
 	s, err := New(t.Context(), Options{Path: path, Environ: []string{"DIR=" + dir, "PATH=" + os.Getenv("PATH")}})
 	assert.NilError(t, err)
 
@@ -79,8 +94,9 @@ while [ ! -e "$DIR/release" ]; do sleep 0.01; done
 }
 
 func TestValidate_ExitZero(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "validate")
-	assert.NilError(t, os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	writeScript(t, path, "#!/bin/sh\nexit 0\n")
 	s, err := New(t.Context(), Options{Path: path})
 	assert.NilError(t, err)
 
@@ -92,8 +108,9 @@ func TestValidate_ExitZero(t *testing.T) {
 }
 
 func TestValidate_ExitOne(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "validate")
-	assert.NilError(t, os.WriteFile(path, []byte("#!/bin/sh\nexit 1\n"), 0o755))
+	writeScript(t, path, "#!/bin/sh\nexit 1\n")
 	s, err := New(t.Context(), Options{Path: path})
 	assert.NilError(t, err)
 
