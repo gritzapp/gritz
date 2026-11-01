@@ -38,10 +38,11 @@ type Sandbox struct {
 }
 
 type Task struct {
-	ID        int64
-	Command   sql.NullInt64
-	Version   sql.NullInt64
-	Archived  sql.NullBool
-	Workspace sql.NullString
-	Handled   int64
+	ID             int64
+	Command        sql.NullInt64
+	Version        sql.NullInt64
+	Archived       sql.NullBool
+	Workspace      sql.NullString
+	Handled        int64
+	CommandEventID sql.NullInt64
 }

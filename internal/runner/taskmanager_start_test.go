@@ -330,8 +330,8 @@ func TestTaskManagerFollow_StopSignalled(t *testing.T) {
 }
 
 // TestTaskManagerFollow_Start covers a start: the follower acts on the
-// latest command it reads, so a stream whose start was withdrawn and issued
-// again starts the task once, at the latest version.
+// task's latest report, so a page whose start was withdrawn and issued again
+// starts the task once, at the latest version.
 func TestTaskManagerFollow_Start(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -584,8 +584,8 @@ func TestTaskManagerFollow_Archive(t *testing.T) {
 }
 
 // TestTaskManagerFollow_ResumesFromHandled covers a runner restart: the next
-// runner's follower reads on from the stored position, so it doesn't act on
-// the command the first runner already carried out.
+// runner's follower starts from the stored handled position, so the boot
+// report of the command the first runner already carried out does nothing.
 func TestTaskManagerFollow_ResumesFromHandled(t *testing.T) {
 	t.Parallel()
 	// Arrange - a first runner starts task 1, whose run finishes on c1, and
@@ -606,15 +606,15 @@ func TestTaskManagerFollow_ResumesFromHandled(t *testing.T) {
 	cancel()
 	before, _ := be.Snapshot().Sandbox("c1")
 
-	// Act - the next runner boots on the same state, and the task gets an
-	// event that isn't a command.
+	// Act - the next runner boots on the same state, which reports the
+	// start again, and the task's command is then withdrawn.
 	m := testrunner.NewManager(t, opts)
 	assert.NilError(t, m.Load(t.Context()))
 	m.Run(t)
-	m.Add(testrunner.LifecycleEvent(2, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED))
+	m.Add(testrunner.CommandEvent(2, 1, gritzv1.TaskCommand_NONE, 1))
 
-	// Assert - the follower read only the new event: the start wasn't acted
-	// on again, so c1 wasn't booted, and no sandbox was created.
+	// Assert - the withdrawal is handled, and the start wasn't acted on
+	// again: c1 wasn't booted, and no sandbox was created.
 	m.WaitHandled(t, 1, 2)
 	after, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, after.Boots, before.Boots)
