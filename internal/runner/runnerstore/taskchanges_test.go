@@ -1,4 +1,4 @@
-package runnerstore
+package runnerstore_test
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 	"gotest.tools/v3/assert"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 )
 
 func TestTaskChanges(t *testing.T) {
@@ -13,8 +14,8 @@ func TestTaskChanges(t *testing.T) {
 		name        string
 		stored      map[int64]bool
 		events      []*gritzv1.Event
-		wantRows    []TaskChange
-		wantChanges []TaskChange
+		wantRows    []runnerstore.TaskChange
+		wantChanges []runnerstore.TaskChange
 	}{
 		{
 			name:   "new tasks in first-event order",
@@ -24,8 +25,8 @@ func TestTaskChanges(t *testing.T) {
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
 				{TaskId: 20, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
 			},
-			wantRows:    []TaskChange{{ID: 20}, {ID: 10}},
-			wantChanges: []TaskChange{{ID: 20}, {ID: 10}},
+			wantRows:    []runnerstore.TaskChange{{ID: 20}, {ID: 10}},
+			wantChanges: []runnerstore.TaskChange{{ID: 20}, {ID: 10}},
 		},
 		{
 			name:   "known task unchanged",
@@ -40,8 +41,8 @@ func TestTaskChanges(t *testing.T) {
 			events: []*gritzv1.Event{
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 			},
-			wantRows:    []TaskChange{{ID: 10, Archived: true}},
-			wantChanges: []TaskChange{{ID: 10, Archived: true}},
+			wantRows:    []runnerstore.TaskChange{{ID: 10, Archived: true}},
+			wantChanges: []runnerstore.TaskChange{{ID: 10, Archived: true}},
 		},
 		{
 			name:   "auto-archived",
@@ -49,8 +50,8 @@ func TestTaskChanges(t *testing.T) {
 			events: []*gritzv1.Event{
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_AUTO_ARCHIVED}}},
 			},
-			wantRows:    []TaskChange{{ID: 10, Archived: true}},
-			wantChanges: []TaskChange{{ID: 10, Archived: true}},
+			wantRows:    []runnerstore.TaskChange{{ID: 10, Archived: true}},
+			wantChanges: []runnerstore.TaskChange{{ID: 10, Archived: true}},
 		},
 		{
 			name:   "unarchived",
@@ -58,8 +59,8 @@ func TestTaskChanges(t *testing.T) {
 			events: []*gritzv1.Event{
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
 			},
-			wantRows:    []TaskChange{{ID: 10}},
-			wantChanges: []TaskChange{{ID: 10}},
+			wantRows:    []runnerstore.TaskChange{{ID: 10}},
+			wantChanges: []runnerstore.TaskChange{{ID: 10}},
 		},
 		{
 			name:   "new and archived in one page",
@@ -68,7 +69,7 @@ func TestTaskChanges(t *testing.T) {
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 			},
-			wantRows: []TaskChange{{ID: 10, Archived: true}},
+			wantRows: []runnerstore.TaskChange{{ID: 10, Archived: true}},
 		},
 		{
 			name:   "archived and unarchived in one page",
@@ -81,7 +82,7 @@ func TestTaskChanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			changes := newTaskChanges(tt.stored)
+			changes := runnerstore.NewTaskChanges(tt.stored)
 
 			for _, e := range tt.events {
 				changes.Apply(e)
