@@ -613,19 +613,18 @@ func TestRouteCreateRuleSpawnsTask(t *testing.T) {
 	// External -> Created -> Link -> Instruction: the trigger event that caused
 	// the task to exist first (the same way a woken task surfaces its trigger),
 	// then the lifecycle event, the link that triggered the task, and finally the
-	// prompt the agent acts on. Command events are not part of the timeline.
+	// prompt the agent acts on. The start command is written beside the Created
+	// lifecycle event.
 	allEvents, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
 	assert.NilError(t, err)
 	var types []string
 	for _, e := range allEvents {
-		if e.Payload.Type() == model.EventTypeCommand {
-			continue
-		}
 		types = append(types, e.Payload.Type())
 	}
 	assert.DeepEqual(t, types, []string{
 		model.EventTypeExternal,
 		model.EventTypeLifecycle,
+		model.EventTypeCommand,
 		model.EventTypeLink,
 		model.EventTypeInstruction,
 	})
