@@ -60,14 +60,22 @@ func TestMatchRule(t *testing.T) {
 
 		// --- Prefix -> {body, prefix} ---
 		{
-			name:  "prefix match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}}},
+			name: "prefix match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "prefix", Value: "gritz:"},
+				},
+			},
 			event: InputEvent{Data: "gritz: fix the tests"},
 			want:  true,
 		},
 		{
-			name:  "prefix mismatch",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}}},
+			name: "prefix mismatch",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "prefix", Value: "gritz:"},
+				},
+			},
 			event: InputEvent{Data: "just a comment"},
 			want:  false,
 		},
@@ -76,78 +84,134 @@ func TestMatchRule(t *testing.T) {
 		// The event now supplies extracted mentions in Attrs["mention"]
 		// rather than the router parsing @-syntax out of Data.
 		{
-			name:  "github mention match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "botuser"}}},
+			name: "github mention match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "botuser"},
+				},
+			},
 			event: InputEvent{Source: "github", Attrs: Attrs{"mention": {"botuser"}}},
 			want:  true,
 		},
 		{
 			// DELTA: legacy Mention matching was case-insensitive; conditions
 			// are literal, so BotUser no longer matches an extracted "botuser".
-			name:  "github mention is now case sensitive",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "BotUser"}}},
+			name: "github mention is now case sensitive",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "BotUser"},
+				},
+			},
 			event: InputEvent{Source: "github", Attrs: Attrs{"mention": {"botuser"}}},
 			want:  false,
 		},
 		{
-			name:  "github mention no substring match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "bot"}}},
+			name: "github mention no substring match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "bot"},
+				},
+			},
 			event: InputEvent{Source: "github", Attrs: Attrs{"mention": {"botuser"}}},
 			want:  false,
 		},
 		{
-			name:  "github mention mismatch",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "botuser"}}},
+			name: "github mention mismatch",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "botuser"},
+				},
+			},
 			event: InputEvent{Source: "github", Attrs: Attrs{"mention": {"someoneelse"}}},
 			want:  false,
 		},
 		{
-			name:  "atlassian mention match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "abc123"}}},
+			name: "atlassian mention match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "abc123"},
+				},
+			},
 			event: InputEvent{Source: "atlassian", Attrs: Attrs{"mention": {"abc123"}}},
 			want:  true,
 		},
 		{
-			name:  "atlassian mention mismatch",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "abc123"}}},
+			name: "atlassian mention mismatch",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "abc123"},
+				},
+			},
 			event: InputEvent{Source: "atlassian", Attrs: Attrs{"mention": {"xyz"}}},
 			want:  false,
 		},
 		{
 			// A mention condition against an event that carries no mention
 			// attr fails, regardless of what's in Data.
-			name:  "mention condition on event without mention attr fails",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "user"}}},
+			name: "mention condition on event without mention attr fails",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "user"},
+				},
+			},
 			event: InputEvent{Source: "unknown", Data: "@user hello"},
 			want:  false,
 		},
 
 		// --- Assignee -> {assignee, equals} ---
 		{
-			name:  "github assignee match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}}},
-			event: InputEvent{Source: "github", Type: "pull_request_assigned", Attrs: Attrs{"assignee": {"icholy-bot"}}},
-			want:  true,
+			name: "github assignee match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
+				},
+			},
+			event: InputEvent{
+				Source: "github",
+				Type:   "pull_request_assigned",
+				Attrs:  Attrs{"assignee": {"icholy-bot"}},
+			},
+			want: true,
 		},
 		{
 			// DELTA: legacy Assignee matching was case-insensitive; conditions
 			// are literal, so Icholy-Bot no longer matches "icholy-bot".
-			name:  "github assignee is now case sensitive",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}}},
-			event: InputEvent{Source: "github", Type: "pull_request_assigned", Attrs: Attrs{"assignee": {"Icholy-Bot"}}},
-			want:  false,
+			name: "github assignee is now case sensitive",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
+				},
+			},
+			event: InputEvent{
+				Source: "github",
+				Type:   "pull_request_assigned",
+				Attrs:  Attrs{"assignee": {"Icholy-Bot"}},
+			},
+			want: false,
 		},
 		{
-			name:  "github assignee mismatch",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}}},
-			event: InputEvent{Source: "github", Type: "pull_request_assigned", Attrs: Attrs{"assignee": {"octocat"}}},
-			want:  false,
+			name: "github assignee mismatch",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
+				},
+			},
+			event: InputEvent{
+				Source: "github",
+				Type:   "pull_request_assigned",
+				Attrs:  Attrs{"assignee": {"octocat"}},
+			},
+			want: false,
 		},
 		{
 			// Replaces the legacy "assignee empty on non-assignment event"
 			// case: an event that carries no assignee attr fails the condition.
-			name:  "assignee condition on event without assignee attr fails",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}}},
+			name: "assignee condition on event without assignee attr fails",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
+				},
+			},
 			event: InputEvent{Source: "github", Type: "issue_comment", Data: "hi"},
 			want:  false,
 		},
@@ -160,26 +224,42 @@ func TestMatchRule(t *testing.T) {
 			want:  true,
 		},
 		{
-			name:  "url prefix match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"}}},
+			name: "url prefix match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
+				},
+			},
 			event: InputEvent{URL: "https://github.com/icholy/gritz/pull/1"},
 			want:  true,
 		},
 		{
-			name:  "url prefix mismatch",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"}}},
+			name: "url prefix mismatch",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
+				},
+			},
 			event: InputEvent{URL: "https://github.com/other/repo/pull/1"},
 			want:  false,
 		},
 		{
-			name:  "url prefix mismatch on empty url",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"}}},
+			name: "url prefix mismatch on empty url",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
+				},
+			},
 			event: InputEvent{URL: ""},
 			want:  false,
 		},
 		{
 			name: "url prefix is independent of body",
-			rule: model.RoutingRule{Conditions: []model.Condition{{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"}}},
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
+				},
+			},
 			event: InputEvent{
 				URL:  "https://github.com/icholy/gritz/issues/1",
 				Data: "no gritz: prefix here",
@@ -188,7 +268,11 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "body prefix is independent of url",
-			rule: model.RoutingRule{Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}}},
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "prefix", Value: "gritz:"},
+				},
+			},
 			event: InputEvent{
 				URL:  "https://example.com/whatever",
 				Data: "gritz: do the thing",
@@ -198,14 +282,22 @@ func TestMatchRule(t *testing.T) {
 
 		// --- Value -> {label, equals} ---
 		{
-			name:  "label match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "gritz"}}},
+			name: "label match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "gritz"},
+				},
+			},
 			event: InputEvent{Attrs: Attrs{"label": {"gritz", "urgent"}}},
 			want:  true,
 		},
 		{
-			name:  "label no match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "gritz"}}},
+			name: "label no match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "gritz"},
+				},
+			},
 			event: InputEvent{Attrs: Attrs{"label": {"bug", "urgent"}}},
 			want:  false,
 		},
@@ -216,14 +308,22 @@ func TestMatchRule(t *testing.T) {
 			want:  true,
 		},
 		{
-			name:  "label condition with empty event labels no match",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "gritz"}}},
+			name: "label condition with empty event labels no match",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "gritz"},
+				},
+			},
 			event: InputEvent{Attrs: Attrs{"label": nil}},
 			want:  false,
 		},
 		{
-			name:  "label equals requires exact membership not substring",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "agent"}}},
+			name: "label equals requires exact membership not substring",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "agent"},
+				},
+			},
 			event: InputEvent{Attrs: Attrs{"label": {"gritz"}}},
 			want:  false,
 		},
@@ -257,20 +357,32 @@ func TestMatchRule(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "multi-value attr membership: any value matches",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "urgent"}}},
+			name: "multi-value attr membership: any value matches",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "urgent"},
+				},
+			},
 			event: InputEvent{Attrs: Attrs{"label": {"backlog", "urgent", "triage"}}},
 			want:  true,
 		},
 		{
-			name:  "contains op matches a substring of a value",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "body", Op: "contains", Value: "please"}}},
+			name: "contains op matches a substring of a value",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "contains", Value: "please"},
+				},
+			},
 			event: InputEvent{Data: "hey, please fix this"},
 			want:  true,
 		},
 		{
-			name:  "contains op mismatch",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "body", Op: "contains", Value: "please"}}},
+			name: "contains op mismatch",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "contains", Value: "please"},
+				},
+			},
 			event: InputEvent{Data: "just a comment"},
 			want:  false,
 		},
@@ -307,9 +419,11 @@ func TestMatchRule(t *testing.T) {
 		{
 			name: "combined gate type mismatch short-circuits conditions",
 			rule: model.RoutingRule{
-				Source:     "github",
-				Type:       "pull_request_assigned",
-				Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}},
+				Source: "github",
+				Type:   "pull_request_assigned",
+				Conditions: []model.Condition{
+					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
+				},
 			},
 			event: InputEvent{
 				Source: "github",
@@ -321,9 +435,11 @@ func TestMatchRule(t *testing.T) {
 		{
 			name: "combined gate assignee condition mismatch",
 			rule: model.RoutingRule{
-				Source:     "github",
-				Type:       "pull_request_assigned",
-				Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}},
+				Source: "github",
+				Type:   "pull_request_assigned",
+				Conditions: []model.Condition{
+					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
+				},
 			},
 			event: InputEvent{
 				Source: "github",
@@ -335,8 +451,12 @@ func TestMatchRule(t *testing.T) {
 
 		// --- unknown op never matches ---
 		{
-			name:  "unknown op never matches",
-			rule:  model.RoutingRule{Conditions: []model.Condition{{Attr: "body", Op: "regex", Value: "gritz:"}}},
+			name: "unknown op never matches",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "regex", Value: "gritz:"},
+				},
+			},
 			event: InputEvent{Data: "gritz: do it"},
 			want:  false,
 		},

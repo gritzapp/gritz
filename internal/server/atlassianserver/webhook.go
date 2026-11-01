@@ -161,8 +161,11 @@ func toInputEvent(body []byte) (*eventrouter.InputEvent, error) {
 			Description: description,
 			Data:        commentBody,
 			URL:         url,
-			Attrs:       eventrouter.Attrs{"mention": atlassian.Mentions(commentBody), "user": {accountID}},
-			Meta:        AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName},
+			Attrs: eventrouter.Attrs{
+				"mention": atlassian.Mentions(commentBody),
+				"user":    {accountID},
+			},
+			Meta: AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName},
 		}, nil
 
 	case atlassian.WebhookEventIssueUpdated:

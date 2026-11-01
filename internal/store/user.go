@@ -108,7 +108,10 @@ func (s *Store) GetUserByGitHubUserID(ctx context.Context, tx *sql.Tx, githubUse
 }
 
 func (s *Store) GetUserByAtlassianAccountID(ctx context.Context, tx *sql.Tx, atlassianAccountID string) (*model.User, error) {
-	row, err := s.q(tx).GetUserByAtlassianAccountID(ctx, sql.NullString{String: atlassianAccountID, Valid: true})
+	row, err := s.q(tx).GetUserByAtlassianAccountID(ctx, sql.NullString{
+		String: atlassianAccountID,
+		Valid:  true,
+	})
 	if err != nil {
 		return nil, err
 	}

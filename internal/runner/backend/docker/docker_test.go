@@ -19,7 +19,9 @@ func TestValidateWorkspace(t *testing.T) {
 	// The driver server listens on a unix socket, so any network mode works.
 	for _, mode := range []string{"", "bridge", "gritz-net", "host", "none", "container:abc"} {
 		t.Run("accepts "+cmp.Or(mode, "default"), func(t *testing.T) {
-			ws := &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}}
+			ws := &workspace.Workspace{
+				Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode},
+			}
 			assert.NilError(t, be.ValidateWorkspace(ws))
 		})
 	}
@@ -36,8 +38,10 @@ func TestDial_TunnelsThroughExec(t *testing.T) {
 	be := newTestBackend(t)
 	for _, mode := range []string{"", "none", "host", "host"} {
 		sb, err := be.Create(t.Context(), &backend.Spec{
-			TaskID:    rand.Int64N(1 << 40),
-			Workspace: &workspace.Workspace{Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode}},
+			TaskID: rand.Int64N(1 << 40),
+			Workspace: &workspace.Workspace{
+				Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode},
+			},
 		})
 		assert.NilError(t, err)
 		t.Cleanup(func() {
@@ -56,7 +60,9 @@ func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
 	docker, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = docker.Close() })
-	_, err = dockerx.ImageEnsure(t.Context(), docker, dockerx.ImageEnsureOptions{Ref: "alpine:latest"})
+	_, err = dockerx.ImageEnsure(t.Context(), docker, dockerx.ImageEnsureOptions{
+		Ref: "alpine:latest",
+	})
 	assert.NilError(t, err)
 	resp, err := docker.ContainerCreate(t.Context(),
 		&container.Config{Image: "alpine:latest", Cmd: cmd},

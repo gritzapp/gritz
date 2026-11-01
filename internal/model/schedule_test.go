@@ -144,9 +144,13 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 			},
 		},
 		{
-			TaskID:  42,
-			OrgID:   7,
-			Payload: &model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r"},
+			TaskID: 42,
+			OrgID:  7,
+			Payload: &model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "r",
+			},
 		},
 		{
 			TaskID:  42,

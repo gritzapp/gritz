@@ -20,7 +20,11 @@ import (
 func TestCreateSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -77,7 +81,11 @@ func TestCreateSchedule(t *testing.T) {
 func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -100,7 +108,11 @@ func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 func TestCreateSchedule_DefaultTimezone(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -120,7 +132,11 @@ func TestCreateSchedule_DefaultTimezone(t *testing.T) {
 func TestCreateSchedule_InvalidCron(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -143,7 +159,11 @@ func TestCreateSchedule_InvalidCron(t *testing.T) {
 func TestCreateSchedule_InvalidTimezone(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -162,7 +182,11 @@ func TestCreateSchedule_InvalidTimezone(t *testing.T) {
 func TestCreateSchedule_BadWorkspace(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -180,7 +204,11 @@ func TestCreateSchedule_BadWorkspace(t *testing.T) {
 func TestCreateSchedule_RequiresCreateScope(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 
 	// A member holding only task-read (org membership, no create scope) is denied.
 	readOnly := scopedCtx(t, org, authscope.Scopes{authscope.New(authscope.OpTaskRead)})
@@ -204,16 +232,30 @@ func TestCreateSchedule_RequiresCreateScope(t *testing.T) {
 func TestListSchedules(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
 		Scopes: authscope.Admin(),
 	})
 
-	_, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{Name: "a", Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *"})
+	_, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
+		Name:      "a",
+		Workspace: "test-workspace",
+		Runner:    "test-runner",
+		CronExpr:  "0 9 * * *",
+	})
 	assert.NilError(t, err)
-	_, err = srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{Name: "b", Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 10 * * *"})
+	_, err = srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
+		Name:      "b",
+		Workspace: "test-workspace",
+		Runner:    "test-runner",
+		CronExpr:  "0 10 * * *",
+	})
 	assert.NilError(t, err)
 
 	list, err := srv.ListSchedules(ctx, &gritzv1.ListSchedulesRequest{})
@@ -221,7 +263,11 @@ func TestListSchedules(t *testing.T) {
 	assert.Assert(t, cmp.Len(list.Schedules, 2))
 
 	// List is org-scoped: another org sees none.
-	other := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	other := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	otherList, err := srv.ListSchedules(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     other.UserID,
 		OrgID:  other.OrgID,
@@ -234,13 +280,21 @@ func TestListSchedules(t *testing.T) {
 func TestGetSchedule_Permissions(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgA.UserID,
 		OrgID:  orgA.OrgID,
 		Scopes: authscope.Admin(),
 	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgB.UserID,
 		OrgID:  orgB.OrgID,
@@ -264,7 +318,11 @@ func TestGetSchedule_Permissions(t *testing.T) {
 func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 
 	created, err := srv.CreateSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
@@ -284,7 +342,10 @@ func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
 	assert.Assert(t, cmp.Len(list.Schedules, 1))
 
 	// ...but not the mutations.
-	_, err = srv.SetScheduleEnabled(reader, &gritzv1.SetScheduleEnabledRequest{Id: created.Schedule.Id, Enabled: true})
+	_, err = srv.SetScheduleEnabled(reader, &gritzv1.SetScheduleEnabledRequest{
+		Id:      created.Schedule.Id,
+		Enabled: true,
+	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 	_, err = srv.DeleteSchedule(reader, &gritzv1.DeleteScheduleRequest{Id: created.Schedule.Id})
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
@@ -295,7 +356,11 @@ func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
 func TestSchedule_MutationsRequireWrite(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 
 	created, err := srv.CreateSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
@@ -307,7 +372,10 @@ func TestSchedule_MutationsRequireWrite(t *testing.T) {
 	assert.NilError(t, err)
 	writer := scopedCtx(t, org, authscope.Scopes{authscope.New(authscope.OpTaskWrite)})
 
-	_, err = srv.SetScheduleEnabled(writer, &gritzv1.SetScheduleEnabledRequest{Id: created.Schedule.Id, Enabled: false})
+	_, err = srv.SetScheduleEnabled(writer, &gritzv1.SetScheduleEnabledRequest{
+		Id:      created.Schedule.Id,
+		Enabled: false,
+	})
 	assert.NilError(t, err)
 	_, err = srv.DeleteSchedule(writer, &gritzv1.DeleteScheduleRequest{Id: created.Schedule.Id})
 	assert.NilError(t, err)
@@ -323,7 +391,11 @@ func TestSchedule_MutationsRequireWrite(t *testing.T) {
 func TestSetScheduleEnabled(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -338,13 +410,19 @@ func TestSetScheduleEnabled(t *testing.T) {
 	assert.Assert(t, created.Schedule.NextRunAt == nil)
 
 	// Enabling recomputes next_run_at from now.
-	enabled, err := srv.SetScheduleEnabled(ctx, &gritzv1.SetScheduleEnabledRequest{Id: created.Schedule.Id, Enabled: true})
+	enabled, err := srv.SetScheduleEnabled(ctx, &gritzv1.SetScheduleEnabledRequest{
+		Id:      created.Schedule.Id,
+		Enabled: true,
+	})
 	assert.NilError(t, err)
 	assert.Assert(t, enabled.Schedule.Enabled)
 	assert.Assert(t, enabled.Schedule.NextRunAt != nil)
 
 	// Disabling clears it so the claim query skips the row.
-	disabled, err := srv.SetScheduleEnabled(ctx, &gritzv1.SetScheduleEnabledRequest{Id: created.Schedule.Id, Enabled: false})
+	disabled, err := srv.SetScheduleEnabled(ctx, &gritzv1.SetScheduleEnabledRequest{
+		Id:      created.Schedule.Id,
+		Enabled: false,
+	})
 	assert.NilError(t, err)
 	assert.Assert(t, !disabled.Schedule.Enabled)
 	assert.Assert(t, disabled.Schedule.NextRunAt == nil)
@@ -353,7 +431,11 @@ func TestSetScheduleEnabled(t *testing.T) {
 func TestDeleteSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -375,7 +457,11 @@ func TestDeleteSchedule(t *testing.T) {
 func TestUpdateSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -408,7 +494,11 @@ func TestUpdateSchedule(t *testing.T) {
 func TestUpdateSchedule_InvalidCron(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -439,7 +529,11 @@ func TestUpdateSchedule_InvalidCron(t *testing.T) {
 func TestRunSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -495,8 +589,17 @@ func TestRunSchedule(t *testing.T) {
 			Actor:    model.ScheduleActor,
 			ToStatus: model.TaskStatusPending.Label(),
 		}},
-		{Payload: &model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"}},
-		{Wake: true, Payload: &model.InstructionPayload{Text: "bump deps", URL: "https://example.com/deps"}},
+		{
+			Payload: &model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
+		},
+		{
+			Wake:    true,
+			Payload: &model.InstructionPayload{Text: "bump deps", URL: "https://example.com/deps"},
+		},
 		{Wake: true, Payload: &model.InstructionPayload{Text: "groom changelog"}},
 	}
 	assert.Assert(t, cmp.Len(events, len(want)))
@@ -520,7 +623,11 @@ func TestRunSchedule(t *testing.T) {
 func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -558,7 +665,11 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 func TestRunSchedule_RequiresCreateScope(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 
 	created, err := srv.CreateSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
@@ -596,7 +707,11 @@ func TestRunSchedule_RequiresCreateScope(t *testing.T) {
 func TestRunSchedule_NotFound(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,

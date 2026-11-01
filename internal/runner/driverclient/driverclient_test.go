@@ -44,9 +44,17 @@ func setup(t *testing.T, d *testDriver) driverv1connect.DriverServiceClient {
 }
 
 var (
-	accepted  = &driverv1.RunResponse{Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}}}
-	keepAlive = &driverv1.RunResponse{Event: &driverv1.RunResponse_KeepAlive{KeepAlive: &driverv1.KeepAlive{}}}
-	finished  = &driverv1.RunResponse{Event: &driverv1.RunResponse_Finished{Finished: &driverv1.Finished{Version: 1, Reported: true}}}
+	accepted = &driverv1.RunResponse{
+		Event: &driverv1.RunResponse_Accepted{Accepted: &driverv1.Accepted{}},
+	}
+	keepAlive = &driverv1.RunResponse{
+		Event: &driverv1.RunResponse_KeepAlive{KeepAlive: &driverv1.KeepAlive{}},
+	}
+	finished = &driverv1.RunResponse{
+		Event: &driverv1.RunResponse_Finished{
+			Finished: &driverv1.Finished{Version: 1, Reported: true},
+		},
+	}
 )
 
 // receiveAll reads stream to its end, returning every message and its error.
@@ -61,7 +69,13 @@ func receiveAll(stream *connect.ServerStreamForClient[driverv1.RunResponse]) ([]
 func TestRun_HidesKeepAlives(t *testing.T) {
 	t.Parallel()
 	client := setup(t, &testDriver{run: func(_ context.Context, stream *connect.ServerStream[driverv1.RunResponse]) error {
-		for _, msg := range []*driverv1.RunResponse{accepted, keepAlive, keepAlive, keepAlive, finished} {
+		for _, msg := range []*driverv1.RunResponse{
+			accepted,
+			keepAlive,
+			keepAlive,
+			keepAlive,
+			finished,
+		} {
 			if err := stream.Send(msg); err != nil {
 				return err
 			}

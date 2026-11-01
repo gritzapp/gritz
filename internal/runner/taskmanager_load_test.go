@@ -27,12 +27,20 @@ import (
 // legacyRecord is a record written by an older runner: its Data carries the run
 // version.
 func legacyRecord(taskID int64, id string) taskstate.Record {
-	return taskstate.Record{TaskID: taskID, Version: 3, Type: "fake", ID: id, Data: json.RawMessage(`{"version":3}`)}
+	return taskstate.Record{
+		TaskID:  taskID,
+		Version: 3,
+		Type:    "fake",
+		ID:      id,
+		Data:    json.RawMessage(`{"version":3}`),
+	}
 }
 
 // taskRunning is a GetTask that reports every task RUNNING on the server.
 func taskRunning(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-	return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_RUNNING}}, nil
+	return &gritzv1.GetTaskResponse{
+		Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_RUNNING},
+	}, nil
 }
 
 // TestTaskManagerLoad_RestartReattaches covers a runner restart mid-run: the
@@ -42,7 +50,10 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going on an up sandbox, recorded at its
 	// version, followed by a runner that then shuts down.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 3,
+		Agent:   testrunner.SleepForever,
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
 	store := testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
@@ -97,18 +108,22 @@ func TestTaskManagerLoad(t *testing.T) {
 		},
 		{
 			// A parked husk is a lost-report backstop; its record is kept.
-			name:       "parked",
-			record:     legacyRecord(1, "c1"),
-			state:      fake.Parked,
-			wantEvents: []*gritzv1.RunnerEvent{{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"}},
+			name:   "parked",
+			record: legacyRecord(1, "c1"),
+			state:  fake.Parked,
+			wantEvents: []*gritzv1.RunnerEvent{
+				{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"},
+			},
 			wantRecord: true,
 		},
 		{
 			// A gone sandbox is a lost-report backstop; its record is dropped.
-			name:       "gone",
-			record:     legacyRecord(1, "c1"),
-			state:      fake.Gone,
-			wantEvents: []*gritzv1.RunnerEvent{{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"}},
+			name:   "gone",
+			record: legacyRecord(1, "c1"),
+			state:  fake.Gone,
+			wantEvents: []*gritzv1.RunnerEvent{
+				{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"},
+			},
 		},
 		{
 			// A failed status check leaves the record alone.
@@ -134,7 +149,10 @@ func TestTaskManagerLoad(t *testing.T) {
 			// a run that keeps going on its sandbox's driver. Task 2 is
 			// pending, and every other sandbox's driver runs its agent to
 			// completion.
-			client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
+			client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+				Version: 3,
+				Agent:   testrunner.SleepForever,
+			})
 			other := testrunner.NewDriver(t, nil)
 			be := testrunner.NewBackend(t, &testrunner.BackendOptions{
 				Driver:  other,
@@ -147,7 +165,10 @@ func TestTaskManagerLoad(t *testing.T) {
 			if tt.statusErr != nil {
 				be.FailNext(fake.OpStatus, "c1", tt.statusErr)
 			}
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, tt.record)})
+			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+				Backend: be,
+				Store:   testrunner.NewStore(t, tt.record),
+			})
 			m.Client.GetTaskFunc = taskRunning
 			m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 2}))
 
@@ -208,7 +229,15 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 			// so the boot-time backstop fires a "failed".
 			be := testrunner.NewBackend(t, nil)
 			be.Add("c1", fake.Parked)
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: tt.recVersion, Type: "fake", ID: "c1"})})
+			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+				Backend: be,
+				Store: testrunner.NewStore(t, taskstate.Record{
+					TaskID:  1,
+					Version: tt.recVersion,
+					Type:    "fake",
+					ID:      "c1",
+				}),
+			})
 			m.Client.GetTaskFunc = taskRunning
 
 			// Act - Load drives the parked husk through the backstop, which
@@ -245,7 +274,10 @@ func TestTaskManagerPrune(t *testing.T) {
 		be.Add(rec.ID, fake.Parked)
 	}
 	be.Set("c8", fake.Up)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, recs...)})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, recs...),
+	})
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		if req.Id == 4 {
 			return nil, connect.NewError(connect.CodeNotFound, errors.New("task not found"))
@@ -320,7 +352,9 @@ func TestTaskManagerRun(t *testing.T) {
 		Fatal:        cancelCause,
 		// The die path is reached through Enqueue → Append alone, so the other
 		// store methods are never called.
-		QueueStore: &outbox.StoreMock{AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") }},
+		QueueStore: &outbox.StoreMock{
+			AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") },
+		},
 	})
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: true}}, nil
@@ -342,7 +376,12 @@ func TestTaskManagerRun(t *testing.T) {
 
 	// Act - a stop command for a task with no sandbox, whose "stopped" cannot
 	// be persisted.
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 7, Version: 3, Status: model.TaskStatusCancelling, Command: model.TaskCommandStop}))
+	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
+		ID:      7,
+		Version: 3,
+		Status:  model.TaskStatusCancelling,
+		Command: model.TaskCommandStop,
+	}))
 
 	// Assert - Run returns the FatalError cause.
 	select {
@@ -421,10 +460,17 @@ func TestTaskManagerDie_StopWithoutSandbox(t *testing.T) {
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Fatal:      cancelCause,
-		QueueStore: &outbox.StoreMock{AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") }},
+		Fatal: cancelCause,
+		QueueStore: &outbox.StoreMock{
+			AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") },
+		},
 	})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 7, Version: 3, Status: model.TaskStatusCancelling, Command: model.TaskCommandStop}))
+	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
+		ID:      7,
+		Version: 3,
+		Status:  model.TaskStatusCancelling,
+		Command: model.TaskCommandStop,
+	}))
 
 	// Act - the "stopped" enqueue fails durably, so die fires.
 	assert.NilError(t, m.Poll(ctx))
@@ -443,7 +489,12 @@ func TestTaskManagerGracefulShutdown_NoFatalCause(t *testing.T) {
 	t.Parallel()
 	ctx, cancelCause := context.WithCancelCause(context.Background())
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Fatal: cancelCause})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 7, Version: 3, Status: model.TaskStatusCancelling, Command: model.TaskCommandStop}))
+	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
+		ID:      7,
+		Version: 3,
+		Status:  model.TaskStatusCancelling,
+		Command: model.TaskCommandStop,
+	}))
 
 	// The durable enqueue succeeds, so die never fires.
 	assert.NilError(t, m.Poll(ctx))
@@ -460,12 +511,20 @@ func TestTaskManagerHandleEvents_Lost(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going on an up sandbox, followed by the Run
 	// goroutine Load starts for it.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 3,
+		Agent:   testrunner.SleepForever,
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 		Backend: be,
-		Store:   testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}),
+		Store: testrunner.NewStore(t, taskstate.Record{
+			TaskID:  1,
+			Version: 3,
+			Type:    "fake",
+			ID:      "c1",
+		}),
 		TaskRunner: func(opts *runner.TaskRunnerOptions) {
 			opts.LostTimeout = 100 * time.Millisecond
 		},
@@ -498,7 +557,11 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	be := testrunner.NewBackend(t, nil)
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: store, Fatal: cancelCause})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   store,
+		Fatal:   cancelCause,
+	})
 
 	// Act
 	err = m.Start(t.Context(), testrunner.Task(nil))

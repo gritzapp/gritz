@@ -90,7 +90,10 @@ func TestRelayPassesBytesBothDirections(t *testing.T) {
 		OrgID:  testOrg,
 		Scopes: agentauth.Scopes(agentauth.ScopeOptions{TaskID: testTask}),
 	}))
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -129,7 +132,10 @@ func TestAttachRejectsVersionMismatch(t *testing.T) {
 	t.Parallel()
 	reg := shellserver.New(shellserver.Options{EstablishTimeout: time.Minute})
 	mux := http.NewServeMux()
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -157,7 +163,10 @@ func TestAttachRejectsUnknownSession(t *testing.T) {
 	t.Parallel()
 	reg := shellserver.New(shellserver.Options{EstablishTimeout: time.Minute})
 	mux := http.NewServeMux()
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -181,7 +190,10 @@ func TestAttachForeignOrgIndistinguishableFromMissing(t *testing.T) {
 	reg := shellserver.New(shellserver.Options{EstablishTimeout: time.Minute})
 	mux := http.NewServeMux()
 	// The caller belongs to a different org than the session's owner.
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg + 1}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg + 1,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -506,7 +518,10 @@ func TestClosingOneLegEvictsSession(t *testing.T) {
 		OrgID:  testOrg,
 		Scopes: agentauth.Scopes(agentauth.ScopeOptions{TaskID: testTask}),
 	}))
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -565,7 +580,10 @@ func TestOnCloseFiresOnLegDrop(t *testing.T) {
 		OrgID:  testOrg,
 		Scopes: agentauth.Scopes(agentauth.ScopeOptions{TaskID: testTask}),
 	}))
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -598,7 +616,10 @@ func TestOnCloseFiresOnEstablishTimeout(t *testing.T) {
 	// Only the driver leg connects: the establishment timeout tears the session
 	// down, which must also fire onClose.
 	rec := &closeRecorder{}
-	reg := shellserver.New(shellserver.Options{EstablishTimeout: 100 * time.Millisecond, OnClose: rec.fn()})
+	reg := shellserver.New(shellserver.Options{
+		EstablishTimeout: 100 * time.Millisecond,
+		OnClose:          rec.fn(),
+	})
 	mux := http.NewServeMux()
 	mux.Handle("GET /shell/driver", apiauth.WithTestUser(reg.DriverHandler(), &apiauth.UserInfo{
 		ID:     "driver",

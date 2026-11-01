@@ -46,8 +46,20 @@ func TestSetAndGetRoutingRules(t *testing.T) {
 		Scopes: authscope.Admin(),
 	})
 	rules := []*gritzv1.RoutingRule{
-		{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "bot:"}}},
-		{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "mention", Op: "equals", Value: "mybot"}}},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "prefix", Value: "bot:"},
+			},
+		},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "mention", Op: "equals", Value: "mybot"},
+			},
+		},
 	}
 
 	// Act
@@ -78,8 +90,21 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 		Scopes: authscope.Admin(),
 	})
 	rules := []*gritzv1.RoutingRule{
-		{Source: "github", Type: "label_added", Conditions: []*gritzv1.RuleCondition{{Attr: "label", Op: "equals", Value: "reviewbot"}}, Namespace: "reviewbot"},
-		{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "bot:"}}},
+		{
+			Source: "github",
+			Type:   "label_added",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "label", Op: "equals", Value: "reviewbot"},
+			},
+			Namespace: "reviewbot",
+		},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "prefix", Value: "bot:"},
+			},
+		},
 	}
 
 	// Act
@@ -118,7 +143,13 @@ func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 	})
 	_, err := srv.SetRoutingRules(ctxA, &gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
-			{Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "a:"}}},
+			{
+				Source: "github",
+				Type:   "issue_comment",
+				Conditions: []*gritzv1.RuleCondition{
+					{Attr: "body", Op: "prefix", Value: "a:"},
+				},
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -143,11 +174,29 @@ func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 	})
 
 	cases := map[string]*gritzv1.RoutingRule{
-		"empty type":      {Source: "github"},
-		"unknown type":    {Source: "github", Type: "not_a_type"},
-		"unknown attr":    {Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "nope", Op: "equals", Value: "x"}}},
-		"unknown op":      {Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "regex", Value: "x"}}},
-		"attr wrong type": {Source: "github", Type: "issue_comment", Conditions: []*gritzv1.RuleCondition{{Attr: "assignee", Op: "equals", Value: "x"}}},
+		"empty type":   {Source: "github"},
+		"unknown type": {Source: "github", Type: "not_a_type"},
+		"unknown attr": {
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "nope", Op: "equals", Value: "x"},
+			},
+		},
+		"unknown op": {
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "regex", Value: "x"},
+			},
+		},
+		"attr wrong type": {
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "assignee", Op: "equals", Value: "x"},
+			},
+		},
 	}
 	for name, rule := range cases {
 		t.Run(name, func(t *testing.T) {

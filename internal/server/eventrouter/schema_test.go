@@ -173,6 +173,10 @@ func TestSchemaRegistryMustRegisterDuplicatePanics(t *testing.T) {
 	reg.MustRegister(testComment)
 	// Re-registering the same (source, type) must panic.
 	assert.Assert(t, cmp.Panics(func() {
-		reg.MustRegister(EventTypeDef{Source: "test", Type: "comment", Attrs: []AttrDef{{Key: "body"}}})
+		reg.MustRegister(EventTypeDef{
+			Source: "test",
+			Type:   "comment",
+			Attrs:  []AttrDef{{Key: "body"}},
+		})
 	}))
 }

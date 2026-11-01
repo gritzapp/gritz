@@ -16,7 +16,11 @@ import (
 func TestSubmitRunnerEvents(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -80,13 +84,21 @@ func TestSubmitRunnerEvents_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgA.UserID,
 		OrgID:  orgA.OrgID,
 		Scopes: authscope.Admin(),
 	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgB.UserID,
 		OrgID:  orgB.OrgID,
@@ -254,13 +266,24 @@ func TestListRunnerEvents(t *testing.T) {
 	})
 	// runner-2's task is created first, so once runner-1's events pass the
 	// watermark, runner-2's have too.
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "other", Workspace: "test-workspace", Runner: "runner-2"})
+	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "other",
+		Workspace: "test-workspace",
+		Runner:    "runner-2",
+	})
 	assert.NilError(t, err)
-	mine, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "mine", Workspace: "test-workspace", Runner: "runner-1"})
+	mine, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "mine",
+		Workspace: "test-workspace",
+		Runner:    "runner-1",
+	})
 	assert.NilError(t, err)
 	want, err := srv.store.ListEventsByTask(ctx, nil, mine.Task.Id, org.OrgID, nil)
 	assert.NilError(t, err)
-	teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: len(want)})
+	teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  len(want),
+	})
 
 	// Act - read runner-1's log from the start.
 	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
@@ -283,12 +306,22 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 		OrgID:  org.OrgID,
 		Scopes: authscope.Admin(),
 	})
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task", Workspace: "test-workspace", Runner: "runner-1"})
+	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "task",
+		Workspace: "test-workspace",
+		Runner:    "runner-1",
+	})
 	assert.NilError(t, err)
-	_, token := teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
+	_, token := teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  1,
+	})
 
 	// Act
-	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageToken: token})
+	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{
+		Runner:    "runner-1",
+		PageToken: token,
+	})
 
 	// Assert - nothing new, and the request's token comes back unchanged.
 	assert.NilError(t, err)
@@ -330,7 +363,10 @@ func TestListRunnerEvents_BadRequest(t *testing.T) {
 		{"no runner", &gritzv1.ListRunnerEventsRequest{}},
 		{"bad token", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageToken: "!"}},
 		{"negative page size", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: -1}},
-		{"page size too large", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: 1001}},
+		{
+			"page size too large",
+			&gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: 1001},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

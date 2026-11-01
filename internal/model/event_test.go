@@ -69,19 +69,32 @@ func TestLifecyclePayload_Summary(t *testing.T) {
 			want:    "Cancelled",
 		},
 		{
-			name:    "sandbox exited with statuses",
-			payload: LifecyclePayload{Kind: LifecycleKindSandboxExited, Actor: RunnerActor, FromStatus: "Running", ToStatus: "Completed"},
-			want:    "Sandbox exited (Running -> Completed)",
+			name: "sandbox exited with statuses",
+			payload: LifecyclePayload{
+				Kind:       LifecycleKindSandboxExited,
+				Actor:      RunnerActor,
+				FromStatus: "Running",
+				ToStatus:   "Completed",
+			},
+			want: "Sandbox exited (Running -> Completed)",
 		},
 		{
-			name:    "sandbox failed with message",
-			payload: LifecyclePayload{Kind: LifecycleKindSandboxFailed, Actor: RunnerActor, Message: "boom"},
-			want:    "Sandbox failed: boom",
+			name: "sandbox failed with message",
+			payload: LifecyclePayload{
+				Kind:    LifecycleKindSandboxFailed,
+				Actor:   RunnerActor,
+				Message: "boom",
+			},
+			want: "Sandbox failed: boom",
 		},
 		{
-			name:    "updated with fields by user",
-			payload: LifecyclePayload{Kind: LifecycleKindUpdated, Actor: UserActor("icholy"), Fields: []string{"name", "status"}},
-			want:    "Updated name, status by icholy",
+			name: "updated with fields by user",
+			payload: LifecyclePayload{
+				Kind:   LifecycleKindUpdated,
+				Actor:  UserActor("icholy"),
+				Fields: []string{"name", "status"},
+			},
+			want: "Updated name, status by icholy",
 		},
 		{
 			name:    "updated without fields",

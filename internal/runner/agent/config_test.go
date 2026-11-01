@@ -11,7 +11,12 @@ func TestConfigStoreRoundTrip(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	store := ConfigStore(t.TempDir())
-	cfg := &Config{Type: TypeDummy, Started: true, SetupCommandsCompleted: 2, NextEventToken: "cursor-abc123"}
+	cfg := &Config{
+		Type:                   TypeDummy,
+		Started:                true,
+		SetupCommandsCompleted: 2,
+		NextEventToken:         "cursor-abc123",
+	}
 
 	// Act
 	assert.NilError(t, store.Save(1, cfg))

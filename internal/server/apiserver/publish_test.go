@@ -24,7 +24,9 @@ func TestCreateTask_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -58,7 +60,9 @@ func TestCreateTask_Draft_PublishesWithoutRunner(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -89,7 +93,9 @@ func TestUpdateTask_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -127,7 +133,9 @@ func TestCancelTask_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -162,7 +170,9 @@ func TestArchiveTask_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -206,7 +216,9 @@ func TestUploadLogs_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -228,10 +240,12 @@ func TestUploadLogs_Publishes(t *testing.T) {
 	assert.NilError(t, err)
 
 	assert.DeepEqual(t, pub.PublishedNotifications(), []model.Notification{{
-		Type:      "change",
-		Resources: []model.NotificationResource{{Action: "appended", Type: "task_events", ID: resp.Task.Id}},
-		OrgID:     org.OrgID,
-		UserID:    org.UserID,
+		Type: "change",
+		Resources: []model.NotificationResource{
+			{Action: "appended", Type: "task_events", ID: resp.Task.Id},
+		},
+		OrgID:  org.OrgID,
+		UserID: org.UserID,
 	}}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
 }
 
@@ -243,7 +257,9 @@ func TestCreateLink_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -282,7 +298,9 @@ func TestUpdateTask_ChannelMessage_QueuedOnStart(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -323,7 +341,9 @@ func TestUpdateTask_NoChannelMessage_NameOnly(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -362,7 +382,9 @@ func TestSubmitRunnerEvents_Publishes(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -405,7 +427,9 @@ func TestSubmitRunnerEvents_NotApplied_DoesNotPublish(t *testing.T) {
 	}
 	st := teststore.New(t)
 	srv := New(Options{Store: st, Publisher: pub})
-	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}}})
+	org := teststore.CreateOrg(t, st, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,

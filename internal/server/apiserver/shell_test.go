@@ -16,7 +16,11 @@ func TestOpenShell(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -69,7 +73,11 @@ func TestOpenShell_RejectsPending(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -99,7 +107,11 @@ func TestOpenShell_RejectsRunning(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -134,8 +146,16 @@ func TestOpenShell_CrossOrgDenied(t *testing.T) {
 	t.Parallel()
 	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
 	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgA.UserID,
 		OrgID:  orgA.OrgID,

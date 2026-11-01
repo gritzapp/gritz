@@ -76,7 +76,11 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 	err := srv.store.SetOrgRoutingRules(ctx, nil, org.OrgID, []model.RoutingRule{
 		{Source: "github", Type: "issue_comment",
 			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
-			Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r", Prompt: "Do it."}},
+			Create: &model.CreateTaskAction{
+				Workspace: "default",
+				Runner:    "r",
+				Prompt:    "Do it.",
+			}},
 	})
 	assert.NilError(t, err)
 

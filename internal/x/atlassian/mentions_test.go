@@ -13,7 +13,11 @@ func TestMentions(t *testing.T) {
 		want []string
 	}{
 		{name: "none", body: "just a plain comment", want: nil},
-		{name: "single", body: "[~accountid:557058:abc] please review", want: []string{"557058:abc"}},
+		{
+			name: "single",
+			body: "[~accountid:557058:abc] please review",
+			want: []string{"557058:abc"},
+		},
 		{
 			name: "multiple",
 			body: "[~accountid:557058:abc] and [~accountid:5b10ac] please review",

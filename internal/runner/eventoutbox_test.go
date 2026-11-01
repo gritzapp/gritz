@@ -34,11 +34,26 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 	}{
 		{"nil", nil, 1, false},
 		{"not found", connect.NewError(connect.CodeNotFound, errors.New("gone")), 1, true},
-		{"invalid argument", connect.NewError(connect.CodeInvalidArgument, errors.New("bad")), 1, true},
-		{"permission denied", connect.NewError(connect.CodePermissionDenied, errors.New("nope")), 1, true},
+		{
+			"invalid argument",
+			connect.NewError(connect.CodeInvalidArgument, errors.New("bad")),
+			1,
+			true,
+		},
+		{
+			"permission denied",
+			connect.NewError(connect.CodePermissionDenied, errors.New("nope")),
+			1,
+			true,
+		},
 		{"unavailable", connect.NewError(connect.CodeUnavailable, errors.New("down")), 2, false},
 		{"internal", connect.NewError(connect.CodeInternal, errors.New("boom")), 2, false},
-		{"deadline exceeded", connect.NewError(connect.CodeDeadlineExceeded, errors.New("slow")), 2, false},
+		{
+			"deadline exceeded",
+			connect.NewError(connect.CodeDeadlineExceeded, errors.New("slow")),
+			2,
+			false,
+		},
 		{"plain error", errors.New("connection refused"), 2, false},
 	}
 	for _, tt := range tests {
@@ -57,7 +72,12 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 			}
 			fs, err := outbox.Open(t.TempDir())
 			assert.NilError(t, err)
-			store := &outbox.StoreMock{AppendFunc: fs.Append, PeekFunc: fs.Peek, DropFunc: fs.Drop, LenFunc: fs.Len}
+			store := &outbox.StoreMock{
+				AppendFunc: fs.Append,
+				PeekFunc:   fs.Peek,
+				DropFunc:   fs.Drop,
+				LenFunc:    fs.Len,
+			}
 			queue, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
 				Store:   store,
 				Client:  mock,
@@ -65,7 +85,10 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 				Log:     slog.Default(),
 			})
 			assert.NilError(t, err)
-			assert.NilError(t, queue.Enqueue(model.RunnerEvent{TaskID: 1, Event: model.RunnerEventStarted}))
+			assert.NilError(t, queue.Enqueue(model.RunnerEvent{
+				TaskID: 1,
+				Event:  model.RunnerEventStarted,
+			}))
 
 			// Act
 			testrunner.Drain(t, queue)
@@ -96,8 +119,16 @@ func TestTaskManagerEventsSurviveRestart(t *testing.T) {
 		Log:      slog.Default(),
 	})
 	assert.NilError(t, err)
-	assert.NilError(t, crashed.Enqueue(model.RunnerEvent{TaskID: 1, Event: model.RunnerEventStarted}))
-	assert.NilError(t, crashed.Enqueue(model.RunnerEvent{TaskID: 2, Event: model.RunnerEventFailed, Version: 5, Reason: "boom"}))
+	assert.NilError(t, crashed.Enqueue(model.RunnerEvent{
+		TaskID: 1,
+		Event:  model.RunnerEventStarted,
+	}))
+	assert.NilError(t, crashed.Enqueue(model.RunnerEvent{
+		TaskID:  2,
+		Event:   model.RunnerEventFailed,
+		Version: 5,
+		Reason:  "boom",
+	}))
 
 	// The new process re-opens the same durable dir and delivers on startup.
 	mock := &gritzclient.ClientMock{

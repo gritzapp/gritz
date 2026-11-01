@@ -93,7 +93,11 @@ func setup(t *testing.T, cfg *agent.Config) *testEnv {
 	})
 
 	te.cloud = newFakeCloud(hs.URL)
-	te.be, err = New(Options{Cloud: te.cloud, Transport: hs.Client().Transport, Region: "us-east-1"})
+	te.be, err = New(Options{
+		Cloud:     te.cloud,
+		Transport: hs.Client().Transport,
+		Region:    "us-east-1",
+	})
 	assert.NilError(t, err)
 	te.be.idleTimeout = time.Second
 	te.be.stateTimeout = 5 * time.Second

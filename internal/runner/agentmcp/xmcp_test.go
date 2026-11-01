@@ -57,7 +57,10 @@ func TestGetMyTask(t *testing.T) {
 		},
 		ListEventsByTaskFunc: func(ctx context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
 			assert.Equal(t, req.TaskId, int64(123))
-			assert.DeepEqual(t, req.Types, []string{model.EventTypeInstruction, model.EventTypeExternal})
+			assert.DeepEqual(t, req.Types, []string{
+				model.EventTypeInstruction,
+				model.EventTypeExternal,
+			})
 			return &gritzv1.ListEventsByTaskResponse{
 				Events: []*gritzv1.Event{
 					{
@@ -121,7 +124,11 @@ func TestGetGitHubToken(t *testing.T) {
 			}, nil
 		},
 	}
-	srv := NewServer(client, &model.Task{ID: 123, Runner: "test-runner", Workspace: "test-workspace"}, []string{agentauth.CapabilityGitHubToken})
+	srv := NewServer(client, &model.Task{
+		ID:        123,
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	}, []string{agentauth.CapabilityGitHubToken})
 	session := setupTestSession(t, srv)
 
 	// Act
@@ -148,7 +155,11 @@ func TestGetGitHubToken_Error(t *testing.T) {
 			return nil, errors.New("no installation linked")
 		},
 	}
-	srv := NewServer(client, &model.Task{ID: 123, Runner: "test-runner", Workspace: "test-workspace"}, []string{agentauth.CapabilityGitHubToken})
+	srv := NewServer(client, &model.Task{
+		ID:        123,
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	}, []string{agentauth.CapabilityGitHubToken})
 	session := setupTestSession(t, srv)
 
 	// Act
@@ -172,7 +183,11 @@ func TestGetGitHubToken_NotRegisteredWithoutCapability(t *testing.T) {
 			return nil, nil
 		},
 	}
-	srv := NewServer(client, &model.Task{ID: 123, Runner: "test-runner", Workspace: "test-workspace"}, nil)
+	srv := NewServer(client, &model.Task{
+		ID:        123,
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	}, nil)
 	session := setupTestSession(t, srv)
 
 	// Act

@@ -69,41 +69,59 @@ func TestOnlyFields(t *testing.T) {
 			// Nested selection descends into the parent (keptOrAncestor prefix
 			// behavior): Name and Inner.Bar are ignored, so differing values do
 			// not fail the comparison.
-			name:      "nested sibling and parent ignored",
-			diff:      cmp.Diff(outer{Name: "x", Inner: inner{Foo: 1, Bar: 2}}, outer{Name: "y", Inner: inner{Foo: 1, Bar: 9}}, cmpx.OnlyFields("Inner.Foo")),
+			name: "nested sibling and parent ignored",
+			diff: cmp.Diff(outer{
+				Name:  "x",
+				Inner: inner{Foo: 1, Bar: 2},
+			}, outer{Name: "y", Inner: inner{Foo: 1, Bar: 9}}, cmpx.OnlyFields("Inner.Foo")),
 			wantEqual: true,
 		},
 		{
 			// Nested selected field differs: comparison correctly fails, proving
 			// cmp actually descended into Inner rather than ignoring it wholesale.
-			name:      "nested selected field differs",
-			diff:      cmp.Diff(outer{Name: "x", Inner: inner{Foo: 1, Bar: 2}}, outer{Name: "x", Inner: inner{Foo: 2, Bar: 2}}, cmpx.OnlyFields("Inner.Foo")),
+			name: "nested selected field differs",
+			diff: cmp.Diff(outer{
+				Name:  "x",
+				Inner: inner{Foo: 1, Bar: 2},
+			}, outer{Name: "x", Inner: inner{Foo: 2, Bar: 2}}, cmpx.OnlyFields("Inner.Foo")),
 			wantEqual: false,
 		},
 		{
 			// Top-level field selected: the whole nested struct is ignored.
-			name:      "top-level selected nested ignored",
-			diff:      cmp.Diff(outer{Name: "x", Inner: inner{Foo: 1, Bar: 2}}, outer{Name: "x", Inner: inner{Foo: 9, Bar: 9}}, cmpx.OnlyFields("Name")),
+			name: "top-level selected nested ignored",
+			diff: cmp.Diff(outer{
+				Name:  "x",
+				Inner: inner{Foo: 1, Bar: 2},
+			}, outer{Name: "x", Inner: inner{Foo: 9, Bar: 9}}, cmpx.OnlyFields("Name")),
 			wantEqual: true,
 		},
 		{
 			// Top-level field selected and differing: comparison fails.
-			name:      "top-level selected differs",
-			diff:      cmp.Diff(outer{Name: "x", Inner: inner{Foo: 1, Bar: 2}}, outer{Name: "y", Inner: inner{Foo: 1, Bar: 2}}, cmpx.OnlyFields("Name")),
+			name: "top-level selected differs",
+			diff: cmp.Diff(outer{
+				Name:  "x",
+				Inner: inner{Foo: 1, Bar: 2},
+			}, outer{Name: "y", Inner: inner{Foo: 1, Bar: 2}}, cmpx.OnlyFields("Name")),
 			wantEqual: false,
 		},
 		{
 			// Scoping guard (google/go-cmp#75): "ID" is kept only at the top
 			// level of record. The identically-named meta.ID is NOT kept, so it
 			// is ignored even though it differs.
-			name:      "scoping guard nested same-name field ignored",
-			diff:      cmp.Diff(record{ID: 1, Meta: meta{ID: 5, Name: "a"}}, record{ID: 1, Meta: meta{ID: 99, Name: "z"}}, cmpx.OnlyFields("ID")),
+			name: "scoping guard nested same-name field ignored",
+			diff: cmp.Diff(record{ID: 1, Meta: meta{ID: 5, Name: "a"}}, record{
+				ID:   1,
+				Meta: meta{ID: 99, Name: "z"},
+			}, cmpx.OnlyFields("ID")),
 			wantEqual: true,
 		},
 		{
 			// The genuinely kept top-level "ID" differs: comparison fails.
-			name:      "scoping guard top-level ID differs",
-			diff:      cmp.Diff(record{ID: 1, Meta: meta{ID: 5, Name: "a"}}, record{ID: 2, Meta: meta{ID: 5, Name: "a"}}, cmpx.OnlyFields("ID")),
+			name: "scoping guard top-level ID differs",
+			diff: cmp.Diff(record{
+				ID:   1,
+				Meta: meta{ID: 5, Name: "a"},
+			}, record{ID: 2, Meta: meta{ID: 5, Name: "a"}}, cmpx.OnlyFields("ID")),
 			wantEqual: false,
 		},
 	}

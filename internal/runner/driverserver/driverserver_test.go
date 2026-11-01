@@ -66,7 +66,9 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 	}
 	te.gritz = &gritzclient.ClientMock{
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: testVersion}}, nil
+			return &gritzv1.GetTaskResponse{
+				Task: &gritzv1.Task{Id: req.Id, Version: testVersion},
+			}, nil
 		},
 		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
@@ -195,7 +197,11 @@ func (te *testEnv) dials() []string {
 func runnerEvents(events ...string) []*gritzv1.RunnerEvent {
 	var out []*gritzv1.RunnerEvent
 	for _, event := range events {
-		out = append(out, &gritzv1.RunnerEvent{TaskId: testTaskID, Version: testVersion, Event: event})
+		out = append(out, &gritzv1.RunnerEvent{
+			TaskId:  testTaskID,
+			Version: testVersion,
+			Event:   event,
+		})
 	}
 	return out
 }
@@ -212,7 +218,10 @@ func TestRun(t *testing.T) {
 	// Assert - the run started, reported both events itself, and Finished
 	// says the report was acknowledged
 	assert.Equal(t, accepted.GetAttached(), false)
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: true,
+	}, protocmp.Transform())
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 	assert.DeepEqual(t, te.dials(), []string{testServerURL + " " + testToken})
 	rec := te.status(t)
@@ -344,7 +353,10 @@ func TestRun_Idempotent(t *testing.T) {
 
 	// Assert - attached to the finished run; the agent did not run again
 	assert.Equal(t, accepted.GetAttached(), true)
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: true,
+	}, protocmp.Transform())
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 	assert.Equal(t, len(te.dials()), 1)
 }
@@ -369,7 +381,10 @@ func TestRun_ReattachAfterDrop(t *testing.T) {
 	assert.Equal(t, te.stop(t, testVersion), true)
 
 	// Assert - the attached stream gets Finished, and the stop was reported
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: true,
+	}, protocmp.Transform())
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 	assert.Equal(t, te.status(t).GetState(), driverv1.RunRecord_STATE_FINISHED)
 }
@@ -440,7 +455,14 @@ func TestRun_NotFound(t *testing.T) {
 		record *runrecord.Record
 	}{
 		{"no record", nil},
-		{"older record", &runrecord.Record{Version: testVersion - 1, State: runrecord.Finished, FinishedAt: time.Now()}},
+		{
+			"older record",
+			&runrecord.Record{
+				Version:    testVersion - 1,
+				State:      runrecord.Finished,
+				FinishedAt: time.Now(),
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -466,7 +488,10 @@ func TestRun_NextVersion(t *testing.T) {
 
 	// Assert - a new run started in the same process
 	assert.Equal(t, accepted.GetAttached(), false)
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion + 1, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion + 1,
+		Reported: true,
+	}, protocmp.Transform())
 	assert.Equal(t, te.status(t).GetVersion(), int64(testVersion+1))
 	assert.Equal(t, len(te.gritz.SubmittedRunnerEvents()), 4)
 }
@@ -486,7 +511,10 @@ func TestRun_NotReported(t *testing.T) {
 	stream, _ := te.open(t, &driverv1.RunRequest{Version: testVersion, Spec: testSpec()})
 
 	// Assert
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: false}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: false,
+	}, protocmp.Transform())
 	disk, _, err := runrecord.Read(filepath.Join(te.dir, "run.json"))
 	assert.NilError(t, err)
 	assert.Equal(t, disk.State, runrecord.Finished)
@@ -540,7 +568,10 @@ func TestNew_Reconcile(t *testing.T) {
 	assert.Equal(t, rec.GetVersion(), int64(testVersion))
 	assert.Equal(t, rec.GetState(), driverv1.RunRecord_STATE_FINISHED)
 	assert.Equal(t, accepted.GetAttached(), true)
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: false}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: false,
+	}, protocmp.Transform())
 	assert.Equal(t, len(te.dials()), 0)
 }
 
@@ -555,10 +586,16 @@ func TestShutdown(t *testing.T) {
 
 	// Assert - the run was stopped and reported before Shutdown returned
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: true,
+	}, protocmp.Transform())
 
 	// Assert - no run starts afterwards
-	stream, err := te.client.Run(t.Context(), &driverv1.RunRequest{Version: testVersion + 1, Spec: testSpec()})
+	stream, err := te.client.Run(t.Context(), &driverv1.RunRequest{
+		Version: testVersion + 1,
+		Spec:    testSpec(),
+	})
 	assert.NilError(t, err)
 	defer stream.Close()
 	assert.Assert(t, !stream.Receive())
@@ -659,7 +696,10 @@ func TestListenAndServe(t *testing.T) {
 
 	// Assert - the run was stopped and reported, its stream got Finished,
 	// and the server shut down cleanly
-	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{Version: testVersion, Reported: true}, protocmp.Transform())
+	assert.DeepEqual(t, finished(t, stream), &driverv1.Finished{
+		Version:  testVersion,
+		Reported: true,
+	}, protocmp.Transform())
 	assert.NilError(t, <-errCh)
 	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 }

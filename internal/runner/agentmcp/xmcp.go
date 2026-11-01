@@ -111,7 +111,10 @@ func (s *Server) getMyTask(ctx context.Context, req *mcp.CallToolRequest, input 
 		return mcpx.ErrorResult("failed to get task: %v", err), nil, nil
 	}
 
-	events, err := gritzclient.ListAllEventsByTask(ctx, s.client, s.task.ID, []string{model.EventTypeInstruction, model.EventTypeExternal})
+	events, err := gritzclient.ListAllEventsByTask(ctx, s.client, s.task.ID, []string{
+		model.EventTypeInstruction,
+		model.EventTypeExternal,
+	})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get task events: %v", err), nil, nil
 	}

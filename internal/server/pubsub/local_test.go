@@ -138,9 +138,11 @@ func TestPublish_SlowSubscriberDoesNotBlock(t *testing.T) {
 	// Fill the subscriber's buffer.
 	for i := range subscriberBufSize {
 		err = ps.Publish(context.Background(), model.Notification{
-			Type:      "change",
-			Resources: []model.NotificationResource{{Action: "updated", Type: "task", ID: int64(i)}},
-			OrgID:     1,
+			Type: "change",
+			Resources: []model.NotificationResource{
+				{Action: "updated", Type: "task", ID: int64(i)},
+			},
+			OrgID: 1,
 		})
 		assert.NilError(t, err)
 	}

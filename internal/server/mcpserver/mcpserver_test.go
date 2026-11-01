@@ -240,7 +240,11 @@ func TestGetTask_EventNative(t *testing.T) {
 						Instruction: &gritzv1.InstructionPayload{Text: "do it"},
 					}},
 					{Id: 2, TaskId: 7, Payload: &gritzv1.Event_Command{
-						Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Runner: "r1"},
+						Command: &gritzv1.CommandPayload{
+							Command: gritzv1.TaskCommand_START,
+							Version: 1,
+							Runner:  "r1",
+						},
 					}},
 					{Id: 3, TaskId: 7, Payload: &gritzv1.Event_Report{
 						Report: &gritzv1.ReportPayload{Content: "working"},

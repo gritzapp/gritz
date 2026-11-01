@@ -44,7 +44,10 @@ func newRelayServer(t *testing.T, reg *shellserver.Registry) *httptest.Server {
 		OrgID:  testOrg,
 		Scopes: agentauth.Scopes(agentauth.ScopeOptions{TaskID: testTask}),
 	}))
-	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{ID: "op", OrgID: testOrg}))
+	mux.Handle("GET /shell/attach", apiauth.WithTestUser(reg.AttachHandler(), &apiauth.UserInfo{
+		ID:    "op",
+		OrgID: testOrg,
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	t.Cleanup(reg.Close)
@@ -182,7 +185,12 @@ func TestServeAndOperate(t *testing.T) {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "s1", Log: slog.Default()})
+		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "s1",
+			Log:       slog.Default(),
+		})
 	}()
 
 	op := runOperator(t, dialAttach(t, srv, "s1"))
@@ -228,7 +236,12 @@ func TestServe_LargeBurstSurvivesReadLimit(t *testing.T) {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "burst", Log: slog.Default()})
+		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "burst",
+			Log:       slog.Default(),
+		})
 	}()
 
 	op := runOperator(t, dialAttach(t, srv, "burst"))
@@ -279,7 +292,12 @@ func TestServe_ExitCode(t *testing.T) {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "s2", Log: slog.Default()})
+		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "s2",
+			Log:       slog.Default(),
+		})
 	}()
 
 	op := runOperator(t, dialAttach(t, srv, "s2"))
@@ -308,7 +326,12 @@ func TestSessionTornDownWhenOperatorDisconnects(t *testing.T) {
 	serveCtx, cancelServe := context.WithCancel(t.Context())
 	t.Cleanup(cancelServe)
 	go func() {
-		_ = shell.Serve(serveCtx, shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "s3", Log: slog.Default()})
+		_ = shell.Serve(serveCtx, shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "s3",
+			Log:       slog.Default(),
+		})
 	}()
 
 	attach := dialAttach(t, srv, "s3")
@@ -346,7 +369,12 @@ func TestServe_ContextCancelTearsDownBlockedShell(t *testing.T) {
 	serveCtx, cancelServe := context.WithCancel(t.Context())
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "s4", Log: slog.Default()})
+		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "s4",
+			Log:       slog.Default(),
+		})
 	}()
 
 	op := runOperator(t, dialAttach(t, srv, "s4"))
@@ -400,7 +428,12 @@ func TestServe_OperatorDisconnectTearsDownBlockedShell(t *testing.T) {
 	t.Cleanup(cancelServe)
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "s6", Log: slog.Default()})
+		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "s6",
+			Log:       slog.Default(),
+		})
 	}()
 
 	attach := dialAttach(t, srv, "s6")
@@ -438,7 +471,12 @@ func TestServe_ContextCancelForceKillsUnresponsiveShell(t *testing.T) {
 	serveCtx, cancelServe := context.WithCancel(t.Context())
 	serveErr := make(chan error, 1)
 	go func() {
-		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{ServerURL: srv.URL, Token: "driver-token", Session: "s5", Log: slog.Default()})
+		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{
+			ServerURL: srv.URL,
+			Token:     "driver-token",
+			Session:   "s5",
+			Log:       slog.Default(),
+		})
 	}()
 
 	op := runOperator(t, dialAttach(t, srv, "s5"))

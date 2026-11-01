@@ -155,7 +155,9 @@ func TestTaskScope_ArchivedGating(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 
 	// ...and writes (this is the unarchive-resurrect hole, closed for free).
-	_, err = srv.UnarchiveTask(scopedCtx(t, org, writeScope(archived.Id)), &gritzv1.UnarchiveTaskRequest{Id: archived.Id})
+	_, err = srv.UnarchiveTask(scopedCtx(t, org, writeScope(archived.Id)), &gritzv1.UnarchiveTaskRequest{
+		Id: archived.Id,
+	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
@@ -197,7 +199,10 @@ func taskInstanceHandlers() []struct {
 			return err
 		}},
 		{"CreateLink", func(ctx context.Context, srv *Server, id int64) error {
-			_, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{TaskId: id, Url: "https://example.com/x"})
+			_, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
+				TaskId: id,
+				Url:    "https://example.com/x",
+			})
 			return err
 		}},
 		{"ListLinks", func(ctx context.Context, srv *Server, id int64) error {
