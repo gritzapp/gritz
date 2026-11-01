@@ -328,24 +328,24 @@ harmless.
 events stored after it. That fixes the skipped-instruction bug above, because
 the file's order comes from the runner's commit-safe replication.
 
-**Runner events go up the stream.** The driver no longer calls
-`SubmitRunnerEvents`. It sends each `started` / `stopped` / `failed` as a
-`RunnerEventReport` with a sequence number. The runner appends it to its
-runner event queue (`runner_events` in `runnerstore`) and sends a
-`RunnerEventAck` back. The driver keeps unacked reports in its run record and
-resends them on the next stream. The run record's `reported` flag now means
-"acked by the runner", which is durable because the runner's queue is. The
-runner delivers them to the server as it does its own events today.
+**Runner events still go to the server directly.** The driver keeps calling
+`SubmitRunnerEvents` with the task token for each `started` / `stopped` /
+`failed`, as today, and records whether the terminal one was accepted in the
+run record's `reported` flag. Moving runner events onto the `Run` stream is out
+of scope.
 
-**`RunEnded`** follows the terminal report's ack. It tells the runner the run's
-process is done, so the runner can park.
+**`RunEnded`** replaces `Finished`. The driver sends it once the run's process
+is done and its terminal runner event has been submitted, or has failed to
+submit. It tells the runner it can park, and carries `reported`: when it is
+false, the runner's lost-run backstop reports the run, as it does for
+`Finished.reported` today.
 
 **Keep-alives** stay: the driver sends `KeepAlive` every 15s and
 `driverclient` cancels a stream that goes quiet (`DefaultIdleTimeout`).
 
-**The task token** is still needed by the driver for log shipping
-(`logship`) and the agent's `gritz` MCP server, which both talk to the server
-directly.
+**The task token** is still needed by the driver for `SubmitRunnerEvents`,
+log shipping (`logship`) and the agent's `gritz` MCP server, which all talk to
+the server directly.
 
 ### Transport
 
@@ -410,7 +410,6 @@ message RunRequest {
   oneof msg {
     // The task's events, in (xid, id) order.
     TaskEvents events = 3;
-    RunnerEventAck ack = 4;
     // First message on every stream.
     RunSpec spec = 5;
   }
@@ -420,16 +419,11 @@ message TaskEvents {
   repeated gritz.v1.Event events = 1;
 }
 
-message RunnerEventAck {
-  int64 seq = 1;
-}
-
 message RunResponse {
   oneof msg {
     KeepAlive keep_alive = 3;
     Hello hello = 7;
-    RunnerEventReport runner_event = 8;
-    RunEnded run_ended = 9;
+    RunEnded run_ended = 8;
   }
 }
 
@@ -439,18 +433,16 @@ message Hello {
   optional RunRecord run = 2;
 }
 
-message RunnerEventReport {
-  int64 seq = 1;
-  gritz.v1.RunnerEvent event = 2;
-}
-
 message RunEnded {
   int64 version = 1;
+  // Whether the driver's SubmitRunnerEvents call for the run's terminal
+  // event succeeded. False makes the runner report the run lost.
+  bool reported = 2;
 }
 ```
 
 `RunRequest.version`, `Accepted` and `Finished` are removed with the
-attach-or-start semantics. `RunSpec` itself is unchanged; it moves into the
+attach-or-start semantics; `RunEnded` takes `Finished`'s place. `RunSpec` itself is unchanged; it moves into the
 `RunRequest` oneof as the stream's first message.
 
 ### API
@@ -593,7 +585,7 @@ func (f *File) After(id int64) ([]*gritzv1.Event, error)
 package driverserver // github.com/gritzapp/gritz/internal/runner/driverserver
 
 // Run serves the runner's bidi stream: Hello, then stores and acts on the
-// events it receives, and sends runner events, RunEnded and keep-alives. // changed
+// events it receives, and sends RunEnded and keep-alives. // changed
 func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error
 
 // Status is removed. // removed
@@ -609,8 +601,8 @@ task from `Log.Tasks()`, and drops it when the task is archived. Each `TaskRunne
 or parks the sandbox with a slot from `TaskManager`. While the sandbox is up
 it holds a `Run` stream, sends `Stream.Read(hello.last_event_id)`, then keeps
 forwarding. `driverserver` writes each batch to `eventfile.File`, then acts
-on it. Runner events come back up the stream into the runner's
-`runner_events` queue.
+on it. The driver submits runner events to the server itself, as today, and
+sends `RunEnded` up the stream when a run is over.
 
 ## Implementation Plan
 
@@ -636,7 +628,8 @@ on it. Runner events come back up the stream into the runner's
 5. **Docker h2c** — Delivers: unencrypted HTTP/2 on the Docker driver client.
    Depends on: nothing. Verifiable by: the existing Docker backend tests.
 6. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
-   `Run` with the `RunSpec` as its first message and `Hello`, and the
+   `Run` with the `RunSpec` as its first message, `Hello`, `RunEnded` in
+   place of `Finished`, and the
    `TaskRunner` forwarding `Stream.Read` from the
    driver's position. Commands are still acted on as today. Depends on: (4), (5).
    Verifiable by: driverserver tests; a reconnect resends only what the file
@@ -651,13 +644,9 @@ on it. Runner events come back up the stream into the runner's
    `ListRunnerTasks` removed. Depends on: (7).
    Verifiable by: `runner_test` with the fake backend for start, restart, stop
    with no sandbox, and slot exhaustion.
-9. **Runner events over the stream** — Delivers: `RunnerEventReport`/`Ack`,
-   `RunEnded`; the driver stops calling `SubmitRunnerEvents`. Depends on: (6).
-   Verifiable by: a driver restart with an unacked report resends it, and the
-   runner queue delivers it once.
-10. **Prompt from the event file** — Delivers: the prompt renders from
-    `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (6).
-    Verifiable by: agent prompt tests for first run and wake.
+9. **Prompt from the event file** — Delivers: the prompt renders from
+   `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (6).
+   Verifiable by: agent prompt tests for first run and wake.
 
 ## Trade-offs
 
@@ -679,6 +668,11 @@ on it. Runner events come back up the stream into the runner's
   token and could follow `ListEventsByTask` with the watermark. Rejected: two
   paths into the sandbox, and the runner would still need the events to manage
   lifecycle. One stream keeps the runner as the sandbox's only peer.
+- **Runner events over the `Run` stream.** The driver could send `started` /
+  `stopped` / `failed` to the runner instead of calling `SubmitRunnerEvents`.
+  Out of scope: without the RPC's response the driver would need acks or
+  sequence numbers to know an event was stored, and the driver keeps a direct
+  connection to the server for log shipping and MCP anyway.
 - **Cost of the watermark.** It is cluster-wide: the oldest writing transaction
   anywhere holds back every runner. A slow migration or a session idle in a
   transaction delays delivery until it ends. `idle_in_transaction_session_timeout`
