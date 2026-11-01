@@ -332,11 +332,20 @@ func (l *Log) Run(ctx context.Context) error
 package testrunner // github.com/gritzapp/gritz/internal/runner/testrunner
 
 // FollowRunnerEvents serves the log from the request's offset, then blocks
-// and sends each Add as it happens. // new
-func (s *Server) FollowRunnerEvents(ctx context.Context, req *gritzv1.FollowRunnerEventsRequest) (*connect.ServerStreamForClient[gritzv1.FollowRunnerEventsResponse], error)
+// and sends each Add as it happens. It is the server side of the stream. // new
+func (s *Server) FollowRunnerEvents(ctx context.Context, req *gritzv1.FollowRunnerEventsRequest, stream *connect.ServerStream[gritzv1.FollowRunnerEventsResponse]) error
+
+// Client returns a client connected to s over an httptest server, closed with
+// t's cleanup. // changed: was a ClientMock wrapping ListRunnerEvents
+func (s *Server) Client(t testing.TB) gritzclient.Client
 
 // ListRunnerEvents is removed. // removed
 ```
+
+`connect.ServerStreamForClient` has no exported constructor, so a
+`ClientMock` can't fake a stream: the fake implements the handler side and is
+served through `gritzv1connect.NewGritzServiceHandler` (embedding
+`UnimplementedGritzServiceHandler`), which also exercises the real wire path.
 
 **How it fits:** `gritz server` passes its `LocalPubSub` as both publisher and
 subscriber, and registers `server.Shutdown` with `httpServer.RegisterOnShutdown`.
@@ -366,7 +375,7 @@ longer starts a `NotificationClient`; `Log.Run` stores each streamed page with
    `FollowRunnerEvents` with backoff and the idle watchdog; `Wake`,
    `PollInterval` and `DefaultPollInterval` removed; `gritzclient.Options.Timeout`
    below zero; `gritz runner` building the no-timeout client (its SSE handler
-   keeps calling `m.Wake()` only); `testrunner.Server` serving the stream.
+   keeps calling `m.Wake()` only); `testrunner.Server` serving the stream over httptest.
    Depends on: (2). Verifiable by: `taskevents` tests against the fake: the
    replica matches the server's log; a dropped stream resumes from the stored
    token without duplicates; a stream that goes silent is cancelled and
