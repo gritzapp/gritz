@@ -87,3 +87,32 @@ func ListAllEventsByTask(ctx context.Context, c Client, taskID int64, types []st
 		req.PageToken = resp.GetPrevPageToken()
 	}
 }
+
+// ListRunnerEvents returns an iterator over the pages of the runner's event
+// log, starting from req.GetPageToken() and threading next_page_token forward
+// until More reports no further page is available right now. The caller stores
+// each page's next_page_token as its cursor.
+//
+// The caller's req is not mutated. Each successful page is yielded as
+// (resp, nil); on an RPC error the iterator yields (nil, err) once and stops.
+// The walk also stops early if the caller breaks out of the range loop.
+func ListRunnerEvents(ctx context.Context, c Client, req *gritzv1.ListRunnerEventsRequest) iter.Seq2[*gritzv1.ListRunnerEventsResponse, error] {
+	return func(yield func(*gritzv1.ListRunnerEventsResponse, error) bool) {
+		token := req.GetPageToken()
+		for {
+			resp, err := c.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{
+				Runner:    req.GetRunner(),
+				PageToken: token,
+				PageSize:  req.GetPageSize(),
+			})
+			if err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(resp, nil) || !resp.GetMore() {
+				return
+			}
+			token = resp.GetNextPageToken()
+		}
+	}
+}
