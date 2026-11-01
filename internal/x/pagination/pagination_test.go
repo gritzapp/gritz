@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/x/pagination/v2"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )

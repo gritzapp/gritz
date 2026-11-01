@@ -12,7 +12,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/x/pagination/v2"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 	"gotest.tools/v3/assert"
 )
 
