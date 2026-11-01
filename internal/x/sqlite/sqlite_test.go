@@ -2,11 +2,14 @@ package sqlite_test
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/golden"
 
 	"github.com/gritzapp/gritz/internal/x/sqlite"
 )
@@ -19,24 +22,29 @@ func openDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// schema returns the database's user_version and its table names, in name
-// order.
-func schema(t *testing.T, db *sql.DB) (int, []string) {
+// dump renders the database's user_version, then the sql of every
+// sqlite_master object in name order, one per line.
+func dump(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var version int
 	assert.NilError(t, db.QueryRow(`PRAGMA user_version`).Scan(&version))
-	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+	var b strings.Builder
+	fmt.Fprintf(&b, "user_version = %d\n", version)
+	rows, err := db.Query(`SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY name`)
 	assert.NilError(t, err)
 	defer rows.Close()
-	var tables []string
 	for rows.Next() {
-		var name string
-		assert.NilError(t, rows.Scan(&name))
-		tables = append(tables, name)
+		var stmt string
+		assert.NilError(t, rows.Scan(&stmt))
+		b.WriteString(stmt + "\n")
 	}
 	assert.NilError(t, rows.Err())
-	return version, tables
+	return b.String()
 }
+
+// TestMigrate, TestMigrate_UpToDate and TestMigrate_NewFile end in the same
+// state, so they share one golden. Regenerate it with:
+// go test ./internal/x/sqlite/ -run TestMigrate -update
 
 func TestMigrate(t *testing.T) {
 	t.Parallel()
@@ -52,9 +60,7 @@ func TestMigrate(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	version, tables := schema(t, db)
-	assert.Equal(t, version, 2)
-	assert.DeepEqual(t, tables, []string{"a", "b"})
+	golden.Assert(t, dump(t, db), "migrate.golden")
 }
 
 func TestMigrate_UpToDate(t *testing.T) {
@@ -72,9 +78,7 @@ func TestMigrate_UpToDate(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	version, tables := schema(t, db)
-	assert.Equal(t, version, 2)
-	assert.DeepEqual(t, tables, []string{"a", "b"})
+	golden.Assert(t, dump(t, db), "migrate.golden")
 }
 
 func TestMigrate_NewFile(t *testing.T) {
@@ -92,9 +96,7 @@ func TestMigrate_NewFile(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	version, tables := schema(t, db)
-	assert.Equal(t, version, 2)
-	assert.DeepEqual(t, tables, []string{"a", "b"})
+	golden.Assert(t, dump(t, db), "migrate.golden")
 }
 
 func TestMigrate_DatabaseNewer(t *testing.T) {
