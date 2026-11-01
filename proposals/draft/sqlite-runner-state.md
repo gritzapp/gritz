@@ -61,10 +61,16 @@ PRAGMA synchronous = FULL;   -- fsync the WAL on every commit: same durability a
 PRAGMA busy_timeout = 5000;
 ```
 
-It sets `db.SetMaxOpenConns(1)`. Both stores already serialize all access behind
-a mutex, and the runner is the only process that opens the file, so a single
-connection loses nothing and rules out `SQLITE_BUSY` between the runner's own
-connections.
+It sets `db.SetMaxOpenConns(1)`. Both of today's file stores already serialize
+all access behind a mutex, and the runner is the only process that opens the
+file, so a single connection loses nothing and rules out `SQLITE_BUSY` between
+the runner's own connections.
+
+### One store
+
+`runnerstore.Store` is the runner's only durable store. It owns the `*sql.DB`
+and serves both the task records and the event outbox; there is no separate
+task store or outbox store type.
 
 ### Schema and migrations
 
@@ -96,32 +102,33 @@ CREATE INDEX outbox_live ON outbox (seq) WHERE dead = 0;
 
 ### Task records
 
-The `internal/runner/taskstate` package is deleted. Its record type and store
-move into `runnerstore` as `runnerstore.TaskRecord` and `runnerstore.TaskStore`,
-with the same fields and method set. Importers (`internal/command/runner.go`,
-`TaskManager`, `TaskRunner`, `testrunner` and the runner tests) switch from
-`taskstate.Record`/`*taskstate.Store` to `runnerstore.TaskRecord`/
-`*runnerstore.TaskStore`; the calls themselves do not change.
+The `internal/runner/taskstate` package is deleted. `taskstate.Record` moves to
+`runnerstore.TaskRecord` with the same fields, and the four store operations
+become `Store` methods with a `Task` suffix, since the same type also carries
+the outbox methods. `TaskManagerOptions.Store` and `TaskRunnerOptions.Store`
+become `*runnerstore.Store`, and the call sites in `TaskManager`, `TaskRunner`,
+`testrunner` and the runner tests are renamed accordingly.
 
-| Method   | Query |
-|----------|-------|
-| `Write`  | `INSERT INTO task_records (...) VALUES (...) ON CONFLICT (task_id) DO UPDATE SET ...` |
-| `Read`   | `SELECT ... FROM task_records WHERE task_id = ?` |
-| `Remove` | `DELETE FROM task_records WHERE task_id = ?` (still a no-op when absent) |
-| `List`   | `SELECT ... FROM task_records ORDER BY task_id` |
+| Method       | Replaces            | Query |
+|--------------|---------------------|-------|
+| `WriteTask`  | `taskstate.Write`   | `INSERT INTO task_records (...) VALUES (...) ON CONFLICT (task_id) DO UPDATE SET ...` |
+| `ReadTask`   | `taskstate.Read`    | `SELECT ... FROM task_records WHERE task_id = ?` |
+| `RemoveTask` | `taskstate.Remove`  | `DELETE FROM task_records WHERE task_id = ?` (still a no-op when absent) |
+| `ListTasks`  | `taskstate.List`    | `SELECT ... FROM task_records ORDER BY task_id` |
 
 The mutex, `path`, `parseRecordName` and the stray-file handling go away with
 the package. `runnerstore` keeps taskstate's leaf rule: it imports
 `database/sql`, the SQLite driver and `internal/x/outbox`, and no backend code.
-A failed `Write` still ends the runner through `TaskFatalEvent`
+A failed `WriteTask` still ends the runner through `TaskFatalEvent`
 (`taskrunner.go`); only the error source changes.
 
 ### outbox
 
 `internal/x/outbox` does not change: the `Store` interface, the `Outbox[T]`
 engine and `FileStore` all stay as they are, so the package remains available
-to other callers (for example the driver). A new `runnerstore.OutboxStore`
-implements `outbox.Store` over the runner's database.
+to other callers (for example the driver). `runnerstore.Store` implements
+`outbox.Store` directly, and the runner passes it as
+`RunnerEventOutboxOptions.Store`.
 
 | Method          | Query |
 |-----------------|-------|
@@ -132,10 +139,9 @@ implements `outbox.Store` over the runner's database.
 | `Len`           | `SELECT count(*) FROM outbox WHERE dead = 0` |
 
 There is no in-memory mirror; the partial index makes the head lookup cheap,
-and the queue only holds events that have not yet reached the server. Because
-`OutboxStore` lives in `runnerstore`, the `outbox` table sits next to the
-migrations that create it, and `internal/x/outbox` stays stdlib-only with no
-knowledge of SQL.
+and the queue only holds events that have not yet reached the server. The
+`outbox` table sits next to the migrations that create it, and
+`internal/x/outbox` stays stdlib-only with no knowledge of SQL.
 
 The runner stops using `outbox.FileStore`; the type itself is kept.
 
@@ -162,14 +168,20 @@ The release after that deletes `Import` and the flag.
 ```go
 package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore (new)
 
-// Open opens the runner's SQLite state database at path, creating it if
-// needed, and applies pending migrations.
-func Open(path string) (*sql.DB, error)
+// Store is the runner's durable state: task records and the event outbox.
+type Store struct{ ... }
+
+// Open opens the SQLite database at path, creating it if needed, and applies
+// pending migrations.
+func Open(path string) (*Store, error)
+
+// Close closes the database.
+func (s *Store) Close() error
 
 // Import moves the legacy file-backed task records and outbox under taskDir
-// and outboxDir into db, then renames both directories. It does nothing when
-// taskDir does not exist.
-func Import(db *sql.DB, taskDir, outboxDir string) error
+// and outboxDir into the database, then renames both directories. It does
+// nothing when taskDir does not exist.
+func (s *Store) Import(taskDir, outboxDir string) error
 
 // TaskRecord is the persisted task→sandbox-handle mapping; Data is opaque
 // backend handle data that the store never decodes.
@@ -181,29 +193,29 @@ type TaskRecord struct {
 	Data    json.RawMessage
 }
 
-// TaskStore persists task records in the task_records table.
-type TaskStore struct{ ... }
+// WriteTask inserts or replaces the record for rec.TaskID.
+func (s *Store) WriteTask(rec TaskRecord) error
 
-// NewTaskStore returns a TaskStore over db.
-func NewTaskStore(db *sql.DB) *TaskStore
+// ReadTask returns the record for taskID; ok is false when there is none.
+func (s *Store) ReadTask(taskID int64) (rec TaskRecord, ok bool, err error)
 
-// Write inserts or replaces the record for rec.TaskID.
-func (s *TaskStore) Write(rec TaskRecord) error
+// RemoveTask deletes the record for taskID; removing an absent record is not an error.
+func (s *Store) RemoveTask(taskID int64) error
 
-// Read returns the record for taskID; ok is false when there is none.
-func (s *TaskStore) Read(taskID int64) (rec TaskRecord, ok bool, err error)
+// ListTasks returns every record, ordered by task id.
+func (s *Store) ListTasks() ([]TaskRecord, error)
 
-// Remove deletes the record for taskID; removing an absent record is not an error.
-func (s *TaskStore) Remove(taskID int64) error
+// Append durably appends payload to the outbox tail.
+func (s *Store) Append(payload json.RawMessage) error
 
-// List returns every record, ordered by task id.
-func (s *TaskStore) List() ([]TaskRecord, error)
+// Peek returns the outbox head without removing it.
+func (s *Store) Peek() (outbox.Record, bool, error)
 
-// OutboxStore is an outbox.Store backed by the outbox table.
-type OutboxStore struct{ ... }
+// Drop removes the outbox head, marking it dead instead when dead is true.
+func (s *Store) Drop(dead bool) error
 
-// NewOutboxStore returns an OutboxStore over db.
-func NewOutboxStore(db *sql.DB) *OutboxStore
+// Len reports the number of live outbox records.
+func (s *Store) Len() (int, error)
 ```
 
 ```go
@@ -221,28 +233,28 @@ type RunnerEventOutboxOptions struct {
 ```
 
 **How it fits:** `internal/command/runner.go` calls `runnerstore.Open` with
-`--state-db`, then `runnerstore.Import`, then builds `runnerstore.NewTaskStore(db)` for
-`TaskManagerOptions.Store` and `runnerstore.NewOutboxStore(db)` for
-`RunnerEventOutboxOptions.Store`, and closes the database on exit.
+`--state-db`, then `Import`, and passes the one `*runnerstore.Store` as both
+`TaskManagerOptions.Store` and `RunnerEventOutboxOptions.Store`, closing it on
+exit.
 `internal/runner/testrunner` opens a database in `t.TempDir()` the same way;
 tests that inject failures with `outbox.StoreMock` are unchanged.
 
 ## Implementation Plan
 
-1. **runnerstore package** — Delivers: `runnerstore.Open`, connection pragmas,
+1. **runnerstore package** — Delivers: `Store`, `Open`, `Close`, connection pragmas,
    embedded migrations with `user_version`, `0001_init.sql`; the driver becomes
    a direct dependency. Depends on: nothing. Verifiable by: tests that open a
    fresh file, reopen it (migrations not reapplied), and check the tables exist.
-2. **runnerstore.OutboxStore** — Delivers: `OutboxStore` implementing
-   `outbox.Store`. Depends on: (1). Verifiable by: tests mirroring the
-   `FileStore` behaviour tests (FIFO order, dead-lettering, seq never reused,
-   reopen keeps records) against `OutboxStore`.
-3. **runnerstore.TaskStore** — Delivers: `TaskRecord` and `TaskStore` with the
-   queries above. Depends on: (1). Verifiable by: the existing `taskstate` tests
-   ported to `TaskStore`.
-4. **Runner wire-up and import** — Delivers: `--state-db`,
-   `runnerstore.Import`, `--import-state-dir`, the runner and its tests moved to
-   `runnerstore.TaskRecord`/`TaskStore`, the `taskstate` package deleted,
+2. **Outbox methods** — Delivers: `Append`, `Peek`, `Drop` and `Len` on
+   `Store`, satisfying `outbox.Store`. Depends on: (1). Verifiable by: tests
+   mirroring the `FileStore` behaviour tests (FIFO order, dead-lettering, seq
+   never reused, reopen keeps records) against `Store`.
+3. **Task methods** — Delivers: `TaskRecord` and `WriteTask`, `ReadTask`,
+   `RemoveTask`, `ListTasks`. Depends on: (1). Verifiable by: the existing
+   `taskstate` tests ported to `Store`.
+4. **Runner wire-up and import** — Delivers: `--state-db`, `Store.Import`,
+   `--import-state-dir`, the runner and its tests moved to
+   `runnerstore.Store`/`TaskRecord`, the `taskstate` package deleted,
    `RunnerEventOutboxOptions.StoreDir` removed, `testrunner` on SQLite,
    `docker-compose.dev.yml` env updated.
    Depends on: (2), (3). Verifiable by: runner tests pass; an import test that
@@ -250,7 +262,7 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    directories; running the dev compose stack across a restart with a sandbox
    up.
 5. **Remove the import** (next release) — Delivers: deletion of
-   `runnerstore.Import` and `--import-state-dir`. Depends on: (4) having shipped in
+   `Store.Import` and `--import-state-dir`. Depends on: (4) having shipped in
    a release. Verifiable by: build and tests pass.
 
 ## Trade-offs
