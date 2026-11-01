@@ -8,13 +8,10 @@ package validatescript
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
-	"time"
 
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 )
@@ -83,13 +80,6 @@ func (s *Script) Validate(context.Context, awsmicrovm.ValidateHookRequest) error
 	// writes to it directly and Wait has no pipe to drain.
 	c.Stdout = s.opts.Output
 	c.Stderr = s.opts.Output
-	// Run the script in its own process group so its exit and cancellation
-	// reach the processes it spawns, not just the script itself.
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	c.Cancel = func() error {
-		return syscall.Kill(-c.Process.Pid, syscall.SIGTERM)
-	}
-	c.WaitDelay = 5 * time.Second
 	if err := c.Start(); err != nil {
 		s.finished = true
 		s.err = fmt.Errorf("validate script %s: %w", s.opts.Path, err)
@@ -99,14 +89,9 @@ func (s *Script) Validate(context.Context, awsmicrovm.ValidateHookRequest) error
 	return awsmicrovm.ErrInProgress
 }
 
-// wait records the script's result once it exits, after killing whatever it
-// left running in its process group (a backgrounded MCP server, say), so
-// nothing keeps reading files for the rest of validation.
+// wait records the script's result once it exits.
 func (s *Script) wait(c *exec.Cmd) {
 	err := c.Wait()
-	if kerr := syscall.Kill(-c.Process.Pid, syscall.SIGKILL); kerr != nil && !errors.Is(kerr, syscall.ESRCH) {
-		panic(fmt.Sprintf("validatescript: kill process group %d: %v", c.Process.Pid, kerr))
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.finished = true

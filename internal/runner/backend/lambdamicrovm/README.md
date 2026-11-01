@@ -134,8 +134,7 @@ set -eu
 claude --version
 
 # Start a stdio MCP server long enough for it to import everything. Without
-# credentials it may exit non-zero after initializing, which is fine. The
-# driver kills anything left in the process group when this script exits.
+# credentials it may exit non-zero after initializing, which is fine.
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gritz-validate","version":"0"}}}' |
 	timeout 120 mcp-atlassian >/dev/null || true
 ```
@@ -147,8 +146,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
   `/dev/null`.
 - **When it runs:** after the snapshot, so files it writes and processes it
   leaves behind are not in the image. Caches that must persist (`npm ci`,
-  `uv sync`) belong in a Dockerfile `RUN` step. When the script exits, the
-  driver kills its process group.
+  `uv sync`) belong in a Dockerfile `RUN` step.
 - **Startup check:** the driver exits with an error if the path is missing,
   not a regular file, or not executable, so `/ready` never answers and the
   build fails. `--aws-lambda-validate` without `--aws-lambda-hooks` is an

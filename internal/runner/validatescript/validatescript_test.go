@@ -4,8 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -104,40 +102,4 @@ func TestValidate_ExitOne(t *testing.T) {
 
 	assert.ErrorContains(t, s.Validate(t.Context(), awsmicrovm.ValidateHookRequest{}), "exit status 1")
 	assert.ErrorContains(t, s.Validate(t.Context(), awsmicrovm.ValidateHookRequest{}), "exit status 1")
-}
-
-func TestValidate_KillsBackgroundedChild(t *testing.T) {
-	// Arrange: the script leaves a child running and records its pid.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "validate")
-	assert.NilError(t, os.WriteFile(path, []byte(`#!/bin/sh
-sleep 300 >/dev/null 2>&1 &
-echo $! > "$DIR/child"
-`), 0o755))
-	s, err := New(t.Context(), Options{Path: path, Environ: []string{"DIR=" + dir, "PATH=" + os.Getenv("PATH")}})
-	assert.NilError(t, err)
-
-	// Act
-	assert.ErrorIs(t, s.Validate(t.Context(), awsmicrovm.ValidateHookRequest{}), awsmicrovm.ErrInProgress)
-	assert.NilError(t, waitFinished(t, s))
-
-	// Assert: the child is gone, or a zombie waiting for init to reap it.
-	data, err := os.ReadFile(filepath.Join(dir, "child"))
-	assert.NilError(t, err)
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	assert.NilError(t, err)
-	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-		if errors.Is(err, os.ErrNotExist) {
-			return poll.Success()
-		}
-		if err != nil {
-			return poll.Error(err)
-		}
-		// The state follows the parenthesised command name.
-		if fields := strings.Fields(string(stat[strings.LastIndexByte(string(stat), ')')+1:])); fields[0] == "Z" {
-			return poll.Success()
-		}
-		return poll.Continue("child %d still running", pid)
-	}, poll.WithTimeout(10*time.Second), poll.WithDelay(10*time.Millisecond))
 }
