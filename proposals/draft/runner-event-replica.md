@@ -60,7 +60,7 @@ server (Postgres events)  ──ListRunnerEvents──▶  runner (SQLite events
 - The **runner** copies the events of its tasks into its SQLite database. Its
   cursor is the newest row it has stored, so the server keeps no state about
   runners. A new package, `taskevents`, owns the copying and gives each
-  `TaskRunner` a per-task stream that is always complete and in order. The
+  `TaskRunner` a per-task stream with no missing history, in order. The
   `TaskRunner` acts only on sandbox lifecycle.
 - The **driver** receives its task's events over the `Run` stream, stores them
   in the sandbox, and owns all run behaviour: start, restart, stop, and the
@@ -167,9 +167,10 @@ task's stream and never sees the cursor, fill-ins or duplicates.
 
 `taskevents` guarantees:
 
-- **A stream is never partial.** A task is reported on `Log.Tasks()` only once
-  its stream holds the task's whole history, and `Stream.Read` returns nothing
-  for a task before then.
+- **A stream never has a missing prefix.** A task is reported on `Log.Tasks()`
+  only once nothing earlier in its history is missing, and `Stream.Read`
+  returns nothing for a task before then. The stream keeps growing for as long
+  as the task exists.
 - **Positions are event ids.** A reader keeps its own position as an
   `events.id` and passes it to `Read`. How an id maps to a place in the log
   stays inside `taskevents`, so readers never see an xid. The driver's
@@ -180,10 +181,26 @@ task's stream and never sees the cursor, fill-ins or duplicates.
 - **`Read` blocks** until there is at least one event after the position, and
   wakes when new events for the task are stored.
 
-`Log.Tasks()` is how the runner learns that a task exists. It reports each task
-once when its stream becomes complete, including at boot for every task
-already in the store. `TaskManager` creates a `TaskRunner` for each id it
-receives, so there is no second source of truth such as `ListRunnerTasks`.
+`Log.Tasks()` is how the runner learns which tasks it should have a
+`TaskRunner` for, so there is no second source of truth such as
+`ListRunnerTasks`. `Log` folds each task's archive lifecycle events
+(`Archived`, `AutoArchived`, `Unarchived`) and reports a `TaskState`:
+
+- **Active** (`Archived: false`) the first time an event for the task is
+  stored, once nothing earlier is missing, and again when it is unarchived.
+  `TaskManager` creates a `TaskRunner` for it.
+- **Archived** (`Archived: true`) when it is archived. `TaskManager` drops its
+  `TaskRunner`.
+- **At boot**, `Log` reports every stored task whose latest archive event isn't
+  `Archived` or `AutoArchived` as active. Archived tasks get no `TaskRunner`.
+
+With full replication from `(0, 0)`, nothing can be missing when a task's first
+event is stored, because everything before the cursor was already replicated.
+The "nothing earlier is missing" condition only matters if bootstrap fills in
+history on demand (see Open Questions).
+
+An archived task's events are still replicated and stored, so unarchiving
+needs no fetch and the cursor stays simple. Dropping them is compaction.
 
 #### Inside `taskevents`
 
@@ -216,10 +233,11 @@ Every fetched event is stored, including ones the runner has no use for, so
 the newest row is exactly where the last fetch ended. Compaction must never
 remove the newest row, or the cursor moves backwards.
 
-After storing a page, `Log` wakes the blocked `Read`s of the tasks in it. A
-task id it hasn't seen before is reported on `Tasks()`. How a task's earlier
-history is filled in, if the log didn't replicate it from the start, is also
-inside `taskevents` (see Open Questions).
+After storing a page, `Log` wakes the blocked `Read`s of the tasks in it,
+reports task ids it hasn't seen before as active, and reports archive and
+unarchive events on `Tasks()`. How a task's earlier history is filled in, if
+the log didn't replicate it from the start, is also inside `taskevents` (see
+Open Questions).
 
 `Stream.Read(after)` resolves `after` to a place in the task's log with:
 
@@ -495,9 +513,16 @@ func (l *Log) Run(ctx context.Context) error
 // Wake makes Run check the server for new events now.
 func (l *Log) Wake()
 
-// Tasks reports each task once its stream is complete, including every task
-// already stored at boot.
-func (l *Log) Tasks() <-chan int64
+// Tasks reports when a task becomes active or archived: every unarchived
+// stored task at boot, then each new, archived or unarchived task.
+func (l *Log) Tasks() <-chan TaskState
+
+// TaskState is a change in whether the runner should have a TaskRunner for a
+// task.
+type TaskState struct {
+	ID       int64
+	Archived bool
+}
 
 // Stream returns the task's event stream.
 func (l *Log) Stream(taskID int64) *Stream
@@ -519,7 +544,7 @@ type TaskManagerOptions struct {
 	Log *taskevents.Log // new
 }
 
-// Poll is removed; TaskManager creates a TaskRunner per id from Log.Tasks(). // removed
+// Poll is removed; TaskManager creates and drops TaskRunners from Log.Tasks(). // removed
 
 // TaskRunnerOptions takes the task's stream. // changed
 type TaskRunnerOptions struct {
@@ -566,8 +591,8 @@ func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.Ru
 `ListRunnerEvents` serves them. `gritz runner` constructs a `taskevents.Log`
 on the `runnerstore.Store` and runs it. The runner's SSE notification calls
 `Log.Wake`. `Log.Run` pages events into the store and wakes blocked `Read`s.
-`TaskManager` creates a `TaskRunner` with `Log.Stream(id)` for each id from
-`Log.Tasks()`. Each `TaskRunner` folds its stream's command events and boots
+`TaskManager` creates a `TaskRunner` with `Log.Stream(id)` for each active
+task from `Log.Tasks()`, and drops it when the task is archived. Each `TaskRunner` folds its stream's command events and boots
 or parks the sandbox with a slot from `TaskManager`. While the sandbox is up
 it holds a `Run` stream, sends `Stream.Read(hello.last_event_id)`, then keeps
 forwarding. `driverserver` writes each batch to `eventfile.File`, then acts
@@ -592,9 +617,9 @@ on it. Runner events come back up the stream into the runner's
    replicating into it, `Tasks()` and `Stream.Read`. Nothing reads the streams
    yet; `Poll` still drives behaviour. Depends on: (3), #1827. Verifiable by:
    `taskevents` tests against a fake server: the local table matches the
-   server's events, a restart resumes from the newest row, `Tasks()` reports
-   each task once, and `Read` blocks until an event after the position is
-   stored.
+   server's events, a restart resumes from the newest row, `Tasks()` reports a
+   new task once, reports archive and unarchive, skips archived tasks at
+   boot, and `Read` blocks until an event after the position is stored.
 5. **Docker h2c** — Delivers: unencrypted HTTP/2 on the Docker driver client.
    Depends on: nothing. Verifiable by: the existing Docker backend tests.
 6. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
@@ -606,8 +631,8 @@ on it. Runner events come back up the stream into the runner's
    command events; `Stop` RPC removed. Depends on: (2), (6). Verifiable by:
    driverserver tests per command, including a resent stream that repeats
    commands.
-8. **`TaskRunner` acts on its stream** — Delivers: `TaskManager` creating
-   `TaskRunner`s from `Log.Tasks()`, each `TaskRunner` folding its stream's
+8. **`TaskRunner` acts on its stream** — Delivers: `TaskManager` creating and
+   dropping `TaskRunner`s from `Log.Tasks()`, each `TaskRunner` folding its stream's
    command events and booting or parking its sandbox; `Poll` and
    `ListRunnerTasks` removed. Depends on: (7).
    Verifiable by: `runner_test` with the fake backend for start, restart, stop
@@ -657,8 +682,8 @@ on it. Runner events come back up the stream into the runner's
   replicates the whole history of its tasks, archived ones included. The
   alternative is to start the cursor at the current watermark and fill in each
   task's history up to the cursor the first time `Log` sees the task. Either
-  way it stays inside `taskevents`: a `TaskRunner` only gets its stream once it
-  is complete.
+  way it stays inside `taskevents`: a task is reported on `Tasks()` only once
+  nothing earlier in its stream is missing.
 - **Compaction.** When can the runner drop a task's events? Never the newest
   row overall, and never the row a reader of the task's stream last saw.
   Archive is the natural trigger.
