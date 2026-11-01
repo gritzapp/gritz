@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -239,4 +240,44 @@ func TestListEventsByTaskPage_BadToken(t *testing.T) {
 
 	// Assert
 	assert.Assert(t, errors.Is(err, pagination.ErrInvalidRequest))
+}
+
+func TestCreateEvent_XID(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, nil)
+	newEvent := func() *model.Event {
+		return &model.Event{
+			TaskID:  task.ID,
+			OrgID:   org.OrgID,
+			Payload: &model.ReportPayload{Content: "report"},
+		}
+	}
+
+	// Act - two events in one transaction, then one in another.
+	var txXID uint64
+	first, second := newEvent(), newEvent()
+	err := s.WithTx(t.Context(), nil, func(tx *sql.Tx) error {
+		assert.NilError(t, s.CreateEvent(t.Context(), tx, first))
+		assert.NilError(t, s.CreateEvent(t.Context(), tx, second))
+		assert.NilError(t, tx.QueryRowContext(t.Context(), "SELECT pg_current_xact_id()").Scan(&txXID))
+		return tx.Commit()
+	})
+	assert.NilError(t, err)
+	third := newEvent()
+	assert.NilError(t, s.CreateEvent(t.Context(), nil, third))
+
+	// Assert - rows carry the inserting transaction's xid, as returned on
+	// insert and as read back.
+	assert.Equal(t, first.XID, txXID)
+	assert.Equal(t, second.XID, txXID)
+	assert.Assert(t, third.XID > txXID)
+	got, err := s.GetEvent(t.Context(), nil, first.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, got.XID, txXID)
+	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, testx.ExtractField(events, "XID"), []uint64{txXID, txXID, third.XID})
 }

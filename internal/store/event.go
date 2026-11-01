@@ -17,7 +17,7 @@ func (s *Store) CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event)
 	if err != nil {
 		return fmt.Errorf("marshal event payload: %w", err)
 	}
-	id, err := s.q(tx).CreateEvent(ctx, sqlc.CreateEventParams{
+	row, err := s.q(tx).CreateEvent(ctx, sqlc.CreateEventParams{
 		TaskID:    event.TaskID,
 		OrgID:     event.OrgID,
 		Type:      event.Payload.Type(),
@@ -28,7 +28,8 @@ func (s *Store) CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event)
 	if err != nil {
 		return err
 	}
-	event.ID = id
+	event.ID = row.ID
+	event.XID = row.Xid
 	return nil
 }
 
@@ -193,6 +194,7 @@ func toModelEvent(row sqlc.Event) (*model.Event, error) {
 		Wake:      row.Wake,
 		Payload:   payload,
 		CreatedAt: row.CreatedAt,
+		XID:       row.Xid,
 	}, nil
 }
 

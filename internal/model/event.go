@@ -277,6 +277,9 @@ type Event struct {
 	Wake      bool         `json:"wake"`
 	Payload   EventPayload `json:"payload"`
 	CreatedAt time.Time    `json:"created_at"`
+	// XID is the id of the transaction that inserted the row (events.xid),
+	// set by the store. It stays on the server: Proto does not carry it.
+	XID uint64 `json:"-"`
 }
 
 // Proto converts an Event to its protobuf representation, delegating the arm
