@@ -11,6 +11,7 @@ import (
 	"math"
 	"path"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/outbox"
@@ -29,10 +32,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// TaskManager orchestrates the runner's tasks: it polls the server for their
-// commands, builds the specs their sandboxes are created and run with, admits
-// runs under the concurrency limit, and keeps the registry of the tasks'
-// TaskRunners.
+// TaskManager orchestrates the runner's tasks: it follows their commands in
+// the replicated event log, builds the specs their sandboxes are created and
+// run with, admits runs under the concurrency limit, and keeps the registry of
+// the tasks' TaskRunners.
 type TaskManager struct {
 	backend     backend.Backend
 	store       *taskstate.Store
@@ -45,8 +48,11 @@ type TaskManager struct {
 	log         *slog.Logger
 	queue       *outbox.Outbox[model.RunnerEvent]
 	wake        wakeup.Chan
-	// pollInterval is Run's fallback interval between Poll passes, and its
-	// interval between Prune passes.
+	// eventLog is the runner's replica of its tasks' event logs. Run runs it,
+	// and acts on the tasks it reports.
+	eventLog *taskevents.Log
+	// pollInterval is Run's fallback interval between reconcile passes, and
+	// its interval between Prune passes.
 	pollInterval time.Duration
 	fatal        context.CancelCauseFunc
 	// events is the unbuffered channel the TaskRunners send their events on;
@@ -59,14 +65,17 @@ type TaskManager struct {
 	// Wait.
 	runs sync.WaitGroup
 
-	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
-	// task the runner has seen, from its first command (or its record, at
-	// Load) until Prune drops it once the task is archived or deleted. A
-	// TaskRunner stays registered with no sandbox, before it creates one and
-	// after it destroys it or finds it gone. Only Load reads taskstate/, to
-	// rebuild the registry at boot.
-	mu    sync.Mutex
+	// mu guards tasks and reports.
+	mu sync.Mutex
+	// tasks is the registry of the tasks' TaskRunners: one for each task the
+	// event log reports unarchived (or with a record, at Load), until the
+	// task's archive report or Prune drops it. A TaskRunner stays registered
+	// with no sandbox, before it creates one and after it destroys it or finds
+	// it gone. Only Load reads taskstate/, to rebuild the registry at boot.
 	tasks map[int64]*TaskRunner
+	// reports holds the latest report of each unarchived task from the event
+	// log; reconcile acts on their commands.
+	reports map[int64]runnerstore.TaskChange
 }
 
 const (
@@ -94,8 +103,11 @@ type TaskManagerOptions struct {
 	// Queue is the durable outbox that delivers runner lifecycle events to the
 	// server, buffering them across transient outages and restarts.
 	Queue *outbox.Outbox[model.RunnerEvent]
-	// PollInterval is how long Run waits for a wake-up before it polls again,
-	// and how often it prunes. Defaults to 30s.
+	// EventLog is the runner's replica of its tasks' event logs, which Run
+	// runs. The tasks it reports are the ones the manager acts on.
+	EventLog *taskevents.Log
+	// PollInterval is how long Run waits for a wake-up before it reconciles
+	// again, and how often it prunes. Defaults to 30s.
 	PollInterval time.Duration
 	// Fatal terminates the runner by cancelling its root context with the given
 	// cause. It is invoked by die when a durable local-store write fails; the
@@ -128,6 +140,9 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 	}
 	if opts.Store == nil {
 		return nil, fmt.Errorf("store is required")
+	}
+	if opts.EventLog == nil {
+		return nil, fmt.Errorf("event log is required")
 	}
 
 	// Use math.MaxInt64 if no limit is set (concurrency <= 0)
@@ -163,11 +178,13 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		log:           log,
 		queue:         opts.Queue,
 		wake:          wakeup.New(),
+		eventLog:      opts.EventLog,
 		pollInterval:  cmp.Or(opts.PollInterval, defaultPollInterval),
 		fatal:         fatal,
 		events:        make(chan TaskEvent),
 		newTaskRunner: newTaskRunner,
 		tasks:         map[int64]*TaskRunner{},
+		reports:       map[int64]runnerstore.TaskChange{},
 	}
 	return m, nil
 }
@@ -194,7 +211,7 @@ func (e FatalError) Unwrap() error { return e.err }
 func (m *TaskManager) die(err error) { m.fatal(FatalError{err}) }
 
 // HandleEvents handles the TaskRunners' events until ctx is done. It must be
-// running before Load is called, and run on the same context as Load, Poll and
+// running before Load is called, and run on the same context as Load, Run and
 // the Run goroutines they start, so that no TaskRunner blocks sending to it
 // after it has stopped.
 //
@@ -231,25 +248,40 @@ func (m *TaskManager) handle(ev TaskEvent) {
 	}
 }
 
-// Wake signals Run to poll immediately. Wake-ups coalesce: a burst of them
-// before the next pass results in a single pass.
-func (m *TaskManager) Wake() { m.wake.Wake() }
+// Wake makes the event log check the server for new events, and Run reconcile,
+// now. Wake-ups coalesce: a burst of them before the next pass results in a
+// single pass.
+func (m *TaskManager) Wake() {
+	m.eventLog.Wake()
+	m.wake.Wake()
+}
 
-// Run polls the server for the runner's tasks until ctx is done, then returns
-// context.Cause(ctx). It polls again as soon as Wake is called or a run
-// releases its concurrency slot, and at the latest after PollInterval. Every
-// PollInterval it also runs Prune, between two Poll passes, so the two never
-// overlap.
+// Run runs the event log and acts on the tasks it reports until ctx is done,
+// then returns context.Cause(ctx) once the event log has stopped. It keeps the
+// latest report of each task, and reconciles every task's command after each
+// report, as soon as Wake is called or a run releases its concurrency slot,
+// and at the latest after PollInterval. Every PollInterval it also runs Prune,
+// between two reconcile passes, so the two never overlap.
+//
+// An event log that fails, which only a runnerstore error makes it do,
+// terminates the runner through die.
 //
 // HandleEvents must be running, and Load must have returned, before Run is
 // called, all on the same ctx.
 func (m *TaskManager) Run(ctx context.Context) error {
+	replicated := make(chan error, 1)
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Go(func() { replicated <- m.eventLog.Run(ctx) })
 	prune := time.NewTicker(m.pollInterval)
 	defer prune.Stop()
 	for {
-		if err := m.Poll(ctx); err != nil {
-			m.log.Error("failed to poll tasks", "err", err)
+		// A pass on a done ctx would report the starts it cuts short as
+		// failed.
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
+		m.reconcile(ctx)
 		select {
 		case <-prune.C:
 			if err := m.Prune(ctx); err != nil {
@@ -258,6 +290,12 @@ func (m *TaskManager) Run(ctx context.Context) error {
 		default:
 		}
 		select {
+		case c := <-m.eventLog.Tasks():
+			m.apply(ctx, c)
+		case err := <-replicated:
+			if ctx.Err() == nil {
+				m.die(fmt.Errorf("replicate event log: %w", err))
+			}
 		case <-m.wake:
 		case <-time.After(m.pollInterval):
 		case <-ctx.Done():
@@ -266,9 +304,29 @@ func (m *TaskManager) Run(ctx context.Context) error {
 	}
 }
 
+// apply records a report from the event log. An unarchived task gets a
+// TaskRunner, and its report is what reconcile acts on. An archived task's
+// report is dropped, and its TaskRunner retired and dropped, as Prune does; a
+// TaskRunner Retire refuses stays registered for Prune to retry.
+func (m *TaskManager) apply(ctx context.Context, c runnerstore.TaskChange) {
+	m.mu.Lock()
+	if !c.Archived {
+		m.reports[c.ID] = c
+		m.mu.Unlock()
+		m.Runner(c.ID)
+		return
+	}
+	delete(m.reports, c.ID)
+	tr := m.tasks[c.ID]
+	m.mu.Unlock()
+	if tr != nil {
+		m.retire(ctx, c.ID, tr)
+	}
+}
+
 // Wait blocks until every Run goroutine the manager started has returned, or
 // ctx is done, when it returns ctx's cause. It must not be called while the
-// manager can still start runs (Poll, Load, or Run's loop): each of them can
+// manager can still start runs (Start, Load, or Run's loop): each of them can
 // start a Run goroutine, which must not join the wait once it has begun.
 func (m *TaskManager) Wait(ctx context.Context) error {
 	done := make(chan struct{})
@@ -308,32 +366,37 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 	return nil
 }
 
-func (m *TaskManager) Poll(ctx context.Context) error {
-	resp, err := m.client.ListRunnerTasks(ctx, &gritzv1.ListRunnerTasksRequest{Runner: m.runnerID})
-	if err != nil {
-		return err
-	}
+// reconcile acts on the command of every task's latest report, in task order.
+// A command stays in the report until the event log reports it cleared, so a
+// pass acts on it again: a start skipped at the concurrency limit, a stop
+// whose kill failed, or a start that failed. The event log reports a clear
+// some time after the server makes it, so the guards below also cover a
+// command the runner already acted on.
+//
+// Run calls it, and calls Prune and apply only between passes, so they do not
+// act on the tasks a pass handles.
+func (m *TaskManager) reconcile(ctx context.Context) {
+	m.mu.Lock()
+	reports := slices.SortedFunc(maps.Values(m.reports), func(a, b runnerstore.TaskChange) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+	m.mu.Unlock()
 
 	// Plain group (limit + join only): WithContext's derived ctx is canceled
 	// when Wait returns, which would kill the Run goroutines Start spawns on
-	// this ctx. Run must outlive the poll cycle.
-	//
-	// A pass handles each task at most once, and passes run one after another.
-	// Run calls Prune only between passes, so Prune does not act on the tasks a
-	// pass handles.
+	// this ctx. Run must outlive the pass.
 	var g errgroup.Group
 	g.SetLimit(int(m.concurrency))
 
-	for _, pbTask := range resp.Tasks {
-		task := model.TaskFromProto(pbTask)
-		switch task.Command {
-		case model.TaskCommandStop:
+	for _, c := range reports {
+		switch c.Command {
+		case gritzv1.TaskCommand_STOP:
 			g.Go(func() error {
-				signalled, err := m.Runner(task.ID).Kill(ctx)
+				signalled, err := m.Runner(c.ID).Kill(ctx)
 				if err != nil {
 					// The stop command survives, so the kill is retried on
-					// the next poll.
-					m.log.Error("failed to stop task", "task", task.ID, "err", err)
+					// the next pass.
+					m.log.Error("failed to stop task", "task", c.ID, "err", err)
 					return nil
 				}
 				if signalled {
@@ -346,125 +409,108 @@ func (m *TaskManager) Poll(ctx context.Context) error {
 				// the cancel, so emit "stopped" to land the task in
 				// cancelled instead of sticking in cancelling.
 				if err := m.queue.Enqueue(model.RunnerEvent{
-					TaskID:  task.ID,
+					TaskID:  c.ID,
 					Event:   model.RunnerEventStopped,
-					Version: task.Version,
+					Version: c.Version,
 				}); err != nil {
-					m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, task.ID, err))
+					m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, c.ID, err))
 					return nil
 				}
 				return nil
 			})
-		case model.TaskCommandRestart:
+		case gritzv1.TaskCommand_RESTART:
 			g.Go(func() error {
 				// Idempotency guard: the record is stamped with the version of
-				// the run it launched, so a record already on the task's current
+				// the run it launched, so a record already on the command's
 				// version means this restart's new run was launched by an
-				// earlier poll pass. The driver takes ~12s to boot, so any poll
-				// landing in the launch→"started" window still sees the pending
-				// command; killing here would SIGKILL the run we just started
-				// (issue #1520). Do nothing and wait for "started" to consume
-				// the command, exactly like the start handler's already-running
-				// guard. A legacy version-0 record never matches a live task's
-				// version (>= 1), so the guard is a no-op for those.
-				if m.Runner(task.ID).Version() == task.Version {
-					m.log.Debug("restart already processed, waiting for started", "task", task.ID, "version", task.Version)
+				// earlier pass. The driver takes ~12s to boot, and the event
+				// log reports the command cleared only after "started" consumes
+				// it, so a pass in between still sees the restart; killing here
+				// would SIGKILL the run we just started (issue #1520). A legacy
+				// version-0 record never matches a live task's version (>= 1),
+				// so the guard is a no-op for those.
+				if m.Runner(c.ID).Version() == c.Version {
+					m.log.Debug("restart already processed, waiting for started", "task", c.ID, "version", c.Version)
 					return nil
 				}
 				// Kill existing sandbox if running. The old run's "stopped"
 				// is rejected by the status guard while the restart command is
 				// pending, so the command survives until the new run's
 				// "started" consumes it.
-				if _, err := m.Runner(task.ID).Kill(ctx); err != nil {
-					m.log.Error("failed to kill task for restart", "task", task.ID, "err", err)
+				if _, err := m.Runner(c.ID).Kill(ctx); err != nil {
+					m.log.Error("failed to kill task for restart", "task", c.ID, "err", err)
 				}
-				// Atomically acquire a semaphore slot before starting
-				if !m.sem.TryAcquire(1) {
-					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
-					return nil
-				}
-				err := m.Start(ctx, task)
-				if errors.Is(err, ErrRunning) {
-					// Nothing was started, so the slot goes back; the
-					// command is retried on a later poll.
-					m.sem.Release(1)
-					m.log.Debug("sandbox still running, not started", "task", task.ID)
-					return nil
-				}
-				if err != nil {
-					m.sem.Release(1) // Release the slot on failure
-					m.log.Error("failed to start task", "task", task.ID, "err", err)
-					err := m.queue.Enqueue(model.RunnerEvent{
-						TaskID:  task.ID,
-						Event:   model.RunnerEventFailed,
-						Version: task.Version,
-						Reason:  err.Error(),
-					})
-					if err != nil {
-						m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
-					}
-					return nil
-				}
-				// The "started" event is submitted by the driver on startup
+				m.admit(ctx, c)
 				return nil
 			})
-		case model.TaskCommandStart:
+		case gritzv1.TaskCommand_START:
 			g.Go(func() error {
-				// Don't bother checking the backend if the status is still running
-				if task.Status == model.TaskStatusRunning {
-					m.log.Debug("start command: task.status=running, waiting for it to finish", "task", task.ID)
+				// Idempotency guard, as for restart: a record on the
+				// command's version means an earlier pass launched its run,
+				// which may already have finished and parked its sandbox
+				// before the event log reports the start consumed. It also
+				// covers a start issued on a running task, which stays on the
+				// running run's version until that run exits.
+				if m.Runner(c.ID).Version() == c.Version {
+					m.log.Debug("start already processed, waiting for started", "task", c.ID, "version", c.Version)
 					return nil
 				}
 				// Check if the sandbox is already running
-				running, err := m.Runner(task.ID).Running(ctx)
+				running, err := m.Runner(c.ID).Running(ctx)
 				if err != nil {
-					m.log.Error("failed to check if task is running", "task", task.ID, "err", err)
+					m.log.Error("failed to check if task is running", "task", c.ID, "err", err)
 					return nil
 				}
 				if running {
 					// Sandbox is running - do nothing, let it finish naturally
 					// The command will be processed when it stops
-					m.log.Debug("start command: sandbox already running, waiting for it to finish", "task", task.ID)
+					m.log.Debug("start command: sandbox already running, waiting for it to finish", "task", c.ID)
 					return nil
 				}
-
-				// Sandbox not running - atomically acquire a semaphore slot before starting
-				if !m.sem.TryAcquire(1) {
-					m.log.Debug("concurrency limit reached, skipping task", "task", task.ID, "limit", m.concurrency)
-					return nil
-				}
-				err = m.Start(ctx, task)
-				if errors.Is(err, ErrRunning) {
-					// Nothing was started, so the slot goes back; the
-					// command is retried on a later poll.
-					m.sem.Release(1)
-					m.log.Debug("sandbox still running, not started", "task", task.ID)
-					return nil
-				}
-				if err != nil {
-					m.sem.Release(1) // Release the slot on failure
-					m.log.Error("failed to start task", "task", task.ID, "err", err)
-					err := m.queue.Enqueue(model.RunnerEvent{
-						TaskID:  task.ID,
-						Event:   model.RunnerEventFailed,
-						Version: task.Version,
-						Reason:  err.Error(),
-					})
-					if err != nil {
-						m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, task.ID, err))
-					}
-					return nil
-				}
-				// The "started" event is submitted by the driver on startup
+				m.admit(ctx, c)
 				return nil
 			})
 		}
 	}
 
-	return g.Wait()
+	_ = g.Wait()
 }
 
-// Load rehydrates this runner's sandboxes at boot, before Poll admits new work.
+// admit starts the task's run if a concurrency slot is free. A start skipped
+// at the limit, or because the task's previous run is still followed, is
+// retried by a later pass; one that fails is reported as the run's "failed".
+func (m *TaskManager) admit(ctx context.Context, c runnerstore.TaskChange) {
+	// Atomically acquire a semaphore slot before starting
+	if !m.sem.TryAcquire(1) {
+		m.log.Debug("concurrency limit reached, skipping task", "task", c.ID, "limit", m.concurrency)
+		return
+	}
+	err := m.Start(ctx, c)
+	if errors.Is(err, ErrRunning) {
+		// Nothing was started, so the slot goes back; the command is retried
+		// on a later pass.
+		m.sem.Release(1)
+		m.log.Debug("sandbox still running, not started", "task", c.ID)
+		return
+	}
+	if err != nil {
+		m.sem.Release(1) // Release the slot on failure
+		m.log.Error("failed to start task", "task", c.ID, "err", err)
+		err := m.queue.Enqueue(model.RunnerEvent{
+			TaskID:  c.ID,
+			Event:   model.RunnerEventFailed,
+			Version: c.Version,
+			Reason:  err.Error(),
+		})
+		if err != nil {
+			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, c.ID, err))
+		}
+		return
+	}
+	// The "started" event is submitted by the driver on startup
+}
+
+// Load rehydrates this runner's sandboxes at boot, before Run admits new work.
 // The statefile enumerates; Status answers liveness per record. An up sandbox
 // gets the same Run goroutine as the live path, which reattaches
 // to the recorded run; a parked husk or a gone sandbox is a lost-report
@@ -555,16 +601,20 @@ func (m *TaskManager) Runner(taskID int64) *TaskRunner {
 	return tr
 }
 
-// spec assembles the sandbox spec for a task: the task token, the run's
-// environment and secrets, and the agent config with the injected gritz MCP
-// server.
-func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec, error) {
-	ws, err := m.workspaces.Get(task.Workspace)
+// spec assembles the sandbox spec for run c.Version of a task: the task token,
+// the run's environment and secrets, and the agent config with the injected
+// gritz MCP server. The workspace is the one c's command event carries.
+func (m *TaskManager) spec(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, error) {
+	if c.Workspace == "" {
+		// Command events written before they carried the workspace.
+		return nil, errors.New("the task's command event has no workspace; restart the task")
+	}
+	ws, err := m.workspaces.Get(c.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 	if err := m.backend.ValidateWorkspace(ws); err != nil {
-		return nil, fmt.Errorf("invalid workspace %q: %w", task.Workspace, err)
+		return nil, fmt.Errorf("invalid workspace %q: %w", c.Workspace, err)
 	}
 
 	// Mint the task token via the server rather than signing it locally: the runner
@@ -572,7 +622,7 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	// task's workspace/runner/org from the row and signs a narrow app JWT. The
 	// driver and injected MCP server present it directly to the server.
 	tokenResp, err := m.client.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
-		TaskId:       task.ID,
+		TaskId:       c.ID,
 		Capabilities: ws.Capabilities,
 	})
 	if err != nil {
@@ -585,9 +635,9 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	mcpArgs := []string{
 		"tool", "agent-mcp",
 		"--server", m.serverURL,
-		"--task", fmt.Sprint(task.ID),
-		"--runner", task.Runner,
-		"--workspace", task.Workspace,
+		"--task", fmt.Sprint(c.ID),
+		"--runner", m.runnerID,
+		"--workspace", c.Workspace,
 		"--token", token,
 	}
 	for _, capability := range ws.Capabilities {
@@ -604,23 +654,23 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	}
 
 	return &backend.Spec{
-		TaskID:    task.ID,
-		Version:   task.Version,
+		TaskID:    c.ID,
+		Version:   c.Version,
 		Workspace: ws,
 		ServerURL: m.serverURL,
 		Token:     token,
 		// The agent's tools (the git credential helper, the GitHub MCP server)
 		// reach the server through these.
 		Env: map[string]string{
-			"GRITZ_TASK_ID": fmt.Sprint(task.ID),
+			"GRITZ_TASK_ID": fmt.Sprint(c.ID),
 			"GRITZ_TOKEN":   token,
 			"GRITZ_SERVER":  m.serverURL,
 		},
 		Secrets: maps.Clone(ws.Secrets),
 		Files: []backend.File{
 			// Allow non-root agents to write to this directory.
-			{Path: path.Dir(agent.DefaultConfigStore.Path(task.ID)), Mode: 0777, Dir: true},
-			{Path: agent.DefaultConfigStore.Path(task.ID), Data: cfgData, Mode: 0666},
+			{Path: path.Dir(agent.DefaultConfigStore.Path(c.ID)), Mode: 0777, Dir: true},
+			{Path: agent.DefaultConfigStore.Path(c.ID), Data: cfgData, Mode: 0666},
 			// Pre-create the log dir 0777 so a non-root driver can write the
 			// append-only /gritz/log file (the driver's MkdirAll is only a
 			// fallback for a directly-invoked driver).
@@ -629,21 +679,21 @@ func (m *TaskManager) spec(ctx context.Context, task *model.Task) (*backend.Spec
 	}, nil
 }
 
-// Start brings up the task's sandbox and starts the task's run on it, on a Run
+// Start brings up the task's sandbox and starts run c.Version on it, on a Run
 // goroutine. The task's TaskRunner creates the sandbox if it has none, or
 // reuses it, and stamps the record with the task's version; see
 // TaskRunner.Boot for what a failure leaves behind.
 //
 // Start returns once the platform reports the sandbox running: waiting for the
 // driver and starting the run happen in Run, so a slow sandbox does not hold
-// up the poll pass. A failure there is reported as the run's "failed".
+// up the reconcile pass. A failure there is reported as the run's "failed".
 //
 // If a Run still follows the task's previous run, Start returns ErrRunning
 // without starting anything, and the caller gives back the concurrency slot it
 // acquired. The task token minted for the spec then goes unused.
-func (m *TaskManager) Start(ctx context.Context, task *model.Task) error {
-	tr := m.Runner(task.ID)
-	spec, err := m.spec(ctx, task)
+func (m *TaskManager) Start(ctx context.Context, c runnerstore.TaskChange) error {
+	tr := m.Runner(c.ID)
+	spec, err := m.spec(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -685,7 +735,8 @@ func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 }
 
 // run calls tr's Run on its own goroutine, which holds the run's concurrency
-// slot. Once Run returns, the slot is released and Poll woken, unless the
+// slot. Once Run returns, the slot is released and Run woken to reconcile, so
+// a start skipped at the limit gets it, unless the
 // runner is shutting down: then the slot stays held and the sandbox is left
 // for the next boot.
 func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.RunSpec) {
@@ -699,9 +750,10 @@ func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.Ru
 }
 
 // Prune removes the sandboxes of archived and deleted tasks, and drops their
-// TaskRunners from the registry. It goes through a snapshot of the registry.
-// Run calls it between Poll passes, so it never acts on a task Poll is
-// handling.
+// TaskRunners and reports. It goes through a snapshot of the registry. Run
+// calls it between reconcile passes, so it never acts on a task a pass is
+// handling. It catches what the event log does not report: a deleted task, and
+// a TaskRunner its archive report could not retire yet.
 func (m *TaskManager) Prune(ctx context.Context) error {
 	m.mu.Lock()
 	tasks := maps.Clone(m.tasks)
@@ -712,11 +764,8 @@ func (m *TaskManager) Prune(ctx context.Context) error {
 	return nil
 }
 
-// prune retires the task's TaskRunner if the task is archived or deleted, and
-// then drops it from the registry; see TaskRunner.Retire. Between Poll passes
-// only a Run holds a TaskRunner, and Retire refuses a claimed one, so nothing
-// still uses a TaskRunner that is dropped: the task's next command gets a
-// fresh one.
+// prune retires the task's TaskRunner if the task is archived or deleted; see
+// retire.
 func (m *TaskManager) prune(ctx context.Context, taskID int64, tr *TaskRunner) {
 	stale, err := m.stale(ctx, taskID)
 	if err != nil {
@@ -726,6 +775,14 @@ func (m *TaskManager) prune(ctx context.Context, taskID int64, tr *TaskRunner) {
 	if !stale {
 		return
 	}
+	m.retire(ctx, taskID, tr)
+}
+
+// retire retires the task's TaskRunner, and then drops it and the task's
+// report; see TaskRunner.Retire. Between reconcile passes only a Run holds a
+// TaskRunner, and Retire refuses a claimed one, so nothing still uses a
+// TaskRunner that is dropped: the task's next report gets a fresh one.
+func (m *TaskManager) retire(ctx context.Context, taskID int64, tr *TaskRunner) {
 	ok, err := tr.Retire(ctx)
 	if err != nil {
 		m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
@@ -736,6 +793,7 @@ func (m *TaskManager) prune(ctx context.Context, taskID int64, tr *TaskRunner) {
 	}
 	m.mu.Lock()
 	delete(m.tasks, taskID)
+	delete(m.reports, taskID)
 	m.mu.Unlock()
 	m.log.Info("task pruned", "task", taskID)
 }

@@ -1,6 +1,6 @@
 // Package testrunner provides helpers for testing the runner: a TaskManager
-// on a fake backend with a mock server, drivers serving real runs, an
-// in-memory runner event log (Server), and the waits and assertions the
+// on a fake backend with a mock server and an in-memory runner event log
+// (Server), drivers serving real runs, and the waits and assertions the
 // runner's tests share.
 package testrunner
 
@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +27,8 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/outbox"
@@ -193,26 +193,21 @@ type TaskOptions struct {
 	ID int64
 	// Version defaults to 1.
 	Version int64
-	Name    string
-	// Status defaults to pending.
-	Status model.TaskStatus
 	// Command defaults to start.
-	Command model.TaskCommand
+	Command gritzv1.TaskCommand
 }
 
-// Task returns a task of the Workspace workspace, assigned to RunnerID.
-func Task(opts *TaskOptions) *model.Task {
+// Task returns a task's report from the event log: unarchived, with a command
+// event for the Workspace workspace.
+func Task(opts *TaskOptions) runnerstore.TaskChange {
 	if opts == nil {
 		opts = &TaskOptions{}
 	}
-	return &model.Task{
+	return runnerstore.TaskChange{
 		ID:        cmp.Or(opts.ID, 1),
-		Name:      opts.Name,
-		Runner:    RunnerID,
-		Workspace: Workspace,
-		Status:    cmp.Or(opts.Status, model.TaskStatusPending),
-		Command:   cmp.Or(opts.Command, model.TaskCommandStart),
+		Command:   cmp.Or(opts.Command, gritzv1.TaskCommand_START),
 		Version:   cmp.Or(opts.Version, 1),
+		Workspace: Workspace,
 	}
 }
 
@@ -229,7 +224,8 @@ type ManagerOptions struct {
 	ServerURL  string
 	// Concurrency defaults to 1.
 	Concurrency int
-	// PollInterval defaults to the TaskManager's default.
+	// PollInterval is the TaskManager's and its event log's; defaults to
+	// their default.
 	PollInterval time.Duration
 	// Fatal is runner.TaskManagerOptions.Fatal.
 	Fatal context.CancelCauseFunc
@@ -246,15 +242,18 @@ type Manager struct {
 	*runner.TaskManager
 	Backend *fake.Backend
 	Store   *taskstate.Store
-	// Client is the server. It mints task tokens, accepts runner events, and
-	// lists the tasks SetTasks sets.
+	// Server is the runner's event log on the server, which AddEvents adds
+	// to.
+	Server *Server
+	// EventLog is the manager's replica of Server, in a runnerstore in a temp
+	// dir. The manager's Run runs it.
+	EventLog *taskevents.Log
+	// Client is the server. It serves Server's events, mints task tokens and
+	// accepts runner events.
 	Client *gritzclient.ClientMock
 	// Queue is the manager's outbox, delivering to Client. Nothing runs it
 	// until Submitted.
 	Queue *outbox.Outbox[model.RunnerEvent]
-
-	mu    sync.Mutex
-	tasks []*model.Task
 }
 
 // NewManager returns a Manager running as RunnerID, with its HandleEvents
@@ -274,24 +273,23 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	if m.Store == nil {
 		m.Store = NewStore(t)
 	}
-	m.Client = &gritzclient.ClientMock{
-		CreateTaskTokenFunc: func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
-			return &gritzv1.CreateTaskTokenResponse{Token: "t"}, nil
-		},
-		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
-			return &gritzv1.SubmitRunnerEventsResponse{}, nil
-		},
-		ListRunnerTasksFunc: func(context.Context, *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			resp := &gritzv1.ListRunnerTasksResponse{}
-			for _, task := range m.tasks {
-				resp.Tasks = append(resp.Tasks, task.Proto(""))
-			}
-			return resp, nil
-		},
+	m.Server = NewServer(ServerOptions{})
+	m.Client = m.Server.Client()
+	m.Client.CreateTaskTokenFunc = func(_ context.Context, _ *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
+		return &gritzv1.CreateTaskTokenResponse{Token: "t"}, nil
 	}
-	var err error
+	m.Client.SubmitRunnerEventsFunc = func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+		return &gritzv1.SubmitRunnerEventsResponse{}, nil
+	}
+	rstore, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, rstore.Close()) })
+	m.EventLog = taskevents.New(taskevents.Options{
+		Store:        rstore,
+		Client:       m.Client,
+		RunnerID:     RunnerID,
+		PollInterval: opts.PollInterval,
+	})
 	m.Queue, err = runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
 		Store:    opts.QueueStore,
 		StoreDir: t.TempDir(),
@@ -320,6 +318,7 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 		Concurrency:  cmp.Or(opts.Concurrency, 1),
 		RunnerID:     RunnerID,
 		Queue:        m.Queue,
+		EventLog:     m.EventLog,
 		PollInterval: opts.PollInterval,
 		Fatal:        opts.Fatal,
 		NewTaskRunner: func(o runner.TaskRunnerOptions) *runner.TaskRunner {
@@ -338,12 +337,31 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	return m
 }
 
-// SetTasks sets the tasks the server lists for the runner, which Poll acts
-// on. It may be called while the manager polls.
-func (m *Manager) SetTasks(tasks ...*model.Task) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tasks = slices.Clone(tasks)
+// AddEvents adds events to Server, and wakes the event log to replicate them.
+// The manager acts on them while Go runs it.
+func (m *Manager) AddEvents(events ...*gritzv1.Event) {
+	m.Server.Add(events...)
+	m.EventLog.Wake()
+}
+
+// Go runs the manager's Run on its own goroutine until the test ends. Run
+// reconciles after each report the event log sends it, on a wake-up and on the
+// poll interval, so a test waits for what it acts on rather than for a pass.
+// Its runs follow ctx, so they are cut when the test ends too.
+func (m *Manager) Go(t *testing.T, ctx context.Context) <-chan error {
+	t.Helper()
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		done <- m.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-stopped
+	})
+	return done
 }
 
 // Queued returns the number of events in the manager's outbox.
@@ -459,6 +477,26 @@ func WaitRuns(t *testing.T, be *fake.Backend, id string, n int) {
 		return sbx.Runs >= n
 	})
 	assert.NilError(t, err, "sandbox %s did not get %d Run calls", id, n)
+}
+
+// WaitTask waits until the sandbox created for task taskID is in state, and
+// returns it.
+func WaitTask(t *testing.T, be *fake.Backend, taskID int64, state fake.State) fake.Info {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var got fake.Info
+	_, err := be.Wait(ctx, func(s fake.Snapshot) bool {
+		for _, sbx := range s.Sandboxes {
+			if sbx.TaskID == taskID && sbx.State == state {
+				got = sbx
+				return true
+			}
+		}
+		return false
+	})
+	assert.NilError(t, err, "task %d has no %v sandbox", taskID, state)
+	return got
 }
 
 // StopRun stops the running run version over the test's client to the

@@ -211,8 +211,8 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to open task store: %w", err)
 		}
 
-		// Open the runner's SQLite database and replicate the runner's event
-		// log into it. The TaskManager doesn't act on the replica yet.
+		// Open the runner's SQLite database, which holds the replica of the
+		// runner's event log the TaskManager acts on.
 		stateDB := cmd.String("state-db")
 		if err := os.MkdirAll(filepath.Dir(stateDB), 0o755); err != nil {
 			return fmt.Errorf("failed to create state db directory: %w", err)
@@ -222,7 +222,7 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to open state db: %w", err)
 		}
 		defer rstore.Close()
-		events := taskevents.New(taskevents.Options{
+		eventLog := taskevents.New(taskevents.Options{
 			Store:        rstore,
 			Client:       client,
 			RunnerID:     runnerID,
@@ -240,6 +240,7 @@ var RunnerCommand = &cli.Command{
 			RunnerID:     runnerID,
 			Log:          log,
 			Queue:        queue,
+			EventLog:     eventLog,
 			PollInterval: pollInterval,
 			Fatal:        cancel,
 		})
@@ -261,7 +262,7 @@ var RunnerCommand = &cli.Command{
 
 		// Rehydrate sandboxes that were running when the runner was stopped: this
 		// re-attaches a Run goroutine per running sandbox and seeds the
-		// concurrency semaphore. It runs once, before Poll admits new work.
+		// concurrency semaphore. It runs once, before Run admits new work.
 		if err := m.Load(ctx); err != nil {
 			return fmt.Errorf("failed to load sandboxes: %w", err)
 		}
@@ -270,48 +271,25 @@ var RunnerCommand = &cli.Command{
 		// events that were persisted but not yet acknowledged before a restart.
 		go queue.Run(ctx)
 
-		// Replicate the event log alongside the TaskManager. A store error
-		// ends the replication but not the runner, which still runs off Poll.
-		go func() {
-			if err := events.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Error("event log replication stopped", "err", err)
-			}
-		}()
-		// Run blocks until each task report is received. Nothing acts on them
-		// yet: the next step of the runner event replica makes the
-		// TaskManager consume them instead of polling ListRunnerTasks.
-		go func() {
-			for {
-				select {
-				case c := <-events.Tasks():
-					log.Debug("event log task report", "task", c.ID, "command", c.Command, "version", c.Version, "archived", c.Archived)
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-
 		// Subscribe to server-sent task change notifications so the runner
 		// reacts to new commands immediately instead of waiting for the
-		// fallback poll.
+		// event log's fallback poll.
 		go func() {
 			nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
 				BaseURL: serverAddr,
 				Runner:  runnerID,
 				Token:   cfg.Token,
 				Log:     log,
-				Handler: func(model.Notification) {
-					m.Wake()
-					events.Wake()
-				},
+				Handler: func(model.Notification) { m.Wake() },
 			})
 			if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				log.Error("notification client stopped", "err", err)
 			}
 		}()
 
-		// Poll (and prune) until ctx is done. Distinguish a durable-store-write
-		// crash (die set a FatalError cause) from a graceful signal shutdown.
+		// Replicate the event log and act on it (and prune) until ctx is done.
+		// Distinguish a durable-store-write crash (die set a FatalError cause)
+		// from a graceful signal shutdown.
 		// The sentinel is what lets us return non-zero on a broken disk
 		// without depending on whatever cause signal.NotifyContext sets.
 		var fatal runner.FatalError

@@ -170,32 +170,47 @@ func TestTaskManagerLoad(t *testing.T) {
 				Store:   testrunner.NewStore(t, tt.record),
 			})
 			m.Client.GetTaskFunc = taskRunning
-			m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 2}))
 
 			// Act
 			err := m.Load(t.Context())
+			assert.NilError(t, err)
+
+			// Act - task 2 is started, and task 3, which has no sandbox,
+			// stopped. A pass handles its tasks in order, so once task 3's
+			// "stopped" is queued, a pass has handled task 2's start.
+			m.AddEvents(
+				testrunner.Command(&testrunner.CommandOptions{TaskID: 2}),
+				testrunner.Command(&testrunner.CommandOptions{TaskID: 3, Command: gritzv1.TaskCommand_STOP}),
+			)
+			m.Go(t, t.Context())
+			m.WaitQueued(t, len(tt.wantEvents)+1)
 
 			// Assert - an up sandbox was reattached, and its Run holds the
 			// only slot: task 2 gets no sandbox until the run finishes.
-			assert.NilError(t, err)
 			if tt.wantAttach {
 				testrunner.WaitRuns(t, be, "c1", 1)
-				assert.NilError(t, m.Poll(t.Context()))
 				assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0), "the slot Load seeded is free")
 				testrunner.StopRun(t, client, 3)
-				assert.NilError(t, m.Wait(t.Context()))
 			} else {
 				sbx, _ := be.Snapshot().Sandbox("c1")
 				assert.Equal(t, sbx.Runs, 0)
 			}
-			// Assert - the slot is free, so task 2 gets a sandbox.
-			assert.NilError(t, m.Poll(t.Context()))
-			assert.NilError(t, m.Wait(t.Context()))
+			// Assert - the slot is free, so task 2 gets a sandbox, whose run
+			// finishes.
+			testrunner.WaitTask(t, be, 2, fake.Parked)
 			snap := be.Snapshot()
 			assert.Assert(t, cmp.Len(snap.Specs, 1))
 			assert.Equal(t, snap.Specs[0].TaskID, int64(2))
-			// Assert - the backstop's events, and Load never destroys.
-			assert.DeepEqual(t, m.Submitted(t), tt.wantEvents, protocmp.Transform())
+			// Assert - the backstop's events, and Load never destroys. Task
+			// 3's stop is handled again on every pass until the event log
+			// reports it cleared, which this server never does.
+			var events []*gritzv1.RunnerEvent
+			for _, ev := range m.Submitted(t) {
+				if ev.TaskId == 1 {
+					events = append(events, ev)
+				}
+			}
+			assert.DeepEqual(t, events, tt.wantEvents, protocmp.Transform())
 			assert.Assert(t, cmp.Len(snap.Destroyed, 0))
 			if tt.wantRecord {
 				m.AssertTracked(t, 1, &tt.record)
@@ -332,14 +347,14 @@ func TestTaskManagerPrune(t *testing.T) {
 	assert.DeepEqual(t, kept, []int64{2, 3, 7, 8})
 }
 
-// TestTaskManagerRun covers the poll loop: between Poll passes it prunes an
+// TestTaskManagerRun covers Run's loop: between reconcile passes it prunes an
 // archived task's parked sandbox, and once a durable write fails it returns
 // the FatalError cause.
 func TestTaskManagerRun(t *testing.T) {
 	t.Parallel()
-	// Arrange - task 1 is archived and its sandbox is parked. The server has
-	// no commands until SetTasks gives it a stop. The outbox's durable write fails, so the
-	// first event the runner persists terminates it.
+	// Arrange - task 1 is archived and its sandbox is parked. The event log
+	// has no commands until a stop is added. The outbox's durable write fails,
+	// so the first event the runner persists terminates it.
 	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Parked)
@@ -363,10 +378,9 @@ func TestTaskManagerRun(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	done := make(chan error, 1)
-	go func() { done <- m.Run(ctx) }()
+	done := m.Go(t, ctx)
 
-	// Assert - the archived task's sandbox is pruned while Run keeps polling.
+	// Assert - the archived task's sandbox is pruned while Run keeps going.
 	waitCtx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	_, err = be.Wait(waitCtx, func(s fake.Snapshot) bool { return len(s.Destroyed) > 0 })
@@ -376,11 +390,10 @@ func TestTaskManagerRun(t *testing.T) {
 
 	// Act - a stop command for a task with no sandbox, whose "stopped" cannot
 	// be persisted.
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
-		ID:      7,
+	m.AddEvents(testrunner.Command(&testrunner.CommandOptions{
+		TaskID:  7,
 		Version: 3,
-		Status:  model.TaskStatusCancelling,
-		Command: model.TaskCommandStop,
+		Command: gritzv1.TaskCommand_STOP,
 	}))
 
 	// Assert - Run returns the FatalError cause.
@@ -465,19 +478,19 @@ func TestTaskManagerDie_StopWithoutSandbox(t *testing.T) {
 			AppendFunc: func(json.RawMessage) error { return errors.New("no space left on device") },
 		},
 	})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
-		ID:      7,
+	m.AddEvents(testrunner.Command(&testrunner.CommandOptions{
+		TaskID:  7,
 		Version: 3,
-		Status:  model.TaskStatusCancelling,
-		Command: model.TaskCommandStop,
+		Command: gritzv1.TaskCommand_STOP,
 	}))
 
 	// Act - the "stopped" enqueue fails durably, so die fires.
-	assert.NilError(t, m.Poll(ctx))
+	done := m.Go(t, ctx)
 
-	// Assert - the root ctx is cancelled with a FatalError cause, which the
-	// command layer maps to a non-zero exit.
+	// Assert - the root ctx is cancelled with a FatalError cause, which Run
+	// returns and the command layer maps to a non-zero exit.
 	var fatal runner.FatalError
+	assert.Assert(t, errors.As(<-done, &fatal))
 	assert.Assert(t, errors.As(context.Cause(ctx), &fatal))
 }
 
@@ -489,19 +502,20 @@ func TestTaskManagerGracefulShutdown_NoFatalCause(t *testing.T) {
 	t.Parallel()
 	ctx, cancelCause := context.WithCancelCause(context.Background())
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Fatal: cancelCause})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
-		ID:      7,
+	m.AddEvents(testrunner.Command(&testrunner.CommandOptions{
+		TaskID:  7,
 		Version: 3,
-		Status:  model.TaskStatusCancelling,
-		Command: model.TaskCommandStop,
+		Command: gritzv1.TaskCommand_STOP,
 	}))
+	done := m.Go(t, ctx)
 
 	// The durable enqueue succeeds, so die never fires.
-	assert.NilError(t, m.Poll(ctx))
+	m.WaitQueued(t, 1)
 
 	// A graceful signal shutdown cancels ctx with no FatalError cause.
 	cancelCause(nil)
 	var fatal runner.FatalError
+	assert.Assert(t, !errors.As(<-done, &fatal))
 	assert.Assert(t, !errors.As(context.Cause(ctx), &fatal))
 }
 

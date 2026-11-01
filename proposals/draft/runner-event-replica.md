@@ -182,21 +182,27 @@ lifecycle events are written. A model method, shaped like
 `RunnerEvent.LifecycleEvent`, builds it:
 
 ```go
-// CommandEvent returns the command event for a change from `from` to
-// t.Command, and false when the command didn't change.
-func (t *Task) CommandEvent(from TaskCommand) (*Event, bool)
+// CommandEvent returns the command event for a change from command `from` at
+// fromVersion to t.Command at t.Version, and false when neither changed.
+func (t *Task) CommandEvent(from TaskCommand, fromVersion int64) (*Event, bool)
 ```
 
 Each site snapshots the task with `from := task.Clone()` before the mutation
 (`Start`, `Restart`, `Cancel`, `ApplyRunnerEvent`, the event-router wake) and
-passes `from.Command`; a site that creates a task with a command passes
-`TaskCommandNone`. The store is unchanged. Two cases fall out of the rule:
+passes `from.Command, from.Version`; a site that creates a task with a command
+passes `TaskCommandNone, 0`. The store is unchanged. Two cases fall out of the rule:
 
 - **Withdrawals.** Cancelling a `PENDING` task writes a `none` command event
   for that version, so a runner that already acted on the start learns it was
   withdrawn.
 - **Clears.** When a runner event consumes the command, a `none` event is
   written too.
+
+- **Run boundaries.** A start issued on a running task stays on the running
+  run's version. When that run exits, the start is kept and moved to the next
+  version; the command is unchanged but its version isn't, so that writes a
+  command event too. `CommandEvent` takes the version from before the
+  mutation as well as the command, and fires when either changed.
 
 Lifecycle events don't change; they remain the history users see. A restart
 writes both. `ListEventsByTask` callers that show history (the web UI
@@ -228,8 +234,8 @@ task's stream and never sees the cursor or duplicates.
 `TaskRunner` for, so there is no second source of truth such as
 `ListRunnerTasks`. `Log` folds each task's command events and archive
 lifecycle events (`Archived`, `AutoArchived`, `Unarchived`) into a
-`TaskChange{ID, Command, Version, Archived}`: the task's full state, not a
-delta.
+`TaskChange{ID, Command, Version, Workspace, Archived}`: the task's full
+state, not a delta.
 
 - **After each stored page**, every task with a command or archive event in
   it is reported with its state after the page. `TaskManager` creates a
@@ -342,6 +348,38 @@ wake-up signal before reading, so a page stored between the read and the
 wait isn't missed.
 
 ### Runner: `TaskRunner` acts on its stream
+
+Slice 6 gets there in two steps. First (what slice 6 delivers), `TaskManager`
+owns the `Log`: it runs `Log.Run` inside its own `Run`, and a `Log.Run` error
+(a `runnerstore` failure) terminates the runner through `die`, like a failed
+outbox write. It keeps the latest `TaskChange` of each unarchived task and
+reconciles them the way `Poll` reconciled `ListRunnerTasks` results: the same
+switch on the command, the same restart version guard, the same concurrency
+limit and `ErrRunning` hand-back, through the existing driver `Run` and `Stop`
+RPCs. A pass runs after each report, on a wake (the notification handler's
+`Wake` wakes the `Log` and the pass), when a run releases its slot, and every
+poll interval, so a start skipped at the limit is retried without a new
+report. An archive report drops the task's report and retires and drops its
+`TaskRunner`, as `Prune` does; `Prune` stays, for deleted tasks (the log has
+no event for a deletion) and for a `TaskRunner` that was still claimed.
+
+Two things differ from `Poll` because the replica lags the server: the clear
+that consumes a command is only seen once it is replicated.
+
+- **Start has the restart's version guard.** A record already stamped with
+  the start's version means a pass launched that run, which may have finished
+  and parked its sandbox before the clear arrives; without the guard, each
+  slot release would boot it again. The guard also covers a start issued on a
+  running task, so the `task.Status == RUNNING` short-circuit is gone.
+- **A stop with no running run can be reported twice.** A pass between the
+  driver's or the runner's `stopped` and the replicated clear emits another
+  `stopped`, which the server ignores.
+
+`spec` takes the workspace from the `TaskChange`. A command event written
+before it carried the workspace has `""`, and starting it fails through the
+start-failure path (a `failed` runner event).
+
+The rest of this section is the end state, from slice 7 on.
 
 **A fold, not a queue.** A `TaskRunner` doesn't track which events it has
 applied. It reads its stream from `0` and folds command events into the
@@ -595,10 +633,11 @@ func Open(path string) (*Store, error)
 // TaskChange is a task's state after a page that had a command or archive
 // event for it. It may repeat the state the task was already in. // new
 type TaskChange struct {
-	ID       int64
-	Command  gritzv1.TaskCommand // of the last command event; zero when none
-	Version  int64
-	Archived bool
+	ID        int64
+	Command   gritzv1.TaskCommand // of the last command event; zero when none
+	Version   int64
+	Workspace string
+	Archived  bool
 }
 
 // AppendEvents stores a page of replicated events, the cursor that follows
@@ -665,13 +704,17 @@ func (s *Stream) Read(ctx context.Context, after int64) ([]*gritzv1.Event, error
 ```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
-// TaskManagerOptions takes the Log the TaskManager creates TaskRunners from. // changed
+// TaskManagerOptions takes the Log the TaskManager creates TaskRunners from,
+// and runs. (Log is already the *slog.Logger.) // changed
 type TaskManagerOptions struct {
 	// ... existing fields
-	Log *taskevents.Log // new
+	EventLog *taskevents.Log // new
 }
 
-// Poll is removed; TaskManager creates and drops TaskRunners from Log.Tasks(). // removed
+// Poll is removed; Run runs the Log and reconciles the tasks of Log.Tasks(). // removed
+
+// Start starts run c.Version of the task, with c.Workspace's spec. // changed
+func (m *TaskManager) Start(ctx context.Context, c runnerstore.TaskChange) error
 
 // TaskRunnerOptions takes the task's stream. // changed
 type TaskRunnerOptions struct {
@@ -754,17 +797,23 @@ sends `RunEnded` up the stream when a run is over.
    client, and `X-aws-proxy-force-h2: true` on every Lambda MicroVM driver
    request. Depends on: nothing. Verifiable by: the existing Docker and Lambda
    MicroVM backend tests.
-6. **Runner acts on events** — Delivers: `gritz runner` constructing and
-   running a `taskevents.Log` on its `runnerstore`; `TaskManager` creating and
-   dropping `TaskRunner`s from `Log.Tasks()` (full-state reports, applied
-   idempotently); each `TaskRunner` acting on its task's latest command and
-   version through the existing driver `Run` and `Stop` RPCs, so the driver
-   protocol is unchanged; `Poll` removed and the runner no longer calls
-   `ListRunnerTasks` (the RPC stays on the server for older runners until a
-   later cleanup); a shared fake server for runner tests that serves
-   `ListRunnerEvents` from an in-memory log. Depends on: (2), (4).
-   Verifiable by: `runner_test` with the fake backend and the fake server for
-   start, restart, stop with no sandbox, and slot exhaustion.
+6. **Runner acts on events** — Delivers: `gritz runner` constructing a
+   `taskevents.Log` on its `runnerstore`, which `TaskManager` takes as
+   `EventLog` and runs inside its `Run` (a `Log.Run` error terminates the
+   runner through `die`); `TaskManager` keeping the latest `TaskChange` of
+   each task from `Log.Tasks()` (full-state reports, applied idempotently),
+   creating a `TaskRunner` for an unarchived task and retiring and dropping
+   an archived one's; a reconcile pass over those reports, in place of
+   `Poll`, acting on each task's latest command and version through the
+   existing driver `Run` and `Stop` RPCs, so the driver protocol is
+   unchanged; `spec` taking the workspace from the `TaskChange`; a command
+   event when a pending start moves to the next run's version; `Poll`
+   removed and the runner no longer calls `ListRunnerTasks` (the RPC stays on
+   the server for older runners until a later cleanup); a shared fake server
+   for runner tests that serves `ListRunnerEvents` from an in-memory log.
+   Depends on: (2), (4). Verifiable by: `runner_test` with the fake backend
+   and the fake server for start, restart, stop with and without a sandbox,
+   slot exhaustion and the retry once a slot frees, and archive.
 7. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
    `Run` with the `RunSpec` as its first message, `Hello`, `RunEnded` in
    place of `Finished`, and the `TaskRunner` forwarding `Stream.Read` from the

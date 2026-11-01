@@ -14,7 +14,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/gritzapp/gritz/internal/gritzclient"
-	"github.com/gritzapp/gritz/internal/model"
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/runner"
@@ -22,6 +23,8 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
@@ -30,6 +33,7 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
 )
 
 func TestTaskManagerStart(t *testing.T) {
@@ -37,7 +41,7 @@ func TestTaskManagerStart(t *testing.T) {
 	assert.NilError(t, err)
 	t.Setenv("GRITZ_PREBUILT_DIR", abs)
 
-	task := testrunner.Task(&testrunner.TaskOptions{Name: "test-task"})
+	task := testrunner.Task(nil)
 
 	// Create mock client. The driver and the injected MCP server now connect to
 	// this server directly (over the host network), so it must answer the
@@ -53,7 +57,15 @@ func TestTaskManagerStart(t *testing.T) {
 		// The driver reads its task at startup to fork on shell_session; this
 		// task has none, so it takes the normal agent path.
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{Task: task.Proto("")}, nil
+			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{
+				Id:        task.ID,
+				Name:      "test-task",
+				Runner:    testrunner.RunnerID,
+				Workspace: task.Workspace,
+				Status:    gritzv1.TaskStatus_PENDING,
+				Command:   task.Command,
+				Version:   task.Version,
+			}}, nil
 		},
 		// The driver drains the event stream before running the agent; an empty
 		// page (more=false) makes the drain a single no-op call.
@@ -93,12 +105,17 @@ func TestTaskManagerStart(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	store := testrunner.NewStore(t)
+	rstore, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, rstore.Close()) })
 	m, err := runner.NewTaskManager(runner.TaskManagerOptions{
 		Client:    client,
 		Backend:   be,
 		Store:     store,
 		ServerURL: ts.URL,
 		Queue:     queue,
+		// Start does not read the event log.
+		EventLog: taskevents.New(taskevents.Options{Store: rstore, Client: client, RunnerID: "test-runner"}),
 		Workspaces: &workspace.Config{
 			Workspaces: map[string]workspace.Workspace{
 				"test": {
@@ -273,21 +290,141 @@ func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	})
 }
 
-func TestTaskManagerPoll_StopWithoutSandbox(t *testing.T) {
+func TestTaskManagerRun_Start(t *testing.T) {
+	t.Parallel()
+	// Arrange - a task with no record, whose created sandbox's driver runs the
+	// workspace's agent to completion.
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
+	m.Go(t, t.Context())
+
+	// Act
+	m.AddEvents(testrunner.Command(nil))
+
+	// Assert - the task got a sandbox for its run, which the driver ran and
+	// reported, so no event is owed and the sandbox is parked.
+	sbx := testrunner.WaitTask(t, be, 1, fake.Parked)
+	assert.Equal(t, sbx.Spec.Version, int64(1))
+	assert.Equal(t, sbx.Boots, 1)
+	assert.Equal(t, m.Queued(t), 0)
+	m.AssertRecord(t, 1, &taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: sbx.Handle.ID})
+}
+
+// TestTaskManagerRun_StartLaunched covers a start the event log still reports
+// after its run was launched and parked, before it reports the start
+// consumed: the run is not started again.
+func TestTaskManagerRun_StartLaunched(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 1's sandbox is parked after run 1, which it is recorded
+	// at.
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
+	be.Add("c1", fake.Parked)
+	rec := taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
+	_, err := m.Runner(1).Restore(t.Context(), rec)
+	assert.NilError(t, err)
+	m.Go(t, t.Context())
+
+	// Act - task 1 is started at run 1, and task 3, which has no sandbox,
+	// stopped. A pass handles its tasks in order, so once task 3's "stopped"
+	// is queued, a pass has handled task 1's start.
+	m.AddEvents(
+		testrunner.Command(nil),
+		testrunner.Command(&testrunner.CommandOptions{TaskID: 3, Command: gritzv1.TaskCommand_STOP}),
+	)
+	m.WaitQueued(t, 1)
+
+	// Assert - the sandbox was not booted, and none was created.
+	snap := be.Snapshot()
+	sbx, _ := snap.Sandbox("c1")
+	assert.Equal(t, sbx.Boots, 0)
+	assert.Assert(t, cmp.Len(snap.Specs, 0))
+}
+
+// TestTaskManagerRun_StartNoWorkspace covers a start whose command event
+// carries no workspace, as those written before it did: the run is reported
+// failed, and no sandbox is created.
+func TestTaskManagerRun_StartNoWorkspace(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	be := testrunner.NewBackend(t, nil)
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
+	start := testrunner.Command(&testrunner.CommandOptions{Version: 2})
+	start.GetCommand().Workspace = ""
+	m.Go(t, t.Context())
+
+	// Act
+	m.AddEvents(start)
+
+	// Assert
+	m.WaitQueued(t, 1)
+	events := m.Submitted(t)
+	assert.Assert(t, cmp.Len(events, 1))
+	assert.Equal(t, events[0].Event, "failed")
+	assert.Equal(t, events[0].Version, int64(2))
+	assert.Assert(t, cmp.Contains(events[0].Reason, "no workspace"))
+	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0))
+}
+
+// TestTaskManagerRun_Restart covers a restart of a running task: its run is
+// stopped, and once its Run returns, the new version runs on the same
+// sandbox.
+func TestTaskManagerRun_Restart(t *testing.T) {
+	t.Parallel()
+	// Arrange - run 1 keeps going on task 1's up sandbox, followed by the Run
+	// goroutine Load starts for it. The manager has one slot.
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 1,
+		Agent:   testrunner.SleepForever,
+	})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
+	be.Add("c1", fake.Up)
+	rec := taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
+	assert.NilError(t, m.Load(t.Context()))
+	testrunner.WaitRuns(t, be, "c1", 1)
+	m.Go(t, t.Context())
+
+	// Act
+	m.AddEvents(testrunner.Command(&testrunner.CommandOptions{
+		Command: gritzv1.TaskCommand_RESTART,
+		Version: 2,
+	}))
+
+	// Assert - the sandbox was booted again for run 2, with no new sandbox
+	// created. Run 2 could only start once run 1 was stopped.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	snap, err := be.Wait(ctx, func(s fake.Snapshot) bool {
+		sbx, _ := s.Sandbox("c1")
+		return len(sbx.RunSpecs) == 1
+	})
+	assert.NilError(t, err, "run 2 was not started")
+	assert.Assert(t, cmp.Len(snap.Specs, 0))
+	sbx, _ := snap.Sandbox("c1")
+	assert.Equal(t, sbx.RunSpecs[0].GetTaskId(), int64(1))
+	m.AssertRecord(t, 1, &taskstate.Record{TaskID: 1, Version: 2, Type: "fake", ID: "c1"})
+}
+
+func TestTaskManagerRun_StopWithoutSandbox(t *testing.T) {
 	t.Parallel()
 	// Arrange - task being cancelled with no tracked sandbox.
 	be := testrunner.NewBackend(t, nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
-		ID:      7,
-		Version: 3,
-		Status:  model.TaskStatusCancelling,
-		Command: model.TaskCommandStop,
-	}))
+	m.Go(t, t.Context())
 
 	// Act
-	err := m.Poll(t.Context())
-	assert.NilError(t, err)
+	m.AddEvents(testrunner.Command(&testrunner.CommandOptions{
+		TaskID:  7,
+		Version: 3,
+		Command: gritzv1.TaskCommand_STOP,
+	}))
 
 	// Assert - no record, so there is no driver to stop and the TaskManager emits
 	// "stopped" itself.
@@ -297,44 +434,53 @@ func TestTaskManagerPoll_StopWithoutSandbox(t *testing.T) {
 	}, protocmp.Transform())
 }
 
-func TestTaskManagerPoll_StopSignalled(t *testing.T) {
+// stopDriver is a driver whose Stop always reports a run stopped, and whose
+// run never ends.
+type stopDriver struct {
+	driverv1connect.UnimplementedDriverServiceHandler
+}
+
+func (stopDriver) Stop(context.Context, *driverv1.StopRequest) (*driverv1.StopResponse, error) {
+	return &driverv1.StopResponse{Stopped: true}, nil
+}
+
+func TestTaskManagerRun_StopSignalled(t *testing.T) {
 	t.Parallel()
-	// Arrange - task being cancelled with a tracked sandbox, up and running
-	// the task's run.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		TaskID:  7,
-		Version: 3,
-		Agent:   testrunner.SleepForever,
+	// Arrange - task 7 being cancelled with a tracked sandbox, up, whose
+	// driver stops its run.
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver: testrunner.NewStubDriver(t, stopDriver{}),
 	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c7", fake.Up)
 	rec := taskstate.Record{TaskID: 7, Version: 3, Type: "fake", ID: "c7"}
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 		Backend: be,
 		Store:   testrunner.NewStore(t, rec),
 	})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
-		ID:      7,
-		Version: 3,
-		Status:  model.TaskStatusCancelling,
-		Command: model.TaskCommandStop,
-	}))
 	_, err := m.Runner(7).Restore(t.Context(), rec)
 	assert.NilError(t, err)
+	m.Go(t, t.Context())
 
-	// Act
-	err = m.Poll(t.Context())
-	assert.NilError(t, err)
+	// Act - task 7 is stopped, and task 8, which has no sandbox, too. A pass
+	// handles its tasks in order, so once task 8's "stopped" is queued, a pass
+	// has handled task 7's stop.
+	m.AddEvents(
+		testrunner.Command(&testrunner.CommandOptions{TaskID: 7, Version: 3, Command: gritzv1.TaskCommand_STOP}),
+		testrunner.Command(&testrunner.CommandOptions{TaskID: 8, Version: 1, Command: gritzv1.TaskCommand_STOP}),
+	)
 
-	// Assert - the driver stopped the run and owns the terminal report.
-	testrunner.WaitFinished(t, client, 3)
-	assert.Equal(t, m.Queued(t), 0)
+	// Assert - the driver stopped the run and owns its terminal report, so
+	// the TaskManager emits none for task 7.
+	m.WaitQueued(t, 1)
+	for _, ev := range m.Submitted(t) {
+		assert.Equal(t, ev.TaskId, int64(8))
+	}
 }
 
-// TestTaskManagerPoll_SlowDriver covers a driver that is slow to come up: Poll
-// returns once the sandbox is booted, without waiting for it, and the run is
-// started once the driver answers.
-func TestTaskManagerPoll_SlowDriver(t *testing.T) {
+// TestTaskManagerRun_SlowDriver covers a driver that is slow to come up: the
+// pass moves on once the sandbox is booted, without waiting for it, and the
+// run is started once the driver answers.
+func TestTaskManagerRun_SlowDriver(t *testing.T) {
 	t.Parallel()
 	// Arrange - a pending task with no record, whose sandbox's driver is not
 	// listening yet.
@@ -343,33 +489,30 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 		DriverNotReady: true,
 	})
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	m.SetTasks(testrunner.Task(nil))
+	m.Go(t, t.Context())
 
-	// Act - poll while the driver is not up.
-	assert.NilError(t, m.Poll(t.Context()))
+	// Act - the task is started while the driver is not up.
+	m.AddEvents(testrunner.Command(nil))
 
-	// Assert - Poll returned with the sandbox booted and the run pending.
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Up)
+	// Assert - the sandbox is booted and the run pending.
+	sbx := testrunner.WaitTask(t, be, 1, fake.Up)
 	assert.Equal(t, sbx.Runs, 0)
 
 	// Act - the driver comes up.
-	be.SetDriverReady("c1", true)
-	assert.NilError(t, m.Wait(t.Context()))
+	be.SetDriverReady(sbx.Handle.ID, true)
 
 	// Assert - the run started, and the driver reported it, so no event is
 	// owed and the sandbox is parked.
-	sbx, _ = be.Snapshot().Sandbox("c1")
+	sbx = testrunner.WaitTask(t, be, 1, fake.Parked)
 	assert.Equal(t, sbx.Boots, 1)
-	assert.Equal(t, sbx.State, fake.Parked)
 	assert.Equal(t, m.Queued(t), 0)
 }
 
-// TestTaskManagerPoll_StartStillRunning covers a start command for a task whose
-// previous run is still followed by Run while Running reports its sandbox parked
-// (a Lambda VM suspending after its run): nothing is started, and the
+// TestTaskManagerRun_StartStillRunning covers a start command for a task whose
+// previous run is still followed by Run while Running reports its sandbox
+// parked (a Lambda VM suspending after its run): nothing is started, and the
 // concurrency slot is given back.
-func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
+func TestTaskManagerRun_StartStillRunning(t *testing.T) {
 	t.Parallel()
 	// Arrange - task 1's TaskRunner is claimed, and its sandbox parked. The
 	// manager has one slot.
@@ -383,31 +526,100 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 	_, err := m.Runner(1).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 	be.Set("c1", fake.Parked)
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
-		Version: 4,
-		Status:  model.TaskStatusCompleted,
-	}))
+	m.Go(t, t.Context())
 
-	// Act
-	err = m.Poll(t.Context())
-	assert.NilError(t, err)
+	// Act - task 1 is started, and so is task 2. A pass handles its tasks in
+	// order, so task 2 gets the slot only if task 1's start gave it back.
+	m.AddEvents(
+		testrunner.Command(&testrunner.CommandOptions{Version: 4}),
+		testrunner.Command(&testrunner.CommandOptions{TaskID: 2}),
+	)
 
-	// Assert - no sandbox booted or created, and no event.
+	// Assert - the slot was free again, so task 2 got a sandbox.
+	testrunner.WaitTask(t, be, 2, fake.Parked)
 	snap := be.Snapshot()
-	assert.Assert(t, cmp.Len(snap.Specs, 0))
+	assert.Assert(t, cmp.Len(snap.Specs, 1))
+	assert.Equal(t, snap.Specs[0].TaskID, int64(2))
+	// Assert - task 1's sandbox was not booted, and no event is owed.
 	sbx, _ := snap.Sandbox("c1")
 	assert.Equal(t, sbx.Boots, 0)
 	assert.Equal(t, m.Queued(t), 0)
+}
 
-	// Act - a start command for another task.
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 2}))
-	assert.NilError(t, m.Poll(t.Context()))
-	assert.NilError(t, m.Wait(t.Context()))
+// TestTaskManagerRun_ConcurrencyLimit covers a start skipped at the
+// concurrency limit: it is retried once the run holding the slot finishes,
+// with no new report for the task.
+func TestTaskManagerRun_ConcurrencyLimit(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 1's run keeps going on its sandbox, holding the
+	// manager's one slot; task 2's sandbox runs its agent to completion.
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Agent: testrunner.SleepForever})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver:  testrunner.NewDriver(t, nil),
+		Drivers: map[string]driverv1connect.DriverServiceClient{"c1": client},
+	})
+	be.Add("c1", fake.Up)
+	rec := taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
+	assert.NilError(t, m.Load(t.Context()))
+	testrunner.WaitRuns(t, be, "c1", 1)
+	m.Go(t, t.Context())
 
-	// Assert - the slot was free again, so task 2 got a sandbox.
-	specs := be.Snapshot().Specs
-	assert.Assert(t, cmp.Len(specs, 1))
-	assert.Equal(t, specs[0].TaskID, int64(2))
+	// Act - task 2 is started, and task 3, which has no sandbox, stopped. A
+	// pass handles its tasks in order, so once task 3's "stopped" is queued, a
+	// pass has handled task 2's start.
+	m.AddEvents(
+		testrunner.Command(&testrunner.CommandOptions{TaskID: 2}),
+		testrunner.Command(&testrunner.CommandOptions{TaskID: 3, Command: gritzv1.TaskCommand_STOP}),
+	)
+	m.WaitQueued(t, 1)
+
+	// Assert - the limit was reached, so task 2 got no sandbox.
+	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0))
+
+	// Act - task 1's run finishes, releasing the slot.
+	testrunner.StopRun(t, client, 1)
+
+	// Assert - task 2's start was retried, and its run went through.
+	testrunner.WaitTask(t, be, 2, fake.Parked)
+	snap := be.Snapshot()
+	assert.Assert(t, cmp.Len(snap.Specs, 1))
+	assert.Equal(t, snap.Specs[0].TaskID, int64(2))
+}
+
+// TestTaskManagerRun_Archive covers an archived task: its sandbox is
+// destroyed and its TaskRunner dropped.
+func TestTaskManagerRun_Archive(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 1's sandbox is parked after its run.
+	be := testrunner.NewBackend(t, nil)
+	be.Add("c1", fake.Parked)
+	rec := taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
+	_, err := m.Runner(1).Restore(t.Context(), rec)
+	assert.NilError(t, err)
+	tr := m.Runner(1)
+	m.Go(t, t.Context())
+
+	// Act
+	m.AddEvents(testrunner.Archive(1, true))
+
+	// Assert - the sandbox was destroyed, the record removed, and the
+	// TaskRunner dropped: the task's next TaskRunner is a fresh one.
+	assert.NilError(t, be.WaitState(t.Context(), "c1", fake.Gone))
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		if m.Runner(1) == tr {
+			return poll.Continue("task 1's TaskRunner is still registered")
+		}
+		return poll.Success()
+	})
+	m.AssertRecord(t, 1, nil)
 }
 
 func TestTaskManagerStart_Create(t *testing.T) {
