@@ -102,6 +102,17 @@ Constrain usage; don't support every call order. When a method is only valid in 
 - When a change makes a case unreachable, delete its handling in the same change rather than carrying it forward.
 - Before adding handling for a scenario, check that some production path can actually reach it. If none can, assert instead.
 
+## No backwards compatibility
+
+gritz is beta software, and the only deployment is ours. Don't design for backwards compatibility, and don't reshape a plan to satisfy it:
+
+- No shims, fallbacks, deprecation periods or dual code paths.
+- Don't keep old RPCs, fields, flags or env vars around for older clients, runners or drivers. Server, runner and driver ship together.
+- No import or upgrade paths for old local state (JSON files, old directories); just drop it.
+- Change or remove things outright and update every caller in the same change.
+
+The one exception is database schema: Postgres and SQLite schema changes go through new migrations. Don't edit a migration that's already on `master`.
+
 ## Go style
 
 - Don't pre-size slices that are built with `append`: write `var s []T`, not `make([]T, 0, n)`. Since Go 1.26 the compiler gives small appended slices a stack buffer and copies them to an exactly-sized heap slice on return, so pre-sizing adds noise for no gain. Pre-size only when `n` can be large or the path is hot (DB result pages, log chunks, the log shipper, `redact`).
