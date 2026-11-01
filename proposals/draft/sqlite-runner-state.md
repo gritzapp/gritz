@@ -36,7 +36,7 @@ entry in `sqlc.yaml`.
 
 ### Schema
 
-`internal/runner/runnerstore/sql/migrations/0004_sandboxes.sql`:
+`internal/runner/runnerstore/sql/migrations/0005_sandboxes.sql`:
 
 ```sql
 CREATE TABLE sandboxes (
@@ -49,7 +49,7 @@ CREATE TABLE sandboxes (
 );
 ```
 
-`0005_outbox.sql`:
+`0006_outbox.sql`:
 
 ```sql
 CREATE TABLE outbox (
@@ -77,9 +77,11 @@ The `taskstate` package is deleted. `taskstate.Record` becomes
 become `Store` methods. The mutex, the per-task paths and `parseRecordName`
 go with the package. Behaviour is unchanged: `RemoveSandbox` is a no-op for
 an absent record, and a failed `WriteSandbox` still ends the runner through
-`TaskFatalEvent` (`TaskRunner.write`). `TaskManagerOptions.Store` and
-`TaskRunnerOptions.Store` become `*runnerstore.Store`; `Load` reads
-`Sandboxes` where it read `List`.
+`TaskFatalEvent` (`TaskRunner.write`). `TaskManagerOptions.Store` goes:
+`TaskManagerOptions.RunnerStore`, which already holds the replica behind
+`TaskLog`, serves the sandboxes too, and the `TaskManager` hands it to each
+`TaskRunner` as `TaskRunnerOptions.Store`. `Load` reads `Sandboxes` where it
+read `List`.
 
 ### Outbox
 
@@ -102,30 +104,10 @@ goes, and `Store` becomes required. Tests keep injecting `outbox.StoreMock`
 "keep it on the same volume as --state-dir": it is now the runner's only
 state.
 
-### Upgrading: no import of old state
+### Upgrading
 
-Runners start fresh. The new runner ignores the old `--state-dir` JSON records
-and the `outbox/` directory; there is no import code. Operators can delete
-both directories after upgrading. The consequences:
-
-- **Unsent outbox events are dropped.** An event the old runner persisted but
-  the server never acknowledged is lost. The task keeps whatever status the
-  server last saw (for example `RUNNING` after its sandbox exited) until a
-  later command or event changes it.
-- **Running sandboxes become unknown.** `Load` iterates only the records it
-  finds, so it re-attaches nothing, the concurrency semaphore starts at 0, and
-  `failIfTaskRunning`'s backstop never fires for those tasks. `Prune` walks only
-  the in-memory registry (`maps.Clone(m.tasks)`), which `Load` and `Poll`
-  fill, and the backend interface has no way to list sandboxes, so the runner
-  never stops, prunes or destroys a sandbox it has no record for. Such a
-  sandbox's driver keeps running and reporting to the server with its task
-  token until it exits, but the sandbox itself leaks: a Docker container stays
-  until removed by hand (they carry the `gritz.runner=<id>` label), and a
-  later start of the same task on Docker fails because the `gritz-{task-id}`
-  name is taken. A Lambda MicroVM stays up and keeps costing until terminated
-  by hand.
-
-So upgrade a drained runner: let running tasks finish or stop them first.
+The old `--state-dir` records and `outbox/` directory are ignored and can be
+deleted.
 
 ### API
 
@@ -183,7 +165,9 @@ type RunnerEventOutboxOptions struct {
 func NewRunnerEventOutbox(opts RunnerEventOutboxOptions) *outbox.Outbox[model.RunnerEvent]
 
 type TaskManagerOptions struct {
-	Store *runnerstore.Store // was *taskstate.Store
+	Store *taskstate.Store // removed
+	// RunnerStore is TaskLog's store, and the runner's sandbox records. Required.
+	RunnerStore *runnerstore.Store
 	// other fields unchanged
 }
 
@@ -194,22 +178,23 @@ type TaskRunnerOptions struct {
 ```
 
 **How it fits:** `internal/command/runner.go` opens the one
-`*runnerstore.Store` from `--state-db`, as it does today, and passes it to
-`taskevents.New`, as `TaskManagerOptions.Store`, and as `rstore.Outbox()` to
-`NewRunnerEventOutbox`. `testrunner.NewStore` opens a `runnerstore.Store` in
-`t.TempDir()` seeded with `Sandbox` rows, and `QueueStore` defaults to that
-store's `Outbox()`.
+`*runnerstore.Store` from `--state-db` and passes it to `taskevents.New` and
+as `TaskManagerOptions.RunnerStore`, as it does today, and now also as
+`rstore.Outbox()` to `NewRunnerEventOutbox`. The `TaskManager`
+still owns the `taskevents.Log`. In `testrunner`, `NewStore` and
+`Options.Store` go: tests seed sandboxes into the `NewRunnerStore` store with
+`WriteSandbox`, and `QueueStore` defaults to that store's `Outbox()`.
 
 ## Implementation Plan
 
-1. **Sandboxes in runnerstore** — Delivers: `0004_sandboxes.sql`, its
+1. **Sandboxes in runnerstore** — Delivers: `0005_sandboxes.sql`, its
    queries, `Sandbox` and the four sandbox methods; the runner,
    `testrunner` and their tests on `*runnerstore.Store`; the `taskstate`
    package deleted. The runner reads `--state-db` for records and still
    accepts `--state-dir` for the outbox location. Depends on: nothing.
    Verifiable by: the `taskstate` tests ported to `runnerstore`, and the
    runner's Load/Prune tests passing unchanged in substance.
-2. **Outbox in runnerstore** — Delivers: `0005_outbox.sql`, its queries and
+2. **Outbox in runnerstore** — Delivers: `0006_outbox.sql`, its queries and
    `Store.Outbox()`; `NewRunnerEventOutbox` takes it as a required `Store`,
    `StoreDir` removed. Depends on: (1), which owns the migration numbering
    before it. Verifiable by: `runnerstore` tests for FIFO order,
@@ -234,13 +219,6 @@ store's `Outbox()`.
   `Append`/`Peek`/`Drop`/`Len` are too generic to sit next to `AppendEvents` on
   `runnerstore.Store`. An unexported view over the same `*sql.DB` keeps the
   interface unchanged and the names clear.
-- **No import of old state.** Importing the JSON files would let a runner
-  upgrade with sandboxes up, at the cost of import code, keeping `--state-dir`
-  for one more release, and a follow-up to delete it. Requiring a drained
-  runner avoids all of it.
-- **Server-side taskstate** (`proposals/draft/server-side-taskstate.md`) is an
-  alternative home for the task records. If it is accepted, slice (1) is
-  replaced by it; the outbox slices still apply.
 
 ## Open Questions
 
