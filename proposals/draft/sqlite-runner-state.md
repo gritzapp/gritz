@@ -80,15 +80,20 @@ event read back has it false, as every event the runner sends does today.
 ### Sandboxes
 
 The `taskstate` package is deleted. `taskstate.Record` becomes
-`runnerstore.SandboxRecord` with the same fields, and `Write`/`Read`/`Remove`/`List`
-become `Store` methods. The mutex, the per-task paths and `parseRecordName`
+`runnerstore.SandboxRecord`, which holds the handle as a `backend.Handle` in
+place of separate `Type`/`ID`/`Data` fields; `runnerstore` maps it to and from
+the table's `type`/`id`/`data` columns, and importing `backend` for that plain
+data type is fine. `Write`/`Read`/`Remove`/`List` become `Store` methods. The mutex, the per-task paths and `parseRecordName`
 go with the package. Behaviour is unchanged: `RemoveSandbox` is a no-op for
 an absent record, and a failed `WriteSandbox` still ends the runner through
 `TaskFatalEvent` (`TaskRunner.write`). `TaskManagerOptions.Store` goes:
 `TaskManagerOptions.RunnerStore`, which already holds the replica behind
 `TaskLog`, serves the sandboxes too, and the `TaskManager` hands it to each
 `TaskRunner` as `TaskRunnerOptions.Store`. `Load` reads `Sandboxes` where it
-read `List`.
+read `List`. In the runner, `recordHandle` and the field-by-field copy in
+`TaskRunner.record` go: `Restore` opens `rec.Handle`, and `record` sets
+`Handle: sb.Handle()`. The `backend` package comment's "translates between a
+backend.Handle and a taskstate.Record" no longer applies and is dropped.
 
 ### Runner event outbox
 
@@ -137,9 +142,7 @@ type SandboxRecord struct {
 	// expected to go once the driver owns its runs (runner-event-replica.md
 	// slices 7–8).
 	Version int64
-	Type    string          // backend handle type; informational
-	ID      string          // backend handle id
-	Data    json.RawMessage // opaque, backend-defined; never decoded
+	Handle  backend.Handle // stored as the type, id and data columns
 }
 
 // WriteSandbox inserts or replaces the record for rec.TaskID. // new
