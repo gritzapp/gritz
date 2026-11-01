@@ -237,56 +237,6 @@ func (q *Queries) ListTasksDueForArchive(ctx context.Context, limit int32) ([]Li
 	return items, nil
 }
 
-const listTasksForRunner = `-- name: ListTasksForRunner :many
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
-FROM tasks
-WHERE runner = $1 AND org_id = $2 AND command != 0 AND archived = FALSE
-ORDER BY created_at DESC
-`
-
-type ListTasksForRunnerParams struct {
-	Runner string `json:"runner"`
-	OrgID  int64  `json:"org_id"`
-}
-
-func (q *Queries) ListTasksForRunner(ctx context.Context, arg ListTasksForRunnerParams) ([]Task, error) {
-	rows, err := q.db.QueryContext(ctx, listTasksForRunner, arg.Runner, arg.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Task{}
-	for rows.Next() {
-		var i Task
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Runner,
-			&i.Workspace,
-			&i.Status,
-			&i.Command,
-			&i.Version,
-			&i.OrgID,
-			&i.Archived,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.AutoArchive,
-			&i.ShellSession,
-			&i.Namespace,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTasksPage = `-- name: ListTasksPage :many
 SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
 FROM tasks

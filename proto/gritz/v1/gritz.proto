@@ -11,10 +11,9 @@ service GritzService {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
-  rpc ListRunnerTasks(ListRunnerTasksRequest) returns (ListRunnerTasksResponse);
   // ListRunnerEvents returns the events of the runner's tasks after the
   // cursor, in log order, from transactions that can no longer commit behind
-  // it. Replaces ListRunnerTasks.
+  // it.
   rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
@@ -168,14 +167,6 @@ message ListTasksRequest {
 message ListTasksResponse {
   repeated Task tasks = 1;
   string next_page_token = 2;  // Token for the next page; empty when there are no more results
-}
-
-message ListRunnerTasksRequest {
-  string runner = 1;  // Runner ID (required)
-}
-
-message ListRunnerTasksResponse {
-  repeated Task tasks = 1;
 }
 
 message ListRunnerEventsRequest {

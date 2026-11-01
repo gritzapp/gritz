@@ -152,3 +152,38 @@ func TestAppendEvents_Tasks(t *testing.T) {
 		},
 	)
 }
+
+func TestHandled(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 10 is stored with a start.
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
+	_, err = store.AppendEvents(t.Context(),
+		[]*gritzv1.Event{
+			{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
+		},
+		"page-1",
+	)
+	assert.NilError(t, err)
+	before, err := store.Handled(t.Context(), 10)
+	assert.NilError(t, err)
+
+	// Act - the follower handles the start, then a later page changes the
+	// task's command.
+	assert.NilError(t, store.SetHandled(t.Context(), 10, 1))
+	_, err = store.AppendEvents(t.Context(),
+		[]*gritzv1.Event{
+			{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 1, Workspace: "ws"}}},
+		},
+		"page-2",
+	)
+	assert.NilError(t, err)
+
+	// Assert - a new task has handled nothing, and storing a page keeps the
+	// stored position.
+	assert.Equal(t, before, int64(0))
+	handled, err := store.Handled(t.Context(), 10)
+	assert.NilError(t, err)
+	assert.Equal(t, handled, int64(1))
+}

@@ -187,3 +187,22 @@ func (s *Store) UnarchivedTasks(ctx context.Context) ([]TaskChange, error) {
 	}
 	return tasks, nil
 }
+
+// Handled returns the id of the last event the task's follower handled, 0
+// when it has handled none. The task must be stored: only stored tasks are
+// reported on taskevents' Tasks, and so get a follower.
+func (s *Store) Handled(ctx context.Context, taskID int64) (int64, error) {
+	handled, err := s.q.GetTaskHandled(ctx, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("runnerstore: read task %d handled: %w", taskID, err)
+	}
+	return handled, nil
+}
+
+// SetHandled stores eventID as the last event the task's follower handled.
+func (s *Store) SetHandled(ctx context.Context, taskID, eventID int64) error {
+	if err := s.q.SetTaskHandled(ctx, sqlc.SetTaskHandledParams{ID: taskID, Handled: eventID}); err != nil {
+		return fmt.Errorf("runnerstore: set task %d handled: %w", taskID, err)
+	}
+	return nil
+}

@@ -20,14 +20,9 @@ export const getProfile = GritzService.method.getProfile;
 export const listTasks = GritzService.method.listTasks;
 
 /**
- * @generated from rpc gritz.v1.GritzService.ListRunnerTasks
- */
-export const listRunnerTasks = GritzService.method.listRunnerTasks;
-
-/**
  * ListRunnerEvents returns the events of the runner's tasks after the
  * cursor, in log order, from transactions that can no longer commit behind
- * it. Replaces ListRunnerTasks.
+ * it.
  *
  * @generated from rpc gritz.v1.GritzService.ListRunnerEvents
  */

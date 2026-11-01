@@ -26,4 +26,5 @@ type Task struct {
 	Version   sql.NullInt64
 	Archived  sql.NullBool
 	Workspace sql.NullString
+	Handled   int64
 }
