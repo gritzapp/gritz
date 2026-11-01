@@ -91,7 +91,7 @@ func (s *Server) OpenShell(ctx context.Context, req *gritzv1.OpenShellRequest) (
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}

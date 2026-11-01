@@ -3138,7 +3138,8 @@ func (x *LinkPayload) GetSubscribe() bool {
 	return false
 }
 
-// CommandPayload is the body of a command event: the task's command changed.
+// CommandPayload is the body of a command event: the task's command, or the
+// version it applies to, changed.
 // It is written in the same transaction as the tasks row, so the event log
 // carries every command the runner has to act on, including the withdrawal of
 // a start and the clear when a runner event consumes the command. Command
