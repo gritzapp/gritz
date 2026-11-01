@@ -14,14 +14,6 @@ import (
 	"github.com/gritzapp/gritz/internal/x/sqlite"
 )
 
-func openDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{})
-	assert.NilError(t, err)
-	t.Cleanup(func() { assert.NilError(t, db.Close()) })
-	return db
-}
-
 // dump renders the database's user_version, then the sql of every
 // sqlite_master object in name order, one per line.
 func dump(t *testing.T, db *sql.DB) string {
@@ -49,14 +41,16 @@ func dump(t *testing.T, db *sql.DB) string {
 func TestMigrate(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	db := openDB(t)
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{})
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, db.Close()) })
 	fsys := fstest.MapFS{
 		"0001_a.sql": {Data: []byte(`CREATE TABLE a (id INTEGER PRIMARY KEY);`)},
 		"0002_b.sql": {Data: []byte(`CREATE TABLE b (id INTEGER PRIMARY KEY);`)},
 	}
 
 	// Act
-	err := sqlite.Migrate(db, fsys)
+	err = sqlite.Migrate(db, fsys)
 
 	// Assert
 	assert.NilError(t, err)
@@ -66,7 +60,9 @@ func TestMigrate(t *testing.T) {
 func TestMigrate_UpToDate(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	db := openDB(t)
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{})
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, db.Close()) })
 	fsys := fstest.MapFS{
 		"0001_a.sql": {Data: []byte(`CREATE TABLE a (id INTEGER PRIMARY KEY);`)},
 		"0002_b.sql": {Data: []byte(`CREATE TABLE b (id INTEGER PRIMARY KEY);`)},
@@ -74,7 +70,7 @@ func TestMigrate_UpToDate(t *testing.T) {
 	assert.NilError(t, sqlite.Migrate(db, fsys))
 
 	// Act - reapplying either CREATE TABLE would fail.
-	err := sqlite.Migrate(db, fsys)
+	err = sqlite.Migrate(db, fsys)
 
 	// Assert
 	assert.NilError(t, err)
@@ -84,7 +80,9 @@ func TestMigrate_UpToDate(t *testing.T) {
 func TestMigrate_NewFile(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	db := openDB(t)
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{})
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, db.Close()) })
 	fsys := fstest.MapFS{
 		"0001_a.sql": {Data: []byte(`CREATE TABLE a (id INTEGER PRIMARY KEY);`)},
 	}
@@ -92,7 +90,7 @@ func TestMigrate_NewFile(t *testing.T) {
 	fsys["0002_b.sql"] = &fstest.MapFile{Data: []byte(`CREATE TABLE b (id INTEGER PRIMARY KEY);`)}
 
 	// Act - reapplying 0001 would fail.
-	err := sqlite.Migrate(db, fsys)
+	err = sqlite.Migrate(db, fsys)
 
 	// Assert
 	assert.NilError(t, err)
@@ -102,14 +100,16 @@ func TestMigrate_NewFile(t *testing.T) {
 func TestMigrate_DatabaseNewer(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	db := openDB(t)
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{})
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, db.Close()) })
 	assert.NilError(t, sqlite.Migrate(db, fstest.MapFS{
 		"0001_a.sql": {Data: []byte(`CREATE TABLE a (id INTEGER PRIMARY KEY);`)},
 		"0002_b.sql": {Data: []byte(`CREATE TABLE b (id INTEGER PRIMARY KEY);`)},
 	}))
 
 	// Act
-	err := sqlite.Migrate(db, fstest.MapFS{
+	err = sqlite.Migrate(db, fstest.MapFS{
 		"0001_a.sql": {Data: []byte(`CREATE TABLE a (id INTEGER PRIMARY KEY);`)},
 	})
 
