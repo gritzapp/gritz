@@ -229,11 +229,11 @@ var _ Sandbox = &SandboxMock{}
 //			HandleFunc: func() Handle {
 //				panic("mock out the Handle method")
 //			},
-//			ParkFunc: func(ctx context.Context) error {
-//				panic("mock out the Park method")
-//			},
 //			StatusFunc: func(ctx context.Context) (Status, error) {
 //				panic("mock out the Status method")
+//			},
+//			SuspendFunc: func(ctx context.Context) error {
+//				panic("mock out the Suspend method")
 //			},
 //		}
 //
@@ -254,11 +254,11 @@ type SandboxMock struct {
 	// HandleFunc mocks the Handle method.
 	HandleFunc func() Handle
 
-	// ParkFunc mocks the Park method.
-	ParkFunc func(ctx context.Context) error
-
 	// StatusFunc mocks the Status method.
 	StatusFunc func(ctx context.Context) (Status, error)
+
+	// SuspendFunc mocks the Suspend method.
+	SuspendFunc func(ctx context.Context) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -282,13 +282,13 @@ type SandboxMock struct {
 		// Handle holds details about calls to the Handle method.
 		Handle []struct {
 		}
-		// Park holds details about calls to the Park method.
-		Park []struct {
+		// Status holds details about calls to the Status method.
+		Status []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// Status holds details about calls to the Status method.
-		Status []struct {
+		// Suspend holds details about calls to the Suspend method.
+		Suspend []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
@@ -297,8 +297,8 @@ type SandboxMock struct {
 	lockDestroy sync.RWMutex
 	lockDial    sync.RWMutex
 	lockHandle  sync.RWMutex
-	lockPark    sync.RWMutex
 	lockStatus  sync.RWMutex
+	lockSuspend sync.RWMutex
 }
 
 // Boot calls BootFunc.
@@ -428,38 +428,6 @@ func (mock *SandboxMock) HandleCalls() []struct {
 	return calls
 }
 
-// Park calls ParkFunc.
-func (mock *SandboxMock) Park(ctx context.Context) error {
-	if mock.ParkFunc == nil {
-		panic("SandboxMock.ParkFunc: method is nil but Sandbox.Park was just called")
-	}
-	callInfo := struct {
-		Ctx context.Context
-	}{
-		Ctx: ctx,
-	}
-	mock.lockPark.Lock()
-	mock.calls.Park = append(mock.calls.Park, callInfo)
-	mock.lockPark.Unlock()
-	return mock.ParkFunc(ctx)
-}
-
-// ParkCalls gets all the calls that were made to Park.
-// Check the length with:
-//
-//	len(mockedSandbox.ParkCalls())
-func (mock *SandboxMock) ParkCalls() []struct {
-	Ctx context.Context
-} {
-	var calls []struct {
-		Ctx context.Context
-	}
-	mock.lockPark.RLock()
-	calls = mock.calls.Park
-	mock.lockPark.RUnlock()
-	return calls
-}
-
 // Status calls StatusFunc.
 func (mock *SandboxMock) Status(ctx context.Context) (Status, error) {
 	if mock.StatusFunc == nil {
@@ -489,5 +457,37 @@ func (mock *SandboxMock) StatusCalls() []struct {
 	mock.lockStatus.RLock()
 	calls = mock.calls.Status
 	mock.lockStatus.RUnlock()
+	return calls
+}
+
+// Suspend calls SuspendFunc.
+func (mock *SandboxMock) Suspend(ctx context.Context) error {
+	if mock.SuspendFunc == nil {
+		panic("SandboxMock.SuspendFunc: method is nil but Sandbox.Suspend was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockSuspend.Lock()
+	mock.calls.Suspend = append(mock.calls.Suspend, callInfo)
+	mock.lockSuspend.Unlock()
+	return mock.SuspendFunc(ctx)
+}
+
+// SuspendCalls gets all the calls that were made to Suspend.
+// Check the length with:
+//
+//	len(mockedSandbox.SuspendCalls())
+func (mock *SandboxMock) SuspendCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockSuspend.RLock()
+	calls = mock.calls.Suspend
+	mock.lockSuspend.RUnlock()
 	return calls
 }

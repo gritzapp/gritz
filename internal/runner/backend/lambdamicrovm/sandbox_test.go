@@ -43,7 +43,7 @@ func open(t *testing.T, be *Backend, h backend.Handle) backend.Sandbox {
 	return sb
 }
 
-// A sandbox goes through its whole life: created, booted, dialed, parked,
+// A sandbox goes through its whole life: created, booted, dialed, suspended,
 // resumed and destroyed, after which it is gone.
 func TestSandbox_Lifecycle(t *testing.T) {
 	te := setup(t, &agent.Config{Type: agent.TypeDummy})
@@ -51,10 +51,10 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	sb, err := te.be.Create(t.Context(), testSpec(1))
 	assert.NilError(t, err)
 
-	// Create returns with the VM still PENDING, which is parked.
+	// Create returns with the VM still PENDING, which is suspended.
 	assert.DeepEqual(t, sb.Handle(), sandboxHandle("mvm-1", te.cloud.endpoint))
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStatePending)
-	assertStatus(t, sb, backend.StatusParked)
+	assertStatus(t, sb, backend.StatusSuspended)
 
 	assert.NilError(t, sb.Boot(t.Context()))
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateRunning)
@@ -67,11 +67,11 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	_, err = client.Status(t.Context(), &driverv1.StatusRequest{})
 	assert.NilError(t, err)
 
-	assert.NilError(t, sb.Park(t.Context()))
+	assert.NilError(t, sb.Suspend(t.Context()))
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateSuspended)
-	assertStatus(t, sb, backend.StatusParked)
-	// Parking a suspended VM is a no-op.
-	assert.NilError(t, sb.Park(t.Context()))
+	assertStatus(t, sb, backend.StatusSuspended)
+	// Suspending a suspended VM is a no-op.
+	assert.NilError(t, sb.Suspend(t.Context()))
 
 	assert.NilError(t, sb.Boot(t.Context()))
 	assert.Equal(t, te.cloud.state("mvm-1"), types.MicrovmStateRunning)
@@ -79,7 +79,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assert.NilError(t, sb.Destroy(t.Context()))
 	assertStatus(t, sb, backend.StatusGone)
 	assert.ErrorIs(t, sb.Boot(t.Context()), backend.ErrGone)
-	assert.ErrorIs(t, sb.Park(t.Context()), backend.ErrGone)
+	assert.ErrorIs(t, sb.Suspend(t.Context()), backend.ErrGone)
 	assert.NilError(t, sb.Destroy(t.Context()))
 
 	suspended, resumed, terminated := te.cloud.calls()
@@ -132,10 +132,10 @@ func TestSandbox_Status(t *testing.T) {
 		want  backend.Status
 	}{
 		// Created but not yet booted.
-		{state: types.MicrovmStatePending, want: backend.StatusParked},
+		{state: types.MicrovmStatePending, want: backend.StatusSuspended},
 		{state: types.MicrovmStateRunning, want: backend.StatusUp},
-		{state: types.MicrovmStateSuspending, want: backend.StatusParked},
-		{state: types.MicrovmStateSuspended, want: backend.StatusParked},
+		{state: types.MicrovmStateSuspending, want: backend.StatusSuspended},
+		{state: types.MicrovmStateSuspended, want: backend.StatusSuspended},
 		{state: types.MicrovmStateTerminating, want: backend.StatusGone},
 		{state: types.MicrovmStateTerminated, want: backend.StatusGone},
 		{state: "", want: backend.StatusGone},
@@ -215,7 +215,7 @@ func TestSandbox_Boot(t *testing.T) {
 	}
 }
 
-func TestSandbox_Park(t *testing.T) {
+func TestSandbox_Suspend(t *testing.T) {
 	tests := []struct {
 		state     types.MicrovmState // "" for a VM that is not found
 		suspended bool
@@ -248,7 +248,7 @@ func TestSandbox_Park(t *testing.T) {
 			}
 			sb := open(t, be, sandboxHandle("mvm-9", "vm.example.com"))
 
-			err := sb.Park(t.Context())
+			err := sb.Suspend(t.Context())
 
 			if tt.err != nil {
 				assert.ErrorIs(t, err, tt.err)
@@ -268,14 +268,14 @@ func TestSandbox_Park(t *testing.T) {
 	}
 }
 
-// Park polls until the VM is SUSPENDED, not just until the suspend is
+// Suspend polls until the VM is SUSPENDED, not just until the suspend is
 // accepted.
-func TestSandbox_ParkPollsUntilSuspended(t *testing.T) {
+func TestSandbox_SuspendPollsUntilSuspended(t *testing.T) {
 	be, cloud := newTestBackend(t)
 	cloud.add("mvm-9", types.MicrovmStateRunning, "")
 	sb := open(t, be, sandboxHandle("mvm-9", "vm.example.com"))
 
-	assert.NilError(t, sb.Park(t.Context()))
+	assert.NilError(t, sb.Suspend(t.Context()))
 
 	// SuspendMicrovm leaves the fake VM SUSPENDING; only a later GetMicrovm
 	// settles it.

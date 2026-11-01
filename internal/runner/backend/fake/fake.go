@@ -39,8 +39,8 @@ const (
 	Created State = iota + 1
 	// Up is a running sandbox.
 	Up
-	// Parked is a sandbox whose compute is stopped.
-	Parked
+	// Suspended is a sandbox whose compute is stopped.
+	Suspended
 	// Gone is a sandbox that no longer exists; it is terminal.
 	Gone
 )
@@ -52,8 +52,8 @@ func (s State) String() string {
 		return "created"
 	case Up:
 		return "up"
-	case Parked:
-		return "parked"
+	case Suspended:
+		return "suspended"
 	case Gone:
 		return "gone"
 	default:
@@ -71,8 +71,8 @@ const (
 	OpOpen
 	// OpBoot is Sandbox.Boot.
 	OpBoot
-	// OpPark is Sandbox.Park.
-	OpPark
+	// OpSuspend is Sandbox.Suspend.
+	OpSuspend
 	// OpStatus is Sandbox.Status.
 	OpStatus
 	// OpDestroy is Sandbox.Destroy.
@@ -90,8 +90,8 @@ func (o Op) String() string {
 		return "open"
 	case OpBoot:
 		return "boot"
-	case OpPark:
-		return "park"
+	case OpSuspend:
+		return "suspend"
 	case OpStatus:
 		return "status"
 	case OpDestroy:
@@ -279,7 +279,7 @@ func (b *Backend) Add(id string, state State) backend.Handle {
 
 // Set moves sandbox id to state without going through the runner, as the
 // platform or an operator would: Gone is a removed container or a terminated
-// VM, Parked a container that exited, Up someone starting it. It changes no
+// VM, Suspended a container that exited, Up someone starting it. It changes no
 // counter, and a Set to Gone is not recorded in Snapshot.Destroyed. It panics
 // if id is unknown, state is not a State, or the sandbox is gone and state is
 // not: those are test bugs.
@@ -503,7 +503,7 @@ func (s *sandbox) Handle() backend.Handle {
 	return s.b.handle(s.id)
 }
 
-// Boot moves a created or parked sandbox to up. Booting an up sandbox is a
+// Boot moves a created or suspended sandbox to up. Booting an up sandbox is a
 // no-op; a gone one returns backend.ErrGone.
 func (s *sandbox) Boot(context.Context) error {
 	return s.update(OpBoot, func(sbx *Info) error {
@@ -516,17 +516,18 @@ func (s *sandbox) Boot(context.Context) error {
 	})
 }
 
-// Park moves an up sandbox to parked. Parking a created or parked sandbox is
-// a no-op that leaves its state as it is; a gone one returns backend.ErrGone.
-func (s *sandbox) Park(context.Context) error {
-	return s.update(OpPark, func(sbx *Info) error {
+// Suspend moves an up sandbox to suspended. Suspending a created or suspended
+// sandbox is a no-op that leaves its state as it is; a gone one returns
+// backend.ErrGone.
+func (s *sandbox) Suspend(context.Context) error {
+	return s.update(OpSuspend, func(sbx *Info) error {
 		switch sbx.State {
 		case Gone:
 			return backend.ErrGone
 		case Up:
-			sbx.State = Parked
+			sbx.State = Suspended
 		}
-		sbx.Parks++
+		sbx.Suspends++
 		return nil
 	})
 }
@@ -557,8 +558,8 @@ func (s *sandbox) Destroy(context.Context) error {
 	return nil
 }
 
-// Status reports a created or parked sandbox as parked, an up one as up, and
-// a gone one, or one the fake never had, as gone.
+// Status reports a created or suspended sandbox as suspended, an up one as up,
+// and a gone one, or one the fake never had, as gone.
 func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -572,8 +573,8 @@ func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	switch sbx.State {
 	case Up:
 		return backend.StatusUp, nil
-	case Created, Parked:
-		return backend.StatusParked, nil
+	case Created, Suspended:
+		return backend.StatusSuspended, nil
 	default:
 		return backend.StatusGone, nil
 	}
@@ -770,10 +771,10 @@ type Info struct {
 	State  State
 	// Spec is the spec the sandbox was created from, or nil for Add.
 	Spec *backend.Spec
-	// Boots, Parks, Destroys and Dials count the calls that succeeded, no-ops
+	// Boots, Suspends, Destroys and Dials count the calls that succeeded, no-ops
 	// included. A call that returned backend.ErrGone, or that FailNext
 	// failed, is not counted.
-	Boots, Parks, Destroys, Dials int
+	Boots, Suspends, Destroys, Dials int
 	// Runs counts the Run calls on the sandbox's driver that went through:
 	// made while it was up and its driver ready, and so cut by Drop, by
 	// leaving up and by Close.

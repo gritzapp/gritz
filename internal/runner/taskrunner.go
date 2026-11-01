@@ -133,7 +133,7 @@ func (TaskLostEvent) taskEvent()  {}
 
 // ErrRunning is returned by Boot and Destroy when a Run still follows the
 // task's previous run, so nothing was done. Running can report false then: the
-// sandbox may already be parking after its run (a Lambda VM suspending).
+// sandbox may already be suspending after its run (a Lambda VM).
 var ErrRunning = errors.New("sandbox is still running")
 
 // record returns the task's record of sb's handle at version.
@@ -348,7 +348,7 @@ func (tr *TaskRunner) Destroy(ctx context.Context) error {
 }
 
 // Retire destroys the task's sandbox, as Destroy does, if tr is idle: no run
-// is claimed, and the sandbox is not up. Both a parked husk and a gone sandbox
+// is claimed, and the sandbox is not up. Both a suspended husk and a gone sandbox
 // count as "no live sandbox". It reports whether tr is now idle with no
 // sandbox, which it also is if it had none.
 func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
@@ -376,7 +376,7 @@ func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 
 // Run follows the run version tr's record is stamped with: it starts the run
 // with spec first, or, with spec nil, reattaches to a run already started. It
-// returns once the run finished, after parking the sandbox, and reports the
+// returns once the run finished, after suspending the sandbox, and reports the
 // outcome if the driver did not. A run that could not be started or was lost
 // gets the runner's fallback "failed", scoped to its version.
 //
@@ -412,7 +412,7 @@ func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
 
 // run starts the run version on sb with spec, unless spec is nil, then
 // attaches to it. A run that could not be started is reported lost with why,
-// after sb is parked: nothing runs on it. The only error is ctx's.
+// after sb is suspended: nothing runs on it. The only error is ctx's.
 func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int64, spec *driverv1.RunSpec) (lost string, err error) {
 	if spec != nil {
 		if err := tr.startRun(ctx, sbx, version, spec); err != nil {
@@ -420,7 +420,7 @@ func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, version int6
 				return "", ctx.Err()
 			}
 			tr.opts.Log.Error("failed to start run", "task", tr.opts.TaskID, "version", version, "err", err)
-			tr.park(ctx, sbx)
+			tr.suspend(ctx, sbx)
 			return err.Error(), nil
 		}
 	}
@@ -479,17 +479,17 @@ func accept(ctx context.Context, client driverv1connect.DriverServiceClient, req
 	return nil
 }
 
-// attach follows run version on sb until its Finished, then parks sb. It returns why the driver's report of the run's outcome was lost, or
+// attach follows run version on sb until its Finished, then suspends sb. It returns why the driver's report of the run's outcome was lost, or
 // "" if the driver reported it. The only error is ctx's.
 //
 // A dropped stream is reattached, backing off exponentially. A driver with no
 // such run is a lost run. Reattaching gives up once lostTimeout has passed
-// without a good message — an accepted stream — from the driver: attach parks
+// without a good message — an accepted stream — from the driver: attach suspends
 // the sandbox and reports the run lost. That covers a sandbox that went down
 // under the run too, which only happens when something outside the runner
-// fails: the runner never parks a sandbox it is following a run on. It returns only once the
-// park succeeded or the sandbox is gone, so the sandbox is never up with no
-// Run following it; while the platform cannot park it, attach keeps
+// fails: the runner never suspends a sandbox it is following a run on. It returns only once the
+// suspend succeeded or the sandbox is gone, so the sandbox is never up with no
+// Run following it; while the platform cannot suspend it, attach keeps
 // retrying.
 func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version int64) (lost string, err error) {
 	opts, taskID := tr.opts, tr.opts.TaskID
@@ -502,7 +502,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			return "", ctx.Err()
 		}
 		if finished != nil {
-			tr.park(ctx, sbx)
+			tr.suspend(ctx, sbx)
 			if !finished.GetReported() {
 				return "driver did not report the run's outcome", nil
 			}
@@ -515,8 +515,8 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			if connect.CodeOf(err) == connect.CodeNotFound {
 				// Nothing runs on the sandbox, which would otherwise stay up.
 				// On FailedPrecondition or Aborted a newer run is active on
-				// it, which parking would kill.
-				tr.park(ctx, sbx)
+				// it, which suspending would kill.
+				tr.suspend(ctx, sbx)
 			}
 			return "driver has no such run", nil
 		}
@@ -528,14 +528,14 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, version i
 			lastErr = ""
 		}
 		if time.Since(lastGood) >= opts.LostTimeout {
-			// Give up on the driver; park the sandbox instead. While that
+			// Give up on the driver; suspend the sandbox instead. While that
 			// fails, keep retrying the attach too in case the driver is back.
-			parkErr := sbx.Park(ctx)
-			if parkErr == nil || errors.Is(parkErr, backend.ErrGone) {
-				opts.Log.Error("run lost: driver unreachable, sandbox parked", "task", taskID, "version", version, "err", err)
+			suspendErr := sbx.Suspend(ctx)
+			if suspendErr == nil || errors.Is(suspendErr, backend.ErrGone) {
+				opts.Log.Error("run lost: driver unreachable, sandbox suspended", "task", taskID, "version", version, "err", err)
 				return "driver unreachable", nil
 			}
-			err = fmt.Errorf("failed to park sandbox of lost run: %w (driver: %w)", parkErr, err)
+			err = fmt.Errorf("failed to suspend sandbox of lost run: %w (driver: %w)", suspendErr, err)
 		}
 		if msg := err.Error(); msg != lastErr {
 			opts.Log.Warn("run stream dropped, reattaching", "task", taskID, "version", version, "err", err)
@@ -584,11 +584,11 @@ func isTerminal(err error) bool {
 	return false
 }
 
-// park parks the run's sandbox sb once the run is over. Failures are logged:
+// suspend suspends the run's sandbox sb once the run is over. Failures are logged:
 // the run's outcome is already known.
-func (tr *TaskRunner) park(ctx context.Context, sb backend.Sandbox) {
-	if err := sb.Park(ctx); err != nil && !errors.Is(err, backend.ErrGone) {
-		tr.opts.Log.Error("failed to park sandbox after its run", "task", tr.opts.TaskID, "err", err)
+func (tr *TaskRunner) suspend(ctx context.Context, sb backend.Sandbox) {
+	if err := sb.Suspend(ctx); err != nil && !errors.Is(err, backend.ErrGone) {
+		tr.opts.Log.Error("failed to suspend sandbox after its run", "task", tr.opts.TaskID, "err", err)
 	}
 }
 

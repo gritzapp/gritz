@@ -585,7 +585,7 @@ func (m *TaskManager) startTask(ctx context.Context, c runnerstore.TaskChange) e
 		}
 		// The sandbox still runs an earlier version, such as the run
 		// whose end moved this start to the next version, before the
-		// runner has parked it. The start is retried once that run
+		// runner has suspended it. The start is retried once that run
 		// releases its slot.
 		return ErrRunning
 	}
@@ -596,7 +596,7 @@ func (m *TaskManager) startTask(ctx context.Context, c runnerstore.TaskChange) e
 	}
 	err = m.Start(ctx, c)
 	if errors.Is(err, ErrRunning) {
-		// The sandbox is parked, but a Run still follows its last
+		// The sandbox is suspended, but a Run still follows its last
 		// run. Nothing was started, so the slot goes back, and the
 		// start is retried once that Run releases its own.
 		m.sem.Release(1)
@@ -623,7 +623,7 @@ func (m *TaskManager) startTask(ctx context.Context, c runnerstore.TaskChange) e
 // Load rehydrates this runner's sandboxes at boot, before Run admits new work.
 // The sandbox records enumerate; Status answers liveness per record. An up
 // sandbox gets the same Run goroutine as the live path, which reattaches
-// to the recorded run; a parked husk or a gone sandbox is a lost-report
+// to the recorded run; a suspended husk or a gone sandbox is a lost-report
 // backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
 // or destroy). The semaphore is seeded with the up count last, so it may exceed
 // capacity in over-limit scenarios — that's fine.
@@ -653,7 +653,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
 			m.run(ctx, tr, nil)
 			running++
-		case backend.StatusParked: // stopped container / SUSPENDED VM (husk preserved)
+		case backend.StatusSuspended: // stopped container / SUSPENDED VM (husk preserved)
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
