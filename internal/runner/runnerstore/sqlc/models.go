@@ -4,6 +4,10 @@
 
 package sqlc
 
+import (
+	"database/sql"
+)
+
 type Event struct {
 	Seq    int64
 	ID     int64
@@ -18,5 +22,7 @@ type Replication struct {
 
 type Task struct {
 	ID       int64
+	Command  sql.NullInt64
+	Version  sql.NullInt64
 	Archived bool
 }

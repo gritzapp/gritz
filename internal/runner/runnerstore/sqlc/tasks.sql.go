@@ -7,36 +7,8 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
-
-const insertTaskIfNew = `-- name: InsertTaskIfNew :many
-INSERT INTO tasks (id, archived) VALUES (?, 0)
-ON CONFLICT (id) DO NOTHING
-RETURNING id
-`
-
-func (q *Queries) InsertTaskIfNew(ctx context.Context, id int64) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, insertTaskIfNew, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
 
 const listUnarchivedTaskIDs = `-- name: ListUnarchivedTaskIDs :many
 SELECT id FROM tasks WHERE NOT archived ORDER BY id
@@ -65,17 +37,44 @@ func (q *Queries) ListUnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
 	return items, nil
 }
 
-const setTaskArchived = `-- name: SetTaskArchived :exec
-INSERT INTO tasks (id, archived) VALUES (?, ?)
-ON CONFLICT (id) DO UPDATE SET archived = excluded.archived
+const upsertTask = `-- name: UpsertTask :one
+INSERT INTO tasks (id, command, version, archived)
+VALUES (
+    ?1,
+    ?2,
+    ?3,
+    coalesce(CAST(?4 AS BOOLEAN), 0)
+)
+ON CONFLICT (id) DO UPDATE SET
+    command  = coalesce(excluded.command, command),
+    version  = coalesce(excluded.version, version),
+    archived = coalesce(?4, archived)
+RETURNING id, command, version, archived
 `
 
-type SetTaskArchivedParams struct {
+type UpsertTaskParams struct {
 	ID       int64
-	Archived bool
+	Command  sql.NullInt64
+	Version  sql.NullInt64
+	Archived sql.NullBool
 }
 
-func (q *Queries) SetTaskArchived(ctx context.Context, arg SetTaskArchivedParams) error {
-	_, err := q.db.ExecContext(ctx, setTaskArchived, arg.ID, arg.Archived)
-	return err
+// Fields the page didn't touch are passed as NULL and keep their stored value.
+// The update reuses ?4 for archived: sqlc doesn't rewrite sqlc.narg inside
+// DO UPDATE SET.
+func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, upsertTask,
+		arg.ID,
+		arg.Command,
+		arg.Version,
+		arg.Archived,
+	)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Command,
+		&i.Version,
+		&i.Archived,
+	)
+	return i, err
 }
