@@ -71,9 +71,13 @@ func (s *sandbox) Boot(ctx context.Context) error {
 // Dial returns a client for the container's driver server whose every
 // connection is tunnelled through a Docker exec of `gritz tool proxy` to the
 // driver's socket, so the runner needs only Docker API access to reach it.
-// Keep-alives are off, so no idle connection holds an exec open. Dial does no
-// I/O: a container that is gone or not running fails the client's calls.
+// It speaks unencrypted HTTP/2 with prior knowledge, which bidirectional
+// streams need. Keep-alives are off, so no idle connection holds an exec open.
+// Dial does no I/O: a container that is gone or not running fails the client's
+// calls.
 func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverServiceClient, error) {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
 	httpClient := &http.Client{Transport: &bearerTransport{
 		token: jwt,
 		base: &http.Transport{
@@ -81,6 +85,7 @@ func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverSer
 				return s.b.execConn(ctx, s.id)
 			},
 			DisableKeepAlives: true,
+			Protocols:         protocols,
 		},
 	}}
 	return driverclient.New(httpClient, "http://driver", driverclient.Options{IdleTimeout: s.b.idleTimeout}), nil
