@@ -110,22 +110,34 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	)
 	assert.NilError(t, err)
 
-	// Act - a page that archives 20, archives and unarchives 30, and adds
-	// task 40.
+	// Act - a page with an instruction for 10, which archives 20, archives
+	// and unarchives 30, and adds task 40 and task 50, which it archives.
 	changes, err := store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
-			{Id: 4, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 5, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 6, TaskId: 40, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
-			{Id: 7, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
+			{Id: 4, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
+			{Id: 5, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
+			{Id: 6, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
+			{Id: 7, TaskId: 40, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
+			{Id: 8, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
+			{Id: 9, TaskId: 50, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
+			{Id: 10, TaskId: 50, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 		},
 		"page-2",
 	)
 	assert.NilError(t, err)
 
-	// Assert - the page's changes are computed from the stored rows, and
-	// UnarchivedTaskIDs reads the rows written.
-	assert.DeepEqual(t, changes, []runnerstore.TaskChange{{ID: 20, Archived: true}, {ID: 40}})
+	// Assert - every task with an archive event is reported with its final
+	// state, the known task 10 without one is not, and UnarchivedTaskIDs reads
+	// the rows written.
+	assert.DeepEqual(t,
+		changes,
+		[]runnerstore.TaskChange{
+			{ID: 20, Archived: true},
+			{ID: 30},
+			{ID: 40},
+			{ID: 50, Archived: true},
+		},
+	)
 	ids, err := store.UnarchivedTaskIDs(t.Context())
 	assert.NilError(t, err)
 	assert.DeepEqual(t, ids, []int64{10, 30, 40})
