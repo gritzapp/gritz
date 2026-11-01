@@ -1,7 +1,4 @@
-// Package fakeserver is an in-memory stand-in for the server's runner event
-// log, for tests: they append events to it and read them back through a
-// gritzclient.Client.
-package fakeserver
+package testrunner
 
 import (
 	"cmp"
@@ -13,18 +10,21 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
-// DefaultPageSize is the page size of a Server whose Options leave it 0.
-const DefaultPageSize = 100
+// DefaultServerPageSize is the page size of a Server whose ServerOptions
+// leave it 0.
+const DefaultServerPageSize = 100
 
-// Options configures a Server.
-type Options struct {
+// ServerOptions configures a Server.
+type ServerOptions struct {
 	// PageSize is the most events a ListRunnerEvents page holds; 0 means
-	// DefaultPageSize.
+	// DefaultServerPageSize.
 	PageSize int
 }
 
-// Server serves an in-memory event log with ListRunnerEvents, in pages, with
-// the offset of the next page as the page token.
+// Server is an in-memory stand-in for the server's runner event log: tests
+// append events to it and read them back through Client. It serves
+// ListRunnerEvents in pages, with the offset of the next page as the page
+// token.
 type Server struct {
 	pageSize int
 
@@ -32,9 +32,9 @@ type Server struct {
 	events []*gritzv1.Event
 }
 
-// New returns a Server with an empty event log.
-func New(opts Options) *Server {
-	return &Server{pageSize: cmp.Or(opts.PageSize, DefaultPageSize)}
+// NewServer returns a Server with an empty event log.
+func NewServer(opts ServerOptions) *Server {
+	return &Server{pageSize: cmp.Or(opts.PageSize, DefaultServerPageSize)}
 }
 
 // Add appends events to the log.
