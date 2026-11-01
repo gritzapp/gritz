@@ -12,9 +12,7 @@ func TestEventCursor_Encode(t *testing.T) {
 	want := EventCursor{XID: 1 << 40, ID: 42}
 
 	// Act
-	b, err := want.Encode()
-	assert.NilError(t, err)
-	got, err := DecodeEventCursor(b)
+	got, err := DecodeEventCursor(want.Encode())
 
 	// Assert
 	assert.NilError(t, err)

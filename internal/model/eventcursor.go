@@ -16,8 +16,12 @@ type EventCursor struct {
 
 // Encode returns the cursor as the opaque bytes ListRunnerEvents hands to
 // clients: a protobuf-encoded gritz.v1.EventCursor.
-func (c EventCursor) Encode() ([]byte, error) {
-	return proto.Marshal(&gritzv1.EventCursor{Xid: c.XID, Id: c.ID})
+func (c EventCursor) Encode() []byte {
+	b, err := proto.Marshal(&gritzv1.EventCursor{Xid: c.XID, Id: c.ID})
+	if err != nil {
+		panic(fmt.Sprintf("model: EventCursor of two scalars must always marshal: %v", err))
+	}
+	return b
 }
 
 // DecodeEventCursor decodes a cursor produced by Encode; empty is the start
