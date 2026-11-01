@@ -43,7 +43,7 @@ existing tests onto them and delete what they cover.
  test ──RPCs (web UI / MCP)──▶ h.Server: apiserver (httptest, teststore Postgres)
                                  ▲   │ SSE notifications
           SubmitRunnerEvents,    │   ▼
-          logs, MCP tools        │ h.Runner: runner.Service (temp runner.db)
+          logs, MCP tools        │ h.Runner: runner.Serve (temp runner.db)
                                  │   │
                                  │   ▼ h.Backend: local backend
                                driver process (prebuilt gritz driver --root DIR)   black box
@@ -65,19 +65,20 @@ the Docker backend ships, the real driver.v1 transport over a Unix socket, the
 injected `gritz` MCP server, log shipping and secret masking.
 
 **The driver is a black box.** It has no public API of its own: the runner and
-the API server configure it, and the harness has no handle on it, no hooks into
-it and no `Real` for it. Tests see it only through its effects:
+the API server configure it, and the harness has no handle on it and no mocks
+of it. Tests see it only through its effects:
 
 - the files its scripts write in the sandbox directory;
 - what it reports to the server: runner events with their versions, log chunks,
   and the events its tool calls create.
 
-Tests interfere with it only from outside: its calls to the server go through
-`h.Server.Hook`, and its sandbox through `h.Backend`, including `KillDriver`.
+Tests interfere with it only from outside: its calls to the server through
+`h.Server.Mock`, and its sandbox through `h.Backend`, including `KillDriver`.
 
-**Faults are injected at the seams, not with fakes.** Hooks on the server's RPCs
-and on the backend's operations sit in front of the real implementations. With
-no hook installed, every call reaches the real implementation.
+**Faults are injected at the seams, with moq mocks rather than hand-written
+fakes.** A mock installed on the server or the backend replaces the methods it
+sets, for every caller, until it is restored. Every other method reaches the
+real implementation.
 
 ### Local backend
 
@@ -246,12 +247,15 @@ type Harness struct {
 ```
 
 Each handle holds `t`, and its methods fail the test with `t.Fatal` instead of
-returning errors. Each also exposes the real instance as `Real`:
-`h.Server.Real *apiserver.Server`, `h.Backend.Real *local.Backend` and
-`h.Runner.Real *runner.TaskManager`. `Real` is the escape hatch for setup or
-inspection that the handle doesn't cover. Tests normally go through the handle
-methods, so they use the same RPCs real clients use. There is no driver handle
-(see above).
+returning errors. None of them exposes its real instance. The escape hatches go
+through the same path as everything else:
+
+- `h.Server.Client` is a real API client.
+- `h.Backend` is itself a `backend.Backend`.
+- Mocks (`h.Server.Mock`, `h.Backend.Mock`, `h.Backend.MockSandbox`) replace
+  methods for every caller, and apply to those escape hatches too.
+
+There is no driver handle (see above).
 
 ```go
 func TestStart(t *testing.T) {
@@ -281,33 +285,30 @@ func TestStart(t *testing.T) {
 2. **Server.** `server.New(server.Options{...}).Handler()` on `httptest.NewServer`.
    It uses `apiauth.New` with `server.NewStoreKeyValidator`, a fresh app key from
    `apiauth.CreateAppPrivateKey()` (task tokens), and a local pubsub feeding
-   `notifyserver`, so SSE notifications are live. The hook interceptor goes in
+   `notifyserver`, so SSE notifications are live. The mock interceptor goes in
    `server.Options.Interceptors`. The archiver and scheduler aren't started; no
    scenario needs them.
 3. **Backend.** A `local.Backend` on a fresh root, wrapped by `h.Backend`. The
-   runner is given the wrapper, never `Real`.
-4. **Runner.** A `runner.Service` (below) with a `gritzclient` on the runner key,
+   runner is given the wrapper.
+4. **Runner.** `runner.Serve` (below) with a `gritzclient` on the runner key,
    the backend wrapper, `runner.db` in a temp directory, runner id `e2e`, and one
    workspace `e2e` whose agent is the dummy. The runner registers that workspace
    with the server itself (`RegisterWorkspaces`), so `CreateTask` finds it
-   through the production path. The service subscribes to the harness server's
+   through the production path. The runner subscribes to the harness server's
    notifications, so commands reach the runner without waiting for the poll.
-5. **Cleanup**, in reverse order: remove hooks; stop the runner and wait for it;
+5. **Cleanup**, in reverse order: restore mocks; stop the runner and wait for it;
    `Destroy` every sandbox under the root, which kills the drivers; remove the
    root; close the server; `teststore` drops the org.
 
-**`runner.Service`.** `gritz runner`'s wiring is all inline in the CLI action
+**`runner.Serve`.** `gritz runner`'s wiring is all inline in the CLI action
 (`internal/command/runner.go`). It builds the `runnerstore`, `taskevents.Log`,
 `RunnerEventOutbox` and `TaskManager`, then runs `RegisterWorkspaces`,
 `HandleEvents`, `Load`, the outbox, the notification client and `Run`, in that
 order. The harness has to run the same sequence, not a copy of it.
 
-- `runner.NewService` builds the pieces and exposes the `TaskManager`, which is
-  `h.Runner.Real`.
-- `Service.Run` runs the sequence.
-- The command keeps flag parsing, config loading and backend selection, and
-  calls both.
-- `Run` returns when `ctx` ends and leaves sandboxes up, as a shutdown does today.
+The sequence moves into `runner.Serve(ctx, ServeOptions)`. The command keeps
+flag parsing, config loading and backend selection, and calls `Serve`. `Serve`
+returns when `ctx` ends and leaves sandboxes up, as a shutdown does today.
 
 **One harness per test.** Each harness has its own org, server, runner,
 `runner.db` and sandbox root, so tests can call `t.Parallel()`. They share one
@@ -320,116 +321,129 @@ real behaviour, and short transactions bound it.
 | Method | What it does |
 |---|---|
 | `CreateTask()` | `CreateTask{draft: true, runner: "e2e", workspace: "e2e"}`, as the new-task page does; returns a `*Task` |
-| `Client()` | the `gritzclient` on the user key, for RPCs no method wraps |
+| `Client` | a `gritzclient.Client` making real API calls to the harness server as the harness user. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
 | `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
 | `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
-| `Hook(procedure, fn)` | see below |
+| `Mock(m)` | see below |
+
+There is no `Real` and no handler on `h.Server`: tests reach the server only as
+a client.
 
 ```go
-// Hook replaces procedure's handler until restore is called. next is the real
-// handler: the hook can call through, change the request or response, fail,
-// or answer on its own.
-func (s *Server) Hook(procedure string, fn HookFunc) (restore func())
-
-type HookFunc func(ctx context.Context, req connect.AnyRequest, next connect.UnaryFunc) (connect.AnyResponse, error)
+// Mock routes calls to m's non-nil <Method>Func fields until restore is called;
+// every method left nil goes to the real server.
+func (s *Server) Mock(m *gritzclient.ClientMock) (restore func())
 ```
 
-**How hooks work:**
+**The mock type.** `gritzclient.Client` is `gritzv1connect.GritzServiceClient`,
+and `buf.gen.yaml` generates with connect's `simple` option. The client and
+handler interfaces therefore have the same 52 methods, with the same request and
+response types (`SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsRequest)
+(*v1.SubmitRunnerEventsResponse, error)` in both). So the existing
+`gritzclient.ClientMock` (`client_moq.go`) already implements
+`GritzServiceHandler`, and `Mock` takes it. No new mock is generated.
 
-- **One interceptor.** `Hook` is a `connect.Interceptor` in front of the real
-  handler, holding a per-procedure override table under a mutex. The harness
-  passes it in `server.Options.Interceptors`, after the auth and observability
-  interceptors, so a hook sees the authenticated caller exactly as the handler
-  does.
-- **Routing.** `WrapUnary` looks up `req.Spec().Procedure`. A hooked procedure
-  runs the hook with the real handler as `next`; anything else goes straight to
-  the real server.
-- **Untyped.** Methods can't have type parameters, so a hook asserts the
-  concrete request type (`req.Any().(*gritzv1.SubmitRunnerEventsRequest)`) and
-  builds its answer with `connect.NewResponse`. Procedures are named by the
-  generated constants (`gritzv1connect.GritzServiceSubmitRunnerEventsProcedure`).
-- **One hook per procedure.** Hooking a procedure that already has a hook
-  panics. `restore` removes the hook, and cleanup removes any left over.
-- **Every caller.** The harness (user key), the runner (runner key), and the
-  driver and injected MCP server (task token) all go through the same
-  interceptor. A hook tells its caller apart by the request (the driver submits
-  `started`/`stopped`, the runner's outbox `failed`), or by the caller in
-  `apiauth`'s context.
-- **Streaming RPCs** need a streaming variant, `HookStream(procedure,
-  StreamHookFunc)`, built on `WrapStreamingHandler`. `GritzService` has no
-  streaming RPCs today (`/events` SSE is plain HTTP), so `HookStream` arrives with
-  the first streaming RPC a scenario needs to interfere with.
+**How it works:**
+
+- **One interceptor.** `Mock` is backed by a `connect.Interceptor` in front of
+  the real handler. The harness passes it in `server.Options.Interceptors`, after
+  the auth and observability interceptors. Callers are still authenticated, and
+  a bad token is still rejected, before a mock answers.
+- **Routing.** For each unary call, `WrapUnary` takes the method name from
+  `req.Spec().Procedure` (`/gritz.v1.GritzService/SubmitRunnerEvents` →
+  `SubmitRunnerEvents`). It checks the installed mock's `<Method>Func` field by
+  reflection. That is fine in test code, and keeps working as RPCs are added.
+  - If the field is set, the interceptor calls the mock's method,
+    `SubmitRunnerEvents(ctx, req.Any())`, and wraps the result with
+    `connect.NewResponse`.
+  - Otherwise it calls the real handler.
+- **Typed, with no generics.** Each `<Method>Func` has the method's real request
+  and response types, so a mock needs no type assertions.
+- **Replace, not wrap.** A mocked method replaces the real one for every caller
+  (the runner, the driver, the injected MCP server and the test itself) until
+  `restore()`. It doesn't call the real method; there is no `next`. To make a
+  call fail once and then behave, the test calls `restore()` once it sees the
+  failure in `m.<Method>Calls()`, and the real method answers again.
+  Call-through is a possible later addition (Open Questions), not part of this
+  design.
+- **The harness's own calls too.** `Task` methods and the waits use
+  `h.Server.Client`, so they see the mock as well. `WaitTask` reads `GetTask`,
+  so a test that mocks `GetTask` restores it before waiting.
+- **Free call recording.** The interceptor calls the mock's method, not the bare
+  `Func` field, so `m.<Method>Calls()` records every request sent while the mock
+  was installed, whoever sent it.
+- **One mock at a time.** Installing a second mock before the first is restored
+  panics. Cleanup restores any mock left installed.
+- **Streaming RPCs.** `GritzService` has none today (`/events` SSE is plain
+  HTTP), so there is nothing to mock. With `simple`, a streaming method's client
+  and handler signatures differ (`*connect.ServerStreamForClient[Res]` versus a
+  `*connect.ServerStream[Res]` argument), so `ClientMock` won't fit one. See Open
+  Questions.
 
 ```go
-// The driver's terminal report never reaches the server.
-restore := h.Server.Hook(gritzv1connect.GritzServiceSubmitRunnerEventsProcedure,
-	func(ctx context.Context, req connect.AnyRequest, next connect.UnaryFunc) (connect.AnyResponse, error) {
-		for _, ev := range req.Any().(*gritzv1.SubmitRunnerEventsRequest).GetEvents() {
-			if ev.GetEvent() == "stopped" {
-				return nil, connect.NewError(connect.CodeUnavailable, errors.New("e2e: dropped"))
-			}
-		}
-		return next(ctx, req)
-	})
-defer restore()
+// The driver's terminal report fails, and so does the runner's report of the
+// unreported run, until restore.
+m := &gritzclient.ClientMock{
+	SubmitRunnerEventsFunc: func(context.Context, *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("e2e: rejected"))
+	},
+}
+restore := h.Server.Mock(m)
 ```
 
 #### `h.Backend`
 
-`h.Backend` is a `backend.Backend` in front of `Real`, and it is what the runner
-is given. Its `Create` and `Open` return wrapped sandboxes, so hooks also apply
-to sandboxes the runner restores at `Load`.
+`h.Backend` is a `backend.Backend`, and it is what the runner is given. It wraps
+the `local.Backend`, which it doesn't expose: like `h.Server.Client`, the handle
+itself is the escape hatch (`h.Backend.Open(handle)`), and it goes through the
+same mocks the runner sees. Its `Create` and `Open` return wrapped sandboxes, so
+mocks also apply to sandboxes the runner restores at `Load`.
 
 | Method | What it does |
 |---|---|
 | `Dir(taskID)` | the task's sandbox directory, `Root/<id>` |
-| `WaitSandbox(taskID, state)` | polls `Real.Open(handle).Status()` until it is `backend.StatusUp`, `StatusSuspended` or `StatusGone`. A task that never had a sandbox reports `gone` |
+| `WaitSandbox(taskID, state)` | polls the sandbox's `Status()` until it is `backend.StatusUp`, `StatusSuspended` or `StatusGone`. A task that never had a sandbox reports `gone` |
 | `KillDriver(taskID)` | `SIGKILL`s the driver's process group through `local.Backend.Kill`, leaving the directory: a real lost run |
-| `Hook(op, fn)` | replaces one backend operation until `restore` is called |
+| `Mock(m)` | replaces the `Backend` methods whose `<Method>Func` is set (`Create`, `Open`, `ValidateWorkspace`) until `restore` |
+| `MockSandbox(taskID, m)` | replaces the methods of the task's sandbox whose `<Method>Func` is set (`Boot`, `Dial`, `Status`, `Suspend`, `Destroy`, `Handle`) until `restore`. It applies to whichever sandbox the task has or gets, created or opened |
 
 ```go
-// Op is a backend operation a hook can replace.
-type Op string
+// Mock replaces m's non-nil methods of the backend until restore is called.
+func (b *Backend) Mock(m *backend.BackendMock) (restore func())
 
-const (
-	OpCreate  Op = "create"
-	OpBoot    Op = "boot"
-	OpSuspend Op = "suspend"
-	OpDestroy Op = "destroy"
-	OpStatus  Op = "status"
-	OpDial    Op = "dial"
-)
-
-// Call is the backend operation a hook is replacing.
-type Call struct {
-	Op     Op
-	TaskID int64
-}
-
-// BackendFunc performs the call on Real. Its result is the operation's:
-// backend.Sandbox for create, backend.Status for status,
-// driverv1connect.DriverServiceClient for dial, nil otherwise.
-type BackendFunc func(ctx context.Context) (any, error)
-
-// BackendHookFunc replaces a backend operation; next performs it on Real.
-type BackendHookFunc func(ctx context.Context, call Call, next BackendFunc) (any, error)
-
-// Hook replaces op until restore is called.
-func (b *Backend) Hook(op Op, fn BackendHookFunc) (restore func())
+// MockSandbox replaces m's non-nil methods of the task's sandbox until restore
+// is called.
+func (b *Backend) MockSandbox(taskID int64, m *backend.SandboxMock) (restore func())
 ```
 
-`Hook` works the same way as the server's: it is untyped, allows one hook per
-operation, and cleanup removes any left over. `Open` is not hooked, because it
-does no I/O and fails only for a malformed handle. A `Dial` hook can wrap the
-real client it gets from `next`, which is how a test cuts a `Run` stream while
-the driver is still alive.
+These use the moq mocks `backend` already generates (`backend_moq.go`), with the
+same rules as `h.Server.Mock`: a mocked method replaces the real one, there is no
+call-through, calls are recorded, and cleanup restores. There are only a handful
+of methods, so the wrapper checks each `Func` field directly rather than by
+reflection. Backend operations are plain calls with no streams, so there is no
+streaming question here.
+
+```go
+// The task's first boot fails; the next one is real.
+m := &backend.SandboxMock{BootFunc: func(context.Context) error {
+	return errors.New("e2e: boot failed")
+}}
+restore := h.Backend.MockSandbox(task.ID, m)
+task.Start()
+task.WaitStatus(gritzv1.TaskStatus_FAILED)
+assert.Assert(t, cmp.Len(m.BootCalls(), 1))
+restore()
+```
 
 #### `h.Runner`
 
-`Restart()` stops the runner and waits for `Service.Run` to return. It then
-starts a new `Service` on the same `runner.db` and the same `h.Backend`, so
-installed hooks stay in place. `Real` is the current service's `TaskManager`, so
-it changes on restart.
+`Restart()` stops the runner and waits for `runner.Serve` to return. It then
+starts a new one on the same `runner.db` and the same `h.Backend`, so installed
+mocks stay in place.
+
+The runner has no escape hatch. No client path leads into it, and its internals
+are what the tests must not depend on. If a setup need appears that only the
+runner can meet, one can be added then.
 
 #### `Task`
 
@@ -474,8 +488,7 @@ through `t` with the last state they saw:
 - sandbox state through the backend;
 - the files the script wrote.
 
-`Real` is for setup and inspection a handle doesn't cover, not for assertions on
-runner internals. Tests never open `runner.db` or call into the driver. The
+Tests never open `runner.db` or call into the driver. The
 driver's own files in the sandbox directory (`gritz/run.json`,
 `gritz/events.jsonl`, `gritz/log`) are its internals, so tests don't read them
 either. This is what lets the tests survive runner-event-replica slices 9–11
@@ -495,7 +508,7 @@ type Options struct {
 ```
 
 The harness sets the runner's `LostTimeout` and `ReadyTimeout`
-(`runner.ServiceOptions`) to 2s, so scenarios about lost or unready drivers
+(`runner.ServeOptions`) to 2s, so scenarios about lost or unready drivers
 don't wait out the 10s defaults.
 
 **The driver binary** is `prebuilt/gritz-linux-$GOARCH`, which the tests already
@@ -520,18 +533,17 @@ the agent executed in this sandbox.
 | `TestSuspendAfter` (slice 10) | `SuspendAfter: 300ms`. `Script(append runs)`; `Start`; `COMPLETED`; `WaitSandbox(suspended)`; `Script(append runs)`; `Start` | `COMPLETED` at v2; `runs` = `1 2` in the same file, so the directory survived and nothing re-created it; `WaitSandbox(suspended)` again |
 | `TestSuspendAfter_Window` (slice 10) | default `suspend_after`; two runs back to back | the sandbox stays `up` between them and after; `runs` = `1 2` |
 
-Further scenarios, several using hooks:
+Further scenarios, several using mocks:
 
 | Test | Arrange / act | Assert |
 |---|---|---|
 | `TestWake_CancelledAtBoundary` | as `TestWake_MidRun`, then `Cancel` while run 1 sleeps | `CANCELLED`; `runs` = `1`: the pending start of v2 was superseded and never ran |
 | `TestRestart_CancelledBeforeStart` | `Script(append runs, Sh("trap '' TERM; while :; do sleep 0.1; done"))`; `Start`; `WaitFile`; `Restart`; `Cancel` | `CANCELLED`; `runs` = `1`. Run 1 ignores `SIGTERM` and outlives the restart until `Sh`'s kill delay, so the cancel lands before run 2 can start. No run reports v2, so the runner reports it `stopped` |
 | `TestRunnerRestart_PendingWake` | as `TestWake_MidRun`, then `h.Runner.Restart()` while run 1 sleeps | `COMPLETED` at v2; `runs` = `1 2`: the pending start survived the dropped stream |
-| `TestStreamDrop_MidRun` | a `Dial` hook wraps the real client so the first `Run` stream is cut once the driver has said `Hello`; `Script(append runs, Block())`; `Start`; `WaitFile`; `Cancel` | `CANCELLED`; `runs` = `1`; one `SANDBOX_STARTED`: the runner reopened the stream and the driver resumed from what it had stored |
 | `TestDriverDies_MidRun` | `Script(append runs, Block())`; `Start`; `WaitFile`; `h.Backend.KillDriver(task.ID)` | `FAILED`; the sandbox `suspended`. Then `Script(append runs)`, `Start` → `COMPLETED` at v2 with `runs` = `1 2`: the sandbox booted again, the driver reconciled its interrupted run and acted on the new start |
-| `TestUnreportedRun` | a server hook fails the driver's `stopped` submit (example above); `Script(append runs)`; `Start` | `FAILED`: the driver went idle with its run unreported, and the runner reported it. After `restore`, a wake runs v2 to `COMPLETED` |
-| `TestSandboxFails` (table: `OpCreate`, `OpBoot`) | `Concurrency: 1`; a hook fails `op` once; `Script(append runs)`; `Start` | `FAILED` with the hook's error as reason; then a second task runs to `COMPLETED`, so the slot was released; the first task, started again, `COMPLETED` |
-| `TestDriverUnreachable` | a `Dial` hook returns an error; `Start` | `FAILED` once `ReadyTimeout` passes; the sandbox `suspended` |
+| `TestUnreportedRun` | `Script(append runs, Sleep(2s))`; `Start`; `WaitFile(runs, 1)`; `h.Server.Mock` with `SubmitRunnerEvents` failing with `CodeInternal` (example above), which the driver's client doesn't retry and the runner's outbox does; wait until `m.SubmitRunnerEventsCalls()` holds the driver's `stopped` and then the runner's `failed`; `restore()` | `FAILED`: the driver went idle with its run unreported, the runner reported it `failed`, and the outbox delivered that report once the real method answered again |
+| `TestSandboxFails` (table: `h.Backend.Mock` with `CreateFunc`, `h.Backend.MockSandbox` with `BootFunc`) | `Concurrency: 1`; the mock returns an error; `Script(append runs)`; `Start`; `WaitStatus(FAILED)`; `restore()` | the failure's reason is the mock's error, and the mock recorded one call. Then a second task runs to `COMPLETED`, so the slot was released, and the first task, started again, `COMPLETED`s |
+| `TestDriverUnreachable` | `h.Backend.MockSandbox` with a `DialFunc` returning an error; `Start` | `FAILED` once `ReadyTimeout` passes; the sandbox `suspended` |
 | `TestAgentError` | `Script(Error("boom"))`; `Start` | `FAILED`; `SANDBOX_FAILED` carries `boom` |
 | `TestTools` | `Script(Tool("report", {message}), Tool("create_link", {url, subscribe: true}), Tool("update_my_task", {name}))` | a report event with the message, the subscribed link, and the new name. Covers the injected MCP server, the task token and the `BinaryPather` path |
 | `TestEnv` | `Secrets: {E2E_SECRET: s3cret}`; `Script(Sh(env > env))` | `env` has `GRITZ_RUN_VERSION=1`, `GRITZ_TASK_ID`, `E2E_SECRET=s3cret`, and `HOME` inside the sandbox directory |
@@ -553,7 +565,7 @@ The categories:
   remove anyway. Delete it with that code in the slice, without porting it. Where
   the behaviour lives on, a scenario takes over.
 
-Slice 8 has landed, so the tables use the names on `master` after it. Hooks make
+Slice 8 has landed, so the tables use the names on `master` after it. Mocks make
 most fault-injection tests (a), not (b).
 
 #### `internal/runner` (`taskmanager_start_test.go`)
@@ -596,7 +608,7 @@ most fault-injection tests (a), not (b).
 |---|---|---|
 | `TestNewTaskRunner` | delete | It tests constructor panics, which `CLAUDE.md` says not to test. Delete it in the first port PR |
 | `TestTaskRunnerRun_Finished`, `_ForwardsEvents` | a | `TestStart`; every scenario depends on the driver receiving its commands over the forwarded stream |
-| `TestTaskRunnerRun_Reattach` | a | `TestStreamDrop_MidRun` |
+| `TestTaskRunnerRun_Reattach` | b | Reconnecting after a dropped stream, with the driver still alive, needs a stream cut mid-flight. That takes a `Dial` that wraps the real client, which is call-through (Open Questions). Keep it until call-through exists |
 | `TestTaskRunnerRun_DriverUnreachable`, `_NotReady` | a | `TestDriverUnreachable` |
 | `TestTaskRunnerRun_NothingToRun` | a | `TestRunnerRestart_MidRun`, `TestArchive` (unarchive) |
 | `TestTaskRunnerRun_Reopen` | a | `TestWake_MidRun`, `TestRunnerRestart_PendingWake` |
@@ -619,16 +631,16 @@ table test of the driver loop's decision rules (`loop.actLocked` and
 | `TestRun`, `TestRun_NothingToDo` | a | `TestStart`, `TestRunnerRestart_MidRun` |
 | `TestRun_ProvisionsFiles`, `_ProvisionsOnce` | a | Every scenario needs the provisioned agent config. `TestSetupCommands` needs it provisioned once, because its progress lives in that file |
 | `TestRun_ProvisionFailure` | a (gap) | No scenario reaches it. The failure leaves the start pending, and the loop logs it and retries; we accept the gap |
-| `TestRun_ResentStream`, `_StaleStart`, `_ResentCommandIgnored` | a | `TestRunnerRestart_MidRun`, `TestStreamDrop_MidRun`, `TestSuspendAfter` |
+| `TestRun_ResentStream`, `_StaleStart`, `_ResentCommandIgnored` | a | `TestRunnerRestart_MidRun`, `TestRunnerRestart_PendingWake`, `TestSuspendAfter` |
 | `TestRun_WholeLog` | a | `TestArchive`: the unarchived task's fresh sandbox gets the whole log |
 | `TestRun_PendingStart` | a | `TestWake_MidRun` |
 | `TestRun_Restart`, `_RestartIdle` | a | `TestRestart_MidRun`, `TestRestart_Completed` |
 | `TestRun_Stop`, `_StopSupersedesPendingStart` | a | `TestCancel_MidRun`, `TestWake_CancelledAtBoundary` |
-| `TestRun_ReattachAfterDrop`, `_PendingAfterDrop` | a | `TestStreamDrop_MidRun`, `TestRunnerRestart_PendingWake` |
+| `TestRun_ReattachAfterDrop`, `_PendingAfterDrop` | a | `TestRunnerRestart_MidRun`, `TestRunnerRestart_PendingWake`: to the driver, a restarted runner's stream is a reopened one |
 | `TestRun_NoSpec`, `TestNew_PendingAfterRestart`, `TestShutdown`, `TestShutdown_Pending` | b → loop table | A driver that restarted with a stored start, or that shuts down mid-run or with a start pending, needs timing no scenario controls. These four become rows of the loop table test |
 | `TestRun_WaitsForFirstBatch`, `_SecondStream` | a | Every scenario's stream; a second stream only arises in the restart race, which the runner retries |
 | `TestRun_KeepAlive` | a (gap) | No scenario stays quiet for longer than the runner's 45s idle timeout; see Open Questions |
-| `TestRun_StoresEvents`, `_EventsSurviveRestart`, `_ReopenedStream` | a | `TestSuspendAfter` (the driver restarts with its file), `TestStreamDrop_MidRun`, `TestDriverDies_MidRun` |
+| `TestRun_StoresEvents`, `_EventsSurviveRestart`, `_ReopenedStream` | a | `TestSuspendAfter` (the driver restarts with its file), `TestRunnerRestart_MidRun`, `TestDriverDies_MidRun` |
 | `TestRun_NotReported` | a | `TestUnreportedRun` |
 | `TestNew_Reconcile` | a | `TestDriverDies_MidRun` |
 | `TestRun_Env`, `TestEnv`, `TestSecrets` | a | `TestEnv` |
@@ -648,13 +660,13 @@ table test of the driver loop's decision rules (`loop.actLocked` and
 | `driverclient` (all) | b | The runner's side of the stream: hidden keep-alives and the idle timeout |
 | `agent`: `TestDriverRun_DrainsEventsToTail`, `TestDrainEvents_RequestsServerSideTypeFilter`, `TestDriverRun_EventTokenNotAdvancedOnError` | c | `drainEvents` goes in slice 11 |
 | `agent`: `TestDriverRun`, `_AgentError`, `_AgentConfiguredError`, `_SetupCommandError`, `_Stop`, `_SetupCommandOutputTeed`, `_ShipsLogToServer`, `_MasksSecretsInShippedLog`, `_MasksTokenInShippedLog`, `TestDriverSetup_Cancel` | a | `TestStart`, `TestAgentError`, `TestSetupCommands`, `TestCancel_MidRun`, `TestCancel_DuringSetup`, `TestSecretsMasked` |
-| `agent`: `TestDriverRun_StartedSubmitError`, `_StoppedSubmitError`, `_FailedSubmitError`, `_GetTaskError` | a | `TestUnreportedRun`, plus a row per RPC hooked to fail (`SubmitRunnerEvents` on `started`/`failed`, `GetTask`) if the outcomes differ |
+| `agent`: `TestDriverRun_StartedSubmitError`, `_StoppedSubmitError`, `_FailedSubmitError`, `_GetTaskError` | a | `TestUnreportedRun`, plus a row per RPC mocked to fail (`SubmitRunnerEvents` on `started`/`failed`, `GetTask`) if the outcomes differ |
 | `agent`: `TestDriverRun_LogsToSink` | a | The raw `/gritz/log` is the driver's internals; `Log()` shows what ships |
 | `agent`: `TestRun_ForksIntoShell` | b | The shell relay, which no scenario drives |
 | `backend/docker`, `backend/lambdamicrovm`, `TestSpecClone` | b | Backend contracts; no scenario uses those backends |
 
 **The fake backend.** After the port, nothing needs `backend/fake`. Fault
-injection moves to `h.Backend.Hook`. The (b) runner tests that still need a
+injection moves to `h.Backend.Mock` and `MockSandbox`. The (b) runner tests that still need a
 backend (the `Load` backstop, the fatal-write tests) use the local backend
 directly. `fake` (≈750 lines) and `fake_test.go` (≈1150) are deleted.
 
@@ -685,7 +697,7 @@ and sorts its known areas:
   stays Docker's own concern.
 - **`driverserver` and fake backend tests**: the driver is a black box, so its
   tests port to scenarios. At most a table test of the loop's decision rules
-  stays. Hooks replace the fake, which goes.
+  stays. Mocks replace the fake, which goes.
 
 The harness lands before slices 9–11. Those slices can then verify themselves
 with scenarios rather than with new fake-backend runner tests that #1890 would
@@ -824,16 +836,13 @@ type Options struct {
 	Interceptors []connect.Interceptor
 	// ... existing fields
 }
-
-// API returns the API handlers the server mounts. // new
-func (s *Server) API() *apiserver.Server
 ```
 
 ```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
-// ServiceOptions configures a Service.
-type ServiceOptions struct { // new
+// ServeOptions configures Serve.
+type ServeOptions struct { // new
 	Client       gritzclient.Client
 	ServerURL    string
 	Token        string // the runner's key, for the notification stream
@@ -848,22 +857,11 @@ type ServiceOptions struct { // new
 	Log          *slog.Logger
 }
 
-// Service is a runner: its state DB, event log, outbox and TaskManager. // new
-type Service struct {
-	TaskManager *TaskManager
-	// ... unexported
-}
-
-// NewService opens the state DB and builds the runner's pieces. // new
-func NewService(opts ServiceOptions) (*Service, error)
-
-// Run registers the workspaces, restores sandboxes, delivers runner events,
-// follows server notifications and drives the tasks until ctx ends. It returns
-// a FatalError when a durable write fails. // new
-func (s *Service) Run(ctx context.Context) error
-
-// Close closes the state DB. // new
-func (s *Service) Close() error
+// Serve runs the runner until ctx ends: it opens the state DB, registers the
+// workspaces, restores sandboxes, delivers runner events, follows server
+// notifications and drives the tasks. It returns a FatalError when a durable
+// write fails. // new
+func Serve(ctx context.Context, opts ServeOptions) error
 ```
 
 ```go
@@ -891,8 +889,8 @@ func New(t *testing.T, opts *Options) *Harness
 
 // Server is the harness's API server.
 type Server struct {
-	// Real is the API the server mounts.
-	Real *apiserver.Server
+	// Client makes real API calls to the server as the harness user.
+	Client gritzclient.Client
 	// URL is the server's base URL.
 	URL string
 	// ... unexported
@@ -901,30 +899,22 @@ type Server struct {
 // CreateTask creates a draft task in the harness's workspace.
 func (s *Server) CreateTask() *Task
 
-// Client returns a client on the harness user's key.
-func (s *Server) Client() gritzclient.Client
-
 // WaitTask waits until cond accepts task id, and returns it.
 func (s *Server) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
 
 // WaitEvent waits until one of task id's events matches, and returns it.
 func (s *Server) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event
 
-// Hook replaces procedure's handler until restore is called. next is the real
-// handler: the hook can call through, change the request or response, fail,
-// or answer on its own.
-func (s *Server) Hook(procedure string, fn HookFunc) (restore func())
-
-// HookFunc replaces a unary handler; next is the real one.
-type HookFunc func(ctx context.Context, req connect.AnyRequest, next connect.UnaryFunc) (connect.AnyResponse, error)
+// Mock routes calls to m's non-nil <Method>Func fields until restore is called;
+// every method left nil goes to the real server.
+func (s *Server) Mock(m *gritzclient.ClientMock) (restore func())
 
 // Backend is the harness's local backend, and the backend.Backend the runner
 // is given.
-type Backend struct {
-	// Real is the local backend behind the hooks.
-	Real *local.Backend
-	// ... unexported
-}
+type Backend struct{ ... }
+
+// Create, Open, ValidateWorkspace and Close implement backend.Backend, through
+// any installed mocks.
 
 // Dir returns the task's sandbox directory.
 func (b *Backend) Dir(taskID int64) string
@@ -935,17 +925,15 @@ func (b *Backend) WaitSandbox(taskID int64, want backend.Status)
 // KillDriver kills the task's driver with SIGKILL, leaving its sandbox.
 func (b *Backend) KillDriver(taskID int64)
 
-// Hook replaces op until restore is called.
-func (b *Backend) Hook(op Op, fn BackendHookFunc) (restore func())
+// Mock replaces m's non-nil methods of the backend until restore is called.
+func (b *Backend) Mock(m *backend.BackendMock) (restore func())
 
-// Op, Call, BackendFunc and BackendHookFunc are as in the Harness section.
+// MockSandbox replaces m's non-nil methods of the task's sandbox until restore
+// is called.
+func (b *Backend) MockSandbox(taskID int64, m *backend.SandboxMock) (restore func())
 
 // Runner is the harness's runner.
-type Runner struct {
-	// Real is the current runner's TaskManager; it changes on Restart.
-	Real *runner.TaskManager
-	// ... unexported
-}
+type Runner struct{ ... }
 
 // Restart stops the runner and starts a new one on the same runner.db and
 // backend.
@@ -1009,18 +997,19 @@ DIR`, where the local backend's binary is the running executable.
 **How it fits:**
 
 - **Setup.** `e2e.New` creates the org and keys in teststore. It serves
-  `server.New(...).Handler()` on httptest, with `h.Server`'s hook interceptor in
+  `server.New(...).Handler()` on httptest, with `h.Server`'s mock interceptor in
   `Options.Interceptors`. It wraps a `local.Backend` on a fresh root in
-  `h.Backend`, and runs a `runner.Service` on that wrapper on a goroutine.
-- **The runner.** `gritz runner` calls `NewService` and `Run` after parsing its
-  flags. The runner's `TaskRunner`s create and boot local sandboxes through
-  `h.Backend`'s hooks. `Boot` starts `gritz driver --root DIR` from `prebuilt/`.
+  `h.Backend`, and runs `runner.Serve` with that wrapper on a goroutine.
+- **The runner.** `gritz runner` calls `Serve` after parsing its flags. The
+  runner's `TaskRunner`s create and boot local sandboxes through `h.Backend` and
+  its mocks. `Boot` starts `gritz driver --root DIR` from `prebuilt/`.
 - **Inside the sandbox.** The driver resolves every path under `--root`, sets
   `GRITZ_RUN_VERSION`, and runs the dummy agent. The dummy `e2escript.Parse`s its
   prompt and runs the steps. `Tool` steps start the injected MCP server from
   `BinaryPather.BinaryPath()`.
-- **Every call to the server** comes from the harness, the runner, the driver or
-  the MCP server, and passes `h.Server`'s hook table.
+- **Every call to the server** comes from the harness's `Client`, the runner,
+  the driver or the MCP server. Each passes the mock interceptor, which sends it
+  to the installed `ClientMock` or to the real handler.
 - **The test** drives tasks through `Task`, which calls the user-facing RPCs and
   reads the sandbox directory through `h.Backend`.
 
@@ -1055,31 +1044,32 @@ Slices that must wait are marked.
    (`Encode`/`Parse` round trip, several blocks in order, other fences ignored,
    malformed lines rejected); a dummy test per step against a stdio MCP server,
    and the fallback.
-5. **`runner.Service`.** Delivers: the runner's wiring moved out of
-   `command/runner.go` into `NewService`/`Run`, with `LostTimeout` and
+5. **`runner.Serve`.** Delivers: the runner's wiring moved out of
+   `command/runner.go` into `runner.Serve`, with `LostTimeout` and
    `ReadyTimeout` in its options. Depends on: nothing. Verifiable by: `gritz
    runner` behaving as before against a dev server; this slice adds no tests.
-   Slice 9 changes what `Run` calls (`Load`, `TaskManager.Run`), so whichever
+   Slice 9 changes what `Serve` calls (`Load`, `TaskManager.Run`), so whichever
    lands second rebases.
-6. **Server seams.** Delivers: `server.Options.Interceptors` and
-   `server.Server.API`. Depends on: nothing. Verifiable by: an interceptor test
+6. **Server interceptors.** Delivers: `server.Options.Interceptors`. Depends on:
+   nothing. Verifiable by: an interceptor test
    seeing the authenticated caller.
 7. **Harness and `TestStart`.** Delivers: `internal/e2e` with the `Server`,
-   `Backend`, `Runner` and `Task` handles, their waits, and `TestStart`; no hooks
+   `Backend`, `Runner` and `Task` handles, their waits, and `TestStart`; no mocks
    yet. Depends on: (1)–(6). Verifiable by: `TestStart` passes under `mise run
    test`, also with `-count=5 -race`; a deliberately broken assertion reports the
    last state seen.
-8. **Hooks and fault scenarios.** Delivers: `Server.Hook`, `Backend.Hook`,
-   `KillDriver`, and `TestUnreportedRun`, `TestSandboxFails`,
-   `TestDriverUnreachable`, `TestDriverDies_MidRun`, `TestStreamDrop_MidRun`.
-   Depends on: (7). Verifiable by: the scenarios pass; a hook test that a
-   restored or cleaned-up hook lets calls through again.
+8. **Mocks and fault scenarios.** Delivers: `Server.Mock`, `Backend.Mock`,
+   `Backend.MockSandbox`, `KillDriver`, and `TestUnreportedRun`,
+   `TestSandboxFails`, `TestDriverUnreachable`, `TestDriverDies_MidRun`.
+   Depends on: (7). Verifiable by: the scenarios pass; a test that a mocked
+   method records its calls and that a restored one reaches the real
+   implementation again.
 9. **The other scenarios.** Delivers: every scenario above except
    `TestSuspendAfter*`, in PRs of two or three. All of them describe behaviour
    the runner already has after slice 8: archive through `Prune`, reattach
    through `Load`, the lost driver through `TaskLostEvent`. A scenario that fails
    has found a bug, and lands with its fix or is skipped with an issue link.
-   Depends on: (7), and (8) for those with hooks. Verifiable by: the scenarios
+   Depends on: (7), and (8) for those with mocks. Verifiable by: the scenarios
    pass.
 10. **Delete constructor-panic tests.** Delivers: `TestNewTaskRunner` removed.
     Depends on: nothing.
@@ -1117,17 +1107,24 @@ Slices that must wait are marked.
   shares the test's `HOME` and working directory, and it never runs the
   `gritz driver` command or the socket transport. `TestRunnerRestart_MidRun` and
   `TestDriverDies_MidRun` need a real process.
-- **A `Driver` handle with hooks or `Real`.** It would reach the driver's
+- **A `Driver` handle, or mocks of the driver.** These would reach the driver's
   internals, which runner-event-replica keeps moving, and the driver has no
   public API to wrap. Everything a driver can see go wrong reaches it from
-  outside, through the server's RPCs and the sandbox, so hooks there inject
+  outside, through the server's RPCs and the sandbox, so mocks there can inject
   every fault without opening it up.
-- **Fakes for fault injection** (`backend/fake`, `ClientMock`). A fake restates
-  the real component, and drifts from it. A hook calls through to the real
-  implementation by default and changes only the call a test cares about.
-- **Typed hooks.** Methods can't have type parameters, and a generic function
-  per hook (`e2e.Hook[Req, Res](h.Server, ...)`) splits the API in two. Hooks
-  are rare, and one type assertion in each is cheap.
+- **Hand-written fakes for fault injection** (`backend/fake`, `testrunner.Server`).
+  A fake restates the real component, and drifts from it. A moq mock replaces
+  only the methods a test sets, for only as long as it is installed. It is
+  generated, so it can't drift, and it records its calls.
+- **Untyped hooks with call-through** (a `next` handler, `connect.AnyRequest`).
+  Hooks would need a type assertion each and a second, untyped API next to the
+  mocks the repo already generates. Mocks are typed with no generics. Their only
+  loss is call-through, which "restore once the failure is seen" covers for
+  every scenario but a stream cut mid-flight.
+- **Exposing the real instances** (`Real` on each handle). Tests that hold the
+  apiserver or the backend directly bypass the mocks, and drift towards
+  asserting on internals. `h.Server.Client` and `h.Backend` itself give the same
+  reach through the same path every other caller takes.
 - **`testrunner.Server` and `ClientMock` instead of the apiserver.** They miss
   command events, the xid watermark, the run boundary and the server's version
   guards: everything #1868 was about. They also make every test restate the
@@ -1142,7 +1139,7 @@ Slices that must wait are marked.
 - **Asserting on runner internals** (`runner.db`, fake-backend counters). That is
   more precise, but those are exactly the assertions that churn with every
   runner-event-replica slice. Observable state is what has to survive them.
-- **A harness-local copy of the runner wiring** instead of `runner.Service`. It
+- **A harness-local copy of the runner wiring** instead of `runner.Serve`. It
   is less churn now, but it would drift from `gritz runner`, and the harness
   would stop testing the real assembly order (`HandleEvents` before `Load`,
   `Load` before `Run`).
@@ -1156,6 +1153,20 @@ Slices that must wait are marked.
   of departing from the decided "use the prebuilt". Alternatively, the harness
   could compare the prebuilt's embedded VCS revision with the test binary's and
   fail on a mismatch.
+- **Call-through.** A mocked method replaces the real one. Some cases need to
+  wrap the real one instead: a `Dial` that cuts the real `Run` stream mid-flight,
+  so the runner reconnects to a driver that is still alive
+  (`TestTaskRunnerRun_Reattach`), or a submit that fails only for `stopped`.
+  Would a later `Mock` option make the real implementation reachable from the
+  mock, for example a `Real` passed to the `Func`?
+- **Streaming RPCs.** `GritzService` has none, so `Mock` covers every RPC today.
+  With connect's `simple` option, a streaming method's client signature (it
+  returns a `*connect.ServerStreamForClient`) differs from its handler's (it
+  takes a `*connect.ServerStream`), so `ClientMock` can't stand in for one. When
+  the first streaming RPC arrives, either generate a moq mock of
+  `gritzv1connect.GritzServiceHandler` for `Mock` to take instead (its fields
+  then carry the handler's streaming signatures, which `WrapStreamingHandler`
+  can route to), or leave streaming RPCs unmockable until a scenario needs one.
 - **Gaps from porting `driverserver`.** Keep-alives matter only for streams
   quiet for longer than the runner's 45s idle timeout, and no scenario is that
   slow. Provisioning failures are unreachable from outside. Accept both, or add
