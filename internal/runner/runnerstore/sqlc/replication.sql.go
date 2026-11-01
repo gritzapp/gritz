@@ -9,23 +9,23 @@ import (
 	"context"
 )
 
-const getCursor = `-- name: GetCursor :one
+const getEventCursor = `-- name: GetEventCursor :one
 SELECT cursor FROM replication WHERE id = 1
 `
 
-func (q *Queries) GetCursor(ctx context.Context) (string, error) {
-	row := q.db.QueryRowContext(ctx, getCursor)
+func (q *Queries) GetEventCursor(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEventCursor)
 	var cursor string
 	err := row.Scan(&cursor)
 	return cursor, err
 }
 
-const setCursor = `-- name: SetCursor :exec
+const setEventCursor = `-- name: SetEventCursor :exec
 INSERT INTO replication (id, cursor) VALUES (1, ?)
 ON CONFLICT (id) DO UPDATE SET cursor = excluded.cursor
 `
 
-func (q *Queries) SetCursor(ctx context.Context, cursor string) error {
-	_, err := q.db.ExecContext(ctx, setCursor, cursor)
+func (q *Queries) SetEventCursor(ctx context.Context, cursor string) error {
+	_, err := q.db.ExecContext(ctx, setEventCursor, cursor)
 	return err
 }
