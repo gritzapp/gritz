@@ -8,7 +8,6 @@ type Event struct {
 	Seq    int64
 	ID     int64
 	TaskID int64
-	Type   string
 	Event  []byte
 }
 
