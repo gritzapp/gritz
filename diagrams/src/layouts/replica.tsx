@@ -8,8 +8,11 @@ import {Scaffold, linker, scaffold} from './common';
 // server's Postgres events log and snapshot, the runner host split into the
 // taskevents Log (with its SQLite replica) and the TaskManager / TaskRunner
 // side (folded state), and the sandbox's driver with /gritz/events.jsonl and
-// its run record. The driver's direct link to the server (SubmitRunnerEvents)
-// runs above the panels.
+// its run record. The replica's rows are keyed by local seq and event id,
+// under a cursor row holding the server's opaque next_cursor (drawn as
+// «xid, id» so viewers can follow it; the runner never decodes it). The
+// driver's direct link to the server (SubmitRunnerEvents) runs above the
+// panels.
 export interface ReplicaLayout extends Scaffold {
   server: Panel;
   api: Service;
@@ -111,8 +114,8 @@ export function replicaLayout(view: View2D, title: string): ReplicaLayout {
         />
         <StateTable
           ref={replica}
-          title={'runnerstore events (xid, id)'}
-          placeholder={'(empty) cursor (0, 0)'}
+          title={'runnerstore events (seq · id)'}
+          placeholder={'(empty) cursor empty'}
           accent={Colors.runner}
           width={460}
           x={-260}

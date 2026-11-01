@@ -52,14 +52,16 @@ driver replicas of it:
 ```
 server (Postgres events)  ──ListRunnerEvents──▶  runner (SQLite events)  ──Run stream──▶  driver (/gritz/events.jsonl)
        log of record            runner's cursor:           replica of its tasks       driver's position:        replica of one task
-                                newest local row                                      last event id it stored
+                                opaque token from server                              last event id it stored
 ```
 
 - The **server** writes every change to a task, including every command, as an
   event, and serves events below a commit-safe watermark.
-- The **runner** copies the events of its tasks into its SQLite database. Its
-  cursor is the newest row it has stored, so the server keeps no state about
-  runners. A new package, `taskevents`, owns the copying and gives each
+- The **runner** copies the events of its tasks into its SQLite database, in
+  the order the server returns them. Its cursor is an opaque token the server
+  hands back with each page, stored with that page, so the server keeps no
+  state about runners and the runner never sees how the log is ordered. A new
+  package, `taskevents`, owns the copying and gives each
   `TaskRunner` a per-task stream with no missing history, in order. The
   `TaskRunner` acts only on sandbox lifecycle.
 - The **driver** receives its task's events over the `Run` stream, stores them
@@ -122,6 +124,24 @@ finished. With the example above, the poll at t4 returns nothing, because row
 - **Writers have no rules.** Every insert gets its xid from the column default;
   nothing takes a lock in a particular order.
 
+### Server: an opaque cursor
+
+The `(xid, id)` pair stays on the server. `ListRunnerEvents` takes a cursor
+and returns one with each page:
+
+- The request's `cursor` is empty for the start of the log, and otherwise the
+  `next_cursor` of the previous page.
+- The response's `next_cursor` encodes the `(xid, id)` of the page's last row.
+  An empty page returns the request's cursor unchanged.
+- The encoding is the server's (a small protobuf message, `EventCursor`), and
+  the server may change it. The runner stores and returns the bytes without
+  decoding them.
+
+`Event` carries no xid on the wire, and neither the runner nor the driver
+orders anything by it. A cursor names a position in the runner's own tasks'
+log, and the read is scoped by the runner's identity, so a forged cursor can
+only skip or repeat that runner's events.
+
 ### Server: command events
 
 The runner can only replicate what is in the log. Today a command is set in
@@ -167,13 +187,13 @@ task's stream and never sees the cursor or duplicates.
 
 `taskevents` guarantees:
 
-- **A stream has the task's whole history.** `Log` replicates from `(0, 0)`, so
-  by the time a task's first event is stored, nothing earlier is missing. The
-  stream keeps growing for as long as the task exists.
+- **A stream has the task's whole history.** `Log` replicates from an empty
+  cursor, so by the time a task's first event is stored, nothing earlier is
+  missing. The stream keeps growing for as long as the task exists.
 - **Positions are event ids.** A reader keeps its own position as an
   `events.id` and passes it to `Read`. How an id maps to a place in the log
-  stays inside `taskevents`, so readers never see an xid. The driver's
-  `Hello.last_event_id` goes straight into `Read`.
+  stays inside `taskevents`. Ids are stable across a rebuilt runner database,
+  so the driver's `Hello.last_event_id` goes straight into `Read`.
 - **`Read` is stateless.** Several readers can follow one stream from different
   positions. The `TaskRunner` folds from its own position, and the driver
   stream forwards from the driver's.
@@ -196,13 +216,12 @@ task's stream and never sees the cursor or duplicates.
 An archived task's events are still replicated and stored, so unarchiving
 needs no fetch and the cursor stays simple.
 
-**Bootstrap** is the same loop from an empty database: the cursor starts at
-`(0, 0)` and the runner replicates the whole history of its tasks, archived
+**Bootstrap** is the same loop from an empty database: the cursor starts
+empty and the runner replicates the whole history of its tasks, archived
 ones included. There is no snapshot and no separate fill-in path.
 
-**No compaction.** Replicated events are never deleted. The newest row is
-always the cursor, and the row any reader last saw is always there for `Read`
-to resume from.
+**No compaction.** Replicated events are never deleted. The row any reader
+last saw is always there for `Read` to resume from.
 
 **No task reassignment.** `tasks.runner` is set when the task is created and
 never changes. `ListRunnerEvents` joins on it, so a task's whole history goes
@@ -210,45 +229,56 @@ to one runner.
 
 #### Inside `taskevents`
 
-`runnerstore` gains an `events` table: one row per replicated event, keyed by
-`id`, with `xid`, `task_id`, `type` and the payload as stored on the server.
+`runnerstore` gains an `events` table: one row per replicated event, in the
+order it arrived, with the event's `id`, `task_id`, `type` and the payload as
+stored on the server. `seq` is the local position: arrival order is the
+server's log order, so `seq` increases along the log with no gaps. A
+single-row `replication` table holds the cursor.
 
 ```sql
 CREATE TABLE events (
-    id      INTEGER PRIMARY KEY,
-    xid     INTEGER NOT NULL,     -- xid8 as signed 64-bit; real values are far below 2^63
+    seq     INTEGER PRIMARY KEY,  -- local arrival order
+    id      INTEGER NOT NULL UNIQUE,
     task_id INTEGER NOT NULL,
     type    TEXT    NOT NULL,
     event   BLOB    NOT NULL      -- gritz.v1.Event, protobuf-encoded
 );
-CREATE INDEX events_xid_id ON events (xid, id);
-CREATE INDEX events_task_xid_id ON events (task_id, xid, id);
+CREATE INDEX events_task_seq ON events (task_id, seq);
+
+CREATE TABLE replication (
+    id     INTEGER PRIMARY KEY CHECK (id = 1),
+    cursor BLOB NOT NULL          -- opaque; ListRunnerEventsResponse.next_cursor
+);
 ```
 
 **Replication.** `Log.Run` is a loop that replaces `Poll`:
 
-1. Read the cursor: `SELECT xid, id FROM events ORDER BY xid DESC, id DESC LIMIT 1`
-   (`(0, 0)` when empty).
-2. Call `ListRunnerEvents(after: cursor)`.
-3. Insert the page in one transaction.
+1. Read the cursor from `replication` (empty when there is no row).
+2. Call `ListRunnerEvents(cursor)`.
+3. In one transaction, insert the page's events and set `cursor` to the
+   response's `next_cursor`.
 4. Repeat until a page comes back empty, then wait for a wake. The runner SSE
    notification (`proposals/implemented/runner-sse-events.md`) still triggers
    a sync sooner.
 
-Every fetched event is stored, including ones the runner has no use for, so
-the newest row is exactly where the last fetch ended.
+The events and the cursor commit together, so the cursor never runs ahead of
+the stored events and no stored event sits behind a stale cursor. A crash
+before the commit loses both, and the next fetch repeats the page. Every
+fetched event is stored, including ones the runner has no use for.
 
 After storing a page, `Log` wakes the blocked `Read`s of the tasks in it,
 reports task ids it hasn't seen before as active, and reports archive and
 unarchive events on `Tasks()`.
 
-`Stream.Read(after)` resolves `after` to a place in the task's log with:
+`Stream.Read(after)` resolves `after` to a `seq`: `0` for event id `0`,
+otherwise `SELECT seq FROM events WHERE id = ?`. The id is always stored,
+since every position a reader holds came from this table and nothing is
+deleted. It then reads:
 
 ```sql
 SELECT event FROM events
-WHERE task_id = ?
-  AND (xid, id) > (SELECT xid, id FROM events WHERE id = ?)
-ORDER BY xid, id;
+WHERE task_id = ? AND seq > ?
+ORDER BY seq;
 ```
 
 Position `0` returns the task's whole log.
@@ -362,26 +392,35 @@ streams.
 ```proto
 service GritzService {
   // ListRunnerEvents returns the events of the runner's tasks after the
-  // cursor, ordered by (xid, id), from transactions that can no longer
-  // commit behind it. Replaces ListRunnerTasks.
+  // cursor, in log order, from transactions that can no longer commit behind
+  // it. Replaces ListRunnerTasks.
   rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
 }
 
 message ListRunnerEventsRequest {
   string runner = 1;
-  uint64 after_xid = 2;
-  int64 after_id = 3;
-  int32 page_size = 4;
+  // Opaque; empty for the start of the log, otherwise a previous
+  // response's next_cursor.
+  bytes cursor = 2;
+  int32 page_size = 3;
 }
 
 message ListRunnerEventsResponse {
   repeated Event events = 1;
+  // Position after the last event in this page; the request's cursor when
+  // the page is empty. Pass it back unchanged.
+  bytes next_cursor = 2;
+}
+
+// EventCursor is the server's encoding of a position in the (xid, id)
+// order, carried in ListRunnerEvents cursors. Clients don't decode it.
+message EventCursor {
+  uint64 xid = 1;
+  int64 id = 2;
 }
 
 message Event {
   // ... existing fields
-  // Transaction that wrote the event (xid8). Set on ListRunnerEvents only.
-  uint64 xid = 11;
   oneof payload {
     // ... existing arms
     CommandPayload command = 10;
@@ -408,7 +447,7 @@ service DriverService {
 
 message RunRequest {
   oneof msg {
-    // The task's events, in (xid, id) order.
+    // The task's events, in log order.
     TaskEvents events = 3;
     // First message on every stream.
     RunSpec spec = 5;
@@ -459,13 +498,6 @@ type CommandPayload struct {
 	Version int64
 	Runner  string
 }
-
-// Event gains the writing transaction's id. // changed
-type Event struct {
-	// ... existing fields
-	// XID is the xid8 of the transaction that wrote the event. // new
-	XID uint64
-}
 ```
 
 ```go
@@ -478,8 +510,10 @@ type EventCursor struct {
 }
 
 // ListRunnerEvents returns up to limit events of the runner's tasks after
-// cursor, below the xid watermark. // new
-func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, orgID int64, runner string, after EventCursor, limit int) ([]*model.Event, error)
+// cursor, below the xid watermark, and the cursor of the last one (after,
+// when none are returned). The server encodes it as an opaque
+// gritz.v1.EventCursor. // new
+func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, orgID int64, runner string, after EventCursor, limit int) ([]*model.Event, EventCursor, error)
 
 // UpdateTask also writes a command event when the command changed. // changed
 func (s *Store) UpdateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error
@@ -488,15 +522,16 @@ func (s *Store) UpdateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 ```go
 package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore
 
-// AppendEvents stores a page of replicated events in one transaction. // new
-func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event) error
+// AppendEvents stores a page of replicated events and the cursor that
+// follows it in one transaction. // new
+func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor []byte) error
 
-// LastEvent returns the replication cursor: the newest stored event's
-// position, or the zero cursor when none is stored. // new
-func (s *Store) LastEvent(ctx context.Context) (store.EventCursor, error)
+// Cursor returns the stored replication cursor, or nil when none is
+// stored. // new
+func (s *Store) Cursor(ctx context.Context) ([]byte, error)
 
 // TaskEventsAfter returns the task's events after the event with id afterID,
-// in (xid, id) order; afterID 0 returns all of them. // new
+// in log order; afterID 0 returns all of them. // new
 func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*gritzv1.Event, error)
 
 // TaskIDs returns the ids of every task with stored events. // new
@@ -606,23 +641,24 @@ sends `RunEnded` up the stream when a run is over.
 
 ## Implementation Plan
 
-1. **`events.xid`** — Delivers: the migration, `model.Event.XID`, and reading
-   it in the store. Depends on: nothing. Verifiable by: migration up and down;
-   store test that rows carry the inserting transaction's xid.
+1. **`events.xid`** — Delivers: the migration, and reading it in the store.
+   Depends on: nothing. Verifiable by: migration up and down; store test that rows carry the inserting transaction's xid.
 2. **Command events** — Delivers: `EventTypeCommand`, `CommandPayload`, the
    proto arm, and `UpdateTask`/`CreateTask` writing one whenever the command
    changes; history views filter them out. Depends on: nothing. Verifiable by:
    store tests for each command path (start, restart, cancel of `PENDING`,
    wake, server-issued stop, clear).
-3. **`ListRunnerEvents`** — Delivers: the query and RPC, with the watermark.
-   Depends on: (1). Verifiable by: a store test with two concurrent
-   transactions that commit out of id order; neither row is returned until
-   both have committed, and then both are, in xid order.
-4. **`taskevents`** — Delivers: the `runnerstore` `events` table, `Log`
-   replicating into it, `Tasks()` and `Stream.Read`. Nothing reads the streams
-   yet; `Poll` still drives behaviour. Depends on: (3), #1827. Verifiable by:
-   `taskevents` tests against a fake server: the local table matches the
-   server's events, a restart resumes from the newest row, `Tasks()` reports a
+3. **`ListRunnerEvents`** — Delivers: the query and RPC, with the watermark
+   and the opaque cursor. Depends on: (1). Verifiable by: a store test with
+   two concurrent transactions that commit out of id order; neither row is
+   returned until both have committed, and then both are, in xid order; an
+   empty page returns the request's cursor.
+4. **`taskevents`** — Delivers: the `runnerstore` `events` and `replication`
+   tables, `Log` replicating into them, `Tasks()` and `Stream.Read`. Nothing
+   reads the streams yet; `Poll` still drives behaviour. Depends on: (3),
+   #1827. Verifiable by: `taskevents` tests against a fake server: the local
+   table matches the server's events, a restart resumes from the stored
+   cursor, `Tasks()` reports a
    new task once, reports archive and unarchive, skips archived tasks at
    boot, and `Read` blocks until an event after the position is stored.
 5. **Docker h2c** — Delivers: unencrypted HTTP/2 on the Docker driver client.
@@ -662,6 +698,17 @@ sends `RunEnded` up the stream when a run is over.
   from a rollback and a gap from a slow transaction look the same, so it needs
   either a timeout, which can skip a slow commit, or inspection of running
   sessions. The xid watermark gets that answer from Postgres directly.
+- **The runner follows `(xid, id)` itself.** `ListRunnerEvents` takes and
+  returns the pair, and the runner stores each event's xid and finds its
+  cursor in the newest row. Rejected: it spreads the server's ordering into
+  the proto, `model.Event` and the runner's schema, and every local read has
+  to compare pairs. With an opaque cursor the runner sees a plain sequence.
+- **A server-assigned, commit-ordered `seq`.** A sequencer numbers rows below
+  the watermark under a transaction-level advisory lock, so every consumer
+  could follow `seq > N`. Rejected for now: `ListRunnerEvents` becomes a write
+  (or a sequencer loop has to run), all runners contend on one lock, and every
+  event row is updated once. The opaque cursor allows it later without a
+  runner change.
 - **The server tracks each runner's position** (acked command queue).
   Rejected: the runner owns its position; the server read stays stateless.
 - **The driver reads from the server itself.** The driver already has a task

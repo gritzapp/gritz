@@ -23,10 +23,11 @@ export default makeScene2D(function* (view) {
   a.pgEvents.putRow('(903, 12)', '42 cmd none v1');
   a.snapshot.putRow('running', '—');
   a.snapshot.putRow('xmin', '904');
-  a.replica.putRow('(900, 9)', '42 created');
-  a.replica.putRow('(901, 10)', '42 cmd start v1');
-  a.replica.putRow('(902, 11)', '43 created');
-  a.replica.putRow('(903, 12)', '42 cmd none v1');
+  a.replica.putRow('cursor', '«903, 12»');
+  a.replica.putRow('1 · 9', '42 created');
+  a.replica.putRow('2 · 10', '42 cmd start v1');
+  a.replica.putRow('3 · 11', '43 created');
+  a.replica.putRow('4 · 12', '42 cmd none v1');
   a.log.activity('idle');
   a.manager.activity('TaskRunners 42, 43');
   a.taskRunner.activity('Read(12) · blocked');
@@ -61,8 +62,9 @@ export default makeScene2D(function* (view) {
     'Log replicates it and TaskRunner forwards it on the open stream. A running run is the driver’s to stop.',
   );
   yield* links.api.send('SSE · wake', {back: true, color: Colors.server});
-  yield* links.api.rpc('after (903, 12)', '[13]', {color: Colors.runner});
-  yield* a.replica.addRow('(904, 13)', '42 cmd stop v1');
+  yield* links.api.rpc('cursor «903, 12»', '[13] · next «904, 13»', {color: Colors.runner});
+  yield* a.replica.addRow('5 · 13', '42 cmd stop v1');
+  yield* a.replica.setRow('cursor', '«904, 13»');
   yield* links.read.send('[13]', {color: Colors.runner});
   yield* all(a.fold.setRow('pos', '13'), a.fold.setRow('command', 'stop v1'));
   yield* links.driver.send('TaskEvents [13]', {color: Colors.runner});
@@ -113,8 +115,9 @@ export default makeScene2D(function* (view) {
     'Log replicates the clear and TaskRunner folds it. The sandbox is parked, so nothing is forwarded.',
   );
   yield* links.api.send('SSE · wake', {back: true, color: Colors.server});
-  yield* links.api.rpc('after (904, 13)', '[14]', {color: Colors.runner});
-  yield* a.replica.addRow('(905, 14)', '42 cmd none v1');
+  yield* links.api.rpc('cursor «904, 13»', '[14] · next «905, 14»', {color: Colors.runner});
+  yield* a.replica.addRow('6 · 14', '42 cmd none v1');
+  yield* a.replica.setRow('cursor', '«905, 14»');
   yield* links.read.send('[14]', {color: Colors.runner});
   yield* all(a.fold.setRow('pos', '14'), a.fold.setRow('command', 'none v1'));
   yield* a.taskRunner.updateActivity('Read(14) · blocked');
@@ -138,9 +141,10 @@ export default makeScene2D(function* (view) {
     'Log replicates both. TaskRunner folds start v2, which has not ended, takes a slot and boots c1 again.',
   );
   yield* links.api.send('SSE · wake', {back: true, color: Colors.server});
-  yield* links.api.rpc('after (905, 14)', '[15, 16]', {color: Colors.runner});
-  yield* a.replica.addRow('(906, 15)', '42 instruction');
-  yield* a.replica.addRow('(906, 16)', '42 cmd start v2');
+  yield* links.api.rpc('cursor «905, 14»', '[15, 16] · next «906, 16»', {color: Colors.runner});
+  yield* a.replica.addRow('7 · 15', '42 instruction');
+  yield* a.replica.addRow('8 · 16', '42 cmd start v2');
+  yield* a.replica.setRow('cursor', '«906, 16»');
   yield* links.read.send('[15, 16]', {color: Colors.runner});
   yield* all(a.fold.setRow('pos', '16'), a.fold.setRow('command', 'start v2'));
   yield* links.slots.send('acquire', {back: true, color: Colors.runner});

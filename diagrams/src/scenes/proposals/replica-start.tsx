@@ -23,9 +23,10 @@ export default makeScene2D(function* (view) {
   a.pgEvents.putRow('(902, 11)', '43 created');
   a.snapshot.putRow('running', '—');
   a.snapshot.putRow('xmin', '903');
-  a.replica.putRow('(900, 9)', '42 created');
-  a.replica.putRow('(901, 10)', '42 cmd start v1');
-  a.replica.putRow('(902, 11)', '43 created');
+  a.replica.putRow('cursor', '«902, 11»');
+  a.replica.putRow('1 · 9', '42 created');
+  a.replica.putRow('2 · 10', '42 cmd start v1');
+  a.replica.putRow('3 · 11', '43 created');
   a.log.activity('idle');
   a.manager.activity('TaskRunners 42, 43');
   a.taskRunner.activity('Read(9) → [10]');
@@ -125,8 +126,9 @@ export default makeScene2D(function* (view) {
     'The clear replicates down both hops. The run is not over, so the sandbox stays up until RunEnded.',
   );
   yield* links.api.send('SSE · wake', {back: true, color: Colors.server});
-  yield* links.api.rpc('after (902, 11)', '[12]', {color: Colors.runner});
-  yield* a.replica.addRow('(903, 12)', '42 cmd none v1');
+  yield* links.api.rpc('cursor «902, 11»', '[12] · next «903, 12»', {color: Colors.runner});
+  yield* a.replica.addRow('4 · 12', '42 cmd none v1');
+  yield* a.replica.setRow('cursor', '«903, 12»');
   yield* links.read.send('[12]', {color: Colors.runner});
   yield* all(a.fold.setRow('pos', '12'), a.fold.setRow('command', 'none v1'));
   yield* links.driver.send('TaskEvents [12]', {color: Colors.runner});

@@ -4,8 +4,8 @@ import {replicaLayout} from '../../layouts/replica';
 import {Colors} from '../../theme';
 
 // The commit-safe read, traced from proposals/draft/runner-event-replica.md
-// (Problem; Server: a commit-safe read with an xid watermark; Inside
-// taskevents: Replication): two transactions commit out of id order, the
+// (Problem; Server: a commit-safe read with an xid watermark; Server: an
+// opaque cursor; Inside taskevents: Replication): two transactions commit out of id order, the
 // watermark holds the later id back until the earlier transaction commits,
 // and Log stores the page and wakes the tasks' streams.
 export default makeScene2D(function* (view) {
@@ -18,7 +18,8 @@ export default makeScene2D(function* (view) {
   a.pgEvents.putRow('(900, 9)', '42 created');
   a.snapshot.putRow('running', '—');
   a.snapshot.putRow('xmin', '901');
-  a.replica.putRow('(900, 9)', '42 created');
+  a.replica.putRow('cursor', '«900, 9»');
+  a.replica.putRow('1 · 9', '42 created');
   a.manager.activity('TaskRunner 42');
   a.taskRunner.activity('Read(9) · blocked');
   a.fold.putRow('pos', '9');
@@ -56,10 +57,10 @@ export default makeScene2D(function* (view) {
 
   yield* a.caption.show(
     4,
-    'Log polls after its cursor (900, 9). Row 11’s xid 902 is not below xmin 901, so the page is empty.',
+    'Log passes back its opaque cursor. Row 11’s xid 902 is not below xmin 901, so the page is empty.',
   );
   yield* a.log.updateActivity('ListRunnerEvents');
-  yield* links.api.send('after (900, 9)', {color: Colors.runner});
+  yield* links.api.send('cursor «900, 9»', {color: Colors.runner});
   yield* all(a.snapshot.flash('xmin'), a.pgEvents.flash('(902, 11)'));
   yield* links.api.send('[]', {back: true, color: Colors.server});
   yield* a.log.updateActivity('page empty · wait');
@@ -80,15 +81,16 @@ export default makeScene2D(function* (view) {
   );
   yield* links.api.send('SSE · wake', {back: true, color: Colors.server});
   yield* a.log.updateActivity('ListRunnerEvents');
-  yield* links.api.rpc('after (900, 9)', '[10, 11]', {color: Colors.runner});
+  yield* links.api.rpc('cursor «900, 9»', '[10, 11] · next «902, 11»', {color: Colors.runner});
 
   yield* a.caption.show(
     7,
-    'Log stores the page in one transaction. The newest stored row, (902, 11), is the new cursor.',
+    'Log stores the page at seq 2 and 3 with next_cursor, in one transaction. It never decodes a cursor.',
   );
   yield* a.log.updateActivity('AppendEvents');
-  yield* a.replica.addRow('(901, 10)', '42 cmd start v1');
-  yield* a.replica.addRow('(902, 11)', '43 created');
+  yield* a.replica.addRow('2 · 10', '42 cmd start v1');
+  yield* a.replica.addRow('3 · 11', '43 created');
+  yield* a.replica.setRow('cursor', '«902, 11»');
 
   yield* a.caption.show(
     8,
@@ -104,6 +106,6 @@ export default makeScene2D(function* (view) {
     9,
     'Row 10 reached the runner although it committed after row 11. Nothing can commit behind the cursor.',
   );
-  yield* a.replica.flash('(901, 10)');
+  yield* a.replica.flash('2 · 10');
   yield* waitFor(2);
 });
