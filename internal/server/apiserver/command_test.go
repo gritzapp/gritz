@@ -38,9 +38,10 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
 			&model.CommandPayload{
-				Command: model.TaskCommandStart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 	)
@@ -100,9 +101,10 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
 			&model.CommandPayload{
-				Command: model.TaskCommandStart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 	)
@@ -163,9 +165,10 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
 			&model.CommandPayload{
-				Command: model.TaskCommandRestart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandRestart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 	)
@@ -200,14 +203,16 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
 			&model.CommandPayload{
-				Command: model.TaskCommandStart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 			&model.CommandPayload{
-				Command: model.TaskCommandNone,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandNone,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 	)
@@ -243,14 +248,16 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
 			&model.CommandPayload{
-				Command: model.TaskCommandStart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 			&model.CommandPayload{
-				Command: model.TaskCommandNone,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandNone,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 	)
@@ -289,19 +296,22 @@ func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
 			&model.CommandPayload{
-				Command: model.TaskCommandStart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 			&model.CommandPayload{
-				Command: model.TaskCommandNone,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandNone,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 			&model.CommandPayload{
-				Command: model.TaskCommandStop,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStop,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 	)

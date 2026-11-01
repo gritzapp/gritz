@@ -132,9 +132,10 @@ func (p *LinkPayload) SetPayloadProto(pb *gritzv1.Event) {
 // and the clear when a runner event consumes the command. Command events are
 // not history: views that show history skip them.
 type CommandPayload struct {
-	Command TaskCommand `json:"command"`
-	Version int64       `json:"version"`
-	Runner  string      `json:"runner"`
+	Command   TaskCommand `json:"command"`
+	Version   int64       `json:"version"`
+	Runner    string      `json:"runner"`
+	Workspace string      `json:"workspace"`
 }
 
 func (*CommandPayload) Type() string    { return EventTypeCommand }
@@ -142,9 +143,10 @@ func (*CommandPayload) isEventPayload() {}
 
 func (p *CommandPayload) SetPayloadProto(pb *gritzv1.Event) {
 	pb.Payload = &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
-		Command: gritzv1.TaskCommand(p.Command),
-		Version: p.Version,
-		Runner:  p.Runner,
+		Command:   gritzv1.TaskCommand(p.Command),
+		Version:   p.Version,
+		Runner:    p.Runner,
+		Workspace: p.Workspace,
 	}}
 }
 
@@ -385,9 +387,10 @@ func EventPayloadFromProto(pb *gritzv1.Event) EventPayload {
 		}
 	case *gritzv1.Event_Command:
 		return &CommandPayload{
-			Command: TaskCommand(arm.Command.Command),
-			Version: arm.Command.Version,
-			Runner:  arm.Command.Runner,
+			Command:   TaskCommand(arm.Command.Command),
+			Version:   arm.Command.Version,
+			Runner:    arm.Command.Runner,
+			Workspace: arm.Command.Workspace,
 		}
 	default:
 		return nil

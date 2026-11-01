@@ -606,7 +606,7 @@ func TestRouteWakeEnabledRestartsTask(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r"},
+			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r", Workspace: "w"},
 		},
 	)
 }

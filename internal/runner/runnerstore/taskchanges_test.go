@@ -19,12 +19,12 @@ func TestTaskChanges(t *testing.T) {
 		{
 			name: "tasks in first-event order, last command wins",
 			events: []*gritzv1.Event{
-				{TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+				{TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
 				{TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-				{TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2}}},
+				{TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2, Workspace: "ws-2"}}},
 			},
 			want: []runnerstore.PageTask{
-				{ID: 20, Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2}},
+				{ID: 20, Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2, Workspace: "ws-2"}},
 				{ID: 10, Archived: new(true)},
 			},
 		},

@@ -163,11 +163,18 @@ const EventTypeCommand = "command"
 
 // CommandPayload is the body of a command event: Task.Command changed.
 type CommandPayload struct {
-	Command TaskCommand `json:"command"` // start, restart, stop, none
-	Version int64       `json:"version"`
-	Runner  string      `json:"runner"`
+	Command   TaskCommand `json:"command"` // start, restart, stop, none
+	Version   int64       `json:"version"`
+	Runner    string      `json:"runner"`
+	Workspace string      `json:"workspace"`
 }
 ```
+
+The workspace is there so the runner can boot a sandbox from its replica
+without asking the server. A workspace edit with no command change writes no
+event: the workspace only matters at boot, and every boot is driven by a
+command event that carries the current one. Command events written before the
+field was added carry an empty workspace.
 
 Every site that changes a task's command writes a command event in the same
 transaction, next to the lifecycle event it already writes, the same way
@@ -278,10 +285,11 @@ CREATE TABLE replication (
 );
 
 CREATE TABLE tasks (
-    id       INTEGER PRIMARY KEY,
-    command  INTEGER,             -- gritz.v1.TaskCommand of the last command event
-    version  INTEGER,             -- version of the last command event
-    archived INTEGER              -- result of the last archive event; NULL reads as not archived
+    id        INTEGER PRIMARY KEY,
+    command   INTEGER,            -- gritz.v1.TaskCommand of the last command event
+    version   INTEGER,            -- version of the last command event
+    workspace TEXT,               -- workspace of the last command event
+    archived  INTEGER             -- result of the last archive event; NULL reads as not archived
 );
 ```
 
@@ -480,6 +488,7 @@ message CommandPayload {
   TaskCommand command = 1;
   int64 version = 2;
   string runner = 3;
+  string workspace = 4;
 }
 ```
 
@@ -543,9 +552,10 @@ const EventTypeCommand = "command"
 
 // CommandPayload is the body of a command event: Task.Command changed. // new
 type CommandPayload struct {
-	Command TaskCommand
-	Version int64
-	Runner  string
+	Command   TaskCommand
+	Version   int64
+	Runner    string
+	Workspace string
 }
 ```
 

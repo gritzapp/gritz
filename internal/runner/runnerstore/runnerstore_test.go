@@ -102,9 +102,9 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	_, err = store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
-			{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
-			{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
-			{Id: 3, TaskId: 30, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
+			{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
+			{Id: 3, TaskId: 30, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
 			{Id: 4, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 		},
 		"page-1",
@@ -117,11 +117,11 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	changes, err := store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
 			{Id: 5, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
-			{Id: 6, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2}}},
+			{Id: 6, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2, Workspace: "ws-2"}}},
 			{Id: 7, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 8, TaskId: 40, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 8, TaskId: 40, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
 			{Id: 9, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
-			{Id: 10, TaskId: 50, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 10, TaskId: 50, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
 			{Id: 11, TaskId: 50, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 		},
 		"page-2",
@@ -129,16 +129,16 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - each touched task is reported with its state after the page:
-	// the command-only page leaves 20 archived, and the archive-only page
-	// keeps 30's command. Task 10 isn't touched, and UnarchivedTasks reads
-	// the rows written.
+	// the command-only page leaves 20 archived and takes its new workspace,
+	// and the archive-only page keeps 30's command and workspace. Task 10
+	// isn't touched, and UnarchivedTasks reads the rows written.
 	assert.DeepEqual(t,
 		changes,
 		[]runnerstore.TaskChange{
-			{ID: 20, Command: gritzv1.TaskCommand_STOP, Version: 2, Archived: true},
-			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1},
-			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1},
-			{ID: 50, Command: gritzv1.TaskCommand_START, Version: 1, Archived: true},
+			{ID: 20, Command: gritzv1.TaskCommand_STOP, Version: 2, Workspace: "ws-2", Archived: true},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 50, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", Archived: true},
 		},
 	)
 	tasks, err := store.UnarchivedTasks(t.Context())
@@ -146,9 +146,9 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	assert.DeepEqual(t,
 		tasks,
 		[]runnerstore.TaskChange{
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1},
-			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1},
-			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
 		},
 	)
 }

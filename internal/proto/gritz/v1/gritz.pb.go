@@ -3145,10 +3145,13 @@ func (x *LinkPayload) GetSubscribe() bool {
 // events are not history; timelines skip them (see
 // proposals/draft/runner-event-replica.md).
 type CommandPayload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Command       TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
-	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	Runner        string                 `protobuf:"bytes,3,opt,name=runner,proto3" json:"runner,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Command TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
+	Version int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Runner  string                 `protobuf:"bytes,3,opt,name=runner,proto3" json:"runner,omitempty"`
+	// workspace is the task's workspace, so the runner can boot a sandbox from
+	// its replica. Command events written before it was added carry "".
+	Workspace     string `protobuf:"bytes,4,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3200,6 +3203,13 @@ func (x *CommandPayload) GetVersion() int64 {
 func (x *CommandPayload) GetRunner() string {
 	if x != nil {
 		return x.Runner
+	}
+	return ""
+}
+
+func (x *CommandPayload) GetWorkspace() string {
+	if x != nil {
+		return x.Workspace
 	}
 	return ""
 }
@@ -7927,11 +7937,12 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\trelevance\x18\x02 \x01(\tR\trelevance\x12\x10\n" +
 	"\x03url\x18\x03 \x01(\tR\x03url\x12\x14\n" +
 	"\x05title\x18\x04 \x01(\tR\x05title\x12\x1c\n" +
-	"\tsubscribe\x18\x05 \x01(\bR\tsubscribe\"s\n" +
+	"\tsubscribe\x18\x05 \x01(\bR\tsubscribe\"\x91\x01\n" +
 	"\x0eCommandPayload\x12/\n" +
 	"\acommand\x18\x01 \x01(\x0e2\x15.gritz.v1.TaskCommandR\acommand\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x16\n" +
-	"\x06runner\x18\x03 \x01(\tR\x06runner\"\xd6\x01\n" +
+	"\x06runner\x18\x03 \x01(\tR\x06runner\x12\x1c\n" +
+	"\tworkspace\x18\x04 \x01(\tR\tworkspace\"\xd6\x01\n" +
 	"\x10LifecyclePayload\x12+\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x17.gritz.v1.LifecycleKindR\x04kind\x12%\n" +
 	"\x05actor\x18\x02 \x01(\v2\x0f.gritz.v1.ActorR\x05actor\x12\x1f\n" +
