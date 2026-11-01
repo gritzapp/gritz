@@ -253,7 +253,7 @@ func (b *Backend) newTokenTransport(id string) *tokenTransport {
 }
 
 // tokenTransport adds a proxy token to every request as
-// awsmicrovm.ProxyAuthHeader. It mints the token on first use and caches it
+// awsmicrovm.ProxyAuthHeader, and forces HTTP/2 to the driver. It mints the token on first use and caches it
 // until tokenRefreshMargin before it expires.
 type tokenTransport struct {
 	base http.RoundTripper
@@ -274,6 +274,11 @@ func (t *tokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	req = req.Clone(req.Context())
 	req.Header.Set(awsmicrovm.ProxyAuthHeader, token)
+	// The proxy forwards to the plaintext driver over HTTP/1.1 unless asked
+	// for HTTP/2, and connect-go rejects bidi streams over HTTP/1.1 with 505.
+	// It is set on every request rather than relying on an upstream h2c
+	// connection, once opened, carrying later requests.
+	req.Header.Set(awsmicrovm.ProxyForceH2Header, "true")
 	return t.base.RoundTrip(req)
 }
 
