@@ -82,10 +82,10 @@ func TestTaskChanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			changes := runnerstore.NewTaskChanges(tt.stored)
+			changes := runnerstore.NewTaskChanges(tt.events)
 
-			for _, e := range tt.events {
-				changes.Apply(e)
+			for id, archived := range tt.stored {
+				changes.Stored(id, archived)
 			}
 
 			assert.DeepEqual(t, changes.Rows(), tt.wantRows)

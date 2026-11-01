@@ -2,48 +2,54 @@ package runnerstore
 
 import gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 
-// TaskChanges accumulates a page's effect on the tasks projection.
+// TaskChanges computes a page's effect on the tasks projection.
 type TaskChanges struct {
-	stored map[int64]bool
-	ids    []int64 // in order of each task's first event in the page
-	tasks  map[int64]*taskState
+	events []*gritzv1.Event
+	ids    []int64        // distinct, in order of each task's first event
+	stored map[int64]bool // archive state from before the page, for known tasks
 }
 
-// taskState is one task's archive state over a page.
-type taskState struct {
-	known    bool // the task had a row before the page
-	before   bool // its archived state before the page, when known
-	archived bool // its archived state after the events applied so far
-}
-
-// NewTaskChanges starts from the stored archive state of the page's tasks
-// that are already known.
-func NewTaskChanges(stored map[int64]bool) *TaskChanges {
-	return &TaskChanges{stored: stored, tasks: map[int64]*taskState{}}
-}
-
-// Apply folds one event into its task's state.
-func (c *TaskChanges) Apply(e *gritzv1.Event) {
-	t, ok := c.tasks[e.GetTaskId()]
-	if !ok {
-		before, known := c.stored[e.GetTaskId()]
-		t = &taskState{known: known, before: before, archived: before}
-		c.tasks[e.GetTaskId()] = t
-		c.ids = append(c.ids, e.GetTaskId())
+// NewTaskChanges records a page's events and its distinct task ids in order
+// of each task's first event.
+func NewTaskChanges(events []*gritzv1.Event) *TaskChanges {
+	c := &TaskChanges{events: events, stored: map[int64]bool{}}
+	seen := map[int64]bool{}
+	for _, e := range events {
+		if !seen[e.GetTaskId()] {
+			seen[e.GetTaskId()] = true
+			c.ids = append(c.ids, e.GetTaskId())
+		}
 	}
-	t.archived = foldArchived(t.archived, e)
+	return c
+}
+
+// TaskIDs returns the page's distinct task ids, for loading their stored state.
+func (c *TaskChanges) TaskIDs() []int64 {
+	return c.ids
+}
+
+// Stored records a task's archive state from before the page. Tasks never
+// passed to Stored are new.
+func (c *TaskChanges) Stored(id int64, archived bool) {
+	c.stored[id] = archived
 }
 
 // Rows returns the tasks rows to write: new tasks, and known ones whose
 // archived state changed.
 func (c *TaskChanges) Rows() []TaskChange {
+	archived := map[int64]bool{}
+	for id, a := range c.stored {
+		archived[id] = a
+	}
+	for _, e := range c.events {
+		archived[e.GetTaskId()] = foldArchived(archived[e.GetTaskId()], e)
+	}
 	var rows []TaskChange
 	for _, id := range c.ids {
-		t := c.tasks[id]
-		if t.known && t.before == t.archived {
+		if before, known := c.stored[id]; known && before == archived[id] {
 			continue
 		}
-		rows = append(rows, TaskChange{ID: id, Archived: t.archived})
+		rows = append(rows, TaskChange{ID: id, Archived: archived[id]})
 	}
 	return rows
 }
@@ -53,7 +59,7 @@ func (c *TaskChanges) Rows() []TaskChange {
 func (c *TaskChanges) Changes() []TaskChange {
 	var changes []TaskChange
 	for _, row := range c.Rows() {
-		if !c.tasks[row.ID].known && row.Archived {
+		if _, known := c.stored[row.ID]; !known && row.Archived {
 			continue
 		}
 		changes = append(changes, row)

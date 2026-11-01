@@ -79,23 +79,14 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
-	var ids []int64
-	seen := map[int64]bool{}
-	for _, e := range events {
-		if !seen[e.GetTaskId()] {
-			seen[e.GetTaskId()] = true
-			ids = append(ids, e.GetTaskId())
-		}
-	}
-	rows, err := q.ListTaskArchived(ctx, ids)
+	changes := NewTaskChanges(events)
+	stored, err := q.ListTaskArchived(ctx, changes.TaskIDs())
 	if err != nil {
 		return nil, fmt.Errorf("runnerstore: read tasks: %w", err)
 	}
-	stored := map[int64]bool{}
-	for _, row := range rows {
-		stored[row.ID] = row.Archived
+	for _, row := range stored {
+		changes.Stored(row.ID, row.Archived)
 	}
-	changes := NewTaskChanges(stored)
 	for _, e := range events {
 		data, err := proto.Marshal(e)
 		if err != nil {
@@ -108,7 +99,6 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		}); err != nil {
 			return nil, fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
 		}
-		changes.Apply(e)
 	}
 	for _, row := range changes.Rows() {
 		if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
