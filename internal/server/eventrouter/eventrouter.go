@@ -355,7 +355,7 @@ func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, org
 		if err := r.Store.UpdateTask(ctx, tx, task); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command); ok {
+		if ev, ok := task.CommandEvent(from.Command, from.Version); ok {
 			if err := r.Store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -453,7 +453,7 @@ func (r *Router) create(ctx context.Context, input InputEvent, orgID int64, rule
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(model.TaskCommandNone); ok {
+		if ev, ok := task.CommandEvent(model.TaskCommandNone, 0); ok {
 			if err := r.Store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}

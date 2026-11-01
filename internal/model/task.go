@@ -349,13 +349,16 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 	}
 }
 
-// CommandEvent returns the command event for a change from `from` to
-// t.Command, and false when the command didn't change. Every site that changes
-// a task's command captures `from` before the mutation and writes the event in
+// CommandEvent returns the command event for a change from command `from` at
+// version fromVersion to t.Command at t.Version, and false when neither
+// changed. A version change alone writes one too: a start pending on a running
+// task moves to the next run's version when the run exits, and the runner has
+// to start that version, not the one that exited. Every site that changes a
+// task's command captures `from` before the mutation and writes the event in
 // the same transaction, beside its lifecycle event. A task created with a
-// command changes it from TaskCommandNone.
-func (t *Task) CommandEvent(from TaskCommand) (*Event, bool) {
-	if t.Command == from {
+// command changes it from TaskCommandNone at version 0.
+func (t *Task) CommandEvent(from TaskCommand, fromVersion int64) (*Event, bool) {
+	if t.Command == from && t.Version == fromVersion {
 		return nil, false
 	}
 	return &Event{
