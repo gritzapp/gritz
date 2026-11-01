@@ -1,5 +1,5 @@
--- name: GetTaskArchived :one
-SELECT archived FROM tasks WHERE id = ?;
+-- name: ListTaskArchived :many
+SELECT id, archived FROM tasks WHERE id IN (sqlc.slice(ids));
 
 -- name: SetTaskArchived :exec
 INSERT INTO tasks (id, archived) VALUES (?, ?)

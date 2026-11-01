@@ -79,9 +79,23 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
-	type task struct{ known, before, archived bool }
 	var ids []int64
-	tasks := map[int64]*task{}
+	seen := map[int64]bool{}
+	for _, e := range events {
+		if !seen[e.GetTaskId()] {
+			seen[e.GetTaskId()] = true
+			ids = append(ids, e.GetTaskId())
+		}
+	}
+	rows, err := q.ListTaskArchived(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("runnerstore: read tasks: %w", err)
+	}
+	stored := map[int64]bool{}
+	for _, row := range rows {
+		stored[row.ID] = row.Archived
+	}
+	changes := newTaskChanges(stored)
 	for _, e := range events {
 		data, err := proto.Marshal(e)
 		if err != nil {
@@ -94,38 +108,15 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		}); err != nil {
 			return nil, fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
 		}
-		t, ok := tasks[e.GetTaskId()]
-		if !ok {
-			t = &task{}
-			t.before, err = q.GetTaskArchived(ctx, e.GetTaskId())
-			switch {
-			case err == nil:
-				t.known = true
-			case !errors.Is(err, sql.ErrNoRows):
-				return nil, fmt.Errorf("runnerstore: read task %d: %w", e.GetTaskId(), err)
-			}
-			t.archived = t.before
-			tasks[e.GetTaskId()] = t
-			ids = append(ids, e.GetTaskId())
-		}
-		t.archived = foldArchived(t.archived, e)
+		changes.Apply(e)
 	}
-	var changes []TaskChange
-	for _, id := range ids {
-		t := tasks[id]
-		if t.known && t.before == t.archived {
-			continue
-		}
+	for _, row := range changes.Rows() {
 		if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
-			ID:       id,
-			Archived: t.archived,
+			ID:       row.ID,
+			Archived: row.Archived,
 		}); err != nil {
-			return nil, fmt.Errorf("runnerstore: set task %d: %w", id, err)
+			return nil, fmt.Errorf("runnerstore: set task %d: %w", row.ID, err)
 		}
-		if !t.known && t.archived {
-			continue
-		}
-		changes = append(changes, TaskChange{ID: id, Archived: t.archived})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
 		return nil, fmt.Errorf("runnerstore: set cursor: %w", err)
@@ -133,21 +124,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("runnerstore: commit: %w", err)
 	}
-	return changes, nil
-}
-
-// foldArchived returns whether a task is archived after e, given whether it
-// was before. Archived and AutoArchived set it, Unarchived clears it, and any
-// other event, including a payload arm this runner doesn't know, leaves it.
-func foldArchived(archived bool, e *gritzv1.Event) bool {
-	switch e.GetLifecycle().GetKind() {
-	case gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED, gritzv1.LifecycleKind_LIFECYCLE_KIND_AUTO_ARCHIVED:
-		return true
-	case gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED:
-		return false
-	default:
-		return archived
-	}
+	return changes.Changes(), nil
 }
 
 // EventReplicationCursor returns the replication cursor: the single position
