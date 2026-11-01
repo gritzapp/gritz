@@ -138,20 +138,6 @@ it leaves behind are not in the image. Caches that must persist, such as
 `npm ci` or `uv sync` output, belong in a Dockerfile `RUN` step. The script's
 job is to *read* the files tasks will read.
 
-### Process cleanup
-
-The script runs in its own process group (`Setpgid: true`), the same way the
-setup commands in `internal/runner/agent/driver.go` and the agent CLIs
-(`claude.go`, `codex.go`, ...) run. The driver kills the whole group:
-
-- **When the script exits:** `SIGKILL` to `-pid`. This stops a backgrounded MCP
-  server or language server the script started, so it doesn't keep running and
-  reading files during the rest of validation. `ESRCH` (nothing left in the
-  group) is ignored.
-- **When the driver shuts down:** the command's signal context is the script's
-  context, and `cmd.Cancel` sends `SIGTERM` to the group, with `WaitDelay` as a
-  backstop, as the setup commands do.
-
 The script must outlive the HTTP request that started it, so it runs under the
 context the command passes to `validatescript.New`, not `r.Context()`. To make
 that context available, `internal/command/driver.go` creates
@@ -159,7 +145,7 @@ that context available, `internal/command/driver.go` creates
 
 The driver doesn't set its own timeout. `validateTimeoutInSeconds` already
 limits the build. When it runs out, Lambda ends the build and discards the VM,
-and the process group goes with it. A second timer inside the driver would just
+and the script goes with it. A second timer inside the driver would just
 be one more value to keep in sync.
 
 ### Driver wiring
@@ -254,8 +240,7 @@ set -eu
 claude --version
 
 # Start a stdio MCP server long enough for it to import everything. Without
-# credentials it may exit non-zero after initializing, which is fine. The
-# driver kills anything left in the process group when this script exits.
+# credentials it may exit non-zero after initializing, which is fine.
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"gritz-validate","version":"0"}}}' |
 	timeout 120 mcp-atlassian >/dev/null || true
 ```
@@ -314,13 +299,11 @@ and `awsmicrovm` knows nothing about gritz.
    `ErrInProgress` and gets 503. Nothing returns it yet, so behaviour doesn't
    change.
 2. **The `validatescript` package.** Delivers: `Script` with the startup
-   check, the state machine, the process group, killing the group when the
-   script exits or the context is cancelled, and output to the given file.
+   check, the state machine, and output to the given file.
    Depends on: (1). Verifiable by: tests with temp scripts. A missing or
    non-executable path makes `New` return an error. A running script returns
    `ErrInProgress` and runs only once. Exit 0 returns nil on every later call.
-   Exit 1 returns an error on every later call. A backgrounded child is gone
-   after the script exits.
+   Exit 1 returns an error on every later call.
 3. **Driver wiring.** Delivers: the `--aws-lambda-validate` flag and its check
    that `--aws-lambda-hooks` is also set, `Handler.Validate` set from the
    script, and the signal context moved ahead of the hooks. Depends on: (2).
