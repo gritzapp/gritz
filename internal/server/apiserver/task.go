@@ -127,7 +127,7 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(model.TaskCommandNone, 0); ok {
+		if ev, ok := task.CommandEvent(nil); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -267,7 +267,7 @@ func (s *Server) UpdateTask(ctx context.Context, req *gritzv1.UpdateTaskRequest)
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command, from.Version); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -471,7 +471,7 @@ func (s *Server) CancelTask(ctx context.Context, req *gritzv1.CancelTaskRequest)
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command, from.Version); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -547,7 +547,7 @@ func (s *Server) RestartTask(ctx context.Context, req *gritzv1.RestartTaskReques
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command, from.Version); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
