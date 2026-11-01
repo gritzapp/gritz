@@ -78,7 +78,7 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 					return err
 				}
 			}
-			if ev, ok := task.CommandEvent(original.Command); ok {
+			if ev, ok := task.CommandEvent(original.Command, original.Version); ok {
 				if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 					return err
 				}

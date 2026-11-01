@@ -263,6 +263,59 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	)
 }
 
+// TestSubmitRunnerEvents_RunBoundaryCommandEvent covers a start pending on a
+// running task: the run's exit keeps the start but moves it to the next run's
+// version, and that move is a command event too.
+func TestSubmitRunnerEvents_RunBoundaryCommandEvent(t *testing.T) {
+	t.Parallel()
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
+		Status:    model.TaskStatusRunning,
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+		Version:   1,
+	})
+	_, err := srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	assert.NilError(t, err)
+
+	// Act - run 1 exits with the start still pending.
+	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 1}},
+	})
+	assert.NilError(t, err)
+
+	// Assert - the start, then the same start for run 2.
+	events, err := srv.store.ListEventsByTask(ctx, nil, task.ID, org.OrgID, []string{model.EventTypeCommand})
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		model.FilterPayloads(events, model.EventTypeCommand),
+		[]model.EventPayload{
+			&model.CommandPayload{
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
+			},
+			&model.CommandPayload{
+				Command:   model.TaskCommandStart,
+				Version:   2,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
+			},
+		},
+	)
+}
+
 func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
