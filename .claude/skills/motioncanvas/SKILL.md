@@ -35,8 +35,32 @@ When a proposal has a project, link its preview page (e.g.
 `https://gritzapp.github.io/gritz/pr/<number>/proposals/<flow>/`) in the PR so
 reviewers can watch it. `site.ts` generates the pages during `pnpm build`
 (`cd diagrams && pnpm build`, output in `dist/`); every URL in it is relative
-so the same build works at the root and under `/pr/<n>/`. The player only
-plays and loops the animation; use the editor to scrub through it.
+so the same build works at the root and under `/pr/<n>/`.
+
+### Pausing at each step
+
+Every numbered step is a slide, so a viewer can read each caption before the
+flow moves on:
+
+- **Published player.** `controls.ts` adds playback controls under the player
+  (scrubber, frame stepping, speed, loop) and a **Pause at steps** mode, on by
+  default: playback stops at the start of every step, on the previous step's
+  end state, and Space continues. `s` toggles the mode. Seeks, scrubbing and
+  the loop back to the start never pause.
+- **Editor.** Presentation mode stops at every step; Space or → advances one
+  step (Enter is not bound). Normal editor playback plays straight through.
+
+This comes from `Caption.show`, which begins a slide named `step <n>` before
+it swaps in the text, so every scene that narrates with `caption.show` pauses
+with no extra code. Keep it that way:
+
+- Call `caption.show` as its own `yield*`, never inside `all(...)`. A slide
+  begun in a child thread pauses only that thread, and the rest of the step
+  would run past the pause.
+- To begin the slide yourself, as `stepper` does so the code line moves with
+  the caption, call `beginSlide` and then `caption.reveal(step, text)`, which
+  animates the text without beginning a slide.
+- Step numbers must be unique within a scene; they name the slides.
 
 ## Layout of the project
 
@@ -67,8 +91,8 @@ only show up after restarting the editor.
 | `Panel` | A boundary: host, process group, AWS account, container, VM. Title top-left, `subtitle` top-right (e.g. `mvm-7c1e · running`). Children are positioned relative to its center. | `pulse()` |
 | `Service` | Something that runs code and sends messages (API, Runner, Driver, Lambda). `activity` line shows what it is doing. | `pulse()`, `updateActivity(text)` |
 | `StateTable` | State a component owns: a DB row, a directory, in-memory counters, a file on disk. Anchor with `offset={[0, -1]}` so it grows downward. | `addRow`, `setRow` (adds if missing), `dropRow`, `flash(key?)`; `putRow` sets rows without animating, for initial state |
-| `Link` | A standing connection between two components, labelled with the protocol. Endpoints track the components. | `send(text, {back, color})`, `rpc(req, resp, opts)` |
-| `Caption` | The numbered narration bar at the bottom. | `show(step, text)` |
+| `Link` | A standing connection between two components, labelled with the protocol. Endpoints track the components. Pass `via` (corners in view space, the fifth argument of `linker`'s function) to route around components a straight line would cross; `labelAt` then measures along the whole path. | `send(text, {back, color})`, `rpc(req, resp, opts)` |
+| `Caption` | The numbered narration bar at the bottom. Each `show` is a slide (see Pausing at each step). | `show(step, text)`, `reveal(step, text)` |
 | `CodeView` | A panel of Go source (highlighted with `@lezer/go`) with a debugger-style current line: lit and marked by a bar, the rest dimmed. Takes `code`, `fontSize`, `lineHeight`. | `goto(line)`; `lineOf(text, nth?)` finds a line by its text |
 
 Packets are colored by the **sender's** accent (`Colors.runner`,
@@ -93,8 +117,9 @@ Packets are colored by the **sender's** accent (`Colors.runner`,
    - Set initial state with `putRow` / plain signal setters before the first
      `yield`. Hide things that do not exist yet (a container, a VM, links to
      them) with `opacity(0)` and fade them in when they are created.
-   - One `caption.show(n, ...)` per step. Captions say what happens and why,
-     in one sentence, and name the real RPCs, fields and states.
+   - One `yield* a.caption.show(n, ...)` per step, numbered from 1; each one
+     is a pause point. Captions say what happens and why, in one sentence,
+     and name the real RPCs, fields and states.
    - Use consistent example data: task `42`, runner `laptop`, concurrency
      `4`, version `1`.
 4. **Add the project** in `src/projects/<flow>.ts` (or
@@ -136,9 +161,9 @@ packet, a row change, an activity update). The function's locals are a
   branch. Say in the header comment what was removed.
 - **Steps.** `const step = stepper(a.source, a.caption)` from `common.tsx`;
   `yield* step('attachOnce(', 'caption')` moves to the first line containing
-  that text (pass `nth` for a repeated line). Each step is a slide: in the
-  editor's presentation mode Space or → advances one line (Enter is not
-  bound). Normal playback and the published player play straight through.
+  that text (pass `nth` for a repeated line). Each step is a slide, so the
+  published player's step mode and the editor's presentation mode pause on
+  every line.
 - **Scenario.** Pick one concrete run that loops more than once and takes the
   interesting branches (a retry, a reset, the exit). Step into a branch's
   body only when it is taken; for a skipped guard, stop on the `if` line
