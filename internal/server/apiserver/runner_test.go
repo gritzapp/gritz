@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -16,7 +17,11 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Create a task (starts as pending with start command)
 	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -76,9 +81,17 @@ func TestSubmitRunnerEvents_Permissions(t *testing.T) {
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Runner:    "test-runner",
@@ -107,7 +120,11 @@ func TestListRunnerTasks(t *testing.T) {
 			{RunnerID: "runner-2", Name: "test-workspace"},
 		},
 	})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Task for runner-1",
 		Workspace: "test-workspace",
@@ -141,7 +158,11 @@ func TestListRunnerTasks_OnlyWithCommand(t *testing.T) {
 			{RunnerID: "runner-1", Name: "test-workspace"},
 		},
 	})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 		Name:      "Task with command",
 		Workspace: "test-workspace",
@@ -175,9 +196,17 @@ func TestListRunnerTasks_Permissions(t *testing.T) {
 		},
 	}
 	orgA := teststore.CreateOrg(t, srv.store, runnerWorkspaces)
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := teststore.CreateOrg(t, srv.store, runnerWorkspaces)
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
 		Name:      "User A's Task",
 		Workspace: "test-workspace",
@@ -218,7 +247,11 @@ func TestListRunnerEvents(t *testing.T) {
 			{RunnerID: "runner-2", Name: "test-workspace"},
 		},
 	})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	// runner-2's task is created first, so once runner-1's events pass the
 	// watermark, runner-2's have too.
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "other", Workspace: "test-workspace", Runner: "runner-2"})
@@ -245,7 +278,11 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
 		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "runner-1", Name: "test-workspace"}},
 	})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task", Workspace: "test-workspace", Runner: "runner-1"})
 	assert.NilError(t, err)
 	_, token := teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
@@ -281,7 +318,11 @@ func TestListRunnerEvents_BadRequest(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	tests := []struct {
 		name string
 		req  *gritzv1.ListRunnerEventsRequest

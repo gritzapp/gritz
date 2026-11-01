@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -20,7 +21,11 @@ func TestCreateSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Name:      "nightly",
@@ -73,7 +78,11 @@ func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace",
@@ -92,7 +101,11 @@ func TestCreateSchedule_DefaultTimezone(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// An empty timezone defaults to UTC.
 	resp, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
@@ -108,7 +121,11 @@ func TestCreateSchedule_InvalidCron(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace",
@@ -127,7 +144,11 @@ func TestCreateSchedule_InvalidTimezone(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace",
@@ -142,7 +163,11 @@ func TestCreateSchedule_BadWorkspace(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Workspace: "fake-workspace",
@@ -180,7 +205,11 @@ func TestListSchedules(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{Name: "a", Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *"})
 	assert.NilError(t, err)
@@ -193,7 +222,11 @@ func TestListSchedules(t *testing.T) {
 
 	// List is org-scoped: another org sees none.
 	other := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	otherList, err := srv.ListSchedules(createCtx(t, other), &gritzv1.ListSchedulesRequest{})
+	otherList, err := srv.ListSchedules(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     other.UserID,
+		OrgID:  other.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.ListSchedulesRequest{})
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(otherList.Schedules, 0))
 }
@@ -202,9 +235,17 @@ func TestGetSchedule_Permissions(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxA := createCtx(t, orgA)
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
 	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctxB := createCtx(t, orgB)
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateSchedule(ctxA, &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
@@ -225,7 +266,11 @@ func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
 
-	created, err := srv.CreateSchedule(createCtx(t, org), &gritzv1.CreateScheduleRequest{
+	created, err := srv.CreateSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
 	})
 	assert.NilError(t, err)
@@ -252,7 +297,11 @@ func TestSchedule_MutationsRequireWrite(t *testing.T) {
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
 
-	created, err := srv.CreateSchedule(createCtx(t, org), &gritzv1.CreateScheduleRequest{
+	created, err := srv.CreateSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
 	})
 	assert.NilError(t, err)
@@ -263,7 +312,11 @@ func TestSchedule_MutationsRequireWrite(t *testing.T) {
 	_, err = srv.DeleteSchedule(writer, &gritzv1.DeleteScheduleRequest{Id: created.Schedule.Id})
 	assert.NilError(t, err)
 
-	_, err = srv.GetSchedule(createCtx(t, org), &gritzv1.GetScheduleRequest{Id: created.Schedule.Id})
+	_, err = srv.GetSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.GetScheduleRequest{Id: created.Schedule.Id})
 	assert.ErrorContains(t, err, "not found")
 }
 
@@ -271,7 +324,11 @@ func TestSetScheduleEnabled(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	// Start disabled — no next fire time.
 	created, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
@@ -297,7 +354,11 @@ func TestDeleteSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	created, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
@@ -315,7 +376,11 @@ func TestUpdateSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	created, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Name: "original", Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *", Timezone: "UTC", Enabled: true,
@@ -344,7 +409,11 @@ func TestUpdateSchedule_InvalidCron(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	created, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *", Timezone: "UTC",
@@ -371,7 +440,11 @@ func TestRunSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	created, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Name:      "nightly",
@@ -448,7 +521,11 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	created, err := srv.CreateSchedule(ctx, &gritzv1.CreateScheduleRequest{
 		Name:         "inert",
@@ -483,7 +560,11 @@ func TestRunSchedule_RequiresCreateScope(t *testing.T) {
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
 
-	created, err := srv.CreateSchedule(createCtx(t, org), &gritzv1.CreateScheduleRequest{
+	created, err := srv.CreateSchedule(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.CreateScheduleRequest{
 		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
 	})
 	assert.NilError(t, err)
@@ -516,7 +597,11 @@ func TestRunSchedule_NotFound(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
 	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	_, err := srv.RunSchedule(ctx, &gritzv1.RunScheduleRequest{Id: 999})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)

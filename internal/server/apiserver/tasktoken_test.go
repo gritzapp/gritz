@@ -6,6 +6,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
@@ -23,7 +24,11 @@ func TestCreateTaskToken(t *testing.T) {
 		Runner:    "test-runner",
 		Workspace: "test-workspace",
 	})
-	ctx := createCtx(t, org)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
 
 	resp, err := srv.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
 		TaskId:       task.ID,
@@ -58,7 +63,11 @@ func TestCreateTaskToken_InvalidCapability(t *testing.T) {
 		Workspace: "test-workspace",
 	})
 
-	_, err = srv.CreateTaskToken(createCtx(t, org), &gritzv1.CreateTaskTokenRequest{
+	_, err = srv.CreateTaskToken(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.CreateTaskTokenRequest{
 		TaskId:       task.ID,
 		Capabilities: []string{"bogus"},
 	})
@@ -102,7 +111,11 @@ func TestCreateTaskToken_CrossOrg(t *testing.T) {
 	})
 
 	// orgB's caller cannot mint a token for orgA's task; the org-scoped read hides it.
-	_, err = srv.CreateTaskToken(createCtx(t, orgB), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+	_, err = srv.CreateTaskToken(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	}), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
 	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
 }
