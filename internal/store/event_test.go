@@ -268,7 +268,7 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 		return txA.Commit()
 	})
 	assert.NilError(t, err)
-	got, _ := teststore.WaitRunnerEvents(t, s, org, "runner-1", "", 2)
+	got, _ := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 2})
 
 	// Assert - B's committed row is held back behind A's open transaction,
 	// then both come back in xid order.
@@ -287,7 +287,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
 	event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
 	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
-	_, token := teststore.WaitRunnerEvents(t, s, org, "runner-1", "", 1)
+	_, token := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
 
 	// Act
 	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1", PageToken: token})
@@ -310,7 +310,7 @@ func TestListRunnerEvents_Pages(t *testing.T) {
 		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
 		want = append(want, event.ID)
 	}
-	teststore.WaitRunnerEvents(t, s, org, "runner-1", "", 5)
+	teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 5})
 
 	// Act - follow the token two at a time until More reports the tail.
 	var got []int64
@@ -351,7 +351,7 @@ func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
 		}
 	}
 	// Wait for the last event to pass the watermark, so the others have too.
-	teststore.WaitRunnerEvents(t, s, otherOrg, "runner-1", "", 1)
+	teststore.WaitRunnerEvents(t, s, otherOrg, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
 
 	// Act
 	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1"})

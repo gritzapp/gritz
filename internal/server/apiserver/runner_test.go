@@ -227,7 +227,7 @@ func TestListRunnerEvents(t *testing.T) {
 	assert.NilError(t, err)
 	want, err := srv.store.ListEventsByTask(ctx, nil, mine.Task.Id, org.OrgID, nil)
 	assert.NilError(t, err)
-	teststore.WaitRunnerEvents(t, srv.store, org, "runner-1", "", len(want))
+	teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: len(want)})
 
 	// Act - read runner-1's log from the start.
 	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
@@ -248,7 +248,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	ctx := createCtx(t, org)
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task", Workspace: "test-workspace", Runner: "runner-1"})
 	assert.NilError(t, err)
-	_, token := teststore.WaitRunnerEvents(t, srv.store, org, "runner-1", "", 1)
+	_, token := teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
 
 	// Act
 	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageToken: token})
