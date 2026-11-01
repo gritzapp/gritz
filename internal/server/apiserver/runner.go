@@ -131,11 +131,11 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 	if req.Runner == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("runner is required"))
 	}
-	events, next, err := s.store.ListRunnerEvents(ctx, nil, store.ListRunnerEventsParams{
-		OrgID:    caller.OrgID,
-		Runner:   req.Runner,
-		PageSize: req.PageSize,
-		Cursor:   req.Cursor,
+	page, err := s.store.ListRunnerEvents(ctx, nil, store.ListRunnerEventsParams{
+		OrgID:     caller.OrgID,
+		Runner:    req.Runner,
+		PageSize:  req.PageSize,
+		PageToken: req.PageToken,
 	})
 	if err != nil {
 		code := connect.CodeInternal
@@ -144,12 +144,11 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 		}
 		return nil, connect.NewError(code, err)
 	}
-	resp := &gritzv1.ListRunnerEventsResponse{
-		Events:     model.ProtoMap(events),
-		NextCursor: req.Cursor,
-	}
-	if len(events) > 0 {
-		resp.NextCursor = next.Encode()
-	}
-	return resp, nil
+	// Only the backward (live-follow) walk is served, so the store's PrevToken
+	// is the next page; on an empty page it echoes the request's token.
+	return &gritzv1.ListRunnerEventsResponse{
+		Events:        model.ProtoMap(page.Items),
+		NextPageToken: page.PrevToken,
+		More:          page.More,
+	}, nil
 }

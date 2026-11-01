@@ -214,22 +214,22 @@ func TestListRunnerTasks_Permissions(t *testing.T) {
 // listRunnerEventsAll follows ListRunnerEvents from cursor until at least n
 // events have come back. The xid watermark is cluster-wide, so a transaction
 // held open by a concurrent test can briefly hold back committed rows.
-func listRunnerEventsAll(t *testing.T, srv *Server, ctx context.Context, runner string, cursor []byte, n int) ([]*gritzv1.Event, []byte) {
+func listRunnerEventsAll(t *testing.T, srv *Server, ctx context.Context, runner string, token string, n int) ([]*gritzv1.Event, string) {
 	t.Helper()
 	var got []*gritzv1.Event
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: runner, Cursor: cursor})
+		resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: runner, PageToken: token})
 		if err != nil {
 			return poll.Error(err)
 		}
 		got = append(got, resp.Events...)
-		cursor = resp.NextCursor
+		token = resp.NextPageToken
 		if len(got) < n {
 			return poll.Continue("got %d of %d events", len(got), n)
 		}
 		return poll.Success()
 	}, poll.WithTimeout(10*time.Second), poll.WithDelay(20*time.Millisecond))
-	return got, cursor
+	return got, token
 }
 
 func TestListRunnerEvents(t *testing.T) {
@@ -248,16 +248,16 @@ func TestListRunnerEvents(t *testing.T) {
 	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "other", Workspace: "test-workspace", Runner: "runner-2"})
 	assert.NilError(t, err)
 	// The later task's events passing the watermark means the earlier one's have.
-	listRunnerEventsAll(t, srv, ctx, "runner-2", nil, 1)
+	listRunnerEventsAll(t, srv, ctx, "runner-2", "", 1)
 	want, err := srv.store.ListEventsByTask(ctx, nil, mine.Task.Id, org.OrgID, nil)
 	assert.NilError(t, err)
 
 	// Act - read runner-1's log from the start.
-	events, cursor := listRunnerEventsAll(t, srv, ctx, "runner-1", nil, 1)
+	events, token := listRunnerEventsAll(t, srv, ctx, "runner-1", "", 1)
 
 	// Assert - every event of runner-1's task, and nothing of runner-2's.
 	assert.DeepEqual(t, testx.ExtractField(events, "Id"), testx.ExtractField(want, "ID"))
-	assert.Assert(t, len(cursor) > 0)
+	assert.Assert(t, token != "")
 }
 
 func TestListRunnerEvents_EmptyPage(t *testing.T) {
@@ -270,15 +270,15 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	ctx := createCtx(t, org)
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task", Workspace: "test-workspace", Runner: "runner-1"})
 	assert.NilError(t, err)
-	_, cursor := listRunnerEventsAll(t, srv, ctx, "runner-1", nil, 1)
+	_, token := listRunnerEventsAll(t, srv, ctx, "runner-1", "", 1)
 
 	// Act
-	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", Cursor: cursor})
+	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageToken: token})
 
-	// Assert - nothing new, and the request's cursor comes back unchanged.
+	// Assert - nothing new, and the request's token comes back unchanged.
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(resp.Events, 0))
-	assert.DeepEqual(t, resp.NextCursor, cursor)
+	assert.Equal(t, resp.NextPageToken, token)
 }
 
 func TestListRunnerEvents_Permissions(t *testing.T) {
@@ -309,7 +309,7 @@ func TestListRunnerEvents_BadRequest(t *testing.T) {
 		req  *gritzv1.ListRunnerEventsRequest
 	}{
 		{"no runner", &gritzv1.ListRunnerEventsRequest{}},
-		{"bad cursor", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", Cursor: []byte{0xff}}},
+		{"bad token", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageToken: "!"}},
 		{"negative page size", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: -1}},
 		{"page size too large", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: 1001}},
 	}

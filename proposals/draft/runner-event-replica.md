@@ -126,20 +126,28 @@ finished. With the example above, the poll at t4 returns nothing, because row
 
 ### Server: an opaque cursor
 
-The `(xid, id)` pair stays on the server. `ListRunnerEvents` takes a cursor
-and returns one with each page:
+The `(xid, id)` pair stays on the server. `ListRunnerEvents` is paginated with
+`internal/x/pagination`, the same keyset plumbing as `ListTasks` and
+`ListEventsByTask`, and the runner's cursor is its opaque page token:
 
-- The request's `cursor` is empty for the start of the log, and otherwise the
-  `next_cursor` of the previous page.
-- The response's `next_cursor` encodes the `(xid, id)` of the page's last row.
-  An empty page returns the request's cursor unchanged.
-- The encoding is the server's (a small protobuf message, `EventCursor`), and
-  the server may change it. The runner stores and returns the bytes without
-  decoding them.
+- The source (`runnerEventSource`) serves only the backward (live-follow)
+  walk: ascending `(xid, id)` after the token's cursor, below the watermark.
+  The forward walk returns `pagination.ErrUnsupportedDirection`, the mirror
+  of `ListTasksPage`, which serves only the forward walk.
+- The request's `page_token` is empty for the start of the log, and otherwise
+  the `next_page_token` of the previous page. The store substitutes a
+  cursorless backward token for an empty one.
+- The response's `next_page_token` is the page's `PrevToken`: it resumes after
+  the page's last row, and an empty page returns the request's token
+  unchanged. `more` reports whether another page is available now, so the
+  runner pages until `more` is false.
+- The token's encoding (`pagination.Token[runnerEventCursor]`, base64 JSON) is
+  the server's, and the server may change it. The runner stores and returns
+  the string without decoding it.
 
 `Event` carries no xid on the wire, and neither the runner nor the driver
-orders anything by it. A cursor names a position in the runner's own tasks'
-log, and the read is scoped by the runner's identity, so a forged cursor can
+orders anything by it. A token names a position in the runner's own tasks'
+log, and the read is scoped by the runner's identity, so a forged token can
 only skip or repeat that runner's events.
 
 ### Server: command events
@@ -259,17 +267,17 @@ CREATE INDEX events_task_seq ON events (task_id, seq);
 
 CREATE TABLE replication (
     id     INTEGER PRIMARY KEY CHECK (id = 1),
-    cursor BLOB NOT NULL          -- opaque; ListRunnerEventsResponse.next_cursor
+    cursor TEXT NOT NULL          -- opaque; ListRunnerEventsResponse.next_page_token
 );
 ```
 
 **Replication.** `Log.Run` is a loop that replaces `Poll`:
 
 1. Read the cursor from `replication` (empty when there is no row).
-2. Call `ListRunnerEvents(cursor)`.
+2. Call `ListRunnerEvents(page_token: cursor)`.
 3. In one transaction, insert the page's events and set `cursor` to the
-   response's `next_cursor`.
-4. Repeat until a page comes back empty, then wait for a wake. The runner SSE
+   response's `next_page_token`.
+4. Repeat while the response's `more` is true, then wait for a wake. The runner SSE
    notification (`proposals/implemented/runner-sse-events.md`) still triggers
    a sync sooner.
 
@@ -412,23 +420,18 @@ service GritzService {
 message ListRunnerEventsRequest {
   string runner = 1;
   // Opaque; empty for the start of the log, otherwise a previous
-  // response's next_cursor.
-  bytes cursor = 2;
+  // response's next_page_token.
+  string page_token = 2;
   int32 page_size = 3;
 }
 
 message ListRunnerEventsResponse {
   repeated Event events = 1;
-  // Position after the last event in this page; the request's cursor when
+  // Resumes after the last event in this page; the request's page_token when
   // the page is empty. Pass it back unchanged.
-  bytes next_cursor = 2;
-}
-
-// EventCursor is the server's encoding of a position in the (xid, id)
-// order, carried in ListRunnerEvents cursors. Clients don't decode it.
-message EventCursor {
-  uint64 xid = 1;
-  int64 id = 2;
+  string next_page_token = 2;
+  // Whether more events are available right now past this page.
+  bool more = 3;
 }
 
 message Event {
@@ -515,17 +518,19 @@ type CommandPayload struct {
 ```go
 package store // github.com/gritzapp/gritz/internal/store
 
-// EventCursor is a position in the (xid, id) order. // new
-type EventCursor struct {
-	XID uint64
-	ID  int64
+// ListRunnerEventsParams mirrors the RPC's pagination fields. // new
+type ListRunnerEventsParams struct {
+	OrgID     int64
+	Runner    string
+	PageSize  int32  // 0 → default (200); max 1000
+	PageToken string // opaque; empty for the start of the log
 }
 
-// ListRunnerEvents returns up to limit events of the runner's tasks after
-// cursor, below the xid watermark, and the cursor of the last one (after,
-// when none are returned). The server encodes it as an opaque
-// gritz.v1.EventCursor. // new
-func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, orgID int64, runner string, after EventCursor, limit int) ([]*model.Event, EventCursor, error)
+// ListRunnerEvents returns a page of the runner's tasks' events in (xid, id)
+// order, below the xid watermark, walking only the backward (live-follow)
+// direction. PrevToken resumes after the page; an empty page echoes the
+// request's token. // new
+func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, p ListRunnerEventsParams) (*pagination.Page[*model.Event], error)
 ```
 
 ```go
@@ -541,11 +546,11 @@ package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore
 
 // AppendEvents stores a page of replicated events and the cursor that
 // follows it in one transaction. // new
-func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor []byte) error
+func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) error
 
-// Cursor returns the stored replication cursor, or nil when none is
+// Cursor returns the stored replication cursor, or "" when none is
 // stored. // new
-func (s *Store) Cursor(ctx context.Context) ([]byte, error)
+func (s *Store) Cursor(ctx context.Context) (string, error)
 
 // TaskEventsAfter returns the task's events after the event with id afterID,
 // in log order; afterID 0 returns all of them. // new
@@ -668,10 +673,10 @@ sends `RunEnded` up the stream when a run is over.
    for each command path (start, restart, cancel of `PENDING`, wake,
    server-issued stop, clear, and an unchanged command writing none).
 3. **`ListRunnerEvents`** — Delivers: the query and RPC, with the watermark
-   and the opaque cursor. Depends on: (1). Verifiable by: a store test with
+   and the opaque page token. Depends on: (1). Verifiable by: a store test with
    two concurrent transactions that commit out of id order; neither row is
    returned until both have committed, and then both are, in xid order; an
-   empty page returns the request's cursor.
+   empty page returns the request's page token.
 4. **`taskevents`** — Delivers: the `runnerstore` `events` and `replication`
    tables, `Log` replicating into them, `Tasks()` and `Stream.Read`. Nothing
    reads the streams yet; `Poll` still drives behaviour. Depends on: (3),

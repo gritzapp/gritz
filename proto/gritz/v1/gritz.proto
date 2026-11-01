@@ -181,23 +181,18 @@ message ListRunnerTasksResponse {
 message ListRunnerEventsRequest {
   string runner = 1;  // Runner ID (required)
   // Opaque; empty for the start of the log, otherwise a previous
-  // response's next_cursor.
-  bytes cursor = 2;
+  // response's next_page_token.
+  string page_token = 2;
   int32 page_size = 3;  // Max events to return; 0 for the server default
 }
 
 message ListRunnerEventsResponse {
   repeated Event events = 1;
-  // Position after the last event in this page; the request's cursor when
+  // Resumes after the last event in this page; the request's page_token when
   // the page is empty. Pass it back unchanged.
-  bytes next_cursor = 2;
-}
-
-// EventCursor is the server's encoding of a position in the (xid, id)
-// order, carried in ListRunnerEvents cursors. Clients don't decode it.
-message EventCursor {
-  uint64 xid = 1;
-  int64 id = 2;
+  string next_page_token = 2;
+  // Whether more events are available right now past this page.
+  bool more = 3;
 }
 
 message CreateTaskRequest {
