@@ -252,7 +252,7 @@ func listRunnerEventsN(t *testing.T, s *store.Store, org *teststore.Org, runner 
 	t.Helper()
 	var got []*model.Event
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, runner, after, 100)
+		events, next, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: runner, Cursor: after.Encode()})
 		if err != nil {
 			return poll.Error(err)
 		}
@@ -287,7 +287,7 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 			return txB.Commit()
 		})
 		assert.NilError(t, err)
-		heldBack, heldBackCursor, err = s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", model.EventCursor{}, 100)
+		heldBack, heldBackCursor, err = s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1"})
 		assert.NilError(t, err)
 		return txA.Commit()
 	})
@@ -315,7 +315,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	_, after := listRunnerEventsN(t, s, org, "runner-1", model.EventCursor{}, 1)
 
 	// Act
-	events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", after, 100)
+	events, next, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1", Cursor: after.Encode()})
 
 	// Assert - an empty page hands back the request's cursor.
 	assert.NilError(t, err)
@@ -343,7 +343,7 @@ func TestListRunnerEvents_Pages(t *testing.T) {
 	var after model.EventCursor
 	pages := 0
 	for {
-		events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", after, 2)
+		events, next, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1", PageSize: 2, Cursor: after.Encode()})
 		assert.NilError(t, err)
 		if len(events) == 0 {
 			break
@@ -380,7 +380,7 @@ func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
 	listRunnerEventsN(t, s, otherOrg, "runner-1", model.EventCursor{}, 1)
 
 	// Act
-	events, _, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", model.EventCursor{}, 100)
+	events, _, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1"})
 
 	// Assert
 	assert.NilError(t, err)
