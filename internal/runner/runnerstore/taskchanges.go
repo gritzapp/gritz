@@ -2,12 +2,6 @@ package runnerstore
 
 import gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 
-// TaskChanges records, for each task in a page, the archive state the page's
-// events leave it in.
-type TaskChanges struct {
-	tasks []PageTask // in order of each task's first event
-}
-
 // PageTask is one task in a page.
 type PageTask struct {
 	ID int64
@@ -18,28 +12,24 @@ type PageTask struct {
 	Archived        bool
 }
 
-// NewTaskChanges folds a page's events into each task's archive state.
-func NewTaskChanges(events []*gritzv1.Event) *TaskChanges {
-	c := &TaskChanges{}
+// TaskChanges folds a page's events into one PageTask per task, in order of
+// each task's first event.
+func TaskChanges(events []*gritzv1.Event) []PageTask {
+	var tasks []PageTask
 	index := map[int64]int{}
 	for _, e := range events {
 		i, ok := index[e.GetTaskId()]
 		if !ok {
-			i = len(c.tasks)
+			i = len(tasks)
 			index[e.GetTaskId()] = i
-			c.tasks = append(c.tasks, PageTask{ID: e.GetTaskId()})
+			tasks = append(tasks, PageTask{ID: e.GetTaskId()})
 		}
 		if archived, ok := archiveState(e); ok {
-			c.tasks[i].HasArchiveEvent = true
-			c.tasks[i].Archived = archived
+			tasks[i].HasArchiveEvent = true
+			tasks[i].Archived = archived
 		}
 	}
-	return c
-}
-
-// Tasks returns the page's tasks in order of each task's first event.
-func (c *TaskChanges) Tasks() []PageTask {
-	return c.tasks
+	return tasks
 }
 
 // archiveState returns the archive state e sets, and false when e is not an

@@ -95,7 +95,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		}
 	}
 	var changes []TaskChange
-	for _, t := range NewTaskChanges(events).Tasks() {
+	for _, t := range TaskChanges(events) {
 		if t.HasArchiveEvent {
 			if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
 				ID:       t.ID,
