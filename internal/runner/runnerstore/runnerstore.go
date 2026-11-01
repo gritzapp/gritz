@@ -60,20 +60,22 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// TaskChange reports a task's archive state after a page. It may repeat the
-// state the task was already in.
+// TaskChange is a task's state after a page that had a command or archive
+// event for it. It may repeat the state the task was already in.
 type TaskChange struct {
-	ID       int64
+	ID int64
+	// Command and Version are those of the task's last command event, or
+	// zero when it has had none.
+	Command  gritzv1.TaskCommand
+	Version  int64
 	Archived bool
 }
 
 // AppendEvents stores a page of replicated events, the cursor that follows
 // it, and the page's effect on the tasks table in one transaction. It returns
-// every task in the page that is new or has an archive event, with its
-// archived state after the page, in order of each task's first event. A
-// report may repeat the task's current state: a task archived and unarchived
-// within the page is reported unarchived, and one created and archived within
-// it is reported archived.
+// the state after the page of every task with a command or archive event in
+// it, in order of each task's first such event. A report may repeat the
+// task's current state.
 func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) ([]TaskChange, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -96,23 +98,24 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	}
 	var changes []TaskChange
 	for _, t := range TaskChanges(events) {
-		if t.HasArchiveEvent {
-			if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
-				ID:       t.ID,
-				Archived: t.Archived,
-			}); err != nil {
-				return nil, fmt.Errorf("runnerstore: set task %d: %w", t.ID, err)
-			}
-			changes = append(changes, TaskChange{ID: t.ID, Archived: t.Archived})
-			continue
+		params := sqlc.UpsertTaskParams{ID: t.ID}
+		if t.Command != nil {
+			params.Command = sql.NullInt64{Int64: int64(t.Command.GetCommand()), Valid: true}
+			params.Version = sql.NullInt64{Int64: t.Command.GetVersion(), Valid: true}
 		}
-		inserted, err := q.InsertTaskIfNew(ctx, t.ID)
+		if t.Archived != nil {
+			params.Archived = sql.NullBool{Bool: *t.Archived, Valid: true}
+		}
+		row, err := q.UpsertTask(ctx, params)
 		if err != nil {
-			return nil, fmt.Errorf("runnerstore: insert task %d: %w", t.ID, err)
+			return nil, fmt.Errorf("runnerstore: upsert task %d: %w", t.ID, err)
 		}
-		if len(inserted) > 0 {
-			changes = append(changes, TaskChange{ID: t.ID})
-		}
+		changes = append(changes, TaskChange{
+			ID:       row.ID,
+			Command:  gritzv1.TaskCommand(row.Command.Int64),
+			Version:  row.Version.Int64,
+			Archived: row.Archived,
+		})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
 		return nil, fmt.Errorf("runnerstore: set cursor: %w", err)

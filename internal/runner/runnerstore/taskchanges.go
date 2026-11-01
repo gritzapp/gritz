@@ -2,31 +2,36 @@ package runnerstore
 
 import gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 
-// PageTask is one task in a page.
+// PageTask is one task's command and archive events in a page.
 type PageTask struct {
-	ID int64
-	// HasArchiveEvent is whether the page has an Archived, AutoArchived or
-	// Unarchived event for the task. Archived is the last one's result, and
-	// is false when there is none.
-	HasArchiveEvent bool
-	Archived        bool
+	ID       int64
+	Command  *gritzv1.CommandPayload // last command event in the page, or nil
+	Archived *bool                   // last archive event's result, or nil
 }
 
-// TaskChanges folds a page's events into one PageTask per task, in order of
-// each task's first event.
+// TaskChanges folds a page's events into one PageTask per task with a command
+// or archive event in it, in order of each task's first such event. Other
+// events don't affect the tasks table.
 func TaskChanges(events []*gritzv1.Event) []PageTask {
 	var tasks []PageTask
 	index := map[int64]int{}
 	for _, e := range events {
+		command := e.GetCommand()
+		archived, isArchive := archiveState(e)
+		if command == nil && !isArchive {
+			continue
+		}
 		i, ok := index[e.GetTaskId()]
 		if !ok {
 			i = len(tasks)
 			index[e.GetTaskId()] = i
 			tasks = append(tasks, PageTask{ID: e.GetTaskId()})
 		}
-		if archived, ok := archiveState(e); ok {
-			tasks[i].HasArchiveEvent = true
-			tasks[i].Archived = archived
+		if command != nil {
+			tasks[i].Command = command
+		}
+		if isArchive {
+			tasks[i].Archived = &archived
 		}
 	}
 	return tasks

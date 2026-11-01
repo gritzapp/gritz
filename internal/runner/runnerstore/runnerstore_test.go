@@ -96,46 +96,49 @@ func TestAppendEvents(t *testing.T) {
 
 func TestAppendEvents_Tasks(t *testing.T) {
 	t.Parallel()
-	// Arrange - tasks 30, 10 and 20 are stored.
+	// Arrange - tasks 10, 20 and 30 are started, and 20 is archived.
 	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
 	assert.NilError(t, err)
 	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	_, err = store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
-			{Id: 1, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
-			{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
-			{Id: 3, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
+			{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 3, TaskId: 30, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 4, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 		},
 		"page-1",
 	)
 	assert.NilError(t, err)
 
-	// Act - a page with an instruction for 10, which archives 20, archives
-	// and unarchives 30, and adds task 40 and task 50, which it archives.
+	// Act - a page with only an instruction for 10, a command for the
+	// archived 20, an archive and unarchive for 30, and new tasks 40 and 50,
+	// which it archives.
 	changes, err := store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
-			{Id: 4, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
-			{Id: 5, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 6, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 7, TaskId: 40, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
-			{Id: 8, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
-			{Id: 9, TaskId: 50, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED}}},
-			{Id: 10, TaskId: 50, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
+			{Id: 5, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
+			{Id: 6, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 2}}},
+			{Id: 7, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
+			{Id: 8, TaskId: 40, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 9, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
+			{Id: 10, TaskId: 50, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+			{Id: 11, TaskId: 50, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 		},
 		"page-2",
 	)
 	assert.NilError(t, err)
 
-	// Assert - every task with an archive event is reported with its final
-	// state, the known task 10 without one is not, and UnarchivedTaskIDs reads
+	// Assert - each touched task is reported with its state after the page:
+	// the command-only page leaves 20 archived, and the archive-only page
+	// keeps 30's command. Task 10 isn't touched, and UnarchivedTaskIDs reads
 	// the rows written.
 	assert.DeepEqual(t,
 		changes,
 		[]runnerstore.TaskChange{
-			{ID: 20, Archived: true},
-			{ID: 30},
-			{ID: 40},
-			{ID: 50, Archived: true},
+			{ID: 20, Command: gritzv1.TaskCommand_STOP, Version: 2, Archived: true},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 50, Command: gritzv1.TaskCommand_START, Version: 1, Archived: true},
 		},
 	)
 	ids, err := store.UnarchivedTaskIDs(t.Context())
