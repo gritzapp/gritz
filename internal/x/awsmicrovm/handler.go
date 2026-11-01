@@ -102,7 +102,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.Run == nil {
 				return nil
 			}
-			return h.Run(r.Context(), RunHookRequest{MicrovmID: body.MicrovmID, Payload: body.RunHookPayload})
+			return h.Run(r.Context(), RunHookRequest{
+				MicrovmID: body.MicrovmID,
+				Payload:   body.RunHookPayload,
+			})
 		})
 	case HookTerminate:
 		h.serve(w, r, func(body hookBody) error {

@@ -108,8 +108,13 @@ func TestRenderGolden(t *testing.T) {
 		{
 			// A first run with a workspace prompt: the prompt renders inside the
 			// how-to-work section, before the context dump. The prompt is init-only.
-			name:   "first run renders the task brief with a workspace prompt",
-			opts:   Options{Task: task, Events: briefEvents, Links: briefLinks, Prompt: "Custom workspace instructions."},
+			name: "first run renders the task brief with a workspace prompt",
+			opts: Options{
+				Task:   task,
+				Events: briefEvents,
+				Links:  briefLinks,
+				Prompt: "Custom workspace instructions.",
+			},
 			golden: "prompt-first-run-brief-workspace.golden",
 		},
 		{
@@ -137,8 +142,13 @@ func TestRenderGolden(t *testing.T) {
 		{
 			// A wake never renders the workspace prompt: even with a Prompt set, the
 			// output is byte-identical to the plain wake (prompt-wake-events.golden).
-			name:   "wake does not render the workspace prompt",
-			opts:   Options{Started: true, Prompt: "Custom workspace instructions.", Events: events, Task: task},
+			name: "wake does not render the workspace prompt",
+			opts: Options{
+				Started: true,
+				Prompt:  "Custom workspace instructions.",
+				Events:  events,
+				Task:    task,
+			},
 			golden: "prompt-wake-events.golden",
 		},
 	}

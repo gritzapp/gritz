@@ -180,8 +180,11 @@ func TestToGithubInputEvent(t *testing.T) {
 				Description: "testuser commented on issue #1",
 				Data:        "(@alice) @bob, cc @carol! see @alice/team",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-611",
-				Attrs:       eventrouter.Attrs{"mention": {"alice", "bob", "carol"}, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
+				Attrs: eventrouter.Attrs{
+					"mention": {"alice", "bob", "carol"},
+					"user":    {"testuser"},
+				},
+				Meta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 			},
 		},
 		{
@@ -904,7 +907,11 @@ func TestHandleGitHubWebhookRoutesToTask(t *testing.T) {
 	store := &StoreMock{
 		GetUserByGitHubUserIDFunc: func(ctx context.Context, tx *sql.Tx, id int64) (*model.User, error) {
 			if id == ghUserID {
-				return &model.User{ID: "user-1", GitHubUserID: ghUserID, GitHubUsername: "testuser"}, nil
+				return &model.User{
+					ID:             "user-1",
+					GitHubUserID:   ghUserID,
+					GitHubUsername: "testuser",
+				}, nil
 			}
 			return nil, sql.ErrNoRows
 		},
@@ -950,7 +957,11 @@ func TestHandleGitHubWebhookRoutesToTask(t *testing.T) {
 		Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
 		UserID:      "user-1",
 		Orgs:        []int64{7},
-		Meta:        GitHubMeta{AuthorID: ghUserID, AuthorLogin: "testuser", InstallationID: installationID},
+		Meta: GitHubMeta{
+			AuthorID:       ghUserID,
+			AuthorLogin:    "testuser",
+			InstallationID: installationID,
+		},
 	}})
 
 	// The installation is resolved with the event's installation id.

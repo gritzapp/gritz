@@ -88,7 +88,9 @@ func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverSer
 			Protocols:         protocols,
 		},
 	}}
-	return driverclient.New(httpClient, "http://driver", driverclient.Options{IdleTimeout: s.b.idleTimeout}), nil
+	return driverclient.New(httpClient, "http://driver", driverclient.Options{
+		IdleTimeout: s.b.idleTimeout,
+	}), nil
 }
 
 // Status reports a running container as up, a missing one as gone, and any

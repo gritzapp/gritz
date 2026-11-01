@@ -250,8 +250,16 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	taskA := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
 	taskB := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
-	eventA := &model.Event{TaskID: taskA.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
-	eventB := &model.Event{TaskID: taskB.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "b"}}
+	eventA := &model.Event{
+		TaskID:  taskA.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "a"},
+	}
+	eventB := &model.Event{
+		TaskID:  taskB.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "b"},
+	}
 	var heldBack *pagination.Page[*model.Event]
 
 	// Act - Tx A inserts first (lower id), Tx B inserts second and commits
@@ -263,12 +271,18 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 			return txB.Commit()
 		})
 		assert.NilError(t, err)
-		heldBack, err = s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1"})
+		heldBack, err = s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+			OrgID:  org.OrgID,
+			Runner: "runner-1",
+		})
 		assert.NilError(t, err)
 		return txA.Commit()
 	})
 	assert.NilError(t, err)
-	got, _ := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 2})
+	got, _ := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  2,
+	})
 
 	// Assert - B's committed row is held back behind A's open transaction,
 	// then both come back in xid order.
@@ -285,12 +299,23 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
-	event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
+	event := &model.Event{
+		TaskID:  task.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "a"},
+	}
 	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
-	_, token := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
+	_, token := teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  1,
+	})
 
 	// Act
-	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1", PageToken: token})
+	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+		OrgID:     org.OrgID,
+		Runner:    "runner-1",
+		PageToken: token,
+	})
 
 	// Assert - an empty page hands back the request's token.
 	assert.NilError(t, err)
@@ -306,18 +331,30 @@ func TestListRunnerEvents_Pages(t *testing.T) {
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
 	var want []int64
 	for i := range 5 {
-		event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: fmt.Sprint(i)}}
+		event := &model.Event{
+			TaskID:  task.ID,
+			OrgID:   org.OrgID,
+			Payload: &model.ReportPayload{Content: fmt.Sprint(i)},
+		}
 		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
 		want = append(want, event.ID)
 	}
-	teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 5})
+	teststore.WaitRunnerEvents(t, s, org, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  5,
+	})
 
 	// Act - follow the token two at a time until More reports the tail.
 	var got []int64
 	token := ""
 	pages := 0
 	for {
-		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1", PageSize: 2, PageToken: token})
+		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+			OrgID:     org.OrgID,
+			Runner:    "runner-1",
+			PageSize:  2,
+			PageToken: token,
+		})
 		assert.NilError(t, err)
 		got = append(got, testx.ExtractField(page.Items, "ID").([]int64)...)
 		token = page.PrevToken
@@ -344,17 +381,27 @@ func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
 	otherOrgs := teststore.CreateTask(t, s, otherOrg, &teststore.TaskOptions{Runner: "runner-1"})
 	var want int64
 	for _, task := range []*model.Task{mine, otherRunner, otherOrgs} {
-		event := &model.Event{TaskID: task.ID, OrgID: task.OrgID, Payload: &model.ReportPayload{Content: "x"}}
+		event := &model.Event{
+			TaskID:  task.ID,
+			OrgID:   task.OrgID,
+			Payload: &model.ReportPayload{Content: "x"},
+		}
 		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
 		if task == mine {
 			want = event.ID
 		}
 	}
 	// Wait for the last event to pass the watermark, so the others have too.
-	teststore.WaitRunnerEvents(t, s, otherOrg, teststore.WaitRunnerEventsOptions{Runner: "runner-1", Count: 1})
+	teststore.WaitRunnerEvents(t, s, otherOrg, teststore.WaitRunnerEventsOptions{
+		Runner: "runner-1",
+		Count:  1,
+	})
 
 	// Act
-	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1"})
+	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+		OrgID:  org.OrgID,
+		Runner: "runner-1",
+	})
 
 	// Assert
 	assert.NilError(t, err)

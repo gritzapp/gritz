@@ -136,7 +136,9 @@ func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverSer
 		return nil, fmt.Errorf("microvm %s has no endpoint", s.id())
 	}
 	httpClient := &http.Client{Transport: &bearerTransport{base: s.tokens, token: jwt}}
-	return driverclient.New(httpClient, driverURL(endpoint), driverclient.Options{IdleTimeout: s.b.idleTimeout}), nil
+	return driverclient.New(httpClient, driverURL(endpoint), driverclient.Options{
+		IdleTimeout: s.b.idleTimeout,
+	}), nil
 }
 
 // Status reports a RUNNING VM as up; a PENDING (created, not yet booted),
@@ -190,7 +192,9 @@ func (s *sandbox) Park(ctx context.Context) error {
 		}
 	}
 	s.b.log.Info("suspending microvm", "microvm", id)
-	_, err = s.b.cloud.SuspendMicrovm(ctx, &lambdamicrovms.SuspendMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	_, err = s.b.cloud.SuspendMicrovm(ctx, &lambdamicrovms.SuspendMicrovmInput{
+		MicrovmIdentifier: aws.String(id),
+	})
 	if isNotFound(err) {
 		return backend.ErrGone
 	}
@@ -206,7 +210,9 @@ func (s *sandbox) Park(ctx context.Context) error {
 func (s *sandbox) Destroy(ctx context.Context) error {
 	id := s.id()
 	s.b.log.Info("terminating microvm", "microvm", id)
-	_, err := s.b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{MicrovmIdentifier: aws.String(id)})
+	_, err := s.b.cloud.TerminateMicrovm(ctx, &lambdamicrovms.TerminateMicrovmInput{
+		MicrovmIdentifier: aws.String(id),
+	})
 	if err == nil || isNotFound(err) {
 		return nil
 	}

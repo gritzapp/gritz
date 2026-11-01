@@ -44,7 +44,10 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Data:        "gritz: do something",
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-123?focusedCommentId=10001",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"abc123"}},
-				Meta:        AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
 			},
 		},
 		{
@@ -67,8 +70,14 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Description: "Test User commented on PROJ-123",
 				Data:        "[~accountid:557058:abc] and [~accountid:5b10ac] please review",
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-123?focusedCommentId=10009",
-				Attrs:       eventrouter.Attrs{"mention": {"557058:abc", "5b10ac"}, "user": {"abc123"}},
-				Meta:        AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+				Attrs: eventrouter.Attrs{
+					"mention": {"557058:abc", "5b10ac"},
+					"user":    {"abc123"},
+				},
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
 			},
 		},
 		{
@@ -91,7 +100,10 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Data:        "just a regular comment",
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-123",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"abc123"}},
-				Meta:        AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
 			},
 		},
 		{
@@ -161,7 +173,10 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Data:        "gritz: trimmed",
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-1?focusedCommentId=20002",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"abc123"}},
-				Meta:        AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
 			},
 		},
 		{
@@ -185,7 +200,10 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Description: `Test User added label(s) "gritz" to PROJ-7`,
 				Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"abc123"}},
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-7",
-				Meta:        AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
 			},
 		},
 		{
@@ -209,7 +227,10 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Description: `Test User added label(s) "gritz", "urgent" to PROJ-8`,
 				Attrs:       eventrouter.Attrs{"label": {"gritz", "urgent"}, "user": {"abc123"}},
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-8",
-				Meta:        AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
 			},
 		},
 		{

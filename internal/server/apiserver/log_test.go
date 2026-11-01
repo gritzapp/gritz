@@ -22,7 +22,11 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -46,7 +50,9 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - no report (or other) events were created from the dropped entries.
-	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskResp.Task.Id})
+	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: taskResp.Task.Id,
+	})
 	assert.NilError(t, err)
 	for _, e := range events.Events {
 		assert.Assert(t, e.GetReport() == nil, "non-report entries must not become report events")
@@ -57,7 +63,11 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -80,7 +90,9 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - the report is a from-agent report event.
-	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskResp.Task.Id})
+	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: taskResp.Task.Id,
+	})
 	assert.NilError(t, err)
 	var reports []*gritzv1.ReportPayload
 	for _, e := range events.Events {
@@ -97,13 +109,21 @@ func TestUploadLogs_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgA.UserID,
 		OrgID:  orgA.OrgID,
 		Scopes: authscope.Admin(),
 	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     orgB.UserID,
 		OrgID:  orgB.OrgID,
@@ -298,7 +318,9 @@ func TestListLogChunksByTask_TaskToken(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.ListLogChunksByTask(agentCtx, &gritzv1.ListLogChunksByTaskRequest{TaskId: taskID})
+	resp, err := srv.ListLogChunksByTask(agentCtx, &gritzv1.ListLogChunksByTaskRequest{
+		TaskId: taskID,
+	})
 
 	// Assert
 	assert.NilError(t, err)

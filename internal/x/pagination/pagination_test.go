@@ -71,7 +71,12 @@ func TestList_ForwardScrollToExhaustion(t *testing.T) {
 func TestList_BackwardFollow(t *testing.T) {
 	t.Parallel()
 	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, Source: src}
+	opt := pagination.Options[int, int]{
+		DefaultPageSize: 3,
+		MaxPageSize:     100,
+		PageSize:        3,
+		Source:          src,
+	}
 
 	// Grab the newest page, then follow forward-in-time from an older position:
 	// take the oldest page's live-follow token to walk newer.
@@ -101,7 +106,12 @@ func TestList_BackwardFollow(t *testing.T) {
 func TestList_EmptyFollowPollEcho(t *testing.T) {
 	t.Parallel()
 	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, Source: src}
+	opt := pagination.Options[int, int]{
+		DefaultPageSize: 3,
+		MaxPageSize:     100,
+		PageSize:        3,
+		Source:          src,
+	}
 
 	// Newest page's PrevToken points at the tail (id 10); nothing is newer.
 	newest, err := pagination.List(t.Context(), opt)
@@ -136,7 +146,12 @@ func TestList_OneQueryPerPage(t *testing.T) {
 func TestList_ForwardOnlyPrevToken(t *testing.T) {
 	t.Parallel()
 	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, true) // forward-only
-	opt := pagination.Options[int, int]{DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, Source: src}
+	opt := pagination.Options[int, int]{
+		DefaultPageSize: 3,
+		MaxPageSize:     100,
+		PageSize:        3,
+		Source:          src,
+	}
 
 	// A forward-only source's newest page still yields a PrevToken; the
 	// caller normally never exposes it, but a client that resubmits it trips
@@ -180,7 +195,13 @@ func TestList_Reverse(t *testing.T) {
 func TestList_ReverseBackwardPage(t *testing.T) {
 	t.Parallel()
 	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{DefaultPageSize: 3, MaxPageSize: 100, Reverse: true, PageSize: 3, Source: src}
+	opt := pagination.Options[int, int]{
+		DefaultPageSize: 3,
+		MaxPageSize:     100,
+		Reverse:         true,
+		PageSize:        3,
+		Source:          src,
+	}
 
 	// Newest page (Reverse on → oldest-first) then follow newer (there is
 	// nothing newer than 10, so seed a follow from an older cursor instead).
@@ -248,7 +269,12 @@ func TestList_SinglePage(t *testing.T) {
 func TestList_MoreLiveFollow(t *testing.T) {
 	t.Parallel()
 	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, Source: src}
+	opt := pagination.Options[int, int]{
+		DefaultPageSize: 3,
+		MaxPageSize:     100,
+		PageSize:        3,
+		Source:          src,
+	}
 
 	// Walk to the oldest page to get a follow token with rows above it (2..10).
 	page, err := pagination.List(t.Context(), opt)

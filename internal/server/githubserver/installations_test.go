@@ -129,8 +129,12 @@ func TestVerifyInstallationAccess_UserAccountOwnerAllowed(t *testing.T) {
 	const installationID, ghUserID = int64(42), int64(1001)
 	client, err := github.NewClient(github.WithHTTPClient(mock.NewMockedHTTPClient(
 		mock.WithRequestMatch(mock.GetAppInstallationsByInstallationId, github.Installation{
-			ID:      github.Ptr(installationID),
-			Account: &github.User{ID: github.Ptr(ghUserID), Login: github.Ptr("alice"), Type: github.Ptr("User")},
+			ID: github.Ptr(installationID),
+			Account: &github.User{
+				ID:    github.Ptr(ghUserID),
+				Login: github.Ptr("alice"),
+				Type:  github.Ptr("User"),
+			},
 		}),
 	)))
 	assert.NilError(t, err)
@@ -143,8 +147,12 @@ func TestVerifyInstallationAccess_UserAccountNonOwnerDenied(t *testing.T) {
 	const installationID, ghUserID = int64(42), int64(1001)
 	client, err := github.NewClient(github.WithHTTPClient(mock.NewMockedHTTPClient(
 		mock.WithRequestMatch(mock.GetAppInstallationsByInstallationId, github.Installation{
-			ID:      github.Ptr(installationID),
-			Account: &github.User{ID: github.Ptr(int64(2002)), Login: github.Ptr("bob"), Type: github.Ptr("User")},
+			ID: github.Ptr(installationID),
+			Account: &github.User{
+				ID:    github.Ptr(int64(2002)),
+				Login: github.Ptr("bob"),
+				Type:  github.Ptr("User"),
+			},
 		}),
 	)))
 	assert.NilError(t, err)

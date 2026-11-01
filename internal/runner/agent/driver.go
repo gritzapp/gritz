@@ -79,7 +79,11 @@ func (d *Driver) Run(ctx context.Context) error {
 
 	// Report started: replaces the startup ping — an acked submit proves the
 	// connection, token, server, and DB are all healthy.
-	if err := d.submit(eventCtx, model.RunnerEvent{TaskID: d.TaskID, Version: version, Event: model.RunnerEventStarted}); err != nil {
+	if err := d.submit(eventCtx, model.RunnerEvent{
+		TaskID:  d.TaskID,
+		Version: version,
+		Event:   model.RunnerEventStarted,
+	}); err != nil {
 		return err
 	}
 

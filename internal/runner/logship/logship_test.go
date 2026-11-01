@@ -628,8 +628,16 @@ func TestIsPermanentChunkError(t *testing.T) {
 		{"internal", connect.NewError(connect.CodeInternal, errors.New("boom")), false},
 		{"deadline", context.DeadlineExceeded, false},
 		{"not found", connect.NewError(connect.CodeNotFound, errors.New("task 1 not found")), true},
-		{"invalid argument", connect.NewError(connect.CodeInvalidArgument, errors.New("too big")), true},
-		{"permission denied", connect.NewError(connect.CodePermissionDenied, errors.New("nope")), true},
+		{
+			"invalid argument",
+			connect.NewError(connect.CodeInvalidArgument, errors.New("too big")),
+			true,
+		},
+		{
+			"permission denied",
+			connect.NewError(connect.CodePermissionDenied, errors.New("nope")),
+			true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

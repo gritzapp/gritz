@@ -57,7 +57,11 @@ func TestSSE(t *testing.T) {
 	const orgID int64 = 1
 	srv := New(Options{Subscriber: ps})
 
-	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{ID: "u", OrgID: orgID, Type: apiauth.AuthTypeApp}))
+	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{
+		ID:    "u",
+		OrgID: orgID,
+		Type:  apiauth.AuthTypeApp,
+	}))
 	defer ts.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -110,7 +114,11 @@ func TestSSE_SelfNotificationDelivered(t *testing.T) {
 	const orgID int64 = 1
 	srv := New(Options{Subscriber: ps})
 
-	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{ID: "u", OrgID: orgID, Type: apiauth.AuthTypeApp}))
+	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{
+		ID:    "u",
+		OrgID: orgID,
+		Type:  apiauth.AuthTypeApp,
+	}))
 	defer ts.Close()
 
 	req, err := http.NewRequestWithContext(t.Context(), "GET", ts.URL+"/events", nil)
@@ -159,7 +167,11 @@ func TestSSE_RunnerFilter(t *testing.T) {
 	const orgID int64 = 1
 	srv := New(Options{Subscriber: ps})
 
-	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{ID: "u", OrgID: orgID, Type: apiauth.AuthTypeApp}))
+	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{
+		ID:    "u",
+		OrgID: orgID,
+		Type:  apiauth.AuthTypeApp,
+	}))
 	defer ts.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -227,7 +239,11 @@ func TestSSE_OrgIsolation(t *testing.T) {
 	const orgA, orgB int64 = 1, 2
 	srv := New(Options{Subscriber: ps})
 
-	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{ID: "u", OrgID: orgB, Type: apiauth.AuthTypeApp}))
+	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{
+		ID:    "u",
+		OrgID: orgB,
+		Type:  apiauth.AuthTypeApp,
+	}))
 	defer ts.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -290,7 +306,10 @@ func TestSSE_CookieAuth(t *testing.T) {
 
 	// Cookie auth has no org id on the caller; it comes from the org_id
 	// query parameter and is validated by the resolver.
-	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{ID: "u", Type: apiauth.AuthTypeCookie}))
+	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{
+		ID:   "u",
+		Type: apiauth.AuthTypeCookie,
+	}))
 	defer ts.Close()
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -341,7 +360,10 @@ func TestSSE_CookieAuthForbidden(t *testing.T) {
 		OrgResolver: allowOrgResolver("u", 1),
 	})
 
-	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{ID: "u", Type: apiauth.AuthTypeCookie}))
+	ts := httptest.NewServer(apiauth.WithTestUser(srv.Handler(), &apiauth.UserInfo{
+		ID:   "u",
+		Type: apiauth.AuthTypeCookie,
+	}))
 	defer ts.Close()
 
 	// Request an org the user is not a member of.

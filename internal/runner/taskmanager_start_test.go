@@ -278,7 +278,12 @@ func TestTaskManagerPoll_StopWithoutSandbox(t *testing.T) {
 	// Arrange - task being cancelled with no tracked sandbox.
 	be := testrunner.NewBackend(t, nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 7, Version: 3, Status: model.TaskStatusCancelling, Command: model.TaskCommandStop}))
+	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
+		ID:      7,
+		Version: 3,
+		Status:  model.TaskStatusCancelling,
+		Command: model.TaskCommandStop,
+	}))
 
 	// Act
 	err := m.Poll(t.Context())
@@ -296,12 +301,24 @@ func TestTaskManagerPoll_StopSignalled(t *testing.T) {
 	t.Parallel()
 	// Arrange - task being cancelled with a tracked sandbox, up and running
 	// the task's run.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{TaskID: 7, Version: 3, Agent: testrunner.SleepForever})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		TaskID:  7,
+		Version: 3,
+		Agent:   testrunner.SleepForever,
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c7", fake.Up)
 	rec := taskstate.Record{TaskID: 7, Version: 3, Type: "fake", ID: "c7"}
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, rec)})
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{ID: 7, Version: 3, Status: model.TaskStatusCancelling, Command: model.TaskCommandStop}))
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
+	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
+		ID:      7,
+		Version: 3,
+		Status:  model.TaskStatusCancelling,
+		Command: model.TaskCommandStop,
+	}))
 	_, err := m.Runner(7).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 
@@ -321,7 +338,10 @@ func TestTaskManagerPoll_SlowDriver(t *testing.T) {
 	t.Parallel()
 	// Arrange - a pending task with no record, whose sandbox's driver is not
 	// listening yet.
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil), DriverNotReady: true})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver:         testrunner.NewDriver(t, nil),
+		DriverNotReady: true,
+	})
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 	m.SetTasks(testrunner.Task(nil))
 
@@ -356,11 +376,17 @@ func TestTaskManagerPoll_StartStillRunning(t *testing.T) {
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
 	be.Add("c1", fake.Up)
 	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, rec)})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
 	_, err := m.Runner(1).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 	be.Set("c1", fake.Parked)
-	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{Version: 4, Status: model.TaskStatusCompleted}))
+	m.SetTasks(testrunner.Task(&testrunner.TaskOptions{
+		Version: 4,
+		Status:  model.TaskStatusCompleted,
+	}))
 
 	// Act
 	err = m.Poll(t.Context())
@@ -443,8 +469,20 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 		record taskstate.Record
 	}{
 		// A record written by an older runner carries the run version in Data.
-		{name: "legacy handle", record: taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1", Data: json.RawMessage(`{"version":3}`)}},
-		{name: "current handle", record: taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}},
+		{
+			name: "legacy handle",
+			record: taskstate.Record{
+				TaskID:  1,
+				Version: 3,
+				Type:    "fake",
+				ID:      "c1",
+				Data:    json.RawMessage(`{"version":3}`),
+			},
+		},
+		{
+			name:   "current handle",
+			record: taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -452,9 +490,14 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 			// Arrange - the recorded sandbox is parked, and its driver has
 			// never run version 4.
 			task := testrunner.Task(&testrunner.TaskOptions{Version: 4})
-			be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 4})})
+			be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+				Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 4}),
+			})
 			be.Add("c1", fake.Parked)
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, tt.record)})
+			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+				Backend: be,
+				Store:   testrunner.NewStore(t, tt.record),
+			})
 			_, err := m.Runner(1).Restore(t.Context(), tt.record)
 			assert.NilError(t, err)
 
@@ -503,7 +546,10 @@ func TestTaskManagerWait_Done(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run whose sandbox's driver is not listening yet.
 	task := testrunner.Task(nil)
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil), DriverNotReady: true})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver:         testrunner.NewDriver(t, nil),
+		DriverNotReady: true,
+	})
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 	assert.NilError(t, m.Start(t.Context(), task))
 	boom := errors.New("boom")
@@ -528,7 +574,10 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	task := testrunner.Task(nil)
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil), DriverNotReady: true})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver:         testrunner.NewDriver(t, nil),
+		DriverNotReady: true,
+	})
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, TaskRunner: func(opts *runner.TaskRunnerOptions) {
 		opts.ReadyTimeout = 100 * time.Millisecond
 	}})
@@ -589,9 +638,14 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// Arrange - task 8's recorded sandbox, restored parked, is then removed
 	// behind the runner's back.
 	rec := taskstate.Record{TaskID: 8, Version: 1, Type: "fake", ID: "c1"}
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3})})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3}),
+	})
 	be.Add("c1", fake.Parked)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, rec)})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend: be,
+		Store:   testrunner.NewStore(t, rec),
+	})
 	_, err := m.Runner(8).Restore(t.Context(), rec)
 	assert.NilError(t, err)
 	be.Set("c1", fake.Gone)
@@ -688,7 +742,10 @@ func TestTaskManagerKill(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: tt.agent})
+			client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+				Version: 3,
+				Agent:   tt.agent,
+			})
 			if tt.finish {
 				testrunner.WaitFinished(t, client, 3)
 			}
@@ -730,7 +787,13 @@ func TestTaskManagerKill(t *testing.T) {
 func TestTaskManagerRemove(t *testing.T) {
 	t.Parallel()
 	// A record written by an older runner carries the run version in Data.
-	legacy := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1", Data: json.RawMessage(`{"version":3}`)}
+	legacy := taskstate.Record{
+		TaskID:  1,
+		Version: 3,
+		Type:    "fake",
+		ID:      "c1",
+		Data:    json.RawMessage(`{"version":3}`),
+	}
 	tests := []struct {
 		name string
 		// record, when set, is the task's record, of parked sandbox c1.
@@ -838,7 +901,10 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 			rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
 			be := testrunner.NewBackend(t, nil)
 			be.Add("c1", fake.Parked)
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, rec)})
+			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+				Backend: be,
+				Store:   testrunner.NewStore(t, rec),
+			})
 			tr := m.Runner(1)
 			_, err := tr.Restore(t.Context(), rec)
 			assert.NilError(t, err)
@@ -850,7 +916,11 @@ func TestTaskManagerAfterDestroy(t *testing.T) {
 			// Assert - the sandbox was destroyed once and nothing else was
 			// done to it, and the task has no sandbox.
 			sbx, _ := be.Snapshot().Sandbox("c1")
-			assert.DeepEqual(t, sbx, fake.Info{Handle: backend.Handle{Type: "fake", ID: "c1"}, State: fake.Gone, Destroys: 1})
+			assert.DeepEqual(t, sbx, fake.Info{
+				Handle:   backend.Handle{Type: "fake", ID: "c1"},
+				State:    fake.Gone,
+				Destroys: 1,
+			})
 			m.AssertTracked(t, 1, nil)
 		})
 	}

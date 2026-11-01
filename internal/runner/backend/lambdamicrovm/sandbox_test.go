@@ -114,7 +114,11 @@ func TestOpen(t *testing.T) {
 	assert.DeepEqual(t, open(t, be, h).Handle(), h)
 	// A handle recorded by an older runner, which also carries its run's
 	// version, opens the same VM.
-	legacy := backend.Handle{Type: HandleType, ID: "mvm-9", Data: []byte(`{"endpoint":"vm.example.com","version":3}`)}
+	legacy := backend.Handle{
+		Type: HandleType,
+		ID:   "mvm-9",
+		Data: []byte(`{"endpoint":"vm.example.com","version":3}`),
+	}
 	assert.Equal(t, open(t, be, legacy).Handle().ID, "mvm-9")
 
 	tests := map[string]backend.Handle{
@@ -169,9 +173,21 @@ func TestSandbox_Boot(t *testing.T) {
 		{state: types.MicrovmStateRunning, final: types.MicrovmStateRunning},
 		{state: types.MicrovmStateSuspended, resumed: true, final: types.MicrovmStateRunning},
 		// Boot's GetMicrovm settles the fake's suspend; it is not resumed.
-		{state: types.MicrovmStateSuspending, final: types.MicrovmStateSuspended, errMsg: "still suspending"},
-		{state: types.MicrovmStateTerminating, final: types.MicrovmStateTerminating, err: backend.ErrGone},
-		{state: types.MicrovmStateTerminated, final: types.MicrovmStateTerminated, err: backend.ErrGone},
+		{
+			state:  types.MicrovmStateSuspending,
+			final:  types.MicrovmStateSuspended,
+			errMsg: "still suspending",
+		},
+		{
+			state: types.MicrovmStateTerminating,
+			final: types.MicrovmStateTerminating,
+			err:   backend.ErrGone,
+		},
+		{
+			state: types.MicrovmStateTerminated,
+			final: types.MicrovmStateTerminated,
+			err:   backend.ErrGone,
+		},
 		{state: "", err: backend.ErrGone},
 	}
 	for _, tt := range tests {
@@ -220,8 +236,16 @@ func TestSandbox_Park(t *testing.T) {
 		// A suspend in progress is waited for, not repeated.
 		{state: types.MicrovmStateSuspending, final: types.MicrovmStateSuspended},
 		{state: types.MicrovmStateSuspended, final: types.MicrovmStateSuspended},
-		{state: types.MicrovmStateTerminating, final: types.MicrovmStateTerminating, err: backend.ErrGone},
-		{state: types.MicrovmStateTerminated, final: types.MicrovmStateTerminated, err: backend.ErrGone},
+		{
+			state: types.MicrovmStateTerminating,
+			final: types.MicrovmStateTerminating,
+			err:   backend.ErrGone,
+		},
+		{
+			state: types.MicrovmStateTerminated,
+			final: types.MicrovmStateTerminated,
+			err:   backend.ErrGone,
+		},
 		{state: "", err: backend.ErrGone},
 	}
 	for _, tt := range tests {
@@ -299,7 +323,9 @@ func TestSandbox_Dial(t *testing.T) {
 	assert.DeepEqual(t, te.cloud.mints(), []*lambdamicrovms.CreateMicrovmAuthTokenInput{{
 		MicrovmIdentifier:   aws.String("mvm-9"),
 		ExpirationInMinutes: aws.Int32(60),
-		AllowedPorts:        []types.PortSpecification{&types.PortSpecificationMemberPort{Value: DriverPort}},
+		AllowedPorts: []types.PortSpecification{
+			&types.PortSpecificationMemberPort{Value: DriverPort},
+		},
 	}}, cmpopts.IgnoreUnexported(lambdamicrovms.CreateMicrovmAuthTokenInput{}, types.PortSpecificationMemberPort{}))
 	te.mu.Lock()
 	defer te.mu.Unlock()

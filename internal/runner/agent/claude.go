@@ -186,7 +186,11 @@ func (a *ClaudeAgent) handleStreamEvent(data []byte) bool {
 				"retry_delay_ms", event.RetryDelayMS)
 		}
 	case "result":
-		attrs := []any{"subtype", event.Subtype, "turns", event.NumTurns, "duration_ms", event.DurationMS}
+		attrs := []any{
+			"subtype", event.Subtype,
+			"turns", event.NumTurns,
+			"duration_ms", event.DurationMS,
+		}
 		if !event.IsError {
 			a.log.Info("result", attrs...)
 			break

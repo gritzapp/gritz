@@ -93,36 +93,51 @@ func TestAllow(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "value match",
-			scope: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"workspace": "X"}},
+			name: "value match",
+			scope: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"workspace": "X"},
+			},
 			op:    []string{"task", "create"},
 			attrs: []Attr{StringAttr("workspace", "X")},
 			want:  true,
 		},
 		{
-			name:  "value mismatch denied",
-			scope: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"workspace": "X"}},
+			name: "value mismatch denied",
+			scope: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"workspace": "X"},
+			},
 			op:    []string{"task", "create"},
 			attrs: []Attr{StringAttr("workspace", "Z")},
 			want:  false,
 		},
 		{
-			name:  "AND across keys all match",
-			scope: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"parent": "42", "workspace": "ws"}},
+			name: "AND across keys all match",
+			scope: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"parent": "42", "workspace": "ws"},
+			},
 			op:    []string{"task", "create"},
 			attrs: []Attr{StringAttr("parent", "42"), StringAttr("workspace", "ws")},
 			want:  true,
 		},
 		{
-			name:  "AND across keys one fails",
-			scope: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"parent": "42", "workspace": "ws"}},
+			name: "AND across keys one fails",
+			scope: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"parent": "42", "workspace": "ws"},
+			},
 			op:    []string{"task", "create"},
 			attrs: []Attr{StringAttr("parent", "42"), StringAttr("workspace", "other")},
 			want:  false,
 		},
 		{
-			name:  "AND across keys one key missing",
-			scope: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"parent": "42", "workspace": "ws"}},
+			name: "AND across keys one key missing",
+			scope: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"parent": "42", "workspace": "ws"},
+			},
 			op:    []string{"task", "create"},
 			attrs: []Attr{StringAttr("parent", "42")},
 			want:  false,
@@ -268,7 +283,10 @@ func TestParse(t *testing.T) {
 		{
 			name: "multiple predicate keys",
 			in:   `task.create:{"parent":"42","workspace":"ws","runner":"rn"}`,
-			want: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"parent": "42", "workspace": "ws", "runner": "rn"}},
+			want: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"parent": "42", "workspace": "ws", "runner": "rn"},
+			},
 		},
 		{
 			name: "wildcard segment",
@@ -278,7 +296,10 @@ func TestParse(t *testing.T) {
 		{
 			name: "first colon split with colons inside json",
 			in:   `task.read:{"url":"http://example.com:8080/p"}`,
-			want: Scope{Op: []string{"task", "read"}, Preds: map[string]string{"url": "http://example.com:8080/p"}},
+			want: Scope{
+				Op:    []string{"task", "read"},
+				Preds: map[string]string{"url": "http://example.com:8080/p"},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -335,9 +356,12 @@ func TestString(t *testing.T) {
 			want:  "github_token.create",
 		},
 		{
-			name:  "predicates emitted with sorted keys",
-			scope: Scope{Op: []string{"task", "create"}, Preds: map[string]string{"workspace": "ws", "parent": "42"}},
-			want:  `task.create:{"parent":"42","workspace":"ws"}`,
+			name: "predicates emitted with sorted keys",
+			scope: Scope{
+				Op:    []string{"task", "create"},
+				Preds: map[string]string{"workspace": "ws", "parent": "42"},
+			},
+			want: `task.create:{"parent":"42","workspace":"ws"}`,
 		},
 	}
 	for _, tt := range tests {

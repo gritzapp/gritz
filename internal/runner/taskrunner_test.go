@@ -25,7 +25,11 @@ import (
 // its Run. tune, when set, is ManagerOptions.TaskRunner.
 func restoredRunner(t *testing.T, be *fake.Backend, rec taskstate.Record, tune func(*runner.TaskRunnerOptions)) (*runner.TaskRunner, *testrunner.Manager) {
 	t.Helper()
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: testrunner.NewStore(t, rec), TaskRunner: tune})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend:    be,
+		Store:      testrunner.NewStore(t, rec),
+		TaskRunner: tune,
+	})
 	tr := m.Runner(rec.TaskID)
 	_, err := tr.Restore(t.Context(), rec)
 	assert.NilError(t, err)
@@ -61,7 +65,10 @@ func TestNewTaskRunner(t *testing.T) {
 		name string
 		opts runner.TaskRunnerOptions
 	}{
-		{name: "no backend", opts: runner.TaskRunnerOptions{TaskID: 1, Store: store, Events: events}},
+		{
+			name: "no backend",
+			opts: runner.TaskRunnerOptions{TaskID: 1, Store: store, Events: events},
+		},
 		{name: "no store", opts: runner.TaskRunnerOptions{TaskID: 1, Backend: be, Events: events}},
 		{name: "no events", opts: runner.TaskRunnerOptions{TaskID: 1, Backend: be, Store: store}},
 	}
@@ -77,10 +84,18 @@ func TestNewTaskRunner(t *testing.T) {
 func TestTaskRunnerRun_Finished(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that finishes on its own, on an up sandbox.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: &agent.Config{Type: agent.TypeDummy}})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 3,
+		Agent:   &agent.Config{Type: agent.TypeDummy},
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  1,
+		Version: 3,
+		Type:    "fake",
+		ID:      "c1",
+	}, nil)
 
 	// Act
 	err := tr.Run(t.Context(), nil)
@@ -97,10 +112,18 @@ func TestTaskRunnerRun_Finished(t *testing.T) {
 func TestTaskRunnerRun_Reattach(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going until it is stopped.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 3,
+		Agent:   testrunner.SleepForever,
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  1,
+		Version: 3,
+		Type:    "fake",
+		ID:      "c1",
+	}, nil)
 	done := runAsync(t.Context(), tr, nil)
 	testrunner.WaitRuns(t, be, "c1", 1)
 
@@ -123,7 +146,12 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	// Arrange - a sandbox that stays up while its driver never answers.
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 2, Version: 4, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  2,
+		Version: 4,
+		Type:    "fake",
+		ID:      "c1",
+	}, func(opts *runner.TaskRunnerOptions) {
 		opts.LostTimeout = 100 * time.Millisecond
 	})
 
@@ -145,9 +173,16 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, so attaching to version 3 is
 	// NotFound.
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3})})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3}),
+	})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  1,
+		Version: 3,
+		Type:    "fake",
+		ID:      "c1",
+	}, nil)
 
 	// Act
 	err := tr.Run(t.Context(), nil)
@@ -168,9 +203,17 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 func TestTaskRunnerRun_NotReady(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil), DriverNotReady: true})
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver:         testrunner.NewDriver(t, nil),
+		DriverNotReady: true,
+	})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 1, Type: "fake", ID: "c1"}, func(opts *runner.TaskRunnerOptions) {
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  1,
+		Version: 1,
+		Type:    "fake",
+		ID:      "c1",
+	}, func(opts *runner.TaskRunnerOptions) {
 		opts.ReadyTimeout = 100 * time.Millisecond
 	})
 
@@ -192,10 +235,18 @@ func TestTaskRunnerRun_NotReady(t *testing.T) {
 func TestTaskRunnerRun_Shutdown(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 3,
+		Agent:   testrunner.SleepForever,
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  1,
+		Version: 3,
+		Type:    "fake",
+		ID:      "c1",
+	}, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := runAsync(ctx, tr, nil)
 	testrunner.WaitRuns(t, be, "c1", 1)
@@ -220,7 +271,12 @@ func TestTaskRunnerBoot(t *testing.T) {
 	// Arrange
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Parked)
-	tr, m := restoredRunner(t, be, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}, nil)
+	tr, m := restoredRunner(t, be, taskstate.Record{
+		TaskID:  1,
+		Version: 3,
+		Type:    "fake",
+		ID:      "c1",
+	}, nil)
 
 	// Act
 	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
@@ -330,12 +386,29 @@ func TestTaskRunnerRestore(t *testing.T) {
 		wantSandbox bool // the sandbox and record are kept
 		wantClaimed bool // which also shows the sandbox was adopted
 	}{
-		{name: "up", state: fake.Up, wantStatus: backend.StatusUp, wantSandbox: true, wantClaimed: true},
+		{
+			name:        "up",
+			state:       fake.Up,
+			wantStatus:  backend.StatusUp,
+			wantSandbox: true,
+			wantClaimed: true,
+		},
 		{name: "parked", state: fake.Parked, wantStatus: backend.StatusParked, wantSandbox: true},
 		{name: "gone", state: fake.Gone, wantStatus: backend.StatusGone},
 		{name: "never existed", wantStatus: backend.StatusGone},
-		{name: "status error", state: fake.Up, statusErr: errors.New("boom"), wantErr: true, wantSandbox: true},
-		{name: "open fails", state: fake.Up, openErr: errors.New("malformed handle"), wantErr: true},
+		{
+			name:        "status error",
+			state:       fake.Up,
+			statusErr:   errors.New("boom"),
+			wantErr:     true,
+			wantSandbox: true,
+		},
+		{
+			name:    "open fails",
+			state:   fake.Up,
+			openErr: errors.New("malformed handle"),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -406,7 +479,10 @@ func TestTaskRunnerSend_Shutdown(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run followed on an up sandbox by a TaskRunner whose events
 	// nobody reads.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3, Agent: testrunner.SleepForever})
+	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
+		Version: 3,
+		Agent:   testrunner.SleepForever,
+	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
 	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}

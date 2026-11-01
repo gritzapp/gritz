@@ -31,8 +31,20 @@ func TestSetAndGetOrgRoutingRules(t *testing.T) {
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
 	rules := []model.RoutingRule{
-		{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "bot:"}}},
-		{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "mybot"}}},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "body", Op: "prefix", Value: "bot:"},
+			},
+		},
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "mention", Op: "equals", Value: "mybot"},
+			},
+		},
 	}
 	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, rules)
 	assert.NilError(t, err)
@@ -51,7 +63,15 @@ func TestGetRoutingRulesByOrgs(t *testing.T) {
 	s := teststore.New(t)
 	orgA := teststore.CreateOrg(t, s, nil)
 	orgB := teststore.CreateOrg(t, s, nil)
-	rulesA := []model.RoutingRule{{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "a:"}}}}
+	rulesA := []model.RoutingRule{
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "body", Op: "prefix", Value: "a:"},
+			},
+		},
+	}
 	err := s.SetOrgRoutingRules(t.Context(), nil, orgA.OrgID, rulesA)
 	assert.NilError(t, err)
 
@@ -70,10 +90,26 @@ func TestSetOrgRoutingRulesOverwrite(t *testing.T) {
 	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
-	rules1 := []model.RoutingRule{{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "old:"}}}}
+	rules1 := []model.RoutingRule{
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "body", Op: "prefix", Value: "old:"},
+			},
+		},
+	}
 	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, rules1)
 	assert.NilError(t, err)
-	rules2 := []model.RoutingRule{{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "newbot"}}}}
+	rules2 := []model.RoutingRule{
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "mention", Op: "equals", Value: "newbot"},
+			},
+		},
+	}
 	err = s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, rules2)
 	assert.NilError(t, err)
 
@@ -91,7 +127,15 @@ func TestListRoutingRulesForEvent(t *testing.T) {
 	// actor is NOT a member of, each with its own rules.
 	s := teststore.New(t)
 	memberOrg := teststore.CreateOrg(t, s, nil)
-	memberRules := []model.RoutingRule{{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "m:"}}}}
+	memberRules := []model.RoutingRule{
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "body", Op: "prefix", Value: "m:"},
+			},
+		},
+	}
 	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, memberOrg.OrgID, memberRules))
 
 	nonMemberOrg := teststore.CreateOrg(t, s, nil)
@@ -228,7 +272,15 @@ func TestSetOrgRoutingRulesClearToEmpty(t *testing.T) {
 	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
-	rules := []model.RoutingRule{{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "test:"}}}}
+	rules := []model.RoutingRule{
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []model.Condition{
+				{Attr: "body", Op: "prefix", Value: "test:"},
+			},
+		},
+	}
 	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, rules)
 	assert.NilError(t, err)
 	err = s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, nil)

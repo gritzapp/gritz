@@ -181,7 +181,11 @@ func WaitRunnerEvents(t *testing.T, s *store.Store, org *Org, opts WaitRunnerEve
 	token := opts.PageToken
 	var got []*model.Event
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: opts.Runner, PageToken: token})
+		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{
+			OrgID:     org.OrgID,
+			Runner:    opts.Runner,
+			PageToken: token,
+		})
 		if err != nil {
 			return poll.Error(err)
 		}

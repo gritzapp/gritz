@@ -56,7 +56,14 @@ func TestHandlerRoutesBuildHooks(t *testing.T) {
 
 func TestHandlerNilFieldsDefaultTo200(t *testing.T) {
 	h := &Handler{} // no hooks set
-	for _, path := range []string{HookRun, HookTerminate, HookSuspend, HookResume, HookReady, HookValidate} {
+	for _, path := range []string{
+		HookRun,
+		HookTerminate,
+		HookSuspend,
+		HookResume,
+		HookReady,
+		HookValidate,
+	} {
 		assert.Equal(t, post(t, h, path, "").Code, http.StatusOK, "path %s with nil hook", path)
 	}
 }

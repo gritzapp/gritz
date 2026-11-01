@@ -15,7 +15,11 @@ import (
 func TestCreateTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -33,7 +37,11 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
+			&model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
 		},
 	)
 }
@@ -41,7 +49,11 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -63,7 +75,11 @@ func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 func TestUpdateTask_StartCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -83,7 +99,11 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
+			&model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
 		},
 	)
 }
@@ -91,7 +111,11 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -114,7 +138,11 @@ func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 func TestRestartTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -134,7 +162,11 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandRestart, Version: 1, Runner: "test-runner"},
+			&model.CommandPayload{
+				Command: model.TaskCommandRestart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
 		},
 	)
 }
@@ -142,7 +174,11 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 func TestCancelTask_PendingCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -163,8 +199,16 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
-			&model.CommandPayload{Command: model.TaskCommandNone, Version: 1, Runner: "test-runner"},
+			&model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
+			&model.CommandPayload{
+				Command: model.TaskCommandNone,
+				Version: 1,
+				Runner:  "test-runner",
+			},
 		},
 	)
 }
@@ -172,7 +216,11 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -194,8 +242,16 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
-			&model.CommandPayload{Command: model.TaskCommandNone, Version: 1, Runner: "test-runner"},
+			&model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
+			&model.CommandPayload{
+				Command: model.TaskCommandNone,
+				Version: 1,
+				Runner:  "test-runner",
+			},
 		},
 	)
 }
@@ -203,7 +259,11 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}}})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
 	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
 		ID:     org.UserID,
 		OrgID:  org.OrgID,
@@ -228,9 +288,21 @@ func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	assert.DeepEqual(t,
 		model.FilterPayloads(events, model.EventTypeCommand),
 		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
-			&model.CommandPayload{Command: model.TaskCommandNone, Version: 1, Runner: "test-runner"},
-			&model.CommandPayload{Command: model.TaskCommandStop, Version: 1, Runner: "test-runner"},
+			&model.CommandPayload{
+				Command: model.TaskCommandStart,
+				Version: 1,
+				Runner:  "test-runner",
+			},
+			&model.CommandPayload{
+				Command: model.TaskCommandNone,
+				Version: 1,
+				Runner:  "test-runner",
+			},
+			&model.CommandPayload{
+				Command: model.TaskCommandStop,
+				Version: 1,
+				Runner:  "test-runner",
+			},
 		},
 	)
 }
