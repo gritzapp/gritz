@@ -165,24 +165,15 @@ func (s *Store) EventCursor(ctx context.Context) (string, error) {
 }
 
 // TaskEventsAfter returns the task's events after the event with id afterID,
-// in log order; afterID 0 returns all of them. afterID must be the id of a
-// stored event: every position a reader holds came from this table, and
-// nothing is deleted.
+// in log order; afterID 0 returns all of them. An afterID that isn't stored
+// yet returns no events rather than the whole log: once that event is
+// replicated, the next call returns what follows it. That happens when a
+// reader's position outlives the database, such as a driver's last event id
+// after the runner's database was rebuilt.
 func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*gritzv1.Event, error) {
-	var after int64
-	if afterID != 0 {
-		var err error
-		after, err = s.q.GetEventSeq(ctx, afterID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("runnerstore: event %d is not stored", afterID)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("runnerstore: resolve event %d: %w", afterID, err)
-		}
-	}
 	rows, err := s.q.ListTaskEventsAfter(ctx, sqlc.ListTaskEventsAfterParams{
-		TaskID: taskID,
-		Seq:    after,
+		TaskID:  taskID,
+		AfterID: afterID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runnerstore: read task %d events: %w", taskID, err)

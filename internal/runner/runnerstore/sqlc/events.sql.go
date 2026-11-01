@@ -9,17 +9,6 @@ import (
 	"context"
 )
 
-const getEventSeq = `-- name: GetEventSeq :one
-SELECT seq FROM events WHERE id = ?
-`
-
-func (q *Queries) GetEventSeq(ctx context.Context, id int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getEventSeq, id)
-	var seq int64
-	err := row.Scan(&seq)
-	return seq, err
-}
-
 const insertEvent = `-- name: InsertEvent :exec
 INSERT INTO events (id, task_id, type, event) VALUES (?, ?, ?, ?)
 `
@@ -42,18 +31,20 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 }
 
 const listTaskEventsAfter = `-- name: ListTaskEventsAfter :many
-SELECT event FROM events
-WHERE task_id = ? AND seq > ?
-ORDER BY seq
+SELECT e.event FROM events e
+WHERE e.task_id = ?1
+  AND (CAST(?2 AS INTEGER) = 0
+       OR e.seq > (SELECT a.seq FROM events a WHERE a.id = ?2))
+ORDER BY e.seq
 `
 
 type ListTaskEventsAfterParams struct {
-	TaskID int64
-	Seq    int64
+	TaskID  int64
+	AfterID int64
 }
 
 func (q *Queries) ListTaskEventsAfter(ctx context.Context, arg ListTaskEventsAfterParams) ([][]byte, error) {
-	rows, err := q.db.QueryContext(ctx, listTaskEventsAfter, arg.TaskID, arg.Seq)
+	rows, err := q.db.QueryContext(ctx, listTaskEventsAfter, arg.TaskID, arg.AfterID)
 	if err != nil {
 		return nil, err
 	}
