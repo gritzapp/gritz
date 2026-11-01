@@ -178,22 +178,6 @@ func (te *testEnv) open(t *testing.T, first *driverv1.RunRequest) (*runStream, *
 	}
 }
 
-// runErr opens a Run stream with first and returns the error it ends with
-// before any message, retrying while the previous stream is still being
-// released.
-func (te *testEnv) runErr(t *testing.T, first *driverv1.RunRequest) error {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		_, msg, err := te.call(t, first)
-		assert.Assert(t, err != nil, "Run answered %v, want an error", msg)
-		if connect.CodeOf(err) != connect.CodeUnavailable || time.Now().After(deadline) {
-			return err
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 // idle reads the stream until Idle, skipping keep-alives, and checks that the
 // stream ends there.
 func idle(t *testing.T, stream *runStream) *driverv1.Idle {
