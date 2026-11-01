@@ -11,15 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
-
-	_ "github.com/ncruces/go-sqlite3/driver" // registers the "sqlite3" database/sql driver
-	_ "github.com/ncruces/go-sqlite3/embed"  // the SQLite build the driver runs
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore/sqlc"
+	"github.com/gritzapp/gritz/internal/x/sqlite"
 )
 
 // migrations holds the schema, one file per version, applied in name order.
@@ -35,66 +33,25 @@ type Store struct {
 
 // Open opens the database at path, creating it and its tables if absent.
 func Open(path string) (*Store, error) {
-	// The pragmas go in the DSN so they apply to every connection the pool
-	// opens, not only the first.
-	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + url.Values{
-		"_pragma": {"journal_mode(wal)", "synchronous(full)", "busy_timeout(5000)"},
-	}.Encode()
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sqlite.Open(path, sqlite.Options{
+		JournalMode: sqlite.JournalModeWAL,
+		Synchronous: sqlite.SynchronousFull,
+		BusyTimeout: 5 * time.Second,
+		// One connection: the runner is the database's only user, and
+		// SQLite allows one writer at a time anyway.
+		MaxOpenConns: 1,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("runnerstore: open %s: %w", path, err)
+		return nil, fmt.Errorf("runnerstore: %w", err)
 	}
-	// One connection: the runner is the database's only user, and SQLite
-	// allows one writer at a time anyway.
-	db.SetMaxOpenConns(1)
-	if err := migrate(db); err != nil {
-		return nil, errors.Join(err, db.Close())
+	fsys, err := fs.Sub(migrations, "sql/migrations")
+	if err != nil {
+		panic(fmt.Sprintf("runnerstore: embedded migrations: %v", err))
+	}
+	if err := sqlite.Migrate(db, fsys); err != nil {
+		return nil, errors.Join(fmt.Errorf("runnerstore: %w", err), db.Close())
 	}
 	return &Store{db: db, q: sqlc.New(db)}, nil
-}
-
-// migrate applies the migrations the database lacks, each in its own
-// transaction. PRAGMA user_version holds how many are applied.
-func migrate(db *sql.DB) error {
-	files, err := fs.Glob(migrations, "sql/migrations/*.sql")
-	if err != nil {
-		return fmt.Errorf("runnerstore: list migrations: %w", err)
-	}
-	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		return fmt.Errorf("runnerstore: read schema version: %w", err)
-	}
-	if version > len(files) {
-		return fmt.Errorf("runnerstore: schema version %d is newer than this runner's %d", version, len(files))
-	}
-	for i, name := range files[version:] {
-		if err := applyMigration(db, name, version+i+1); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func applyMigration(db *sql.DB, name string, version int) error {
-	data, err := migrations.ReadFile(name)
-	if err != nil {
-		return fmt.Errorf("runnerstore: read %s: %w", name, err)
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("runnerstore: begin %s: %w", name, err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(string(data)); err != nil {
-		return fmt.Errorf("runnerstore: apply %s: %w", name, err)
-	}
-	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
-		return fmt.Errorf("runnerstore: set schema version after %s: %w", name, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("runnerstore: commit %s: %w", name, err)
-	}
-	return nil
 }
 
 // Close closes the database.
