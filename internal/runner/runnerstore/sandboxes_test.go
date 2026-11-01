@@ -12,18 +12,12 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 )
 
-func openStore(t *testing.T) *runnerstore.Store {
-	t.Helper()
-	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
-	assert.NilError(t, err)
-	t.Cleanup(func() { assert.NilError(t, store.Close()) })
-	return store
-}
-
 func TestWriteSandbox(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	rec := runnerstore.SandboxRecord{
 		TaskID:  42,
 		Version: 7,
@@ -47,7 +41,9 @@ func TestWriteSandbox(t *testing.T) {
 func TestWriteSandbox_NoData(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 2, Handle: backend.Handle{Type: "docker", ID: "c1"}}
 
 	// Act
@@ -63,7 +59,9 @@ func TestWriteSandbox_NoData(t *testing.T) {
 func TestWriteSandbox_Overwrite(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	assert.NilError(t, store.WriteSandbox(t.Context(), runnerstore.SandboxRecord{
 		TaskID:  7,
 		Version: 1,
@@ -87,7 +85,9 @@ func TestWriteSandbox_Overwrite(t *testing.T) {
 
 func TestSandbox_Absent(t *testing.T) {
 	t.Parallel()
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 
 	_, ok, err := store.Sandbox(t.Context(), 99)
 
@@ -98,7 +98,9 @@ func TestSandbox_Absent(t *testing.T) {
 func TestRemoveSandbox(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	assert.NilError(t, store.WriteSandbox(t.Context(), runnerstore.SandboxRecord{
 		TaskID: 5,
 		Handle: backend.Handle{Type: "docker", ID: "c5"},
@@ -115,7 +117,9 @@ func TestRemoveSandbox(t *testing.T) {
 
 func TestRemoveSandbox_Absent(t *testing.T) {
 	t.Parallel()
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 
 	// Removing an absent record is a no-op, not an error.
 	assert.NilError(t, store.RemoveSandbox(t.Context(), 123))
@@ -124,7 +128,9 @@ func TestRemoveSandbox_Absent(t *testing.T) {
 func TestSandboxes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	for _, id := range []int64{3, 1, 2} {
 		assert.NilError(t, store.WriteSandbox(t.Context(), runnerstore.SandboxRecord{
 			TaskID: id,
@@ -146,7 +152,9 @@ func TestSandboxes(t *testing.T) {
 
 func TestSandboxes_Empty(t *testing.T) {
 	t.Parallel()
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 
 	recs, err := store.Sandboxes(t.Context())
 
@@ -181,7 +189,9 @@ func TestSandboxes_SurviveReopen(t *testing.T) {
 
 func TestWriteSandbox_ConcurrentDifferentTasks(t *testing.T) {
 	t.Parallel()
-	store := openStore(t)
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 
 	const n = 50
 	var wg sync.WaitGroup
