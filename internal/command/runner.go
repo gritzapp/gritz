@@ -19,6 +19,8 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/urfave/cli/v3"
@@ -84,6 +86,12 @@ var RunnerCommand = &cli.Command{
 			Usage:   "Directory for the runner-local task→sandbox-handle store",
 			Value:   "/var/lib/gritz/tasks",
 			Sources: cli.EnvVars("GRITZ_STATE_DIR"),
+		},
+		&cli.StringFlag{
+			Name:    "state-db",
+			Usage:   "SQLite database for the runner's replica of its tasks' event logs (keep it on the same volume as --state-dir)",
+			Value:   "/var/lib/gritz/runner.db",
+			Sources: cli.EnvVars("GRITZ_STATE_DB"),
 		},
 		&cli.StringFlag{
 			Name:    "lambda-microvm-region",
@@ -203,6 +211,25 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to open task store: %w", err)
 		}
 
+		// Open the runner's SQLite database and replicate the runner's event
+		// log into it. The TaskManager doesn't act on the replica yet.
+		stateDB := cmd.String("state-db")
+		if err := os.MkdirAll(filepath.Dir(stateDB), 0o755); err != nil {
+			return fmt.Errorf("failed to create state db directory: %w", err)
+		}
+		rstore, err := runnerstore.Open(stateDB)
+		if err != nil {
+			return fmt.Errorf("failed to open state db: %w", err)
+		}
+		defer rstore.Close()
+		events := taskevents.New(taskevents.Options{
+			Store:        rstore,
+			Client:       client,
+			RunnerID:     runnerID,
+			PollInterval: pollInterval,
+			Log:          log,
+		})
+
 		m, err := runner.NewTaskManager(runner.TaskManagerOptions{
 			Client:       client,
 			Backend:      be,
@@ -243,6 +270,27 @@ var RunnerCommand = &cli.Command{
 		// events that were persisted but not yet acknowledged before a restart.
 		go queue.Run(ctx)
 
+		// Replicate the event log alongside the TaskManager. A store error
+		// ends the replication but not the runner, which still runs off Poll.
+		go func() {
+			if err := events.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("event log replication stopped", "err", err)
+			}
+		}()
+		// Run blocks until each task report is received. Nothing acts on them
+		// yet: the next step of the runner event replica makes the
+		// TaskManager consume them instead of polling ListRunnerTasks.
+		go func() {
+			for {
+				select {
+				case c := <-events.Tasks():
+					log.Debug("event log task report", "task", c.ID, "command", c.Command, "version", c.Version, "archived", c.Archived)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+
 		// Subscribe to server-sent task change notifications so the runner
 		// reacts to new commands immediately instead of waiting for the
 		// fallback poll.
@@ -252,7 +300,10 @@ var RunnerCommand = &cli.Command{
 				Runner:  runnerID,
 				Token:   cfg.Token,
 				Log:     log,
-				Handler: func(model.Notification) { m.Wake() },
+				Handler: func(model.Notification) {
+					m.Wake()
+					events.Wake()
+				},
 			})
 			if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				log.Error("notification client stopped", "err", err)
