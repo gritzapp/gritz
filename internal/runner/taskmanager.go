@@ -527,8 +527,7 @@ func (m *TaskManager) restartTask(ctx context.Context, c runnerstore.TaskChange)
 	// this runner before it restarted with the command unhandled. The
 	// driver takes ~12s to boot, so killing here would SIGKILL the run
 	// we just started (issue #1520). Do nothing: "started" consumes
-	// the command. A legacy version-0 record never matches a live
-	// task's version (>= 1), so the guard is a no-op for those.
+	// the command.
 	if m.Runner(c.ID).Version() == c.Version {
 		m.log.Debug("restart already processed, waiting for started", "task", c.ID, "version", c.Version)
 		return nil
@@ -679,9 +678,8 @@ func (m *TaskManager) failIfTaskRunning(ctx context.Context, taskID, version int
 		return
 	}
 	m.log.Error("load: sandbox exited without reporting", "task", taskID)
-	// Scope the backstop to the run that exited: a legacy record's version 0
-	// bypasses the guard, a stamped version only applies while the task is still
-	// on that run.
+	// Scope the backstop to the run that exited: it only applies while the task
+	// is still on that run.
 	if err := m.queue.Enqueue(model.RunnerEvent{
 		TaskID:  taskID,
 		Version: version,

@@ -378,8 +378,7 @@ func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 // with spec first, or, with spec nil, reattaches to a run already started. It
 // returns once the run finished, after parking the sandbox, and reports the
 // outcome if the driver did not. A run that could not be started or was lost
-// gets the runner's fallback "failed", scoped to its version (a legacy
-// record's version 0 bypasses the guard).
+// gets the runner's fallback "failed", scoped to its version.
 //
 // A lost run is sent to the manager as a TaskLostEvent before tr is released
 // for another run.
