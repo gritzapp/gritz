@@ -7,36 +7,27 @@ package sqlc
 
 import (
 	"context"
-	"strings"
 )
 
-const listTaskArchived = `-- name: ListTaskArchived :many
-SELECT id, archived FROM tasks WHERE id IN (/*SLICE:ids*/?)
+const insertTaskIfNew = `-- name: InsertTaskIfNew :many
+INSERT INTO tasks (id, archived) VALUES (?, 0)
+ON CONFLICT (id) DO NOTHING
+RETURNING id
 `
 
-func (q *Queries) ListTaskArchived(ctx context.Context, ids []int64) ([]Task, error) {
-	query := listTaskArchived
-	var queryParams []interface{}
-	if len(ids) > 0 {
-		for _, v := range ids {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
-	}
-	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+func (q *Queries) InsertTaskIfNew(ctx context.Context, id int64) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, insertTaskIfNew, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Task
+	var items []int64
 	for rows.Next() {
-		var i Task
-		if err := rows.Scan(&i.ID, &i.Archived); err != nil {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

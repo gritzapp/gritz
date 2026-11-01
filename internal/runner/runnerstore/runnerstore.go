@@ -60,7 +60,8 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// TaskChange is a task becoming active or archived.
+// TaskChange reports a task's archive state after a page. It may repeat the
+// state the task was already in.
 type TaskChange struct {
 	ID       int64
 	Archived bool
@@ -68,10 +69,11 @@ type TaskChange struct {
 
 // AppendEvents stores a page of replicated events, the cursor that follows
 // it, and the page's effect on the tasks table in one transaction. It returns
-// the page's task changes in order of each task's first event in the page:
-// new tasks that end the page unarchived, and tasks whose archive state
-// flipped. A task that is new and archived within one page was never active,
-// so it is stored as archived but not returned.
+// every task in the page that is new or has an archive event, with its
+// archived state after the page, in order of each task's first event. A
+// report may repeat the task's current state: a task archived and unarchived
+// within the page is reported unarchived, and one created and archived within
+// it is reported archived.
 func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) ([]TaskChange, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -79,14 +81,6 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	}
 	defer tx.Rollback()
 	q := s.q.WithTx(tx)
-	changes := NewTaskChanges(events)
-	stored, err := q.ListTaskArchived(ctx, changes.TaskIDs())
-	if err != nil {
-		return nil, fmt.Errorf("runnerstore: read tasks: %w", err)
-	}
-	for _, row := range stored {
-		changes.Stored(row.ID, row.Archived)
-	}
 	for _, e := range events {
 		data, err := proto.Marshal(e)
 		if err != nil {
@@ -100,12 +94,24 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 			return nil, fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
 		}
 	}
-	for _, row := range changes.Rows() {
-		if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
-			ID:       row.ID,
-			Archived: row.Archived,
-		}); err != nil {
-			return nil, fmt.Errorf("runnerstore: set task %d: %w", row.ID, err)
+	var changes []TaskChange
+	for _, t := range NewTaskChanges(events).Tasks() {
+		if t.HasArchiveEvent {
+			if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
+				ID:       t.ID,
+				Archived: t.Archived,
+			}); err != nil {
+				return nil, fmt.Errorf("runnerstore: set task %d: %w", t.ID, err)
+			}
+			changes = append(changes, TaskChange{ID: t.ID, Archived: t.Archived})
+			continue
+		}
+		inserted, err := q.InsertTaskIfNew(ctx, t.ID)
+		if err != nil {
+			return nil, fmt.Errorf("runnerstore: insert task %d: %w", t.ID, err)
+		}
+		if len(inserted) > 0 {
+			changes = append(changes, TaskChange{ID: t.ID})
 		}
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
@@ -114,7 +120,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("runnerstore: commit: %w", err)
 	}
-	return changes.Changes(), nil
+	return changes, nil
 }
 
 // EventReplicationCursor returns the replication cursor: the single position
