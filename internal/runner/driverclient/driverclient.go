@@ -35,7 +35,7 @@ type Options struct {
 }
 
 // New returns a driver.v1 client for the driver server at baseURL whose Run
-// streams are watched for liveness. Unary calls are unchanged.
+// streams are watched for liveness.
 func New(httpClient connect.HTTPClient, baseURL string, opts Options) driverv1connect.DriverServiceClient {
 	return driverv1connect.NewDriverServiceClient(httpClient, baseURL,
 		connect.WithInterceptors(&interceptor{idle: cmp.Or(opts.IdleTimeout, DefaultIdleTimeout)}))

@@ -28,6 +28,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"gotest.tools/v3/assert"
@@ -92,13 +93,55 @@ type DriverOptions struct {
 	// Agent, when set, starts run Version of TaskID with this agent config
 	// and leaves it going; when nil the driver has never run.
 	Agent *agent.Config
+	// EventID is the id of the start event Agent's run is started with,
+	// which the driver stores; defaults to 1. A runner forwards the events
+	// after it, so a test whose replica has the task's events gives that
+	// start this id there too.
+	EventID int64
 }
 
-// NewDriver serves a driver server and returns the test's client to it. The
-// driver reads the agent config from where the TaskManager's spec provisions
-// it, so a Run with that spec runs the workspace's agent. The server is shut
-// down when the test ends.
-func NewDriver(t *testing.T, opts *DriverOptions) driverv1connect.DriverServiceClient {
+// Driver is a driver server, reached through its embedded client.
+type Driver struct {
+	driverv1connect.DriverServiceClient
+	// gritz is the server the driver's runs report to.
+	gritz *gritzclient.ClientMock
+}
+
+// Reported returns the runner events the driver's runs reported, by name.
+func (d *Driver) Reported() []string {
+	var names []string
+	for _, ev := range d.gritz.SubmittedRunnerEvents() {
+		names = append(names, ev.GetEvent())
+	}
+	return names
+}
+
+// WaitStarted waits until the driver's runs have reported n starts.
+func (d *Driver) WaitStarted(t *testing.T, n int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		started := 0
+		for _, name := range d.Reported() {
+			if name == "started" {
+				started++
+			}
+		}
+		if started >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("driver reported %d runs started, want %d", started, n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// NewDriver serves a driver server and returns it. The driver reads the
+// agent config from where the TaskManager's spec provisions it, so a run it
+// starts with that spec runs the workspace's agent. The server is shut down
+// when the test ends.
+func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 	t.Helper()
 	if opts == nil {
 		opts = &DriverOptions{}
@@ -142,21 +185,33 @@ func NewDriver(t *testing.T, opts *DriverOptions) driverv1connect.DriverServiceC
 	})
 	mux := http.NewServeMux()
 	mux.Handle(srv.Handler())
-	client := serve(t, mux)
+	d := &Driver{DriverServiceClient: serve(t, mux), gritz: gritz}
 	if opts.Agent == nil {
-		return client
+		return d
 	}
-	// Start the run, and close its stream once the driver has answered Hello,
-	// which leaves the run going.
+	// Start the run with a start event, and close its stream once the run
+	// record says it is going, which leaves it going.
 	assert.NilError(t, configs.Save(taskID, opts.Agent))
-	stream := OpenRun(t, t.Context(), client, &driverv1.RunRequest{
-		Version: version,
-		Msg: &driverv1.RunRequest_Spec{
-			Spec: &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
-		},
-	})
+	stream := OpenRun(t, t.Context(), d, &driverv1.RunRequest{Msg: &driverv1.RunRequest_Spec{
+		Spec: &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
+	}})
+	assert.NilError(t, stream.Send(&driverv1.RunRequest{Msg: &driverv1.RunRequest_Events{Events: &driverv1.TaskEvents{
+		Events: []*gritzv1.Event{CommandEvent(cmp.Or(opts.EventID, 1), taskID, gritzv1.TaskCommand_START, version)},
+	}}}))
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		rec, _, err := runrecord.Read(filepath.Join(dir, "run.json"))
+		assert.NilError(t, err)
+		if rec.Version == version && rec.State == runrecord.Running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run %d did not start", version)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	assert.NilError(t, stream.CloseResponse())
-	return client
+	return d
 }
 
 // serve serves h over HTTP/2, which the driver's bidi Run stream needs, until
@@ -409,6 +464,15 @@ func (m *Manager) RunContext(t *testing.T, ctx context.Context) {
 	t.Cleanup(func() { <-done })
 }
 
+// Replicated stores events in the manager's replica as replication would,
+// for a test that doesn't run the manager: a Run stream forwards them, but
+// the task's follower never sees them.
+func (m *Manager) Replicated(t *testing.T, events ...*gritzv1.Event) {
+	t.Helper()
+	_, err := m.RunnerStore.AppendEvents(t.Context(), events, "replicated")
+	assert.NilError(t, err)
+}
+
 // Handled returns the id of the last event the task's follower handled.
 func (m *Manager) Handled(t *testing.T, taskID int64) int64 {
 	t.Helper()
@@ -550,63 +614,6 @@ func WaitRuns(t *testing.T, be *fake.Backend, id string, n int) {
 		return sbx.Runs >= n
 	})
 	assert.NilError(t, err, "sandbox %s did not get %d Run calls", id, n)
-}
-
-// StopRun stops the running run version over the test's client to the
-// driver, retrying until the driver has it running.
-func StopRun(t *testing.T, client driverv1connect.DriverServiceClient, version int64) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		resp, err := client.Stop(t.Context(), &driverv1.StopRequest{Version: version})
-		assert.NilError(t, err)
-		if resp.GetStopped() {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("run was never running")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// WaitFinished waits until run version has finished, attaching to it over
-// the test's client to the driver until its Idle, and retrying while another
-// Run stream is still open.
-func WaitFinished(t *testing.T, client driverv1connect.DriverServiceClient, version int64) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	for {
-		err := waitIdle(ctx, client, version)
-		if err == nil {
-			return
-		}
-		assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable, "stream ended before idle: %v", err)
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// waitIdle attaches to run version over one Run stream and reads it until
-// its Idle, or returns why the stream ended before it.
-func waitIdle(ctx context.Context, client driverv1connect.DriverServiceClient, version int64) error {
-	stream, err := client.Run(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = stream.CloseResponse() }()
-	if err := stream.Send(&driverv1.RunRequest{Version: version}); err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-	for {
-		msg, err := stream.Receive()
-		if err != nil {
-			return err
-		}
-		if msg.GetIdle() != nil {
-			return nil
-		}
-	}
 }
 
 // NewStream returns task taskID's event stream in store, read through an

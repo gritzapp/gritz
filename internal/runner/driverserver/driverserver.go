@@ -3,18 +3,19 @@
 // time, each built from its RunSpec: its own gritz client, log shipper, secret
 // mask and environment.
 //
-// See proposals/draft/driver-server.md. The driver reports started / stopped /
-// failed to the gritz server itself, and Idle says whether that report was
-// acknowledged. Every event the runner forwards on a Run stream is stored in
-// the driver's event file (internal/runner/eventfile); the driver doesn't act
-// on them yet.
+// See proposals/draft/driver-server.md and
+// proposals/draft/runner-event-replica.md. The Server is the transport: it
+// stores every event the runner forwards on a Run stream in the driver's
+// event file (internal/runner/eventfile), and hands them to the driver loop,
+// which acts on the latest command among them through the Executor. The
+// driver reports started / stopped / failed to the gritz server itself, and
+// Idle says whether that report was acknowledged.
 package driverserver
 
 import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"maps"
@@ -30,7 +31,6 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/eventfile"
-	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"github.com/gritzapp/gritz/internal/x/envx"
 	"github.com/gritzapp/gritz/internal/x/netx"
 )
@@ -77,9 +77,10 @@ type Options struct {
 }
 
 // Server implements driverv1connect.DriverServiceHandler. It owns the
-// transport; runs are executed by its Executor.
+// transport; its loop decides which runs to start and stop, and its Executor
+// executes them.
 type Server struct {
-	exec      *Executor
+	loop      *loop
 	events    *eventfile.File
 	keepAlive time.Duration
 	log       *slog.Logger
@@ -92,7 +93,8 @@ type Server struct {
 var _ driverv1connect.DriverServiceHandler = (*Server)(nil)
 
 // New returns a server, reconciling the run record first (see NewExecutor).
-// It reads the event file.
+// It reads the event file, so the loop picks up from the reconciled record
+// and the latest command stored before a restart.
 func New(opts Options) (*Server, error) {
 	s := &Server{
 		keepAlive: cmp.Or(opts.KeepAlive, DefaultKeepAlive),
@@ -103,7 +105,11 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	s.events = events
-	s.exec, err = NewExecutor(ExecutorOptions{
+	stored, err := events.After(0)
+	if err != nil {
+		return nil, err
+	}
+	exec, err := NewExecutor(ExecutorOptions{
 		RecordPath: opts.RecordPath,
 		LogPath:    opts.LogPath,
 		Config:     opts.Config,
@@ -115,6 +121,7 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.loop = newLoop(exec, s.log, stored)
 	return s, nil
 }
 
@@ -166,11 +173,12 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return hs.Shutdown(shutdownCtx)
 }
 
-// Run serves the runner's stream for one run. The first message names the
-// run to attach to or start, with the spec to start it with; the server
-// answers Hello with the id of the last event in its event file, then stores
-// every batch of events the runner sends, until the run has ended and its
-// Idle has been sent. The run's context is independent of the request's: a
+// Run serves the runner's stream for one busy period. The first message
+// carries the spec runs are started with, or none to keep the one the driver
+// has; the server answers Hello with the id of the last event in its event
+// file, then stores every batch of events the runner sends and hands it to
+// the loop. Once it has the first batch, Run sends Idle and returns as soon
+// as the loop is idle. Runs' contexts are independent of the request's: a
 // dropped stream detaches and the run keeps going.
 func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
 	req, err := stream.Receive()
@@ -180,8 +188,7 @@ func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.Ru
 	if req.GetEvents() != nil {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("the first message must not carry events"))
 	}
-	runDone, err := s.open(req)
-	if err != nil {
+	if err := s.claim(); err != nil {
 		return err
 	}
 	defer s.release()
@@ -190,6 +197,7 @@ func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.Ru
 	}}); err != nil {
 		return err
 	}
+	s.loop.open(req.GetSpec())
 	// The batches are stored here rather than by receive, so nothing is
 	// stored once Run has returned and released the stream.
 	batches := make(chan batch)
@@ -198,27 +206,34 @@ func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.Ru
 	go receive(stream, batches, done)
 	ticker := time.NewTicker(s.keepAlive)
 	defer ticker.Stop()
+	// caughtUp is set by the first batch, which holds every event the runner
+	// had when it opened the stream, or by the runner closing its side.
+	caughtUp := false
 	for {
-		select {
-		case <-runDone:
-			// No run starts while this stream is open, so the record is
-			// the one of the run it resolved to.
-			rec, _ := s.exec.State()
+		rec, idle, changed := s.loop.idle()
+		if caughtUp && idle {
 			return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
 				Idle: &driverv1.Idle{Version: rec.Version, Reported: rec.Reported},
 			}})
+		}
+		select {
+		case <-changed:
 		case b := <-batches:
 			if errors.Is(b.err, io.EOF) {
-				// The runner has nothing more to send; the run goes on.
+				// The runner has nothing more to send; runs go on.
 				batches = nil
+				caughtUp = true
 				continue
 			}
 			if b.err != nil {
 				return b.err
 			}
-			if err := s.events.Append(b.events); err != nil {
+			stored, err := s.events.Append(b.events)
+			if err != nil {
 				return connect.NewError(connect.CodeInternal, err)
 			}
+			s.loop.store(stored)
+			caughtUp = true
 		case <-ticker.C:
 			if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_KeepAlive{
 				KeepAlive: &driverv1.KeepAlive{},
@@ -264,41 +279,19 @@ func receive(stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunRespons
 	}
 }
 
-// open claims the stream and resolves the request to a run, starting it if
-// needed, and returns a channel closed once that run has finished. On success
-// the caller must release the stream.
-func (s *Server) open(req *driverv1.RunRequest) (<-chan struct{}, error) {
+// claim claims the stream: at most one is open at a time, and none once the
+// driver is shutting down. On success the caller must release it.
+func (s *Server) claim() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.streaming {
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("another Run stream is open"))
+	if s.loop.closing() {
+		return connect.NewError(connect.CodeUnavailable, errors.New("driver is shutting down"))
 	}
-	version := req.GetVersion()
-	// Only open starts runs, under s.mu, so until the stream is claimed the
-	// record can only move from running to finished.
-	rec, hasRec := s.exec.State()
-	switch {
-	case hasRec && rec.Version > version:
-		return nil, connect.NewError(connect.CodeFailedPrecondition,
-			fmt.Errorf("version %d is stale, the run record is at %d", version, rec.Version))
-	case hasRec && rec.Version == version:
-		// Either in progress, or ended: in this process, in an earlier one,
-		// or marked finished by Reconcile after a crash.
-	case hasRec && rec.State == runrecord.Running:
-		return nil, connect.NewError(connect.CodeAborted,
-			fmt.Errorf("version %d is running", rec.Version))
-	case req.GetSpec() == nil:
-		return nil, connect.NewError(connect.CodeNotFound,
-			fmt.Errorf("no run with version %d and no spec to start one", version))
-	default:
-		if err := s.exec.Start(version, req.GetSpec()); errors.Is(err, ErrShutdown) {
-			return nil, connect.NewError(connect.CodeUnavailable, err)
-		} else if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
+	if s.streaming {
+		return connect.NewError(connect.CodeUnavailable, errors.New("another Run stream is open"))
 	}
 	s.streaming = true
-	return s.exec.Done(), nil
+	return nil
 }
 
 func (s *Server) release() {
@@ -307,17 +300,10 @@ func (s *Server) release() {
 	s.streaming = false
 }
 
-// Stop cancels the run with the request's version with ErrStop, if it is
-// running. It does not wait: the run reports stopped and its Run stream gets
-// Idle as usual.
-func (s *Server) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1.StopResponse, error) {
-	return &driverv1.StopResponse{Stopped: s.exec.Stop(req.GetVersion())}, nil
-}
-
 // Shutdown stops the current run, if any, and waits for it to finish and
 // report, or for ctx to expire. No run starts after Shutdown is called.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.exec.Shutdown(ctx)
+	return s.loop.shutdown(ctx)
 }
 
 // Env returns a run's environment: environ, then spec's env, then its

@@ -35,35 +35,24 @@ const (
 const (
 	// DriverServiceRunProcedure is the fully-qualified name of the DriverService's Run RPC.
 	DriverServiceRunProcedure = "/driver.v1.DriverService/Run"
-	// DriverServiceStopProcedure is the fully-qualified name of the DriverService's Stop RPC.
-	DriverServiceStopProcedure = "/driver.v1.DriverService/Stop"
 )
 
 // DriverServiceClient is a client for the driver.v1.DriverService service.
 type DriverServiceClient interface {
-	// Run is the runner's connection to the driver for one run. The runner
-	// sends a RunRequest with the version to start or attach to first, the
-	// driver answers Hello, and the runner sends the task's events after the
-	// driver's position as TaskEvents. The driver stores them in its event file.
+	// Run is the runner's connection to the driver for one busy period. The
+	// runner sends a first message, with the RunSpec to start runs with, and
+	// the driver answers Hello. The runner then sends the task's events after
+	// the driver's position as TaskEvents: first one batch, possibly empty,
+	// with every event it has, then new ones as they are replicated. The driver
+	// stores them in its event file and acts on the latest command among them:
+	// it starts, restarts and stops runs itself, running consecutive versions
+	// on the same stream. Once it has the first batch, it sends Idle and ends
+	// the stream when no run is in progress and no newer start or restart is
+	// pending.
 	//
-	// The first message is attach-or-start, keyed on its version:
-	//
-	//	another Run stream already open      -> Unavailable (retry)
-	//	record.version > version             -> FailedPrecondition (stale)
-	//	record.version == version            -> attach, spec ignored
-	//	no record / older version, idle      -> start the run (spec required,
-	//	                                        NotFound without one)
-	//	another version running              -> Aborted (busy)
-	//
-	// At most one Run stream is open at a time. The stream ends after the run's
-	// Idle has been sent. A dropped or closed stream detaches and nothing else:
-	// the run keeps going.
+	// At most one Run stream is open at a time; another is Unavailable. A
+	// dropped or closed stream detaches and nothing else: the run keeps going.
 	Run(context.Context) (*connect.BidiStreamForClientSimple[v1.RunRequest, v1.RunResponse], error)
-	// Stop gracefully stops the run with the given version: cancel the run
-	// context with ErrStop (agents and setup commands SIGTERM their process
-	// groups); the run reports its terminal event and sends Idle as usual.
-	// A no-op if that version is not the active run.
-	Stop(context.Context, *v1.StopRequest) (*v1.StopResponse, error)
 }
 
 // NewDriverServiceClient constructs a client for the driver.v1.DriverService service. By default,
@@ -83,19 +72,12 @@ func NewDriverServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(driverServiceMethods.ByName("Run")),
 			connect.WithClientOptions(opts...),
 		),
-		stop: connect.NewClient[v1.StopRequest, v1.StopResponse](
-			httpClient,
-			baseURL+DriverServiceStopProcedure,
-			connect.WithSchema(driverServiceMethods.ByName("Stop")),
-			connect.WithClientOptions(opts...),
-		),
 	}
 }
 
 // driverServiceClient implements DriverServiceClient.
 type driverServiceClient struct {
-	run  *connect.Client[v1.RunRequest, v1.RunResponse]
-	stop *connect.Client[v1.StopRequest, v1.StopResponse]
+	run *connect.Client[v1.RunRequest, v1.RunResponse]
 }
 
 // Run calls driver.v1.DriverService.Run.
@@ -103,40 +85,22 @@ func (c *driverServiceClient) Run(ctx context.Context) (*connect.BidiStreamForCl
 	return c.run.CallBidiStreamSimple(ctx)
 }
 
-// Stop calls driver.v1.DriverService.Stop.
-func (c *driverServiceClient) Stop(ctx context.Context, req *v1.StopRequest) (*v1.StopResponse, error) {
-	response, err := c.stop.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
 // DriverServiceHandler is an implementation of the driver.v1.DriverService service.
 type DriverServiceHandler interface {
-	// Run is the runner's connection to the driver for one run. The runner
-	// sends a RunRequest with the version to start or attach to first, the
-	// driver answers Hello, and the runner sends the task's events after the
-	// driver's position as TaskEvents. The driver stores them in its event file.
+	// Run is the runner's connection to the driver for one busy period. The
+	// runner sends a first message, with the RunSpec to start runs with, and
+	// the driver answers Hello. The runner then sends the task's events after
+	// the driver's position as TaskEvents: first one batch, possibly empty,
+	// with every event it has, then new ones as they are replicated. The driver
+	// stores them in its event file and acts on the latest command among them:
+	// it starts, restarts and stops runs itself, running consecutive versions
+	// on the same stream. Once it has the first batch, it sends Idle and ends
+	// the stream when no run is in progress and no newer start or restart is
+	// pending.
 	//
-	// The first message is attach-or-start, keyed on its version:
-	//
-	//	another Run stream already open      -> Unavailable (retry)
-	//	record.version > version             -> FailedPrecondition (stale)
-	//	record.version == version            -> attach, spec ignored
-	//	no record / older version, idle      -> start the run (spec required,
-	//	                                        NotFound without one)
-	//	another version running              -> Aborted (busy)
-	//
-	// At most one Run stream is open at a time. The stream ends after the run's
-	// Idle has been sent. A dropped or closed stream detaches and nothing else:
-	// the run keeps going.
+	// At most one Run stream is open at a time; another is Unavailable. A
+	// dropped or closed stream detaches and nothing else: the run keeps going.
 	Run(context.Context, *connect.BidiStream[v1.RunRequest, v1.RunResponse]) error
-	// Stop gracefully stops the run with the given version: cancel the run
-	// context with ErrStop (agents and setup commands SIGTERM their process
-	// groups); the run reports its terminal event and sends Idle as usual.
-	// A no-op if that version is not the active run.
-	Stop(context.Context, *v1.StopRequest) (*v1.StopResponse, error)
 }
 
 // NewDriverServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -152,18 +116,10 @@ func NewDriverServiceHandler(svc DriverServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(driverServiceMethods.ByName("Run")),
 		connect.WithHandlerOptions(opts...),
 	)
-	driverServiceStopHandler := connect.NewUnaryHandlerSimple(
-		DriverServiceStopProcedure,
-		svc.Stop,
-		connect.WithSchema(driverServiceMethods.ByName("Stop")),
-		connect.WithHandlerOptions(opts...),
-	)
 	return "/driver.v1.DriverService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DriverServiceRunProcedure:
 			driverServiceRunHandler.ServeHTTP(w, r)
-		case DriverServiceStopProcedure:
-			driverServiceStopHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -175,8 +131,4 @@ type UnimplementedDriverServiceHandler struct{}
 
 func (UnimplementedDriverServiceHandler) Run(context.Context, *connect.BidiStream[v1.RunRequest, v1.RunResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("driver.v1.DriverService.Run is not implemented"))
-}
-
-func (UnimplementedDriverServiceHandler) Stop(context.Context, *v1.StopRequest) (*v1.StopResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("driver.v1.DriverService.Stop is not implemented"))
 }

@@ -84,12 +84,14 @@ func decode(data []byte) ([]*gritzv1.Event, int64, error) {
 }
 
 // Append stores events, after those already stored and in the given order,
-// skipping any already stored, and fsyncs before returning. A failed write is
-// truncated away, so the file never keeps part of a batch.
-func (f *File) Append(events []*gritzv1.Event) error {
+// skipping any already stored, and fsyncs before returning. It returns the
+// events it stored. A failed write is truncated away, so the file never keeps
+// part of a batch.
+func (f *File) Append(events []*gritzv1.Event) ([]*gritzv1.Event, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var buf bytes.Buffer
+	var stored []*gritzv1.Event
 	added := map[int64]struct{}{}
 	last := f.last
 	for _, ev := range events {
@@ -102,24 +104,25 @@ func (f *File) Append(events []*gritzv1.Event) error {
 		}
 		line, err := protojson.Marshal(ev)
 		if err != nil {
-			return fmt.Errorf("eventfile: encode event %d: %w", id, err)
+			return nil, fmt.Errorf("eventfile: encode event %d: %w", id, err)
 		}
 		buf.Write(line)
 		buf.WriteByte('\n')
 		added[id] = struct{}{}
+		stored = append(stored, ev)
 		last = id
 	}
 	if buf.Len() == 0 {
-		return nil
+		return nil, nil
 	}
 	if err := f.write(buf.Bytes()); err != nil {
-		return err
+		return nil, err
 	}
 	for id := range added {
 		f.ids[id] = struct{}{}
 	}
 	f.last = last
-	return nil
+	return stored, nil
 }
 
 // write appends data to the file and fsyncs it. On failure it truncates the

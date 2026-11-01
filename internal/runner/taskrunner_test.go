@@ -124,8 +124,7 @@ type positionDriver struct {
 }
 
 func (d *positionDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
-	first, err := stream.Receive()
-	if err != nil {
+	if _, err := stream.Receive(); err != nil {
 		return err
 	}
 	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{
@@ -147,7 +146,7 @@ func (d *positionDriver) Run(_ context.Context, stream *connect.BidiStream[drive
 		d.mu.Unlock()
 		if last == d.lastID {
 			return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
-				Idle: &driverv1.Idle{Version: first.GetVersion(), Reported: true},
+				Idle: &driverv1.Idle{Version: 3, Reported: true},
 			}})
 		}
 	}
@@ -205,6 +204,8 @@ func TestTaskRunnerRun_Reattach(t *testing.T) {
 		Version: 3,
 		Handle:  backend.Handle{Type: "fake", ID: "c1"},
 	}, nil)
+	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
+	m.Run(t)
 	done := runAsync(t.Context(), tr, nil)
 	testrunner.WaitRuns(t, be, "c1", 1)
 
@@ -212,7 +213,7 @@ func TestTaskRunnerRun_Reattach(t *testing.T) {
 	// run.
 	be.Drop("c1")
 	testrunner.WaitRuns(t, be, "c1", 2)
-	testrunner.StopRun(t, client, 3)
+	m.Add(testrunner.CommandEvent(2, 1, gritzv1.TaskCommand_STOP, 3))
 
 	// Assert - the reattached stream saw Idle: the driver reported, the
 	// sandbox is suspended, and no event is owed.
@@ -249,12 +250,11 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 	}, protocmp.Transform())
 }
 
-func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
+func TestTaskRunnerRun_NothingToRun(t *testing.T) {
 	t.Parallel()
-	// Arrange - a driver that has never run, so attaching to version 3 is
-	// NotFound.
+	// Arrange - a driver that has never run, and has nothing to run.
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-		Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3}),
+		Driver: testrunner.NewDriver(t, nil),
 	})
 	be.Add("c1", fake.Up)
 	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
@@ -266,14 +266,130 @@ func TestTaskRunnerRun_NoSuchRun(t *testing.T) {
 	// Act
 	err := tr.Run(t.Context(), nil)
 
-	// Assert - nothing runs on the sandbox, so it is suspended and the run is
-	// reported failed.
+	// Assert - the driver went idle at once: the sandbox is suspended, and
+	// no event is owed.
+	assert.NilError(t, err)
+	sbx, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, sbx.State, fake.Suspended)
+	assert.Equal(t, m.Queued(t), 0)
+}
+
+// idleDriver is a driver whose streams each go idle at once, after the run
+// whose version is next in versions, which it reported unless unreported is
+// set. It records the spec of each stream.
+type idleDriver struct {
+	driverv1connect.UnimplementedDriverServiceHandler
+	unreported bool
+
+	mu       sync.Mutex
+	versions []int64
+	specs    []*driverv1.RunSpec
+}
+
+func (d *idleDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
+	req, err := stream.Receive()
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.specs = append(d.specs, req.GetSpec())
+	version := d.versions[0]
+	d.versions = d.versions[1:]
+	d.mu.Unlock()
+	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{Hello: &driverv1.Hello{}}}); err != nil {
+		return err
+	}
+	return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
+		Idle: &driverv1.Idle{Version: version, Reported: !d.unreported},
+	}})
+}
+
+// opened returns the spec of every stream d was opened with.
+func (d *idleDriver) opened() []*driverv1.RunSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.specs)
+}
+
+func TestTaskRunnerRun_Reopen(t *testing.T) {
+	t.Parallel()
+	// Arrange - a driver that goes idle after run 3 before the task's start
+	// of run 4 reaches it, and after run 4 on the next stream.
+	drv := &idleDriver{versions: []int64{3, 4}}
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
+	be.Add("c1", fake.Up)
+	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
+		TaskID:  1,
+		Version: 3,
+		Handle:  backend.Handle{Type: "fake", ID: "c1"},
+	}, nil)
+	tr.Set(testrunner.StartChange(1, 4))
+
+	// Act
+	err := tr.Run(t.Context(), nil)
+
+	// Assert - Run reopened the stream with run 4's spec instead of
+	// returning, with the record moved to run 4; then the sandbox was
+	// suspended once.
+	assert.NilError(t, err)
+	specs := drv.opened()
+	assert.Assert(t, cmp.Len(specs, 2))
+	assert.Assert(t, specs[0] == nil)
+	assert.Equal(t, specs[1].GetTaskId(), int64(1))
+	sbx, _ := be.Snapshot().Sandbox("c1")
+	assert.Equal(t, sbx.State, fake.Suspended)
+	assert.Equal(t, sbx.Suspends, 1)
+	assert.Equal(t, m.Queued(t), 0)
+	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
+}
+
+func TestTaskRunnerRun_StopNeverRun(t *testing.T) {
+	t.Parallel()
+	// Arrange - a driver that goes idle after run 3, and a stop of run 4,
+	// a restart cancelled before the driver started it.
+	drv := &idleDriver{versions: []int64{3}}
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
+	be.Add("c1", fake.Up)
+	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
+		TaskID:  1,
+		Version: 3,
+		Handle:  backend.Handle{Type: "fake", ID: "c1"},
+	}, nil)
+	tr.Set(runnerstore.TaskChange{ID: 1, Command: gritzv1.TaskCommand_STOP, Version: 4, Workspace: testrunner.Workspace})
+
+	// Act
+	err := tr.Run(t.Context(), nil)
+
+	// Assert - no run will report run 4, so the runner reported it stopped.
+	assert.NilError(t, err)
+	m.WaitQueued(t, 1)
+	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
+		{Event: "stopped", TaskId: 1, Version: 4},
+	}, protocmp.Transform())
+}
+
+func TestTaskRunnerRun_NotReported(t *testing.T) {
+	t.Parallel()
+	// Arrange - a driver whose run 3 failed to report its outcome.
+	drv := &idleDriver{versions: []int64{3}, unreported: true}
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
+	be.Add("c1", fake.Up)
+	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
+		TaskID:  1,
+		Version: 3,
+		Handle:  backend.Handle{Type: "fake", ID: "c1"},
+	}, nil)
+
+	// Act
+	err := tr.Run(t.Context(), nil)
+
+	// Assert - the runner reported run 3 failed, and suspended the sandbox.
 	assert.NilError(t, err)
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Suspended)
 	m.WaitQueued(t, 1)
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver has no such run"},
+		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver did not report the run's outcome"},
 	}, protocmp.Transform())
 }
 

@@ -484,8 +484,10 @@ them:
 1. The runner opens the stream once the sandbox is up, and sends the
    `RunSpec` as its first message.
 2. The driver sends `Hello` with the id of the last event it has stored.
-3. The runner sends the events after that position as `TaskEvents`, then new
-   ones as they are replicated.
+3. The runner sends the events after that position as `TaskEvents`: first
+   one batch, possibly empty, with every event it has stored, then new ones
+   as they are replicated. The driver doesn't go idle before that first
+   batch, so it never goes idle on a stream whose command it hasn't received.
 4. The driver stores each batch, then acts on it.
 
 The driver's position is an `events.id`; `0` means "send everything". At most
@@ -514,7 +516,7 @@ record (`/gritz/run.json`, written before a run starts):
 |---|---|
 | `start v`, `v` newer than the run record, nothing running | Start run *v* |
 | `restart v`, `v` newer than the run record | Stop the running run with `ErrStop`, if any, then start run *v* |
-| `stop v`, run *v* running | Stop it with `ErrStop` |
+| `stop v`, a run in progress | Stop it with `ErrStop` |
 | anything else | Nothing |
 
 A command the run record has already passed does nothing, so a resent
@@ -533,10 +535,11 @@ its current run has ended and no newer start or restart is pending in its
 event file.
 
 **`Idle`** replaces `Finished`. It carries the version of the last run and
-whether its terminal runner event was accepted (`reported`). A run whose
-terminal event failed to submit can't be followed by a run boundary, so the
-driver goes idle after it whatever is pending, and the runner reports it
-`failed`.
+whether its terminal runner event was accepted (`reported`); the runner
+reports an unreported run `failed`. A newer start or restart still pending
+after an unreported run is started on the same stream all the same: it is a
+restart, or a run boundary the server did accept, and going idle would leave
+it to a reopen.
 
 **The prompt reads from the local file.** `drainEvents`, the
 `ListEventsByTask` walk and `Config.NextEventToken` go away. The driver keeps a
@@ -559,6 +562,51 @@ the server directly.
 
 **`Status` and `Stop` are removed.** Opening `Run` with backoff is the
 readiness check, and a stop is a command event on the stream.
+
+#### Inside the driver
+
+`driverserver` splits into four parts:
+
+- **Transport** (`Server`): the bidirectional `Run`, `Hello` and `Idle`, and
+  keep-alives. It claims the one open stream, appends each batch to the event
+  file, and hands the newly stored events to the driver loop. It holds no run
+  state: once it has the first batch, it waits for the loop to be idle, sends
+  `Idle` and closes the stream.
+- **Event file** (`eventfile`): the stored log. `Append` skips events already
+  stored and returns the ones it stored, so a resent event never reaches the
+  loop a second time.
+- **Driver loop**: lives as long as the driver process, across streams. It
+  keeps the latest command event and the latest `RunSpec`, and decides what
+  to do whenever a stream opens, a batch is stored or a run ends.
+- **`Executor`**: the agent process and the run record. It starts the run the
+  loop names, provisioning the spec's files inside the run, so a run that
+  fails to provision finishes unreported rather than not starting. It
+  decides nothing.
+
+The loop's rules:
+
+- **Latest command wins.** Only the latest command event in the file counts;
+  earlier ones are superseded, not queued. A fresh file holding a task's
+  whole log acts only on its latest command.
+- **`start v`**: if *v* is newer than the run record, start it once no run is
+  in progress. A busy period runs consecutive versions on one stream: run 5,
+  then a pending start of 6 once 5 has finished. If *v* is not newer, it is
+  stale, and does nothing. The run record, written before a run starts, is
+  the only "already started" marker.
+- **`restart v`**, *v* newer than the record: stop the run in progress, wait
+  for it to finish, start *v*.
+- **`stop`**: stops whatever run is in progress, with `ErrStop`. A stop older
+  than that run is asserted against: the server stops only the current
+  version. A stop newer than it is a restart cancelled before the driver
+  started it (the restart moved the task's version on). It stops the run in
+  progress and supersedes the restart, and since no run will report the
+  stopped version, the runner reports it `stopped` once the driver is idle
+  with an older version.
+- **Idle** is no run in progress and no newer start or restart pending, or
+  none that can start: the driver is shutting down, or has no spec yet.
+- **Driver restart**: the loop rebuilds from disk, from the reconciled run
+  record (a run cut short is finished and unreported) and the latest command
+  in the event file, and acts on it when the next stream opens.
 
 ### Transport
 

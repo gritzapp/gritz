@@ -660,16 +660,6 @@ func (c *client) checkLocked() error {
 	return nil
 }
 
-func (c *client) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1.StopResponse, error) {
-	c.b.mu.Lock()
-	err := c.checkLocked()
-	c.b.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return c.driver.Stop(ctx, req)
-}
-
 // Run counts the call in the sandbox's Info.Runs, then calls through on a
 // context the fake cancels when the sandbox leaves up, on Drop, when its
 // driver is made not ready, and on Close. A stream it cuts fails as Canceled.

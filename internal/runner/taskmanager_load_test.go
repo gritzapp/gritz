@@ -44,7 +44,9 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
 	store := testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-	first := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, RunnerStore: store})
+	server := testrunner.NewServer(testrunner.ServerOptions{})
+	server.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
+	first := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Server: server, RunnerStore: store})
 	ctx, cancel := context.WithCancel(t.Context())
 	assert.NilError(t, first.Load(ctx))
 	testrunner.WaitRuns(t, be, "c1", 1)
@@ -56,11 +58,12 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	assert.Equal(t, sbx.Suspends, 0)
 
 	// Act - the next runner process loads the record and reattaches, over its
-	// own Open of the same sandbox; then the run finishes.
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, RunnerStore: store})
+	// own Open of the same sandbox; then the run is stopped.
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Server: server, RunnerStore: store})
 	assert.NilError(t, m.Load(t.Context()))
 	testrunner.WaitRuns(t, be, "c1", sbx.Runs+1)
-	testrunner.StopRun(t, client, 3)
+	m.Run(t)
+	m.Add(testrunner.CommandEvent(2, 1, gritzv1.TaskCommand_STOP, 3))
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert - the reattached runner saw Idle: the sandbox is suspended and
@@ -165,17 +168,20 @@ func TestTaskManagerLoad(t *testing.T) {
 			// only slot: task 2's start waits until the run finishes.
 			assert.NilError(t, err)
 			m.Run(t)
-			m.Add(testrunner.CommandEvent(1, 2, gritzv1.TaskCommand_START, 1))
+			if tt.wantAttach {
+				m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
+			}
+			m.Add(testrunner.CommandEvent(2, 2, gritzv1.TaskCommand_START, 1))
 			if tt.wantAttach {
 				testrunner.WaitRuns(t, be, "c1", 1)
 				assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0), "the slot Load seeded is free")
-				testrunner.StopRun(t, client, 3)
+				m.Add(testrunner.CommandEvent(3, 1, gritzv1.TaskCommand_STOP, 3))
 			} else {
 				sbx, _ := be.Snapshot().Sandbox("c1")
 				assert.Equal(t, sbx.Runs, 0)
 			}
 			// Assert - the slot is free, so task 2 gets a sandbox.
-			m.WaitHandled(t, 2, 1)
+			m.WaitHandled(t, 2, 2)
 			assert.NilError(t, m.Wait(t.Context()))
 			snap := be.Snapshot()
 			assert.Assert(t, cmp.Len(snap.Specs, 1))
@@ -370,57 +376,6 @@ func TestTaskManagerRun(t *testing.T) {
 		assert.ErrorContains(t, err, "database is closed")
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return")
-	}
-}
-
-func TestTaskManagerRunning(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		// state is the state c1 moves to after it is restored suspended; 0 means
-		// the task has no record.
-		state fake.State
-		err   error
-		want  bool
-	}{
-		{name: "up", state: fake.Up, want: true},
-		{name: "suspended", state: fake.Suspended},
-		{name: "gone", state: fake.Gone},
-		{name: "no record"},
-		{name: "status error", state: fake.Up, err: errors.New("boom")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - the task's TaskRunner holds c1, which then moves
-			// behind the runner's back.
-			be := testrunner.NewBackend(t, nil)
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-			if tt.state != 0 {
-				rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
-				assert.NilError(t, m.RunnerStore.WriteSandbox(t.Context(), rec))
-				be.Add("c1", fake.Suspended)
-				_, err := m.Runner(1).Restore(t.Context(), rec)
-				assert.NilError(t, err)
-				if tt.state != fake.Suspended {
-					be.Set("c1", tt.state)
-				}
-			}
-			if tt.err != nil {
-				be.FailNext(fake.OpStatus, "c1", tt.err)
-			}
-
-			// Act
-			running, err := m.Runner(1).Running(t.Context())
-
-			// Assert
-			if tt.err != nil {
-				assert.ErrorIs(t, err, tt.err)
-			} else {
-				assert.NilError(t, err)
-			}
-			assert.Equal(t, running, tt.want)
-		})
 	}
 }
 
