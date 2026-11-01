@@ -39,9 +39,6 @@ const (
 	GritzServiceGetProfileProcedure = "/gritz.v1.GritzService/GetProfile"
 	// GritzServiceListTasksProcedure is the fully-qualified name of the GritzService's ListTasks RPC.
 	GritzServiceListTasksProcedure = "/gritz.v1.GritzService/ListTasks"
-	// GritzServiceListRunnerTasksProcedure is the fully-qualified name of the GritzService's
-	// ListRunnerTasks RPC.
-	GritzServiceListRunnerTasksProcedure = "/gritz.v1.GritzService/ListRunnerTasks"
 	// GritzServiceListRunnerEventsProcedure is the fully-qualified name of the GritzService's
 	// ListRunnerEvents RPC.
 	GritzServiceListRunnerEventsProcedure = "/gritz.v1.GritzService/ListRunnerEvents"
@@ -180,10 +177,9 @@ type GritzServiceClient interface {
 	Ping(context.Context, *v1.PingRequest) (*v1.PingResponse, error)
 	GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error)
 	ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error)
-	ListRunnerTasks(context.Context, *v1.ListRunnerTasksRequest) (*v1.ListRunnerTasksResponse, error)
 	// ListRunnerEvents returns the events of the runner's tasks after the
 	// cursor, in log order, from transactions that can no longer commit behind
-	// it. Replaces ListRunnerTasks.
+	// it.
 	ListRunnerEvents(context.Context, *v1.ListRunnerEventsRequest) (*v1.ListRunnerEventsResponse, error)
 	CreateTask(context.Context, *v1.CreateTaskRequest) (*v1.CreateTaskResponse, error)
 	GetTask(context.Context, *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
@@ -262,12 +258,6 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+GritzServiceListTasksProcedure,
 			connect.WithSchema(gritzServiceMethods.ByName("ListTasks")),
-			connect.WithClientOptions(opts...),
-		),
-		listRunnerTasks: connect.NewClient[v1.ListRunnerTasksRequest, v1.ListRunnerTasksResponse](
-			httpClient,
-			baseURL+GritzServiceListRunnerTasksProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("ListRunnerTasks")),
 			connect.WithClientOptions(opts...),
 		),
 		listRunnerEvents: connect.NewClient[v1.ListRunnerEventsRequest, v1.ListRunnerEventsResponse](
@@ -572,7 +562,6 @@ type gritzServiceClient struct {
 	ping                           *connect.Client[v1.PingRequest, v1.PingResponse]
 	getProfile                     *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
 	listTasks                      *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
-	listRunnerTasks                *connect.Client[v1.ListRunnerTasksRequest, v1.ListRunnerTasksResponse]
 	listRunnerEvents               *connect.Client[v1.ListRunnerEventsRequest, v1.ListRunnerEventsResponse]
 	createTask                     *connect.Client[v1.CreateTaskRequest, v1.CreateTaskResponse]
 	getTask                        *connect.Client[v1.GetTaskRequest, v1.GetTaskResponse]
@@ -645,15 +634,6 @@ func (c *gritzServiceClient) GetProfile(ctx context.Context, req *v1.GetProfileR
 // ListTasks calls gritz.v1.GritzService.ListTasks.
 func (c *gritzServiceClient) ListTasks(ctx context.Context, req *v1.ListTasksRequest) (*v1.ListTasksResponse, error) {
 	response, err := c.listTasks.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// ListRunnerTasks calls gritz.v1.GritzService.ListRunnerTasks.
-func (c *gritzServiceClient) ListRunnerTasks(ctx context.Context, req *v1.ListRunnerTasksRequest) (*v1.ListRunnerTasksResponse, error) {
-	response, err := c.listRunnerTasks.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -1106,10 +1086,9 @@ type GritzServiceHandler interface {
 	Ping(context.Context, *v1.PingRequest) (*v1.PingResponse, error)
 	GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error)
 	ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error)
-	ListRunnerTasks(context.Context, *v1.ListRunnerTasksRequest) (*v1.ListRunnerTasksResponse, error)
 	// ListRunnerEvents returns the events of the runner's tasks after the
 	// cursor, in log order, from transactions that can no longer commit behind
-	// it. Replaces ListRunnerTasks.
+	// it.
 	ListRunnerEvents(context.Context, *v1.ListRunnerEventsRequest) (*v1.ListRunnerEventsResponse, error)
 	CreateTask(context.Context, *v1.CreateTaskRequest) (*v1.CreateTaskResponse, error)
 	GetTask(context.Context, *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
@@ -1184,12 +1163,6 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		GritzServiceListTasksProcedure,
 		svc.ListTasks,
 		connect.WithSchema(gritzServiceMethods.ByName("ListTasks")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceListRunnerTasksHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceListRunnerTasksProcedure,
-		svc.ListRunnerTasks,
-		connect.WithSchema(gritzServiceMethods.ByName("ListRunnerTasks")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gritzServiceListRunnerEventsHandler := connect.NewUnaryHandlerSimple(
@@ -1494,8 +1467,6 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceGetProfileHandler.ServeHTTP(w, r)
 		case GritzServiceListTasksProcedure:
 			gritzServiceListTasksHandler.ServeHTTP(w, r)
-		case GritzServiceListRunnerTasksProcedure:
-			gritzServiceListRunnerTasksHandler.ServeHTTP(w, r)
 		case GritzServiceListRunnerEventsProcedure:
 			gritzServiceListRunnerEventsHandler.ServeHTTP(w, r)
 		case GritzServiceCreateTaskProcedure:
@@ -1613,10 +1584,6 @@ func (UnimplementedGritzServiceHandler) GetProfile(context.Context, *v1.GetProfi
 
 func (UnimplementedGritzServiceHandler) ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.ListTasks is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) ListRunnerTasks(context.Context, *v1.ListRunnerTasksRequest) (*v1.ListRunnerTasksResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.ListRunnerTasks is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) ListRunnerEvents(context.Context, *v1.ListRunnerEventsRequest) (*v1.ListRunnerEventsResponse, error) {

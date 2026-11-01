@@ -95,7 +95,7 @@ func (s *Server) ListEventsByTask(ctx context.Context, req *gritzv1.ListEventsBy
 			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read task"))
 		}
 	}
-	// Bidirectional keyset page (empty token → newest page).
+	// History page (empty token → newest page).
 	page, err := s.store.ListEventsByTaskPage(ctx, nil, store.ListEventsByTaskPageParams{
 		TaskID:    req.TaskId,
 		OrgID:     caller.OrgID,
@@ -110,13 +110,10 @@ func (s *Server) ListEventsByTask(ctx context.Context, req *gritzv1.ListEventsBy
 		}
 		return nil, connect.NewError(code, err)
 	}
-	// The primary (forward) walk goes toward older rows, so the store's NextToken
-	// is the timeline's "previous" (scroll-back) page; the reverse (backward) walk
-	// is the newer/live-follow "next".
 	return &gritzv1.ListEventsByTaskResponse{
 		Events:        model.ProtoMap(page.Items),
-		PrevPageToken: page.NextToken,
-		NextPageToken: page.PrevToken,
+		PrevPageToken: page.OlderToken,
+		NextPageToken: page.FollowToken,
 		More:          page.More,
 	}, nil
 }

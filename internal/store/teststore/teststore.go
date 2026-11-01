@@ -54,6 +54,7 @@ type TaskOptions struct {
 	Runner    string
 	Workspace string
 	Namespace string
+	Version   int64
 	Links     []LinkOptions
 }
 
@@ -69,6 +70,7 @@ func CreateTask(t *testing.T, s *store.Store, org *Org, opts *TaskOptions) *mode
 		Runner:    opts.Runner,
 		Workspace: cmp.Or(opts.Workspace, "default"),
 		Namespace: opts.Namespace,
+		Version:   opts.Version,
 	}
 	if err := s.CreateTask(t.Context(), nil, task); err != nil {
 		t.Fatal(err)
@@ -190,7 +192,7 @@ func WaitRunnerEvents(t *testing.T, s *store.Store, org *Org, opts WaitRunnerEve
 			return poll.Error(err)
 		}
 		got = append(got, page.Items...)
-		token = page.PrevToken
+		token = page.NextToken
 		if len(got) < opts.Count {
 			return poll.Continue("got %d of %d events", len(got), opts.Count)
 		}

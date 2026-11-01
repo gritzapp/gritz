@@ -11,3 +11,9 @@ RETURNING id, command, version, workspace, archived;
 
 -- name: ListUnarchivedTasks :many
 SELECT id, command, version, workspace, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id;
+
+-- name: GetTaskHandled :one
+SELECT handled FROM tasks WHERE id = ?;
+
+-- name: SetTaskHandled :exec
+UPDATE tasks SET handled = sqlc.arg(handled) WHERE id = sqlc.arg(id);

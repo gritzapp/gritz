@@ -106,51 +106,55 @@ type ListEventsByTaskPageParams struct {
 	PageToken string   // opaque cursor; empty for the newest page
 }
 
-// eventSource implements pagination.Source for a task's events, serving both
-// walks from one Query: the forward walk (token.Backward == false, descending)
-// → the Desc SQL (a nil cursor = newest page), and the backward walk
-// (token.Backward == true, ascending live-follow) → the Asc SQL.
+// eventSource implements pagination.HistorySource for a task's events: Older
+// reads the Desc SQL and Newer the Asc SQL.
 type eventSource struct {
 	store  *Store
 	tx     *sql.Tx
 	params ListEventsByTaskPageParams
 }
 
-// Query serves both walks: token.Backward == true is the ascending live-follow
-// (rows newer than the cursor); token.Backward == false the primary descending
-// walk (a nil cursor = newest page).
-func (src eventSource) Query(ctx context.Context, token pagination.Token[eventCursor], limit int) ([]*model.Event, error) {
-	// A nil slice encodes as SQL NULL (cardinality(NULL) is NULL, not 0), which
-	// would filter everything out; coerce to an empty array so the "all types"
-	// case matches the query's cardinality(...) = 0 guard.
-	types := src.params.Types
-	if types == nil {
-		types = []string{}
+// types returns the type filter as the queries take it. A nil slice encodes as
+// SQL NULL (cardinality(NULL) is NULL, not 0), which would filter everything
+// out; coerce to an empty array so the "all types" case matches the queries'
+// cardinality(...) = 0 guard.
+func (src eventSource) types() []string {
+	if src.params.Types == nil {
+		return []string{}
 	}
-	if token.Backward {
-		rows, err := src.store.q(src.tx).ListEventsByTaskAsc(ctx, sqlc.ListEventsByTaskAscParams{
-			TaskID:    src.params.TaskID,
-			OrgID:     src.params.OrgID,
-			Types:     types,
-			CursorID:  token.Cursor.ID,
-			PageLimit: int32(limit), // int32 only at the sqlc boundary
-		})
-		if err != nil {
-			return nil, err
-		}
-		return toModelEvents(rows)
-	}
+	return src.params.Types
+}
+
+func (src eventSource) Older(ctx context.Context, before *eventCursor, limit int) ([]*model.Event, error) {
 	args := sqlc.ListEventsByTaskDescParams{
 		TaskID:    src.params.TaskID,
 		OrgID:     src.params.OrgID,
-		Types:     types,
-		UseCursor: token.Cursor != nil,
+		Types:     src.types(),
+		UseCursor: before != nil,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
 	}
-	if token.Cursor != nil {
-		args.CursorID = token.Cursor.ID
+	if before != nil {
+		args.CursorID = before.ID
 	}
 	rows, err := src.store.q(src.tx).ListEventsByTaskDesc(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	return toModelEvents(rows)
+}
+
+func (src eventSource) Newer(ctx context.Context, after *eventCursor, limit int) ([]*model.Event, error) {
+	args := sqlc.ListEventsByTaskAscParams{
+		TaskID:    src.params.TaskID,
+		OrgID:     src.params.OrgID,
+		Types:     src.types(),
+		PageLimit: int32(limit), // int32 only at the sqlc boundary
+	}
+	// A nil cursor follows from the start: ids begin at 1.
+	if after != nil {
+		args.CursorID = after.ID
+	}
+	rows, err := src.store.q(src.tx).ListEventsByTaskAsc(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -161,24 +165,21 @@ func (src eventSource) Cursor(e *model.Event) eventCursor {
 	return eventCursor{ID: e.ID}
 }
 
-// ListEventsByTaskPage returns a bidirectional keyset page of a task's events,
-// always oldest-first (Options.Reverse). An empty PageToken returns the newest
-// page; the returned NextToken continues toward older history (empties when
-// exhausted) and PrevToken toward newer rows (stays populated on a non-empty
-// page so the append-only tail can be followed). It owns the cursor keyset (id),
-// the page-size bounds, and the opaque token format. A bad PageSize or an
-// undecodable PageToken surfaces as a wrapped pagination.ErrInvalidRequest;
-// query failures surface as-is.
-func (s *Store) ListEventsByTaskPage(ctx context.Context, tx *sql.Tx, p ListEventsByTaskPageParams) (*pagination.Page[*model.Event], error) {
+// ListEventsByTaskPage returns a history page of a task's events, always
+// oldest-first. An empty PageToken returns the newest page; OlderToken scrolls
+// back toward the task's first event and FollowToken follows the events
+// appended after the page. It owns the cursor keyset (id), the page-size
+// bounds, and the opaque token format. A bad PageSize or an undecodable
+// PageToken surfaces as a wrapped pagination.ErrInvalidRequest; query failures
+// surface as-is.
+func (s *Store) ListEventsByTaskPage(ctx context.Context, tx *sql.Tx, p ListEventsByTaskPageParams) (*pagination.HistoryPage[*model.Event], error) {
 	// Timelines are dense (a report/lifecycle/tool row per step), so the default
-	// and max pages are larger than the task list's; Reverse renders oldest-at-top.
-	return pagination.List(ctx, pagination.Options[*model.Event, eventCursor]{
+	// and max pages are larger than the task list's.
+	return pagination.History(ctx, eventSource{store: s, tx: tx, params: p}, pagination.Options{
 		DefaultPageSize: 50,
 		MaxPageSize:     200,
-		Reverse:         true,
 		PageSize:        int(p.PageSize),
 		PageToken:       p.PageToken,
-		Source:          eventSource{store: s, tx: tx, params: p},
 	})
 }
 
@@ -199,31 +200,26 @@ type ListRunnerEventsParams struct {
 	PageToken string // opaque cursor; empty for the start of the log
 }
 
-// runnerEventSource implements pagination.Source for the events of a
-// runner's tasks. It serves only the backward (live-follow) walk: ascending
-// (xid, id) after the cursor, below the xid watermark, with a nil cursor at the
-// start of the log.
+// runnerEventSource implements pagination.CursorSource for the events of a
+// runner's tasks: ascending (xid, id) after the cursor, below the xid
+// watermark, with a nil cursor at the start of the log.
 type runnerEventSource struct {
 	store  *Store
 	tx     *sql.Tx
 	params ListRunnerEventsParams
 }
 
-func (src runnerEventSource) Query(ctx context.Context, token pagination.Token[runnerEventCursor], limit int) ([]*model.Event, error) {
-	if !token.Backward {
-		return nil, pagination.ErrUnsupportedDirection
-	}
-	var after runnerEventCursor
-	if token.Cursor != nil {
-		after = *token.Cursor
-	}
-	rows, err := src.store.q(src.tx).ListRunnerEvents(ctx, sqlc.ListRunnerEventsParams{
+func (src runnerEventSource) Query(ctx context.Context, after *runnerEventCursor, limit int) ([]*model.Event, error) {
+	args := sqlc.ListRunnerEventsParams{
 		Runner:    src.params.Runner,
 		OrgID:     src.params.OrgID,
-		AfterXid:  after.XID,
-		AfterID:   after.ID,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
-	})
+	}
+	if after != nil {
+		args.AfterXid = after.XID
+		args.AfterID = after.ID
+	}
+	rows, err := src.store.q(src.tx).ListRunnerEvents(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -234,28 +230,18 @@ func (src runnerEventSource) Cursor(e *model.Event) runnerEventCursor {
 	return runnerEventCursor{XID: e.XID, ID: e.ID}
 }
 
-// ListRunnerEvents returns a page of the events of the runner's tasks, in
-// (xid, id) order, from transactions below the xid watermark. It walks only
-// the backward (live-follow) direction: an empty PageToken is the start of the
-// log, and the page's PrevToken resumes after its last row, or echoes the
-// request's token when the page is empty. A bad PageSize or an undecodable
-// PageToken surfaces as a wrapped pagination.ErrInvalidRequest.
-func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, p ListRunnerEventsParams) (*pagination.Page[*model.Event], error) {
-	token := p.PageToken
-	if token == "" {
-		var err error
-		token, err = pagination.Encode(pagination.Token[runnerEventCursor]{Backward: true})
-		if err != nil {
-			panic(fmt.Sprintf("store: a cursorless runner event token must always encode: %v", err))
-		}
-	}
-	return pagination.List(ctx, pagination.Options[*model.Event, runnerEventCursor]{
+// ListRunnerEvents returns a stream page of the events of the runner's tasks,
+// in (xid, id) order, from transactions below the xid watermark. An empty
+// PageToken is the start of the log, and the page's NextToken resumes after its
+// last row, or keeps the request's position when the page is empty. A bad
+// PageSize or an undecodable PageToken surfaces as a wrapped
+// pagination.ErrInvalidRequest.
+func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, p ListRunnerEventsParams) (*pagination.StreamPage[*model.Event], error) {
+	return pagination.Stream(ctx, runnerEventSource{store: s, tx: tx, params: p}, pagination.Options{
 		DefaultPageSize: 200,
 		MaxPageSize:     1000,
-		Reverse:         true,
 		PageSize:        int(p.PageSize),
-		PageToken:       token,
-		Source:          runnerEventSource{store: s, tx: tx, params: p},
+		PageToken:       p.PageToken,
 	})
 }
 

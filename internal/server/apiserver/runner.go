@@ -78,7 +78,7 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 					return err
 				}
 			}
-			if ev, ok := task.CommandEvent(original.Command); ok {
+			if ev, ok := task.CommandEvent(original); ok {
 				if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 					return err
 				}
@@ -144,11 +144,9 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 		}
 		return nil, connect.NewError(code, err)
 	}
-	// Only the backward (live-follow) walk is served, so the store's PrevToken
-	// is the next page; on an empty page it echoes the request's token.
 	return &gritzv1.ListRunnerEventsResponse{
 		Events:        model.ProtoMap(page.Items),
-		NextPageToken: page.PrevToken,
+		NextPageToken: page.NextToken,
 		More:          page.More,
 	}, nil
 }

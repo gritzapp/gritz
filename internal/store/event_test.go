@@ -32,7 +32,7 @@ func TestListEventsByTaskPage(t *testing.T) {
 		want = append(want, event.ID)
 	}
 
-	// Act - open at the tail (empty token), then follow NextToken toward older
+	// Act - open at the tail (empty token), then follow OlderToken toward older
 	// history, prepending each older page so the whole stream reassembles
 	// oldest-first.
 	var got []int64
@@ -49,13 +49,13 @@ func TestListEventsByTaskPage(t *testing.T) {
 		// Every page is ascending; older pages are prepended.
 		got = append(testx.ExtractField(page.Items, "ID").([]int64), got...)
 		pages++
-		if page.NextToken == "" {
+		if page.OlderToken == "" {
 			break
 		}
-		token = page.NextToken
+		token = page.OlderToken
 	}
 
-	// Assert - the forward walk covers the whole stream ascending, no gaps/dups.
+	// Assert - the scroll-back covers the whole stream ascending, no gaps/dups.
 	assert.Equal(t, pages, 4) // 3+3+3+1
 	assert.DeepEqual(t, got, want)
 }
@@ -75,7 +75,7 @@ func TestListEventsByTaskPage_More(t *testing.T) {
 		}))
 	}
 
-	// Act/Assert - walk NextToken toward older history. More stays true while an
+	// Act/Assert - walk OlderToken toward older history. More stays true while an
 	// older page remains and flips false on the last (full) page, even though the
 	// walk lands on an exact page_size boundary.
 	var wantMore []bool
@@ -88,13 +88,13 @@ func TestListEventsByTaskPage_More(t *testing.T) {
 			PageToken: token,
 		})
 		assert.NilError(t, err)
-		// More agrees with NextToken on this forward walk: both mark older history.
-		assert.Equal(t, page.More, page.NextToken != "")
+		// More agrees with OlderToken on this scroll-back: both mark older history.
+		assert.Equal(t, page.More, page.OlderToken != "")
 		wantMore = append(wantMore, page.More)
-		if page.NextToken == "" {
+		if page.OlderToken == "" {
 			break
 		}
-		token = page.NextToken
+		token = page.OlderToken
 	}
 	// Three full pages (3+3+3); the tail page reports no further page.
 	assert.DeepEqual(t, wantMore, []bool{true, true, false})
@@ -114,15 +114,15 @@ func TestListEventsByTaskPage_LiveFollow(t *testing.T) {
 		}))
 	}
 
-	// The newest page carries a PrevToken (the live-follow cursor at the tail).
+	// The newest page carries a FollowToken (the live-follow cursor at the tail).
 	page, err := s.ListEventsByTaskPage(t.Context(), nil, store.ListEventsByTaskPageParams{
 		TaskID:   task.ID,
 		OrgID:    org.OrgID,
 		PageSize: 50,
 	})
 	assert.NilError(t, err)
-	assert.Assert(t, page.PrevToken != "")
-	follow := page.PrevToken
+	assert.Assert(t, page.FollowToken != "")
+	follow := page.FollowToken
 
 	// Following the tail cursor now yields nothing new (echoes the cursor).
 	empty, err := s.ListEventsByTaskPage(t.Context(), nil, store.ListEventsByTaskPageParams{
@@ -133,8 +133,8 @@ func TestListEventsByTaskPage_LiveFollow(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(empty.Items), 0)
-	assert.Assert(t, empty.PrevToken != "") // still resumable
-	assert.Assert(t, !empty.More)           // nothing newer: the tail is reached
+	assert.Assert(t, empty.FollowToken != "") // still resumable
+	assert.Assert(t, !empty.More)             // nothing newer: the tail is reached
 
 	// Act - a subsequently-inserted event is picked up by the same tail token.
 	newEvent := &model.Event{
@@ -173,6 +173,40 @@ func TestListEventsByTaskPage_LiveFollow(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(backlog.Items), 2)
 	assert.Assert(t, backlog.More) // a third newer event remains beyond this page
+}
+
+func TestListEventsByTaskPage_FollowFromEmpty(t *testing.T) {
+	t.Parallel()
+	// Arrange - open the timeline of a task with no events yet.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, nil)
+	empty, err := s.ListEventsByTaskPage(t.Context(), nil, store.ListEventsByTaskPageParams{
+		TaskID:   task.ID,
+		OrgID:    org.OrgID,
+		PageSize: 50,
+	})
+	assert.NilError(t, err)
+	event := &model.Event{
+		TaskID:  task.ID,
+		OrgID:   org.OrgID,
+		Payload: &model.ReportPayload{Content: "report 1"},
+	}
+	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+
+	// Act - follow the empty page's token once an event has landed.
+	page, err := s.ListEventsByTaskPage(t.Context(), nil, store.ListEventsByTaskPageParams{
+		TaskID:    task.ID,
+		OrgID:     org.OrgID,
+		PageSize:  50,
+		PageToken: empty.FollowToken,
+	})
+
+	// Assert - the empty page still follows, from the task's first event.
+	assert.NilError(t, err)
+	assert.Equal(t, len(empty.Items), 0)
+	assert.Assert(t, empty.FollowToken != "")
+	assert.DeepEqual(t, testx.ExtractField(page.Items, "ID"), []int64{event.ID})
 }
 
 func TestListEventsByTaskPage_TypesFilter(t *testing.T) {
@@ -260,7 +294,7 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 		OrgID:   org.OrgID,
 		Payload: &model.ReportPayload{Content: "b"},
 	}
-	var heldBack *pagination.Page[*model.Event]
+	var heldBack *pagination.StreamPage[*model.Event]
 
 	// Act - Tx A inserts first (lower id), Tx B inserts second and commits
 	// first; read while A is still open, then again once A commits.
@@ -320,7 +354,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	// Assert - an empty page hands back the request's token.
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(page.Items, 0))
-	assert.Equal(t, page.PrevToken, token)
+	assert.Equal(t, page.NextToken, token)
 }
 
 func TestListRunnerEvents_Pages(t *testing.T) {
@@ -357,7 +391,7 @@ func TestListRunnerEvents_Pages(t *testing.T) {
 		})
 		assert.NilError(t, err)
 		got = append(got, testx.ExtractField(page.Items, "ID").([]int64)...)
-		token = page.PrevToken
+		token = page.NextToken
 		pages++
 		if !page.More {
 			break

@@ -228,15 +228,15 @@ task's stream and never sees the cursor or duplicates.
 `TaskRunner` for, so there is no second source of truth such as
 `ListRunnerTasks`. `Log` folds each task's command events and archive
 lifecycle events (`Archived`, `AutoArchived`, `Unarchived`) into a
-`TaskChange{ID, Command, Version, Archived}`: the task's full state, not a
-delta.
+`TaskChange{ID, Command, Version, Workspace, Archived}`: the task's full
+state, not a delta.
 
 - **After each stored page**, every task with a command or archive event in
-  it is reported with its state after the page. `TaskManager` creates a
-  `TaskRunner` for a task it doesn't have that isn't archived, and drops the
-  `TaskRunner` of an archived one.
+  it is reported with its state after the page. `TaskManager` starts a
+  follower for a task that isn't archived and has none, and stops the
+  follower and retires the `TaskRunner` of an archived one.
 - **At boot**, `Log` reports every stored task that isn't archived. Archived
-  tasks get no `TaskRunner`.
+  tasks get no follower.
 - **Reports may repeat** the state a task is already in (a boot report of a
   task the consumer already has, a page with a command that doesn't change
   it), so the consumer applies them idempotently.
@@ -268,7 +268,7 @@ local position: arrival order is the server's log order, so `seq` increases
 along the log with no gaps. A single-row `replication` table holds the
 cursor. The `tasks` table projects each task's last command and archive
 state from its events, so `Tasks()` reports and boot need no fold over the
-log.
+log, and holds the position of the task's follower (`handled`).
 
 ```sql
 CREATE TABLE events (
@@ -289,7 +289,8 @@ CREATE TABLE tasks (
     command   INTEGER,            -- gritz.v1.TaskCommand of the last command event
     version   INTEGER,            -- version of the last command event
     workspace TEXT,               -- workspace of the last command event
-    archived  INTEGER             -- result of the last archive event; NULL reads as not archived
+    archived  INTEGER,            -- result of the last archive event; NULL reads as not archived
+    handled   INTEGER NOT NULL DEFAULT 0  -- id of the last event the task's follower handled
 );
 ```
 
@@ -343,28 +344,65 @@ wait isn't missed.
 
 ### Runner: `TaskRunner` acts on its stream
 
-**A fold, not a queue.** A `TaskRunner` doesn't track which events it has
-applied. It reads its stream from `0` and folds command events into the
-state it wants, and drives the sandbox toward that state. Folding gives the
-same result however often it runs, so a crash between storing and acting
-needs no recovery: on boot, each `TaskRunner` folds its stream again.
+`TaskManager` owns the `Log`: `TaskManager.Run` runs `Log.Run` (a store
+error terminates the runner through `die`) and consumes `Log.Tasks()`. Each
+unarchived task gets one **follower** goroutine, started on the task's first
+report; an archived task has its follower stopped and its `TaskRunner`
+retired, as `Prune` does. `Prune` still runs every poll interval over the
+tasks with a `TaskRunner` or a follower, since a task deleted on the server
+leaves no event to report it.
 
-The `TaskRunner` acts only on sandbox lifecycle:
+**The latest command wins.** A follower reads its task's stream with
+`Stream.Read(handled)` and acts on the **last command event in what it
+read**. Commands are a desired state, so earlier ones in the same read are
+superseded, and a fresh runner reading a stream from `0` doesn't replay the
+task's history. The command, version and workspace of that event make the
+`TaskChange` the handler takes, through the existing driver `Run` and `Stop`
+RPCs:
+
+| Last command read | Follower does |
+|---|---|
+| `start` for version *v* | If the sandbox is up on *v*, nothing. Otherwise take a slot, then create or boot the sandbox and start run *v* |
+| `restart` for version *v* | If the record is already on *v*, nothing. Otherwise stop the running run, take a slot, and start run *v* on the same sandbox |
+| `stop` | Stop the running run; with none, enqueue `stopped` for the version itself, since no driver exists to report it |
+| none (a consumed or withdrawn command) | Nothing |
+
+**A stored position.** `runnerstore`'s `tasks.handled` is the id of the last
+event the follower handled. Once the handler has carried the command out, or
+the read had no command, the follower stores the last event id it read there.
+A runner that restarts resumes each follower from its stored position, so it
+doesn't act on a command twice; `Load` reattaches the runs it started.
+
+**Not done means try again, with the latest command.** When the handler
+fails, or a start or restart finds no slot (`TryAcquire` stays non-blocking),
+the follower doesn't advance `handled`. It tries again when a run releases its
+slot, when the task has a new event, or after a backoff capped at the poll
+interval, and each attempt rereads the stream from `handled`. So a newer
+command takes the place of one that waited: a cancel that lands while a start
+waits for a slot means the start never runs. The same goes for a start or
+restart whose `TaskRunner` is still claimed by the `Run` that follows the
+previous run (`ErrRunning`), and for a start that finds the sandbox still up
+on an earlier version: the run boundary (#1868) writes the next version's
+start as the previous run ends, before the runner has parked its sandbox, and
+the start waits for that `Run` to give back its slot.
+
+**Deliberate no-ops count as handled.** A restart whose record is already on
+its version, and a start whose sandbox is up on its version, do nothing and
+advance `handled`. When that run ends with the start still pending, the run
+boundary writes a new command event, which the follower picks up.
+
+`Load` still reconciles sandboxes against their records at boot, and the
+lost-run backstops stay.
+
+**Later slices.** Once the driver acts on commands (slice 8), the `TaskRunner`
+acts only on sandbox lifecycle and forwards the events to the driver, which
+stops and restarts runs and hands the agent its instructions:
 
 | Folded state for the task | `TaskRunner` does |
 |---|---|
 | Latest command is `start` / `restart` for version *v*, and the driver has not reported run *v* ended | Ensure the sandbox is up (acquire a slot, create or boot), and keep a `Run` stream open to its driver |
-| Latest command is `stop`, and no sandbox is up | Enqueue `stopped` for the version itself, as `Poll` does today, since no driver exists to report it |
+| Latest command is `stop`, and no sandbox is up | Enqueue `stopped` for the version itself, since no driver exists to report it |
 | The driver reported the run ended and no newer start is wanted | Close the stream, park the sandbox, release the slot |
-
-Everything else (stopping a running run, restarting it, instructions) happens
-in the driver. The `TaskRunner` forwards the events and the driver acts on
-them. Slots stay with `TaskManager`: a `TaskRunner` that wants a sandbox asks
-for one and waits until it gets it, so admission control no longer loops
-through `ErrRunning`.
-
-`Load` still reconciles sandboxes against their records at boot, and the
-lost-run backstops stay.
 
 ### Driver: `Run` becomes a bidirectional stream
 
@@ -455,7 +493,7 @@ carrying later requests.
 service GritzService {
   // ListRunnerEvents returns the events of the runner's tasks after the
   // cursor, in log order, from transactions that can no longer commit behind
-  // it. Replaces ListRunnerTasks.
+  // it.
   rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
 }
 
@@ -665,13 +703,18 @@ func (s *Stream) Read(ctx context.Context, after int64) ([]*gritzv1.Event, error
 ```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
-// TaskManagerOptions takes the Log the TaskManager creates TaskRunners from. // changed
+// TaskManagerOptions takes the Log the TaskManager runs and follows its tasks
+// from, and the Log's store, which holds each follower's position. // changed
 type TaskManagerOptions struct {
 	// ... existing fields
-	Log *taskevents.Log // new
+	TaskLog     *taskevents.Log    // new
+	RunnerStore *runnerstore.Store // new
 }
 
-// Poll is removed; TaskManager creates and drops TaskRunners from Log.Tasks(). // removed
+// Poll is removed; Run runs the Log and a follower per unarchived task. // removed
+
+// Start takes the command event's TaskChange instead of a *model.Task. // changed
+func (m *TaskManager) Start(ctx context.Context, c runnerstore.TaskChange) error
 
 // TaskRunnerOptions takes the task's stream. // changed
 type TaskRunnerOptions struct {
@@ -754,17 +797,22 @@ sends `RunEnded` up the stream when a run is over.
    client, and `X-aws-proxy-force-h2: true` on every Lambda MicroVM driver
    request. Depends on: nothing. Verifiable by: the existing Docker and Lambda
    MicroVM backend tests.
-6. **Runner acts on events** — Delivers: `gritz runner` constructing and
-   running a `taskevents.Log` on its `runnerstore`; `TaskManager` creating and
-   dropping `TaskRunner`s from `Log.Tasks()` (full-state reports, applied
-   idempotently); each `TaskRunner` acting on its task's latest command and
-   version through the existing driver `Run` and `Stop` RPCs, so the driver
-   protocol is unchanged; `Poll` removed and the runner no longer calls
-   `ListRunnerTasks` (the RPC stays on the server for older runners until a
-   later cleanup); a shared fake server for runner tests that serves
-   `ListRunnerEvents` from an in-memory log. Depends on: (2), (4).
-   Verifiable by: `runner_test` with the fake backend and the fake server for
-   start, restart, stop with no sandbox, and slot exhaustion.
+6. **Runner acts on events** — Delivers: `gritz runner` constructing a
+   `taskevents.Log` on its `runnerstore`, which `TaskManager` owns and runs;
+   a follower per unarchived task, started and stopped from `Log.Tasks()`
+   (full-state reports, applied idempotently), acting on the last command in
+   what it reads through the existing driver `Run` and `Stop` RPCs, so the
+   driver protocol is unchanged; the follower's position in
+   `tasks.handled`, advanced only once a command is carried out, with
+   retries on a released slot, a new event or a backoff; `Poll` and the
+   `ListRunnerTasks` RPC removed (proto, handler, store query and client);
+   `TaskManager.Start` taking a `runnerstore.TaskChange`; a shared fake
+   server for runner tests that serves `ListRunnerEvents` from an in-memory
+   log. Depends on: (2), (4). Verifiable by: `runner_test` with the fake
+   backend and the fake server for start, restart, stop, stop with no
+   sandbox, a start waiting for a slot, a stop superseding a waiting start,
+   archive retiring the `TaskRunner`, and a restarted runner resuming from
+   `handled` without acting again.
 7. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
    `Run` with the `RunSpec` as its first message, `Hello`, `RunEnded` in
    place of `Finished`, and the `TaskRunner` forwarding `Stream.Read` from the

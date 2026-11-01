@@ -45,27 +45,6 @@ func (s *Server) ListTasks(ctx context.Context, req *gritzv1.ListTasksRequest) (
 	return resp, nil
 }
 
-func (s *Server) ListRunnerTasks(ctx context.Context, req *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
-	caller := apiauth.MustCaller(ctx)
-	if !caller.Scopes.Allow(authscope.OpTaskRead) {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot list tasks"))
-	}
-	tasks, err := s.store.ListTasksForRunner(ctx, nil, req.Runner, caller.OrgID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return &gritzv1.ListRunnerTasksResponse{}, nil
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	resp := &gritzv1.ListRunnerTasksResponse{
-		Tasks: make([]*gritzv1.Task, len(tasks)),
-	}
-	for i, t := range tasks {
-		resp.Tasks[i] = t.Proto(s.baseURL)
-	}
-	return resp, nil
-}
-
 func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// No row exists yet, so authorize directly on the request attributes — the
@@ -127,7 +106,7 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(model.TaskCommandNone); ok {
+		if ev, ok := task.CommandEvent(nil); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -267,7 +246,7 @@ func (s *Server) UpdateTask(ctx context.Context, req *gritzv1.UpdateTaskRequest)
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -471,7 +450,7 @@ func (s *Server) CancelTask(ctx context.Context, req *gritzv1.CancelTaskRequest)
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
@@ -547,7 +526,7 @@ func (s *Server) RestartTask(ctx context.Context, req *gritzv1.RestartTaskReques
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(from.Command); ok {
+		if ev, ok := task.CommandEvent(from); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}

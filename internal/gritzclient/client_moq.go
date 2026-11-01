@@ -118,9 +118,6 @@ var _ Client = &ClientMock{}
 //			ListRunnerEventsFunc: func(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
 //				panic("mock out the ListRunnerEvents method")
 //			},
-//			ListRunnerTasksFunc: func(contextMoqParam context.Context, listRunnerTasksRequest *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
-//				panic("mock out the ListRunnerTasks method")
-//			},
 //			ListSchedulesFunc: func(contextMoqParam context.Context, listSchedulesRequest *gritzv1.ListSchedulesRequest) (*gritzv1.ListSchedulesResponse, error) {
 //				panic("mock out the ListSchedules method")
 //			},
@@ -283,9 +280,6 @@ type ClientMock struct {
 
 	// ListRunnerEventsFunc mocks the ListRunnerEvents method.
 	ListRunnerEventsFunc func(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error)
-
-	// ListRunnerTasksFunc mocks the ListRunnerTasks method.
-	ListRunnerTasksFunc func(contextMoqParam context.Context, listRunnerTasksRequest *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error)
 
 	// ListSchedulesFunc mocks the ListSchedules method.
 	ListSchedulesFunc func(contextMoqParam context.Context, listSchedulesRequest *gritzv1.ListSchedulesRequest) (*gritzv1.ListSchedulesResponse, error)
@@ -577,13 +571,6 @@ type ClientMock struct {
 			// ListRunnerEventsRequest is the listRunnerEventsRequest argument value.
 			ListRunnerEventsRequest *gritzv1.ListRunnerEventsRequest
 		}
-		// ListRunnerTasks holds details about calls to the ListRunnerTasks method.
-		ListRunnerTasks []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// ListRunnerTasksRequest is the listRunnerTasksRequest argument value.
-			ListRunnerTasksRequest *gritzv1.ListRunnerTasksRequest
-		}
 		// ListSchedules holds details about calls to the ListSchedules method.
 		ListSchedules []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -751,7 +738,6 @@ type ClientMock struct {
 	lockListOrgMembers                 sync.RWMutex
 	lockListOrgs                       sync.RWMutex
 	lockListRunnerEvents               sync.RWMutex
-	lockListRunnerTasks                sync.RWMutex
 	lockListSchedules                  sync.RWMutex
 	lockListTasks                      sync.RWMutex
 	lockListWorkspaces                 sync.RWMutex
@@ -1958,42 +1944,6 @@ func (mock *ClientMock) ListRunnerEventsCalls() []struct {
 	mock.lockListRunnerEvents.RLock()
 	calls = mock.calls.ListRunnerEvents
 	mock.lockListRunnerEvents.RUnlock()
-	return calls
-}
-
-// ListRunnerTasks calls ListRunnerTasksFunc.
-func (mock *ClientMock) ListRunnerTasks(contextMoqParam context.Context, listRunnerTasksRequest *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
-	if mock.ListRunnerTasksFunc == nil {
-		panic("ClientMock.ListRunnerTasksFunc: method is nil but Client.ListRunnerTasks was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam        context.Context
-		ListRunnerTasksRequest *gritzv1.ListRunnerTasksRequest
-	}{
-		ContextMoqParam:        contextMoqParam,
-		ListRunnerTasksRequest: listRunnerTasksRequest,
-	}
-	mock.lockListRunnerTasks.Lock()
-	mock.calls.ListRunnerTasks = append(mock.calls.ListRunnerTasks, callInfo)
-	mock.lockListRunnerTasks.Unlock()
-	return mock.ListRunnerTasksFunc(contextMoqParam, listRunnerTasksRequest)
-}
-
-// ListRunnerTasksCalls gets all the calls that were made to ListRunnerTasks.
-// Check the length with:
-//
-//	len(mockedClient.ListRunnerTasksCalls())
-func (mock *ClientMock) ListRunnerTasksCalls() []struct {
-	ContextMoqParam        context.Context
-	ListRunnerTasksRequest *gritzv1.ListRunnerTasksRequest
-} {
-	var calls []struct {
-		ContextMoqParam        context.Context
-		ListRunnerTasksRequest *gritzv1.ListRunnerTasksRequest
-	}
-	mock.lockListRunnerTasks.RLock()
-	calls = mock.calls.ListRunnerTasks
-	mock.lockListRunnerTasks.RUnlock()
 	return calls
 }
 

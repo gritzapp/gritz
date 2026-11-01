@@ -126,11 +126,12 @@ func (p *LinkPayload) SetPayloadProto(pb *gritzv1.Event) {
 	}}
 }
 
-// CommandPayload is the body of a command event: Task.Command changed. Every
-// site that changes a task's command writes one (see Task.CommandEvent), so the
-// stream carries every command a runner acts on — including a withdrawn start
-// and the clear when a runner event consumes the command. Command events are
-// not history: views that show history skip them.
+// CommandPayload is the body of a command event: Task.Command, or the version
+// it applies to, changed. Every site that changes either writes one (see
+// Task.CommandEvent), so the stream carries every command a runner acts on —
+// including a withdrawn start, the clear when a runner event consumes the
+// command, and a pending start moving to the next run. Command events are not
+// history: views that show history skip them.
 type CommandPayload struct {
 	Command   TaskCommand `json:"command"`
 	Version   int64       `json:"version"`
