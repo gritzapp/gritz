@@ -33,13 +33,13 @@ func Summarize(input map[string]any) string {
 	if len(input) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(input))
+	var keys []string
 	for k := range input {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
-	pairs := make([]string, 0, len(keys))
+	var pairs []string
 	for _, k := range keys {
 		v := input[k]
 		if v == nil {
@@ -109,7 +109,7 @@ func formatNumber(f float64) string {
 // as a command line) and renders any array containing a non-scalar element as
 // "[n items]".
 func formatArray(arr []any) string {
-	parts := make([]string, 0, len(arr))
+	var parts []string
 	for _, el := range arr {
 		switch e := el.(type) {
 		case string:

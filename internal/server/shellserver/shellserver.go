@@ -174,7 +174,7 @@ func (r *Registry) Seed(id string, orgID, taskID int64) error {
 // the registry-level cleanup hook for server shutdown.
 func (r *Registry) Close() {
 	r.mu.Lock()
-	sessions := make([]*shellrelay.Session, 0, len(r.sessions))
+	var sessions []*shellrelay.Session
 	for _, e := range r.sessions {
 		sessions = append(sessions, e.session)
 	}

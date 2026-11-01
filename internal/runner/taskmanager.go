@@ -290,7 +290,7 @@ func (m *TaskManager) Close() error {
 
 // RegisterWorkspaces sends the available workspace names to the server.
 func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
-	workspaces := make([]*gritzv1.RegisteredWorkspace, 0, len(m.workspaces.Workspaces))
+	var workspaces []*gritzv1.RegisteredWorkspace
 	for name, ws := range m.workspaces.Workspaces {
 		workspaces = append(workspaces, &gritzv1.RegisteredWorkspace{
 			Name:        name,

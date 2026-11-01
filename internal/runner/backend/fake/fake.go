@@ -449,7 +449,7 @@ func (b *Backend) leftUpLocked(id string, from State) []context.CancelFunc {
 func (b *Backend) cutLocked(id string) []context.CancelFunc {
 	runs := b.runs[id]
 	delete(b.runs, id)
-	cancels := make([]context.CancelFunc, 0, len(runs))
+	var cancels []context.CancelFunc
 	for _, cancel := range runs {
 		cancels = append(cancels, cancel)
 	}

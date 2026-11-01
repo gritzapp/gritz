@@ -179,7 +179,7 @@ func (r *Router) Apply(ctx context.Context, input InputEvent, matches []RouteMat
 	// with routing_key = model.RoutingKey(url), so derive the key the same way:
 	// a non-canonical event URL (a comment URL, an API URL) resolves to the same
 	// key as the stored link.
-	orgIDs := make([]int64, 0, len(matches))
+	var orgIDs []int64
 	for _, match := range matches {
 		orgIDs = append(orgIDs, match.OrgID)
 	}

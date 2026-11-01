@@ -88,7 +88,7 @@ func (s *Schedule) Task() *Task {
 // "Created" first). Call it after the task has been inserted so task.ID is
 // populated.
 func (s *Schedule) Events(task *Task) []*Event {
-	events := make([]*Event, 0, len(s.Instructions)+2)
+	var events []*Event
 	events = append(events, &Event{
 		TaskID: task.ID,
 		OrgID:  task.OrgID,
