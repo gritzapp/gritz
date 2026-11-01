@@ -158,8 +158,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		concurrency = math.MaxInt64
 	}
 
-	log := cmp.Or(opts.Log, slog.Default())
-
 	// Default Fatal to a no-op so die can call m.fatal unconditionally. A nil
 	// Fatal means the caller opted out of crash-on-write-failure (only tests that
 	// never trigger die); production always wires the CancelCauseFunc.
@@ -180,7 +178,7 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		workspaces:    opts.Workspaces,
 		runnerID:      opts.RunnerID,
 		sem:           safesem.New(concurrency),
-		log:           log,
+		log:           cmp.Or(opts.Log, slog.Default()),
 		queue:         opts.Queue,
 		tasklog:       opts.TaskLog,
 		store:         opts.RunnerStore,
