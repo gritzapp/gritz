@@ -1,9 +1,11 @@
 package store_test
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
@@ -11,6 +13,8 @@ import (
 	"github.com/gritzapp/gritz/internal/x/pagination"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
 )
 
 func TestListEventsByTaskPage(t *testing.T) {
@@ -239,4 +243,146 @@ func TestListEventsByTaskPage_BadToken(t *testing.T) {
 
 	// Assert
 	assert.Assert(t, errors.Is(err, pagination.ErrInvalidRequest))
+}
+
+// listRunnerEventsN pages the runner's events after cursor until n have been
+// returned. The xid watermark is cluster-wide, so a transaction held open by a
+// concurrent test can briefly hold back rows that have already committed.
+func listRunnerEventsN(t *testing.T, s *store.Store, org *teststore.Org, runner string, after store.EventCursor, n int) ([]*model.Event, store.EventCursor) {
+	t.Helper()
+	var got []*model.Event
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, runner, after, 100)
+		if err != nil {
+			return poll.Error(err)
+		}
+		got = append(got, events...)
+		after = next
+		if len(got) < n {
+			return poll.Continue("got %d of %d events", len(got), n)
+		}
+		return poll.Success()
+	}, poll.WithTimeout(10*time.Second), poll.WithDelay(20*time.Millisecond))
+	return got, after
+}
+
+func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
+	t.Parallel()
+	// Arrange - two tasks on the runner, each written by its own transaction.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	taskA := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	taskB := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	eventA := &model.Event{TaskID: taskA.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
+	eventB := &model.Event{TaskID: taskB.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "b"}}
+	var heldBack []*model.Event
+	var heldBackCursor store.EventCursor
+
+	// Act - Tx A inserts first (lower id), Tx B inserts second and commits
+	// first; read while A is still open, then again once A commits.
+	err := s.WithTx(t.Context(), nil, func(txA *sql.Tx) error {
+		assert.NilError(t, s.CreateEvent(t.Context(), txA, eventA))
+		err := s.WithTx(t.Context(), nil, func(txB *sql.Tx) error {
+			assert.NilError(t, s.CreateEvent(t.Context(), txB, eventB))
+			return txB.Commit()
+		})
+		assert.NilError(t, err)
+		heldBack, heldBackCursor, err = s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", store.EventCursor{}, 100)
+		assert.NilError(t, err)
+		return txA.Commit()
+	})
+	assert.NilError(t, err)
+	got, cursor := listRunnerEventsN(t, s, org, "runner-1", store.EventCursor{}, 2)
+
+	// Assert - B's committed row is held back behind A's open transaction,
+	// then both come back in xid order and the cursor names the last one.
+	assert.Assert(t, eventA.ID < eventB.ID)
+	assert.Assert(t, eventA.XID < eventB.XID)
+	assert.Assert(t, cmp.Len(heldBack, 0))
+	assert.Equal(t, heldBackCursor, store.EventCursor{})
+	assert.DeepEqual(t, testx.ExtractField(got, "ID"), []int64{eventA.ID, eventB.ID})
+	assert.Equal(t, cursor, store.EventCursor{XID: eventB.XID, ID: eventB.ID})
+}
+
+func TestListRunnerEvents_EmptyPage(t *testing.T) {
+	t.Parallel()
+	// Arrange - read the runner's only event, leaving the cursor at its end.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
+	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+	_, after := listRunnerEventsN(t, s, org, "runner-1", store.EventCursor{}, 1)
+
+	// Act
+	events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", after, 100)
+
+	// Assert - an empty page hands back the request's cursor.
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(events, 0))
+	assert.Equal(t, after, store.EventCursor{XID: event.XID, ID: event.ID})
+	assert.Equal(t, next, after)
+}
+
+func TestListRunnerEvents_Pages(t *testing.T) {
+	t.Parallel()
+	// Arrange - five events on one task, committed in separate transactions.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	var want []int64
+	for i := range 5 {
+		event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: fmt.Sprint(i)}}
+		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+		want = append(want, event.ID)
+	}
+	listRunnerEventsN(t, s, org, "runner-1", store.EventCursor{}, 5)
+
+	// Act - follow the cursor two at a time until a page comes back empty.
+	var got []int64
+	var after store.EventCursor
+	pages := 0
+	for {
+		events, next, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", after, 2)
+		assert.NilError(t, err)
+		if len(events) == 0 {
+			break
+		}
+		got = append(got, testx.ExtractField(events, "ID").([]int64)...)
+		after = next
+		pages++
+	}
+
+	// Assert
+	assert.Equal(t, pages, 3) // 2+2+1
+	assert.DeepEqual(t, got, want)
+}
+
+func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
+	t.Parallel()
+	// Arrange - an event on runner-1's task, on runner-2's task, and on a
+	// runner-1 task in another org.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	otherOrg := teststore.CreateOrg(t, s, nil)
+	mine := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
+	otherRunner := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-2"})
+	otherOrgs := teststore.CreateTask(t, s, otherOrg, &teststore.TaskOptions{Runner: "runner-1"})
+	var want int64
+	for _, task := range []*model.Task{mine, otherRunner, otherOrgs} {
+		event := &model.Event{TaskID: task.ID, OrgID: task.OrgID, Payload: &model.ReportPayload{Content: "x"}}
+		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
+		if task == mine {
+			want = event.ID
+		}
+	}
+	// Wait for the last event to pass the watermark, so the others have too.
+	listRunnerEventsN(t, s, otherOrg, "runner-1", store.EventCursor{}, 1)
+
+	// Act
+	events, _, err := s.ListRunnerEvents(t.Context(), nil, org.OrgID, "runner-1", store.EventCursor{}, 100)
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, testx.ExtractField(events, "ID"), []int64{want})
 }

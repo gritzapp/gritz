@@ -12,6 +12,10 @@ service GritzService {
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
   rpc ListRunnerTasks(ListRunnerTasksRequest) returns (ListRunnerTasksResponse);
+  // ListRunnerEvents returns the events of the runner's tasks after the
+  // cursor, in log order, from transactions that can no longer commit behind
+  // it. Replaces ListRunnerTasks.
+  rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
   rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
@@ -172,6 +176,28 @@ message ListRunnerTasksRequest {
 
 message ListRunnerTasksResponse {
   repeated Task tasks = 1;
+}
+
+message ListRunnerEventsRequest {
+  string runner = 1;  // Runner ID (required)
+  // Opaque; empty for the start of the log, otherwise a previous
+  // response's next_cursor.
+  bytes cursor = 2;
+  int32 page_size = 3;  // Max events to return; 0 for the server default
+}
+
+message ListRunnerEventsResponse {
+  repeated Event events = 1;
+  // Position after the last event in this page; the request's cursor when
+  // the page is empty. Pass it back unchanged.
+  bytes next_cursor = 2;
+}
+
+// EventCursor is the server's encoding of a position in the (xid, id)
+// order, carried in ListRunnerEvents cursors. Clients don't decode it.
+message EventCursor {
+  uint64 xid = 1;
+  int64 id = 2;
 }
 
 message CreateTaskRequest {

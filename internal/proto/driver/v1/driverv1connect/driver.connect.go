@@ -46,12 +46,14 @@ type DriverServiceClient interface {
 	// Status reports that the server is up, plus the current run record.
 	Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error)
 	// Run is attach-or-start, keyed on version:
-	//   another Run stream already open      -> Unavailable (retry)
-	//   record.version > version             -> FailedPrecondition (stale)
-	//   record.version == version            -> attach, spec ignored
-	//   no record / older version, idle      -> start the run (spec required,
-	//                                           NotFound without one)
-	//   another version running              -> Aborted (busy)
+	//
+	//	another Run stream already open      -> Unavailable (retry)
+	//	record.version > version             -> FailedPrecondition (stale)
+	//	record.version == version            -> attach, spec ignored
+	//	no record / older version, idle      -> start the run (spec required,
+	//	                                        NotFound without one)
+	//	another version running              -> Aborted (busy)
+	//
 	// At most one Run stream is open at a time. The stream ends after the run's
 	// Finished has been sent. A dropped or closed stream detaches and nothing
 	// else: the run keeps going.
@@ -130,12 +132,14 @@ type DriverServiceHandler interface {
 	// Status reports that the server is up, plus the current run record.
 	Status(context.Context, *v1.StatusRequest) (*v1.StatusResponse, error)
 	// Run is attach-or-start, keyed on version:
-	//   another Run stream already open      -> Unavailable (retry)
-	//   record.version > version             -> FailedPrecondition (stale)
-	//   record.version == version            -> attach, spec ignored
-	//   no record / older version, idle      -> start the run (spec required,
-	//                                           NotFound without one)
-	//   another version running              -> Aborted (busy)
+	//
+	//	another Run stream already open      -> Unavailable (retry)
+	//	record.version > version             -> FailedPrecondition (stale)
+	//	record.version == version            -> attach, spec ignored
+	//	no record / older version, idle      -> start the run (spec required,
+	//	                                        NotFound without one)
+	//	another version running              -> Aborted (busy)
+	//
 	// At most one Run stream is open at a time. The stream ends after the run's
 	// Finished has been sent. A dropped or closed stream detaches and nothing
 	// else: the run keeps going.
