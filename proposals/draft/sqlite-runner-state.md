@@ -53,7 +53,7 @@ A new flag replaces `--state-dir`:
 `/var/lib/gritz`, so the default lands on the same volume with no compose
 change beyond replacing `GRITZ_STATE_DIR` with `GRITZ_STATE_DB`.
 
-`runnerdb.Open` opens the file and sets, on every connection:
+`runnerstore.Open` opens the file and sets, on every connection:
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -68,7 +68,7 @@ connections.
 
 ### Schema and migrations
 
-The schema lives in `internal/runner/runnerdb/migrations/` as numbered `.sql`
+The schema lives in `internal/runner/runnerstore/migrations/` as numbered `.sql`
 files embedded with `embed.FS`. `Open` applies them in order inside a
 transaction and records progress in `PRAGMA user_version`. The server's
 `dbmate` is not reused: its SQLite driver is `mattn/go-sqlite3`, which needs
@@ -129,7 +129,7 @@ There is no in-memory mirror; the partial index makes the head lookup cheap,
 and the queue only holds events that have not yet reached the server. The
 package stays stdlib-only, as its doc comment requires: `SQLStore` takes a
 `*sql.DB` and the caller supplies the driver. `SQLStore` expects the `outbox`
-table to exist; `runnerdb`'s migrations create it.
+table to exist; `runnerstore`'s migrations create it.
 
 `FileStore` is deleted once the import below is removed (its only production
 caller is the runner).
@@ -154,7 +154,7 @@ The release after that deletes the import, the flag, the file-backed
 ### API
 
 ```go
-package runnerdb // github.com/gritzapp/gritz/internal/runner/runnerdb (new)
+package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore (new)
 
 // Open opens the runner's SQLite state database at path, creating it if
 // needed, and applies pending migrations.
@@ -197,8 +197,8 @@ type RunnerEventOutboxOptions struct {
 }
 ```
 
-**How it fits:** `internal/command/runner.go` calls `runnerdb.Open` with
-`--state-db`, then `runnerdb.Import`, then builds `taskstate.New(db)` for
+**How it fits:** `internal/command/runner.go` calls `runnerstore.Open` with
+`--state-db`, then `runnerstore.Import`, then builds `taskstate.New(db)` for
 `TaskManagerOptions.Store` and `outbox.NewSQLStore(db)` for
 `RunnerEventOutboxOptions.Store`, and closes the database on exit.
 `internal/runner/testrunner` opens a database in `t.TempDir()` the same way;
@@ -206,7 +206,7 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
 
 ## Implementation Plan
 
-1. **runnerdb package** — Delivers: `runnerdb.Open`, connection pragmas,
+1. **runnerstore package** — Delivers: `runnerstore.Open`, connection pragmas,
    embedded migrations with `user_version`, `0001_init.sql`; the driver becomes
    a direct dependency. Depends on: nothing. Verifiable by: tests that open a
    fresh file, reopen it (migrations not reapplied), and check the tables exist.
@@ -218,7 +218,7 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    above, alongside `Open` for now. Depends on: (1). Verifiable by: the existing
    `taskstate` tests ported to `New`.
 4. **Runner wire-up and import** — Delivers: `--state-db`,
-   `runnerdb.Import`, `--import-state-dir`, `RunnerEventOutboxOptions.StoreDir`
+   `runnerstore.Import`, `--import-state-dir`, `RunnerEventOutboxOptions.StoreDir`
    removed, `testrunner` on SQLite, `docker-compose.dev.yml` env updated.
    Depends on: (2), (3). Verifiable by: runner tests pass; an import test that
    lays out legacy files, runs `Import`, and checks the rows and renamed
@@ -226,7 +226,7 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    up.
 5. **Remove the file stores** (next release) — Delivers: deletion of
    `taskstate.Open`, the file code in `taskstate`, `outbox.FileStore`,
-   `runnerdb.Import` and `--import-state-dir`. Depends on: (4) having shipped in
+   `runnerstore.Import` and `--import-state-dir`. Depends on: (4) having shipped in
    a release. Verifiable by: build and tests pass.
 
 ## Trade-offs
