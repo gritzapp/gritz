@@ -9,7 +9,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/sqlc"
-	"github.com/gritzapp/gritz/internal/x/pagination"
+	"github.com/gritzapp/gritz/internal/x/pagination/v2"
 )
 
 func (s *Store) CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event) error {
