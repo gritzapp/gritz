@@ -4,11 +4,9 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
-	"math"
 	"path"
 	"regexp"
 	"slices"
@@ -25,32 +23,28 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/x/safesem"
-	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
 // TaskManager orchestrates the runner's tasks: it replicates their event log,
-// runs a follower per unarchived task that acts on the task's commands, builds
-// the specs their sandboxes are created and run with, admits runs under the
-// concurrency limit, and keeps the registry of the tasks' TaskRunners.
+// hands each unarchived task's reports to its TaskRunner, whose follower acts
+// on the task's commands, builds the specs their sandboxes are created and run
+// with, and keeps the registry of the tasks' TaskRunners.
 type TaskManager struct {
 	backend    backend.Backend
 	client     gritzclient.Client
 	serverURL  string
 	workspaces *workspace.Config
 	runnerID   string
-	sem        *safesem.Semaphore
-	log        *slog.Logger
-	queue      *RunnerEventOutbox
+	// slots are the concurrency slots, shared by the TaskRunners.
+	slots *Slots
+	log   *slog.Logger
+	queue *RunnerEventOutbox
 	// tasklog is the runner's replica of its tasks' event logs. Run runs it,
-	// and feeds its task reports to the followers.
+	// and feeds its task reports to the TaskRunners.
 	tasklog *taskevents.Log
 	// store is tasklog's store, where each follower keeps its position, and
 	// holds the tasks' sandbox records.
 	store *runnerstore.Store
-	// released wakes the followers waiting to retry a command when a run
-	// releases its concurrency slot.
-	released wakeup.Broadcast
 	// pollInterval is Run's interval between Prune passes, and caps a
 	// follower's backoff between attempts at a command.
 	pollInterval time.Duration
@@ -61,9 +55,6 @@ type TaskManager struct {
 	// newTaskRunner builds the manager's TaskRunners; see
 	// TaskManagerOptions.NewTaskRunner.
 	newTaskRunner func(opts TaskRunnerOptions) *TaskRunner
-	// runs counts the Run goroutines run started that have not returned; see
-	// Wait.
-	runs sync.WaitGroup
 
 	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
 	// task the runner has seen, from its first command (or its record, at
@@ -73,41 +64,6 @@ type TaskManager struct {
 	// records, to rebuild the registry at boot.
 	mu    sync.Mutex
 	tasks map[int64]*TaskRunner
-
-	// followers holds the follower of each unarchived task Run has been told
-	// of. Only Run's goroutine, and Prune, which it calls, use it.
-	followers map[int64]*follower
-}
-
-// follower is a task's follower goroutine; see TaskManager.follow.
-type follower struct {
-	cancel context.CancelFunc
-	// done is closed once the goroutine has returned.
-	done chan struct{}
-	// changed wakes the goroutine when set stores a report.
-	changed wakeup.Chan
-
-	// mu guards change, the latest report of the task, and ok, whether there
-	// has been one.
-	mu     sync.Mutex
-	change runnerstore.TaskChange
-	ok     bool
-}
-
-// set stores c as the task's latest report, replacing the one before it, and
-// wakes the follower.
-func (f *follower) set(c runnerstore.TaskChange) {
-	f.mu.Lock()
-	f.change, f.ok = c, true
-	f.mu.Unlock()
-	f.changed.Wake()
-}
-
-// latest returns the task's latest report, and false if there has been none.
-func (f *follower) latest() (runnerstore.TaskChange, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.change, f.ok
 }
 
 const (
@@ -176,12 +132,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		return nil, fmt.Errorf("task log and runner store are required")
 	}
 
-	// Use math.MaxInt64 if no limit is set (concurrency <= 0)
-	concurrency := int64(opts.Concurrency)
-	if concurrency <= 0 {
-		concurrency = math.MaxInt64
-	}
-
 	// Default Fatal to a no-op so die can call m.fatal unconditionally. A nil
 	// Fatal means the caller opted out of crash-on-write-failure (only tests that
 	// never trigger die); production always wires the CancelCauseFunc.
@@ -201,7 +151,7 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		serverURL:     opts.ServerURL,
 		workspaces:    opts.Workspaces,
 		runnerID:      opts.RunnerID,
-		sem:           safesem.New(concurrency),
+		slots:         NewSlots(opts.Concurrency),
 		log:           cmp.Or(opts.Log, slog.Default()),
 		queue:         opts.Queue,
 		tasklog:       opts.TaskLog,
@@ -211,7 +161,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		events:        make(chan TaskEvent),
 		newTaskRunner: newTaskRunner,
 		tasks:         map[int64]*TaskRunner{},
-		followers:     map[int64]*follower{},
 	}
 	return m, nil
 }
@@ -281,8 +230,8 @@ func (m *TaskManager) Wake() { m.tasklog.Wake() }
 
 // Run runs the event log and the tasks' followers until ctx is done, then
 // returns context.Cause(ctx) once they have stopped. Each task the log
-// reports gets a follower while it is unarchived; an archived task's follower
-// is stopped and its TaskRunner retired. Every PollInterval Run also runs
+// reports has its TaskRunner follow it while it is unarchived; an archived
+// task's TaskRunner stops following and is retired. Every PollInterval Run also runs
 // Prune. If the log fails, Run terminates the runner through die.
 //
 // HandleEvents must be running, and Load must have returned, before Run is
@@ -306,8 +255,11 @@ func (m *TaskManager) Run(ctx context.Context) error {
 				m.log.Error("failed to prune sandboxes", "err", err)
 			}
 		case <-ctx.Done():
-			for taskID := range m.followers {
-				m.unfollow(taskID)
+			m.mu.Lock()
+			runners := slices.Collect(maps.Values(m.tasks))
+			m.mu.Unlock()
+			for _, tr := range runners {
+				tr.unfollow()
 			}
 			<-logDone
 			return context.Cause(ctx)
@@ -316,137 +268,33 @@ func (m *TaskManager) Run(ctx context.Context) error {
 }
 
 // apply applies one of the event log's task reports: an archived task is
-// retired, and an unarchived one is handed to its follower, which is started
-// if it has none. Reports may repeat a task's state, and applying one twice
-// changes nothing.
+// retired, and an unarchived one is handed to its TaskRunner, which starts
+// following the task if it isn't yet. Reports may repeat a task's state, and
+// applying one twice changes nothing.
 func (m *TaskManager) apply(ctx context.Context, c runnerstore.TaskChange) {
 	if c.Archived {
 		m.retire(ctx, c.ID)
 		return
 	}
-	f, ok := m.followers[c.ID]
-	if !ok {
-		fctx, cancel := context.WithCancel(ctx)
-		f = &follower{cancel: cancel, done: make(chan struct{}), changed: wakeup.New()}
-		m.followers[c.ID] = f
-		go func() {
-			defer close(f.done)
-			m.follow(ctx, fctx, c.ID, f)
-		}()
-	}
-	f.set(c)
+	tr := m.Runner(c.ID)
+	tr.Set(c)
+	tr.follow(ctx)
 }
 
-// unfollow stops the task's follower, if it has one, and waits for it to
-// return: a command it is handling is carried out first.
-func (m *TaskManager) unfollow(taskID int64) {
-	f, ok := m.followers[taskID]
-	if !ok {
-		return
-	}
-	f.cancel()
-	<-f.done
-	delete(m.followers, taskID)
-}
-
-// follow is the task's follower. It acts on the command of the task's latest
-// report, f.latest: commands are a desired state, so the latest supersedes
-// the ones before it, and a report that repeats a command already handled
-// does nothing. Once the command is carried out, it stores the command's
-// event id as handled and waits for the next report.
-//
-// A command that isn't carried out, because its handler failed or there was
-// no concurrency slot for it, leaves handled where it was. The follower tries
-// again once a run releases its slot, the task has a new report, or a backoff
-// ends, acting on the latest report each time, so a newer command takes the
-// place of the one that waited.
-//
-// Commands are carried out on ctx, the runner's root context, as the Run
-// goroutines they start must outlive the follower; fctx ends the follower.
-// A store error terminates the runner through die.
-func (m *TaskManager) follow(ctx, fctx context.Context, taskID int64, f *follower) {
-	handled, err := m.store.Handled(ctx, taskID)
-	if err != nil {
-		if ctx.Err() == nil {
-			m.die(err)
-		}
-		return
-	}
-	retry := doubling(min(time.Second, m.pollInterval), m.pollInterval)
-	for {
-		// Take the signal before handling, so a slot released while the
-		// handler runs still wakes the retry.
-		released := m.released.Wait()
-		c, ok := f.latest()
-		if !ok || c.CommandEventID <= handled {
-			select {
-			case <-f.changed:
-				continue
-			case <-fctx.Done():
-				return
-			}
-		}
-		if err := m.command(ctx, c); err != nil {
-			if errors.Is(err, errNoSlot) || errors.Is(err, ErrRunning) {
-				m.log.Debug("command waits", "task", taskID, "command", c.Command, "version", c.Version, "reason", err)
-			} else {
-				m.log.Error("failed to handle command", "task", taskID, "command", c.Command, "version", c.Version, "err", err)
-			}
-			if !m.await(fctx, f, released, retry.NextBackOff()) {
-				return
-			}
-			continue
-		}
-		if err := m.store.SetHandled(ctx, taskID, c.CommandEventID); err != nil {
-			if ctx.Err() == nil {
-				m.die(err)
-			}
-			return
-		}
-		handled = c.CommandEventID
-		retry.Reset()
-	}
-}
-
-// await waits for a reason to try a command again: released firing, a new
-// report for f's task, or the backoff d running out. It reports false if ctx
-// ended first.
-func (m *TaskManager) await(ctx context.Context, f *follower, released <-chan struct{}, d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-released:
-	case <-f.changed:
-	case <-timer.C:
-	case <-ctx.Done():
-	}
-	return ctx.Err() == nil
-}
-
-// command carries out the task's command c. A non-nil error means it wasn't
-// carried out, and the follower tries again. No command needs nothing done.
-func (m *TaskManager) command(ctx context.Context, c runnerstore.TaskChange) error {
-	switch c.Command {
-	case gritzv1.TaskCommand_STOP:
-		return m.stopTask(ctx, c)
-	case gritzv1.TaskCommand_RESTART:
-		return m.restartTask(ctx, c)
-	case gritzv1.TaskCommand_START:
-		return m.startTask(ctx, c)
-	default:
-		return nil
-	}
-}
-
-// Wait blocks until every Run goroutine the manager started has returned, or
-// ctx is done, when it returns ctx's cause. It must not be called while the
-// manager can still start runs (Load, Start, or a follower with a command to
-// handle): each of them can start a Run goroutine, which must not join the
-// wait once it has begun.
+// Wait blocks until every Run goroutine the TaskRunners started has returned,
+// or ctx is done, when it returns ctx's cause. It must not be called while the
+// manager can still start runs (Load, TaskRunner.Start, or a follower with a
+// command to handle): each of them can start a Run goroutine, which must not
+// join the wait once it has begun.
 func (m *TaskManager) Wait(ctx context.Context) error {
+	m.mu.Lock()
+	runners := slices.Collect(maps.Values(m.tasks))
+	m.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
-		m.runs.Wait()
+		for _, tr := range runners {
+			tr.wait()
+		}
 		close(done)
 	}()
 	select {
@@ -481,146 +329,12 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 	return nil
 }
 
-// errNoSlot is what restartTask and startTask return when every concurrency
-// slot is taken: the run waits for one, and its command is tried again.
-var errNoSlot = errors.New("concurrency limit reached")
-
-// stopTask, restartTask and startTask each handle one command for a task. A
-// non-nil error means the command wasn't carried out and should be retried;
-// the caller decides when.
-func (m *TaskManager) stopTask(ctx context.Context, c runnerstore.TaskChange) error {
-	signalled, err := m.Runner(c.ID).Kill(ctx)
-	if err != nil {
-		// The stop is retried.
-		return fmt.Errorf("failed to stop task: %w", err)
-	}
-	if signalled {
-		// The driver owns the terminal report. If it hangs until
-		// SIGKILL, the non-zero exit triggers the monitor's
-		// "failed" instead.
-		return nil
-	}
-	// No running run to stop: there is no driver to complete
-	// the cancel, so emit "stopped" to land the task in
-	// cancelled instead of sticking in cancelling.
-	if err := m.queue.Enqueue(model.RunnerEvent{
-		TaskID:  c.ID,
-		Event:   model.RunnerEventStopped,
-		Version: c.Version,
-	}); err != nil {
-		m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventStopped, c.ID, err))
-		return nil
-	}
-	return nil
-}
-
-func (m *TaskManager) restartTask(ctx context.Context, c runnerstore.TaskChange) error {
-	// Idempotency guard: the record is stamped with the version of
-	// the run it launched, so a record already on the task's current
-	// version means this restart's new run was already launched, by
-	// this runner before it restarted with the command unhandled. The
-	// driver takes ~12s to boot, so killing here would SIGKILL the run
-	// we just started (issue #1520). Do nothing: "started" consumes
-	// the command.
-	if m.Runner(c.ID).Version() == c.Version {
-		m.log.Debug("restart already processed, waiting for started", "task", c.ID, "version", c.Version)
-		return nil
-	}
-	// Kill existing sandbox if running. The old run's "stopped"
-	// is rejected by the status guard while the restart command is
-	// pending, so the command survives until the new run's
-	// "started" consumes it.
-	if _, err := m.Runner(c.ID).Kill(ctx); err != nil {
-		m.log.Error("failed to kill task for restart", "task", c.ID, "err", err)
-	}
-	// Atomically acquire a semaphore slot before starting
-	if !m.sem.TryAcquire(1) {
-		return errNoSlot
-	}
-	err := m.Start(ctx, c)
-	if errors.Is(err, ErrRunning) {
-		// The killed run is still followed. Nothing was started, so
-		// the slot goes back, and the restart is retried once that
-		// run releases its own.
-		m.sem.Release(1)
-		return err
-	}
-	if err != nil {
-		m.sem.Release(1) // Release the slot on failure
-		m.log.Error("failed to start task", "task", c.ID, "err", err)
-		err := m.queue.Enqueue(model.RunnerEvent{
-			TaskID:  c.ID,
-			Event:   model.RunnerEventFailed,
-			Version: c.Version,
-			Reason:  err.Error(),
-		})
-		if err != nil {
-			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, c.ID, err))
-		}
-		return nil
-	}
-	// The "started" event is submitted by the driver on startup
-	return nil
-}
-
-func (m *TaskManager) startTask(ctx context.Context, c runnerstore.TaskChange) error {
-	// Check if the sandbox is already running
-	running, err := m.Runner(c.ID).Running(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check if task is running: %w", err)
-	}
-	if running {
-		if m.Runner(c.ID).Version() == c.Version {
-			// The sandbox runs this version: do nothing, and let the
-			// run finish. If the start is still pending then, the run
-			// boundary moves it to the next version, in a new command
-			// event.
-			m.log.Debug("start command: sandbox already running, waiting for it to finish", "task", c.ID)
-			return nil
-		}
-		// The sandbox still runs an earlier version, such as the run
-		// whose end moved this start to the next version, before the
-		// runner has suspended it. The start is retried once that run
-		// releases its slot.
-		return ErrRunning
-	}
-
-	// Sandbox not running - atomically acquire a semaphore slot before starting
-	if !m.sem.TryAcquire(1) {
-		return errNoSlot
-	}
-	err = m.Start(ctx, c)
-	if errors.Is(err, ErrRunning) {
-		// The sandbox is suspended, but a Run still follows its last
-		// run. Nothing was started, so the slot goes back, and the
-		// start is retried once that Run releases its own.
-		m.sem.Release(1)
-		return err
-	}
-	if err != nil {
-		m.sem.Release(1) // Release the slot on failure
-		m.log.Error("failed to start task", "task", c.ID, "err", err)
-		err := m.queue.Enqueue(model.RunnerEvent{
-			TaskID:  c.ID,
-			Event:   model.RunnerEventFailed,
-			Version: c.Version,
-			Reason:  err.Error(),
-		})
-		if err != nil {
-			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, c.ID, err))
-		}
-		return nil
-	}
-	// The "started" event is submitted by the driver on startup
-	return nil
-}
-
 // Load rehydrates this runner's sandboxes at boot, before Run admits new work.
 // The sandbox records enumerate; Status answers liveness per record. An up
 // sandbox gets the same Run goroutine as the live path, which reattaches
 // to the recorded run; a suspended husk or a gone sandbox is a lost-report
 // backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
-// or destroy). The semaphore is seeded with the up count last, so it may exceed
+// or destroy). The slots are seeded with the up count last, so they may exceed
 // capacity in over-limit scenarios — that's fine.
 //
 // Load rebuilds the task registry from the records it keeps: it is the only
@@ -646,7 +360,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			m.run(ctx, tr, nil)
+			tr.start(ctx, nil)
 			running++
 		case backend.StatusSuspended: // stopped container / SUSPENDED VM (husk preserved)
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
@@ -654,7 +368,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		}
 	}
-	m.sem.Set(running)
+	m.slots.Set(running)
 	m.log.Info("initialized running sandbox count", "count", running)
 	return nil
 }
@@ -694,11 +408,15 @@ func (m *TaskManager) Runner(taskID int64) *TaskRunner {
 	tr := m.tasks[taskID]
 	if tr == nil {
 		tr = m.newTaskRunner(TaskRunnerOptions{
-			TaskID:  taskID,
-			Backend: m.backend,
-			Store:   m.store,
-			Events:  m.events,
-			Log:     m.log,
+			TaskID:       taskID,
+			Backend:      m.backend,
+			Store:        m.store,
+			Events:       m.events,
+			Slots:        m.slots,
+			Queue:        m.queue,
+			Spec:         m.specs,
+			PollInterval: m.pollInterval,
+			Log:          m.log,
 		})
 		m.tasks[taskID] = tr
 	}
@@ -779,32 +497,14 @@ func (m *TaskManager) spec(ctx context.Context, c runnerstore.TaskChange) (*back
 	}, nil
 }
 
-// Start brings up the task's sandbox and starts the task's run on it, on a Run
-// goroutine. The task's TaskRunner creates the sandbox if it has none, or
-// reuses it, and stamps the record with the command's version; see
-// TaskRunner.Boot for what a failure leaves behind.
-//
-// Start returns once the platform reports the sandbox running: waiting for the
-// driver and starting the run happen in Run, so a slow sandbox does not hold
-// up the task's follower. A failure there is reported as the run's "failed".
-//
-// If a Run still follows the task's previous run, Start returns ErrRunning
-// without starting anything, and the caller gives back the concurrency slot it
-// acquired. The task token minted for the spec then goes unused.
-func (m *TaskManager) Start(ctx context.Context, c runnerstore.TaskChange) error {
-	tr := m.Runner(c.ID)
+// specs builds the sandbox spec of the task's run c, and the driver.v1
+// RunSpec its run is started with; see TaskRunnerOptions.Spec.
+func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error) {
 	spec, err := m.spec(ctx, c)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	if err := tr.Boot(ctx, *spec); err != nil {
-		return err
-	}
-	// Follow the run on the runner's root context: the run is started there,
-	// after the record is stamped with its version, so a runner that restarts
-	// in between reattaches to it.
-	m.run(ctx, tr, m.runSpec(spec))
-	return nil
+	return spec, m.runSpec(spec), nil
 }
 
 // runSpec builds the driver.v1 RunSpec for spec. A backend whose sandboxes
@@ -834,33 +534,14 @@ func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 	return rs
 }
 
-// run calls tr's Run on its own goroutine, which holds the run's concurrency
-// slot. Once Run returns, the slot is released and the followers waiting for
-// one woken, unless the runner is shutting down: then the slot stays held and
-// the sandbox is left for the next boot.
-func (m *TaskManager) run(ctx context.Context, tr *TaskRunner, spec *driverv1.RunSpec) {
-	m.runs.Go(func() {
-		if err := tr.Run(ctx, spec); err != nil {
-			return
-		}
-		m.sem.Release(1)
-		m.released.Wake()
-	})
-}
-
-// Prune retires the archived and deleted tasks among those with a TaskRunner
-// or a follower: it checks each with the server, as a task deleted from the
+// Prune retires the archived and deleted tasks among those with a TaskRunner:
+// it checks each with the server, as a task deleted from the
 // server leaves no event to report it. Run calls it, on its own goroutine, so
 // it is never called concurrently with Run.
 func (m *TaskManager) Prune(ctx context.Context) error {
 	m.mu.Lock()
 	ids := slices.Collect(maps.Keys(m.tasks))
 	m.mu.Unlock()
-	for taskID := range m.followers {
-		if !slices.Contains(ids, taskID) {
-			ids = append(ids, taskID)
-		}
-	}
 	for _, taskID := range ids {
 		stale, err := m.stale(ctx, taskID)
 		if err != nil {
@@ -877,16 +558,17 @@ func (m *TaskManager) Prune(ctx context.Context) error {
 // retire stops the task's follower, then retires the task's TaskRunner and
 // drops it from the registry; see TaskRunner.Retire. With the follower
 // stopped, only a Run can still hold the TaskRunner, and Retire refuses a
-// claimed one, so nothing still uses a TaskRunner that is dropped. One that
-// can't be retired yet stays registered, and Prune tries again.
+// claimed one, so nothing still uses a TaskRunner that is dropped once its
+// last Run goroutine has released its slot. One that can't be retired yet
+// stays registered, and Prune tries again.
 func (m *TaskManager) retire(ctx context.Context, taskID int64) {
-	m.unfollow(taskID)
 	m.mu.Lock()
 	tr := m.tasks[taskID]
 	m.mu.Unlock()
 	if tr == nil {
 		return
 	}
+	tr.unfollow()
 	ok, err := tr.Retire(ctx)
 	if err != nil {
 		m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
@@ -895,6 +577,7 @@ func (m *TaskManager) retire(ctx context.Context, taskID int64) {
 	if !ok {
 		return
 	}
+	tr.wait()
 	m.mu.Lock()
 	delete(m.tasks, taskID)
 	m.mu.Unlock()
