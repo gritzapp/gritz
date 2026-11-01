@@ -7,12 +7,12 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
+	"github.com/gritzapp/gritz/internal/x/wakeup"
 )
 
 // DefaultPollInterval is how long Run waits for a Wake before it checks the
@@ -42,13 +42,11 @@ type Log struct {
 	interval time.Duration
 	log      *slog.Logger
 
-	wake  chan struct{}
+	wake  wakeup.Chan
 	tasks chan runnerstore.TaskChange
 
-	mu sync.Mutex
-	// stored holds, per task with a blocked Read, a channel closed when the
-	// next page with an event for that task is stored.
-	stored map[int64]chan struct{}
+	// stored wakes every blocked Read when a page is stored.
+	stored wakeup.Broadcast
 }
 
 // New returns a Log that replicates the runner's tasks from the server into
@@ -60,9 +58,8 @@ func New(opts Options) *Log {
 		runnerID: opts.RunnerID,
 		interval: cmp.Or(opts.PollInterval, DefaultPollInterval),
 		log:      cmp.Or(opts.Log, slog.Default()),
-		wake:     make(chan struct{}, 1),
+		wake:     wakeup.New(),
 		tasks:    make(chan runnerstore.TaskChange),
-		stored:   map[int64]chan struct{}{},
 	}
 }
 
@@ -119,7 +116,7 @@ func (l *Log) sync(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		l.notify(resp.GetEvents())
+		l.stored.Wake()
 		for _, c := range changes {
 			if err := l.report(ctx, c); err != nil {
 				return err
@@ -139,38 +136,10 @@ func (l *Log) report(ctx context.Context, c runnerstore.TaskChange) error {
 	}
 }
 
-// notify wakes the blocked Reads of the tasks with an event in events.
-func (l *Log) notify(events []*gritzv1.Event) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	for _, e := range events {
-		if ch, ok := l.stored[e.GetTaskId()]; ok {
-			close(ch)
-			delete(l.stored, e.GetTaskId())
-		}
-	}
-}
-
-// storedSignal returns a channel closed when the next page with an event for
-// the task is stored.
-func (l *Log) storedSignal(taskID int64) <-chan struct{} {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	ch, ok := l.stored[taskID]
-	if !ok {
-		ch = make(chan struct{})
-		l.stored[taskID] = ch
-	}
-	return ch
-}
-
 // Wake makes Run check the server for new events now, or as soon as its
 // current sync ends.
 func (l *Log) Wake() {
-	select {
-	case l.wake <- struct{}{}:
-	default:
-	}
+	l.wake.Wake()
 }
 
 // Tasks reports the full state of tasks: every unarchived stored task when Run
@@ -199,8 +168,10 @@ type Stream struct {
 func (s *Stream) Read(ctx context.Context, after int64) ([]*gritzv1.Event, error) {
 	for {
 		// Take the signal before reading, so a page stored between the read
-		// and the wait still wakes this Read.
-		stored := s.log.storedSignal(s.taskID)
+		// and the wait still wakes this Read. Any stored page wakes every
+		// blocked Read, not only those of tasks with an event in it; each
+		// re-runs its query and blocks again if it has nothing new.
+		stored := s.log.stored.Wait()
 		events, err := s.log.store.TaskEventsAfter(ctx, s.taskID, after)
 		if err != nil {
 			return nil, err
