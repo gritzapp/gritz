@@ -10,23 +10,17 @@ import (
 )
 
 const insertEvent = `-- name: InsertEvent :exec
-INSERT INTO events (id, task_id, type, event) VALUES (?, ?, ?, ?)
+INSERT INTO events (id, task_id, event) VALUES (?, ?, ?)
 `
 
 type InsertEventParams struct {
 	ID     int64
 	TaskID int64
-	Type   string
 	Event  []byte
 }
 
 func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertEvent,
-		arg.ID,
-		arg.TaskID,
-		arg.Type,
-		arg.Event,
-	)
+	_, err := q.db.ExecContext(ctx, insertEvent, arg.ID, arg.TaskID, arg.Event)
 	return err
 }
 

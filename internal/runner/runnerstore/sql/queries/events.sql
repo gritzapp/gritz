@@ -1,5 +1,5 @@
 -- name: InsertEvent :exec
-INSERT INTO events (id, task_id, type, event) VALUES (?, ?, ?, ?);
+INSERT INTO events (id, task_id, event) VALUES (?, ?, ?);
 
 -- name: ListTaskEventsAfter :many
 SELECT e.event FROM events e

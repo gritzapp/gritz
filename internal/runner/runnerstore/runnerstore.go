@@ -18,7 +18,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore/sqlc"
 )
@@ -27,10 +26,6 @@ import (
 //
 //go:embed sql/migrations/*.sql
 var migrations embed.FS
-
-// eventTypeUnknown is the type stored for an event whose payload arm this
-// runner doesn't know: one added by a newer server.
-const eventTypeUnknown = "unknown"
 
 // Store is the runner's SQLite database.
 type Store struct {
@@ -124,7 +119,6 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		if err := q.InsertEvent(ctx, sqlc.InsertEventParams{
 			ID:     e.GetId(),
 			TaskID: e.GetTaskId(),
-			Type:   eventType(e),
 			Event:  data,
 		}); err != nil {
 			return fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
@@ -137,17 +131,6 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		return fmt.Errorf("runnerstore: commit: %w", err)
 	}
 	return nil
-}
-
-// eventType returns the event's type column. An arm this runner doesn't know
-// is stored as eventTypeUnknown rather than rejected: the server and runner
-// are deployed separately, and readers skip what they don't understand.
-func eventType(e *gritzv1.Event) string {
-	payload := model.EventPayloadFromProto(e)
-	if payload == nil {
-		return eventTypeUnknown
-	}
-	return payload.Type()
 }
 
 // EventCursor returns the replication cursor: the single position in the
