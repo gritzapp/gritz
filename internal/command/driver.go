@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
-	"github.com/gritzapp/gritz/internal/runner/validatescript"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm/validatescript"
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
 	"github.com/urfave/cli/v3"
 )

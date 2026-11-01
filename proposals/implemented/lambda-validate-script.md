@@ -256,7 +256,7 @@ var ErrInProgress error
 ```
 
 ```go
-package validatescript // github.com/gritzapp/gritz/internal/runner/validatescript
+package validatescript // github.com/gritzapp/gritz/internal/x/awsmicrovm/validatescript
 
 // Options configures a Script.
 type Options struct {
