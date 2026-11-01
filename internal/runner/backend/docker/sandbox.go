@@ -15,9 +15,9 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/driverclient"
 )
 
-// parkTimeout is how long Park lets the driver server shut down gracefully
+// suspendTimeout is how long Suspend lets the driver server shut down gracefully
 // after SIGTERM before Docker kills the container.
-const parkTimeout = 30 * time.Second
+const suspendTimeout = 30 * time.Second
 
 var _ backend.Backend = (*Backend)(nil)
 
@@ -93,7 +93,7 @@ func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverSer
 }
 
 // Status reports a running container as up, a missing one as gone, and any
-// other — created, exited or paused — as parked.
+// other — created, exited or paused — as suspended.
 func (s *sandbox) Status(ctx context.Context) (backend.Status, error) {
 	info, err := s.b.docker.ContainerInspect(ctx, s.id)
 	if cerrdefs.IsNotFound(err) {
@@ -105,13 +105,13 @@ func (s *sandbox) Status(ctx context.Context) (backend.Status, error) {
 	if info.State != nil && info.State.Running && !info.State.Paused {
 		return backend.StatusUp, nil
 	}
-	return backend.StatusParked, nil
+	return backend.StatusSuspended, nil
 }
 
-// Park stops the container, giving the driver server parkTimeout to shut down
-// before it is killed. Stopping a stopped container is a no-op.
-func (s *sandbox) Park(ctx context.Context) error {
-	timeout := int(parkTimeout / time.Second)
+// Suspend stops the container, giving the driver server suspendTimeout to shut
+// down before it is killed. Stopping a stopped container is a no-op.
+func (s *sandbox) Suspend(ctx context.Context) error {
+	timeout := int(suspendTimeout / time.Second)
 	err := s.b.docker.ContainerStop(ctx, s.id, container.StopOptions{Timeout: &timeout})
 	if cerrdefs.IsNotFound(err) {
 		return backend.ErrGone

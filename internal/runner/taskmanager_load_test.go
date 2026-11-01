@@ -53,7 +53,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	// The sandbox stays up for next-boot rehydration.
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Parks, 0)
+	assert.Equal(t, sbx.Suspends, 0)
 
 	// Act - the next runner process loads the record and reattaches, over its
 	// own Open of the same sandbox; then the run finishes.
@@ -63,10 +63,10 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	testrunner.StopRun(t, client, 3)
 	assert.NilError(t, m.Wait(t.Context()))
 
-	// Assert - the reattached runner saw Finished: the sandbox is parked and
+	// Assert - the reattached runner saw Finished: the sandbox is suspended and
 	// no event is owed.
 	sbx, _ = be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Parked)
+	assert.Equal(t, sbx.State, fake.Suspended)
 	assert.Equal(t, m.Queued(t), 0)
 }
 
@@ -94,10 +94,10 @@ func TestTaskManagerLoad(t *testing.T) {
 			wantAttach: true,
 		},
 		{
-			// A parked husk is a lost-report backstop; its record is kept.
-			name:   "parked",
+			// A suspended husk is a lost-report backstop; its record is kept.
+			name:   "suspended",
 			record: runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
-			state:  fake.Parked,
+			state:  fake.Suspended,
 			wantEvents: []*gritzv1.RunnerEvent{
 				{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"},
 			},
@@ -209,10 +209,10 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			// Arrange - one parked husk whose task is still RUNNING on the server,
+			// Arrange - one suspended husk whose task is still RUNNING on the server,
 			// so the boot-time backstop fires a "failed".
 			be := testrunner.NewBackend(t, nil)
-			be.Add("c1", fake.Parked)
+			be.Add("c1", fake.Suspended)
 			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 				Backend: be,
 				RunnerStore: testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{
@@ -223,7 +223,7 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 			})
 			m.Client.GetTaskFunc = taskRunning
 
-			// Act - Load drives the parked husk through the backstop, which
+			// Act - Load drives the suspended husk through the backstop, which
 			// emits a "failed" stamped with the record's version.
 			assert.NilError(t, m.Load(t.Context()))
 			events := m.Submitted(t)
@@ -242,7 +242,7 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 func TestTaskManagerPrune(t *testing.T) {
 	t.Parallel()
 	// Arrange - every record but the deleted task's (4) belongs to an archived
-	// task, except 2's. Each is restored parked, but task 8's, restored up.
+	// task, except 2's. Each is restored suspended, but task 8's, restored up.
 	recs := []runnerstore.SandboxRecord{
 		runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}, // archived -> removed
 		runnerstore.SandboxRecord{TaskID: 2, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c2"}}, // not archived -> kept
@@ -254,7 +254,7 @@ func TestTaskManagerPrune(t *testing.T) {
 	}
 	be := testrunner.NewBackend(t, nil)
 	for _, rec := range recs {
-		be.Add(rec.Handle.ID, fake.Parked)
+		be.Add(rec.Handle.ID, fake.Suspended)
 	}
 	be.Set("c8", fake.Up)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
@@ -277,7 +277,7 @@ func TestTaskManagerPrune(t *testing.T) {
 	be.Set("c5", fake.Gone)
 	be.FailNext(fake.OpStatus, "c7", errors.New("boom"))
 	// Task 8's run is claimed (restored up), and its sandbox has stopped since.
-	be.Set("c8", fake.Parked)
+	be.Set("c8", fake.Suspended)
 
 	// Act
 	err := m.Prune(t.Context())
@@ -293,12 +293,12 @@ func TestTaskManagerPrune(t *testing.T) {
 		destroys int
 	}{
 		"c1": {fake.Gone, 1},
-		"c2": {fake.Parked, 0},
+		"c2": {fake.Suspended, 0},
 		"c3": {fake.Up, 0},
 		"c4": {fake.Gone, 1},
 		"c5": {fake.Gone, 1},
-		"c7": {fake.Parked, 0},
-		"c8": {fake.Parked, 0},
+		"c7": {fake.Suspended, 0},
+		"c8": {fake.Suspended, 0},
 	} {
 		sbx, _ := snap.Sandbox(id)
 		assert.Equal(t, sbx.State, want.state, "sandbox %s", id)
@@ -315,16 +315,16 @@ func TestTaskManagerPrune(t *testing.T) {
 	assert.DeepEqual(t, kept, []int64{2, 3, 7, 8})
 }
 
-// TestTaskManagerRun covers Run's loop: it prunes an archived task's parked
+// TestTaskManagerRun covers Run's loop: it prunes an archived task's suspended
 // sandbox, and once a durable write fails it returns the FatalError cause.
 func TestTaskManagerRun(t *testing.T) {
 	t.Parallel()
-	// Arrange - task 1 is archived and its sandbox is parked. The server has
+	// Arrange - task 1 is archived and its sandbox is suspended. The server has
 	// no events until the test adds a stop. The outbox's store is closed, so
 	// the first event the runner persists fails and terminates it.
 	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 	be := testrunner.NewBackend(t, nil)
-	be.Add("c1", fake.Parked)
+	be.Add("c1", fake.Suspended)
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
@@ -377,14 +377,14 @@ func TestTaskManagerRunning(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
-		// state is the state c1 moves to after it is restored parked; 0 means
+		// state is the state c1 moves to after it is restored suspended; 0 means
 		// the task has no record.
 		state fake.State
 		err   error
 		want  bool
 	}{
 		{name: "up", state: fake.Up, want: true},
-		{name: "parked", state: fake.Parked},
+		{name: "suspended", state: fake.Suspended},
 		{name: "gone", state: fake.Gone},
 		{name: "no record"},
 		{name: "status error", state: fake.Up, err: errors.New("boom")},
@@ -399,10 +399,10 @@ func TestTaskManagerRunning(t *testing.T) {
 			if tt.state != 0 {
 				rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 				assert.NilError(t, m.RunnerStore.WriteSandbox(t.Context(), rec))
-				be.Add("c1", fake.Parked)
+				be.Add("c1", fake.Suspended)
 				_, err := m.Runner(1).Restore(t.Context(), rec)
 				assert.NilError(t, err)
-				if tt.state != fake.Parked {
+				if tt.state != fake.Suspended {
 					be.Set("c1", tt.state)
 				}
 			}

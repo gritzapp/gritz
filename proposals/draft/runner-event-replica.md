@@ -383,7 +383,7 @@ waits for a slot means the start never runs. The same goes for a start or
 restart whose `TaskRunner` is still claimed by the `Run` that follows the
 previous run (`ErrRunning`), and for a start that finds the sandbox still up
 on an earlier version: the run boundary (#1868) writes the next version's
-start as the previous run ends, before the runner has parked its sandbox, and
+start as the previous run ends, before the runner has suspended its sandbox, and
 the start waits for that `Run` to give back its slot.
 
 **Deliberate no-ops count as handled.** A restart whose record is already on
@@ -402,7 +402,7 @@ stops and restarts runs and hands the agent its instructions:
 |---|---|
 | Latest command is `start` / `restart` for version *v*, and the driver has not reported run *v* ended | Ensure the sandbox is up (acquire a slot, create or boot), and keep a `Run` stream open to its driver |
 | Latest command is `stop`, and no sandbox is up | Enqueue `stopped` for the version itself, since no driver exists to report it |
-| The driver reported the run ended and no newer start is wanted | Close the stream, park the sandbox, release the slot |
+| The driver reported the run ended and no newer start is wanted | Close the stream, suspend the sandbox, release the slot |
 
 ### Driver: `Run` becomes a bidirectional stream
 
@@ -431,7 +431,7 @@ the next time the stream opens.
 **Driver storage.** The driver appends every received event to
 `/gritz/events.jsonl` and fsyncs before acting on it. Its position is the id of
 the last line, read back on boot. The file lives next to `/gritz/run.json`, so
-it survives a driver restart and a parked sandbox being booted again.
+it survives a driver restart and a suspended sandbox being booted again.
 
 **What the driver does with each event:**
 
@@ -462,7 +462,7 @@ of scope.
 
 **`RunEnded`** replaces `Finished`. The driver sends it once the run's process
 is done and its terminal runner event has been submitted, or has failed to
-submit. It tells the runner it can park, and carries `reported`: when it is
+submit. It tells the runner it can suspend, and carries `reported`: when it is
 false, the runner's lost-run backstop reports the run, as it does for
 `Finished.reported` today.
 
@@ -764,7 +764,7 @@ on the `runnerstore.Store` and runs it. The runner's SSE notification calls
 `Log.Wake`. `Log.Run` pages events into the store and wakes blocked `Read`s.
 `TaskManager` creates a `TaskRunner` with `Log.Stream(id)` for each active
 task from `Log.Tasks()`, and drops it when the task is archived. Each `TaskRunner` folds its stream's command events and boots
-or parks the sandbox with a slot from `TaskManager`. While the sandbox is up
+or suspends the sandbox with a slot from `TaskManager`. While the sandbox is up
 it holds a `Run` stream, sends `Stream.Read(hello.last_event_id)`, then keeps
 forwarding. `driverserver` writes each batch to `eventfile.File`, then acts
 on it. The driver submits runner events to the server itself, as today, and

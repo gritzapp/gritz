@@ -39,19 +39,19 @@ type RunEnver interface {
 }
 
 // Sandbox is a reference to one provisioned sandbox, in whatever state it is
-// in: created, running, parked or gone. It holds the per-sandbox state its
+// in: created, running, suspended or gone. It holds the per-sandbox state its
 // backend needs (the Docker container ID, the Lambda endpoint and cached proxy
 // token). Its methods are safe for concurrent use.
 //
 // A Sandbox can be stale: the platform may have destroyed the sandbox since
 // Create or Open. Every method handles that: Status reports StatusGone, Boot
-// and Park return ErrGone, and Destroy returns nil.
+// and Suspend return ErrGone, and Destroy returns nil.
 type Sandbox interface {
 	// Handle identifies the sandbox in the runner's sandbox records. It is
 	// fixed at Create and never changes over the sandbox's life.
 	Handle() Handle
 
-	// Boot boots a created sandbox or resumes a parked one, and blocks until
+	// Boot boots a created sandbox or resumes a suspended one, and blocks until
 	// the platform reports it running. Booting a running sandbox is a no-op. A
 	// gone sandbox returns ErrGone; a sandbox in a transitional state
 	// (SUSPENDING, pausing) returns a plain error. Boot never creates a
@@ -66,14 +66,14 @@ type Sandbox interface {
 	Dial(ctx context.Context, jwt string) (driverv1connect.DriverServiceClient, error)
 
 	// Status reports the platform's view of the sandbox: StatusUp,
-	// StatusParked or StatusGone. Created but never started, and transitional
-	// states (SUSPENDING, pausing), report StatusParked.
+	// StatusSuspended or StatusGone. Created but never started, and transitional
+	// states (SUSPENDING, pausing), report StatusSuspended.
 	Status(ctx context.Context) (Status, error)
 
-	// Park stops compute while preserving the sandbox, blocking until the
-	// platform reports the stable parked state. Parking a parked sandbox is a
-	// no-op.
-	Park(ctx context.Context) error
+	// Suspend stops compute while preserving the sandbox, blocking until the
+	// platform reports the stable suspended state. Suspending a suspended
+	// sandbox is a no-op.
+	Suspend(ctx context.Context) error
 
 	// Destroy deletes the sandbox. Destroying a gone sandbox is not an error.
 	Destroy(ctx context.Context) error
@@ -88,11 +88,11 @@ const (
 	// StatusUp means the platform reports the sandbox running. Its driver may
 	// not answer yet.
 	StatusUp
-	// StatusParked means the sandbox exists but its compute is stopped, or is
+	// StatusSuspended means the sandbox exists but its compute is stopped, or is
 	// stopping or not yet started: created, stopped, SUSPENDING, SUSPENDED.
-	StatusParked
+	StatusSuspended
 	// StatusGone means the sandbox no longer exists, or is being torn down:
-	// there is nothing to start or park.
+	// there is nothing to start or suspend.
 	StatusGone
 )
 
@@ -100,8 +100,8 @@ func (s Status) String() string {
 	switch s {
 	case StatusUp:
 		return "up"
-	case StatusParked:
-		return "parked"
+	case StatusSuspended:
+		return "suspended"
 	case StatusGone:
 		return "gone"
 	default:

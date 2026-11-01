@@ -63,21 +63,21 @@ func dialReady(t *testing.T, sb backend.Sandbox) {
 	}, poll.WithTimeout(30*time.Second), poll.WithDelay(250*time.Millisecond))
 }
 
-// A sandbox goes through its whole life: created, booted, dialed, parked,
+// A sandbox goes through its whole life: created, booted, dialed, suspended,
 // restarted and destroyed, after which it is gone.
 func TestSandbox_Lifecycle(t *testing.T) {
 	be := newTestBackend(t)
 
 	sb := create(t, be)
 
-	// Create does not start the container: a created container is parked.
+	// Create does not start the container: a created container is suspended.
 	h := sb.Handle()
 	assert.Equal(t, h.Type, HandleType)
 	info, err := be.docker.ContainerInspect(t.Context(), h.ID)
 	assert.NilError(t, err)
 	assert.Equal(t, info.ID, h.ID)
 	assert.Equal(t, info.State.Status, "created")
-	assertStatus(t, sb, backend.StatusParked)
+	assertStatus(t, sb, backend.StatusSuspended)
 
 	assert.NilError(t, sb.Boot(t.Context()))
 	assertStatus(t, sb, backend.StatusUp)
@@ -85,10 +85,10 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assert.NilError(t, sb.Boot(t.Context()))
 	dialReady(t, sb)
 
-	assert.NilError(t, sb.Park(t.Context()))
-	assertStatus(t, sb, backend.StatusParked)
-	// Parking a stopped container is a no-op.
-	assert.NilError(t, sb.Park(t.Context()))
+	assert.NilError(t, sb.Suspend(t.Context()))
+	assertStatus(t, sb, backend.StatusSuspended)
+	// Suspending a stopped container is a no-op.
+	assert.NilError(t, sb.Suspend(t.Context()))
 	// A stopped container's driver cannot be reached.
 	client, err := sb.Dial(t.Context(), "jwt")
 	assert.NilError(t, err)
@@ -102,7 +102,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 	assert.NilError(t, sb.Destroy(t.Context()))
 	assertStatus(t, sb, backend.StatusGone)
 	assert.ErrorIs(t, sb.Boot(t.Context()), backend.ErrGone)
-	assert.ErrorIs(t, sb.Park(t.Context()), backend.ErrGone)
+	assert.ErrorIs(t, sb.Suspend(t.Context()), backend.ErrGone)
 	assert.NilError(t, sb.Destroy(t.Context()))
 }
 
@@ -137,7 +137,7 @@ func TestOpen(t *testing.T) {
 	assert.ErrorContains(t, err, "no container id")
 }
 
-// A container that is not running — exited or paused — is parked.
+// A container that is not running — exited or paused — is suspended.
 func TestSandbox_Status(t *testing.T) {
 	t.Parallel()
 	be, err := New(Options{RunnerID: "test-runner"})
@@ -154,12 +154,12 @@ func TestSandbox_Status(t *testing.T) {
 
 	_, paused := startContainer(t, []string{"sleep", "30"})
 	assert.NilError(t, docker.ContainerPause(t.Context(), paused))
-	assertStatus(t, open(paused), backend.StatusParked)
+	assertStatus(t, open(paused), backend.StatusSuspended)
 	assert.Assert(t, open(paused).Boot(t.Context()) != nil)
 
 	_, exited := startContainer(t, []string{"sh", "-c", "trap 'exit 0' TERM; sleep 300 & wait"})
 	assert.NilError(t, docker.ContainerStop(t.Context(), exited, container.StopOptions{}))
-	assertStatus(t, open(exited), backend.StatusParked)
+	assertStatus(t, open(exited), backend.StatusSuspended)
 
 	assertStatus(t, open("nonexistent-container-id"), backend.StatusGone)
 }

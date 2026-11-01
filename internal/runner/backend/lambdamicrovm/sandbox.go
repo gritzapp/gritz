@@ -140,7 +140,7 @@ func (s *sandbox) Dial(_ context.Context, jwt string) (driverv1connect.DriverSer
 }
 
 // Status reports a RUNNING VM as up; a PENDING (created, not yet booted),
-// SUSPENDING or SUSPENDED one as parked; and a terminating, terminated or
+// SUSPENDING or SUSPENDED one as suspended; and a terminating, terminated or
 // missing one as gone.
 func (s *sandbox) Status(ctx context.Context) (backend.Status, error) {
 	vm, err := s.b.get(ctx, s.id())
@@ -155,7 +155,7 @@ func (s *sandbox) Status(ctx context.Context) (backend.Status, error) {
 	case state == types.MicrovmStateRunning:
 		return backend.StatusUp, nil
 	case state == types.MicrovmStatePending, state == types.MicrovmStateSuspending, state == types.MicrovmStateSuspended:
-		return backend.StatusParked, nil
+		return backend.StatusSuspended, nil
 	case terminal(state):
 		return backend.StatusGone, nil
 	default:
@@ -163,11 +163,11 @@ func (s *sandbox) Status(ctx context.Context) (backend.Status, error) {
 	}
 }
 
-// Park suspends the VM and polls until it is SUSPENDED. A SUSPENDED VM is left
+// Suspend suspends the VM and polls until it is SUSPENDED. A SUSPENDED VM is left
 // as it is, a SUSPENDING one is waited for, and a PENDING one is waited for to
 // be RUNNING before it is suspended. A terminating, terminated or missing VM is
 // backend.ErrGone.
-func (s *sandbox) Park(ctx context.Context) error {
+func (s *sandbox) Suspend(ctx context.Context) error {
 	id := s.id()
 	vm, err := s.b.get(ctx, id)
 	if err != nil {

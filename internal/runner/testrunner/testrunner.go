@@ -514,7 +514,7 @@ func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *runnerstore.Sa
 
 // WaitRuns waits until the runner has made at least n Run calls on sandbox
 // id's driver that went through. The fake counts a call once it can cut it,
-// so the n-th stream can then be cut with Drop, Set or Park.
+// so the n-th stream can then be cut with Drop, Set or Suspend.
 func WaitRuns(t *testing.T, be *fake.Backend, id string, n int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
