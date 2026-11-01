@@ -1,7 +1,8 @@
 // Playback controls for the published diagram pages. @motion-canvas/player
 // only offers click-to-toggle, so this drives its core Player directly:
 // play/pause, restart, frame stepping, a scrubber marked with the scene
-// boundaries, speed and loop. It relies on the element's `player` property
+// boundaries, speed, loop, and a step mode that pauses at every caption step
+// (each Caption.show is a slide). It relies on the element's `player` property
 // and `setPlaying` method, which are not documented API, so the player
 // version is pinned in package.json.
 
@@ -75,6 +76,10 @@ function mount(host: PlayerElement, player: Player) {
   const next = el('button', {textContent: '>', title: 'Next frame (right)'});
   const time = el('span', {className: 'mc-time'});
   const loop = el('button', {textContent: 'Loop', title: 'Loop (l)'});
+  const steps = el('button', {
+    textContent: 'Pause at steps',
+    title: 'Pause at each caption step; space continues (s)',
+  });
   const speed = el(
     'select',
     {title: 'Speed'},
@@ -85,7 +90,7 @@ function mount(host: PlayerElement, player: Player) {
   const scenes = el('div', {className: 'mc-scenes'});
   const hint = el('span', {
     className: 'mc-hint',
-    textContent: 'space play · arrows step · shift+arrows scene',
+    textContent: 'space play/continue · arrows frame · shift+arrows scene · s steps',
   });
 
   const controls = el(
@@ -99,6 +104,7 @@ function mount(host: PlayerElement, player: Player) {
     time,
     speed,
     loop,
+    steps,
     hint,
     scenes,
   );
@@ -109,6 +115,26 @@ function mount(host: PlayerElement, player: Player) {
   let duration = 0;
   let scrubbing = false;
   let resume = false;
+  // Absolute frames of every slide, i.e. the start of every caption step.
+  let slideFrames: number[] = [];
+  let pauseAtSteps = true;
+  let lastFrame = 0;
+  const unsubscribeSlides: (() => void)[] = [];
+
+  const renderSteps = () =>
+    steps.setAttribute('aria-pressed', String(pauseAtSteps));
+
+  // Slide times are scene-relative seconds; firstFrame places them on the
+  // whole timeline.
+  const collectSlides = () => {
+    slideFrames = sceneList
+      .flatMap(scene =>
+        scene.slides.onChanged.current.map(
+          slide => scene.firstFrame + Math.round(slide.time * fps()),
+        ),
+      )
+      .sort((a, b) => a - b);
+  };
 
   const currentScene = (frame: number) =>
     sceneList.findLast(s => s.firstFrame <= frame) ?? sceneList[0];
@@ -148,8 +174,27 @@ function mount(host: PlayerElement, player: Player) {
   player.playback.onScenesRecalculated.subscribe(value => {
     sceneList = value;
     renderScenes();
+    unsubscribeSlides.splice(0).forEach(unsubscribe => unsubscribe());
+    for (const scene of sceneList) {
+      unsubscribeSlides.push(scene.slides.onChanged.subscribe(collectSlides));
+    }
+    collectSlides();
   });
   player.onFrameChanged.subscribe(renderTime);
+  // In step mode, pause when ordinary playback crosses a slide. Seeks,
+  // scrubbing and the loop back to the start jump further than a few frames
+  // and never pause.
+  player.onFrameChanged.subscribe(frame => {
+    const prev = lastFrame;
+    lastFrame = frame;
+    if (!pauseAtSteps || scrubbing || player.onStateChanged.current.paused) {
+      return;
+    }
+    if (frame <= prev || frame - prev > 8) return;
+    if (slideFrames.some(slide => slide > prev && slide <= frame)) {
+      host.setPlaying(false);
+    }
+  });
   player.onStateChanged.subscribe(state => {
     play.textContent = state.paused ? 'Play' : 'Pause';
     loop.setAttribute('aria-pressed', String(state.loop));
@@ -174,6 +219,12 @@ function mount(host: PlayerElement, player: Player) {
   prev.onclick = () => player.requestPreviousFrame();
   next.onclick = () => player.requestNextFrame();
   loop.onclick = () => player.toggleLoop();
+  const toggleSteps = () => {
+    pauseAtSteps = !pauseAtSteps;
+    renderSteps();
+  };
+  steps.onclick = toggleSteps;
+  renderSteps();
   speed.onchange = () => player.setSpeed(Number(speed.value));
 
   // Pause while dragging the scrubber and pick playback back up after.
@@ -208,6 +259,9 @@ function mount(host: PlayerElement, player: Player) {
         break;
       case 'l':
         player.toggleLoop();
+        break;
+      case 's':
+        toggleSteps();
         break;
       default:
         return;
