@@ -21,21 +21,21 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: gritz
-          POSTGRES_PASSWORD: gritz
-          POSTGRES_DB: gritz
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U gritz"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
+      # Started in the background so its startup overlaps the Go setup; the
+      # wait before the migrations step blocks until it accepts connections.
+      # Throwaway DB, so it runs on tmpfs with durability off.
+      - name: Start Postgres
+        run: |
+          docker run -d --name postgres \
+            -e POSTGRES_USER=gritz \
+            -e POSTGRES_PASSWORD=gritz \
+            -e POSTGRES_DB=gritz \
+            -p 5432:5432 \
+            --tmpfs /var/lib/postgresql \
+            postgres:18-alpine \
+            -c fsync=off -c synchronous_commit=off
+
       - uses: actions/checkout@v7
 
       - name: Set up Go
@@ -53,6 +53,17 @@ jobs:
         run: |
           mkdir -p prebuilt
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o prebuilt/gritz-linux-amd64 ./cmd/gritz
+
+      # Over TCP: during initdb the entrypoint's temporary server only listens
+      # on the unix socket, so this succeeds only once the real server is up.
+      - name: Wait for Postgres
+        run: |
+          for _ in $(seq 60); do
+            docker exec postgres pg_isready -q -h 127.0.0.1 -U gritz && exit 0
+            sleep 0.5
+          done
+          docker logs postgres
+          exit 1
 
       - name: Run migrations
         env:
