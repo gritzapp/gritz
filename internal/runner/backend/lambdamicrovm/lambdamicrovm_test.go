@@ -61,6 +61,7 @@ func setup(t *testing.T, cfg *agent.Config) *testEnv {
 	}
 	srv, err := driverserver.New(driverserver.Options{
 		RecordPath: filepath.Join(dir, "run.json"),
+		EventsPath: filepath.Join(dir, "events.jsonl"),
 		LogPath:    filepath.Join(dir, "log"),
 		Config:     store,
 		FileRoot:   filepath.Join(dir, "root"),

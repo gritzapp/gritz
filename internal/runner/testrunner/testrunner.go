@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -126,6 +127,7 @@ func NewDriver(t *testing.T, opts *DriverOptions) driverv1connect.DriverServiceC
 	}
 	srv, err := driverserver.New(driverserver.Options{
 		RecordPath: filepath.Join(dir, "run.json"),
+		EventsPath: filepath.Join(dir, "events.jsonl"),
 		LogPath:    filepath.Join(dir, "log"),
 		Config:     configs,
 		FileRoot:   root,
@@ -140,24 +142,50 @@ func NewDriver(t *testing.T, opts *DriverOptions) driverv1connect.DriverServiceC
 	})
 	mux := http.NewServeMux()
 	mux.Handle(srv.Handler())
-	hs := httptest.NewServer(mux)
-	t.Cleanup(hs.Close)
-	client := driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
+	client := serve(t, mux)
 	if opts.Agent == nil {
 		return client
 	}
-	// Start the run, and close its stream once it is accepted, which leaves
-	// the run going.
+	// Start the run, and close its stream once the driver has answered Hello,
+	// which leaves the run going.
 	assert.NilError(t, configs.Save(taskID, opts.Agent))
-	stream, err := client.Run(t.Context(), &driverv1.RunRequest{
+	stream := OpenRun(t, t.Context(), client, &driverv1.RunRequest{
 		Version: version,
-		Spec:    &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
+		Msg: &driverv1.RunRequest_Spec{
+			Spec: &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
+		},
 	})
-	assert.NilError(t, err)
-	defer func() { assert.NilError(t, stream.Close()) }()
-	assert.Assert(t, stream.Receive(), "Run: %v", stream.Err())
-	assert.Assert(t, stream.Msg().GetAccepted() != nil, "first message is %v, want accepted", stream.Msg())
+	assert.NilError(t, stream.CloseResponse())
 	return client
+}
+
+// serve serves h over HTTP/2, which the driver's bidi Run stream needs, until
+// the test ends, and returns the test's client to it.
+func serve(t *testing.T, h http.Handler) driverv1connect.DriverServiceClient {
+	t.Helper()
+	hs := httptest.NewUnstartedServer(h)
+	hs.EnableHTTP2 = true
+	hs.StartTLS()
+	t.Cleanup(hs.Close)
+	return driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
+}
+
+// RunStream is the runner's end of a driver Run stream.
+type RunStream = connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse]
+
+// OpenRun opens a Run stream on client, sends first, and reads the driver's
+// Hello. The stream is closed when the test ends.
+func OpenRun(t *testing.T, ctx context.Context, client driverv1connect.DriverServiceClient, first *driverv1.RunRequest) *RunStream {
+	t.Helper()
+	stream, err := client.Run(ctx)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = stream.CloseResponse() })
+	err = stream.Send(first)
+	assert.Assert(t, err == nil || errors.Is(err, io.EOF), "Send: %v", err)
+	msg, err := stream.Receive()
+	assert.NilError(t, err)
+	assert.Assert(t, msg.GetHello() != nil, "first message is %v, want hello", msg)
+	return stream
 }
 
 // NewStubDriver serves h as a driver and returns the test's client to it, so
@@ -168,9 +196,7 @@ func NewStubDriver(t *testing.T, h driverv1connect.DriverServiceHandler) driverv
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle(driverv1connect.NewDriverServiceHandler(h))
-	hs := httptest.NewServer(mux)
-	t.Cleanup(hs.Close)
-	return driverv1connect.NewDriverServiceClient(hs.Client(), hs.URL)
+	return serve(t, mux)
 }
 
 // StartChange returns task taskID's start at version, in the Workspace
@@ -545,24 +571,46 @@ func StopRun(t *testing.T, client driverv1connect.DriverServiceClient, version i
 }
 
 // WaitFinished waits until run version has finished, attaching to it over
-// the test's client to the driver, and retrying while another Run stream is
-// still open.
+// the test's client to the driver until its Idle, and retrying while another
+// Run stream is still open.
 func WaitFinished(t *testing.T, client driverv1connect.DriverServiceClient, version int64) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	for {
-		stream, err := client.Run(ctx, &driverv1.RunRequest{Version: version})
-		assert.NilError(t, err)
-		for stream.Receive() {
-			if stream.Msg().GetFinished() != nil {
-				assert.NilError(t, stream.Close())
-				return
-			}
+		err := waitIdle(ctx, client, version)
+		if err == nil {
+			return
 		}
-		err = stream.Err()
-		assert.NilError(t, stream.Close())
-		assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable, "stream ended before finished: %v", err)
+		assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable, "stream ended before idle: %v", err)
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+// waitIdle attaches to run version over one Run stream and reads it until
+// its Idle, or returns why the stream ended before it.
+func waitIdle(ctx context.Context, client driverv1connect.DriverServiceClient, version int64) error {
+	stream, err := client.Run(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stream.CloseResponse() }()
+	if err := stream.Send(&driverv1.RunRequest{Version: version}); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	for {
+		msg, err := stream.Receive()
+		if err != nil {
+			return err
+		}
+		if msg.GetIdle() != nil {
+			return nil
+		}
+	}
+}
+
+// NewStream returns task taskID's event stream in store, read through an
+// event log that never replicates: it has the events already in store.
+func NewStream(store *runnerstore.Store, taskID int64) *taskevents.Stream {
+	return taskevents.New(taskevents.Options{Store: store}).Stream(taskID)
 }

@@ -6,13 +6,17 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
 	"github.com/docker/docker/api/types/container"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/gritzapp/gritz/internal/gritzclient"
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
@@ -256,8 +260,9 @@ func TestTaskManagerSpec_Secrets(t *testing.T) {
 func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	t.Parallel()
 	// Arrange - a backend whose runs get an environment of their own.
+	drv := &specDriver{}
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-		Driver: testrunner.NewDriver(t, nil),
+		Driver: testrunner.NewStubDriver(t, drv),
 		RunEnv: func(*workspace.Workspace) map[string]string {
 			return map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"}
 		},
@@ -271,14 +276,48 @@ func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 
 	// Assert - the environment of the run the driver was asked to start is
 	// RunEnv's, overridden by the TaskManager's.
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Assert(t, cmp.Len(sbx.RunSpecs, 1))
-	assert.DeepEqual(t, sbx.RunSpecs[0].GetEnv(), map[string]string{
+	specs := drv.started()
+	assert.Assert(t, cmp.Len(specs, 1))
+	assert.DeepEqual(t, specs[0].GetEnv(), map[string]string{
 		"FOO":           "bar",
 		"GRITZ_TASK_ID": "1",
 		"GRITZ_TOKEN":   "t",
 		"GRITZ_SERVER":  "",
 	})
+}
+
+// specDriver is a driver that records the spec of every run it is asked to
+// start, and ends it at once, reported.
+type specDriver struct {
+	driverv1connect.UnimplementedDriverServiceHandler
+
+	mu    sync.Mutex
+	specs []*driverv1.RunSpec
+}
+
+func (d *specDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
+	req, err := stream.Receive()
+	if err != nil {
+		return err
+	}
+	if spec := req.GetSpec(); spec != nil {
+		d.mu.Lock()
+		d.specs = append(d.specs, spec)
+		d.mu.Unlock()
+	}
+	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{Hello: &driverv1.Hello{}}}); err != nil {
+		return err
+	}
+	return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
+		Idle: &driverv1.Idle{Version: req.GetVersion(), Reported: true},
+	}})
+}
+
+// started returns the spec of every run d was asked to start.
+func (d *specDriver) started() []*driverv1.RunSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.specs)
 }
 
 func TestTaskManagerFollow_StopWithoutSandbox(t *testing.T) {

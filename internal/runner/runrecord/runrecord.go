@@ -16,9 +16,7 @@ import (
 	"os"
 	"time"
 
-	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/x/atomicio"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Path is where the driver keeps its run record inside the sandbox.
@@ -32,8 +30,7 @@ const (
 	Finished State = "finished"
 )
 
-// Record is the persisted run record. It mirrors driver.v1.RunRecord, plus
-// Reported, which mirrors driver.v1.Finished.reported.
+// Record is the persisted run record. Reported mirrors driver.v1.Idle.reported.
 type Record struct {
 	Version int64 `json:"version"`
 	State   State `json:"state"`
@@ -41,21 +38,6 @@ type Record struct {
 	FinishedAt time.Time `json:"finished_at,omitzero"`
 	// True if the server acknowledged the run's terminal runner event.
 	Reported bool `json:"reported,omitempty"`
-}
-
-// Proto returns the record as a driver.v1.RunRecord.
-func (r Record) Proto() *driverv1.RunRecord {
-	pb := &driverv1.RunRecord{Version: r.Version}
-	switch r.State {
-	case Running:
-		pb.State = driverv1.RunRecord_STATE_RUNNING
-	case Finished:
-		pb.State = driverv1.RunRecord_STATE_FINISHED
-	}
-	if !r.FinishedAt.IsZero() {
-		pb.FinishedAt = timestamppb.New(r.FinishedAt)
-	}
-	return pb
 }
 
 // Read returns the record at path. ok is false (with a nil error) when no

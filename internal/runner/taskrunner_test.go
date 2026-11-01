@@ -3,10 +3,14 @@ package runner_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/agent"
@@ -100,11 +104,90 @@ func TestTaskRunnerRun_Finished(t *testing.T) {
 	err := tr.Run(t.Context(), nil)
 
 	// Assert - the driver reported, so no event is owed; the sandbox is suspended
-	// after Finished.
+	// after Idle.
 	assert.NilError(t, err)
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Suspended)
 	assert.Equal(t, sbx.Suspends, 1)
+	assert.Equal(t, m.Queued(t), 0)
+}
+
+// positionDriver is a driver whose Hello says it has stored the events up
+// to helloID. It records the events the runner forwards, and ends the run,
+// reported, once it has the one with lastID.
+type positionDriver struct {
+	driverv1connect.UnimplementedDriverServiceHandler
+	helloID, lastID int64
+
+	mu       sync.Mutex
+	received []int64
+}
+
+func (d *positionDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
+	first, err := stream.Receive()
+	if err != nil {
+		return err
+	}
+	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{
+		Hello: &driverv1.Hello{LastEventId: d.helloID},
+	}}); err != nil {
+		return err
+	}
+	for {
+		req, err := stream.Receive()
+		if err != nil {
+			return err
+		}
+		last := int64(0)
+		d.mu.Lock()
+		for _, ev := range req.GetEvents().GetEvents() {
+			d.received = append(d.received, ev.GetId())
+			last = ev.GetId()
+		}
+		d.mu.Unlock()
+		if last == d.lastID {
+			return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
+				Idle: &driverv1.Idle{Version: first.GetVersion(), Reported: true},
+			}})
+		}
+	}
+}
+
+// forwarded returns the ids of the events d received.
+func (d *positionDriver) forwarded() []int64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.received)
+}
+
+func TestTaskRunnerRun_ForwardsEvents(t *testing.T) {
+	t.Parallel()
+	// Arrange - a driver that has stored the task's events up to id 2, and
+	// a replica with two more, and one of another task's.
+	drv := &positionDriver{helloID: 2, lastID: 4}
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
+	be.Add("c1", fake.Up)
+	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
+		TaskID:  1,
+		Version: 3,
+		Handle:  backend.Handle{Type: "fake", ID: "c1"},
+	}, nil)
+	_, err := m.RunnerStore.AppendEvents(t.Context(), []*gritzv1.Event{
+		testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3),
+		testrunner.LifecycleEvent(2, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED),
+		testrunner.CommandEvent(10, 2, gritzv1.TaskCommand_START, 1),
+		testrunner.LifecycleEvent(3, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED),
+		testrunner.CommandEvent(4, 1, gritzv1.TaskCommand_NONE, 3),
+	}, "cursor")
+	assert.NilError(t, err)
+
+	// Act
+	err = tr.Run(t.Context(), nil)
+
+	// Assert - the runner sent the task's events after the driver's position,
+	// and nothing else; the run ended on the driver's Idle.
+	assert.NilError(t, err)
+	assert.DeepEqual(t, drv.forwarded(), []int64{3, 4})
 	assert.Equal(t, m.Queued(t), 0)
 }
 
@@ -131,7 +214,7 @@ func TestTaskRunnerRun_Reattach(t *testing.T) {
 	testrunner.WaitRuns(t, be, "c1", 2)
 	testrunner.StopRun(t, client, 3)
 
-	// Assert - the reattached stream saw Finished: the driver reported, the
+	// Assert - the reattached stream saw Idle: the driver reported, the
 	// sandbox is suspended, and no event is owed.
 	assert.NilError(t, waitDone(t, done))
 	sbx, _ := be.Snapshot().Sandbox("c1")
@@ -479,10 +562,12 @@ func TestTaskRunnerSend_Shutdown(t *testing.T) {
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
 	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
+	store := testrunner.NewRunnerStore(t, rec)
 	tr := runner.NewTaskRunner(runner.TaskRunnerOptions{
 		TaskID:  1,
 		Backend: be,
-		Store:   testrunner.NewRunnerStore(t, rec),
+		Store:   store,
+		Stream:  testrunner.NewStream(store, 1),
 		Events:  make(chan runner.TaskEvent),
 		// The suspended sandbox's driver is unreachable until LostTimeout.
 		LostTimeout: 100 * time.Millisecond,

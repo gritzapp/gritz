@@ -4,7 +4,7 @@
 // stream that receives nothing for IdleTimeout is cancelled with
 // ErrStreamIdle, so a half-open connection fails instead of blocking forever.
 // KeepAlive messages are consumed by the client and never reach the caller,
-// which only sees Accepted and Finished.
+// which only sees Hello and Idle.
 package driverclient
 
 import (
@@ -59,6 +59,10 @@ func (i *interceptor) WrapStreamingClient(next connect.StreamingClientFunc) conn
 		w := &watchedConn{ctx: ctx, cancel: cancel, idle: i.idle}
 		w.timer = time.AfterFunc(i.idle, func() { cancel(ErrStreamIdle) })
 		w.StreamingClientConn = next(ctx, spec)
+		// The HTTP/2 transport doesn't watch the context of a request whose
+		// body is still open, so a cancelled Run stream is only torn down,
+		// and a blocked Receive returns, once its request side is closed.
+		context.AfterFunc(ctx, func() { _ = w.CloseRequest() })
 		return w
 	}
 }

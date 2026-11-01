@@ -5,8 +5,7 @@
 // clients Options.Dial gives, drive them through the backend.Backend and
 // backend.Sandbox interfaces, and observe them with Snapshot and Wait. It
 // implements backend.RunEnver as well, with the environment Options.RunEnv
-// gives, and records the spec of every run its sandboxes' drivers are asked to
-// start. See
+// gives. See
 // proposals/implemented/fake-runner-backend.md.
 //
 // Production code never imports it.
@@ -24,7 +23,6 @@ import (
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"google.golang.org/protobuf/proto"
 )
 
 // DefaultType is the handle type of a Backend's sandboxes when Options.Type is
@@ -477,13 +475,6 @@ func (b *Backend) snapshotLocked() Snapshot {
 		if sbx.Spec != nil {
 			sbx.Spec = sbx.Spec.Clone()
 		}
-		if sbx.RunSpecs != nil {
-			specs := make([]*driverv1.RunSpec, len(sbx.RunSpecs))
-			for i, spec := range sbx.RunSpecs {
-				specs[i] = proto.CloneOf(spec)
-			}
-			sbx.RunSpecs = specs
-		}
 		snap.Sandboxes = append(snap.Sandboxes, sbx)
 	}
 	for i := range b.specs {
@@ -669,16 +660,6 @@ func (c *client) checkLocked() error {
 	return nil
 }
 
-func (c *client) Status(ctx context.Context, req *driverv1.StatusRequest) (*driverv1.StatusResponse, error) {
-	c.b.mu.Lock()
-	err := c.checkLocked()
-	c.b.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return c.driver.Status(ctx, req)
-}
-
 func (c *client) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1.StopResponse, error) {
 	c.b.mu.Lock()
 	err := c.checkLocked()
@@ -689,13 +670,12 @@ func (c *client) Stop(ctx context.Context, req *driverv1.StopRequest) (*driverv1
 	return c.driver.Stop(ctx, req)
 }
 
-// Run counts the call in the sandbox's Info.Runs and records the spec of a
-// request that has one in its Info.RunSpecs, then calls through on a context
-// the fake cancels when the sandbox leaves up, on Drop, when its driver is
-// made not ready, and on Close. A stream it cuts fails as Canceled. A call is
-// counted only once its context is registered, so a test that waits for
-// Runs >= n can then cut the n-th stream.
-func (c *client) Run(ctx context.Context, req *driverv1.RunRequest) (*connect.ServerStreamForClient[driverv1.RunResponse], error) {
+// Run counts the call in the sandbox's Info.Runs, then calls through on a
+// context the fake cancels when the sandbox leaves up, on Drop, when its
+// driver is made not ready, and on Close. A stream it cuts fails as Canceled.
+// A call is counted only once its context is registered, so a test that waits
+// for Runs >= n can then cut the n-th stream.
+func (c *client) Run(ctx context.Context) (*connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse], error) {
 	c.b.mu.Lock()
 	if err := c.checkLocked(); err != nil {
 		c.b.mu.Unlock()
@@ -703,9 +683,6 @@ func (c *client) Run(ctx context.Context, req *driverv1.RunRequest) (*connect.Se
 	}
 	sbx := c.b.sandboxes[c.id]
 	sbx.Runs++
-	if spec := req.GetSpec(); spec != nil {
-		sbx.RunSpecs = append(sbx.RunSpecs, proto.CloneOf(spec))
-	}
 	c.b.changedLocked()
 	runCtx, cancel := context.WithCancel(ctx)
 	key := c.b.nextRun
@@ -716,18 +693,18 @@ func (c *client) Run(ctx context.Context, req *driverv1.RunRequest) (*connect.Se
 	c.b.runs[c.id][key] = cancel
 	c.b.mu.Unlock()
 	// Forget the call once its context is done, by the caller or a cut. The
-	// stream it opens may end well before that: ServerStreamForClient is a
-	// concrete type, so the fake cannot see it close. A caller that opens
-	// stream after stream on one long-lived context, as attach does on a
-	// run's, leaves one entry per call until the context is done. That is
-	// harmless in a test: the entries are small, and cancelling a context
-	// that is already finished with does nothing.
+	// stream it opens may end well before that: BidiStreamForClientSimple is
+	// a concrete type, so the fake cannot see it close. A caller that opens
+	// stream after stream on one long-lived context leaves one entry per call
+	// until the context is done. That is harmless in a test: the entries are
+	// small, and cancelling a context that is already finished with does
+	// nothing.
 	context.AfterFunc(runCtx, func() {
 		c.b.mu.Lock()
 		defer c.b.mu.Unlock()
 		delete(c.b.runs[c.id], key)
 	})
-	return c.driver.Run(runCtx, req)
+	return c.driver.Run(runCtx)
 }
 
 // Snapshot is a copy of the fake's state at one point.
@@ -779,9 +756,4 @@ type Info struct {
 	// made while it was up and its driver ready, and so cut by Drop, by
 	// leaving up and by Close.
 	Runs int
-	// RunSpecs is the spec of every Run request that has one, a request to
-	// start a run, that the sandbox's driver was sent, in order. A request
-	// made while the sandbox was not up never reached its driver, and is not
-	// in it.
-	RunSpecs []*driverv1.RunSpec
 }
