@@ -182,6 +182,39 @@ func (s *Store) ListEventsByTaskPage(ctx context.Context, tx *sql.Tx, p ListEven
 	})
 }
 
+// EventCursor is a position in the (xid, id) order ListRunnerEvents reads
+// in. The zero value is the start of the log.
+type EventCursor struct {
+	XID uint64
+	ID  int64
+}
+
+// ListRunnerEvents returns up to limit events of the runner's tasks after
+// cursor, below the xid watermark, and the cursor of the last one (after,
+// when none are returned). The server encodes it as an opaque
+// gritz.v1.EventCursor.
+func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, orgID int64, runner string, after EventCursor, limit int) ([]*model.Event, EventCursor, error) {
+	rows, err := s.q(tx).ListRunnerEvents(ctx, sqlc.ListRunnerEventsParams{
+		Runner:    runner,
+		OrgID:     orgID,
+		AfterXid:  after.XID,
+		AfterID:   after.ID,
+		PageLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, after, err
+	}
+	events, err := toModelEvents(rows)
+	if err != nil {
+		return nil, after, err
+	}
+	if len(events) == 0 {
+		return events, after, nil
+	}
+	last := events[len(events)-1]
+	return events, EventCursor{XID: last.XID, ID: last.ID}, nil
+}
+
 func toModelEvent(row sqlc.Event) (*model.Event, error) {
 	payload, err := toEventPayload(row.Type, row.Payload)
 	if err != nil {

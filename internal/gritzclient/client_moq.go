@@ -115,6 +115,9 @@ var _ Client = &ClientMock{}
 //			ListOrgsFunc: func(contextMoqParam context.Context, listOrgsRequest *gritzv1.ListOrgsRequest) (*gritzv1.ListOrgsResponse, error) {
 //				panic("mock out the ListOrgs method")
 //			},
+//			ListRunnerEventsFunc: func(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
+//				panic("mock out the ListRunnerEvents method")
+//			},
 //			ListRunnerTasksFunc: func(contextMoqParam context.Context, listRunnerTasksRequest *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error) {
 //				panic("mock out the ListRunnerTasks method")
 //			},
@@ -277,6 +280,9 @@ type ClientMock struct {
 
 	// ListOrgsFunc mocks the ListOrgs method.
 	ListOrgsFunc func(contextMoqParam context.Context, listOrgsRequest *gritzv1.ListOrgsRequest) (*gritzv1.ListOrgsResponse, error)
+
+	// ListRunnerEventsFunc mocks the ListRunnerEvents method.
+	ListRunnerEventsFunc func(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error)
 
 	// ListRunnerTasksFunc mocks the ListRunnerTasks method.
 	ListRunnerTasksFunc func(contextMoqParam context.Context, listRunnerTasksRequest *gritzv1.ListRunnerTasksRequest) (*gritzv1.ListRunnerTasksResponse, error)
@@ -564,6 +570,13 @@ type ClientMock struct {
 			// ListOrgsRequest is the listOrgsRequest argument value.
 			ListOrgsRequest *gritzv1.ListOrgsRequest
 		}
+		// ListRunnerEvents holds details about calls to the ListRunnerEvents method.
+		ListRunnerEvents []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// ListRunnerEventsRequest is the listRunnerEventsRequest argument value.
+			ListRunnerEventsRequest *gritzv1.ListRunnerEventsRequest
+		}
 		// ListRunnerTasks holds details about calls to the ListRunnerTasks method.
 		ListRunnerTasks []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -737,6 +750,7 @@ type ClientMock struct {
 	lockListLogChunksByTask            sync.RWMutex
 	lockListOrgMembers                 sync.RWMutex
 	lockListOrgs                       sync.RWMutex
+	lockListRunnerEvents               sync.RWMutex
 	lockListRunnerTasks                sync.RWMutex
 	lockListSchedules                  sync.RWMutex
 	lockListTasks                      sync.RWMutex
@@ -1908,6 +1922,42 @@ func (mock *ClientMock) ListOrgsCalls() []struct {
 	mock.lockListOrgs.RLock()
 	calls = mock.calls.ListOrgs
 	mock.lockListOrgs.RUnlock()
+	return calls
+}
+
+// ListRunnerEvents calls ListRunnerEventsFunc.
+func (mock *ClientMock) ListRunnerEvents(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
+	if mock.ListRunnerEventsFunc == nil {
+		panic("ClientMock.ListRunnerEventsFunc: method is nil but Client.ListRunnerEvents was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam         context.Context
+		ListRunnerEventsRequest *gritzv1.ListRunnerEventsRequest
+	}{
+		ContextMoqParam:         contextMoqParam,
+		ListRunnerEventsRequest: listRunnerEventsRequest,
+	}
+	mock.lockListRunnerEvents.Lock()
+	mock.calls.ListRunnerEvents = append(mock.calls.ListRunnerEvents, callInfo)
+	mock.lockListRunnerEvents.Unlock()
+	return mock.ListRunnerEventsFunc(contextMoqParam, listRunnerEventsRequest)
+}
+
+// ListRunnerEventsCalls gets all the calls that were made to ListRunnerEvents.
+// Check the length with:
+//
+//	len(mockedClient.ListRunnerEventsCalls())
+func (mock *ClientMock) ListRunnerEventsCalls() []struct {
+	ContextMoqParam         context.Context
+	ListRunnerEventsRequest *gritzv1.ListRunnerEventsRequest
+} {
+	var calls []struct {
+		ContextMoqParam         context.Context
+		ListRunnerEventsRequest *gritzv1.ListRunnerEventsRequest
+	}
+	mock.lockListRunnerEvents.RLock()
+	calls = mock.calls.ListRunnerEvents
+	mock.lockListRunnerEvents.RUnlock()
 	return calls
 }
 

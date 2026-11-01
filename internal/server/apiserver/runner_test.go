@@ -1,11 +1,18 @@
 package apiserver
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
 )
 
 func TestSubmitRunnerEvents(t *testing.T) {
@@ -202,4 +209,114 @@ func TestListRunnerTasks_Permissions(t *testing.T) {
 	assert.Equal(t, respA.Tasks[0].Name, "User A's Task")
 	assert.Equal(t, len(respB.Tasks), 1)
 	assert.Equal(t, respB.Tasks[0].Name, "User B's Task")
+}
+
+// listRunnerEventsAll follows ListRunnerEvents from cursor until at least n
+// events have come back. The xid watermark is cluster-wide, so a transaction
+// held open by a concurrent test can briefly hold back committed rows.
+func listRunnerEventsAll(t *testing.T, srv *Server, ctx context.Context, runner string, cursor []byte, n int) ([]*gritzv1.Event, []byte) {
+	t.Helper()
+	var got []*gritzv1.Event
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: runner, Cursor: cursor})
+		if err != nil {
+			return poll.Error(err)
+		}
+		got = append(got, resp.Events...)
+		cursor = resp.NextCursor
+		if len(got) < n {
+			return poll.Continue("got %d of %d events", len(got), n)
+		}
+		return poll.Success()
+	}, poll.WithTimeout(10*time.Second), poll.WithDelay(20*time.Millisecond))
+	return got, cursor
+}
+
+func TestListRunnerEvents(t *testing.T) {
+	t.Parallel()
+	// Arrange - a task on each runner; creating one writes its command event.
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "runner-1", Name: "test-workspace"},
+			{RunnerID: "runner-2", Name: "test-workspace"},
+		},
+	})
+	ctx := createCtx(t, org)
+	mine, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "mine", Workspace: "test-workspace", Runner: "runner-1"})
+	assert.NilError(t, err)
+	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "other", Workspace: "test-workspace", Runner: "runner-2"})
+	assert.NilError(t, err)
+	// The later task's events passing the watermark means the earlier one's have.
+	listRunnerEventsAll(t, srv, ctx, "runner-2", nil, 1)
+	want, err := srv.store.ListEventsByTask(ctx, nil, mine.Task.Id, org.OrgID, nil)
+	assert.NilError(t, err)
+
+	// Act - read runner-1's log from the start.
+	events, cursor := listRunnerEventsAll(t, srv, ctx, "runner-1", nil, 1)
+
+	// Assert - every event of runner-1's task, and nothing of runner-2's.
+	assert.DeepEqual(t, testx.ExtractField(events, "Id"), testx.ExtractField(want, "ID"))
+	assert.Assert(t, len(cursor) > 0)
+}
+
+func TestListRunnerEvents_EmptyPage(t *testing.T) {
+	t.Parallel()
+	// Arrange - read the runner's whole log.
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "runner-1", Name: "test-workspace"}},
+	})
+	ctx := createCtx(t, org)
+	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task", Workspace: "test-workspace", Runner: "runner-1"})
+	assert.NilError(t, err)
+	_, cursor := listRunnerEventsAll(t, srv, ctx, "runner-1", nil, 1)
+
+	// Act
+	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", Cursor: cursor})
+
+	// Assert - nothing new, and the request's cursor comes back unchanged.
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(resp.Events, 0))
+	assert.DeepEqual(t, resp.NextCursor, cursor)
+}
+
+func TestListRunnerEvents_Permissions(t *testing.T) {
+	t.Parallel()
+	// Arrange - a caller scoped to runner-1's tasks.
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, nil)
+	ctx := scopedCtx(t, org, authscope.Scopes{
+		authscope.New(authscope.OpTaskRead, authscope.WithTaskRunner("runner-1")),
+	})
+
+	// Act
+	_, errOwn := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
+	_, errOther := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-2"})
+
+	// Assert
+	assert.NilError(t, errOwn)
+	assert.Equal(t, connect.CodeOf(errOther), connect.CodePermissionDenied)
+}
+
+func TestListRunnerEvents_BadRequest(t *testing.T) {
+	t.Parallel()
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, nil)
+	ctx := createCtx(t, org)
+	tests := []struct {
+		name string
+		req  *gritzv1.ListRunnerEventsRequest
+	}{
+		{"no runner", &gritzv1.ListRunnerEventsRequest{}},
+		{"bad cursor", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", Cursor: []byte{0xff}}},
+		{"negative page size", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: -1}},
+		{"page size too large", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: maxRunnerEventsPageSize + 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := srv.ListRunnerEvents(ctx, tt.req)
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+		})
+	}
 }

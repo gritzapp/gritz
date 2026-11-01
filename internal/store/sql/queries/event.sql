@@ -62,3 +62,19 @@ WHERE task_id = sqlc.arg(task_id)
   AND id > sqlc.arg(cursor_id)::bigint
 ORDER BY id ASC
 LIMIT sqlc.arg(page_limit);
+
+-- name: ListRunnerEvents :many
+-- The events of a runner's tasks after the (xid, id) cursor, in (xid, id)
+-- order, from transactions below the xid watermark: pg_snapshot_xmin is the
+-- oldest transaction still running, so every row below it has committed and
+-- no row can still commit behind the cursor. Rows from newer transactions are
+-- held back until everything older has finished. Covered by idx_events_xid_id.
+-- See proposals/draft/runner-event-replica.md.
+SELECT e.id, e.org_id, e.created_at, e.task_id, e.type, e.wake, e.payload, e.xid
+FROM events e
+JOIN tasks t ON t.id = e.task_id
+WHERE t.runner = sqlc.arg(runner) AND t.org_id = sqlc.arg(org_id)
+  AND (e.xid, e.id) > (sqlc.arg(after_xid)::xid8, sqlc.arg(after_id)::bigint)
+  AND e.xid < pg_snapshot_xmin(pg_current_snapshot())
+ORDER BY e.xid, e.id
+LIMIT sqlc.arg(page_limit);

@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -12,6 +13,8 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
@@ -117,4 +120,62 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 		s.publish(notification)
 	}
 	return &gritzv1.SubmitRunnerEventsResponse{}, nil
+}
+
+// Page bounds for ListRunnerEvents. A runner pages through its whole history
+// on bootstrap, so the pages are larger than the UI's.
+const (
+	defaultRunnerEventsPageSize = 200
+	maxRunnerEventsPageSize     = 1000
+)
+
+func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
+	caller := apiauth.MustCaller(ctx)
+	// The read is scoped to the runner's tasks, so the runner identity is the
+	// instance attribute: a key scoped to one runner can read only its events.
+	if !caller.Scopes.Allow(authscope.OpTaskRead, authscope.WithTaskRunner(req.Runner)) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot list runner events"))
+	}
+	if req.Runner == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("runner is required"))
+	}
+	size := cmp.Or(int(req.PageSize), defaultRunnerEventsPageSize)
+	if size < 1 || size > maxRunnerEventsPageSize {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("page_size must be between 1 and %d", maxRunnerEventsPageSize))
+	}
+	after, err := decodeEventCursor(req.Cursor)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	events, next, err := s.store.ListRunnerEvents(ctx, nil, caller.OrgID, req.Runner, after, size)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	resp := &gritzv1.ListRunnerEventsResponse{
+		Events:     make([]*gritzv1.Event, len(events)),
+		NextCursor: req.Cursor,
+	}
+	for i, e := range events {
+		resp.Events[i] = e.Proto()
+	}
+	if len(events) > 0 {
+		if resp.NextCursor, err = encodeEventCursor(next); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	return resp, nil
+}
+
+// decodeEventCursor decodes a ListRunnerEvents cursor; empty is the start of
+// the log.
+func decodeEventCursor(b []byte) (store.EventCursor, error) {
+	var pb gritzv1.EventCursor
+	if err := proto.Unmarshal(b, &pb); err != nil {
+		return store.EventCursor{}, fmt.Errorf("invalid cursor: %w", err)
+	}
+	return store.EventCursor{XID: pb.Xid, ID: pb.Id}, nil
+}
+
+func encodeEventCursor(c store.EventCursor) ([]byte, error) {
+	return proto.Marshal(&gritzv1.EventCursor{Xid: c.XID, Id: c.ID})
 }

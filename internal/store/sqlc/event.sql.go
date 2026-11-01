@@ -313,3 +313,66 @@ func (q *Queries) ListEventsByTaskDesc(ctx context.Context, arg ListEventsByTask
 	}
 	return items, nil
 }
+
+const listRunnerEvents = `-- name: ListRunnerEvents :many
+SELECT e.id, e.org_id, e.created_at, e.task_id, e.type, e.wake, e.payload, e.xid
+FROM events e
+JOIN tasks t ON t.id = e.task_id
+WHERE t.runner = $1 AND t.org_id = $2
+  AND (e.xid, e.id) > ($3::xid8, $4::bigint)
+  AND e.xid < pg_snapshot_xmin(pg_current_snapshot())
+ORDER BY e.xid, e.id
+LIMIT $5
+`
+
+type ListRunnerEventsParams struct {
+	Runner    string `json:"runner"`
+	OrgID     int64  `json:"org_id"`
+	AfterXid  uint64 `json:"after_xid"`
+	AfterID   int64  `json:"after_id"`
+	PageLimit int32  `json:"page_limit"`
+}
+
+// The events of a runner's tasks after the (xid, id) cursor, in (xid, id)
+// order, from transactions below the xid watermark: pg_snapshot_xmin is the
+// oldest transaction still running, so every row below it has committed and
+// no row can still commit behind the cursor. Rows from newer transactions are
+// held back until everything older has finished. Covered by idx_events_xid_id.
+// See proposals/draft/runner-event-replica.md.
+func (q *Queries) ListRunnerEvents(ctx context.Context, arg ListRunnerEventsParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, listRunnerEvents,
+		arg.Runner,
+		arg.OrgID,
+		arg.AfterXid,
+		arg.AfterID,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Event{}
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.CreatedAt,
+			&i.TaskID,
+			&i.Type,
+			&i.Wake,
+			&i.Payload,
+			&i.Xid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
