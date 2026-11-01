@@ -130,7 +130,7 @@ func TestAppendEvents_Tasks(t *testing.T) {
 
 	// Assert - each touched task is reported with its state after the page:
 	// the command-only page leaves 20 archived, and the archive-only page
-	// keeps 30's command. Task 10 isn't touched, and UnarchivedTaskIDs reads
+	// keeps 30's command. Task 10 isn't touched, and UnarchivedTasks reads
 	// the rows written.
 	assert.DeepEqual(t,
 		changes,
@@ -141,7 +141,14 @@ func TestAppendEvents_Tasks(t *testing.T) {
 			{ID: 50, Command: gritzv1.TaskCommand_START, Version: 1, Archived: true},
 		},
 	)
-	ids, err := store.UnarchivedTaskIDs(t.Context())
+	tasks, err := store.UnarchivedTasks(t.Context())
 	assert.NilError(t, err)
-	assert.DeepEqual(t, ids, []int64{10, 30, 40})
+	assert.DeepEqual(t,
+		tasks,
+		[]runnerstore.TaskChange{
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1},
+		},
+	)
 }

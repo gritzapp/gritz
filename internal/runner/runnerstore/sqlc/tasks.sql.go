@@ -10,23 +10,28 @@ import (
 	"database/sql"
 )
 
-const listUnarchivedTaskIDs = `-- name: ListUnarchivedTaskIDs :many
-SELECT id FROM tasks WHERE archived IS NOT 1 ORDER BY id
+const listUnarchivedTasks = `-- name: ListUnarchivedTasks :many
+SELECT id, command, version, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id
 `
 
-func (q *Queries) ListUnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listUnarchivedTaskIDs)
+func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, listUnarchivedTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []Task
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Command,
+			&i.Version,
+			&i.Archived,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

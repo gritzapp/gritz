@@ -8,5 +8,5 @@ ON CONFLICT (id) DO UPDATE SET
     archived = coalesce(excluded.archived, archived)
 RETURNING id, command, version, archived;
 
--- name: ListUnarchivedTaskIDs :many
-SELECT id FROM tasks WHERE archived IS NOT 1 ORDER BY id;
+-- name: ListUnarchivedTasks :many
+SELECT id, command, version, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id;
