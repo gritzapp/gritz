@@ -62,8 +62,7 @@ func (s *Server) OpenShell(ctx context.Context, req *gritzv1.OpenShellRequest) (
 			return connect.NewError(connect.CodeFailedPrecondition,
 				fmt.Errorf("cannot open shell for task with status %s: task must be in a terminal state", task.Status))
 		}
-		from := task.Status
-		fromCommand := task.Command
+		from := task.Clone()
 		// Start relaunches the sandbox against the preserved disk. The task is
 		// terminal, so this brings up a fresh (shell) run without killing
 		// anything. Set shell_session in the same transaction so the field is
@@ -86,13 +85,13 @@ func (s *Server) OpenShell(ctx context.Context, req *gritzv1.OpenShellRequest) (
 			Payload: &model.LifecyclePayload{
 				Kind:       model.LifecycleKindRestarted,
 				Actor:      model.UserActor(caller.AuditName()),
-				FromStatus: from.Label(),
+				FromStatus: from.Status.Label(),
 				ToStatus:   task.Status.Label(),
 			},
 		}); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(fromCommand); ok {
+		if ev, ok := task.CommandEvent(from.Command); ok {
 			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}

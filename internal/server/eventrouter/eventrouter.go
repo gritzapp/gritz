@@ -350,12 +350,12 @@ func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, org
 			return err
 		}
 		wasDone := task.IsDone()
-		fromCommand := task.Command
+		from := task.Clone()
 		task.Start()
 		if err := r.Store.UpdateTask(ctx, tx, task); err != nil {
 			return err
 		}
-		if ev, ok := task.CommandEvent(fromCommand); ok {
+		if ev, ok := task.CommandEvent(from.Command); ok {
 			if err := r.Store.CreateEvent(ctx, tx, ev); err != nil {
 				return err
 			}
