@@ -174,7 +174,7 @@ func NewStubDriver(t *testing.T, h driverv1connect.DriverServiceHandler) driverv
 }
 
 // StartChange returns task taskID's start at version, in the Workspace
-// workspace, as TaskManager.Start takes it.
+// workspace, as TaskRunner.Start takes it.
 func StartChange(taskID, version int64) runnerstore.TaskChange {
 	return runnerstore.TaskChange{
 		ID:        taskID,

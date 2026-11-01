@@ -136,7 +136,7 @@ func TestTaskManagerStart(t *testing.T) {
 	_ = dc.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{Force: true})
 
 	// Start a task
-	err = m.Start(t.Context(), task)
+	err = m.Runner(task.ID).Start(t.Context(), task)
 	assert.NilError(t, err)
 
 	// The TaskManager records the launched handle in the store.
@@ -185,7 +185,7 @@ func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
 	task := testrunner.StartChange(1, 1)
 
 	// Act
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert - the spec the sandbox was created from has the log dir.
@@ -231,7 +231,7 @@ func TestTaskManagerSpec_Secrets(t *testing.T) {
 	task := testrunner.StartChange(1, 1)
 
 	// Act
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert
@@ -266,7 +266,7 @@ func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
 	task := testrunner.StartChange(1, 1)
 
 	// Act
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert - the environment of the run the driver was asked to start is
@@ -631,7 +631,7 @@ func TestTaskManagerStart_Create(t *testing.T) {
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 
 	// Act
-	err := m.Start(t.Context(), task)
+	err := m.Runner(task.ID).Start(t.Context(), task)
 
 	// Assert - the sandbox was created for the task's run and booted.
 	assert.NilError(t, err)
@@ -663,7 +663,7 @@ func TestTaskManagerStart_CreateFails(t *testing.T) {
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 
 	// Act
-	err := m.Start(t.Context(), task)
+	err := m.Runner(task.ID).Start(t.Context(), task)
 
 	// Assert
 	assert.ErrorIs(t, err, boom)
@@ -691,7 +691,7 @@ func TestTaskManagerStart_Restart(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	err = m.Start(t.Context(), task)
+	err = m.Runner(task.ID).Start(t.Context(), task)
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert - no second sandbox was created: the recorded one was booted and
@@ -714,7 +714,7 @@ func TestTaskManagerWait(t *testing.T) {
 	task := testrunner.StartChange(1, 1)
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 
 	// Act
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -738,7 +738,7 @@ func TestTaskManagerWait_Done(t *testing.T) {
 		DriverNotReady: true,
 	})
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 	boom := errors.New("boom")
 	ctx, cancel := context.WithCancelCause(t.Context())
 	cancel(boom)
@@ -770,7 +770,7 @@ func TestTaskManagerStart_NotReady(t *testing.T) {
 	}})
 
 	// Act
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert
@@ -797,7 +797,7 @@ func TestTaskManagerStart_BootFails(t *testing.T) {
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 
 	// Act
-	err := m.Start(t.Context(), task)
+	err := m.Runner(task.ID).Start(t.Context(), task)
 
 	// Assert - Start failed with the record and sandbox kept and nothing run.
 	// The record surviving the failed boot also shows it was written before
@@ -839,7 +839,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	task := testrunner.StartChange(8, 2)
 
 	// Act
-	err = m.Start(t.Context(), task)
+	err = m.Runner(task.ID).Start(t.Context(), task)
 
 	// Assert - ErrGone surfaced (the caller emits failed and releases the
 	// slot), no fresh sandbox was created, and the dangling record was
@@ -851,7 +851,7 @@ func TestTaskManagerStart_Gone(t *testing.T) {
 	// Act - the task is started again. This Start is also the probe for the
 	// first one: a Create means it left the TaskRunner with no sandbox.
 	task.Version = 3
-	assert.NilError(t, m.Start(t.Context(), task))
+	assert.NilError(t, m.Runner(task.ID).Start(t.Context(), task))
 	assert.NilError(t, m.Wait(t.Context()))
 
 	// Assert - the task got one fresh sandbox, which ran the

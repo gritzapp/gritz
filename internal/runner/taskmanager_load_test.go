@@ -534,7 +534,7 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	})
 
 	// Act
-	err = m.Start(t.Context(), testrunner.StartChange(1, 1))
+	err = m.Runner(1).Start(t.Context(), testrunner.StartChange(1, 1))
 
 	// Assert - Start failed, the unrecorded sandbox was destroyed without
 	// being booted, and the runner's root ctx is cancelled with a FatalError
