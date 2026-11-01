@@ -44,7 +44,7 @@ type TaskManager struct {
 	sem         *safesem.Semaphore
 	log         *slog.Logger
 	queue       *outbox.Outbox[model.RunnerEvent]
-	wake        wakeup.Chan
+	wake        wakeup.Signal
 	// pollInterval is Run's fallback interval between Poll passes, and its
 	// interval between Prune passes.
 	pollInterval time.Duration
@@ -162,7 +162,7 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		sem:           safesem.New(concurrency),
 		log:           log,
 		queue:         opts.Queue,
-		wake:          wakeup.New(),
+		wake:          wakeup.NewSignal(),
 		pollInterval:  cmp.Or(opts.PollInterval, defaultPollInterval),
 		fatal:         fatal,
 		events:        make(chan TaskEvent),

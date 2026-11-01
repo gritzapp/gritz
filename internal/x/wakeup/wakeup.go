@@ -2,19 +2,21 @@ package wakeup
 
 import "sync"
 
-// Chan is an edge-triggered, coalescing wake-up signal. Multiple Wake
-// calls between receives collapse into a single notification. Receivers
-// select on the channel directly (`case <-c:`).
-type Chan chan struct{}
+// Signal is an edge-triggered, coalescing wake-up signal. Like sync.Cond's
+// Signal, it wakes one receiver; unlike it, a Wake with no receiver waiting
+// stays pending, and multiple Wake calls between receives collapse into a
+// single notification. Use Broadcast to wake every waiter. Receivers select
+// on the channel directly (`case <-s:`).
+type Signal chan struct{}
 
-// New returns a ready-to-use wakeup Chan.
-func New() Chan { return make(Chan, 1) }
+// NewSignal returns a ready-to-use Signal.
+func NewSignal() Signal { return make(Signal, 1) }
 
 // Wake signals without blocking. If a signal is already pending, the call
 // is a no-op (signals coalesce).
-func (c Chan) Wake() {
+func (s Signal) Wake() {
 	select {
-	case c <- struct{}{}:
+	case s <- struct{}{}:
 	default:
 	}
 }

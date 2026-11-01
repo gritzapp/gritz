@@ -42,7 +42,7 @@ type Log struct {
 	interval time.Duration
 	log      *slog.Logger
 
-	wake  wakeup.Chan
+	wake  wakeup.Signal
 	tasks chan runnerstore.TaskChange
 
 	// stored wakes every blocked Read when a page is stored.
@@ -58,7 +58,7 @@ func New(opts Options) *Log {
 		runnerID: opts.RunnerID,
 		interval: cmp.Or(opts.PollInterval, DefaultPollInterval),
 		log:      cmp.Or(opts.Log, slog.Default()),
-		wake:     wakeup.New(),
+		wake:     wakeup.NewSignal(),
 		tasks:    make(chan runnerstore.TaskChange),
 	}
 }

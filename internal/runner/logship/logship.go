@@ -76,7 +76,7 @@ type Shipper struct {
 	log           *slog.Logger
 
 	// notify wakes the sender once a chunk's worth of bytes is buffered.
-	notify wakeup.Chan
+	notify wakeup.Signal
 	// sendSem admits one sender at a time. Run and Flush both drain, so the
 	// semaphore — not the single Run goroutine — is what guarantees never more
 	// than one request in flight, and therefore that the server's insertion
@@ -147,7 +147,7 @@ func New(client gritzclient.Client, opts Options) *Shipper {
 		maxPending:    cmp.Or(opts.MaxPendingBytes, DefaultMaxPendingBytes),
 		backoff:       opts.BackOff,
 		log:           opts.Log,
-		notify:        wakeup.New(),
+		notify:        wakeup.NewSignal(),
 		sendSem:       semaphore.NewWeighted(1),
 	}
 	if s.backoff == nil {

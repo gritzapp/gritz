@@ -35,7 +35,7 @@ type Options[T any] struct {
 // restart. Delivery is strict FIFO with head-of-line blocking.
 type Outbox[T any] struct {
 	store   Store
-	notify  wakeup.Chan
+	notify  wakeup.Signal
 	deliver func(ctx context.Context, msg T) (permanent bool, err error)
 	backoff backoff.BackOff
 	log     *slog.Logger
@@ -45,7 +45,7 @@ type Outbox[T any] struct {
 func New[T any](opts Options[T]) *Outbox[T] {
 	return &Outbox[T]{
 		store:   opts.Store,
-		notify:  wakeup.New(),
+		notify:  wakeup.NewSignal(),
 		deliver: opts.Deliver,
 		backoff: cmp.Or[backoff.BackOff](opts.Backoff, backoff.NewExponentialBackOff()),
 		log:     cmp.Or(opts.Log, slog.Default()),

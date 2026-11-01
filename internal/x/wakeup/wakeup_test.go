@@ -6,17 +6,17 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func TestChan_NoSignalPending(t *testing.T) {
-	c := New()
+func TestSignal_NoSignalPending(t *testing.T) {
+	c := NewSignal()
 	select {
 	case <-c:
-		t.Fatal("expected no signal pending on fresh Chan")
+		t.Fatal("expected no signal pending on fresh Signal")
 	default:
 	}
 }
 
-func TestChan_WakeDeliversOne(t *testing.T) {
-	c := New()
+func TestSignal_WakeDeliversOne(t *testing.T) {
+	c := NewSignal()
 	c.Wake()
 
 	select {
@@ -32,8 +32,8 @@ func TestChan_WakeDeliversOne(t *testing.T) {
 	}
 }
 
-func TestChan_WakeCoalesces(t *testing.T) {
-	c := New()
+func TestSignal_WakeCoalesces(t *testing.T) {
+	c := NewSignal()
 	for range 5 {
 		c.Wake()
 	}

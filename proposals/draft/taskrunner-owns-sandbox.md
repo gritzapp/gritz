@@ -280,7 +280,7 @@ stays in `TaskManagerOptions` unchanged.
 
 A slow Prune delays the next poll. It calls `GetTask` for every registered
 `TaskRunner`, and `sb.Destroy` for each one it retires. While it runs, new
-commands, and the wakes from released slots, wait. `wakeup.Chan` coalesces
+commands, and the wakes from released slots, wait. `wakeup.Signal` coalesces
 wakes, so none is lost, only delayed. This is the price of dropping the
 terminal state, and it is bounded by one prune pass per `PollInterval`.
 
