@@ -80,7 +80,7 @@ event read back has it false, as every event the runner sends does today.
 ### Sandboxes
 
 The `taskstate` package is deleted. `taskstate.Record` becomes
-`runnerstore.Sandbox` with the same fields, and `Write`/`Read`/`Remove`/`List`
+`runnerstore.SandboxRecord` with the same fields, and `Write`/`Read`/`Remove`/`List`
 become `Store` methods. The mutex, the per-task paths and `parseRecordName`
 go with the package. Behaviour is unchanged: `RemoveSandbox` is a no-op for
 an absent record, and a failed `WriteSandbox` still ends the runner through
@@ -130,8 +130,8 @@ deleted.
 ```go
 package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore
 
-// Sandbox is the persisted task→sandbox-handle mapping. // new; was taskstate.Record
-type Sandbox struct {
+// SandboxRecord is the persisted task→sandbox-handle mapping. // new; was taskstate.Record
+type SandboxRecord struct {
 	TaskID  int64
 	// Version is the task.Version of the run the sandbox is hosting. It is
 	// expected to go once the driver owns its runs (runner-event-replica.md
@@ -143,16 +143,16 @@ type Sandbox struct {
 }
 
 // WriteSandbox inserts or replaces the record for rec.TaskID. // new
-func (s *Store) WriteSandbox(ctx context.Context, rec Sandbox) error
+func (s *Store) WriteSandbox(ctx context.Context, rec SandboxRecord) error
 
 // Sandbox returns the record for taskID; ok is false when there is none. // new
-func (s *Store) Sandbox(ctx context.Context, taskID int64) (rec Sandbox, ok bool, err error)
+func (s *Store) Sandbox(ctx context.Context, taskID int64) (rec SandboxRecord, ok bool, err error)
 
 // RemoveSandbox deletes the record for taskID, if any. // new
 func (s *Store) RemoveSandbox(ctx context.Context, taskID int64) error
 
 // Sandboxes returns every record, in ascending task id order. // new
-func (s *Store) Sandboxes(ctx context.Context) ([]Sandbox, error)
+func (s *Store) Sandboxes(ctx context.Context) ([]SandboxRecord, error)
 
 // AddRunnerEvent appends ev to the runner event queue. // new
 func (s *Store) AddRunnerEvent(ctx context.Context, ev model.RunnerEvent) error
@@ -227,7 +227,7 @@ make the first persisted event fail ("no space left on device") pass a
 ## Implementation Plan
 
 1. **Sandboxes in runnerstore** — Delivers: `0005_sandboxes.sql`, its
-   queries, `Sandbox` and the four sandbox methods; the runner,
+   queries, `SandboxRecord` and the four sandbox methods; the runner,
    `testrunner` and their tests on `*runnerstore.Store`; the `taskstate`
    package deleted. The runner reads `--state-db` for records and still
    accepts `--state-dir` for the outbox location. Depends on: nothing.
