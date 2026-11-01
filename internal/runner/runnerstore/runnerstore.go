@@ -124,7 +124,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 			return fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
 		}
 	}
-	if err := q.SetEventCursor(ctx, cursor); err != nil {
+	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
 		return fmt.Errorf("runnerstore: set cursor: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -133,11 +133,11 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	return nil
 }
 
-// EventCursor returns the replication cursor: the single position in the
+// EventReplicationCursor returns the replication cursor: the single position in the
 // runner's whole event log, across all of its tasks, stored as the last
 // appended page's next_page_token. It returns "" when no page is stored.
-func (s *Store) EventCursor(ctx context.Context) (string, error) {
-	cursor, err := s.q.GetEventCursor(ctx)
+func (s *Store) EventReplicationCursor(ctx context.Context) (string, error) {
+	cursor, err := s.q.GetEventReplicationCursor(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

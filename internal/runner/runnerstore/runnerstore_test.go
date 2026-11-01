@@ -11,7 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 )
 
-func TestEventCursor_Empty(t *testing.T) {
+func TestEventReplicationCursor_Empty(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
@@ -19,7 +19,7 @@ func TestEventCursor_Empty(t *testing.T) {
 	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 
 	// Act
-	cursor, err := store.EventCursor(t.Context())
+	cursor, err := store.EventReplicationCursor(t.Context())
 
 	// Assert
 	assert.NilError(t, err)
@@ -43,7 +43,7 @@ func TestAppendEvents(t *testing.T) {
 		"page-1",
 	)
 	assert.NilError(t, err)
-	firstCursor, err := store.EventCursor(t.Context())
+	firstCursor, err := store.EventReplicationCursor(t.Context())
 	assert.NilError(t, err)
 	err = store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
@@ -56,7 +56,7 @@ func TestAppendEvents(t *testing.T) {
 
 	// Assert - each page's cursor is stored with it.
 	assert.Equal(t, firstCursor, "page-1")
-	cursor, err := store.EventCursor(t.Context())
+	cursor, err := store.EventReplicationCursor(t.Context())
 	assert.NilError(t, err)
 	assert.Equal(t, cursor, "page-2")
 
