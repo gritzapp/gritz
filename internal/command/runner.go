@@ -88,7 +88,7 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "state-db",
-			Usage:   "SQLite database for the runner's replica of its tasks' event logs, its task→sandbox-handle records and its runner event outbox (keep it on the same volume as --state-dir)",
+			Usage:   "SQLite database holding the runner's state",
 			Value:   "/var/lib/gritz/runner.db",
 			Sources: cli.EnvVars("GRITZ_STATE_DB"),
 		},
