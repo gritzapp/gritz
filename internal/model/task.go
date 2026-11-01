@@ -350,20 +350,19 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 }
 
 // CommandEvent returns the command event for a change from prev, the task
-// before the mutation, to t, and false when there is none. With prev nil, the
-// task was just created, and it has one if it has a command. Otherwise it has
-// one when the command or its version changed. A version change alone counts:
-// a start pending on a running task moves to the next run's version when the
-// run exits, and the runner has to start that version, not the one that
-// exited. Every site that changes a task's command captures prev before the
-// mutation and writes the event in the same transaction, beside its lifecycle
-// event.
+// before the mutation, to t, and false when neither the command nor its version
+// changed. A nil prev is a task just created, compared as the zero task: no
+// command at version 0. So a draft writes nothing, and a task created with a
+// start at version 1 writes one. A version change alone counts: a start pending
+// on a running task moves to the next run's version when the run exits, and the
+// runner has to start that version, not the one that exited. Every site that
+// changes a task's command captures prev before the mutation and writes the
+// event in the same transaction, beside its lifecycle event.
 func (t *Task) CommandEvent(prev *Task) (*Event, bool) {
 	if prev == nil {
-		if t.Command == TaskCommandNone {
-			return nil, false
-		}
-	} else if t.Command == prev.Command && t.Version == prev.Version {
+		prev = &Task{} // a new task: no command (TaskCommandNone is 0), version 0
+	}
+	if t.Command == prev.Command && t.Version == prev.Version {
 		return nil, false
 	}
 	return &Event{
