@@ -145,23 +145,15 @@ and the queue only holds events that have not yet reached the server. The
 
 The runner stops using `outbox.FileStore`; the type itself is kept.
 
-### Importing existing state
+### Upgrading
 
-Existing runners have JSON files on disk. For one release, `gritz runner` takes
-a hidden `--import-state-dir` flag, defaulting to the old `--state-dir` default
-(`/var/lib/gritz/tasks`). On startup, if that directory exists:
-
-1. Decode every `<id>.json` task record and every live `<seq>.json` outbox
-   record. Both formats are a single JSON object, so `Import` reads them
-   directly and does not depend on the deleted `taskstate` package. Dead-lettered
-   outbox records are not imported; they remain in the renamed directory.
-2. Insert them into the database in one transaction, keeping outbox `seq`
-   values so order is preserved.
-3. Rename the task directory to `tasks.imported` and the outbox directory to
-   `outbox.imported`, so the import runs once and the files remain for a
-   rollback.
-
-The release after that deletes `Import` and the flag.
+There is no backwards compatibility with the file stores. The runner does not
+read the old `--state-dir` task files or the `outbox/` directory; `--state-dir`
+and `GRITZ_STATE_DIR` are removed. A runner upgraded with sandboxes still up
+starts with an empty database, so it no longer tracks those sandboxes and any
+undelivered outbox events are lost. Operators drain the runner (let running
+tasks finish or stop them) before upgrading and can delete the old directories
+afterwards.
 
 ### API
 
@@ -177,11 +169,6 @@ func Open(path string) (*Store, error)
 
 // Close closes the database.
 func (s *Store) Close() error
-
-// Import moves the legacy file-backed task records and outbox under taskDir
-// and outboxDir into the database, then renames both directories. It does
-// nothing when taskDir does not exist.
-func (s *Store) Import(taskDir, outboxDir string) error
 
 // TaskRecord is the persisted task→sandbox-handle mapping; Data is opaque
 // backend handle data that the store never decodes.
@@ -233,7 +220,7 @@ type RunnerEventOutboxOptions struct {
 ```
 
 **How it fits:** `internal/command/runner.go` calls `runnerstore.Open` with
-`--state-db`, then `Import`, and passes the one `*runnerstore.Store` as both
+`--state-db` and passes the one `*runnerstore.Store` as both
 `TaskManagerOptions.Store` and `RunnerEventOutboxOptions.Store`, closing it on
 exit.
 `internal/runner/testrunner` opens a database in `t.TempDir()` the same way;
@@ -252,18 +239,12 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
 3. **Task methods** — Delivers: `TaskRecord` and `WriteTask`, `ReadTask`,
    `RemoveTask`, `ListTasks`. Depends on: (1). Verifiable by: the existing
    `taskstate` tests ported to `Store`.
-4. **Runner wire-up and import** — Delivers: `--state-db`, `Store.Import`,
-   `--import-state-dir`, the runner and its tests moved to
-   `runnerstore.Store`/`TaskRecord`, the `taskstate` package deleted,
-   `RunnerEventOutboxOptions.StoreDir` removed, `testrunner` on SQLite,
-   `docker-compose.dev.yml` env updated.
-   Depends on: (2), (3). Verifiable by: runner tests pass; an import test that
-   lays out legacy files, runs `Import`, and checks the rows and renamed
-   directories; running the dev compose stack across a restart with a sandbox
-   up.
-5. **Remove the import** (next release) — Delivers: deletion of
-   `Store.Import` and `--import-state-dir`. Depends on: (4) having shipped in
-   a release. Verifiable by: build and tests pass.
+4. **Runner wire-up** — Delivers: `--state-db` replacing `--state-dir`, the
+   runner and its tests moved to `runnerstore.Store`/`TaskRecord`, the
+   `taskstate` package deleted, `RunnerEventOutboxOptions.StoreDir` removed,
+   `testrunner` on SQLite, `docker-compose.dev.yml` env updated.
+   Depends on: (2), (3). Verifiable by: runner tests pass; running the dev
+   compose stack across a restart with a sandbox up.
 
 ## Trade-offs
 
@@ -285,10 +266,10 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
   later.
 - **Hand-rolled migrations vs. dbmate.** dbmate's SQLite driver needs cgo. A
   `user_version` loop over embedded files is about 30 lines.
-- **Importing vs. requiring a drained runner.** Requiring operators to stop all
-  tasks and delete the state directory before upgrading would avoid the import
-  code, but running sandboxes would be orphaned from their records and queued
-  events lost. The import is kept for one release only.
+- **No migration of the file stores.** Importing the old JSON files would let
+  a runner upgrade with sandboxes up, at the cost of import code, a flag and a
+  follow-up release to delete them. Requiring a drained runner avoids all of
+  it.
 - **One shared database vs. a file per store.** One file keeps both stores on
   the same volume by construction and allows a future change to write a task
   record and an outbox event in one transaction. This proposal does not add
@@ -298,8 +279,3 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
 
 - Should dead-lettered outbox rows be kept forever (as `dead/` files are today)
   or pruned after some age?
-- Is one release enough for the legacy import, or should it stay until a
-  specific version?
-- Should `--state-dir` be kept as a deprecated alias that maps to
-  `<state-dir>/../runner.db`, so existing `GRITZ_STATE_DIR` settings keep
-  working without a config change?
