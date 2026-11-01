@@ -10,314 +10,297 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// Keys used across these tests run 1..10, oldest (1) to newest (10). The
-// forward walk is newest-first (descending); the backward walk is the
-// ascending live-follow reverse.
+// Keys used across these tests are ascending ints, each row its own cursor.
+// Sources are stateless, so a test models appended rows by resuming a token
+// against a fresh source holding more rows.
 
-// TestList_NewestPage covers the open motion: an empty token returns the newest
-// page (forward walk from the tail) in one query, with a next-older token and an
-// always-populated live-follow token.
-func TestList_NewestPage(t *testing.T) {
+// TestList walks a list to exhaustion: every row once, in walk order, with
+// NextToken emptying on the last page.
+func TestList(t *testing.T) {
 	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
+	src := pagination.NewMockCursorSource([]int{1, 2, 3, 4, 5, 6, 7})
 
-	page, err := pagination.List(t.Context(), pagination.Options[int, int]{
-		DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, Source: src,
-	})
-	assert.NilError(t, err)
-
-	// Reverse is off, so items read newest-first, exactly like the task list.
-	assert.DeepEqual(t, page.Items, []int{10, 9, 8})
-	assert.Assert(t, page.NextToken != "", "older history remains")
-	assert.Assert(t, page.PrevToken != "", "live-follow token is always set")
-	// One query, no probe of the opposite walk.
-	assert.Assert(t, cmp.Len(src.QueryCalls(), 1))
-	assert.Equal(t, src.QueryCalls()[0].Token.Backward, false)
-	assert.Equal(t, src.QueryCalls()[0].Limit, 4) // over-fetch is size+1
-}
-
-// TestList_ForwardScrollToExhaustion walks the NextToken (older) direction to
-// the oldest row and asserts the concatenated pages reproduce every row once,
-// newest-first, and that NextToken empties at history's end.
-func TestList_ForwardScrollToExhaustion(t *testing.T) {
-	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-
-	var got []int
-	token := ""
-	pages := 0
+	var got [][]int
+	var token string
 	for {
-		page, err := pagination.List(t.Context(), pagination.Options[int, int]{
-			DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, PageToken: token, Source: src,
+		page, err := pagination.List(t.Context(), src, pagination.Options{
+			DefaultPageSize: 3, MaxPageSize: 100, PageToken: token,
 		})
 		assert.NilError(t, err)
-		got = append(got, page.Items...)
-		// Every non-empty page keeps a live-follow token.
-		assert.Assert(t, page.PrevToken != "")
-		pages++
+		got = append(got, page.Items)
 		if page.NextToken == "" {
 			break
 		}
 		token = page.NextToken
 	}
 
-	assert.DeepEqual(t, got, []int{10, 9, 8, 7, 6, 5, 4, 3, 2, 1})
-	assert.Equal(t, pages, 4) // 3 full pages of 3, then a final page of 1
+	assert.DeepEqual(t, got, [][]int{{1, 2, 3}, {4, 5, 6}, {7}})
+	assert.DeepEqual(t, src.QueryCalls()[0].After, (*int)(nil))
+	assert.Equal(t, src.QueryCalls()[0].Limit, 4) // over-fetch is size+1
 }
 
-// TestList_BackwardFollow covers live-follow: resuming a PrevToken walks
-// toward newer rows, and the PrevToken is always populated so polling can
-// continue past the tail.
-func TestList_BackwardFollow(t *testing.T) {
+// TestList_ExactPageBoundary covers a final page that exactly fills page_size:
+// the over-fetch finds no extra row, so NextToken empties without a probe.
+func TestList_ExactPageBoundary(t *testing.T) {
 	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{
-		DefaultPageSize: 3,
-		MaxPageSize:     100,
-		PageSize:        3,
-		Source:          src,
-	}
-
-	// Grab the newest page, then follow forward-in-time from an older position:
-	// take the oldest page's live-follow token to walk newer.
-	oldest, err := pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	// Walk to the oldest page to obtain a follow token with rows above it.
-	page := oldest
-	for page.NextToken != "" {
-		opt.PageToken = page.NextToken
-		page, err = pagination.List(t.Context(), opt)
-		assert.NilError(t, err)
-	}
-	// page is now [1] (oldest). Follow newer.
-	opt.PageToken = page.PrevToken
-	page, err = pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	// Backward page, Reverse off → newest-first: rows above 1 nearest-first
-	// ([2,3,4]) reversed for display.
-	assert.DeepEqual(t, page.Items, []int{4, 3, 2})
-	assert.Assert(t, page.PrevToken != "", "follow token stays populated")
-	assert.Assert(t, page.NextToken != "", "backward page exposes a way back")
-}
-
-// TestList_EmptyFollowPollEcho covers the tail: following newer when nothing has
-// arrived returns an empty page whose PrevToken echoes the submitted token,
-// so the caller keeps its place.
-func TestList_EmptyFollowPollEcho(t *testing.T) {
-	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{
-		DefaultPageSize: 3,
-		MaxPageSize:     100,
-		PageSize:        3,
-		Source:          src,
-	}
-
-	// Newest page's PrevToken points at the tail (id 10); nothing is newer.
-	newest, err := pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	opt.PageToken = newest.PrevToken
-	follow, err := pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-
-	assert.Assert(t, cmp.Len(follow.Items, 0))
-	assert.Equal(t, follow.PrevToken, newest.PrevToken, "empty poll echoes the token")
-	assert.Equal(t, follow.NextToken, "", "no older boundary on an empty poll")
-}
-
-// TestList_OneQueryPerPage asserts a bidirectional page derives both tokens from
-// the page it fetched — a single query, no probe of the opposite walk.
-func TestList_OneQueryPerPage(t *testing.T) {
-	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-
-	page, err := pagination.List(t.Context(), pagination.Options[int, int]{
-		DefaultPageSize: 3, MaxPageSize: 100, PageSize: 3, Source: src,
+	src := pagination.NewMockCursorSource([]int{1, 2, 3, 4, 5, 6})
+	first, err := pagination.List(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
 	})
 	assert.NilError(t, err)
-	assert.Assert(t, page.NextToken != "")
-	assert.Assert(t, page.PrevToken != "")
-	assert.Assert(t, cmp.Len(src.QueryCalls(), 1))
-}
 
-// TestList_ForwardOnlyPrevToken covers a forward-only source (the task list):
-// resubmitting a backward token surfaces ErrUnsupportedDirection, wrapped as
-// ErrInvalidRequest so the handler maps it to CodeInvalidArgument.
-func TestList_ForwardOnlyPrevToken(t *testing.T) {
-	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, true) // forward-only
-	opt := pagination.Options[int, int]{
-		DefaultPageSize: 3,
-		MaxPageSize:     100,
-		PageSize:        3,
-		Source:          src,
-	}
-
-	// A forward-only source's newest page still yields a PrevToken; the
-	// caller normally never exposes it, but a client that resubmits it trips
-	// the guard.
-	newest, err := pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	opt.PageToken = newest.PrevToken
-	_, err = pagination.List(t.Context(), opt)
-	assert.Assert(t, errors.Is(err, pagination.ErrUnsupportedDirection))
-	assert.Assert(t, errors.Is(err, pagination.ErrInvalidRequest))
-}
-
-// TestList_Reverse covers the Options.Reverse display order: off keeps the
-// forward walk's order (newest-first), on flips it (oldest-first) for a
-// top-down timeline. Reverse never changes token derivation.
-func TestList_Reverse(t *testing.T) {
-	t.Parallel()
-
-	off, err := pagination.List(t.Context(), pagination.Options[int, int]{
-		DefaultPageSize: 3, MaxPageSize: 100, Reverse: false, PageSize: 3,
-		Source: pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false),
+	second, err := pagination.List(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: first.NextToken,
 	})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, off.Items, []int{10, 9, 8})
 
-	on, err := pagination.List(t.Context(), pagination.Options[int, int]{
-		DefaultPageSize: 3, MaxPageSize: 100, Reverse: true, PageSize: 3,
-		Source: pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false),
+	assert.NilError(t, err)
+	assert.DeepEqual(t, second, &pagination.ListPage[int]{Items: []int{4, 5, 6}})
+	assert.Assert(t, cmp.Len(src.QueryCalls(), 2))
+}
+
+// TestList_Empty covers a list with no rows: no items and no token.
+func TestList_Empty(t *testing.T) {
+	t.Parallel()
+	src := pagination.NewMockCursorSource(nil)
+
+	page, err := pagination.List(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
 	})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, on.Items, []int{8, 9, 10})
 
-	// Same window, opposite order; both advertise the same continuations.
-	assert.Assert(t, off.NextToken != "" && on.NextToken != "")
-	assert.Assert(t, off.PrevToken != "" && on.PrevToken != "")
+	assert.NilError(t, err)
+	assert.DeepEqual(t, page, &pagination.ListPage[int]{})
 }
 
-// TestList_ReverseBackwardPage covers Reverse's effect on a backward page: with
-// Reverse on, a backward (ascending, nearest-first) page is returned as-is so it
-// still reads oldest-first, consistent with a forward page.
-func TestList_ReverseBackwardPage(t *testing.T) {
+// TestHistory_NewestPage covers the open: an empty token reads the newest page
+// in one Older query and returns it ascending, with both tokens set.
+func TestHistory_NewestPage(t *testing.T) {
 	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{
-		DefaultPageSize: 3,
-		MaxPageSize:     100,
-		Reverse:         true,
-		PageSize:        3,
-		Source:          src,
-	}
+	src := pagination.NewMockHistorySource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
 
-	// Newest page (Reverse on → oldest-first) then follow newer (there is
-	// nothing newer than 10, so seed a follow from an older cursor instead).
-	first, err := pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, first.Items, []int{8, 9, 10})
+	page, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
 
-	// Walk to the oldest page, then follow newer.
-	page := first
-	for page.NextToken != "" {
-		opt.PageToken = page.NextToken
-		page, err = pagination.List(t.Context(), opt)
-		assert.NilError(t, err)
-	}
-	opt.PageToken = page.PrevToken
-	page, err = pagination.List(t.Context(), opt)
 	assert.NilError(t, err)
-	// Backward page with Reverse on stays as-is: oldest-first.
-	assert.DeepEqual(t, page.Items, []int{2, 3, 4})
+	assert.DeepEqual(t, page.Items, []int{8, 9, 10})
+	assert.Assert(t, page.OlderToken != "")
+	assert.Assert(t, page.FollowToken != "")
+	assert.Assert(t, page.More)
+	calls := src.OlderCalls()
+	assert.Assert(t, cmp.Len(calls, 1))
+	assert.DeepEqual(t, calls[0].Before, (*int)(nil))
+	assert.Equal(t, calls[0].Limit, 4)
+	assert.Assert(t, cmp.Len(src.NewerCalls(), 0))
 }
 
-// TestList_SinglePage covers page shaping and next/prev advertisement on a
-// newest (forward) page: empty, partial, exactly-full, over-full, and a zero
-// page size falling back to the default.
-func TestList_SinglePage(t *testing.T) {
+// TestHistory_ScrollBack walks OlderToken to the start of history: every page
+// ascending, and OlderToken and More both falling off on the oldest page.
+func TestHistory_ScrollBack(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name          string
-		rows          []int
-		pageSize      int
-		defaultSize   int
-		wantItems     []int
-		wantNextToken bool
-	}{
-		{"empty", nil, 3, 50, nil, false},
-		{"partial", []int{9, 10}, 3, 50, []int{10, 9}, false},
-		{"exactly full", []int{8, 9, 10}, 3, 50, []int{10, 9, 8}, false},
-		{"over full", []int{7, 8, 9, 10}, 3, 50, []int{10, 9, 8}, true},
-		{"zero uses default", []int{8, 9, 10}, 0, 2, []int{10, 9}, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			src := pagination.NewMockSource(tt.rows, false)
-			page, err := pagination.List(t.Context(), pagination.Options[int, int]{
-				DefaultPageSize: tt.defaultSize, MaxPageSize: 100, PageSize: tt.pageSize, Source: src,
-			})
-			assert.NilError(t, err)
-			assert.DeepEqual(t, page.Items, tt.wantItems)
-			assert.Equal(t, page.NextToken != "", tt.wantNextToken)
-			// PrevToken is set on any non-empty page; empty otherwise.
-			assert.Equal(t, page.PrevToken != "", len(tt.wantItems) > 0)
-			// On the forward walk, More tracks the over-fetch exactly like NextToken:
-			// true only when a further (older) page remains. A full final page — the
-			// exact-page_size boundary — carries no extra row, so More is false.
-			assert.Equal(t, page.More, tt.wantNextToken)
+	src := pagination.NewMockHistorySource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+
+	var got [][]int
+	var token string
+	for {
+		page, err := pagination.History(t.Context(), src, pagination.Options{
+			DefaultPageSize: 3, MaxPageSize: 100, PageToken: token,
 		})
-	}
-}
-
-// TestList_MoreLiveFollow covers More on the backward (live-follow) walk, where
-// PrevToken is always populated so More is the only tail signal: it stays true
-// while newer rows remain and flips false on the last page — including when that
-// page is exactly page_size (the boundary the length heuristic gets wrong).
-func TestList_MoreLiveFollow(t *testing.T) {
-	t.Parallel()
-	src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-	opt := pagination.Options[int, int]{
-		DefaultPageSize: 3,
-		MaxPageSize:     100,
-		PageSize:        3,
-		Source:          src,
-	}
-
-	// Walk to the oldest page to get a follow token with rows above it (2..10).
-	page, err := pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	for page.NextToken != "" {
-		opt.PageToken = page.NextToken
-		page, err = pagination.List(t.Context(), opt)
 		assert.NilError(t, err)
+		got = append(got, page.Items)
+		assert.Equal(t, page.More, page.OlderToken != "")
+		if page.OlderToken == "" {
+			break
+		}
+		token = page.OlderToken
 	}
 
-	// Follow newer from the oldest row (1): rows 2..10 remain, so each full page
-	// reports More until the tail.
-	opt.PageToken = page.PrevToken // above 1: [2,3,4], more (5..10 remain)
-	page, err = pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, page.Items, []int{4, 3, 2})
-	assert.Assert(t, page.More, "rows 5..10 remain above the page")
-
-	opt.PageToken = page.PrevToken // above 4: [5,6,7], more (8..10 remain)
-	page, err = pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	assert.Assert(t, page.More, "rows 8..10 remain above the page")
-
-	// Above 7: [8,9,10] is exactly page_size and the last of the stream — the
-	// boundary case. More must be false even though PrevToken stays populated.
-	opt.PageToken = page.PrevToken
-	page, err = pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, page.Items, []int{10, 9, 8})
-	assert.Assert(t, !page.More, "exact page_size tail carries no further page")
-	assert.Assert(t, page.PrevToken != "", "follow token stays populated at the tail")
-
-	// An empty follow-poll past the tail is not "more" either.
-	opt.PageToken = page.PrevToken
-	page, err = pagination.List(t.Context(), opt)
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(page.Items, 0))
-	assert.Assert(t, !page.More, "empty follow-poll has no further page")
+	assert.DeepEqual(t, got, [][]int{{8, 9, 10}, {5, 6, 7}, {2, 3, 4}, {1}})
 }
 
-// TestList_Errors covers the ErrInvalidRequest contract: out-of-range page sizes
-// and undecodable tokens (bad base64, or base64 that isn't JSON).
-func TestList_Errors(t *testing.T) {
+// TestHistory_ExactPageBoundary covers an oldest page that exactly fills
+// page_size: OlderToken empties on it, without an extra empty page.
+func TestHistory_ExactPageBoundary(t *testing.T) {
+	t.Parallel()
+	src := pagination.NewMockHistorySource([]int{1, 2, 3, 4, 5, 6})
+	newest, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+
+	oldest, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: newest.OlderToken,
+	})
+
+	assert.NilError(t, err)
+	assert.DeepEqual(t, oldest.Items, []int{1, 2, 3})
+	assert.Equal(t, oldest.OlderToken, "")
+	assert.Assert(t, !oldest.More)
+}
+
+// TestHistory_Follow follows the rows appended after the newest page: pages
+// walk Newer, More marks the tail, and a follow page's OlderToken leads back
+// to the rows before it.
+func TestHistory_Follow(t *testing.T) {
+	t.Parallel()
+	newest, err := pagination.History(t.Context(), pagination.NewMockHistorySource([]int{1, 2, 3, 4, 5, 6}), pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+	src := pagination.NewMockHistorySource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
+
+	first, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: newest.FollowToken,
+	})
+	assert.NilError(t, err)
+	second, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: first.FollowToken,
+	})
+	assert.NilError(t, err)
+	back, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: first.OlderToken,
+	})
+	assert.NilError(t, err)
+
+	assert.DeepEqual(t, first.Items, []int{7, 8, 9})
+	assert.Assert(t, first.More)
+	assert.DeepEqual(t, second.Items, []int{10})
+	assert.Assert(t, !second.More)
+	assert.Assert(t, second.FollowToken != "")
+	assert.DeepEqual(t, back.Items, []int{4, 5, 6})
+}
+
+// TestHistory_FollowCaughtUp covers a follow poll with nothing new: an empty
+// page that echoes the request token, so the caller keeps its place.
+func TestHistory_FollowCaughtUp(t *testing.T) {
+	t.Parallel()
+	src := pagination.NewMockHistorySource([]int{1, 2, 3, 4, 5, 6})
+	newest, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+
+	page, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: newest.FollowToken,
+	})
+
+	assert.NilError(t, err)
+	assert.DeepEqual(t, page, &pagination.HistoryPage[int]{FollowToken: newest.FollowToken})
+}
+
+// TestHistory_EmptyFollowsFromStart covers opening a history with no rows yet:
+// the empty page still carries a FollowToken, which follows from the start of
+// history once rows arrive.
+func TestHistory_EmptyFollowsFromStart(t *testing.T) {
+	t.Parallel()
+	empty, err := pagination.History(t.Context(), pagination.NewMockHistorySource(nil), pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+	src := pagination.NewMockHistorySource([]int{1, 2})
+
+	page, err := pagination.History(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: empty.FollowToken,
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(empty.Items, 0))
+	assert.Equal(t, empty.OlderToken, "")
+	assert.Assert(t, empty.FollowToken != "")
+	assert.DeepEqual(t, page.Items, []int{1, 2})
+	assert.Equal(t, page.OlderToken, "", "a follow from the start has no older rows")
+	calls := src.NewerCalls()
+	assert.Assert(t, cmp.Len(calls, 1))
+	assert.DeepEqual(t, calls[0].After, (*int)(nil))
+}
+
+// TestStream reads a stream from its start to the tail, where More falls off,
+// then picks up the rows appended later from the last NextToken.
+func TestStream(t *testing.T) {
+	t.Parallel()
+	src := pagination.NewMockCursorSource([]int{1, 2, 3, 4, 5, 6, 7})
+
+	var got [][]int
+	var token string
+	for {
+		page, err := pagination.Stream(t.Context(), src, pagination.Options{
+			DefaultPageSize: 3, MaxPageSize: 100, PageToken: token,
+		})
+		assert.NilError(t, err)
+		got = append(got, page.Items)
+		token = page.NextToken
+		if !page.More {
+			break
+		}
+	}
+	appended, err := pagination.Stream(t.Context(), pagination.NewMockCursorSource([]int{1, 2, 3, 4, 5, 6, 7, 8}), pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: token,
+	})
+	assert.NilError(t, err)
+
+	assert.DeepEqual(t, got, [][]int{{1, 2, 3}, {4, 5, 6}, {7}})
+	assert.DeepEqual(t, src.QueryCalls()[0].After, (*int)(nil))
+	assert.DeepEqual(t, appended.Items, []int{8})
+}
+
+// TestStream_ExactPageBoundary covers a tail page that exactly fills page_size:
+// More is false on it even though NextToken stays set.
+func TestStream_ExactPageBoundary(t *testing.T) {
+	t.Parallel()
+	src := pagination.NewMockCursorSource([]int{1, 2, 3, 4, 5, 6})
+	first, err := pagination.Stream(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+
+	second, err := pagination.Stream(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: first.NextToken,
+	})
+
+	assert.NilError(t, err)
+	assert.DeepEqual(t, second.Items, []int{4, 5, 6})
+	assert.Assert(t, !second.More)
+	assert.Assert(t, second.NextToken != "")
+}
+
+// TestStream_CaughtUp covers a poll at the tail: an empty page whose NextToken
+// echoes the request token.
+func TestStream_CaughtUp(t *testing.T) {
+	t.Parallel()
+	src := pagination.NewMockCursorSource([]int{1, 2})
+	first, err := pagination.Stream(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+
+	page, err := pagination.Stream(t.Context(), src, pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: first.NextToken,
+	})
+
+	assert.NilError(t, err)
+	assert.DeepEqual(t, page, &pagination.StreamPage[int]{NextToken: first.NextToken})
+}
+
+// TestStream_EmptyStart covers a stream with no rows yet: the empty first page
+// still carries a NextToken, which reads from the start once rows arrive.
+func TestStream_EmptyStart(t *testing.T) {
+	t.Parallel()
+	empty, err := pagination.Stream(t.Context(), pagination.NewMockCursorSource(nil), pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100,
+	})
+	assert.NilError(t, err)
+
+	page, err := pagination.Stream(t.Context(), pagination.NewMockCursorSource([]int{1, 2}), pagination.Options{
+		DefaultPageSize: 3, MaxPageSize: 100, PageToken: empty.NextToken,
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, empty.NextToken != "")
+	assert.DeepEqual(t, page.Items, []int{1, 2})
+}
+
+// TestInvalidRequest covers the shared ErrInvalidRequest contract: out-of-range
+// page sizes and undecodable tokens (bad base64, or base64 that isn't JSON).
+func TestInvalidRequest(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -332,11 +315,15 @@ func TestList_Errors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			src := pagination.NewMockSource([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, false)
-			_, err := pagination.List(t.Context(), pagination.Options[int, int]{
-				DefaultPageSize: 50, MaxPageSize: 100, PageSize: tt.pageSize, PageToken: tt.token, Source: src,
-			})
-			assert.Assert(t, errors.Is(err, pagination.ErrInvalidRequest))
+			opt := pagination.Options{DefaultPageSize: 50, MaxPageSize: 100, PageSize: tt.pageSize, PageToken: tt.token}
+
+			_, listErr := pagination.List(t.Context(), pagination.NewMockCursorSource(nil), opt)
+			_, historyErr := pagination.History(t.Context(), pagination.NewMockHistorySource(nil), opt)
+			_, streamErr := pagination.Stream(t.Context(), pagination.NewMockCursorSource(nil), opt)
+
+			assert.Assert(t, errors.Is(listErr, pagination.ErrInvalidRequest))
+			assert.Assert(t, errors.Is(historyErr, pagination.ErrInvalidRequest))
+			assert.Assert(t, errors.Is(streamErr, pagination.ErrInvalidRequest))
 		})
 	}
 }

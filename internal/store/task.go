@@ -87,36 +87,30 @@ type ListTasksPageParams struct {
 	Archived  bool   // include archived tasks alongside active ones
 }
 
-// taskSource implements pagination.Source for the tasks table.
+// taskSource implements pagination.CursorSource for the tasks table, walking
+// it newest first.
 type taskSource struct {
 	store  *Store
 	tx     *sql.Tx
 	params ListTasksPageParams
 }
 
-// Query serves the task list's single forward (descending, newest-first) walk.
-// The task list is not followed, so backward is unsupported: List never asks for
-// it (the RPC exposes no newer token to resubmit), and the guard is only reached
-// if a client hand-crafts a backward token.
-func (src taskSource) Query(ctx context.Context, token pagination.Token[taskCursor], limit int) ([]*model.Task, error) {
-	if token.Backward {
-		return nil, pagination.ErrUnsupportedDirection
-	}
+func (src taskSource) Query(ctx context.Context, after *taskCursor, limit int) ([]*model.Task, error) {
 	// The token binds the filter it was minted under: a cursor whose Archived
 	// stamp disagrees with this request is a cross-filter replay, rejected as a
 	// bad request (→ CodeInvalidArgument) rather than silently resumed.
-	if token.Cursor != nil && token.Cursor.Archived != src.params.Archived {
+	if after != nil && after.Archived != src.params.Archived {
 		return nil, fmt.Errorf("%w: page token does not match archived filter", pagination.ErrInvalidRequest)
 	}
 	args := sqlc.ListTasksPageParams{
 		OrgID:     src.params.OrgID,
 		Archived:  src.params.Archived,
-		UseCursor: token.Cursor != nil,
+		UseCursor: after != nil,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
 	}
-	if token.Cursor != nil {
-		args.CursorCreatedAt = token.Cursor.CreatedAt
-		args.CursorID = token.Cursor.ID
+	if after != nil {
+		args.CursorCreatedAt = after.CreatedAt
+		args.CursorID = after.ID
 	}
 	rows, err := src.store.q(src.tx).ListTasksPage(ctx, args)
 	if err != nil {
@@ -130,21 +124,19 @@ func (src taskSource) Cursor(t *model.Task) taskCursor {
 }
 
 // ListTasksPage returns a keyset-paginated page of tasks for the org, newest
-// first, plus the token for the next page. By default only active tasks are
-// returned; p.Archived includes archived tasks interleaved by the same
-// created_at DESC, id DESC ordering. It owns everything pagination-related: the
-// cursor keyset (created_at, id), the page-size bounds, and the opaque token
-// format. A bad PageSize, an undecodable PageToken, or a token whose archived
-// filter disagrees with the request surfaces as a wrapped
+// first, plus the token for the next page (empty after the last). By default
+// only active tasks are returned; p.Archived includes archived tasks
+// interleaved by the same created_at DESC, id DESC ordering. It owns everything
+// pagination-related: the cursor keyset (created_at, id), the page-size bounds,
+// and the opaque token format. A bad PageSize, an undecodable PageToken, or a
+// token whose archived filter disagrees with the request surfaces as a wrapped
 // pagination.ErrInvalidRequest; query failures surface as-is.
-func (s *Store) ListTasksPage(ctx context.Context, tx *sql.Tx, p ListTasksPageParams) (*pagination.Page[*model.Task], error) {
-	return pagination.List(ctx, pagination.Options[*model.Task, taskCursor]{
+func (s *Store) ListTasksPage(ctx context.Context, tx *sql.Tx, p ListTasksPageParams) (*pagination.ListPage[*model.Task], error) {
+	return pagination.List(ctx, taskSource{store: s, tx: tx, params: p}, pagination.Options{
 		DefaultPageSize: 50,
 		MaxPageSize:     100,
-		Reverse:         false,
 		PageSize:        int(p.PageSize),
 		PageToken:       p.PageToken,
-		Source:          taskSource{store: s, tx: tx, params: p},
 	})
 }
 

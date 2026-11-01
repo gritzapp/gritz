@@ -210,9 +210,9 @@ type ListEventsByTaskAscParams struct {
 	PageLimit int32    `json:"page_limit"`
 }
 
-// Live-follow slice (id > cursor), ascending. Backs the pagination-backward
-// walk. The optional types filter matches ListEventsByTask; covered by
-// idx_events_task_id_id (no new migration).
+// Live-follow slice (id > cursor), ascending. Backs pagination.History's Newer
+// walk; a cursor of 0 follows from the start. The optional types filter
+// matches ListEventsByTask; covered by idx_events_task_id_id (no new migration).
 func (q *Queries) ListEventsByTaskAsc(ctx context.Context, arg ListEventsByTaskAscParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listEventsByTaskAsc,
 		arg.TaskID,
@@ -272,8 +272,8 @@ type ListEventsByTaskDescParams struct {
 }
 
 // Newest-first slice: the newest page (no cursor) and scroll-back (id < cursor).
-// Backs the pagination-forward (primary) walk; List reverses to ascending for
-// display. The optional types filter matches ListEventsByTask; covered by
+// Backs pagination.History's Older walk, which reverses pages to ascending.
+// The optional types filter matches ListEventsByTask; covered by
 // idx_events_task_id_id (no new migration).
 func (q *Queries) ListEventsByTaskDesc(ctx context.Context, arg ListEventsByTaskDescParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listEventsByTaskDesc,

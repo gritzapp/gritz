@@ -9,8 +9,8 @@ RETURNING id;
 
 -- name: ListLogChunksByTaskDesc :many
 -- Newest-first slice: the newest page (no cursor) and scroll-back (id < cursor).
--- Backs the pagination-forward (primary) walk; List reverses to ascending for
--- display. Covered by idx_log_chunks_task_id_id (no new migration).
+-- Backs pagination.History's Older walk, which reverses pages to ascending.
+-- Covered by idx_log_chunks_task_id_id (no new migration).
 SELECT id, org_id, task_id, version, data, created_at
 FROM log_chunks
 WHERE task_id = sqlc.arg(task_id)
@@ -20,8 +20,9 @@ ORDER BY id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: ListLogChunksByTaskAsc :many
--- Live-follow slice (id > cursor), ascending. Backs the pagination-backward
--- walk. Covered by idx_log_chunks_task_id_id (no new migration).
+-- Live-follow slice (id > cursor), ascending. Backs pagination.History's Newer
+-- walk; a cursor of 0 follows from the start. Covered by
+-- idx_log_chunks_task_id_id (no new migration).
 SELECT id, org_id, task_id, version, data, created_at
 FROM log_chunks
 WHERE task_id = sqlc.arg(task_id)

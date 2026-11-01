@@ -66,15 +66,7 @@ func ListLogChunksByTask(ctx context.Context, c Client, req *gritzv1.ListLogChun
 			if !resp.GetMore() {
 				return
 			}
-			next := resp.GetNextPageToken()
-			if next == "" {
-				// Unreachable against the documented contract: a page with More set is
-				// non-empty, and a non-empty page always carries a next_page_token.
-				// There is nothing to advance onto, and falling back to the empty token
-				// would re-open at the tail and replay, so stop instead of spinning.
-				return
-			}
-			cur.PageToken = next
+			cur.PageToken = resp.GetNextPageToken()
 		}
 	}
 }
@@ -98,7 +90,8 @@ type TaskLog struct {
 	taskID   int64
 	pageSize int32
 	// follow is the cursor just past the last chunk yielded, taken from the newest
-	// page read so far. It stays empty until the task has shipped a chunk.
+	// page read so far. History sets it; until the task has shipped a chunk it
+	// follows from the start of the log.
 	follow string
 }
 
@@ -187,33 +180,23 @@ func (l *TaskLog) History(ctx context.Context) iter.Seq2[*gritzv1.LogChunk, erro
 // exits.
 //
 // Each poll drains everything newer than the cursor before sleeping again, so a
-// run that logs more than a page's worth between polls can't fall behind. The
-// cursor only ever advances onto a non-empty next_page_token: holding the old
-// one is what keeps an empty response from re-opening at the tail and replaying
-// the transcript.
+// run that logs more than a page's worth between polls can't fall behind. An
+// empty poll's next_page_token echoes the cursor, so the cursor holds its place.
 //
-// Follow is meant to run after History, whose walk leaves the cursor at the
-// tail. Called on a task that has not shipped a chunk yet there is no cursor to
-// poll from, so it re-opens at the tail (yielding the transcript, which is empty
-// until the first chunk lands) until one exists.
+// Follow must run after History has completed, whose walk leaves the cursor at
+// the tail — or at the start of the log, for a task that has not shipped a
+// chunk yet.
 //
 // Each chunk is yielded as (chunk, nil). On an RPC error the iterator yields
 // (nil, err) once and stops.
 func (l *TaskLog) Follow(ctx context.Context, interval time.Duration) iter.Seq2[*gritzv1.LogChunk, error] {
+	if l.follow == "" {
+		panic("gritzclient: TaskLog.Follow before History completed")
+	}
 	return func(yield func(*gritzv1.LogChunk, error) bool) {
 		for {
 			if !common.SleepContext(ctx, interval) {
 				return
-			}
-			if l.follow == "" {
-				// Nothing has been yielded yet (an empty tail page is what leaves the
-				// cursor empty), so re-opening at the tail cannot duplicate output.
-				for chunk, err := range l.History(ctx) {
-					if !yield(chunk, err) || err != nil {
-						return
-					}
-				}
-				continue
 			}
 			for resp, err := range ListLogChunksByTask(ctx, l.client, l.request(l.follow)) {
 				if err != nil {
@@ -230,13 +213,8 @@ func (l *TaskLog) Follow(ctx context.Context, interval time.Duration) iter.Seq2[
 }
 
 // advance moves the follow cursor onto a page that has been yielded in full.
-// An empty next_page_token leaves it where it was: the token is always
-// populated on a non-empty page, and re-opening at the tail on one that came
-// back empty would replay chunks the caller has already seen.
 func (l *TaskLog) advance(resp *gritzv1.ListLogChunksByTaskResponse) {
-	if next := resp.GetNextPageToken(); next != "" {
-		l.follow = next
-	}
+	l.follow = resp.GetNextPageToken()
 }
 
 // list fetches a single page of the task's log at token.
