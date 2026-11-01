@@ -110,12 +110,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		if err != nil {
 			return nil, fmt.Errorf("runnerstore: upsert task %d: %w", t.ID, err)
 		}
-		changes = append(changes, TaskChange{
-			ID:       row.ID,
-			Command:  gritzv1.TaskCommand(row.Command.Int64),
-			Version:  row.Version.Int64,
-			Archived: row.Archived.Bool,
-		})
+		changes = append(changes, taskChange(row))
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
 		return nil, fmt.Errorf("runnerstore: set cursor: %w", err)
@@ -165,12 +160,25 @@ func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*
 	return events, nil
 }
 
-// UnarchivedTaskIDs returns the ids of every stored task that isn't archived,
-// ascending.
-func (s *Store) UnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
-	ids, err := s.q.ListUnarchivedTaskIDs(ctx)
+// UnarchivedTasks returns the state of every stored task that isn't archived,
+// in ascending id order.
+func (s *Store) UnarchivedTasks(ctx context.Context) ([]TaskChange, error) {
+	rows, err := s.q.ListUnarchivedTasks(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("runnerstore: read task ids: %w", err)
+		return nil, fmt.Errorf("runnerstore: read tasks: %w", err)
 	}
-	return ids, nil
+	var tasks []TaskChange
+	for _, row := range rows {
+		tasks = append(tasks, taskChange(row))
+	}
+	return tasks, nil
+}
+
+func taskChange(row sqlc.Task) TaskChange {
+	return TaskChange{
+		ID:       row.ID,
+		Command:  gritzv1.TaskCommand(row.Command.Int64),
+		Version:  row.Version.Int64,
+		Archived: row.Archived.Bool,
+	}
 }
