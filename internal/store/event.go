@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -182,17 +183,41 @@ func (s *Store) ListEventsByTaskPage(ctx context.Context, tx *sql.Tx, p ListEven
 	})
 }
 
-// ListRunnerEvents returns up to limit events of the runner's tasks after
-// cursor, below the xid watermark, and the cursor of the last one (after,
-// when none are returned). The server encodes it as an opaque
-// gritz.v1.EventCursor (EventCursor.Encode).
-func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, orgID int64, runner string, after model.EventCursor, limit int) ([]*model.Event, model.EventCursor, error) {
+// ListRunnerEventsParams mirrors the ListRunnerEvents RPC's fields as plain
+// values so the handler can pass them through untouched.
+type ListRunnerEventsParams struct {
+	OrgID    int64
+	Runner   string
+	PageSize int32  // 0 -> default
+	Cursor   []byte // opaque model.EventCursor encoding; empty for the start
+}
+
+// Page bounds for ListRunnerEvents. A runner pages through its whole history
+// on bootstrap, so the pages are larger than the UI's.
+const (
+	defaultRunnerEventsPageSize = 200
+	maxRunnerEventsPageSize     = 1000
+)
+
+// ListRunnerEvents returns a page of the runner's tasks' events after the
+// cursor, below the xid watermark, and the cursor of the last one (the
+// request's, when none are returned). A bad page size or undecodable cursor
+// returns an error wrapping pagination.ErrInvalidRequest.
+func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, p ListRunnerEventsParams) ([]*model.Event, model.EventCursor, error) {
+	size := cmp.Or(p.PageSize, defaultRunnerEventsPageSize)
+	if size < 1 || size > maxRunnerEventsPageSize {
+		return nil, model.EventCursor{}, fmt.Errorf("%w: page_size must be between 1 and %d", pagination.ErrInvalidRequest, maxRunnerEventsPageSize)
+	}
+	after, err := model.DecodeEventCursor(p.Cursor)
+	if err != nil {
+		return nil, model.EventCursor{}, fmt.Errorf("%w: %w", pagination.ErrInvalidRequest, err)
+	}
 	rows, err := s.q(tx).ListRunnerEvents(ctx, sqlc.ListRunnerEventsParams{
-		Runner:    runner,
-		OrgID:     orgID,
+		Runner:    p.Runner,
+		OrgID:     p.OrgID,
 		AfterXid:  after.XID,
 		AfterID:   after.ID,
-		PageLimit: int32(limit),
+		PageLimit: size,
 	})
 	if err != nil {
 		return nil, after, err

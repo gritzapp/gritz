@@ -1,7 +1,6 @@
 package apiserver
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -13,6 +12,8 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/x/pagination"
 )
 
 func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
@@ -120,13 +121,6 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 	return &gritzv1.SubmitRunnerEventsResponse{}, nil
 }
 
-// Page bounds for ListRunnerEvents. A runner pages through its whole history
-// on bootstrap, so the pages are larger than the UI's.
-const (
-	defaultRunnerEventsPageSize = 200
-	maxRunnerEventsPageSize     = 1000
-)
-
 func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// The read is scoped to the runner's tasks, so the runner identity is the
@@ -137,17 +131,18 @@ func (s *Server) ListRunnerEvents(ctx context.Context, req *gritzv1.ListRunnerEv
 	if req.Runner == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("runner is required"))
 	}
-	size := cmp.Or(int(req.PageSize), defaultRunnerEventsPageSize)
-	if size < 1 || size > maxRunnerEventsPageSize {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("page_size must be between 1 and %d", maxRunnerEventsPageSize))
-	}
-	after, err := model.DecodeEventCursor(req.Cursor)
+	events, next, err := s.store.ListRunnerEvents(ctx, nil, store.ListRunnerEventsParams{
+		OrgID:    caller.OrgID,
+		Runner:   req.Runner,
+		PageSize: req.PageSize,
+		Cursor:   req.Cursor,
+	})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	events, next, err := s.store.ListRunnerEvents(ctx, nil, caller.OrgID, req.Runner, after, size)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		code := connect.CodeInternal
+		if errors.Is(err, pagination.ErrInvalidRequest) {
+			code = connect.CodeInvalidArgument
+		}
+		return nil, connect.NewError(code, err)
 	}
 	resp := &gritzv1.ListRunnerEventsResponse{
 		Events:     model.ProtoMap(events),

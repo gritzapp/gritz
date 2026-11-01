@@ -311,7 +311,7 @@ func TestListRunnerEvents_BadRequest(t *testing.T) {
 		{"no runner", &gritzv1.ListRunnerEventsRequest{}},
 		{"bad cursor", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", Cursor: []byte{0xff}}},
 		{"negative page size", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: -1}},
-		{"page size too large", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: maxRunnerEventsPageSize + 1}},
+		{"page size too large", &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageSize: 1001}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
