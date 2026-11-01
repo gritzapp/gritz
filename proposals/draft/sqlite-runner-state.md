@@ -114,8 +114,10 @@ failed `Write` still ends the runner through `TaskFatalEvent`
 
 ### outbox
 
-A new `outbox.SQLStore` implements the existing `outbox.Store` interface. The
-interface and the `Outbox[T]` engine do not change.
+`internal/x/outbox` does not change: the `Store` interface, the `Outbox[T]`
+engine and `FileStore` all stay as they are, so the package remains available
+to other callers (for example the driver). A new `runnerstore.OutboxStore`
+implements `outbox.Store` over the runner's database.
 
 | Method          | Query |
 |-----------------|-------|
@@ -126,13 +128,12 @@ interface and the `Outbox[T]` engine do not change.
 | `Len`           | `SELECT count(*) FROM outbox WHERE dead = 0` |
 
 There is no in-memory mirror; the partial index makes the head lookup cheap,
-and the queue only holds events that have not yet reached the server. The
-package stays stdlib-only, as its doc comment requires: `SQLStore` takes a
-`*sql.DB` and the caller supplies the driver. `SQLStore` expects the `outbox`
-table to exist; `runnerstore`'s migrations create it.
+and the queue only holds events that have not yet reached the server. Because
+`OutboxStore` lives in `runnerstore`, the `outbox` table sits next to the
+migrations that create it, and `internal/x/outbox` stays stdlib-only with no
+knowledge of SQL.
 
-`FileStore` is deleted once the import below is removed (its only production
-caller is the runner).
+The runner stops using `outbox.FileStore`; the type itself is kept.
 
 ### Importing existing state
 
@@ -148,8 +149,8 @@ a hidden `--import-state-dir` flag, defaulting to the old `--state-dir` default
    `outbox.imported`, so the import runs once and the files remain for a
    rollback.
 
-The release after that deletes the import, the flag, the file-backed
-`taskstate` code and `outbox.FileStore`.
+The release after that deletes the import, the flag and the file-backed
+`taskstate` code. `outbox.FileStore` stays.
 
 ### API
 
@@ -164,6 +165,12 @@ func Open(path string) (*sql.DB, error)
 // and outboxDir into db, then renames both directories. It does nothing when
 // taskDir does not exist.
 func Import(db *sql.DB, taskDir, outboxDir string) error
+
+// OutboxStore is an outbox.Store backed by the outbox table.
+type OutboxStore struct{ ... }
+
+// NewOutboxStore returns an OutboxStore over db.
+func NewOutboxStore(db *sql.DB) *OutboxStore
 ```
 
 ```go
@@ -178,16 +185,6 @@ func New(db *sql.DB) *Store
 ```
 
 ```go
-package outbox // github.com/gritzapp/gritz/internal/x/outbox
-
-// SQLStore is a Store backed by an outbox table in a SQL database. // new
-type SQLStore struct{ ... }
-
-// NewSQLStore returns a SQLStore over db's outbox table. // new
-func NewSQLStore(db *sql.DB) *SQLStore
-```
-
-```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
 type RunnerEventOutboxOptions struct {
@@ -199,7 +196,7 @@ type RunnerEventOutboxOptions struct {
 
 **How it fits:** `internal/command/runner.go` calls `runnerstore.Open` with
 `--state-db`, then `runnerstore.Import`, then builds `taskstate.New(db)` for
-`TaskManagerOptions.Store` and `outbox.NewSQLStore(db)` for
+`TaskManagerOptions.Store` and `runnerstore.NewOutboxStore(db)` for
 `RunnerEventOutboxOptions.Store`, and closes the database on exit.
 `internal/runner/testrunner` opens a database in `t.TempDir()` the same way;
 tests that inject failures with `outbox.StoreMock` are unchanged.
@@ -210,10 +207,10 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    embedded migrations with `user_version`, `0001_init.sql`; the driver becomes
    a direct dependency. Depends on: nothing. Verifiable by: tests that open a
    fresh file, reopen it (migrations not reapplied), and check the tables exist.
-2. **outbox.SQLStore** — Delivers: `SQLStore` implementing `outbox.Store`.
-   Depends on: (1) for the schema in tests. Verifiable by: running the existing
+2. **runnerstore.OutboxStore** — Delivers: `OutboxStore` implementing
+   `outbox.Store`. Depends on: (1). Verifiable by: tests mirroring the
    `FileStore` behaviour tests (FIFO order, dead-lettering, seq never reused,
-   reopen keeps records) against `SQLStore`.
+   reopen keeps records) against `OutboxStore`.
 3. **SQL-backed taskstate** — Delivers: `taskstate.New(db)` with the queries
    above, alongside `Open` for now. Depends on: (1). Verifiable by: the existing
    `taskstate` tests ported to `New`.
@@ -225,8 +222,8 @@ tests that inject failures with `outbox.StoreMock` are unchanged.
    directories; running the dev compose stack across a restart with a sandbox
    up.
 5. **Remove the file stores** (next release) — Delivers: deletion of
-   `taskstate.Open`, the file code in `taskstate`, `outbox.FileStore`,
-   `runnerstore.Import` and `--import-state-dir`. Depends on: (4) having shipped in
+   `taskstate.Open`, the file code in `taskstate`, `runnerstore.Import` and
+   `--import-state-dir`. Depends on: (4) having shipped in
    a release. Verifiable by: build and tests pass.
 
 ## Trade-offs
