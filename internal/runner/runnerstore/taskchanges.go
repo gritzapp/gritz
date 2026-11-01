@@ -2,8 +2,8 @@ package runnerstore
 
 import gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 
-// taskChanges accumulates a page's effect on the tasks projection.
-type taskChanges struct {
+// TaskChanges accumulates a page's effect on the tasks projection.
+type TaskChanges struct {
 	stored map[int64]bool
 	ids    []int64 // in order of each task's first event in the page
 	tasks  map[int64]*taskState
@@ -16,14 +16,14 @@ type taskState struct {
 	archived bool // its archived state after the events applied so far
 }
 
-// newTaskChanges starts from the stored archive state of the page's tasks
+// NewTaskChanges starts from the stored archive state of the page's tasks
 // that are already known.
-func newTaskChanges(stored map[int64]bool) *taskChanges {
-	return &taskChanges{stored: stored, tasks: map[int64]*taskState{}}
+func NewTaskChanges(stored map[int64]bool) *TaskChanges {
+	return &TaskChanges{stored: stored, tasks: map[int64]*taskState{}}
 }
 
 // Apply folds one event into its task's state.
-func (c *taskChanges) Apply(e *gritzv1.Event) {
+func (c *TaskChanges) Apply(e *gritzv1.Event) {
 	t, ok := c.tasks[e.GetTaskId()]
 	if !ok {
 		before, known := c.stored[e.GetTaskId()]
@@ -36,7 +36,7 @@ func (c *taskChanges) Apply(e *gritzv1.Event) {
 
 // Rows returns the tasks rows to write: new tasks, and known ones whose
 // archived state changed.
-func (c *taskChanges) Rows() []TaskChange {
+func (c *TaskChanges) Rows() []TaskChange {
 	var rows []TaskChange
 	for _, id := range c.ids {
 		t := c.tasks[id]
@@ -50,7 +50,7 @@ func (c *taskChanges) Rows() []TaskChange {
 
 // Changes returns what to report: Rows minus tasks that were new and ended
 // the page archived, since they were never active.
-func (c *taskChanges) Changes() []TaskChange {
+func (c *TaskChanges) Changes() []TaskChange {
 	var changes []TaskChange
 	for _, row := range c.Rows() {
 		if !c.tasks[row.ID].known && row.Archived {

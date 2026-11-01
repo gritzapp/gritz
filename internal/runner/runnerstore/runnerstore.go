@@ -95,7 +95,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	for _, row := range rows {
 		stored[row.ID] = row.Archived
 	}
-	changes := newTaskChanges(stored)
+	changes := NewTaskChanges(stored)
 	for _, e := range events {
 		data, err := proto.Marshal(e)
 		if err != nil {
