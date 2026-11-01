@@ -1,9 +1,7 @@
 package apiserver
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
@@ -12,7 +10,6 @@ import (
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
-	"gotest.tools/v3/poll"
 )
 
 func TestSubmitRunnerEvents(t *testing.T) {
@@ -211,27 +208,6 @@ func TestListRunnerTasks_Permissions(t *testing.T) {
 	assert.Equal(t, respB.Tasks[0].Name, "User B's Task")
 }
 
-// listRunnerEventsAll follows ListRunnerEvents from cursor until at least n
-// events have come back. The xid watermark is cluster-wide, so a transaction
-// held open by a concurrent test can briefly hold back committed rows.
-func listRunnerEventsAll(t *testing.T, srv *Server, ctx context.Context, runner string, token string, n int) ([]*gritzv1.Event, string) {
-	t.Helper()
-	var got []*gritzv1.Event
-	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: runner, PageToken: token})
-		if err != nil {
-			return poll.Error(err)
-		}
-		got = append(got, resp.Events...)
-		token = resp.NextPageToken
-		if len(got) < n {
-			return poll.Continue("got %d of %d events", len(got), n)
-		}
-		return poll.Success()
-	}, poll.WithTimeout(10*time.Second), poll.WithDelay(20*time.Millisecond))
-	return got, token
-}
-
 func TestListRunnerEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange - a task on each runner; creating one writes its command event.
@@ -243,21 +219,23 @@ func TestListRunnerEvents(t *testing.T) {
 		},
 	})
 	ctx := createCtx(t, org)
+	// runner-2's task is created first, so once runner-1's events pass the
+	// watermark, runner-2's have too.
+	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "other", Workspace: "test-workspace", Runner: "runner-2"})
+	assert.NilError(t, err)
 	mine, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "mine", Workspace: "test-workspace", Runner: "runner-1"})
 	assert.NilError(t, err)
-	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "other", Workspace: "test-workspace", Runner: "runner-2"})
-	assert.NilError(t, err)
-	// The later task's events passing the watermark means the earlier one's have.
-	listRunnerEventsAll(t, srv, ctx, "runner-2", "", 1)
 	want, err := srv.store.ListEventsByTask(ctx, nil, mine.Task.Id, org.OrgID, nil)
 	assert.NilError(t, err)
+	teststore.WaitRunnerEvents(t, srv.store, org, "runner-1", "", len(want))
 
 	// Act - read runner-1's log from the start.
-	events, token := listRunnerEventsAll(t, srv, ctx, "runner-1", "", 1)
+	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
 
 	// Assert - every event of runner-1's task, and nothing of runner-2's.
-	assert.DeepEqual(t, testx.ExtractField(events, "Id"), testx.ExtractField(want, "ID"))
-	assert.Assert(t, token != "")
+	assert.NilError(t, err)
+	assert.DeepEqual(t, testx.ExtractField(resp.Events, "Id"), testx.ExtractField(want, "ID"))
+	assert.Assert(t, resp.NextPageToken != "")
 }
 
 func TestListRunnerEvents_EmptyPage(t *testing.T) {
@@ -270,7 +248,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	ctx := createCtx(t, org)
 	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{Name: "task", Workspace: "test-workspace", Runner: "runner-1"})
 	assert.NilError(t, err)
-	_, token := listRunnerEventsAll(t, srv, ctx, "runner-1", "", 1)
+	_, token := teststore.WaitRunnerEvents(t, srv.store, org, "runner-1", "", 1)
 
 	// Act
 	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1", PageToken: token})

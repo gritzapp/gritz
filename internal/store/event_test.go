@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
@@ -14,7 +13,6 @@ import (
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
-	"gotest.tools/v3/poll"
 )
 
 func TestListEventsByTaskPage(t *testing.T) {
@@ -245,27 +243,6 @@ func TestListEventsByTaskPage_BadToken(t *testing.T) {
 	assert.Assert(t, errors.Is(err, pagination.ErrInvalidRequest))
 }
 
-// listRunnerEventsN follows the runner's events from token until n have been
-// returned. The xid watermark is cluster-wide, so a transaction held open by a
-// concurrent test can briefly hold back rows that have already committed.
-func listRunnerEventsN(t *testing.T, s *store.Store, org *teststore.Org, runner string, token string, n int) ([]*model.Event, string) {
-	t.Helper()
-	var got []*model.Event
-	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: runner, PageToken: token})
-		if err != nil {
-			return poll.Error(err)
-		}
-		got = append(got, page.Items...)
-		token = page.PrevToken
-		if len(got) < n {
-			return poll.Continue("got %d of %d events", len(got), n)
-		}
-		return poll.Success()
-	}, poll.WithTimeout(10*time.Second), poll.WithDelay(20*time.Millisecond))
-	return got, token
-}
-
 func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 	t.Parallel()
 	// Arrange - two tasks on the runner, each written by its own transaction.
@@ -291,7 +268,7 @@ func TestListRunnerEvents_CommitOutOfIDOrder(t *testing.T) {
 		return txA.Commit()
 	})
 	assert.NilError(t, err)
-	got, _ := listRunnerEventsN(t, s, org, "runner-1", "", 2)
+	got, _ := teststore.WaitRunnerEvents(t, s, org, "runner-1", "", 2)
 
 	// Assert - B's committed row is held back behind A's open transaction,
 	// then both come back in xid order.
@@ -310,7 +287,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{Runner: "runner-1"})
 	event := &model.Event{TaskID: task.ID, OrgID: org.OrgID, Payload: &model.ReportPayload{Content: "a"}}
 	assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
-	_, token := listRunnerEventsN(t, s, org, "runner-1", "", 1)
+	_, token := teststore.WaitRunnerEvents(t, s, org, "runner-1", "", 1)
 
 	// Act
 	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1", PageToken: token})
@@ -333,7 +310,7 @@ func TestListRunnerEvents_Pages(t *testing.T) {
 		assert.NilError(t, s.CreateEvent(t.Context(), nil, event))
 		want = append(want, event.ID)
 	}
-	listRunnerEventsN(t, s, org, "runner-1", "", 5)
+	teststore.WaitRunnerEvents(t, s, org, "runner-1", "", 5)
 
 	// Act - follow the token two at a time until More reports the tail.
 	var got []int64
@@ -374,7 +351,7 @@ func TestListRunnerEvents_ScopedToRunner(t *testing.T) {
 		}
 	}
 	// Wait for the last event to pass the watermark, so the others have too.
-	listRunnerEventsN(t, s, otherOrg, "runner-1", "", 1)
+	teststore.WaitRunnerEvents(t, s, otherOrg, "runner-1", "", 1)
 
 	// Act
 	page, err := s.ListRunnerEvents(t.Context(), nil, store.ListRunnerEventsParams{OrgID: org.OrgID, Runner: "runner-1"})
