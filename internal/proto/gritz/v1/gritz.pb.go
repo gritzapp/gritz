@@ -3145,13 +3145,11 @@ func (x *LinkPayload) GetSubscribe() bool {
 // events are not history; timelines skip them (see
 // proposals/draft/runner-event-replica.md).
 type CommandPayload struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Command TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
-	Version int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	Runner  string                 `protobuf:"bytes,3,opt,name=runner,proto3" json:"runner,omitempty"`
-	// workspace is the task's workspace, so the runner can boot a sandbox from
-	// its replica. Command events written before it was added carry "".
-	Workspace     string `protobuf:"bytes,4,opt,name=workspace,proto3" json:"workspace,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Command       TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
+	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Runner        string                 `protobuf:"bytes,3,opt,name=runner,proto3" json:"runner,omitempty"`
+	Workspace     string                 `protobuf:"bytes,4,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
