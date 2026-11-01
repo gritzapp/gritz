@@ -243,15 +243,6 @@ type LambdaMicroVM struct {
 	Environment        map[string]string `yaml:"environment"`
 }
 
-// Environ returns the environment variables as a slice of "key=value" strings.
-func (l *LambdaMicroVM) Environ() []string {
-	var env []string
-	for k, v := range l.Environment {
-		env = append(env, k+"="+v)
-	}
-	return env
-}
-
 // NetworkingConfig returns the Docker networking configuration for this container.
 func (c *Container) NetworkingConfig() *network.NetworkingConfig {
 	if len(c.Networks) == 0 {
