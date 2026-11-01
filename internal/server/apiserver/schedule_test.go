@@ -410,19 +410,19 @@ func TestRunSchedule(t *testing.T) {
 	assert.Equal(t, tasks[0].Workspace, "test-workspace")
 	assert.Equal(t, tasks[0].Runner, "test-runner")
 
-	// The start command and the created event first (ScheduleActor), then one
+	// The created event first (ScheduleActor) and the start command, then one
 	// wake instruction event per template instruction — identical to a scheduled
 	// fire. Compare only Wake + Payload; the DB-assigned id/task_id/org_id and
 	// timestamp vary per run.
 	events, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, nil)
 	assert.NilError(t, err)
 	want := []*model.Event{
-		{Payload: &model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"}},
 		{Payload: &model.LifecyclePayload{
 			Kind:     model.LifecycleKindCreated,
 			Actor:    model.ScheduleActor,
 			ToStatus: model.TaskStatusPending.Label(),
 		}},
+		{Payload: &model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"}},
 		{Wake: true, Payload: &model.InstructionPayload{Text: "bump deps", URL: "https://example.com/deps"}},
 		{Wake: true, Payload: &model.InstructionPayload{Text: "groom changelog"}},
 	}

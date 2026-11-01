@@ -350,9 +350,15 @@ func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, org
 			return err
 		}
 		wasDone := task.IsDone()
+		fromCommand := task.Command
 		task.Start()
 		if err := r.Store.UpdateTask(ctx, tx, task); err != nil {
 			return err
+		}
+		if ev, ok := task.CommandEvent(fromCommand); ok {
+			if err := r.Store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
 		}
 		// The external event above already records the trigger that restarted the
 		// task, so a router-emitted RESTARTED lifecycle event would be redundant:
@@ -446,6 +452,11 @@ func (r *Router) create(ctx context.Context, input InputEvent, orgID int64, rule
 			},
 		}); err != nil {
 			return err
+		}
+		if ev, ok := task.CommandEvent(model.TaskCommandNone); ok {
+			if err := r.Store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
 		}
 		// task_links is the subscription/list projection; the link event is the
 		// timeline source of truth. Upsert the projection and append the event in

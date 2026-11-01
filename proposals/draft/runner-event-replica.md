@@ -164,9 +164,21 @@ type CommandPayload struct {
 }
 ```
 
-A command event is written wherever the `tasks` row is saved with a `command`
-that differs from the stored one, in the same transaction. Writing it in that
-one place means no call site can forget. Two cases fall out of the rule:
+Every site that changes a task's command writes a command event in the same
+transaction, next to the lifecycle event it already writes, the same way
+lifecycle events are written. A model method, shaped like
+`RunnerEvent.LifecycleEvent`, builds it:
+
+```go
+// CommandEvent returns the command event for a change from `from` to
+// t.Command, and false when the command didn't change.
+func (t *Task) CommandEvent(from TaskCommand) (*Event, bool)
+```
+
+Each site captures `from := task.Command` before the mutation (`Start`,
+`Restart`, `Cancel`, `ApplyRunnerEvent`, the event-router wake); a site that
+creates a task with a command passes `TaskCommandNone`. The store is
+unchanged. Two cases fall out of the rule:
 
 - **Withdrawals.** Cancelling a `PENDING` task writes a `none` command event
   for that version, so a runner that already acted on the start learns it was
@@ -514,9 +526,14 @@ type EventCursor struct {
 // when none are returned). The server encodes it as an opaque
 // gritz.v1.EventCursor. // new
 func (s *Store) ListRunnerEvents(ctx context.Context, tx *sql.Tx, orgID int64, runner string, after EventCursor, limit int) ([]*model.Event, EventCursor, error)
+```
 
-// UpdateTask also writes a command event when the command changed. // changed
-func (s *Store) UpdateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error
+```go
+package model // github.com/gritzapp/gritz/internal/model
+
+// CommandEvent returns the command event for a change from `from` to
+// t.Command, and false when the command didn't change. // new
+func (t *Task) CommandEvent(from TaskCommand) (*Event, bool)
 ```
 
 ```go
@@ -627,7 +644,8 @@ func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.Ru
 // Stop is removed. // removed
 ```
 
-**How it fits:** the server's `UpdateTask` writes command events and
+**How it fits:** the server's call sites that change a task's command write
+command events, and
 `ListRunnerEvents` serves them. `gritz runner` constructs a `taskevents.Log`
 on the `runnerstore.Store` and runs it. The runner's SSE notification calls
 `Log.Wake`. `Log.Run` pages events into the store and wakes blocked `Read`s.
@@ -644,10 +662,11 @@ sends `RunEnded` up the stream when a run is over.
 1. **`events.xid`** — Delivers: the migration, and reading it in the store.
    Depends on: nothing. Verifiable by: migration up and down; store test that rows carry the inserting transaction's xid.
 2. **Command events** — Delivers: `EventTypeCommand`, `CommandPayload`, the
-   proto arm, and `UpdateTask`/`CreateTask` writing one whenever the command
-   changes; history views filter them out. Depends on: nothing. Verifiable by:
-   store tests for each command path (start, restart, cancel of `PENDING`,
-   wake, server-issued stop, clear).
+   proto arm, `Task.CommandEvent`, and every call site that changes a task's
+   command writing one; history views filter them out. Depends on: nothing.
+   Verifiable by: caller tests (apiserver RPCs, event router, runner events)
+   for each command path (start, restart, cancel of `PENDING`, wake,
+   server-issued stop, clear, and an unchanged command writing none).
 3. **`ListRunnerEvents`** — Delivers: the query and RPC, with the watermark
    and the opaque cursor. Depends on: (1). Verifiable by: a store test with
    two concurrent transactions that commit out of id order; neither row is

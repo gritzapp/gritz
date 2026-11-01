@@ -127,6 +127,11 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		}); err != nil {
 			return err
 		}
+		if ev, ok := task.CommandEvent(model.TaskCommandNone); ok {
+			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
+		}
 		// Seed the stream with the initial instructions as instruction events
 		// instead of a tasks.instructions column. Unless this is a draft, the task
 		// already starts via Command=Start above; instruction events always wake.
@@ -215,6 +220,7 @@ func (s *Server) UpdateTask(ctx context.Context, req *gritzv1.UpdateTaskRequest)
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
 		}
 		from := task.Status
+		fromCommand := task.Command
 		var changed []string
 		if req.Name != "" {
 			task.Name = req.Name
@@ -261,6 +267,11 @@ func (s *Server) UpdateTask(ctx context.Context, req *gritzv1.UpdateTaskRequest)
 			},
 		}); err != nil {
 			return err
+		}
+		if ev, ok := task.CommandEvent(fromCommand); ok {
+			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
 		}
 		notification.Runner = task.PendingRunner()
 		notification.Resources = []model.NotificationResource{
@@ -443,6 +454,7 @@ func (s *Server) CancelTask(ctx context.Context, req *gritzv1.CancelTaskRequest)
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
 		}
 		from := task.Status
+		fromCommand := task.Command
 		if !task.Cancel() {
 			return fmt.Errorf("cannot cancel task with status %s", task.Status)
 		}
@@ -460,6 +472,11 @@ func (s *Server) CancelTask(ctx context.Context, req *gritzv1.CancelTaskRequest)
 			},
 		}); err != nil {
 			return err
+		}
+		if ev, ok := task.CommandEvent(fromCommand); ok {
+			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
 		}
 		notification.Runner = task.PendingRunner()
 		notification.Resources = []model.NotificationResource{
@@ -514,6 +531,7 @@ func (s *Server) RestartTask(ctx context.Context, req *gritzv1.RestartTaskReques
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
 		}
 		from := task.Status
+		fromCommand := task.Command
 		if !task.Restart() {
 			return fmt.Errorf("cannot restart task with status %s", task.Status)
 		}
@@ -531,6 +549,11 @@ func (s *Server) RestartTask(ctx context.Context, req *gritzv1.RestartTaskReques
 			},
 		}); err != nil {
 			return err
+		}
+		if ev, ok := task.CommandEvent(fromCommand); ok {
+			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
 		}
 		notification.Runner = task.PendingRunner()
 		notification.Resources = []model.NotificationResource{

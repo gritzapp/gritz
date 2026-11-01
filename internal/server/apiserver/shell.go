@@ -63,6 +63,7 @@ func (s *Server) OpenShell(ctx context.Context, req *gritzv1.OpenShellRequest) (
 				fmt.Errorf("cannot open shell for task with status %s: task must be in a terminal state", task.Status))
 		}
 		from := task.Status
+		fromCommand := task.Command
 		// Start relaunches the sandbox against the preserved disk. The task is
 		// terminal, so this brings up a fresh (shell) run without killing
 		// anything. Set shell_session in the same transaction so the field is
@@ -90,6 +91,11 @@ func (s *Server) OpenShell(ctx context.Context, req *gritzv1.OpenShellRequest) (
 			},
 		}); err != nil {
 			return err
+		}
+		if ev, ok := task.CommandEvent(fromCommand); ok {
+			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
 		}
 		notification.Runner = task.PendingRunner()
 		notification.Resources = []model.NotificationResource{

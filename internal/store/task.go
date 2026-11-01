@@ -34,10 +34,7 @@ func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 	task.ID = id
 	task.CreatedAt = now
 	task.UpdatedAt = now
-	if task.Command == model.TaskCommandNone {
-		return nil
-	}
-	return s.createCommandEvent(ctx, tx, task)
+	return nil
 }
 
 func (s *Store) GetTask(ctx context.Context, tx *sql.Tx, id int64, orgID int64) (*model.Task, error) {
@@ -162,12 +159,9 @@ func (s *Store) ListTasksForRunner(ctx context.Context, tx *sql.Tx, runner strin
 	return toModelTasks(rows)
 }
 
-// UpdateTask saves the task. When the saved command differs from the stored
-// one it also writes a command event in the same transaction, so every command
-// change reaches the event log without each call site recording it.
 func (s *Store) UpdateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 	task.UpdatedAt = time.Now().UTC()
-	prev, err := s.q(tx).UpdateTask(ctx, sqlc.UpdateTaskParams{
+	return s.q(tx).UpdateTask(ctx, sqlc.UpdateTaskParams{
 		Name:         task.Name,
 		Runner:       task.Runner,
 		Workspace:    task.Workspace,
@@ -180,26 +174,6 @@ func (s *Store) UpdateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 		ShellSession: task.ShellSession,
 		ID:           task.ID,
 		OrgID:        task.OrgID,
-	})
-	if err != nil {
-		return err
-	}
-	if model.TaskCommand(prev) == task.Command {
-		return nil
-	}
-	return s.createCommandEvent(ctx, tx, task)
-}
-
-// createCommandEvent records the task's current command as a command event.
-func (s *Store) createCommandEvent(ctx context.Context, tx *sql.Tx, task *model.Task) error {
-	return s.CreateEvent(ctx, tx, &model.Event{
-		TaskID: task.ID,
-		OrgID:  task.OrgID,
-		Payload: &model.CommandPayload{
-			Command: task.Command,
-			Version: task.Version,
-			Runner:  task.Runner,
-		},
 	})
 }
 

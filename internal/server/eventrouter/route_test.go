@@ -524,6 +524,13 @@ func TestRouteWakeEnabledRestartsTask(t *testing.T) {
 			},
 		},
 	)
+	// The wake is a start command for the next run.
+	assert.DeepEqual(t,
+		model.FilterPayloads(events, model.EventTypeCommand),
+		[]model.EventPayload{
+			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r"},
+		},
+	)
 }
 
 func TestRouteCreateRuleSpawnsTask(t *testing.T) {
@@ -622,6 +629,12 @@ func TestRouteCreateRuleSpawnsTask(t *testing.T) {
 		model.EventTypeLink,
 		model.EventTypeInstruction,
 	})
+	assert.DeepEqual(t,
+		model.FilterPayloads(allEvents, model.EventTypeCommand),
+		[]model.EventPayload{
+			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "test-runner"},
+		},
+	)
 
 	// The trigger surfaces as an external event carrying the webhook payload,
 	// mirroring the wake path (attach).
