@@ -28,6 +28,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/migueleliasweb/go-github-mock v1.5.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/ncruces/go-sqlite3 v0.32.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shurcooL/githubv4 v0.0.0-20260209031235-2402fdf4a9ed
 	github.com/urfave/cli/v3 v3.10.1
@@ -132,7 +133,6 @@ require (
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
-	github.com/ncruces/go-sqlite3 v0.32.0 // indirect
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect

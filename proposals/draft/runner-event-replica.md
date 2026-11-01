@@ -2,9 +2,6 @@
 
 Issue: https://github.com/gritzapp/gritz/issues/1818
 
-Builds on [`sqlite-runner-state.md`](sqlite-runner-state.md) (PR #1827): the
-runner's local copy of the log lives in its SQLite database.
-
 ## Problem
 
 The runner reads the current state of each task, not what changed.
@@ -249,7 +246,9 @@ to one runner.
 
 #### Inside `taskevents`
 
-`runnerstore` gains an `events` table: one row per replicated event, in the
+A new package, `internal/runner/runnerstore`, is the runner's SQLite
+database (`github.com/ncruces/go-sqlite3`, no cgo; WAL, `synchronous = FULL`,
+one connection). It starts with an `events` table: one row per replicated event, in the
 order it arrived, with the event's `id`, `task_id`, `type` and the payload as
 stored on the server. `seq` is the local position: arrival order is the
 server's log order, so `seq` increases along the log with no gaps. A
@@ -277,9 +276,15 @@ CREATE TABLE replication (
 2. Call `ListRunnerEvents(page_token: cursor)`.
 3. In one transaction, insert the page's events and set `cursor` to the
    response's `next_page_token`.
-4. Repeat while the response's `more` is true, then wait for a wake. The runner SSE
-   notification (`proposals/implemented/runner-sse-events.md`) still triggers
-   a sync sooner.
+4. Repeat while the response's `more` is true, then wait for a wake or the
+   poll interval (30s by default, as `TaskManager.Run` polls today). The
+   runner SSE notification (`proposals/implemented/runner-sse-events.md`)
+   triggers a sync sooner.
+
+`more == false` means nothing is readable right now, not that the runner is
+caught up. Committed rows can be held back by the server's xid watermark, and
+the transaction whose end releases them may send no wake, so the interval is
+what picks them up.
 
 The events and the cursor commit together, so the cursor never runs ahead of
 the stored events and no stored event sits behind a stale cursor. A crash
@@ -546,7 +551,10 @@ func (t *Task) CommandEvent(from TaskCommand) (*Event, bool)
 ```
 
 ```go
-package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore
+package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore  // new
+
+// Open opens the database at path, creating it and its tables if absent.
+func Open(path string) (*Store, error)
 
 // AppendEvents stores a page of replicated events and the cursor that
 // follows it in one transaction. // new
@@ -570,8 +578,20 @@ package taskevents // github.com/gritzapp/gritz/internal/runner/taskevents  // n
 // Log is the runner's replicated copy of its tasks' event logs.
 type Log struct{ ... }
 
-// New returns a Log that replicates the runner's tasks from the server into store.
-func New(store *runnerstore.Store, client gritzv1connect.GritzServiceClient, runnerID string) *Log
+// Options configures a Log.
+type Options struct {
+	Store    *runnerstore.Store
+	Client   gritzclient.Client
+	RunnerID string
+	// PollInterval is how long Run waits for a Wake before it checks the
+	// server again. Defaults to 30s.
+	PollInterval time.Duration
+	Log          *slog.Logger
+}
+
+// New returns a Log that replicates the runner's tasks from the server into
+// the store.
+func New(opts Options) *Log
 
 // Run replicates until ctx ends.
 func (l *Log) Run(ctx context.Context) error
@@ -681,10 +701,10 @@ sends `RunEnded` up the stream when a run is over.
    two concurrent transactions that commit out of id order; neither row is
    returned until both have committed, and then both are, in xid order; an
    empty page returns the request's page token.
-4. **`taskevents`** — Delivers: the `runnerstore` `events` and `replication`
-   tables, `Log` replicating into them, `Tasks()` and `Stream.Read`. Nothing
-   reads the streams yet; `Poll` still drives behaviour. Depends on: (3),
-   #1827. Verifiable by: `taskevents` tests against a fake server: the local
+4. **`taskevents`** — Delivers: `runnerstore`, introduced here with the
+   `events` and `replication` tables, `gritzclient.ListRunnerEvents`, `Log`
+   replicating into them, `Tasks()` and `Stream.Read`. Nothing constructs a
+   `Log` yet; `Poll` still drives behaviour. Depends on: (3). Verifiable by: `taskevents` tests against a fake server: the local
    table matches the server's events, a restart resumes from the stored
    cursor, `Tasks()` reports a
    new task once, reports archive and unarchive, skips archived tasks at
