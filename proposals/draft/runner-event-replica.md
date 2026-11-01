@@ -175,10 +175,10 @@ lifecycle events are written. A model method, shaped like
 func (t *Task) CommandEvent(from TaskCommand) (*Event, bool)
 ```
 
-Each site captures `from := task.Command` before the mutation (`Start`,
-`Restart`, `Cancel`, `ApplyRunnerEvent`, the event-router wake); a site that
-creates a task with a command passes `TaskCommandNone`. The store is
-unchanged. Two cases fall out of the rule:
+Each site snapshots the task with `from := task.Clone()` before the mutation
+(`Start`, `Restart`, `Cancel`, `ApplyRunnerEvent`, the event-router wake) and
+passes `from.Command`; a site that creates a task with a command passes
+`TaskCommandNone`. The store is unchanged. Two cases fall out of the rule:
 
 - **Withdrawals.** Cancelling a `PENDING` task writes a `none` command event
   for that version, so a runner that already acted on the start learns it was
