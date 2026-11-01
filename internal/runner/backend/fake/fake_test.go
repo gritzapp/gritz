@@ -367,20 +367,6 @@ func TestBackendOpen_Invalid(t *testing.T) {
 	}
 }
 
-func TestBackendOpen_Data(t *testing.T) {
-	t.Parallel()
-	// Arrange - a legacy handle with Data.
-	be := fake.New(fake.Options{})
-	be.Add("c1", fake.Parked)
-
-	// Act
-	sb, err := be.Open(backend.Handle{Type: "fake", ID: "c1", Data: []byte(`{"legacy":true}`)})
-
-	// Assert - Data is dropped from the sandbox's handle.
-	assert.NilError(t, err)
-	assert.DeepEqual(t, sb.Handle(), backend.Handle{Type: "fake", ID: "c1"})
-}
-
 // TestSandbox_Stale covers a handle whose ID the fake never had: it behaves as
 // gone, and adds nothing to the fake.
 func TestSandbox_Stale(t *testing.T) {

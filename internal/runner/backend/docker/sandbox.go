@@ -33,8 +33,7 @@ func (b *Backend) Create(ctx context.Context, spec *backend.Spec) (backend.Sandb
 }
 
 // Open returns the sandbox for a handle this backend produced. It does no I/O.
-// A handle's Data is not read: a handle recorded by an older runner,
-// carrying its run's version, opens the same container.
+// A handle's Data is not read.
 func (b *Backend) Open(h backend.Handle) (backend.Sandbox, error) {
 	if h.Type != HandleType {
 		return nil, fmt.Errorf("handle type %q is not %q", h.Type, HandleType)

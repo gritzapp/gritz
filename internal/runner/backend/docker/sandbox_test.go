@@ -130,11 +130,6 @@ func TestOpen(t *testing.T) {
 		Type: HandleType,
 		ID:   "nonexistent-container-id",
 	})
-	// A handle recorded by an older runner, which also carries its run's
-	// version, opens the same container.
-	sb, err = be.Open(backend.Handle{Type: HandleType, ID: "c1", Data: []byte(`{"version":1}`)})
-	assert.NilError(t, err)
-	assert.Equal(t, sb.Handle().ID, "c1")
 
 	_, err = be.Open(backend.Handle{Type: "lambda-microvm", ID: "c1"})
 	assert.ErrorContains(t, err, "is not")

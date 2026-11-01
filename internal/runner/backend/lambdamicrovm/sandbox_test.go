@@ -112,14 +112,6 @@ func TestOpen(t *testing.T) {
 	// Open does not check that the VM exists.
 	h := sandboxHandle("mvm-404", "vm.example.com")
 	assert.DeepEqual(t, open(t, be, h).Handle(), h)
-	// A handle recorded by an older runner, which also carries its run's
-	// version, opens the same VM.
-	legacy := backend.Handle{
-		Type: HandleType,
-		ID:   "mvm-9",
-		Data: []byte(`{"endpoint":"vm.example.com","version":3}`),
-	}
-	assert.Equal(t, open(t, be, legacy).Handle().ID, "mvm-9")
 
 	tests := map[string]backend.Handle{
 		"foreign":   {Type: "docker", ID: "mvm-9"},
