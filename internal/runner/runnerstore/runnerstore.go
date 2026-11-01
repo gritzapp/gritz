@@ -133,9 +133,9 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 	return nil
 }
 
-// EventReplicationCursor returns the replication cursor: the single position in the
-// runner's whole event log, across all of its tasks, stored as the last
-// appended page's next_page_token. It returns "" when no page is stored.
+// EventReplicationCursor returns the replication cursor: the single position
+// in the runner's whole event log, across all of its tasks, stored as the
+// last appended page's next_page_token. It returns "" when no page is stored.
 func (s *Store) EventReplicationCursor(ctx context.Context) (string, error) {
 	cursor, err := s.q.GetEventReplicationCursor(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
