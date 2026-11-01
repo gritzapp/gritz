@@ -58,9 +58,10 @@ server (Postgres events)  ──ListRunnerEvents──▶  runner (SQLite events
   the order the server returns them. Its cursor is an opaque token the server
   hands back with each page, stored with that page, so the server keeps no
   state about runners and the runner never sees how the log is ordered. A new
-  package, `taskevents`, owns the copying and gives each
-  `TaskRunner` a per-task stream with no missing history, in order. The
-  `TaskRunner` acts only on sandbox lifecycle.
+  package, `taskevents`, owns the copying and gives each task a stream with
+  no missing history, in order. Each task's `TaskRunner` acts only on sandbox
+  lifecycle: it brings the sandbox up when the task wants a run, forwards the
+  stream to the driver, and suspends the sandbox once the driver goes idle.
 - The **driver** receives its task's events over the `Run` stream, stores them
   in the sandbox, and owns all run behaviour: start, restart, stop, and the
   instructions and external events it hands to the agent.
@@ -218,9 +219,10 @@ task's stream and never sees the cursor or duplicates.
   `events.id` and passes it to `Read`. How an id maps to a place in the log
   stays inside `taskevents`. Ids are stable across a rebuilt runner database,
   so the driver's `Hello.last_event_id` goes straight into `Read`.
-- **`Read` is stateless.** Several readers can follow one stream from different
-  positions. The `TaskRunner` folds from its own position, and the driver
-  stream forwards from the driver's.
+- **`Read` is stateless.** The reader keeps its position, so a reader that
+  reconnects or restarts resumes wherever it says. The only reader is
+  `TaskRunner.drive`, forwarding from the driver's position; the runner keeps
+  no position of its own.
 - **`Read` blocks** until there is at least one event after the position, and
   wakes when new events for the task are stored.
 
@@ -232,11 +234,10 @@ lifecycle events (`Archived`, `AutoArchived`, `Unarchived`) into a
 state, not a delta.
 
 - **After each stored page**, every task with a command or archive event in
-  it is reported with its state after the page. `TaskManager` starts a
-  follower for a task that isn't archived and has none, and stops the
-  follower and retires the `TaskRunner` of an archived one.
+  it is reported with its state after the page. `TaskManager` hands it to the
+  task's `TaskRunner`, creating one for an unarchived task that has none.
 - **At boot**, `Log` reports every stored task that isn't archived. Archived
-  tasks get no follower.
+  tasks get no `TaskRunner`.
 - **Reports may repeat** the state a task is already in (a boot report of a
   task the consumer already has, a page with a command that doesn't change
   it), so the consumer applies them idempotently.
@@ -268,7 +269,7 @@ local position: arrival order is the server's log order, so `seq` increases
 along the log with no gaps. A single-row `replication` table holds the
 cursor. The `tasks` table projects each task's last command and archive
 state from its events, so `Tasks()` reports and boot need no fold over the
-log, and holds the position of the task's follower (`handled`).
+log.
 
 ```sql
 CREATE TABLE events (
@@ -289,9 +290,17 @@ CREATE TABLE tasks (
     command   INTEGER,            -- gritz.v1.TaskCommand of the last command event
     version   INTEGER,            -- version of the last command event
     workspace TEXT,               -- workspace of the last command event
-    archived  INTEGER,            -- result of the last archive event; NULL reads as not archived
-    handled   INTEGER NOT NULL DEFAULT 0  -- id of the last event the task's follower handled
+    archived  INTEGER             -- result of the last archive event; NULL reads as not archived
 );
+```
+
+Slice 6 added `tasks.handled` and `tasks.command_event_id` so the runner could
+act on each command once. They go once the driver acts on commands, in a new
+migration:
+
+```sql
+ALTER TABLE tasks DROP COLUMN handled;
+ALTER TABLE tasks DROP COLUMN command_event_id;
 ```
 
 **Replication.** `Log.Run` is a loop that replaces `Poll`:
@@ -342,83 +351,146 @@ resumes once that event is replicated. When there is nothing to return,
 wake-up signal before reading, so a page stored between the read and the
 wait isn't missed.
 
-### Runner: `TaskRunner` acts on its stream
+### Runner: `TaskManager` and `TaskRunner.RunLoop`
 
 `TaskManager` owns the `Log`: `TaskManager.Run` runs `Log.Run` (a store
-error terminates the runner through `die`) and consumes `Log.Tasks()`. Each
-unarchived task gets one **follower** goroutine, started on the task's first
-report; an archived task has its follower stopped and its `TaskRunner`
-retired, as `Prune` does. `Prune` still runs every poll interval over the
-tasks with a `TaskRunner` or a follower, since a task deleted on the server
-leaves no event to report it.
+error terminates the runner through `die`) and consumes `Log.Tasks()`. It also
+owns what the task runners share: the `Slots`, the runner-event queue
+(`RunnerEventOutbox`) and the spec builder (`specs`). It has no command logic.
 
-**The latest command wins.** A follower reads its task's stream with
-`Stream.Read(handled)` and acts on the **last command event in what it
-read**. Commands are a desired state, so earlier ones in the same read are
-superseded, and a fresh runner reading a stream from `0` doesn't replay the
-task's history. The command, version and workspace of that event make the
-`TaskChange` the handler takes, through the existing driver `Run` and `Stop`
-RPCs:
+- **One `TaskRunner` per task.** For a report of an unarchived task with no
+  `TaskRunner`, the manager creates one, starts its `RunLoop` on its own
+  goroutine, and calls `tr.Change(c)`. Every later report for the task goes to
+  the same `tr.Change(c)`, archived ones included. A report of an archived
+  task with no `TaskRunner` is dropped.
+- **`RunLoop` is the runner's lifetime.** When `RunLoop` returns `nil` (the
+  task was archived and its sandbox destroyed), the manager removes the
+  `TaskRunner`; a later unarchive report creates a fresh one. When it returns
+  an error, the manager dies with it (`die`). On shutdown `RunLoop` returns
+  with the context and leaves the sandbox up for the next boot.
+- **`Load`** creates the `TaskRunner` of each sandbox record the same way:
+  `Restore` adopts the record, the manager starts `RunLoop`, and calls
+  `Change` with the task's stored state (`runnerstore.Store.Task`), so a record
+  left behind by an archived task is destroyed too. Up sandboxes are counted
+  into `Slots.Set`, as today, and the lost-run backstop for suspended and gone
+  sandboxes (`failIfTaskRunning`) stays.
+- **No `Prune`.** Tasks are never deleted, and archiving writes an event that
+  reaches `RunLoop`, so nothing needs to ask the server whether a task still
+  exists.
 
-| Last command read | Follower does |
-|---|---|
-| `start` for version *v* | If the sandbox is up on *v*, nothing. Otherwise take a slot, then create or boot the sandbox and start run *v* |
-| `restart` for version *v* | If the record is already on *v*, nothing. Otherwise stop the running run, take a slot, and start run *v* on the same sandbox |
-| `stop` | Stop the running run; with none, enqueue `stopped` for the version itself, since no driver exists to report it |
-| none (a consumed or withdrawn command) | Nothing |
+`Change(c)` stores `c` as the task's latest report, replacing the one before
+it, and wakes `RunLoop`. Commands are a desired state: `RunLoop` only ever
+looks at the latest report, so a command superseded before `RunLoop` got to it
+is never acted on.
 
-**A stored position.** `runnerstore`'s `tasks.handled` is the id of the last
-event the follower handled. Once the handler has carried the command out, or
-the read had no command, the follower stores the last event id it read there.
-A runner that restarts resumes each follower from its stored position, so it
-doesn't act on a command twice; `Load` reattaches the runs it started.
+`RunLoop` is straight-line:
 
-**Not done means try again, with the latest command.** When the handler
-fails, or a start or restart finds no slot (`TryAcquire` stays non-blocking),
-the follower doesn't advance `handled`. It tries again when a run releases its
-slot, when the task has a new event, or after a backoff capped at the poll
-interval, and each attempt rereads the stream from `handled`. So a newer
-command takes the place of one that waited: a cancel that lands while a start
-waits for a slot means the start never runs. The same goes for a start or
-restart whose `TaskRunner` is still claimed by the `Run` that follows the
-previous run (`ErrRunning`), and for a start that finds the sandbox still up
-on an earlier version: the run boundary (#1868) writes the next version's
-start as the previous run ends, before the runner has suspended its sandbox, and
-the start waits for that `Run` to give back its slot.
+1. **Wait for a change that needs the driver**: the latest command is `start`
+   or `restart` for a version newer than the last one `RunLoop` drove, booted
+   or failed. A `TaskRunner` that `Load` restored with its sandbox up skips to
+   step 4 with the slot `Load` counted for it.
+2. **Take a slot** (`Slots.Acquire`). This is the only wait a newer change can
+   preempt: a change that arrives while waiting is looked at again from
+   step 1, so a cancel that lands while a start waits for a slot means the
+   start never runs.
+3. **Boot or resume the sandbox** for the change's workspace, with the spec
+   from `specs`. A failure enqueues `failed` for the version, releases the
+   slot and goes back to step 1.
+4. **Block in `drive`** until the driver is idle.
+5. **Release the slot.**
+6. **Wait for a newer change or `suspend_after`**, then suspend the sandbox
+   and go back to step 1. A change that needs the driver goes straight back
+   to step 2 with the sandbox still up.
 
-**Deliberate no-ops count as handled.** A restart whose record is already on
-its version, and a start whose sandbox is up on its version, do nothing and
-advance `handled`. When that run ends with the start still pending, the run
-boundary writes a new command event, which the follower picks up.
+Two changes are handled wherever `RunLoop` waits (steps 1, 2 and 6):
 
-`Load` still reconciles sandboxes against their records at boot, and the
-lost-run backstops stay.
+- **Archived.** The server archives only finished tasks, or drafts with no
+  pending command, so archiving never cancels a run. An archive that arrives
+  during step 3 or 4 waits for that busy period to end. Then `RunLoop`
+  destroys the sandbox, deletes its record and returns `nil`.
+- **Stop with no `Run` open.** There is no driver to report it, so the runner
+  enqueues `stopped` for the version itself. During `drive` the stop is just
+  another event on the stream, and the driver acts on it.
 
-**Later slices.** Once the driver acts on commands (slice 8), the `TaskRunner`
-acts only on sandbox lifecycle and forwards the events to the driver, which
-stops and restarts runs and hands the agent its instructions:
+The versions `RunLoop` has handled are kept in memory only. A runner that
+restarts may see a start it already carried out (its `none` not yet
+replicated) and boot the sandbox for it again. That is harmless: the driver
+has already acted on the start, finds nothing to run, and goes idle at once,
+and a duplicate `stopped` or `failed` is rejected by the server's status and
+version guards.
 
-| Folded state for the task | `TaskRunner` does |
-|---|---|
-| Latest command is `start` / `restart` for version *v*, and the driver has not reported run *v* ended | Ensure the sandbox is up (acquire a slot, create or boot), and keep a `Run` stream open to its driver |
-| Latest command is `stop`, and no sandbox is up | Enqueue `stopped` for the version itself, since no driver exists to report it |
-| The driver reported the run ended and no newer start is wanted | Close the stream, suspend the sandbox, release the slot |
+#### `drive`
+
+`drive` holds the driver's `Run` stream for one busy period:
+
+1. Open the bidirectional `Run` stream and send the `RunSpec` first, built from
+   the latest change's workspace.
+2. Receive `Hello`, which carries the id of the last event the driver stored.
+3. Forward the task's stream from that position: loop on
+   `Stream.Read(ctx, pos)` and send each batch as `TaskEvents`, while reading
+   the driver's responses on the same stream.
+4. Return when the driver sends `Idle`. If `Idle.reported` is false, the
+   driver's terminal runner event for `Idle.version` didn't reach the server,
+   and `drive` enqueues `failed` for it. If the latest change wants a version
+   newer than `Idle.version` (the driver went idle before that command
+   reached it), `drive` reopens the stream instead of returning.
+
+**A dropped stream** is reopened with backoff. If the sandbox is gone, or
+reopening keeps failing for `LostTimeout`, `drive` suspends a sandbox that is
+still there, enqueues `failed` for the latest start or restart version, and
+returns. `TaskLostEvent` goes: `drive` enqueues the runner event itself.
+
+**After a runner restart**, a sandbox `Load` finds up goes straight to
+`drive`: whatever the driver was doing it is still doing, and `Hello` says
+where to resume forwarding.
+
+#### `suspend_after`
+
+`suspend_after` is a workspace config field (a duration, default 5m): how long
+a sandbox stays up after `drive` returns. A follow-up start within that window,
+such as an instruction that wakes the task, finds the sandbox already up and
+skips the boot.
+
+```yaml
+workspaces:
+  gritz:
+    suspend_after: 5m
+```
+
+#### Slots
+
+A slot counts an active driver `Run`, that is, a busy period: it is taken
+before the boot and released when `drive` returns, however many run versions
+the driver ran in between. A sandbox waiting out `suspend_after` holds no slot.
+
+#### What goes away
+
+With the driver acting on commands, the runner's command handling goes:
+
+- `handled` and `command_event_id` (dropped in a new migration),
+  `Store.Handled`/`SetHandled`, and `TaskChange.CommandEventID`;
+- the start, restart and stop handlers and `command()`;
+- the restart version guard (#1520), the `ErrRunning` and "earlier version"
+  retries, and restart's kill-then-start;
+- `TaskRunner.Kill` and `Stop`, and the driver `Stop` RPC;
+- `TaskLostEvent`.
 
 ### Driver: `Run` becomes a bidirectional stream
 
-`Run` no longer starts anything. It opens the connection the runner forwards
-the task's events over:
+`Run` no longer starts anything by itself. It is the connection the runner
+forwards the task's events over, and the driver acts on the commands among
+them:
 
-1. The `TaskRunner` opens the stream once the sandbox is up, and sends the
+1. The runner opens the stream once the sandbox is up, and sends the
    `RunSpec` as its first message.
-2. The driver sends `Hello` with the id of the last event it has stored, and
-   its run record.
-3. The `TaskRunner` loops on `Stream.Read(ctx, pos)`, starting from
-   `hello.last_event_id`, and sends each batch as `TaskEvents`. That sends the
-   events the driver is missing, then new ones as they are replicated.
-4. The driver stores each event, then acts on it.
+2. The driver sends `Hello` with the id of the last event it has stored.
+3. The runner sends the events after that position as `TaskEvents`, then new
+   ones as they are replicated.
+4. The driver stores each batch, then acts on it.
 
-The driver's position is an `events.id`; `0` means "send everything".
+The driver's position is an `events.id`; `0` means "send everything". At most
+one `Run` stream is open at a time; a second one is rejected with
+`Unavailable`, and `drive` retries it.
 
 **The `RunSpec` is sent on every stream.** Env, secrets, files and the token
 come from the runner's workspace config, not from events, so the runner sends
@@ -429,24 +501,42 @@ and before its log ships a byte. A workspace config change reaches the driver
 the next time the stream opens.
 
 **Driver storage.** The driver appends every received event to
-`/gritz/events.jsonl` and fsyncs before acting on it. Its position is the id of
-the last line, read back on boot. The file lives next to `/gritz/run.json`, so
-it survives a driver restart and a suspended sandbox being booted again.
+`/gritz/events.jsonl` and fsyncs before acting on it, skipping events it has
+already stored. Its position is the id of the last line, read back on boot.
+The file lives next to `/gritz/run.json`, so it survives a driver restart and
+a suspended sandbox being booted again.
 
-**What the driver does with each event:**
+**Acting once.** After each stored batch, and when a stream opens, the driver
+looks at the latest command event in its file and compares it with its run
+record (`/gritz/run.json`, written before a run starts):
 
-| Event | Driver |
+| Latest command in the file | Driver |
 |---|---|
-| `command: start v` | If the run record is older than *v* and nothing is running, start run *v* |
-| `command: restart v` | Stop the running run with `ErrStop`, then start run *v* |
-| `command: stop v` | Stop run *v* with `ErrStop` if it is running (replaces the `Stop` RPC) |
-| `command: none v` | Withdraw a start of *v* that hasn't begun |
-| `instruction`, `external` | Store; rendered into the next run's prompt |
-| everything else | Store only |
+| `start v`, `v` newer than the run record, nothing running | Start run *v* |
+| `restart v`, `v` newer than the run record | Stop the running run with `ErrStop`, if any, then start run *v* |
+| `stop v`, run *v* running | Stop it with `ErrStop` |
+| anything else | Nothing |
 
-Commands for versions the run record has already passed are ignored, so a
-resent stream (position lost, or a crash between storing and acting) is
-harmless.
+A command the run record has already passed does nothing, so a resent
+stream, a crash between storing and acting, and a stale start that made the
+runner boot the sandbox are all harmless. A fresh sandbox receives the task's
+whole log and acts only on its latest command, so it doesn't replay history.
+
+**One `Run` stream covers a busy period.** The driver runs consecutive
+versions without the runner reconnecting: when run *v* ends and a newer start
+or restart is pending, it starts the next one on the same stream. A start
+that arrived for the running version *v* (a wake on a running task) is
+pending too: once the driver's `stopped` for *v* is accepted, the server moves
+it to `start v+1` at the run boundary (#1868), and the driver waits on the
+stream for that event. The driver sends `Idle` and closes the stream only when
+its current run has ended and no newer start or restart is pending in its
+event file.
+
+**`Idle`** replaces `Finished`. It carries the version of the last run and
+whether its terminal runner event was accepted (`reported`). A run whose
+terminal event failed to submit can't be followed by a run boundary, so the
+driver goes idle after it whatever is pending, and the runner reports it
+`failed`.
 
 **The prompt reads from the local file.** `drainEvents`, the
 `ListEventsByTask` walk and `Config.NextEventToken` go away. The driver keeps a
@@ -460,18 +550,15 @@ the file's order comes from the runner's commit-safe replication.
 run record's `reported` flag. Moving runner events onto the `Run` stream is out
 of scope.
 
-**`RunEnded`** replaces `Finished`. The driver sends it once the run's process
-is done and its terminal runner event has been submitted, or has failed to
-submit. It tells the runner it can suspend, and carries `reported`: when it is
-false, the runner's lost-run backstop reports the run, as it does for
-`Finished.reported` today.
-
 **Keep-alives** stay: the driver sends `KeepAlive` every 15s and
 `driverclient` cancels a stream that goes quiet (`DefaultIdleTimeout`).
 
 **The task token** is still needed by the driver for `SubmitRunnerEvents`,
 log shipping (`logship`) and the agent's `gritz` MCP server, which all talk to
 the server directly.
+
+**`Status` and `Stop` are removed.** Opening `Run` with backoff is the
+readiness check, and a stop is a command event on the stream.
 
 ### Transport
 
@@ -534,9 +621,12 @@ message CommandPayload {
 
 ```proto
 service DriverService {
-  // Run is the runner's connection to the driver. The driver sends Hello
-  // first; the runner sends the task's events after its position. At most
-  // one Run stream is open at a time.
+  // Run is the runner's connection to the driver for one busy period. The
+  // runner sends the RunSpec first, the driver answers Hello, and the runner
+  // sends the task's events after the driver's position. The driver acts on
+  // the commands among them, runs consecutive versions on the same stream,
+  // and sends Idle and closes it once its run has ended and no newer start
+  // or restart is pending. At most one Run stream is open at a time.
   rpc Run(stream RunRequest) returns (stream RunResponse);
   // Status and Stop are removed.
 }
@@ -558,27 +648,31 @@ message RunResponse {
   oneof msg {
     KeepAlive keep_alive = 3;
     Hello hello = 7;
-    RunEnded run_ended = 8;
+    Idle idle = 8;
   }
 }
 
 message Hello {
   // Id of the last event the driver has stored; 0 for none.
   int64 last_event_id = 1;
-  optional RunRecord run = 2;
 }
 
-message RunEnded {
+// Idle is the last message of a busy period: the driver's run has ended and
+// no newer start or restart is pending in its event file.
+message Idle {
+  // Version of the last run; 0 if the driver has never run one.
   int64 version = 1;
-  // Whether the driver's SubmitRunnerEvents call for the run's terminal
-  // event succeeded. False makes the runner report the run lost.
+  // Whether the driver's SubmitRunnerEvents call for that run's terminal
+  // event succeeded. False makes the runner report the run failed.
   bool reported = 2;
 }
 ```
 
-`RunRequest.version`, `Accepted` and `Finished` are removed with the
-attach-or-start semantics; `RunEnded` takes `Finished`'s place. `RunSpec` itself is unchanged; it moves into the
-`RunRequest` oneof as the stream's first message.
+`RunRequest.version`, `Accepted`, `Finished`, `StatusRequest`,
+`StatusResponse`, `StopRequest` and `StopResponse` are removed; `Idle` takes
+`Finished`'s place. `RunSpec` itself is unchanged; it moves into the
+`RunRequest` oneof as the stream's first message. `RunRecord` stays the
+driver's on-disk record and leaves the wire.
 
 ### API
 
@@ -633,10 +727,12 @@ func Open(path string) (*Store, error)
 // TaskChange is a task's state after a page that had a command or archive
 // event for it. It may repeat the state the task was already in. // new
 type TaskChange struct {
-	ID       int64
-	Command  gritzv1.TaskCommand // of the last command event; zero when none
-	Version  int64
-	Archived bool
+	ID        int64
+	Command   gritzv1.TaskCommand // of the last command event; zero when none
+	Version   int64
+	Workspace string
+	Archived  bool
+	// CommandEventID is removed with handled. // removed
 }
 
 // AppendEvents stores a page of replicated events, the cursor that follows
@@ -656,6 +752,12 @@ func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*
 // UnarchivedTasks returns the state of every stored task that isn't
 // archived. // new
 func (s *Store) UnarchivedTasks(ctx context.Context) ([]TaskChange, error)
+
+// Task returns the task's stored state, archived or not; Load hands it to the
+// TaskRunner of a restored sandbox. // new
+func (s *Store) Task(ctx context.Context, taskID int64) (TaskChange, error)
+
+// Handled and SetHandled are removed. // removed
 ```
 
 ```go
@@ -701,26 +803,51 @@ func (s *Stream) Read(ctx context.Context, after int64) ([]*gritzv1.Event, error
 ```
 
 ```go
+package workspace // github.com/gritzapp/gritz/internal/runner/workspace
+
+type Workspace struct {
+	// ... existing fields
+	// SuspendAfter is how long a sandbox stays up after its driver goes
+	// idle; 0 → 5m. // new
+	SuspendAfter time.Duration `yaml:"suspend_after"`
+}
+```
+
+```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
-// TaskManagerOptions takes the Log the TaskManager runs and follows its tasks
-// from, and the Log's store, which holds each follower's position. // changed
-type TaskManagerOptions struct {
-	// ... existing fields
-	TaskLog     *taskevents.Log    // new
-	RunnerStore *runnerstore.Store // new
-}
+// Run runs the Log and hands each task's reports to its TaskRunner, creating
+// one and starting its RunLoop for an unarchived task that has none. // changed
+func (m *TaskManager) Run(ctx context.Context) error
 
-// Poll is removed; Run runs the Log and a follower per unarchived task. // removed
+// Load restores the TaskRunner of each sandbox record, hands it the task's
+// stored state, and starts its RunLoop. // changed
+func (m *TaskManager) Load(ctx context.Context) error
 
-// Start takes the command event's TaskChange instead of a *model.Task. // changed
-func (m *TaskManager) Start(ctx context.Context, c runnerstore.TaskChange) error
+// Prune is removed: tasks are never deleted. // removed
 
-// TaskRunnerOptions takes the task's stream. // changed
+// Change stores c as the task's latest report and wakes RunLoop. // new
+func (tr *TaskRunner) Change(c runnerstore.TaskChange)
+
+// RunLoop is the TaskRunner's lifetime: it boots, drives and suspends the
+// task's sandbox as its reports ask, and returns nil once the task is
+// archived and its sandbox destroyed. // new
+func (tr *TaskRunner) RunLoop(ctx context.Context) error
+
+// TaskRunnerOptions takes the task's stream, which drive forwards. // changed
 type TaskRunnerOptions struct {
 	// ... existing fields
 	Stream *taskevents.Stream // new
 }
+
+// Kill, Stop and Follow are removed. // removed
+
+// TaskLostEvent is removed. // removed
+
+// Acquire takes a slot, blocking until one is free or ctx ends. // new
+func (s *Slots) Acquire(ctx context.Context) error
+
+// TryAcquire is removed. // removed
 ```
 
 ```go
@@ -749,8 +876,9 @@ func (f *File) After(id int64) ([]*gritzv1.Event, error)
 ```go
 package driverserver // github.com/gritzapp/gritz/internal/runner/driverserver
 
-// Run serves the runner's bidi stream: Hello, then stores and acts on the
-// events it receives, and sends RunEnded and keep-alives. // changed
+// Run serves the runner's bidi stream for one busy period: Hello, then it
+// stores and acts on the events it receives, sends keep-alives, and ends
+// with Idle. // changed
 func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error
 
 // Status is removed. // removed
@@ -758,17 +886,20 @@ func (s *Server) Run(ctx context.Context, stream *connect.BidiStream[driverv1.Ru
 ```
 
 **How it fits:** the server's call sites that change a task's command write
-command events, and
-`ListRunnerEvents` serves them. `gritz runner` constructs a `taskevents.Log`
-on the `runnerstore.Store` and runs it. The runner's SSE notification calls
-`Log.Wake`. `Log.Run` pages events into the store and wakes blocked `Read`s.
-`TaskManager` creates a `TaskRunner` with `Log.Stream(id)` for each active
-task from `Log.Tasks()`, and drops it when the task is archived. Each `TaskRunner` folds its stream's command events and boots
-or suspends the sandbox with a slot from `TaskManager`. While the sandbox is up
-it holds a `Run` stream, sends `Stream.Read(hello.last_event_id)`, then keeps
-forwarding. `driverserver` writes each batch to `eventfile.File`, then acts
-on it. The driver submits runner events to the server itself, as today, and
-sends `RunEnded` up the stream when a run is over.
+command events, and `ListRunnerEvents` serves them. `gritz runner` constructs
+a `taskevents.Log` on the `runnerstore.Store`, which `TaskManager` runs. The
+runner's SSE notification calls `Log.Wake`. `Log.Run` pages events into the
+store and wakes blocked `Read`s. `TaskManager` creates a `TaskRunner` with
+`Log.Stream(id)` for each unarchived task from `Log.Tasks()` (and each
+sandbox record at `Load`), starts its `RunLoop`, passes it every report with
+`Change`, and removes it when `RunLoop` returns. `RunLoop` takes a slot from
+`Slots`, boots the sandbox with the spec from the manager, and calls `drive`,
+which opens `Run`, forwards `Stream.Read(hello.last_event_id)` and returns on
+`Idle`. `driverserver` writes each batch to `eventfile.File` and acts on its
+latest command against the run record. The driver submits runner events to
+the server itself, as today; the runner enqueues only `stopped` for a stop
+with no `Run` open and `failed` for a boot failure, a lost driver or an
+unreported run.
 
 ## Implementation Plan
 
@@ -813,19 +944,58 @@ sends `RunEnded` up the stream when a run is over.
    sandbox, a start waiting for a slot, a stop superseding a waiting start,
    archive retiring the `TaskRunner`, and a restarted runner resuming from
    `handled` without acting again.
-7. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
-   `Run` with the `RunSpec` as its first message, `Hello`, `RunEnded` in
-   place of `Finished`, and the `TaskRunner` forwarding `Stream.Read` from the
-   driver's position. The runner still issues start, restart and stop.
-   Depends on: (5), (6). Verifiable by: driverserver tests; a reconnect
-   resends only what the file lacks.
-8. **Driver acts on commands** — Delivers: start/restart/stop driven by the
-   command events on the stream; the runner stops issuing them; `Stop` RPC
-   removed. Depends on: (7). Verifiable by: driverserver tests per command,
-   including a resent stream that repeats commands.
-9. **Prompt from the event file** — Delivers: the prompt renders from
-   `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (7).
-   Verifiable by: agent prompt tests for first run and wake.
+7. **Driver event file and bidi `Run`** — Delivers: `eventfile`; `Run` as a
+   bidi stream whose first message is the `RunSpec` and the version to start
+   or attach to (attach-or-start as today); `Hello` with the driver's last
+   stored event id; the runner forwarding `Stream.Read` from that position on
+   the stream it already holds for the run; `Idle` in place of `Accepted` and
+   `Finished`, sent when that run ends; `Status` removed, with opening `Run`
+   under backoff as the readiness check. The driver stores events but doesn't
+   act on them; the runner still issues start, restart and stop.
+   Depends on: (5), (6). Verifiable by: driverserver tests: events are stored
+   in order and survive a driver restart, a reopened stream resends only what
+   the file lacks, `Idle.reported` mirrors the terminal submit; the existing
+   runner tests pass on the bidi stream.
+8. **Driver acts on commands** — Delivers: the driver acting once on the
+   latest command in its file against its run record; busy periods that run
+   consecutive versions (a restart mid-run, a wake on the running version
+   followed by its run boundary) on one stream, ending in `Idle` only when
+   nothing newer is pending; `RunRequest.version` and the `Stop` RPC removed.
+   On the runner, the start and restart handlers take a slot, boot the
+   sandbox and start a `Run` goroutine that holds the stream until `Idle`,
+   and the stop handler reports
+   `stopped` only when no `Run` is open; the restart version guard,
+   restart's kill-then-start, the "earlier version" retry, and
+   `TaskRunner.Kill`/`Stop` go. Depends on: (7). Verifiable by: driverserver
+   tests per command, a resent stream and a stale start doing nothing, a
+   fresh file with the whole log acting only on the latest command, v5 then a
+   pending v6 on one stream, and `Idle` after an unreported run; the runner's
+   restart and stop tests against the fake backend.
+9. **`RunLoop` and `drive`** — Delivers: `TaskRunner.RunLoop` as the
+   straight-line loop above, suspending as soon as `drive` returns;
+   `drive` with reconnect backoff and `failed` for a gone sandbox or a
+   timed-out reattach; `Change`; archive destroying the sandbox and ending
+   `RunLoop`; `Slots.Acquire` preempted by a newer change; `Load` restoring
+   runners through `Change` with `runnerstore.Store.Task`. Removes `Follow`,
+   `command()` and the start, restart and stop handlers, `ErrRunning`,
+   `TaskLostEvent`, `Prune`, and `handled` and `command_event_id` with a new
+   migration that drops both. Depends on: (8). Verifiable by: `runner_test`
+   with the fake backend and fake server: start, restart, stop with and
+   without a `Run` open, a cancel superseding a start waiting for a slot,
+   archive destroying the sandbox and removing the `TaskRunner`, unarchive
+   creating a new one, a dropped stream reattaching, a gone sandbox reported
+   `failed`, and a restarted runner going straight to `drive` for an up
+   sandbox without starting the run again.
+10. **`suspend_after`** — Delivers: the workspace field (default 5m) and step
+    6's timer: a sandbox stays up after `drive` returns, and a change that
+    needs the driver within the window drives it again without a boot.
+    Depends on: (9). Verifiable by: `runner_test` with a fake clock: no
+    suspend before the timer, a suspend after it, and a start inside the
+    window reusing the up sandbox.
+11. **Prompt from the event file** — Delivers: the prompt renders from
+    `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (7).
+    Verifiable by: agent prompt tests for first run and wake, including an
+    instruction whose event id is below one already prompted.
 
 ## Trade-offs
 
@@ -863,6 +1033,22 @@ sends `RunEnded` up the stream when a run is over.
   Out of scope: without the RPC's response the driver would need acks or
   sequence numbers to know an event was stored, and the driver keeps a direct
   connection to the server for log shipping and MCP anyway.
+- **The runner keeps carrying out commands** (slice 6's follower, with
+  `handled` and the driver's `Run`/`Stop` RPCs). Rejected: acting once is
+  needed in two places, the runner and the driver, and the runner's
+  handlers carry the restart guard, kill-then-start and `ErrRunning` retries
+  only because they act on a run the driver owns. With the driver acting on
+  its own file, the runner's only decisions are lifecycle ones.
+- **One `Run` stream per run version.** The driver would go idle after every
+  run, and the runner reconnect for the next. Rejected: at a run boundary the
+  next start is written as the previous run ends, so the runner would
+  release the slot and suspend between two runs of one busy task, and another
+  task could take the slot in between. A busy period keeps one slot and one
+  stream for as long as the task has work.
+- **Suspend as soon as the driver is idle.** Rejected: a follow-up
+  instruction shortly after a run would pay a full boot. `suspend_after`
+  trades a few minutes of an idle sandbox for that, per workspace, and holds
+  no slot while it waits.
 - **Cost of the watermark.** It is cluster-wide: the oldest writing transaction
   anywhere holds back every runner. A slow migration or a session idle in a
   transaction delays delivery until it ends. `idle_in_transaction_session_timeout`
@@ -876,3 +1062,8 @@ sends `RunEnded` up the stream when a run is over.
 - **Live delivery to a running agent.** The driver now receives instructions
   while a run is active. Handing them to the agent mid-run (channels) is left
   to a follow-up.
+- **The sandbox record's version.** Once the runner stops starting runs by
+  version (slice 9), `sandboxes.version` is read only by `Load`'s lost-run
+  backstop for suspended and gone sandboxes. The driver's `Idle.reported`
+  covers an up sandbox; whether the backstop can use the task's latest
+  command version instead, and the column go, is left open.
