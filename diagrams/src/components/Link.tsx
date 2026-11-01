@@ -29,6 +29,9 @@ export interface LinkProps extends Omit<LineProps, 'points'> {
   labelAt?: number;
   // Gap between the box edge and the line end.
   gap?: number;
+  // Corners to route through, in the link layer's (the view's) space, for a
+  // link that would otherwise cut across other components.
+  via?: Vector2[];
 }
 
 export interface SendOptions {
@@ -56,6 +59,7 @@ export class Link extends Line {
     label,
     labelAt = 0.5,
     gap = 8,
+    via = [],
     ...props
   }: LinkProps) {
     super({
@@ -70,6 +74,13 @@ export class Link extends Line {
     this.points(() => {
       const a = this.boxOf(from);
       const b = this.boxOf(to);
+      if (via.length > 0) {
+        return [
+          clip(a, via[0], gap),
+          ...via,
+          clip(b, via[via.length - 1], gap),
+        ];
+      }
       return [clip(a, b.center, gap), clip(b, a.center, gap)];
     });
     if (label) {
@@ -129,6 +140,12 @@ export class Link extends Line {
   }
 
   private labelPosition(at: number) {
+    if (this.parsedPoints().length > 2) {
+      const point = this.getPointAtPercentage(at);
+      const normal = point.tangent.perpendicular;
+      const side = normal.y > 0 ? -1 : 1;
+      return point.position.add(normal.scale(16 * side));
+    }
     const [a, b] = this.parsedPoints();
     if (!a || !b) {
       return Vector2.zero;
