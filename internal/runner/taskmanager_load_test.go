@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -17,6 +15,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
+	"github.com/gritzapp/gritz/internal/x/sqlite"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -61,7 +60,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	assert.NilError(t, m.Load(t.Context()))
 	testrunner.WaitRuns(t, be, "c1", sbx.Runs+1)
 	testrunner.StopRun(t, client, 3)
-	assert.NilError(t, m.Wait(t.Context()))
+	m.Runner(1).Wait()
 
 	// Assert - the reattached runner saw Finished: the sandbox is suspended and
 	// no event is owed.
@@ -176,7 +175,8 @@ func TestTaskManagerLoad(t *testing.T) {
 			}
 			// Assert - the slot is free, so task 2 gets a sandbox.
 			m.WaitHandled(t, 2, 1)
-			assert.NilError(t, m.Wait(t.Context()))
+			m.Runner(1).Wait()
+			m.Runner(2).Wait()
 			snap := be.Snapshot()
 			assert.Assert(t, cmp.Len(snap.Specs, 1))
 			assert.Equal(t, snap.Specs[0].TaskID, int64(2))
@@ -184,9 +184,9 @@ func TestTaskManagerLoad(t *testing.T) {
 			assert.DeepEqual(t, m.Submitted(t), tt.wantEvents, protocmp.Transform())
 			assert.Assert(t, cmp.Len(snap.Destroyed, 0))
 			if tt.wantRecord {
-				m.AssertTracked(t, 1, &tt.record)
+				m.AssertTracked(t, m.Runner(1), 1, &tt.record)
 			} else {
-				m.AssertTracked(t, 1, nil)
+				m.AssertTracked(t, m.Runner(1), 1, nil)
 			}
 		})
 	}
@@ -239,128 +239,46 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 	}
 }
 
-func TestTaskManagerPrune(t *testing.T) {
-	t.Parallel()
-	// Arrange - every record but the deleted task's (4) belongs to an archived
-	// task, except 2's. Each is restored suspended, but task 8's, restored up.
-	recs := []runnerstore.SandboxRecord{
-		runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}, // archived -> removed
-		runnerstore.SandboxRecord{TaskID: 2, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c2"}}, // not archived -> kept
-		runnerstore.SandboxRecord{TaskID: 3, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c3"}}, // up -> kept
-		runnerstore.SandboxRecord{TaskID: 4, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c4"}}, // deleted -> removed
-		runnerstore.SandboxRecord{TaskID: 5, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c5"}}, // archived and gone -> removed
-		runnerstore.SandboxRecord{TaskID: 7, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c7"}}, // status unknown -> kept
-		runnerstore.SandboxRecord{TaskID: 8, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c8"}}, // claimed -> kept
-	}
-	be := testrunner.NewBackend(t, nil)
-	for _, rec := range recs {
-		be.Add(rec.Handle.ID, fake.Suspended)
-	}
-	be.Set("c8", fake.Up)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend:     be,
-		RunnerStore: testrunner.NewRunnerStore(t, recs...),
-	})
-	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-		if req.Id == 4 {
-			return nil, connect.NewError(connect.CodeNotFound, errors.New("task not found"))
-		}
-		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: req.Id != 2}}, nil
-	}
-	for _, rec := range recs {
-		_, err := m.Runner(rec.TaskID).Restore(t.Context(), rec)
-		assert.NilError(t, err)
-	}
-	// Behind the runner's back, c3 is started and c5 vanishes; c7's status
-	// check will fail.
-	be.Set("c3", fake.Up)
-	be.Set("c5", fake.Gone)
-	be.FailNext(fake.OpStatus, "c7", errors.New("boom"))
-	// Task 8's run is claimed (restored up), and its sandbox has stopped since.
-	be.Set("c8", fake.Suspended)
-
-	// Act
-	err := m.Prune(t.Context())
-	assert.NilError(t, err)
-
-	// Assert - archived/deleted tasks' sandboxes are destroyed, including the one
-	// that had already vanished, and the others are left as they were.
-	snap := be.Snapshot()
-	destroyed := slices.Sorted(slices.Values(snap.Destroyed))
-	assert.DeepEqual(t, destroyed, []string{"c1", "c4"})
-	for id, want := range map[string]struct {
-		state    fake.State
-		destroys int
-	}{
-		"c1": {fake.Gone, 1},
-		"c2": {fake.Suspended, 0},
-		"c3": {fake.Up, 0},
-		"c4": {fake.Gone, 1},
-		"c5": {fake.Gone, 1},
-		"c7": {fake.Suspended, 0},
-		"c8": {fake.Suspended, 0},
-	} {
-		sbx, _ := snap.Sandbox(id)
-		assert.Equal(t, sbx.State, want.state, "sandbox %s", id)
-		assert.Equal(t, sbx.Destroys, want.destroys, "sandbox %s", id)
-	}
-	// The retired tasks' records are removed.
-	stored, err := m.RunnerStore.Sandboxes(t.Context())
-	assert.NilError(t, err)
-	var kept []int64
-	for _, rec := range stored {
-		kept = append(kept, rec.TaskID)
-	}
-	slices.Sort(kept)
-	assert.DeepEqual(t, kept, []int64{2, 3, 7, 8})
-}
-
-// TestTaskManagerRun covers Run's loop: it prunes an archived task's suspended
-// sandbox, and once a durable write fails it returns the FatalError cause.
+// TestTaskManagerRun covers Run's loop: an archived task's RunLoop
+// destroys its suspended sandbox, and once a durable write fails Run returns
+// the FatalError cause.
 func TestTaskManagerRun(t *testing.T) {
 	t.Parallel()
-	// Arrange - task 1 is archived and its sandbox is suspended. The server has
-	// no events until the test adds a stop. The outbox's store is closed, so
-	// the first event the runner persists fails and terminates it.
+	// Arrange - task 1's sandbox is suspended. The server has no events until
+	// the test adds them. The outbox's store is closed, so the first event the
+	// runner persists fails and terminates it.
 	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Suspended)
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend:      be,
-		RunnerStore:  testrunner.NewRunnerStore(t, rec),
-		PollInterval: 10 * time.Millisecond,
-		Fatal:        cancelCause,
-		QueueStore:   closedStore(t),
+		Backend:     be,
+		RunnerStore: testrunner.NewRunnerStore(t, rec),
+		Fatal:       cancelCause,
+		QueueStore:  closedStore(t),
 	})
-	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Archived: req.Id == 1}}, nil
-	}
-	_, err := m.Runner(1).Restore(t.Context(), rec)
-	assert.NilError(t, err)
+	assert.NilError(t, m.Load(ctx))
 
 	// Act
 	done := make(chan error, 1)
 	go func() { done <- m.TaskManager.Run(ctx) }()
+	m.Add(testrunner.ArchiveEvent(1, 1))
 
-	// Assert - the archived task's sandbox is pruned while Run keeps going:
-	// destroyed, then its record removed.
+	// Assert - the archived task's sandbox is destroyed while Run keeps
+	// going, then its record removed and its TaskRunner dropped.
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		_, ok, err := m.RunnerStore.Sandbox(t.Context(), 1)
-		if err != nil {
-			return poll.Error(err)
-		}
-		if ok {
-			return poll.Continue("task 1 has a record")
+		if m.Runner(1) != nil {
+			return poll.Continue("task 1 has a TaskRunner")
 		}
 		return poll.Success()
 	}, poll.WithTimeout(3*time.Second))
 	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
+	m.AssertRecord(t, 1, nil)
 
 	// Act - a stop command for a task with no sandbox, whose "stopped" cannot
 	// be persisted.
-	m.Add(testrunner.CommandEvent(1, 7, gritzv1.TaskCommand_STOP, 3))
+	m.Add(testrunner.CommandEvent(2, 7, gritzv1.TaskCommand_STOP, 3))
 
 	// Assert - Run returns the FatalError cause.
 	select {
@@ -396,11 +314,12 @@ func TestTaskManagerRunning(t *testing.T) {
 			// behind the runner's back.
 			be := testrunner.NewBackend(t, nil)
 			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
+			tr := m.NewTaskRunner(1)
 			if tt.state != 0 {
 				rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 				assert.NilError(t, m.RunnerStore.WriteSandbox(t.Context(), rec))
 				be.Add("c1", fake.Suspended)
-				_, err := m.Runner(1).Restore(t.Context(), rec)
+				_, err := tr.Restore(t.Context(), rec)
 				assert.NilError(t, err)
 				if tt.state != fake.Suspended {
 					be.Set("c1", tt.state)
@@ -411,7 +330,7 @@ func TestTaskManagerRunning(t *testing.T) {
 			}
 
 			// Act
-			running, err := m.Runner(1).Running(t.Context())
+			running, err := tr.Running(t.Context())
 
 			// Assert
 			if tt.err != nil {
@@ -506,7 +425,7 @@ func TestTaskManagerHandleEvents_Lost(t *testing.T) {
 	// Act - the sandbox vanishes under the run: its driver is unreachable
 	// until LostTimeout, and the run is lost.
 	be.Set("c1", fake.Gone)
-	assert.NilError(t, m.Wait(t.Context()))
+	m.Runner(1).Wait()
 
 	// Assert
 	m.WaitQueued(t, 1)
@@ -515,15 +434,52 @@ func TestTaskManagerHandleEvents_Lost(t *testing.T) {
 	}, protocmp.Transform())
 }
 
-// TestTaskManagerHandleEvents_Fatal covers a failed record write: the
-// TaskRunner sends a TaskFatalEvent, and HandleEvents terminates the runner
-// with a FatalError cause.
-func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
+// TestTaskRunnerStart_RecordFails covers a failed record write: Start fails
+// with the store's error, and the unrecorded sandbox is destroyed without being
+// booted.
+func TestTaskRunnerStart_RecordFails(t *testing.T) {
 	t.Parallel()
 	// Arrange - a store that is already closed, so every write fails.
-	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	be := testrunner.NewBackend(t, nil)
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend:     be,
+		RunnerStore: closedStore(t),
+	})
+	tr := m.NewTaskRunner(1)
+
+	// Act
+	err := tr.Start(t.Context(), testrunner.StartChange(1, 1))
+
+	// Assert
+	assert.ErrorContains(t, err, "failed to record task handle")
+	snap := be.Snapshot()
+	assert.DeepEqual(t, snap.Destroyed, []string{"c1"})
+	c1, _ := snap.Sandbox("c1")
+	assert.Equal(t, c1.Boots, 0)
+
+	// Probe, last - a Boot creates again, so the failed write left the
+	// TaskRunner with no sandbox. Its own write fails as well.
+	err = tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: testrunner.ProbeVersion})
+	assert.ErrorContains(t, err, "failed to record task handle")
+	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 2))
+}
+
+// TestTaskManagerRunLoop_RecordFails covers a failed record write in a
+// RunLoop: the start is not reported failed, the RunLoop returns the error,
+// and the manager terminates the runner with a FatalError cause.
+func TestTaskManagerRunLoop_RecordFails(t *testing.T) {
+	t.Parallel()
+	// Arrange - a store whose sandbox records can't be written, as its table
+	// is gone, while the rest of it works.
+	path := filepath.Join(t.TempDir(), "runner.db")
+	store, err := runnerstore.Open(path)
 	assert.NilError(t, err)
-	assert.NilError(t, store.Close())
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
+	db, err := sqlite.Open(path, sqlite.Options{BusyTimeout: 5 * time.Second})
+	assert.NilError(t, err)
+	_, err = db.Exec("DROP TABLE sandboxes")
+	assert.NilError(t, err)
+	assert.NilError(t, db.Close())
 	be := testrunner.NewBackend(t, nil)
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
@@ -532,18 +488,13 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 		RunnerStore: store,
 		Fatal:       cancelCause,
 	})
+	m.RunContext(t, ctx)
 
 	// Act
-	err = m.Runner(1).Start(t.Context(), testrunner.StartChange(1, 1))
+	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 1))
 
-	// Assert - Start failed, the unrecorded sandbox was destroyed without
-	// being booted, and the runner's root ctx is cancelled with a FatalError
-	// cause.
-	assert.ErrorContains(t, err, "failed to record task handle")
-	snap := be.Snapshot()
-	assert.DeepEqual(t, snap.Destroyed, []string{"c1"})
-	c1, _ := snap.Sandbox("c1")
-	assert.Equal(t, c1.Boots, 0)
+	// Assert - the runner's root ctx is cancelled with a FatalError cause,
+	// the unrecorded sandbox was destroyed, and nothing was reported.
 	select {
 	case <-ctx.Done():
 	case <-time.After(3 * time.Second):
@@ -551,12 +502,10 @@ func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	}
 	var fatal runner.FatalError
 	assert.Assert(t, errors.As(context.Cause(ctx), &fatal))
-
-	// Probe, last - a Boot creates again, so the failed write left the
-	// TaskRunner with no sandbox. Its own write fails as well.
-	err = m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: testrunner.ProbeVersion})
-	assert.ErrorContains(t, err, "failed to record task handle")
-	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 2))
+	assert.ErrorContains(t, context.Cause(ctx), "failed to record task handle")
+	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
+	assert.Equal(t, m.Queued(t), 0)
+	assert.Equal(t, m.Handled(t, 1), int64(0))
 }
 
 // closedStore returns a runner store that is already closed, so every write

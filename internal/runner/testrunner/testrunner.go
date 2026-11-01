@@ -263,7 +263,7 @@ type Manager struct {
 	// Server is the runner event log the manager replicates once it runs; Add
 	// appends to it.
 	Server *Server
-	// RunnerStore holds the manager's replica of Server, its followers'
+	// RunnerStore holds the manager's replica of Server, its TaskRunners'
 	// positions, and its sandbox records.
 	RunnerStore *runnerstore.Store
 	// Client is the server. It serves Server's events, mints task tokens,
@@ -302,7 +302,7 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	m.Client.SubmitRunnerEventsFunc = func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 		return &gritzv1.SubmitRunnerEventsResponse{}, nil
 	}
-	// Prune and Load's backstop find every task live and not running.
+	// Load's backstop finds every task not running.
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_COMPLETED}}, nil
 	}
@@ -383,7 +383,7 @@ func (m *Manager) RunContext(t *testing.T, ctx context.Context) {
 	t.Cleanup(func() { <-done })
 }
 
-// Handled returns the id of the last event the task's follower handled.
+// Handled returns the id of the last event the task's RunLoop handled.
 func (m *Manager) Handled(t *testing.T, taskID int64) int64 {
 	t.Helper()
 	handled, err := m.RunnerStore.Handled(t.Context(), taskID)
@@ -394,7 +394,7 @@ func (m *Manager) Handled(t *testing.T, taskID int64) int64 {
 	return handled
 }
 
-// WaitHandled waits until the task's follower has handled event id: it
+// WaitHandled waits until the task's RunLoop has handled event id: it
 // carried out the command it acted on, or found none to act on.
 func (m *Manager) WaitHandled(t *testing.T, taskID, id int64) {
 	t.Helper()
@@ -489,14 +489,14 @@ func (m *Manager) AssertRecord(t *testing.T, taskID int64, want *runnerstore.San
 }
 
 // AssertTracked asserts the task's record, as AssertRecord does, and that
-// its TaskRunner holds sandbox want.Handle.ID, or, with want nil, no sandbox. It
-// finds out by booting the TaskRunner at ProbeVersion, which changes its
+// tr, the task's TaskRunner, holds sandbox want.Handle.ID, or, with want nil,
+// no sandbox. It finds out by booting tr at ProbeVersion, which changes its
 // state and the record, so it is the last thing a test does with the task.
-func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *runnerstore.SandboxRecord) {
+func (m *Manager) AssertTracked(t *testing.T, tr *runner.TaskRunner, taskID int64, want *runnerstore.SandboxRecord) {
 	t.Helper()
 	m.AssertRecord(t, taskID, want)
 	before := m.Backend.Snapshot()
-	err := m.Runner(taskID).Boot(t.Context(), backend.Spec{TaskID: taskID, Version: ProbeVersion})
+	err := tr.Boot(t.Context(), backend.Spec{TaskID: taskID, Version: ProbeVersion})
 	after := m.Backend.Snapshot()
 	assert.Assert(t, !errors.Is(err, runner.ErrRunning), "task %d's TaskRunner is claimed, so it cannot be probed", taskID)
 	if want == nil {
@@ -524,6 +524,14 @@ func WaitRuns(t *testing.T, be *fake.Backend, id string, n int) {
 		return sbx.Runs >= n
 	})
 	assert.NilError(t, err, "sandbox %s did not get %d Run calls", id, n)
+}
+
+// WaitState waits until sandbox id is in state.
+func WaitState(t *testing.T, be *fake.Backend, id string, state fake.State) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	assert.NilError(t, be.WaitState(ctx, id, state), "sandbox %s is not %s", id, state)
 }
 
 // StopRun stops the running run version over the test's client to the

@@ -19,8 +19,9 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// restoredRunner returns the TaskRunner of rec's task, managed by a test
-// manager on be and restored from rec as Load does, along with the manager.
+// restoredRunner returns a TaskRunner for rec's task, built by a test manager
+// on be and restored from rec as Load does, along with the manager. No
+// RunLoop runs it.
 // rec's sandbox must be in be; restoring an up one claims the TaskRunner for
 // its Run. tune, when set, is ManagerOptions.TaskRunner.
 func restoredRunner(t *testing.T, be *fake.Backend, rec runnerstore.SandboxRecord, tune func(*runner.TaskRunnerOptions)) (*runner.TaskRunner, *testrunner.Manager) {
@@ -30,7 +31,7 @@ func restoredRunner(t *testing.T, be *fake.Backend, rec runnerstore.SandboxRecor
 		RunnerStore: testrunner.NewRunnerStore(t, rec),
 		TaskRunner:  tune,
 	})
-	tr := m.Runner(rec.TaskID)
+	tr := m.NewTaskRunner(rec.TaskID)
 	_, err := tr.Restore(t.Context(), rec)
 	assert.NilError(t, err)
 	return tr, m
@@ -295,7 +296,7 @@ func TestTaskRunnerBoot_Create(t *testing.T) {
 	// Arrange
 	be := testrunner.NewBackend(t, nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	tr := m.Runner(1)
+	tr := m.NewTaskRunner(1)
 
 	// Act
 	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
@@ -321,9 +322,10 @@ func TestTaskRunnerBoot_BootFails(t *testing.T) {
 	be := testrunner.NewBackend(t, nil)
 	be.FailNext(fake.OpBoot, "", boom)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
+	tr := m.NewTaskRunner(1)
 
 	// Act
-	err := m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
+	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
 
 	// Assert - the record surviving the failed boot shows it was written
 	// before the sandbox was booted.
@@ -331,7 +333,7 @@ func TestTaskRunnerBoot_BootFails(t *testing.T) {
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Created)
 	assert.Equal(t, sbx.Boots, 0)
-	m.AssertTracked(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
+	m.AssertTracked(t, tr, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
 }
 
 // TestTaskRunnerBoot_Concurrent covers two Boots racing on a task with no
@@ -342,11 +344,12 @@ func TestTaskRunnerBoot_Concurrent(t *testing.T) {
 	// Arrange
 	be := testrunner.NewBackend(t, nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
+	tr := m.NewTaskRunner(1)
 
 	// Act
 	errs := make(chan error, 2)
 	for range 2 {
-		go func() { errs <- m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
+		go func() { errs <- tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
 	}
 	first, second := <-errs, <-errs
 

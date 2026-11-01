@@ -271,9 +271,8 @@ var RunnerCommand = &cli.Command{
 			}
 		}()
 
-		// Follow the tasks (and prune) until ctx is done. Distinguish a
-		// durable-store-write crash (die set a FatalError cause) from a
-		// graceful signal shutdown.
+		// Run the tasks until ctx is done. Distinguish a durable-store
+		// crash (die set a FatalError cause) from a graceful signal shutdown.
 		// The sentinel is what lets us return non-zero on a broken disk
 		// without depending on whatever cause signal.NotifyContext sets.
 		var fatal runner.FatalError
