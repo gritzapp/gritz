@@ -7,17 +7,44 @@ package sqlc
 
 import (
 	"context"
+	"strings"
 )
 
-const getTaskArchived = `-- name: GetTaskArchived :one
-SELECT archived FROM tasks WHERE id = ?
+const listTaskArchived = `-- name: ListTaskArchived :many
+SELECT id, archived FROM tasks WHERE id IN (/*SLICE:ids*/?)
 `
 
-func (q *Queries) GetTaskArchived(ctx context.Context, id int64) (bool, error) {
-	row := q.db.QueryRowContext(ctx, getTaskArchived, id)
-	var archived bool
-	err := row.Scan(&archived)
-	return archived, err
+func (q *Queries) ListTaskArchived(ctx context.Context, ids []int64) ([]Task, error) {
+	query := listTaskArchived
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Task
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(&i.ID, &i.Archived); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUnarchivedTaskIDs = `-- name: ListUnarchivedTaskIDs :many
