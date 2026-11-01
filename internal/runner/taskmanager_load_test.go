@@ -25,16 +25,6 @@ import (
 	"gotest.tools/v3/poll"
 )
 
-// legacyRecord is a record written by an older runner: its Data carries the run
-// version.
-func legacyRecord(taskID int64, id string) runnerstore.SandboxRecord {
-	return runnerstore.SandboxRecord{
-		TaskID:  taskID,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: id, Data: json.RawMessage(`{"version":3}`)},
-	}
-}
-
 // taskRunning is a GetTask that reports every task RUNNING on the server.
 func taskRunning(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 	return &gritzv1.GetTaskResponse{
@@ -100,7 +90,7 @@ func TestTaskManagerLoad(t *testing.T) {
 	}{
 		{
 			name:       "up",
-			record:     legacyRecord(1, "c1"),
+			record:     runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
 			state:      fake.Up,
 			wantRecord: true,
 			wantAttach: true,
@@ -108,7 +98,7 @@ func TestTaskManagerLoad(t *testing.T) {
 		{
 			// A parked husk is a lost-report backstop; its record is kept.
 			name:   "parked",
-			record: legacyRecord(1, "c1"),
+			record: runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
 			state:  fake.Parked,
 			wantEvents: []*gritzv1.RunnerEvent{
 				{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"},
@@ -118,7 +108,7 @@ func TestTaskManagerLoad(t *testing.T) {
 		{
 			// A gone sandbox is a lost-report backstop; its record is dropped.
 			name:   "gone",
-			record: legacyRecord(1, "c1"),
+			record: runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
 			state:  fake.Gone,
 			wantEvents: []*gritzv1.RunnerEvent{
 				{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox exited"},
@@ -127,7 +117,7 @@ func TestTaskManagerLoad(t *testing.T) {
 		{
 			// A failed status check leaves the record alone.
 			name:       "status error",
-			record:     legacyRecord(1, "c1"),
+			record:     runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
 			state:      fake.Up,
 			statusErr:  errors.New("boom"),
 			wantRecord: true,
@@ -136,7 +126,7 @@ func TestTaskManagerLoad(t *testing.T) {
 			// A record whose handle cannot be opened (a malformed handle) has
 			// no sandbox, so it is dropped.
 			name:    "open fails",
-			record:  legacyRecord(1, "c1"),
+			record:  runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
 			state:   fake.Up,
 			openErr: errors.New("malformed handle"),
 		},
@@ -206,8 +196,7 @@ func TestTaskManagerLoad(t *testing.T) {
 
 // TestTaskManagerLoad_VersionScopedBackstop checks that the boot-time backstop stamps
 // the exited record's version onto its "failed" so ApplyRunnerEvent drops it for
-// a superseded run, applies it for the current run, and bypasses for a legacy
-// version-0 record.
+// a superseded run and applies it for the current run.
 func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -218,7 +207,6 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 	}{
 		{name: "superseded run dropped", recVersion: 4, taskNow: 5, wantApply: false},
 		{name: "current run applies", recVersion: 4, taskNow: 4, wantApply: true},
-		{name: "legacy record bypasses", recVersion: 0, taskNow: 5, wantApply: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -258,13 +246,13 @@ func TestTaskManagerPrune(t *testing.T) {
 	// Arrange - every record but the deleted task's (4) belongs to an archived
 	// task, except 2's. Each is restored parked, but task 8's, restored up.
 	recs := []runnerstore.SandboxRecord{
-		legacyRecord(1, "c1"), // archived -> removed
-		legacyRecord(2, "c2"), // not archived -> kept
-		legacyRecord(3, "c3"), // up -> kept
-		legacyRecord(4, "c4"), // deleted -> removed
-		legacyRecord(5, "c5"), // archived and gone -> removed
-		legacyRecord(7, "c7"), // status unknown -> kept
-		legacyRecord(8, "c8"), // claimed -> kept
+		runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}, // archived -> removed
+		runnerstore.SandboxRecord{TaskID: 2, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c2"}}, // not archived -> kept
+		runnerstore.SandboxRecord{TaskID: 3, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c3"}}, // up -> kept
+		runnerstore.SandboxRecord{TaskID: 4, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c4"}}, // deleted -> removed
+		runnerstore.SandboxRecord{TaskID: 5, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c5"}}, // archived and gone -> removed
+		runnerstore.SandboxRecord{TaskID: 7, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c7"}}, // status unknown -> kept
+		runnerstore.SandboxRecord{TaskID: 8, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c8"}}, // claimed -> kept
 	}
 	be := testrunner.NewBackend(t, nil)
 	for _, rec := range recs {
@@ -415,7 +403,7 @@ func TestTaskManagerRunning(t *testing.T) {
 			be := testrunner.NewBackend(t, nil)
 			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 			if tt.state != 0 {
-				rec := legacyRecord(1, "c1")
+				rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 				assert.NilError(t, m.RunnerStore.WriteSandbox(t.Context(), rec))
 				be.Add("c1", fake.Parked)
 				_, err := m.Runner(1).Restore(t.Context(), rec)

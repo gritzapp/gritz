@@ -2,7 +2,6 @@ package runner_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http/httptest"
@@ -673,62 +672,39 @@ func TestTaskManagerStart_CreateFails(t *testing.T) {
 	m.AssertTracked(t, 1, nil)
 }
 
-// TestTaskManagerStart_Restart covers a task restarted on its recorded sandbox,
-// whether an older runner or this one recorded it: the sandbox is reused, and
-// the record moves to the sandbox's current handle at the new version.
+// TestTaskManagerStart_Restart covers a task restarted on its recorded
+// sandbox: the sandbox is reused, and the record moves to the new version.
 func TestTaskManagerStart_Restart(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		record runnerstore.SandboxRecord
-	}{
-		// A record written by an older runner carries the run version in Data.
-		{
-			name: "legacy handle",
-			record: runnerstore.SandboxRecord{
-				TaskID:  1,
-				Version: 3,
-				Handle:  backend.Handle{Type: "fake", ID: "c1", Data: json.RawMessage(`{"version":3}`)},
-			},
-		},
-		{
-			name:   "current handle",
-			record: runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - the recorded sandbox is parked, and its driver has
-			// never run version 4.
-			task := testrunner.StartChange(1, 4)
-			be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-				Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 4}),
-			})
-			be.Add("c1", fake.Parked)
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-				Backend:     be,
-				RunnerStore: testrunner.NewRunnerStore(t, tt.record),
-			})
-			_, err := m.Runner(1).Restore(t.Context(), tt.record)
-			assert.NilError(t, err)
+	// Arrange - the recorded sandbox is parked, and its driver has never run
+	// version 4.
+	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
+	task := testrunner.StartChange(1, 4)
+	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
+		Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 4}),
+	})
+	be.Add("c1", fake.Parked)
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend:     be,
+		RunnerStore: testrunner.NewRunnerStore(t, rec),
+	})
+	_, err := m.Runner(1).Restore(t.Context(), rec)
+	assert.NilError(t, err)
 
-			// Act
-			err = m.Start(t.Context(), task)
-			assert.NilError(t, m.Wait(t.Context()))
+	// Act
+	err = m.Start(t.Context(), task)
+	assert.NilError(t, m.Wait(t.Context()))
 
-			// Assert - no second sandbox was created: the recorded one was
-			// booted and ran the new version, which the driver reported.
-			assert.NilError(t, err)
-			snap := be.Snapshot()
-			assert.Assert(t, cmp.Len(snap.Specs, 0))
-			sbx, _ := snap.Sandbox("c1")
-			assert.Equal(t, sbx.Boots, 1)
-			assert.Equal(t, sbx.State, fake.Parked)
-			assert.Equal(t, m.Queued(t), 0)
-			m.AssertTracked(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-		})
-	}
+	// Assert - no second sandbox was created: the recorded one was booted and
+	// ran the new version, which the driver reported.
+	assert.NilError(t, err)
+	snap := be.Snapshot()
+	assert.Assert(t, cmp.Len(snap.Specs, 0))
+	sbx, _ := snap.Sandbox("c1")
+	assert.Equal(t, sbx.Boots, 1)
+	assert.Equal(t, sbx.State, fake.Parked)
+	assert.Equal(t, m.Queued(t), 0)
+	m.AssertTracked(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
 }
 
 // TestTaskManagerWait covers Wait after a run: it returns once the run's
@@ -998,12 +974,7 @@ func TestTaskManagerKill(t *testing.T) {
 
 func TestTaskManagerRemove(t *testing.T) {
 	t.Parallel()
-	// A record written by an older runner carries the run version in Data.
-	legacy := runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1", Data: json.RawMessage(`{"version":3}`)},
-	}
+	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 	tests := []struct {
 		name string
 		// record, when set, is the task's record, of parked sandbox c1.
@@ -1016,8 +987,8 @@ func TestTaskManagerRemove(t *testing.T) {
 		wantRecord  bool
 	}{
 		{
-			name:        "legacy handle",
-			record:      &legacy,
+			name:        "parked",
+			record:      &rec,
 			wantDestroy: 1,
 		},
 		{
@@ -1030,7 +1001,7 @@ func TestTaskManagerRemove(t *testing.T) {
 		{
 			// A failed destroy keeps the record so the removal is retried.
 			name:       "destroy fails",
-			record:     &legacy,
+			record:     &rec,
 			destroyErr: errors.New("boom"),
 			wantErr:    true,
 			wantRecord: true,
