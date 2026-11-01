@@ -591,9 +591,10 @@ func TestRunSchedule(t *testing.T) {
 		}},
 		{
 			Payload: &model.CommandPayload{
-				Command: model.TaskCommandStart,
-				Version: 1,
-				Runner:  "test-runner",
+				Command:   model.TaskCommandStart,
+				Version:   1,
+				Runner:    "test-runner",
+				Workspace: "test-workspace",
 			},
 		},
 		{

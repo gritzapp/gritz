@@ -362,9 +362,10 @@ func (t *Task) CommandEvent(from TaskCommand) (*Event, bool) {
 		TaskID: t.ID,
 		OrgID:  t.OrgID,
 		Payload: &CommandPayload{
-			Command: t.Command,
-			Version: t.Version,
-			Runner:  t.Runner,
+			Command:   t.Command,
+			Version:   t.Version,
+			Runner:    t.Runner,
+			Workspace: t.Workspace,
 		},
 	}, true
 }

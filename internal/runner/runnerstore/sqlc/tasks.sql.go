@@ -11,22 +11,31 @@ import (
 )
 
 const listUnarchivedTasks = `-- name: ListUnarchivedTasks :many
-SELECT id, command, version, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id
+SELECT id, command, version, workspace, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id
 `
 
-func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]Task, error) {
+type ListUnarchivedTasksRow struct {
+	ID        int64
+	Command   sql.NullInt64
+	Version   sql.NullInt64
+	Workspace sql.NullString
+	Archived  sql.NullBool
+}
+
+func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]ListUnarchivedTasksRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnarchivedTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Task
+	var items []ListUnarchivedTasksRow
 	for rows.Next() {
-		var i Task
+		var i ListUnarchivedTasksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Command,
 			&i.Version,
+			&i.Workspace,
 			&i.Archived,
 		); err != nil {
 			return nil, err
@@ -43,35 +52,47 @@ func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]Task, error) {
 }
 
 const upsertTask = `-- name: UpsertTask :one
-INSERT INTO tasks (id, command, version, archived)
-VALUES (?1, ?2, ?3, ?4)
+INSERT INTO tasks (id, command, version, workspace, archived)
+VALUES (?1, ?2, ?3, ?4, ?5)
 ON CONFLICT (id) DO UPDATE SET
-    command  = coalesce(excluded.command, command),
-    version  = coalesce(excluded.version, version),
-    archived = coalesce(excluded.archived, archived)
-RETURNING id, command, version, archived
+    command   = coalesce(excluded.command, command),
+    version   = coalesce(excluded.version, version),
+    workspace = coalesce(excluded.workspace, workspace),
+    archived  = coalesce(excluded.archived, archived)
+RETURNING id, command, version, workspace, archived
 `
 
 type UpsertTaskParams struct {
-	ID       int64
-	Command  sql.NullInt64
-	Version  sql.NullInt64
-	Archived sql.NullBool
+	ID        int64
+	Command   sql.NullInt64
+	Version   sql.NullInt64
+	Workspace sql.NullString
+	Archived  sql.NullBool
+}
+
+type UpsertTaskRow struct {
+	ID        int64
+	Command   sql.NullInt64
+	Version   sql.NullInt64
+	Workspace sql.NullString
+	Archived  sql.NullBool
 }
 
 // Fields the page didn't touch are passed as NULL and keep their stored value.
-func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error) {
+func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (UpsertTaskRow, error) {
 	row := q.db.QueryRowContext(ctx, upsertTask,
 		arg.ID,
 		arg.Command,
 		arg.Version,
+		arg.Workspace,
 		arg.Archived,
 	)
-	var i Task
+	var i UpsertTaskRow
 	err := row.Scan(
 		&i.ID,
 		&i.Command,
 		&i.Version,
+		&i.Workspace,
 		&i.Archived,
 	)
 	return i, err

@@ -64,11 +64,12 @@ func (s *Store) Close() error {
 // event for it. It may repeat the state the task was already in.
 type TaskChange struct {
 	ID int64
-	// Command and Version are those of the task's last command event, or
-	// zero when it has had none.
-	Command  gritzv1.TaskCommand
-	Version  int64
-	Archived bool
+	// Command, Version and Workspace are those of the task's last command
+	// event, or zero when it has had none.
+	Command   gritzv1.TaskCommand
+	Version   int64
+	Workspace string
+	Archived  bool
 }
 
 // AppendEvents stores a page of replicated events, the cursor that follows
@@ -102,6 +103,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		if t.Command != nil {
 			params.Command = sql.NullInt64{Int64: int64(t.Command.GetCommand()), Valid: true}
 			params.Version = sql.NullInt64{Int64: t.Command.GetVersion(), Valid: true}
+			params.Workspace = sql.NullString{String: t.Command.GetWorkspace(), Valid: true}
 		}
 		if t.Archived != nil {
 			params.Archived = sql.NullBool{Bool: *t.Archived, Valid: true}
@@ -111,10 +113,11 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 			return nil, fmt.Errorf("runnerstore: upsert task %d: %w", t.ID, err)
 		}
 		changes = append(changes, TaskChange{
-			ID:       row.ID,
-			Command:  gritzv1.TaskCommand(row.Command.Int64),
-			Version:  row.Version.Int64,
-			Archived: row.Archived.Bool,
+			ID:        row.ID,
+			Command:   gritzv1.TaskCommand(row.Command.Int64),
+			Version:   row.Version.Int64,
+			Workspace: row.Workspace.String,
+			Archived:  row.Archived.Bool,
 		})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
@@ -175,10 +178,11 @@ func (s *Store) UnarchivedTasks(ctx context.Context) ([]TaskChange, error) {
 	var tasks []TaskChange
 	for _, row := range rows {
 		tasks = append(tasks, TaskChange{
-			ID:       row.ID,
-			Command:  gritzv1.TaskCommand(row.Command.Int64),
-			Version:  row.Version.Int64,
-			Archived: row.Archived.Bool,
+			ID:        row.ID,
+			Command:   gritzv1.TaskCommand(row.Command.Int64),
+			Version:   row.Version.Int64,
+			Workspace: row.Workspace.String,
+			Archived:  row.Archived.Bool,
 		})
 	}
 	return tasks, nil

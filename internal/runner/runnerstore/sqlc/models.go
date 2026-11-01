@@ -21,8 +21,9 @@ type Replication struct {
 }
 
 type Task struct {
-	ID       int64
-	Command  sql.NullInt64
-	Version  sql.NullInt64
-	Archived sql.NullBool
+	ID        int64
+	Command   sql.NullInt64
+	Version   sql.NullInt64
+	Archived  sql.NullBool
+	Workspace sql.NullString
 }
