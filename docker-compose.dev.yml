@@ -58,6 +58,7 @@ services:
       GRITZ_API_KEY: xat_dev
       GRITZ_RUNNER_ID: dev-runner
       GRITZ_STATE_DIR: /var/lib/gritz/tasks
+      GRITZ_STATE_DB: /var/lib/gritz/runner.db
     volumes:
       # Spawn task containers on the host daemon.
       - /var/run/docker.sock:/var/run/docker.sock
