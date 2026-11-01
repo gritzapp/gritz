@@ -98,7 +98,7 @@ func (s *Schedule) Events(task *Task) []*Event {
 			ToStatus: task.Status.Label(),
 		},
 	})
-	if ev, ok := task.CommandEvent(TaskCommandNone); ok {
+	if ev, ok := task.CommandEvent(TaskCommandNone, 0); ok {
 		events = append(events, ev)
 	}
 	for _, inst := range s.Instructions {
