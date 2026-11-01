@@ -20,48 +20,47 @@ import (
 // fake's default so the page boundaries in the fixtures are the real ones.
 const testPageSize = 50
 
-// logChunkSlice is a pagination.Source over an in-memory chunk slice held in
-// ascending id order — the store's keyset, minus the database. The forward walk
-// runs toward older rows (descending) and the backward walk toward newer ones
-// (ascending), both exclusive of the cursor, exactly as the sqlc queries do.
+// logChunkSlice is a pagination.HistorySource over an in-memory chunk slice
+// held in ascending id order — the store's keyset, minus the database. Older
+// walks descending and Newer ascending, both exclusive of the cursor, exactly
+// as the sqlc queries do.
 type logChunkSlice struct {
 	chunks []*gritzv1.LogChunk
 }
 
 func (s logChunkSlice) Cursor(chunk *gritzv1.LogChunk) int64 { return chunk.GetId() }
 
-func (s logChunkSlice) Query(ctx context.Context, token pagination.Token[int64], limit int) ([]*gritzv1.LogChunk, error) {
+func (s logChunkSlice) Older(ctx context.Context, before *int64, limit int) ([]*gritzv1.LogChunk, error) {
 	var out []*gritzv1.LogChunk
-	if token.Backward {
-		for _, chunk := range s.chunks {
-			if token.Cursor != nil && chunk.GetId() <= *token.Cursor {
-				continue
-			}
-			if out = append(out, chunk); len(out) == limit {
-				break
-			}
+	for i := len(s.chunks) - 1; i >= 0 && len(out) < limit; i-- {
+		if before == nil || s.chunks[i].GetId() < *before {
+			out = append(out, s.chunks[i])
 		}
-		return out, nil
 	}
-	for i := len(s.chunks) - 1; i >= 0; i-- {
-		chunk := s.chunks[i]
-		if token.Cursor != nil && chunk.GetId() >= *token.Cursor {
-			continue
-		}
-		if out = append(out, chunk); len(out) == limit {
+	return out, nil
+}
+
+func (s logChunkSlice) Newer(ctx context.Context, after *int64, limit int) ([]*gritzv1.LogChunk, error) {
+	var out []*gritzv1.LogChunk
+	for _, chunk := range s.chunks {
+		if len(out) == limit {
 			break
+		}
+		if after == nil || chunk.GetId() > *after {
+			out = append(out, chunk)
 		}
 	}
 	return out, nil
 }
 
 // fakeLogs answers ListLogChunksByTask out of an in-memory log. It runs the real
-// pagination.List with the apiserver handler's options and token mapping, so the
-// iterator is exercised against production cursor semantics rather than a
-// hand-rolled imitation of them — the direction of each token is the one thing
-// this helper has to get right.
+// pagination.History with the apiserver handler's options and token mapping, so
+// the iterator is exercised against production cursor semantics rather than a
+// hand-rolled imitation of them. It remembers the follow tokens it handed out,
+// so a test can tell which way each request walked.
 type fakeLogs struct {
 	chunks []*gritzv1.LogChunk
+	follow map[string]bool
 }
 
 // append adds a chunk to the end of the log, as a shipped AppendLogChunk would.
@@ -74,23 +73,23 @@ func (f *fakeLogs) append(data string) {
 }
 
 func (f *fakeLogs) list(ctx context.Context, req *gritzv1.ListLogChunksByTaskRequest) (*gritzv1.ListLogChunksByTaskResponse, error) {
-	page, err := pagination.List(ctx, pagination.Options[*gritzv1.LogChunk, int64]{
+	page, err := pagination.History(ctx, logChunkSlice{chunks: f.chunks}, pagination.Options{
 		DefaultPageSize: 50,
 		MaxPageSize:     200,
-		Reverse:         true,
 		PageSize:        int(req.GetPageSize()),
 		PageToken:       req.GetPageToken(),
-		Source:          logChunkSlice{chunks: f.chunks},
 	})
 	if err != nil {
 		return nil, err
 	}
-	// The store's forward walk goes toward older rows, so its NextToken is the
-	// transcript's scroll-back token and its PrevToken the live-follow one.
+	if f.follow == nil {
+		f.follow = map[string]bool{}
+	}
+	f.follow[page.FollowToken] = true
 	return &gritzv1.ListLogChunksByTaskResponse{
 		Chunks:        page.Items,
-		PrevPageToken: page.NextToken,
-		NextPageToken: page.PrevToken,
+		PrevPageToken: page.OlderToken,
+		NextPageToken: page.FollowToken,
 		More:          page.More,
 	}, nil
 }
@@ -134,29 +133,34 @@ func drain(ctx context.Context, w io.Writer, log *gritzclient.TaskLog, follow ti
 	return write(log.Follow(ctx, follow))
 }
 
-// pageTokens decodes the cursor of every request the mock received, reporting
-// for each whether it walked backward (toward newer rows) or forward (toward
-// older ones). The first request opens at the tail and has no token, so it is
-// reported as the zero Token.
-func pageTokens(t *testing.T, client *gritzclient.ClientMock) []pagination.Token[int64] {
-	t.Helper()
-	var tokens []pagination.Token[int64]
+// walk is the direction a log request paged in.
+type walk string
+
+const (
+	walkOpen   walk = "open"   // no token: the newest page
+	walkOlder  walk = "older"  // a prev_page_token: toward older chunks
+	walkFollow walk = "follow" // a next_page_token: toward newer chunks
+)
+
+// walks reports, for every request the mock received, which way it paged.
+func walks(fake *fakeLogs, client *gritzclient.ClientMock) []walk {
+	var out []walk
 	for _, call := range client.ListLogChunksByTaskCalls() {
-		raw := call.ListLogChunksByTaskRequest.GetPageToken()
-		if raw == "" {
-			tokens = append(tokens, pagination.Token[int64]{})
-			continue
+		switch token := call.ListLogChunksByTaskRequest.GetPageToken(); {
+		case token == "":
+			out = append(out, walkOpen)
+		case fake.follow[token]:
+			out = append(out, walkFollow)
+		default:
+			out = append(out, walkOlder)
 		}
-		token, err := pagination.Decode[int64](raw)
-		assert.NilError(t, err)
-		tokens = append(tokens, token)
 	}
-	return tokens
+	return out
 }
 
 func TestTaskLogHistory(t *testing.T) {
 	// Arrange - two and a half pages of history, so the walk has to page back.
-	_, client, want := newFakeLogs(t, 2*testPageSize+testPageSize/2)
+	fake, client, want := newFakeLogs(t, 2*testPageSize+testPageSize/2)
 
 	// Act
 	var buf bytes.Buffer
@@ -165,18 +169,10 @@ func TestTaskLogHistory(t *testing.T) {
 	// Assert - the whole transcript, oldest-first, in one piece.
 	assert.NilError(t, err)
 	assert.Equal(t, buf.String(), want)
-	// Three pages: a backward pass that opens at the tail and steps to the oldest
-	// page, then a forward replay of the two pages newer than it. Nothing but the
-	// page cursors is held between the passes.
-	tokens := pageTokens(t, client)
-	assert.Equal(t, len(tokens), 5)
-	assert.Equal(t, tokens[0].Cursor, (*int64)(nil), "the walk opens at the tail")
-	for _, token := range tokens[1:3] {
-		assert.Equal(t, token.Backward, false, "the history pass must walk toward older rows")
-	}
-	for _, token := range tokens[3:] {
-		assert.Equal(t, token.Backward, true, "the replay must walk toward newer rows")
-	}
+	// Three pages: a pass that opens at the tail and steps back to the oldest
+	// page, then a replay of the two pages newer than it. Nothing but the page
+	// cursors is held between the passes.
+	assert.DeepEqual(t, walks(fake, client), []walk{walkOpen, walkOlder, walkOlder, walkFollow, walkFollow})
 }
 
 func TestTaskLogHistory_ExactPageBoundary(t *testing.T) {
@@ -279,9 +275,7 @@ func TestTaskLogFollow(t *testing.T) {
 	assert.Equal(t, buf.String(), want+"line 3\n")
 	// The history fits in one page, so every call after the first is a poll, and
 	// every poll rides the live-follow (newer) direction.
-	for _, token := range pageTokens(t, client)[1:] {
-		assert.Equal(t, token.Backward, true, "follow must poll toward newer rows")
-	}
+	assert.DeepEqual(t, walks(fake, client), []walk{walkOpen, walkFollow, walkFollow, walkFollow})
 }
 
 // cancelAfter cancels ctx as soon as the output it has accumulated contains
@@ -334,8 +328,9 @@ func TestTaskLogFollow_DrainsFullPages(t *testing.T) {
 }
 
 func TestTaskLogFollow_FromEmpty(t *testing.T) {
-	// Arrange - following a task before it has shipped anything: the tail page
-	// yields no follow cursor, so the tail must be re-opened until it does.
+	// Arrange - following a task before it has shipped anything: the empty tail
+	// page's follow cursor follows from the start of the log, so the first chunk
+	// is picked up by a poll rather than by re-opening the tail.
 	fake, client, _ := newFakeLogs(t, 0)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -360,6 +355,7 @@ func TestTaskLogFollow_FromEmpty(t *testing.T) {
 	// that follow it.
 	assert.NilError(t, err)
 	assert.Equal(t, buf.String(), "first line\n")
+	assert.DeepEqual(t, walks(fake, client), []walk{walkOpen, walkFollow, walkFollow, walkFollow, walkFollow})
 }
 
 func TestListLogChunksByTask(t *testing.T) {

@@ -48,42 +48,42 @@ type ListLogChunksByTaskPageParams struct {
 	PageToken string // opaque cursor; empty for the newest page
 }
 
-// logChunkSource implements pagination.Source for a task's log chunks, serving
-// both walks from one Query: the forward walk (token.Backward == false,
-// descending) → the Desc SQL (a nil cursor = newest page), and the backward
-// walk (token.Backward == true, ascending live-follow) → the Asc SQL.
+// logChunkSource implements pagination.HistorySource for a task's log chunks:
+// Older reads the Desc SQL and Newer the Asc SQL.
 type logChunkSource struct {
 	store  *Store
 	tx     *sql.Tx
 	params ListLogChunksByTaskPageParams
 }
 
-// Query serves both walks: token.Backward == true is the ascending live-follow
-// (rows newer than the cursor); token.Backward == false the primary descending
-// walk (a nil cursor = newest page).
-func (src logChunkSource) Query(ctx context.Context, token pagination.Token[logChunkCursor], limit int) ([]*model.LogChunk, error) {
-	if token.Backward {
-		rows, err := src.store.q(src.tx).ListLogChunksByTaskAsc(ctx, sqlc.ListLogChunksByTaskAscParams{
-			TaskID:    src.params.TaskID,
-			OrgID:     src.params.OrgID,
-			CursorID:  token.Cursor.ID,
-			PageLimit: int32(limit), // int32 only at the sqlc boundary
-		})
-		if err != nil {
-			return nil, err
-		}
-		return toModelLogChunks(rows), nil
-	}
+func (src logChunkSource) Older(ctx context.Context, before *logChunkCursor, limit int) ([]*model.LogChunk, error) {
 	args := sqlc.ListLogChunksByTaskDescParams{
 		TaskID:    src.params.TaskID,
 		OrgID:     src.params.OrgID,
-		UseCursor: token.Cursor != nil,
+		UseCursor: before != nil,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
 	}
-	if token.Cursor != nil {
-		args.CursorID = token.Cursor.ID
+	if before != nil {
+		args.CursorID = before.ID
 	}
 	rows, err := src.store.q(src.tx).ListLogChunksByTaskDesc(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	return toModelLogChunks(rows), nil
+}
+
+func (src logChunkSource) Newer(ctx context.Context, after *logChunkCursor, limit int) ([]*model.LogChunk, error) {
+	args := sqlc.ListLogChunksByTaskAscParams{
+		TaskID:    src.params.TaskID,
+		OrgID:     src.params.OrgID,
+		PageLimit: int32(limit), // int32 only at the sqlc boundary
+	}
+	// A nil cursor follows from the start: ids begin at 1.
+	if after != nil {
+		args.CursorID = after.ID
+	}
+	rows, err := src.store.q(src.tx).ListLogChunksByTaskAsc(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -94,26 +94,22 @@ func (src logChunkSource) Cursor(c *model.LogChunk) logChunkCursor {
 	return logChunkCursor{ID: c.ID}
 }
 
-// ListLogChunksByTaskPage returns a bidirectional keyset page of a task's log
-// chunks, always oldest-first (Options.Reverse) so a page's Data concatenates
-// straight into transcript order. An empty PageToken returns the newest page —
-// the end of the log, which is what a post-mortem reader wants first; the
-// returned NextToken continues toward older history (empties when exhausted)
-// and PrevToken toward newer chunks (stays populated on a non-empty page so a
-// growing log can be followed). It owns the cursor keyset (id), the page-size
-// bounds, and the opaque token format. A bad PageSize or an undecodable
-// PageToken surfaces as a wrapped pagination.ErrInvalidRequest; query failures
-// surface as-is.
-func (s *Store) ListLogChunksByTaskPage(ctx context.Context, tx *sql.Tx, p ListLogChunksByTaskPageParams) (*pagination.Page[*model.LogChunk], error) {
+// ListLogChunksByTaskPage returns a history page of a task's log chunks, always
+// oldest-first so a page's Data concatenates straight into transcript order. An
+// empty PageToken returns the newest page — the end of the log, which is what a
+// post-mortem reader wants first; OlderToken scrolls back toward the start of
+// the log and FollowToken follows the chunks shipped after the page. It owns the
+// cursor keyset (id), the page-size bounds, and the opaque token format. A bad
+// PageSize or an undecodable PageToken surfaces as a wrapped
+// pagination.ErrInvalidRequest; query failures surface as-is.
+func (s *Store) ListLogChunksByTaskPage(ctx context.Context, tx *sql.Tx, p ListLogChunksByTaskPageParams) (*pagination.HistoryPage[*model.LogChunk], error) {
 	// Same bounds as the timeline: chunks are dense and each one is small
 	// relative to a page of events.
-	return pagination.List(ctx, pagination.Options[*model.LogChunk, logChunkCursor]{
+	return pagination.History(ctx, logChunkSource{store: s, tx: tx, params: p}, pagination.Options{
 		DefaultPageSize: 50,
 		MaxPageSize:     200,
-		Reverse:         true,
 		PageSize:        int(p.PageSize),
 		PageToken:       p.PageToken,
-		Source:          logChunkSource{store: s, tx: tx, params: p},
 	})
 }
 

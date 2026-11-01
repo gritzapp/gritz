@@ -192,7 +192,7 @@ func WaitRunnerEvents(t *testing.T, s *store.Store, org *Org, opts WaitRunnerEve
 			return poll.Error(err)
 		}
 		got = append(got, page.Items...)
-		token = page.PrevToken
+		token = page.NextToken
 		if len(got) < opts.Count {
 			return poll.Continue("got %d of %d events", len(got), opts.Count)
 		}

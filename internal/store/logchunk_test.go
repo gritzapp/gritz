@@ -50,10 +50,10 @@ func readTranscript(t *testing.T, s *store.Store, org *teststore.Org, task *mode
 			older = append(older, chunk.Data...)
 		}
 		out = append(older, out...)
-		if page.NextToken == "" {
+		if page.OlderToken == "" {
 			return string(out)
 		}
-		token = page.NextToken
+		token = page.OlderToken
 	}
 }
 
@@ -197,7 +197,7 @@ func TestListLogChunksByTaskPage(t *testing.T) {
 	chunks := createLogChunks(t, s, org, task, datas...)
 	want := testx.ExtractField(chunks, "ID").([]int64)
 
-	// Act - open at the tail (empty token), then follow NextToken toward older
+	// Act - open at the tail (empty token), then follow OlderToken toward older
 	// history, prepending each older page so the whole log reassembles
 	// oldest-first.
 	var got []int64
@@ -214,13 +214,13 @@ func TestListLogChunksByTaskPage(t *testing.T) {
 		// Every page is ascending; older pages are prepended.
 		got = append(testx.ExtractField(page.Items, "ID").([]int64), got...)
 		pages++
-		if page.NextToken == "" {
+		if page.OlderToken == "" {
 			break
 		}
-		token = page.NextToken
+		token = page.OlderToken
 	}
 
-	// Assert - the backward walk covers the whole log ascending, no gaps/dups.
+	// Assert - the scroll-back covers the whole log ascending, no gaps/dups.
 	assert.Equal(t, pages, 4) // 3+3+3+1
 	assert.DeepEqual(t, got, want)
 }
@@ -233,15 +233,15 @@ func TestListLogChunksByTaskPage_LiveFollow(t *testing.T) {
 	task := teststore.CreateTask(t, s, org, nil)
 	createLogChunks(t, s, org, task, "a", "b", "c")
 
-	// The newest page carries a PrevToken (the live-follow cursor at the tail).
+	// The newest page carries a FollowToken (the live-follow cursor at the tail).
 	page, err := s.ListLogChunksByTaskPage(t.Context(), nil, store.ListLogChunksByTaskPageParams{
 		TaskID:   task.ID,
 		OrgID:    org.OrgID,
 		PageSize: 50,
 	})
 	assert.NilError(t, err)
-	assert.Assert(t, page.PrevToken != "")
-	follow := page.PrevToken
+	assert.Assert(t, page.FollowToken != "")
+	follow := page.FollowToken
 
 	// Following the tail cursor now yields nothing new (echoes the cursor).
 	empty, err := s.ListLogChunksByTaskPage(t.Context(), nil, store.ListLogChunksByTaskPageParams{
@@ -252,8 +252,8 @@ func TestListLogChunksByTaskPage_LiveFollow(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(empty.Items), 0)
-	assert.Assert(t, empty.PrevToken != "") // still resumable
-	assert.Assert(t, !empty.More)           // nothing newer: the tail is reached
+	assert.Assert(t, empty.FollowToken != "") // still resumable
+	assert.Assert(t, !empty.More)             // nothing newer: the tail is reached
 
 	// Act - a subsequently-shipped chunk is picked up by the same tail token.
 	shipped := createLogChunks(t, s, org, task, "d")
@@ -282,6 +282,36 @@ func TestListLogChunksByTaskPage_LiveFollow(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(backlog.Items), 2)
 	assert.Assert(t, backlog.More) // a third newer chunk remains beyond this page
+}
+
+func TestListLogChunksByTaskPage_FollowFromEmpty(t *testing.T) {
+	t.Parallel()
+	// Arrange - open the log of a task that has not shipped a chunk yet.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	task := teststore.CreateTask(t, s, org, nil)
+	empty, err := s.ListLogChunksByTaskPage(t.Context(), nil, store.ListLogChunksByTaskPageParams{
+		TaskID:   task.ID,
+		OrgID:    org.OrgID,
+		PageSize: 50,
+	})
+	assert.NilError(t, err)
+	shipped := createLogChunks(t, s, org, task, "a", "b")
+
+	// Act - follow the empty page's token once chunks have landed.
+	page, err := s.ListLogChunksByTaskPage(t.Context(), nil, store.ListLogChunksByTaskPageParams{
+		TaskID:    task.ID,
+		OrgID:     org.OrgID,
+		PageSize:  50,
+		PageToken: empty.FollowToken,
+	})
+
+	// Assert - the empty page still follows, from the start of the log.
+	assert.NilError(t, err)
+	assert.Equal(t, len(empty.Items), 0)
+	assert.Assert(t, empty.FollowToken != "")
+	assert.DeepEqual(t, testx.ExtractField(page.Items, "ID"), testx.ExtractField(shipped, "ID"))
+	assert.Equal(t, page.OlderToken, "")
 }
 
 func TestListLogChunksByTaskPage_BadPageSize(t *testing.T) {

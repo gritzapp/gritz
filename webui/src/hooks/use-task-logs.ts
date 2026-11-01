@@ -86,7 +86,9 @@ export function useTaskLogs(taskId: bigint) {
     getPreviousPageParam: (firstPage) => firstPage.prevPageToken || undefined,
     // next_page_token is always populated (it doubles as the live-follow
     // cursor), so it can't mean "stop" — it's fetched only by the follow poll,
-    // never as an automatic "load more".
+    // never as an automatic "load more". Even an empty first page (a task that
+    // has not shipped a chunk yet) carries one, following from the start of the
+    // log.
     getNextPageParam: (lastPage) => lastPage.nextPageToken || undefined,
   })
 

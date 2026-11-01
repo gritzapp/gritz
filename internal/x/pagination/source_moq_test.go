@@ -8,34 +8,34 @@ import (
 	"sync"
 )
 
-// Ensure, that SourceMock does implement Source.
+// Ensure, that CursorSourceMock does implement CursorSource.
 // If this is not the case, regenerate this file with moq.
-var _ Source[any, any] = &SourceMock[any, any]{}
+var _ CursorSource[any, any] = &CursorSourceMock[any, any]{}
 
-// SourceMock is a mock implementation of Source.
+// CursorSourceMock is a mock implementation of CursorSource.
 //
-//	func TestSomethingThatUsesSource(t *testing.T) {
+//	func TestSomethingThatUsesCursorSource(t *testing.T) {
 //
-//		// make and configure a mocked Source
-//		mockedSource := &SourceMock{
+//		// make and configure a mocked CursorSource
+//		mockedCursorSource := &CursorSourceMock{
 //			CursorFunc: func(row T) C {
 //				panic("mock out the Cursor method")
 //			},
-//			QueryFunc: func(ctx context.Context, token Token[C], limit int) ([]T, error) {
+//			QueryFunc: func(ctx context.Context, after *C, limit int) ([]T, error) {
 //				panic("mock out the Query method")
 //			},
 //		}
 //
-//		// use mockedSource in code that requires Source
+//		// use mockedCursorSource in code that requires CursorSource
 //		// and then make assertions.
 //
 //	}
-type SourceMock[T any, C any] struct {
+type CursorSourceMock[T any, C any] struct {
 	// CursorFunc mocks the Cursor method.
 	CursorFunc func(row T) C
 
 	// QueryFunc mocks the Query method.
-	QueryFunc func(ctx context.Context, token Token[C], limit int) ([]T, error)
+	QueryFunc func(ctx context.Context, after *C, limit int) ([]T, error)
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -48,8 +48,8 @@ type SourceMock[T any, C any] struct {
 		Query []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
-			// Token is the token argument value.
-			Token Token[C]
+			// After is the after argument value.
+			After *C
 			// Limit is the limit argument value.
 			Limit int
 		}
@@ -59,9 +59,9 @@ type SourceMock[T any, C any] struct {
 }
 
 // Cursor calls CursorFunc.
-func (mock *SourceMock[T, C]) Cursor(row T) C {
+func (mock *CursorSourceMock[T, C]) Cursor(row T) C {
 	if mock.CursorFunc == nil {
-		panic("SourceMock.CursorFunc: method is nil but Source.Cursor was just called")
+		panic("CursorSourceMock.CursorFunc: method is nil but CursorSource.Cursor was just called")
 	}
 	callInfo := struct {
 		Row T
@@ -77,8 +77,8 @@ func (mock *SourceMock[T, C]) Cursor(row T) C {
 // CursorCalls gets all the calls that were made to Cursor.
 // Check the length with:
 //
-//	len(mockedSource.CursorCalls())
-func (mock *SourceMock[T, C]) CursorCalls() []struct {
+//	len(mockedCursorSource.CursorCalls())
+func (mock *CursorSourceMock[T, C]) CursorCalls() []struct {
 	Row T
 } {
 	var calls []struct {
@@ -91,41 +91,219 @@ func (mock *SourceMock[T, C]) CursorCalls() []struct {
 }
 
 // Query calls QueryFunc.
-func (mock *SourceMock[T, C]) Query(ctx context.Context, token Token[C], limit int) ([]T, error) {
+func (mock *CursorSourceMock[T, C]) Query(ctx context.Context, after *C, limit int) ([]T, error) {
 	if mock.QueryFunc == nil {
-		panic("SourceMock.QueryFunc: method is nil but Source.Query was just called")
+		panic("CursorSourceMock.QueryFunc: method is nil but CursorSource.Query was just called")
 	}
 	callInfo := struct {
 		Ctx   context.Context
-		Token Token[C]
+		After *C
 		Limit int
 	}{
 		Ctx:   ctx,
-		Token: token,
+		After: after,
 		Limit: limit,
 	}
 	mock.lockQuery.Lock()
 	mock.calls.Query = append(mock.calls.Query, callInfo)
 	mock.lockQuery.Unlock()
-	return mock.QueryFunc(ctx, token, limit)
+	return mock.QueryFunc(ctx, after, limit)
 }
 
 // QueryCalls gets all the calls that were made to Query.
 // Check the length with:
 //
-//	len(mockedSource.QueryCalls())
-func (mock *SourceMock[T, C]) QueryCalls() []struct {
+//	len(mockedCursorSource.QueryCalls())
+func (mock *CursorSourceMock[T, C]) QueryCalls() []struct {
 	Ctx   context.Context
-	Token Token[C]
+	After *C
 	Limit int
 } {
 	var calls []struct {
 		Ctx   context.Context
-		Token Token[C]
+		After *C
 		Limit int
 	}
 	mock.lockQuery.RLock()
 	calls = mock.calls.Query
 	mock.lockQuery.RUnlock()
+	return calls
+}
+
+// Ensure, that HistorySourceMock does implement HistorySource.
+// If this is not the case, regenerate this file with moq.
+var _ HistorySource[any, any] = &HistorySourceMock[any, any]{}
+
+// HistorySourceMock is a mock implementation of HistorySource.
+//
+//	func TestSomethingThatUsesHistorySource(t *testing.T) {
+//
+//		// make and configure a mocked HistorySource
+//		mockedHistorySource := &HistorySourceMock{
+//			CursorFunc: func(row T) C {
+//				panic("mock out the Cursor method")
+//			},
+//			NewerFunc: func(ctx context.Context, after *C, limit int) ([]T, error) {
+//				panic("mock out the Newer method")
+//			},
+//			OlderFunc: func(ctx context.Context, before *C, limit int) ([]T, error) {
+//				panic("mock out the Older method")
+//			},
+//		}
+//
+//		// use mockedHistorySource in code that requires HistorySource
+//		// and then make assertions.
+//
+//	}
+type HistorySourceMock[T any, C any] struct {
+	// CursorFunc mocks the Cursor method.
+	CursorFunc func(row T) C
+
+	// NewerFunc mocks the Newer method.
+	NewerFunc func(ctx context.Context, after *C, limit int) ([]T, error)
+
+	// OlderFunc mocks the Older method.
+	OlderFunc func(ctx context.Context, before *C, limit int) ([]T, error)
+
+	// calls tracks calls to the methods.
+	calls struct {
+		// Cursor holds details about calls to the Cursor method.
+		Cursor []struct {
+			// Row is the row argument value.
+			Row T
+		}
+		// Newer holds details about calls to the Newer method.
+		Newer []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// After is the after argument value.
+			After *C
+			// Limit is the limit argument value.
+			Limit int
+		}
+		// Older holds details about calls to the Older method.
+		Older []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Before is the before argument value.
+			Before *C
+			// Limit is the limit argument value.
+			Limit int
+		}
+	}
+	lockCursor sync.RWMutex
+	lockNewer  sync.RWMutex
+	lockOlder  sync.RWMutex
+}
+
+// Cursor calls CursorFunc.
+func (mock *HistorySourceMock[T, C]) Cursor(row T) C {
+	if mock.CursorFunc == nil {
+		panic("HistorySourceMock.CursorFunc: method is nil but HistorySource.Cursor was just called")
+	}
+	callInfo := struct {
+		Row T
+	}{
+		Row: row,
+	}
+	mock.lockCursor.Lock()
+	mock.calls.Cursor = append(mock.calls.Cursor, callInfo)
+	mock.lockCursor.Unlock()
+	return mock.CursorFunc(row)
+}
+
+// CursorCalls gets all the calls that were made to Cursor.
+// Check the length with:
+//
+//	len(mockedHistorySource.CursorCalls())
+func (mock *HistorySourceMock[T, C]) CursorCalls() []struct {
+	Row T
+} {
+	var calls []struct {
+		Row T
+	}
+	mock.lockCursor.RLock()
+	calls = mock.calls.Cursor
+	mock.lockCursor.RUnlock()
+	return calls
+}
+
+// Newer calls NewerFunc.
+func (mock *HistorySourceMock[T, C]) Newer(ctx context.Context, after *C, limit int) ([]T, error) {
+	if mock.NewerFunc == nil {
+		panic("HistorySourceMock.NewerFunc: method is nil but HistorySource.Newer was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		After *C
+		Limit int
+	}{
+		Ctx:   ctx,
+		After: after,
+		Limit: limit,
+	}
+	mock.lockNewer.Lock()
+	mock.calls.Newer = append(mock.calls.Newer, callInfo)
+	mock.lockNewer.Unlock()
+	return mock.NewerFunc(ctx, after, limit)
+}
+
+// NewerCalls gets all the calls that were made to Newer.
+// Check the length with:
+//
+//	len(mockedHistorySource.NewerCalls())
+func (mock *HistorySourceMock[T, C]) NewerCalls() []struct {
+	Ctx   context.Context
+	After *C
+	Limit int
+} {
+	var calls []struct {
+		Ctx   context.Context
+		After *C
+		Limit int
+	}
+	mock.lockNewer.RLock()
+	calls = mock.calls.Newer
+	mock.lockNewer.RUnlock()
+	return calls
+}
+
+// Older calls OlderFunc.
+func (mock *HistorySourceMock[T, C]) Older(ctx context.Context, before *C, limit int) ([]T, error) {
+	if mock.OlderFunc == nil {
+		panic("HistorySourceMock.OlderFunc: method is nil but HistorySource.Older was just called")
+	}
+	callInfo := struct {
+		Ctx    context.Context
+		Before *C
+		Limit  int
+	}{
+		Ctx:    ctx,
+		Before: before,
+		Limit:  limit,
+	}
+	mock.lockOlder.Lock()
+	mock.calls.Older = append(mock.calls.Older, callInfo)
+	mock.lockOlder.Unlock()
+	return mock.OlderFunc(ctx, before, limit)
+}
+
+// OlderCalls gets all the calls that were made to Older.
+// Check the length with:
+//
+//	len(mockedHistorySource.OlderCalls())
+func (mock *HistorySourceMock[T, C]) OlderCalls() []struct {
+	Ctx    context.Context
+	Before *C
+	Limit  int
+} {
+	var calls []struct {
+		Ctx    context.Context
+		Before *C
+		Limit  int
+	}
+	mock.lockOlder.RLock()
+	calls = mock.calls.Older
+	mock.lockOlder.RUnlock()
 	return calls
 }

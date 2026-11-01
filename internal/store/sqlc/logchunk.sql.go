@@ -58,8 +58,9 @@ type ListLogChunksByTaskAscParams struct {
 	PageLimit int32 `json:"page_limit"`
 }
 
-// Live-follow slice (id > cursor), ascending. Backs the pagination-backward
-// walk. Covered by idx_log_chunks_task_id_id (no new migration).
+// Live-follow slice (id > cursor), ascending. Backs pagination.History's Newer
+// walk; a cursor of 0 follows from the start. Covered by
+// idx_log_chunks_task_id_id (no new migration).
 func (q *Queries) ListLogChunksByTaskAsc(ctx context.Context, arg ListLogChunksByTaskAscParams) ([]LogChunk, error) {
 	rows, err := q.db.QueryContext(ctx, listLogChunksByTaskAsc,
 		arg.TaskID,
@@ -114,8 +115,8 @@ type ListLogChunksByTaskDescParams struct {
 }
 
 // Newest-first slice: the newest page (no cursor) and scroll-back (id < cursor).
-// Backs the pagination-forward (primary) walk; List reverses to ascending for
-// display. Covered by idx_log_chunks_task_id_id (no new migration).
+// Backs pagination.History's Older walk, which reverses pages to ascending.
+// Covered by idx_log_chunks_task_id_id (no new migration).
 func (q *Queries) ListLogChunksByTaskDesc(ctx context.Context, arg ListLogChunksByTaskDescParams) ([]LogChunk, error) {
 	rows, err := q.db.QueryContext(ctx, listLogChunksByTaskDesc,
 		arg.TaskID,

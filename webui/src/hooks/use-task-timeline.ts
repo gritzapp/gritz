@@ -57,7 +57,8 @@ export function useTaskTimeline(taskId: bigint) {
       getPreviousPageParam: (firstPage) => firstPage.prevPageToken || undefined,
       // next_page_token is always populated (it doubles as the live-follow
       // cursor), so it can't mean "stop" — it's fetched only on an SSE signal
-      // via follow(), never as an automatic "load more".
+      // via follow(), never as an automatic "load more". Even an empty first
+      // page (a task with no events yet) carries one, following from the start.
       getNextPageParam: (lastPage) => lastPage.nextPageToken || undefined,
     })
 
