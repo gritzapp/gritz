@@ -251,8 +251,14 @@ database (`github.com/ncruces/go-sqlite3`, no cgo; WAL, `synchronous = FULL`,
 one connection). It starts with an `events` table: one row per replicated event, in the
 order it arrived, with the event's `id`, `task_id`, `type` and the payload as
 stored on the server. `seq` is the local position: arrival order is the
-server's log order, so `seq` increases along the log with no gaps. A
-single-row `replication` table holds the cursor.
+server's log order, so `seq` increases along the log with no gaps. `type` is
+the payload arm's event type, or `unknown` for an arm this runner doesn't
+know: server and runner deploy separately, so a newer server can send an
+event type an older runner has never seen. The event is still stored, and
+readers skip what they don't understand. A single-row `replication` table
+holds the cursor. A `tasks` table projects each task's archive state: one
+row per task with stored events, `archived` set by its latest `Archived`,
+`AutoArchived` or `Unarchived` event.
 
 ```sql
 CREATE TABLE events (
@@ -268,14 +274,20 @@ CREATE TABLE replication (
     id     INTEGER PRIMARY KEY CHECK (id = 1),
     cursor TEXT NOT NULL          -- opaque; ListRunnerEventsResponse.next_page_token
 );
+
+CREATE TABLE tasks (
+    id       INTEGER PRIMARY KEY,
+    archived INTEGER NOT NULL DEFAULT 0
+);
 ```
 
 **Replication.** `Log.Run` is a loop that replaces `Poll`:
 
 1. Read the cursor from `replication` (empty when there is no row).
 2. Call `ListRunnerEvents(page_token: cursor)`.
-3. In one transaction, insert the page's events and set `cursor` to the
-   response's `next_page_token`.
+3. In one transaction, insert the page's events, insert each new task into
+   `tasks` and fold the page's archive events into it, and set `cursor` to
+   the response's `next_page_token`.
 4. Repeat while the response's `more` is true, then wait for a wake or the
    poll interval (30s by default, as `TaskManager.Run` polls today). The
    runner SSE notification (`proposals/implemented/runner-sse-events.md`)
@@ -286,14 +298,17 @@ caught up. Committed rows can be held back by the server's xid watermark, and
 the transaction whose end releases them may send no wake, so the interval is
 what picks them up.
 
-The events and the cursor commit together, so the cursor never runs ahead of
+The events, the `tasks` projection and the cursor commit together, so the cursor never runs ahead of
 the stored events and no stored event sits behind a stale cursor. A crash
 before the commit loses both, and the next fetch repeats the page. Every
 fetched event is stored, including ones the runner has no use for.
 
-After storing a page, `Log` wakes the blocked `Read`s of the tasks in it,
-reports task ids it hasn't seen before as active, and reports archive and
-unarchive events on `Tasks()`.
+Storing a page returns its task changes: new tasks that end the page
+unarchived, and tasks whose archive state flipped. A task that is new and
+archived within one page was never active, so it is not returned. `Log`
+wakes the blocked `Read`s of the tasks in the page and forwards the changes
+to `Tasks()`. At boot it reports `SELECT id FROM tasks WHERE NOT archived`
+as active, without folding any task's history.
 
 `Stream.Read(after)` resolves `after` to a `seq`: `0` for event id `0`,
 otherwise `SELECT seq FROM events WHERE id = ?`. The id is always stored,
@@ -556,9 +571,17 @@ package runnerstore // github.com/gritzapp/gritz/internal/runner/runnerstore  //
 // Open opens the database at path, creating it and its tables if absent.
 func Open(path string) (*Store, error)
 
-// AppendEvents stores a page of replicated events and the cursor that
-// follows it in one transaction. // new
-func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) error
+// TaskChange is a task becoming active or archived. // new
+type TaskChange struct {
+	ID       int64
+	Archived bool
+}
+
+// AppendEvents stores a page of replicated events, the cursor that follows
+// it, and the page's effect on the tasks table in one transaction. It returns
+// the page's task changes: new tasks that end the page unarchived, and tasks
+// whose archive state flipped. // new
+func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, cursor string) ([]TaskChange, error)
 
 // Cursor returns the stored replication cursor, or "" when none is
 // stored. // new
@@ -568,8 +591,9 @@ func (s *Store) Cursor(ctx context.Context) (string, error)
 // in log order; afterID 0 returns all of them. // new
 func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*gritzv1.Event, error)
 
-// TaskIDs returns the ids of every task with stored events. // new
-func (s *Store) TaskIDs(ctx context.Context) ([]int64, error)
+// UnarchivedTaskIDs returns the ids of every stored task that isn't
+// archived. // new
+func (s *Store) UnarchivedTaskIDs(ctx context.Context) ([]int64, error)
 ```
 
 ```go
@@ -702,7 +726,7 @@ sends `RunEnded` up the stream when a run is over.
    returned until both have committed, and then both are, in xid order; an
    empty page returns the request's page token.
 4. **`taskevents`** — Delivers: `runnerstore`, introduced here with the
-   `events` and `replication` tables, `gritzclient.ListRunnerEvents`, `Log`
+   `events`, `replication` and `tasks` tables, `gritzclient.ListRunnerEvents`, `Log`
    replicating into them, `Tasks()` and `Stream.Read`. Nothing constructs a
    `Log` yet; `Poll` still drives behaviour. Depends on: (3). Verifiable by: `taskevents` tests against a fake server: the local
    table matches the server's events, a restart resumes from the stored

@@ -145,7 +145,7 @@ func TestLogRun(t *testing.T) {
 	assert.DeepEqual(t, receive(t, l), taskevents.TaskState{ID: 20})
 	readUntil(t, l, 10, 5)
 	readUntil(t, l, 20, 4)
-	ids, err := store.TaskIDs(t.Context())
+	ids, err := store.UnarchivedTaskIDs(t.Context())
 	assert.NilError(t, err)
 	assert.DeepEqual(t, ids, []int64{10, 20})
 	events, err := store.TaskEventsAfter(t.Context(), 10, 0)
@@ -305,7 +305,8 @@ func TestLogTasks_SkipsArchivedAtBoot(t *testing.T) {
 	server := &fakeServer{}
 	server.add(events...)
 	store := openStore(t, filepath.Join(t.TempDir(), "runner.db"))
-	assert.NilError(t, store.AppendEvents(t.Context(), events, "6"))
+	_, err := store.AppendEvents(t.Context(), events, "6")
+	assert.NilError(t, err)
 	l := taskevents.New(taskevents.Options{
 		Store:    store,
 		Client:   server.client(),

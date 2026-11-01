@@ -42,9 +42,6 @@ type Log struct {
 	wake         wakeup.Chan
 	tasks        chan TaskState
 
-	// archived is whether each stored task is archived. Only Run touches it.
-	archived map[int64]bool
-
 	mu sync.Mutex
 	// stored holds, per task with a blocked Read, a channel closed when the
 	// next events for the task are stored.
@@ -73,7 +70,6 @@ func New(opts Options) *Log {
 		log:          log,
 		wake:         wakeup.New(),
 		tasks:        make(chan TaskState),
-		archived:     map[int64]bool{},
 		stored:       map[int64]chan struct{}{},
 	}
 }
@@ -113,27 +109,15 @@ func (l *Log) Run(ctx context.Context) error {
 	}
 }
 
-// boot loads each stored task's archive state and reports the unarchived
-// ones as active.
+// boot reports the unarchived stored tasks as active.
 func (l *Log) boot(ctx context.Context) error {
-	ids, err := l.store.TaskIDs(ctx)
+	ids, err := l.store.UnarchivedTaskIDs(ctx)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		events, err := l.store.TaskEventsAfter(ctx, id, 0)
-		if err != nil {
+		if err := l.report(ctx, TaskState{ID: id}); err != nil {
 			return err
-		}
-		var archived bool
-		for _, e := range events {
-			archived = foldArchived(archived, e)
-		}
-		l.archived[id] = archived
-		if !archived {
-			if err := l.report(ctx, TaskState{ID: id}); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -161,48 +145,31 @@ func (l *Log) sync(ctx context.Context) error {
 		if len(resp.GetEvents()) == 0 {
 			continue
 		}
-		if err := l.store.AppendEvents(ctx, resp.GetEvents(), resp.GetNextPageToken()); err != nil {
+		changes, err := l.store.AppendEvents(ctx, resp.GetEvents(), resp.GetNextPageToken())
+		if err != nil {
 			return err
 		}
-		if err := l.apply(ctx, resp.GetEvents()); err != nil {
+		if err := l.apply(ctx, resp.GetEvents(), changes); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// apply wakes the Reads of the tasks in a stored page, and reports each task
-// the page made new, archived or unarchived. A task that is new and archived
-// within one page was never active, so it is not reported.
-func (l *Log) apply(ctx context.Context, events []*gritzv1.Event) error {
-	type before struct{ known, archived bool }
-	var ids []int64
-	page := map[int64]before{}
-	for _, e := range events {
-		id := e.GetTaskId()
-		if _, ok := page[id]; !ok {
-			archived, known := l.archived[id]
-			page[id] = before{known: known, archived: archived}
-			ids = append(ids, id)
-		}
-		l.archived[id] = foldArchived(l.archived[id], e)
-	}
-
+// apply wakes the Reads of the tasks in a stored page, and reports the
+// page's task changes.
+func (l *Log) apply(ctx context.Context, events []*gritzv1.Event, changes []runnerstore.TaskChange) error {
 	l.mu.Lock()
-	for _, id := range ids {
-		if ch, ok := l.stored[id]; ok {
+	for _, e := range events {
+		if ch, ok := l.stored[e.GetTaskId()]; ok {
 			close(ch)
-			delete(l.stored, id)
+			delete(l.stored, e.GetTaskId())
 		}
 	}
 	l.mu.Unlock()
 
-	for _, id := range ids {
-		was, now := page[id], l.archived[id]
-		if was.known && was.archived == now || !was.known && now {
-			continue
-		}
-		if err := l.report(ctx, TaskState{ID: id, Archived: now}); err != nil {
+	for _, c := range changes {
+		if err := l.report(ctx, TaskState(c)); err != nil {
 			return err
 		}
 	}
@@ -215,19 +182,6 @@ func (l *Log) report(ctx context.Context, s TaskState) error {
 		return nil
 	case <-ctx.Done():
 		return context.Cause(ctx)
-	}
-}
-
-// foldArchived returns whether a task is archived after e, given whether it
-// was before.
-func foldArchived(archived bool, e *gritzv1.Event) bool {
-	switch e.GetLifecycle().GetKind() {
-	case gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED, gritzv1.LifecycleKind_LIFECYCLE_KIND_AUTO_ARCHIVED:
-		return true
-	case gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED:
-		return false
-	default:
-		return archived
 	}
 }
 
