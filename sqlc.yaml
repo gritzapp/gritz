@@ -12,3 +12,5 @@ sql:
         overrides:
           - db_type: "uuid"
             go_type: "string"
+          - db_type: "xid8"
+            go_type: "uint64"

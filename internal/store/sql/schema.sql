@@ -30,7 +30,8 @@ CREATE TABLE public.events (
     task_id bigint NOT NULL,
     type text NOT NULL,
     wake boolean DEFAULT false NOT NULL,
-    payload jsonb NOT NULL
+    payload jsonb NOT NULL,
+    xid xid8 DEFAULT pg_current_xact_id() NOT NULL
 );
 
 
@@ -481,6 +482,13 @@ CREATE INDEX idx_events_task_id_id ON public.events USING btree (task_id, id);
 
 
 --
+-- Name: idx_events_xid_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_events_xid_id ON public.events USING btree (xid, id);
+
+
+--
 -- Name: idx_keys_org_id; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -788,4 +796,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260712000003'),
     ('20260718000001'),
     ('20260718000002'),
-    ('20260906000001');
+    ('20260906000001'),
+    ('20261101000001');
