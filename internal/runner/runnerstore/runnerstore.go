@@ -37,13 +37,13 @@ func Open(path string) (*Store, error) {
 		JournalMode: sqlite.JournalModeWAL,
 		Synchronous: sqlite.SynchronousFull,
 		BusyTimeout: 5 * time.Second,
-		// One connection: the runner is the database's only user, and
-		// SQLite allows one writer at a time anyway.
-		MaxOpenConns: 1,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runnerstore: %w", err)
 	}
+	// One connection: the runner is the database's only user, and SQLite
+	// allows one writer at a time anyway.
+	db.SetMaxOpenConns(1)
 	fsys, err := fs.Sub(migrations, "sql/migrations")
 	if err != nil {
 		panic(fmt.Sprintf("runnerstore: embedded migrations: %v", err))

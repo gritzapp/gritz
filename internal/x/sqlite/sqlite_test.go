@@ -13,7 +13,7 @@ import (
 
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{MaxOpenConns: 1})
+	db, err := sqlite.Open(filepath.Join(t.TempDir(), "test.db"), sqlite.Options{})
 	assert.NilError(t, err)
 	t.Cleanup(func() { assert.NilError(t, db.Close()) })
 	return db

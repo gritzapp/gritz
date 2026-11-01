@@ -33,12 +33,11 @@ const (
 )
 
 // Options are the connection settings Open applies to every connection,
-// encoded as _pragma DSN parameters, plus the pool size.
+// encoded as _pragma DSN parameters.
 type Options struct {
-	JournalMode  JournalMode   // e.g. JournalModeWAL; "" leaves SQLite's default
-	Synchronous  Synchronous   // e.g. SynchronousFull; "" leaves the default
-	BusyTimeout  time.Duration // 0 leaves the default
-	MaxOpenConns int           // 0 leaves database/sql's default
+	JournalMode JournalMode   // e.g. JournalModeWAL; "" leaves SQLite's default
+	Synchronous Synchronous   // e.g. SynchronousFull; "" leaves the default
+	BusyTimeout time.Duration // 0 leaves the default
 }
 
 // Open opens the database file at path with the ncruces (no-cgo) driver.
@@ -62,9 +61,6 @@ func Open(path string, opts Options) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: open %s: %w", path, err)
-	}
-	if opts.MaxOpenConns != 0 {
-		db.SetMaxOpenConns(opts.MaxOpenConns)
 	}
 	return db, nil
 }
