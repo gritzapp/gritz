@@ -95,7 +95,7 @@ func TestList(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	ids := make([]string, 0, len(records))
+	var ids []string
 	for _, rec := range records {
 		ids = append(ids, rec.ID)
 	}

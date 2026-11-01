@@ -202,7 +202,7 @@ type Container struct {
 
 // Environ returns the environment variables as a slice of "key=value" strings.
 func (c *Container) Environ() []string {
-	env := make([]string, 0, len(c.Environment))
+	var env []string
 	for k, v := range c.Environment {
 		env = append(env, k+"="+v)
 	}
@@ -245,7 +245,7 @@ type LambdaMicroVM struct {
 
 // Environ returns the environment variables as a slice of "key=value" strings.
 func (l *LambdaMicroVM) Environ() []string {
-	env := make([]string, 0, len(l.Environment))
+	var env []string
 	for k, v := range l.Environment {
 		env = append(env, k+"="+v)
 	}
