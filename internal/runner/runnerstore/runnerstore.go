@@ -71,7 +71,12 @@ type TaskChange struct {
 	Command   gritzv1.TaskCommand
 	Version   int64
 	Workspace string
-	Archived  bool
+	// CommandEventID is the id of the task's last command event, or 0 when it
+	// has had none. It is temporary scaffolding that lets the follower tell a
+	// command it has handled from a new one, and goes along with the tasks'
+	// handled position once the driver acts on commands (L8).
+	CommandEventID int64
+	Archived       bool
 }
 
 // AppendEvents stores a page of replicated events, the cursor that follows
@@ -106,6 +111,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 			params.Command = sql.NullInt64{Int64: int64(t.Command.GetCommand()), Valid: true}
 			params.Version = sql.NullInt64{Int64: t.Command.GetVersion(), Valid: true}
 			params.Workspace = sql.NullString{String: t.Command.GetWorkspace(), Valid: true}
+			params.CommandEventID = sql.NullInt64{Int64: t.CommandEventID, Valid: true}
 		}
 		if t.Archived != nil {
 			params.Archived = sql.NullBool{Bool: *t.Archived, Valid: true}
@@ -115,11 +121,12 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 			return nil, fmt.Errorf("runnerstore: upsert task %d: %w", t.ID, err)
 		}
 		changes = append(changes, TaskChange{
-			ID:        row.ID,
-			Command:   gritzv1.TaskCommand(row.Command.Int64),
-			Version:   row.Version.Int64,
-			Workspace: row.Workspace.String,
-			Archived:  row.Archived.Bool,
+			ID:             row.ID,
+			Command:        gritzv1.TaskCommand(row.Command.Int64),
+			Version:        row.Version.Int64,
+			Workspace:      row.Workspace.String,
+			CommandEventID: row.CommandEventID.Int64,
+			Archived:       row.Archived.Bool,
 		})
 	}
 	if err := q.SetEventReplicationCursor(ctx, cursor); err != nil {
@@ -180,18 +187,19 @@ func (s *Store) UnarchivedTasks(ctx context.Context) ([]TaskChange, error) {
 	var tasks []TaskChange
 	for _, row := range rows {
 		tasks = append(tasks, TaskChange{
-			ID:        row.ID,
-			Command:   gritzv1.TaskCommand(row.Command.Int64),
-			Version:   row.Version.Int64,
-			Workspace: row.Workspace.String,
-			Archived:  row.Archived.Bool,
+			ID:             row.ID,
+			Command:        gritzv1.TaskCommand(row.Command.Int64),
+			Version:        row.Version.Int64,
+			Workspace:      row.Workspace.String,
+			CommandEventID: row.CommandEventID.Int64,
+			Archived:       row.Archived.Bool,
 		})
 	}
 	return tasks, nil
 }
 
-// Handled returns the id of the last event the task's follower handled, 0
-// when it has handled none. The task must be stored: only stored tasks are
+// Handled returns the id of the last command event the task's follower
+// handled, 0 when it has handled none. The task must be stored: only stored tasks are
 // reported on taskevents' Tasks, and so get a follower.
 func (s *Store) Handled(ctx context.Context, taskID int64) (int64, error) {
 	handled, err := s.q.GetTaskHandled(ctx, taskID)
@@ -201,7 +209,8 @@ func (s *Store) Handled(ctx context.Context, taskID int64) (int64, error) {
 	return handled, nil
 }
 
-// SetHandled stores eventID as the last event the task's follower handled.
+// SetHandled stores eventID as the last command event the task's follower
+// handled.
 func (s *Store) SetHandled(ctx context.Context, taskID, eventID int64) error {
 	if err := s.q.SetTaskHandled(ctx, sqlc.SetTaskHandledParams{ID: taskID, Handled: eventID}); err != nil {
 		return fmt.Errorf("runnerstore: set task %d handled: %w", taskID, err)

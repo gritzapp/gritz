@@ -43,7 +43,7 @@ type TaskManager struct {
 	log        *slog.Logger
 	queue      *RunnerEventOutbox
 	// tasklog is the runner's replica of its tasks' event logs. Run runs it,
-	// and the followers read their tasks' streams from it.
+	// and feeds its task reports to the followers.
 	tasklog *taskevents.Log
 	// store is tasklog's store, where each follower keeps its position, and
 	// holds the tasks' sandbox records.
@@ -84,6 +84,30 @@ type follower struct {
 	cancel context.CancelFunc
 	// done is closed once the goroutine has returned.
 	done chan struct{}
+	// changed wakes the goroutine when set stores a report.
+	changed wakeup.Chan
+
+	// mu guards change, the latest report of the task, and ok, whether there
+	// has been one.
+	mu     sync.Mutex
+	change runnerstore.TaskChange
+	ok     bool
+}
+
+// set stores c as the task's latest report, replacing the one before it, and
+// wakes the follower.
+func (f *follower) set(c runnerstore.TaskChange) {
+	f.mu.Lock()
+	f.change, f.ok = c, true
+	f.mu.Unlock()
+	f.changed.Wake()
+}
+
+// latest returns the task's latest report, and false if there has been none.
+func (f *follower) latest() (runnerstore.TaskChange, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.change, f.ok
 }
 
 const (
@@ -291,24 +315,26 @@ func (m *TaskManager) Run(ctx context.Context) error {
 	}
 }
 
-// apply applies one of the event log's task reports: an unarchived task gets
-// a follower if it has none, and an archived one is retired. Reports may
-// repeat a task's state, and applying one twice changes nothing.
+// apply applies one of the event log's task reports: an archived task is
+// retired, and an unarchived one is handed to its follower, which is started
+// if it has none. Reports may repeat a task's state, and applying one twice
+// changes nothing.
 func (m *TaskManager) apply(ctx context.Context, c runnerstore.TaskChange) {
 	if c.Archived {
 		m.retire(ctx, c.ID)
 		return
 	}
-	if _, ok := m.followers[c.ID]; ok {
-		return
+	f, ok := m.followers[c.ID]
+	if !ok {
+		fctx, cancel := context.WithCancel(ctx)
+		f = &follower{cancel: cancel, done: make(chan struct{}), changed: wakeup.New()}
+		m.followers[c.ID] = f
+		go func() {
+			defer close(f.done)
+			m.follow(ctx, fctx, c.ID, f)
+		}()
 	}
-	fctx, cancel := context.WithCancel(ctx)
-	f := &follower{cancel: cancel, done: make(chan struct{})}
-	m.followers[c.ID] = f
-	go func() {
-		defer close(f.done)
-		m.follow(ctx, fctx, c.ID)
-	}()
+	f.set(c)
 }
 
 // unfollow stops the task's follower, if it has one, and waits for it to
@@ -323,23 +349,22 @@ func (m *TaskManager) unfollow(taskID int64) {
 	delete(m.followers, taskID)
 }
 
-// follow is the task's follower. It reads the task's event stream from the
-// stored position, and acts on the last command event in what it read:
-// commands are a desired state, so the latest supersedes the ones before it,
-// and a runner reading a stream from the start does not replay its history.
-// Once the command is carried out, or what it read has no command, it stores
-// the last event it read as handled and reads on.
+// follow is the task's follower. It acts on the command of the task's latest
+// report, f.latest: commands are a desired state, so the latest supersedes
+// the ones before it, and a report that repeats a command already handled
+// does nothing. Once the command is carried out, it stores the command's
+// event id as handled and waits for the next report.
 //
 // A command that isn't carried out, because its handler failed or there was
-// no concurrency slot for it, leaves the position where it was. The follower
-// tries again once a run releases its slot, the task has a new event, or a
-// backoff ends, rereading the stream each time, so a newer command takes the
+// no concurrency slot for it, leaves handled where it was. The follower tries
+// again once a run releases its slot, the task has a new report, or a backoff
+// ends, acting on the latest report each time, so a newer command takes the
 // place of the one that waited.
 //
 // Commands are carried out on ctx, the runner's root context, as the Run
 // goroutines they start must outlive the follower; fctx ends the follower.
 // A store error terminates the runner through die.
-func (m *TaskManager) follow(ctx, fctx context.Context, taskID int64) {
+func (m *TaskManager) follow(ctx, fctx context.Context, taskID int64, f *follower) {
 	handled, err := m.store.Handled(ctx, taskID)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -347,83 +372,55 @@ func (m *TaskManager) follow(ctx, fctx context.Context, taskID int64) {
 		}
 		return
 	}
-	stream := m.tasklog.Stream(taskID)
 	retry := doubling(min(time.Second, m.pollInterval), m.pollInterval)
 	for {
 		// Take the signal before handling, so a slot released while the
 		// handler runs still wakes the retry.
 		released := m.released.Wait()
-		events, err := stream.Read(fctx, handled)
-		if fctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			m.die(err)
-			return
-		}
-		last := events[len(events)-1].GetId()
-		if c, ok := lastCommand(taskID, events); ok {
-			if err := m.command(ctx, c); err != nil {
-				if errors.Is(err, errNoSlot) || errors.Is(err, ErrRunning) {
-					m.log.Debug("command waits", "task", taskID, "command", c.Command, "version", c.Version, "reason", err)
-				} else {
-					m.log.Error("failed to handle command", "task", taskID, "command", c.Command, "version", c.Version, "err", err)
-				}
-				if !m.await(fctx, stream, last, released, retry.NextBackOff()) {
-					return
-				}
+		c, ok := f.latest()
+		if !ok || c.CommandEventID <= handled {
+			select {
+			case <-f.changed:
 				continue
+			case <-fctx.Done():
+				return
 			}
 		}
-		if err := m.store.SetHandled(ctx, taskID, last); err != nil {
+		if err := m.command(ctx, c); err != nil {
+			if errors.Is(err, errNoSlot) || errors.Is(err, ErrRunning) {
+				m.log.Debug("command waits", "task", taskID, "command", c.Command, "version", c.Version, "reason", err)
+			} else {
+				m.log.Error("failed to handle command", "task", taskID, "command", c.Command, "version", c.Version, "err", err)
+			}
+			if !m.await(fctx, f, released, retry.NextBackOff()) {
+				return
+			}
+			continue
+		}
+		if err := m.store.SetHandled(ctx, taskID, c.CommandEventID); err != nil {
 			if ctx.Err() == nil {
 				m.die(err)
 			}
 			return
 		}
-		handled = last
+		handled = c.CommandEventID
 		retry.Reset()
 	}
 }
 
-// await waits for a reason to try a command again: released firing, an event
-// for the task after last, or the backoff d running out. It reports false if
-// ctx ended first.
-func (m *TaskManager) await(ctx context.Context, stream *taskevents.Stream, last int64, released <-chan struct{}, d time.Duration) bool {
-	readCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	next := make(chan struct{})
-	go func() {
-		defer close(next)
-		// The error is readCtx's, or a store error the follower's next Read
-		// returns as well.
-		_, _ = stream.Read(readCtx, last)
-	}()
+// await waits for a reason to try a command again: released firing, a new
+// report for f's task, or the backoff d running out. It reports false if ctx
+// ended first.
+func (m *TaskManager) await(ctx context.Context, f *follower, released <-chan struct{}, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-released:
-	case <-next:
+	case <-f.changed:
 	case <-timer.C:
 	case <-ctx.Done():
 	}
 	return ctx.Err() == nil
-}
-
-// lastCommand returns the command of the last command event in events, and
-// false if there is none.
-func lastCommand(taskID int64, events []*gritzv1.Event) (runnerstore.TaskChange, bool) {
-	for _, e := range slices.Backward(events) {
-		if cmd := e.GetCommand(); cmd != nil {
-			return runnerstore.TaskChange{
-				ID:        taskID,
-				Command:   cmd.GetCommand(),
-				Version:   cmd.GetVersion(),
-				Workspace: cmd.GetWorkspace(),
-			}, true
-		}
-	}
-	return runnerstore.TaskChange{}, false
 }
 
 // command carries out the task's command c. A non-nil error means it wasn't
