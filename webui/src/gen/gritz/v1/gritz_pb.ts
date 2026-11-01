@@ -1417,9 +1417,6 @@ export type CommandPayload = Message<"gritz.v1.CommandPayload"> & {
   runner: string;
 
   /**
-   * workspace is the task's workspace, so the runner can boot a sandbox from
-   * its replica. Command events written before it was added carry "".
-   *
    * @generated from field: string workspace = 4;
    */
   workspace: string;
