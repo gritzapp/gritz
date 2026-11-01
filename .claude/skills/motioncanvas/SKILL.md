@@ -7,7 +7,7 @@ description: Build animated architecture diagrams of gritz flows (server, runner
 
 `diagrams/` is a Motion Canvas project of animated **architecture** diagrams, not
 sequence diagrams. Components stay on screen, messages travel between them as
-labelled packets, and the state each component owns (task rows, `taskstate/`,
+labelled packets, and the state each component owns (task rows, sandbox records,
 the outbox, files in the sandbox) is visible and changes as the flow runs.
 
 ## Running

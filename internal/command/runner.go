@@ -21,7 +21,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
-	"github.com/gritzapp/gritz/internal/runner/taskstate"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/urfave/cli/v3"
 )
@@ -83,13 +82,13 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "state-dir",
-			Usage:   "Directory for the runner-local task→sandbox-handle store",
+			Usage:   "Directory whose parent holds the runner event outbox (outbox/)",
 			Value:   "/var/lib/gritz/tasks",
 			Sources: cli.EnvVars("GRITZ_STATE_DIR"),
 		},
 		&cli.StringFlag{
 			Name:    "state-db",
-			Usage:   "SQLite database for the runner's replica of its tasks' event logs (keep it on the same volume as --state-dir)",
+			Usage:   "SQLite database for the runner's replica of its tasks' event logs and its task→sandbox-handle records (keep it on the same volume as --state-dir)",
 			Value:   "/var/lib/gritz/runner.db",
 			Sources: cli.EnvVars("GRITZ_STATE_DB"),
 		},
@@ -157,7 +156,7 @@ var RunnerCommand = &cli.Command{
 		})
 
 		// The outbox is durable: it lives under the runner's persistent state
-		// directory (a sibling of the taskstate dir, on the same volume), so
+		// directory (a sibling of --state-dir, on the same volume), so
 		// runner lifecycle events survive a restart and are redelivered on the
 		// next Run pass rather than being lost with an in-memory buffer.
 		queue, err := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
@@ -204,15 +203,10 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("unknown backend: %q", backendName)
 		}
 
-		// Open the runner-local task→sandbox-handle store, the single source of
-		// truth for which sandbox belongs to which task.
-		store, err := taskstate.Open(cmd.String("state-dir"))
-		if err != nil {
-			return fmt.Errorf("failed to open task store: %w", err)
-		}
-
 		// Open the runner's SQLite database, which holds the replica of its
-		// tasks' event logs that the TaskManager acts on.
+		// tasks' event logs that the TaskManager acts on, and the task→sandbox-
+		// handle records, the single source of truth for which sandbox belongs
+		// to which task.
 		stateDB := cmd.String("state-db")
 		if err := os.MkdirAll(filepath.Dir(stateDB), 0o755); err != nil {
 			return fmt.Errorf("failed to create state db directory: %w", err)
@@ -233,7 +227,6 @@ var RunnerCommand = &cli.Command{
 		m, err := runner.NewTaskManager(runner.TaskManagerOptions{
 			Client:       client,
 			Backend:      be,
-			Store:        store,
 			ServerURL:    serverAddr,
 			Workspaces:   workspaces,
 			Concurrency:  int(concurrency),

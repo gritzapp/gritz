@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -16,23 +16,22 @@ import (
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
-	"github.com/gritzapp/gritz/internal/runner/taskstate"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"github.com/gritzapp/gritz/internal/x/outbox"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
 )
 
 // legacyRecord is a record written by an older runner: its Data carries the run
 // version.
-func legacyRecord(taskID int64, id string) taskstate.Record {
-	return taskstate.Record{
+func legacyRecord(taskID int64, id string) runnerstore.SandboxRecord {
+	return runnerstore.SandboxRecord{
 		TaskID:  taskID,
 		Version: 3,
-		Type:    "fake",
-		ID:      id,
-		Data:    json.RawMessage(`{"version":3}`),
+		Handle:  backend.Handle{Type: "fake", ID: id, Data: json.RawMessage(`{"version":3}`)},
 	}
 }
 
@@ -56,8 +55,8 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	store := testrunner.NewStore(t, taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"})
-	first := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: store})
+	store := testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}})
+	first := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, RunnerStore: store})
 	ctx, cancel := context.WithCancel(t.Context())
 	assert.NilError(t, first.Load(ctx))
 	testrunner.WaitRuns(t, be, "c1", 1)
@@ -70,7 +69,7 @@ func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
 
 	// Act - the next runner process loads the record and reattaches, over its
 	// own Open of the same sandbox; then the run finishes.
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Store: store})
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, RunnerStore: store})
 	assert.NilError(t, m.Load(t.Context()))
 	testrunner.WaitRuns(t, be, "c1", sbx.Runs+1)
 	testrunner.StopRun(t, client, 3)
@@ -87,7 +86,7 @@ func TestTaskManagerLoad(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name       string
-		record     taskstate.Record
+		record     runnerstore.SandboxRecord
 		state      fake.State
 		openErr    error
 		statusErr  error
@@ -166,8 +165,8 @@ func TestTaskManagerLoad(t *testing.T) {
 				be.FailNext(fake.OpStatus, "c1", tt.statusErr)
 			}
 			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-				Backend: be,
-				Store:   testrunner.NewStore(t, tt.record),
+				Backend:     be,
+				RunnerStore: testrunner.NewRunnerStore(t, tt.record),
 			})
 			m.Client.GetTaskFunc = taskRunning
 
@@ -230,11 +229,10 @@ func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
 			be.Add("c1", fake.Parked)
 			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 				Backend: be,
-				Store: testrunner.NewStore(t, taskstate.Record{
+				RunnerStore: testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{
 					TaskID:  1,
 					Version: tt.recVersion,
-					Type:    "fake",
-					ID:      "c1",
+					Handle:  backend.Handle{Type: "fake", ID: "c1"},
 				}),
 			})
 			m.Client.GetTaskFunc = taskRunning
@@ -259,7 +257,7 @@ func TestTaskManagerPrune(t *testing.T) {
 	t.Parallel()
 	// Arrange - every record but the deleted task's (4) belongs to an archived
 	// task, except 2's. Each is restored parked, but task 8's, restored up.
-	recs := []taskstate.Record{
+	recs := []runnerstore.SandboxRecord{
 		legacyRecord(1, "c1"), // archived -> removed
 		legacyRecord(2, "c2"), // not archived -> kept
 		legacyRecord(3, "c3"), // up -> kept
@@ -270,12 +268,12 @@ func TestTaskManagerPrune(t *testing.T) {
 	}
 	be := testrunner.NewBackend(t, nil)
 	for _, rec := range recs {
-		be.Add(rec.ID, fake.Parked)
+		be.Add(rec.Handle.ID, fake.Parked)
 	}
 	be.Set("c8", fake.Up)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend: be,
-		Store:   testrunner.NewStore(t, recs...),
+		Backend:     be,
+		RunnerStore: testrunner.NewRunnerStore(t, recs...),
 	})
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		if req.Id == 4 {
@@ -321,7 +319,7 @@ func TestTaskManagerPrune(t *testing.T) {
 		assert.Equal(t, sbx.Destroys, want.destroys, "sandbox %s", id)
 	}
 	// The retired tasks' records are removed.
-	stored, err := m.Store.List()
+	stored, err := m.RunnerStore.Sandboxes(t.Context())
 	assert.NilError(t, err)
 	var kept []int64
 	for _, rec := range stored {
@@ -338,14 +336,14 @@ func TestTaskManagerRun(t *testing.T) {
 	// Arrange - task 1 is archived and its sandbox is parked. The server has
 	// no events until the test adds a stop. The outbox's durable write fails,
 	// so the first event the runner persists terminates it.
-	rec := taskstate.Record{TaskID: 1, Version: 3, Type: "fake", ID: "c1"}
+	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Parked)
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 		Backend:      be,
-		Store:        testrunner.NewStore(t, rec),
+		RunnerStore:  testrunner.NewRunnerStore(t, rec),
 		PollInterval: 10 * time.Millisecond,
 		Fatal:        cancelCause,
 		// The die path is reached through Enqueue → Append alone, so the other
@@ -364,13 +362,19 @@ func TestTaskManagerRun(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- m.TaskManager.Run(ctx) }()
 
-	// Assert - the archived task's sandbox is pruned while Run keeps going.
-	waitCtx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	_, err = be.Wait(waitCtx, func(s fake.Snapshot) bool { return len(s.Destroyed) > 0 })
-	assert.NilError(t, err, "sandbox was not pruned")
+	// Assert - the archived task's sandbox is pruned while Run keeps going:
+	// destroyed, then its record removed.
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		_, ok, err := m.RunnerStore.Sandbox(t.Context(), 1)
+		if err != nil {
+			return poll.Error(err)
+		}
+		if ok {
+			return poll.Continue("task 1 has a record")
+		}
+		return poll.Success()
+	}, poll.WithTimeout(3*time.Second))
 	assert.DeepEqual(t, be.Snapshot().Destroyed, []string{"c1"})
-	m.AssertRecord(t, 1, nil)
 
 	// Act - a stop command for a task with no sandbox, whose "stopped" cannot
 	// be persisted.
@@ -412,7 +416,7 @@ func TestTaskManagerRunning(t *testing.T) {
 			m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
 			if tt.state != 0 {
 				rec := legacyRecord(1, "c1")
-				assert.NilError(t, m.Store.Write(rec))
+				assert.NilError(t, m.RunnerStore.WriteSandbox(t.Context(), rec))
 				be.Add("c1", fake.Parked)
 				_, err := m.Runner(1).Restore(t.Context(), rec)
 				assert.NilError(t, err)
@@ -509,11 +513,10 @@ func TestTaskManagerHandleEvents_Lost(t *testing.T) {
 	be.Add("c1", fake.Up)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 		Backend: be,
-		Store: testrunner.NewStore(t, taskstate.Record{
+		RunnerStore: testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{
 			TaskID:  1,
 			Version: 3,
-			Type:    "fake",
-			ID:      "c1",
+			Handle:  backend.Handle{Type: "fake", ID: "c1"},
 		}),
 		TaskRunner: func(opts *runner.TaskRunnerOptions) {
 			opts.LostTimeout = 100 * time.Millisecond
@@ -539,18 +542,17 @@ func TestTaskManagerHandleEvents_Lost(t *testing.T) {
 // with a FatalError cause.
 func TestTaskManagerHandleEvents_Fatal(t *testing.T) {
 	t.Parallel()
-	// Arrange - a store whose directory is gone, so every write fails.
-	dir := t.TempDir()
-	store, err := taskstate.Open(dir)
+	// Arrange - a store that is already closed, so every write fails.
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
 	assert.NilError(t, err)
-	assert.NilError(t, os.RemoveAll(dir))
+	assert.NilError(t, store.Close())
 	be := testrunner.NewBackend(t, nil)
 	ctx, cancelCause := context.WithCancelCause(t.Context())
 	defer cancelCause(nil)
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend: be,
-		Store:   store,
-		Fatal:   cancelCause,
+		Backend:     be,
+		RunnerStore: store,
+		Fatal:       cancelCause,
 	})
 
 	// Act

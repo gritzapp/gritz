@@ -47,8 +47,8 @@ type RunEnver interface {
 // Create or Open. Every method handles that: Status reports StatusGone, Boot
 // and Park return ErrGone, and Destroy returns nil.
 type Sandbox interface {
-	// Handle identifies the sandbox for taskstate/. It is fixed at Create and
-	// never changes over the sandbox's life.
+	// Handle identifies the sandbox in the runner's sandbox records. It is
+	// fixed at Create and never changes over the sandbox's life.
 	Handle() Handle
 
 	// Boot boots a created sandbox or resumes a parked one, and blocks until

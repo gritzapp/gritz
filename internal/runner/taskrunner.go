@@ -16,14 +16,14 @@ import (
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
-	"github.com/gritzapp/gritz/internal/runner/taskstate"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/x/common"
 )
 
-// TaskRunner is the runner's state for a task: its sandbox, the task's record
-// in taskstate/, and the run being followed on it. It is the runner's object
-// for the task, not for one sandbox: it may have no sandbox yet, and it
-// outlives the sandbox it has. Boot creates a sandbox and writes its record,
+// TaskRunner is the runner's state for a task: its sandbox, the task's
+// sandbox record in the runner store, and the run being followed on it. It is
+// the runner's object for the task, not for one sandbox: it may have no
+// sandbox yet, and it outlives the sandbox it has. Boot creates a sandbox and writes its record,
 // and Restore adopts the record a previous process wrote; Destroy and Retire
 // destroy the sandbox and delete its record, and Boot and Restore delete the
 // record of a sandbox they find gone. The TaskRunner stays usable throughout,
@@ -37,9 +37,9 @@ type TaskRunner struct {
 	// sbx is the task's sbx, or nil while it has none. It is set by Boot,
 	// which creates it, or by Restore, and cleared by clear. Guarded by mu.
 	sbx backend.Sandbox
-	// rec is sb's record, as last written to taskstate/; zero while sb is nil.
-	// Guarded by mu.
-	rec taskstate.Record
+	// rec is sb's record, as last written to the runner store; zero while sb
+	// is nil. Guarded by mu.
+	rec runnerstore.SandboxRecord
 	// running is set from Boot (or Restore) until Run returns, so a second run
 	// is not started meanwhile, and the sandbox is not destroyed under it.
 	// Guarded by mu.
@@ -54,7 +54,7 @@ type TaskRunnerOptions struct {
 	// record Restore adopts. Required.
 	Backend backend.Backend
 	// Store holds the task's record. Required.
-	Store *taskstate.Store
+	Store *runnerstore.Store
 	// Events receives the TaskRunner's events; see TaskRunner.send. Required.
 	Events chan<- TaskEvent
 	// Log is the logger; defaults to slog.Default().
@@ -136,31 +136,21 @@ func (TaskLostEvent) taskEvent()  {}
 // sandbox may already be parking after its run (a Lambda VM suspending).
 var ErrRunning = errors.New("sandbox is still running")
 
-// recordHandle returns the handle a record tracks.
-func recordHandle(rec taskstate.Record) backend.Handle {
-	return backend.Handle{Type: rec.Type, ID: rec.ID, Data: rec.Data}
-}
-
 // record returns the task's record of sb's handle at version.
-func (tr *TaskRunner) record(sb backend.Sandbox, version int64) taskstate.Record {
-	h := sb.Handle()
-	return taskstate.Record{
-		TaskID:  tr.opts.TaskID,
-		Version: version,
-		Type:    h.Type,
-		ID:      h.ID,
-		Data:    h.Data,
-	}
+func (tr *TaskRunner) record(sb backend.Sandbox, version int64) runnerstore.SandboxRecord {
+	return runnerstore.SandboxRecord{TaskID: tr.opts.TaskID, Version: version, Handle: sb.Handle()}
 }
 
-// write records rec in taskstate/ and on tr. A store write failure terminates
-// the runner, through a TaskFatalEvent: the taskstate store is the runner's
-// other durable local store, and a write failure here is the same
+// write records rec in the runner store and on tr. A store write failure
+// terminates the runner, through a TaskFatalEvent: the runner store is the
+// runner's durable local state, and a write failure here is the same
 // non-transient disk failure as an outbox Enqueue failure, so crash rather than
-// lose the handle. The returned error still unwinds the caller (releasing the
-// sem slot) as ctx tears down. The caller holds tr.mu.
-func (tr *TaskRunner) write(ctx context.Context, rec taskstate.Record) error {
-	if err := tr.opts.Store.Write(rec); err != nil {
+// lose the handle. The record is written even if ctx is done, so a sandbox
+// created as the runner shuts down is not left untracked. The returned error
+// still unwinds the caller (releasing the sem slot) as ctx tears down. The
+// caller holds tr.mu.
+func (tr *TaskRunner) write(ctx context.Context, rec runnerstore.SandboxRecord) error {
+	if err := tr.opts.Store.WriteSandbox(context.WithoutCancel(ctx), rec); err != nil {
 		tr.send(ctx, TaskFatalEvent{
 			TaskID: tr.opts.TaskID,
 			Err:    fmt.Errorf("record handle for task %d: %w", tr.opts.TaskID, err),
@@ -187,12 +177,13 @@ func (tr *TaskRunner) send(ctx context.Context, ev TaskEvent) {
 // always does: a record that cannot be deleted is only logged, since it tracks
 // a sandbox that is gone or destroyed. The next Boot overwrites it, and if
 // there is none, the next boot's Load finds the sandbox gone and drops it. The
-// caller holds tr.mu.
-func (tr *TaskRunner) clear() {
-	if err := tr.opts.Store.Remove(tr.opts.TaskID); err != nil {
+// caller holds tr.mu. The record is deleted even if ctx is done, since the
+// sandbox it tracks already is.
+func (tr *TaskRunner) clear(ctx context.Context) {
+	if err := tr.opts.Store.RemoveSandbox(context.WithoutCancel(ctx), tr.opts.TaskID); err != nil {
 		tr.opts.Log.Error("failed to remove record", "task", tr.opts.TaskID, "err", err)
 	}
-	tr.sbx, tr.rec = nil, taskstate.Record{}
+	tr.sbx, tr.rec = nil, runnerstore.SandboxRecord{}
 }
 
 // Version returns the version the task's record is stamped with, or 0 if it
@@ -244,7 +235,7 @@ func (tr *TaskRunner) Boot(ctx context.Context, spec backend.Spec) error {
 		}
 	}
 	if err := tr.sbx.Boot(ctx); errors.Is(err, backend.ErrGone) {
-		tr.clear()
+		tr.clear(ctx)
 		return backend.ErrGone
 	} else if err != nil {
 		return err
@@ -281,12 +272,12 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 // sandbox and its record deleted; see clear. A failed status check keeps the
 // sandbox and its record, since the sandbox may still be there, and claims
 // nothing.
-func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backend.Status, error) {
+func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord) (backend.Status, error) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
-	sb, err := tr.opts.Backend.Open(recordHandle(rec))
+	sb, err := tr.opts.Backend.Open(rec.Handle)
 	if err != nil {
-		tr.clear()
+		tr.clear(ctx)
 		return backend.StatusUnknown, fmt.Errorf("failed to open sandbox: %w", err)
 	}
 	tr.sbx, tr.rec = sb, rec
@@ -296,7 +287,7 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec taskstate.Record) (backen
 	}
 	switch st {
 	case backend.StatusGone:
-		tr.clear()
+		tr.clear(ctx)
 	case backend.StatusUp:
 		tr.running = true
 	}
@@ -352,7 +343,7 @@ func (tr *TaskRunner) Destroy(ctx context.Context) error {
 	if err := tr.sbx.Destroy(ctx); err != nil {
 		return err
 	}
-	tr.clear()
+	tr.clear(ctx)
 	return nil
 }
 
@@ -379,7 +370,7 @@ func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
 	if err := tr.sbx.Destroy(ctx); err != nil {
 		return false, fmt.Errorf("failed to remove sandbox: %w", err)
 	}
-	tr.clear()
+	tr.clear(ctx)
 	return true, nil
 }
 
