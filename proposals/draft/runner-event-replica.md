@@ -248,7 +248,12 @@ to one runner.
 
 A new package, `internal/runner/runnerstore`, is the runner's SQLite
 database (`github.com/ncruces/go-sqlite3`, no cgo; WAL, `synchronous = FULL`,
-one connection). It starts with an `events` table: one row per replicated event, in the
+one connection). It is set up like the server's store: the schema lives in
+embedded migrations (`internal/runner/runnerstore/sql/migrations/`, applied
+in order by `Open`, each in a transaction, with progress recorded in
+`PRAGMA user_version`; not dbmate, whose SQLite driver needs cgo), and the
+queries are sqlc-generated from `internal/runner/runnerstore/sql/queries/`
+into `internal/runner/runnerstore/sqlc`. It starts with an `events` table: one row per replicated event, in the
 order it arrived, with the event's `id`, `task_id`, `type` and the payload as
 stored on the server. `seq` is the local position: arrival order is the
 server's log order, so `seq` increases along the log with no gaps. `type` is

@@ -8,8 +8,10 @@ package runnerstore
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 
 	_ "github.com/ncruces/go-sqlite3/driver" // registers the "sqlite3" database/sql driver
@@ -19,28 +21,13 @@ import (
 
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/runnerstore/sqlc"
 )
 
-const schema = `
-CREATE TABLE IF NOT EXISTS events (
-    seq     INTEGER PRIMARY KEY,  -- local arrival order
-    id      INTEGER NOT NULL UNIQUE,
-    task_id INTEGER NOT NULL,
-    type    TEXT    NOT NULL,
-    event   BLOB    NOT NULL      -- gritz.v1.Event, protobuf-encoded
-);
-CREATE INDEX IF NOT EXISTS events_task_seq ON events (task_id, seq);
-
-CREATE TABLE IF NOT EXISTS replication (
-    id     INTEGER PRIMARY KEY CHECK (id = 1),
-    cursor TEXT NOT NULL          -- opaque; ListRunnerEventsResponse.next_page_token
-);
-
-CREATE TABLE IF NOT EXISTS tasks (
-    id       INTEGER PRIMARY KEY,
-    archived INTEGER NOT NULL DEFAULT 0  -- the fold of the task's archive events
-);
-`
+// migrations holds the schema, one file per version, applied in name order.
+//
+//go:embed sql/migrations/*.sql
+var migrations embed.FS
 
 // eventTypeUnknown is the type stored for an event whose payload arm this
 // runner doesn't know: one added by a newer server.
@@ -49,6 +36,7 @@ const eventTypeUnknown = "unknown"
 // Store is the runner's SQLite database.
 type Store struct {
 	db *sql.DB
+	q  *sqlc.Queries
 }
 
 // Open opens the database at path, creating it and its tables if absent.
@@ -65,10 +53,54 @@ func Open(path string) (*Store, error) {
 	// One connection: the runner is the database's only user, and SQLite
 	// allows one writer at a time anyway.
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
-		return nil, errors.Join(fmt.Errorf("runnerstore: create schema: %w", err), db.Close())
+	if err := migrate(db); err != nil {
+		return nil, errors.Join(err, db.Close())
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, q: sqlc.New(db)}, nil
+}
+
+// migrate applies the migrations the database lacks, each in its own
+// transaction. PRAGMA user_version holds how many are applied.
+func migrate(db *sql.DB) error {
+	files, err := fs.Glob(migrations, "sql/migrations/*.sql")
+	if err != nil {
+		return fmt.Errorf("runnerstore: list migrations: %w", err)
+	}
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("runnerstore: read schema version: %w", err)
+	}
+	if version > len(files) {
+		return fmt.Errorf("runnerstore: schema version %d is newer than this runner's %d", version, len(files))
+	}
+	for i, name := range files[version:] {
+		if err := applyMigration(db, name, version+i+1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyMigration(db *sql.DB, name string, version int) error {
+	data, err := migrations.ReadFile(name)
+	if err != nil {
+		return fmt.Errorf("runnerstore: read %s: %w", name, err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("runnerstore: begin %s: %w", name, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(string(data)); err != nil {
+		return fmt.Errorf("runnerstore: apply %s: %w", name, err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+		return fmt.Errorf("runnerstore: set schema version after %s: %w", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("runnerstore: commit %s: %w", name, err)
+	}
+	return nil
 }
 
 // Close closes the database.
@@ -94,6 +126,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		return nil, fmt.Errorf("runnerstore: begin: %w", err)
 	}
 	defer tx.Rollback()
+	q := s.q.WithTx(tx)
 	type task struct{ known, before, archived bool }
 	var ids []int64
 	tasks := map[int64]*task{}
@@ -102,18 +135,18 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		if err != nil {
 			return nil, fmt.Errorf("runnerstore: marshal event %d: %w", e.GetId(), err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO events (id, task_id, type, event) VALUES (?, ?, ?, ?)`,
-			e.GetId(), e.GetTaskId(), eventType(e), data,
-		); err != nil {
+		if err := q.InsertEvent(ctx, sqlc.InsertEventParams{
+			ID:     e.GetId(),
+			TaskID: e.GetTaskId(),
+			Type:   eventType(e),
+			Event:  data,
+		}); err != nil {
 			return nil, fmt.Errorf("runnerstore: insert event %d: %w", e.GetId(), err)
 		}
 		t, ok := tasks[e.GetTaskId()]
 		if !ok {
 			t = &task{}
-			err := tx.QueryRowContext(ctx,
-				`SELECT archived FROM tasks WHERE id = ?`, e.GetTaskId(),
-			).Scan(&t.before)
+			t.before, err = q.GetTaskArchived(ctx, e.GetTaskId())
 			switch {
 			case err == nil:
 				t.known = true
@@ -132,11 +165,10 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		if t.known && t.before == t.archived {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO tasks (id, archived) VALUES (?, ?)
-			 ON CONFLICT (id) DO UPDATE SET archived = excluded.archived`,
-			id, t.archived,
-		); err != nil {
+		if err := q.SetTaskArchived(ctx, sqlc.SetTaskArchivedParams{
+			ID:       id,
+			Archived: t.archived,
+		}); err != nil {
 			return nil, fmt.Errorf("runnerstore: set task %d: %w", id, err)
 		}
 		if !t.known && t.archived {
@@ -144,11 +176,7 @@ func (s *Store) AppendEvents(ctx context.Context, events []*gritzv1.Event, curso
 		}
 		changes = append(changes, TaskChange{ID: id, Archived: t.archived})
 	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO replication (id, cursor) VALUES (1, ?)
-		 ON CONFLICT (id) DO UPDATE SET cursor = excluded.cursor`,
-		cursor,
-	); err != nil {
+	if err := q.SetCursor(ctx, cursor); err != nil {
 		return nil, fmt.Errorf("runnerstore: set cursor: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -183,8 +211,7 @@ func foldArchived(archived bool, e *gritzv1.Event) bool {
 
 // Cursor returns the stored replication cursor, or "" when none is stored.
 func (s *Store) Cursor(ctx context.Context) (string, error) {
-	var cursor string
-	err := s.db.QueryRowContext(ctx, `SELECT cursor FROM replication WHERE id = 1`).Scan(&cursor)
+	cursor, err := s.q.GetCursor(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -201,7 +228,8 @@ func (s *Store) Cursor(ctx context.Context) (string, error) {
 func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*gritzv1.Event, error) {
 	var after int64
 	if afterID != 0 {
-		err := s.db.QueryRowContext(ctx, `SELECT seq FROM events WHERE id = ?`, afterID).Scan(&after)
+		var err error
+		after, err = s.q.GetEventSeq(ctx, afterID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("runnerstore: event %d is not stored", afterID)
 		}
@@ -209,28 +237,20 @@ func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*
 			return nil, fmt.Errorf("runnerstore: resolve event %d: %w", afterID, err)
 		}
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT event FROM events WHERE task_id = ? AND seq > ? ORDER BY seq`,
-		taskID, after,
-	)
+	rows, err := s.q.ListTaskEventsAfter(ctx, sqlc.ListTaskEventsAfterParams{
+		TaskID: taskID,
+		Seq:    after,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("runnerstore: read task %d events: %w", taskID, err)
 	}
-	defer rows.Close()
 	var events []*gritzv1.Event
-	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
-			return nil, fmt.Errorf("runnerstore: scan task %d event: %w", taskID, err)
-		}
+	for _, data := range rows {
 		e := &gritzv1.Event{}
 		if err := proto.Unmarshal(data, e); err != nil {
 			return nil, fmt.Errorf("runnerstore: unmarshal task %d event: %w", taskID, err)
 		}
 		events = append(events, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("runnerstore: read task %d events: %w", taskID, err)
 	}
 	return events, nil
 }
@@ -238,20 +258,8 @@ func (s *Store) TaskEventsAfter(ctx context.Context, taskID, afterID int64) ([]*
 // UnarchivedTaskIDs returns the ids of every stored task that isn't archived,
 // ascending.
 func (s *Store) UnarchivedTaskIDs(ctx context.Context) ([]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM tasks WHERE NOT archived ORDER BY id`)
+	ids, err := s.q.ListUnarchivedTaskIDs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("runnerstore: read task ids: %w", err)
-	}
-	defer rows.Close()
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("runnerstore: scan task id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("runnerstore: read task ids: %w", err)
 	}
 	return ids, nil

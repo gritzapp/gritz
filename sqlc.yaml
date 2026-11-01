@@ -14,3 +14,13 @@ sql:
             go_type: "string"
           - db_type: "xid8"
             go_type: "uint64"
+  - engine: "sqlite"
+    queries: "internal/runner/runnerstore/sql/queries/"
+    schema: "internal/runner/runnerstore/sql/migrations/"
+    gen:
+      go:
+        package: "sqlc"
+        out: "internal/runner/runnerstore/sqlc"
+        overrides:
+          - column: "tasks.archived"
+            go_type: "bool"
