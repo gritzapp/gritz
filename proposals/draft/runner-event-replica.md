@@ -744,25 +744,29 @@ sends `RunEnded` up the stream when a run is over.
    client, and `X-aws-proxy-force-h2: true` on every Lambda MicroVM driver
    request. Depends on: nothing. Verifiable by: the existing Docker and Lambda
    MicroVM backend tests.
-6. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
+6. **Runner acts on events** — Delivers: `gritz runner` constructing and
+   running a `taskevents.Log` on its `runnerstore`; `TaskManager` creating and
+   dropping `TaskRunner`s from `Log.Tasks()` (full-state reports, applied
+   idempotently); each `TaskRunner` acting on its task's latest command and
+   version through the existing driver `Run` and `Stop` RPCs, so the driver
+   protocol is unchanged; `Poll` removed and the runner no longer calls
+   `ListRunnerTasks` (the RPC stays on the server for older runners until a
+   later cleanup); a shared fake server for runner tests that serves
+   `ListRunnerEvents` from an in-memory log. Depends on: (2), (4).
+   Verifiable by: `runner_test` with the fake backend and the fake server for
+   start, restart, stop with no sandbox, and slot exhaustion.
+7. **Driver event file and bidi `Run`** — Delivers: `eventfile`, the bidi
    `Run` with the `RunSpec` as its first message, `Hello`, `RunEnded` in
-   place of `Finished`, and the
-   `TaskRunner` forwarding `Stream.Read` from the
-   driver's position. Commands are still acted on as today. Depends on: (4), (5).
-   Verifiable by: driverserver tests; a reconnect resends only what the file
-   lacks.
-7. **Driver acts on commands** — Delivers: start/restart/stop driven by
-   command events; `Stop` RPC removed. Depends on: (2), (6). Verifiable by:
-   driverserver tests per command, including a resent stream that repeats
-   commands.
-8. **`TaskRunner` acts on its stream** — Delivers: `TaskManager` creating and
-   dropping `TaskRunner`s from `Log.Tasks()`, each `TaskRunner` folding its stream's
-   command events and booting or parking its sandbox; `Poll` and
-   `ListRunnerTasks` removed. Depends on: (7).
-   Verifiable by: `runner_test` with the fake backend for start, restart, stop
-   with no sandbox, and slot exhaustion.
+   place of `Finished`, and the `TaskRunner` forwarding `Stream.Read` from the
+   driver's position. The runner still issues start, restart and stop.
+   Depends on: (5), (6). Verifiable by: driverserver tests; a reconnect
+   resends only what the file lacks.
+8. **Driver acts on commands** — Delivers: start/restart/stop driven by the
+   command events on the stream; the runner stops issuing them; `Stop` RPC
+   removed. Depends on: (7). Verifiable by: driverserver tests per command,
+   including a resent stream that repeats commands.
 9. **Prompt from the event file** — Delivers: the prompt renders from
-   `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (6).
+   `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (7).
    Verifiable by: agent prompt tests for first run and wake.
 
 ## Trade-offs
