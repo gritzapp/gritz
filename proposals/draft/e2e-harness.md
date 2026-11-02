@@ -771,7 +771,7 @@ run if it broke.
 | `TestTaskManagerRunLoop_StopSupersedesWaitingStart` | a | Deleted: `TestCancel_PendingStart`. A real cancel of a pending task withdraws the start (`NONE`) rather than stopping it, so the runner's own `stopped` report stays with `TestTaskManagerRunLoop_StopWithoutSandbox` |
 | `TestTaskManagerRunLoop_Archive` | a | Deleted: `TestArchive` |
 | `TestTaskManagerRunLoop_CreateFails` | a | Deleted: `TestSandboxFails_Create` |
-| `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load` stays in `TestTaskRunnerRestore` |
+| `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load`: `TestRunnerRestart_Completed` |
 | `TestTaskManagerRunLoop_NotReady` | a | Deleted: `TestDriverUnreachable` |
 | `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written (Open Questions). No scenario makes the runner report `stopped` itself |
 | `TestTaskManagerRunLoop_BootFails` | a | Kept: `TestSandboxFails_Boot` covers the failed boot, but not its second half, archiving the task destroys the sandbox that never booted |
@@ -803,7 +803,7 @@ run if it broke.
 | `TestTaskRunnerRunLoop_NothingToRun` | a | Kept: no scenario reattaches to a driver that has never run |
 | `TestTaskRunnerRunLoop_Reopen` | a | Kept: `TestWake_MidRun` and `TestRunnerRestart_PendingWake` reach the reopen only when the run-boundary start beats the driver's `Idle`, about two runs in five of the latter, none of the former |
 | `TestTaskRunnerRunLoop_StopNeverRun` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written |
-| `TestTaskRunnerRestore` | b | Kept: suspended, gone and unopenable records, and a failed status check, need a sandbox that changed while no runner was running |
+| `TestTaskRunnerRestore` | b | Deleted. `up`: `TestRunnerRestart_MidRun`, `TestTaskManagerLoad_Slot`. `suspended`: `TestRunnerRestart_DriverKilled`, and `TestRunnerRestart_Completed` (the record is kept, so a wake boots the same sandbox). `gone`: `TestRunnerRestart_SandboxGone`; dropping its record isn't observable, since the RunLoop clears it right after `Load` (#1933). The `status error` and `open fails` cases are dropped |
 | `TestDoubling` | b | Kept: backoff arithmetic |
 | `TestRunnerEventOutbox_Permanent`, `TestTaskManagerEventsSurviveRestart` | b | Kept: retry classification and durability |
 
