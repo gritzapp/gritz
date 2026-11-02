@@ -774,7 +774,7 @@ run if it broke.
 | `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load`: `TestRunnerRestart_Completed` |
 | `TestTaskManagerRunLoop_NotReady` | a | Deleted: `TestDriverUnreachable` |
 | `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written (Open Questions). No scenario makes the runner report `stopped` itself |
-| `TestTaskManagerRunLoop_BootFails` | a | Kept: `TestSandboxFails_Boot` covers the failed boot, but not its second half, archiving the task destroys the sandbox that never booted |
+| `TestTaskManagerRunLoop_BootFails` | a | Deleted: `TestSandboxFails_Boot`, which restarts the runner before starting the task again, so the sandbox kept after the failed boot must have been recorded before it. Archiving the never-booted sandbox is the same destroy as `TestArchive` and isn't ported |
 | `TestTaskManagerRunLoop_Gone` | c | Deleted: `TestSandboxGone_Suspended` (a wake finds the suspended sandbox gone and fails the run with `backend.ErrGone`; the next wake gets a fresh sandbox) |
 
 #### `internal/runner` (`taskmanager_load_test.go`)
