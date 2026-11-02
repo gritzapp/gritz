@@ -37,9 +37,9 @@ func (s *sandbox) lock() (unlock func()) {
 	return l.Unlock
 }
 
-// driver returns the pid in the sandbox's pid file, and whether it is a live
+// pid returns the pid in the sandbox's pid file, and whether it is a live
 // driver for this sandbox.
-func (s *sandbox) driver() (int, bool) {
+func (s *sandbox) pid() (int, bool) {
 	data, err := os.ReadFile(filepath.Join(s.dir, pidPath))
 	if err != nil {
 		return 0, false
@@ -64,7 +64,7 @@ func (s *sandbox) Boot(ctx context.Context) error {
 	if !ok {
 		return backend.ErrGone
 	}
-	if _, up := s.driver(); up {
+	if _, up := s.pid(); up {
 		return nil
 	}
 	return s.b.startDriver(ctx, s.dir)
@@ -102,7 +102,7 @@ func (s *sandbox) Status(context.Context) (backend.Status, error) {
 	if !ok {
 		return backend.StatusGone, nil
 	}
-	if _, up := s.driver(); up {
+	if _, up := s.pid(); up {
 		return backend.StatusUp, nil
 	}
 	return backend.StatusSuspended, nil
@@ -122,7 +122,7 @@ func (s *sandbox) Suspend(ctx context.Context) error {
 	if !ok {
 		return backend.ErrGone
 	}
-	pid, up := s.driver()
+	pid, up := s.pid()
 	if !up {
 		return nil
 	}
@@ -144,7 +144,7 @@ func (s *sandbox) Suspend(ctx context.Context) error {
 func (s *sandbox) Destroy(ctx context.Context) error {
 	unlock := s.lock()
 	defer unlock()
-	if pid, up := s.driver(); up {
+	if pid, up := s.pid(); up {
 		if err := s.kill(ctx, pid); err != nil {
 			return err
 		}

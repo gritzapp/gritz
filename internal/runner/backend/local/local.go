@@ -169,7 +169,7 @@ func (b *Backend) Kill(h backend.Handle) error {
 	s := sb.(*sandbox)
 	unlock := s.lock()
 	defer unlock()
-	pid, ok := s.driver()
+	pid, ok := s.pid()
 	if !ok {
 		return nil
 	}
