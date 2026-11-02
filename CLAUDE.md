@@ -20,7 +20,12 @@ mise run up:test  # Start test dependencies
 mise run test     # Run all tests
 ```
 
-Pass extra flags to `go test` with `--`: `mise run test -- -run=TestFoo -v`
+Pass extra arguments to `go test` with `--`. Flags alone still run every package; package patterns replace `./...`:
+
+```bash
+mise run test -- -run=TestFoo -v                     # ./... filtered to TestFoo
+mise run test -- ./internal/e2e/... -run=TestFoo -v  # only ./internal/e2e/...
+```
 
 ## Architecture
 

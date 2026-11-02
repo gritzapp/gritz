@@ -10,22 +10,20 @@ description: Guidelines for writing Go tests. Apply when creating or modifying t
 Use the **Arrange, Act, Assert** pattern. Separate each phase with a blank line or comment.
 
 ```go
-func TestGetTask_Permissions(t *testing.T) {
+func TestTaskScope_CreateTask_Denied(t *testing.T) {
     t.Parallel()
     // Arrange
-    srv := setupTestServer(t)
-    ctxA, _ := createTestOrg(t, srv, testOrgOptions{Workspaces: true})
-    ctxB, _ := createTestOrg(t, srv, testOrgOptions{Workspaces: true})
-    resp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-        Name: "User A's Task", Runner: "test-runner", Workspace: "test-workspace",
-    })
-    assert.NilError(t, err)
+    h := e2e.New(t, nil)
+    a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
+    token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
-    // Act - User B tries to get User A's task
-    _, err = srv.GetTask(ctxB, &gritzv1.GetTaskRequest{Id: resp.Task.Id})
+    // Act - a task token tries to create a task
+    _, err := token.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+        Runner: e2e.DefaultRunner, Workspace: e2e.DefaultWorkspace,
+    })
 
     // Assert
-    assert.ErrorContains(t, err, "not found")
+    assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 ```
 
@@ -65,13 +63,28 @@ func TestCreateTask(t *testing.T) {
 }
 ```
 
-## Server Test Helpers
+## Test Helpers
 
-- `setupTestServer(t)` creates a server with a clean database connection.
-- `createTestOrg(t, srv, testOrgOptions{})` returns `(context.Context, *testOrg)`:
-  - `testOrgOptions{Workspaces: true}` registers default workspaces (`test-runner`, `runner-1`, `runner-2` with `test-workspace`, `workspace-1`, `workspace-2`, `default`).
-  - `testOrgOptions{}` creates only the user and org, no workspaces.
-- `testOrg` has `UserID` and `OrgID` fields.
+### Store tests: `teststore`
+
+Store-level tests and tests inside internal packages that need a database use `internal/store/teststore`:
+
+- `teststore.New(t)` returns a `*store.Store` connected to `TEST_DATABASE_URL` (the test is skipped when it is unset) and closes it on cleanup.
+- `teststore.CreateOrg(t, st, &teststore.OrgOptions{...})` creates a user, an org, the owner membership and the default org, plus any `Workspaces` listed. It returns a `*teststore.Org` with `UserID` and `OrgID`.
+- `teststore.CreateTask(t, st, org, &teststore.TaskOptions{...})` creates a task (and any `Links`) in that org; zero options get defaults.
+- `teststore.WaitRunnerEvents(t, st, org, opts)` pages a runner's event log until `opts.Count` events are visible.
+
+### API tests: the e2e harness
+
+API tests go through the e2e harness in `internal/e2e`:
+
+- `h := e2e.New(t, opts)` stands up a real server on a `teststore` database, one harness per test. `opts` may be `nil`.
+- `h.Server` is the server (`h.Server.CreateOrg()` for more orgs, `h.Server.Mock(...)` to inject failures).
+- `h.Org` is the default org, with an owner and a client, registered with `e2e.DefaultRunner` / `e2e.DefaultWorkspace`. Its methods (`CreateTask`, `CreateTaskToken`, `CreateKey`, `AddOrgMember`, `WaitTask`, ...) arrange and assert; the call under test goes through a client (`org.Client`, `token.Client`, ...).
+
+Follow `internal/e2e/RULES.md` for how to use and extend the harness.
+
+API tests on the harness live next to the code they test, as an external test package: `package apiserver_test` in `internal/server/apiserver` (see `taskscope_test.go`).
 
 ## Interface Test Doubles
 
@@ -317,7 +330,7 @@ If an existing test is the only thing exercising a branch, check whether product
 
 Do NOT create little factory/helper functions that build a struct for a couple of call sites. Inline and duplicate the values in each test case -- duplication in tests is preferred over this kind of indirection.
 
-Only extract a helper for genuinely large shared setup (e.g. `setupTestServer` / `createTestOrg` above).
+Only extract a helper for genuinely large shared setup (e.g. `teststore.CreateOrg` or the e2e harness above).
 
 ```go
 // Bad: don't wrap a small struct literal in a helper
@@ -360,5 +373,6 @@ assert.DeepEqual(t, got, want, protocmp.Transform())
 mise run build    # Create bins & webui (required)
 mise run up:test  # Setup dependencies (required)
 mise run test     # Run all tests
-mise run test -- -run=TestFoo -v  # Run specific tests
+mise run test -- -run=TestFoo -v  # Run specific tests across ./...
+mise run test -- ./internal/e2e/... -run=TestFoo -v  # Run only the given packages
 ```

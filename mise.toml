@@ -83,7 +83,18 @@ run = "dbmate"
 description = "Run tests"
 depends = ["migrate"]
 env = { TEST_DATABASE_URL = "postgres://gritz:gritz@localhost:5433/gritz?sslmode=disable" }
-run = "go test ./..."
+# Extra args are appended to the bash -c below as its "$@". Package patterns
+# replace ./...; flags alone still run every package.
+run = '''
+bash -c '
+for arg in "$@"; do
+	case $arg in
+		.|..|./*|../*|/*|github.com/*) exec go test "$@" ;;
+	esac
+done
+exec go test "$@" ./...
+' --
+'''
 
 [tasks.lint]
 description = "Run golangci-lint"
