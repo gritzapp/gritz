@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"database/sql"
 	"sync"
 	"testing"
@@ -132,8 +133,12 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	ctx := t.Context()
 
+	// The claim isn't scoped to an org: it takes the earliest due schedules in
+	// the whole database, which other tests and earlier runs share. Seed this
+	// test's schedules long before any other due one, so they sort first, and
+	// delete them afterwards, so they don't stay due for the next run.
 	const n = 6
-	past := time.Now().UTC().Add(-time.Hour)
+	past := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	want := map[int64]bool{}
 	for i := 0; i < n; i++ {
 		// Distinct next_run_at so ORDER BY next_run_at is deterministic.
@@ -149,6 +154,9 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 			NextRunAt: &next,
 		}
 		assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
+		t.Cleanup(func() {
+			assert.NilError(t, s.DeleteSchedule(context.Background(), nil, sched.ID, org.OrgID))
+		})
 		want[sched.ID] = true
 	}
 
