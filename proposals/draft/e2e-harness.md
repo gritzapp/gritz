@@ -49,15 +49,15 @@ existing tests onto them and delete what they cover.
                                driver process (prebuilt gritz driver --root DIR)   black box
                                      │
                                      ▼
-                               dummy agent running the instruction's e2escript
+                               puppet agent, driven by the test
 ```
 
 Only two things are fake:
 
 - **The sandbox** is a directory on the runner host, and the driver is an
   ordinary child process. The local backend provides it.
-- **The agent** is the existing dummy agent (`internal/runner/agent/dummy.go`).
-  It runs a script that the test puts in the task's instructions.
+- **The agent** is a new `puppet` agent (below). It has no behaviour of its own:
+  the test drives each run through a control channel to the harness.
 
 Everything else is production code: the apiserver behind its real auth, the
 runner's real wiring on its own SQLite `runner.db`, the prebuilt driver binary
@@ -170,59 +170,42 @@ Root string
 paths under `Root`, so the runner keeps sending absolute paths in `RunSpec.files`
 and needs no change. Docker and Lambda keep the default `/`.
 
-### The dummy agent runs a script from its instructions
+### The puppet agent
 
-The workspace-level `agent: dummy:` config (`DummyOptions`: `Sleep`,
-`ToolCalls`, `Commands`, `Error`) applies to every task and every run, so a test
-can't make run 1 block and run 2 exit. The script moves into the instructions:
-the test adds an instruction that carries a script, and the dummy runs the script
-it finds in its prompt.
+The test needs per-run control of what the agent does: keep run 1 going until
+the test has cancelled it, let run 2 finish, make run 3 fail, call a tool at a
+chosen moment. Doing that with scripts (a fenced block in the instructions that
+the dummy agent parses and runs) or with timed sleeps makes scenarios depend on
+timing and on a script format, and the dummy's workspace-level `DummyOptions`
+can't vary per run at all.
 
-**Encoding.** A script is a fenced block with the info string `gritz-e2e`, with
-one JSON step per line:
+Instead, a new agent type, **`puppet`** (`internal/runner/agent`, next to
+`claude`, `codex` and `dummy`), is driven entirely from outside:
 
-````
-```gritz-e2e
-{"sh":"echo $GRITZ_RUN_VERSION >> runs"}
-{"tool":"report","args":{"message":"ready"}}
-{"block":true}
-```
-````
+- **It has no behaviour of its own.** When the driver prompts it, it reports the
+  run (task, run version, prompt) to a control endpoint the harness runs, then
+  does what the test tells it until the test ends the run: complete it, fail it,
+  call a gritz MCP tool, and so on. A stop, restart or shutdown cancels it as it
+  would any agent.
+- **The workspace points it at the harness**, e.g. `agent: puppet: url: …`.
+  Under the local backend the driver runs on the runner host, so it can reach
+  an `httptest` endpoint in the test process.
+- **The test gets a handle on each run** as it happens, keyed by run version, and
+  steps it explicitly. Scenarios stop sleeping and polling files to know where a
+  run is: a run stays open exactly until the test releases it, so "cancel
+  mid-run" is guaranteed to be mid-run, and the prompt each run received is
+  captured for assertions (which instructions reached which run).
+- **The driver stays a black box.** The puppet is just the agent the real driver
+  runs; nothing reaches into the driver.
+- **The dummy agent is unchanged** and keeps its existing uses.
 
-`internal/e2e/e2escript` owns both the encoding and the parser, so the format is
-defined in one place. It is a normal package without `testing`, because the dummy
-agent (production code) imports it.
-
-**Steps:**
-
-| Step | The dummy |
-|---|---|
-| `Sh(cmd)` | Runs `sh -c cmd` in its working directory (the sandbox directory) with the run's environment. It uses the same process group, log tee and cancellation as setup commands (`Driver.setup`): `SIGTERM` to the group on cancel, and 5s later (`WaitDelay`) `sh` is killed and its pipes closed. A non-zero exit fails the run. |
-| `Sleep(d)` | Sleeps for `d`, or until the run is stopped. |
-| `Block()` | Waits until the run is stopped, then returns the context's error. With `ErrStop` as the cause, the run reports `stopped`. |
-| `Tool(name, args)` | Calls the tool on the injected `gritz` MCP server, through the existing `connectMCP`. A tool error fails the run. |
-| `Error(msg)` | Ends the run with `msg` as its error, so it reports `failed` with that reason. |
-
-**Which instructions are new in this run.** The dummy parses its prompt and
-nothing else. The prompt already contains exactly the instructions that are new
-to the run, because that is what `agentprompt.Render` gets from the driver. On
-the first run the brief includes every instruction from the head of the task. On
-a wake it includes the instruction and external events after the driver's
-prompted-up-to position: `Config.NextEventToken` today, and the event-file
-position after runner-event-replica slice 11. Instruction text is rendered
-verbatim (`event-instruction.golden`), so the fence survives. If several new
-instructions carry scripts, their steps run in event order.
-
-The position advances only when a run's prompt returns without error
-(`Driver.runAgent` saves it after `a.Prompt`). So a run that is stopped,
-restarted or fails hands its script to the next run again. The restart scenario
-depends on this, and it is the real at-least-once behaviour a Claude agent gets
-too.
-
-**Fallback.** A prompt with no `gritz-e2e` block runs the workspace's
-`DummyOptions` as today, so `agent: dummy:` stays the default and existing users
-of it are unaffected. A malformed block fails the run with the parse error, which
-shows in the task's `failed` reason.
+**Open:** the control protocol (transport, message shapes, how a run waits for
+its next command, timeouts, cleanup of runs a test never releases, reconnects
+after `KillDriver`) and the harness API for it (the run handle and its methods).
+Settle both when this slice is built. Scenarios below are still written in terms
+of the earlier scripted-dummy design (`Script`, `Sh`, `Block`, `Error`,
+`WaitFile`); their behaviours stand and will be re-expressed against the puppet's
+API.
 
 **`GRITZ_RUN_VERSION`.** Nothing exposes the run version to the agent today. The
 agent's environment has only `GRITZ_TASK_ID`, `GRITZ_TOKEN` and `GRITZ_SERVER`
@@ -230,8 +213,7 @@ agent's environment has only `GRITZ_TASK_ID`, `GRITZ_TOKEN` and `GRITZ_SERVER`
 in `Executor.Start`, and `task.GetVersion()` in `Driver.Run`. `Executor.execute`
 adds `GRITZ_RUN_VERSION=<version>` to the run's environment, after the spec's env
 and secrets so neither can override it. Setup commands and the agent both see
-it. Scripts use it to record which run they were (`echo $GRITZ_RUN_VERSION >>
-runs`), and it is useful to real agents and hooks too.
+it. It is useful to the puppet, to real agents and to hooks.
 
 ### Harness
 
@@ -262,13 +244,13 @@ func TestStart(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
 	task := h.Server.CreateTask()
-	task.Script(e2escript.Sh("echo $GRITZ_RUN_VERSION > ran"))
+	task.AddInstruction("do the thing")
 
 	task.Start()
+	// The test lets the puppet's run 1 complete (API open, see "The puppet agent").
 
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(1))
-	assert.Equal(t, task.ReadFile("ran"), "1\n")
 }
 ```
 
@@ -460,7 +442,6 @@ A `Task` holds the harness and the task id. Its methods are implemented through
 
 | Method | Through |
 |---|---|
-| `Script(steps...)` | `UpdateTask{add_instructions: [e2escript.Encode(steps...)]}` |
 | `AddInstruction(text)` | `UpdateTask{add_instructions: [text]}` |
 | `Start()` | `UpdateTask{start: true}` |
 | `Cancel()`, `Restart()`, `Archive()`, `Unarchive()` | `CancelTask`, `RestartTask`, `ArchiveTask`, `UnarchiveTask` |
@@ -471,8 +452,9 @@ A `Task` holds the harness and the task id. Its methods are implemented through
 | `ReadFile(name)`, `WaitFile(name, want)` | a file in `h.Backend.Dir(id)` |
 
 The composer sends `add_instructions` and `start` in one `UpdateTask`. The
-harness splits them so a test can add a script before deciding how to start it.
-A wake is `Script(...)` followed by `Start()`.
+harness splits them so a test can add instructions before deciding how to start
+the task. A wake is `AddInstruction(...)` followed by `Start()`. Driving the
+agent's runs is the puppet's API (open).
 
 `WaitFile` is an addition to the decided API. Scenarios need to know exactly
 that the script has got this far before they act, and `WaitStatus(RUNNING)`
@@ -524,7 +506,9 @@ do). The prebuilt can be stale against the source; see Open Questions.
 
 ### Scenarios
 
-Each scenario is one top-level test in `internal/e2e`. "Append runs" is
+Each scenario is one top-level test in `internal/e2e`. They are written in
+terms of the earlier scripted-dummy design; the behaviour each one checks stands,
+and the steps will be re-expressed against the puppet's API once it is settled. "Append runs" is
 `Sh("echo $GRITZ_RUN_VERSION >> runs")`, so the file `runs` records which runs
 the agent executed in this sandbox.
 
@@ -789,49 +773,11 @@ type ExecutorOptions struct {
 ```
 
 ```go
-package e2escript // github.com/gritzapp/gritz/internal/e2e/e2escript  // new
-
-// Step is one action of a script.
-type Step struct {
-	Sh    string          `json:"sh,omitempty"`
-	Sleep Duration        `json:"sleep,omitempty"`
-	Block bool            `json:"block,omitempty"`
-	Tool  string          `json:"tool,omitempty"`
-	Args  json.RawMessage `json:"args,omitempty"`
-	Error string          `json:"error,omitempty"`
-}
-
-// Duration is a time.Duration encoded as a string ("1.5s").
-type Duration time.Duration
-
-// Sh runs cmd with sh -c in the sandbox directory.
-func Sh(cmd string) Step
-
-// Sleep sleeps for d, or until the run is stopped.
-func Sleep(d time.Duration) Step
-
-// Block sleeps until the run is stopped.
-func Block() Step
-
-// Tool calls the named tool on the gritz MCP server with args, JSON-encoded.
-func Tool(name string, args any) Step
-
-// Error ends the run with msg as its error.
-func Error(msg string) Step
-
-// Encode returns steps as a gritz-e2e fenced block.
-func Encode(steps ...Step) string
-
-// Parse returns the steps of every gritz-e2e block in text, in order.
-func Parse(text string) ([]Step, error)
-```
-
-```go
 package agent // github.com/gritzapp/gritz/internal/runner/agent
 
-// Prompt runs the e2escript steps in the prompt, or the configured
-// DummyOptions when it has none. // changed
-func (a *DummyAgent) Prompt(ctx context.Context, prompt string, resume bool) error
+// PuppetAgent is driven entirely by a control endpoint: it reports each run
+// and does what it is told until the run ends. // new; API open
+type PuppetAgent struct{ ... }
 ```
 
 ```go
@@ -956,7 +902,6 @@ type Task struct {
 }
 
 // Script adds an instruction carrying steps.
-func (t *Task) Script(steps ...e2escript.Step)
 
 // AddInstruction adds an instruction with text.
 func (t *Task) AddInstruction(text string)
@@ -1014,7 +959,8 @@ DIR`, where the local backend's binary is the running executable.
   runner's `TaskRunner`s create and boot local sandboxes through `h.Backend` and
   its mocks. `Boot` starts `gritz driver --root DIR` from `prebuilt/`.
 - **Inside the sandbox.** The driver resolves every path under `--root`, sets
-  `GRITZ_RUN_VERSION`, and runs the dummy agent. The dummy `e2escript.Parse`s its
+  `GRITZ_RUN_VERSION`, and runs the puppet agent, which reports the run to the
+  harness and does what the test tells it. (Was: the dummy `e2escript.Parse`s its
   prompt and runs the steps. `Tool` steps start the injected MCP server from
   `BinaryPather.BinaryPath()`.
 - **Every call to the server** comes from the harness's `Client`, the runner,
@@ -1048,12 +994,10 @@ Slices that must wait are marked.
    - a second `Backend` on the same root sees and suspends a sandbox the first
      booted;
    - two sandboxes run side by side.
-4. **Scripted dummy.** Delivers: `internal/e2e/e2escript`, and
-   `DummyAgent.Prompt` running a script found in the prompt, falling back to
-   `DummyOptions`. Depends on: nothing. Verifiable by: `e2escript` tests
-   (`Encode`/`Parse` round trip, several blocks in order, other fences ignored,
-   malformed lines rejected); a dummy test per step against a stdio MCP server,
-   and the fallback.
+4. **Puppet agent.** Delivers: the `puppet` agent type and the harness's control
+   endpoint, with the protocol and the run-handle API settled then (open in this
+   proposal). Depends on: nothing. Verifiable by: an agent test driving one run
+   through each command against a stdio MCP server.
 5. **`runner.Serve`.** Delivers: the runner's wiring moved out of
    `command/runner.go` into `runner.Serve`, with `LostTimeout` and
    `ReadyTimeout` in its options. Depends on: nothing. Verifiable by: `gritz
@@ -1139,13 +1083,17 @@ Slices that must wait are marked.
   command events, the xid watermark, the run boundary and the server's version
   guards: everything #1868 was about. They also make every test restate the
   server's behaviour, which is how the two sides drifted apart.
-- **The script in the workspace config** (`DummyOptions`). That config is fixed
-  per runner, so run 1 and run 2 can't differ. Instructions are per task and per
-  run, and reach the agent through the real prompt path.
-- **Passing the script to the dummy as structured data** rather than parsing the
-  prompt. That would need a new channel from the driver to the agent. The
-  rendered prompt is what real agents get, so parsing it also tests that the
-  right instructions reached the run.
+- **The dummy agent running a script from its instructions** (a fenced block of
+  steps such as `sh`, `sleep`, `block`, `tool`, `error`). It gives per-run
+  behaviour through the real prompt path, but scenarios then depend on timing
+  (sleeps, polling files to know where a run is) and on a script format shared
+  by the test and the agent. The puppet gives the same per-run control
+  explicitly, with no timing.
+- **The dummy dumping its prompts to a file.** Enough to assert which
+  instructions reached which run, but it can't control how long a run lasts or
+  how it ends. The puppet captures prompts as well.
+- **The workspace-level dummy config** (`DummyOptions`). Fixed per runner, so
+  run 1 and run 2 can't differ.
 - **Asserting on runner internals** (`runner.db`, fake-backend counters). That is
   more precise, but those are exactly the assertions that churn with every
   runner-event-replica slice. Observable state is what has to survive them.
@@ -1156,6 +1104,8 @@ Slices that must wait are marked.
 
 ## Open Questions
 
+- **The puppet's protocol and API.** See "The puppet agent": transport, message
+  shapes, timeouts, cleanup and the harness's run handle are open.
 - **A stale prebuilt.** The driver comes from `prebuilt/`, built by `mise run
   build`. A developer who changes the driver and runs `go test ./internal/e2e`
   without rebuilding tests the old driver, silently. A `TestMain` could instead
