@@ -103,4 +103,3 @@ func TestTaskManagerRunLoop_BootFails(t *testing.T) {
 	testrunner.WaitSandbox(t, be, "c1", func(sbx fake.Info) bool { return sbx.Destroys == 1 })
 	m.AssertRecord(t, 1, nil)
 }
-

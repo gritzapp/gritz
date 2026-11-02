@@ -771,7 +771,7 @@ run if it broke.
 | `TestTaskManagerRunLoop_StopSupersedesWaitingStart` | a | Deleted: `TestCancel_PendingStart`. A real cancel of a pending task withdraws the start (`NONE`) rather than stopping it, so the runner's own `stopped` report stays with `TestTaskManagerRunLoop_StopWithoutSandbox` |
 | `TestTaskManagerRunLoop_Archive` | a | Deleted: `TestArchive` |
 | `TestTaskManagerRunLoop_CreateFails` | a | Deleted: `TestSandboxFails_Create` |
-| `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load` stays in `TestTaskRunnerRestore` and `TestTaskManagerLoad` |
+| `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load` stays in `TestTaskRunnerRestore` |
 | `TestTaskManagerRunLoop_NotReady` | a | Deleted: `TestDriverUnreachable` |
 | `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written (Open Questions). No scenario makes the runner report `stopped` itself |
 | `TestTaskManagerRunLoop_BootFails` | a | Kept: `TestSandboxFails_Boot` covers the failed boot, but not its second half, archiving the task destroys the sandbox that never booted |
@@ -783,7 +783,7 @@ run if it broke.
 |---|---|---|
 | `TestTaskManagerLoad_RestartReattaches` | a | Deleted: `TestRunnerRestart_MidRun` |
 | `TestTaskManagerGracefulShutdown_NoFatalCause` | a | Deleted: every `h.Runner.Restart()` shuts the runner down, and the harness fails the test if `Serve` returns a `FatalError` |
-| `TestTaskManagerLoad` | b | Kept. The lost-run backstop (`failIfTaskRunning`) needs a sandbox that died while no runner was running, which `h.Runner.Restart()` can't arrange. The `up` row stays with the table: it also pins that the slot `Load` counts for a reattached run is given back |
+| `TestTaskManagerLoad` | b | Deleted. `suspended`: `TestRunnerRestart_DriverKilled` (the backstop's reason, "sandbox exited", is the one recorded). `gone`: `TestRunnerRestart_SandboxGone`. `up`: `TestRunnerRestart_MidRun`. Not ported: the slot `Load` counts for a reattached run (in memory, and a waiting task shows nothing to assert on), what `Load` does with the record (the RunLoop it starts reaches the same record either way), and the `open fails` and `status error` cases |
 | `TestTaskManagerLoad_VersionScopedBackstop` | b | Deleted: `TestRunnerRestart_SandboxGone` (the backstop's `failed`, scoped to the run that was lost). Its second half tested `model.Task.ApplyRunnerEvent`'s version guard, which `internal/model`'s tests cover |
 | `TestTaskManagerLoad_Archived` | b | Deleted: `TestRunnerRestart_Archived` (an archive left pending by a failing destroy is carried out by the next runner's `Load`), `TestArchive_DestroyFails` (a failed destroy is retried) |
 | `TestTaskManagerLoad_SandboxGone` | b | Deleted: `TestSandboxGone_MidRun`, which asserts the failure's reason through the task's sandbox-failed lifecycle event, so the `LostTimeout` fallback ("driver unreachable") doesn't pass it |
