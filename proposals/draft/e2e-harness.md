@@ -305,15 +305,15 @@ func TestStart(t *testing.T) {
    server; `teststore` drops the org. Without `Options.Runner` only the mocks and
    the server are torn down.
 
-**`runner.Serve`.** `gritz runner`'s wiring is all inline in the CLI action
-(`internal/command/runner.go`). It builds the `runnerstore`, `taskevents.Log`,
-`RunnerEventOutbox` and `TaskManager`, then runs `RegisterWorkspaces`,
-`HandleEvents`, `Load`, the outbox, the notification client and `Run`, in that
-order. The harness has to run the same sequence, not a copy of it.
-
-The sequence moves into `runner.Serve(ctx, ServeOptions)`. The command keeps
-flag parsing, config loading and backend selection, and calls `Serve`. `Serve`
-returns when `ctx` ends and leaves sandboxes up, as a shutdown does today.
+**`runner.Serve`** (`internal/runner/serve.go`, landed in #1912) is `gritz
+runner`'s wiring. It builds the `runnerstore`, `taskevents.Log`,
+`RunnerEventOutbox` and `TaskManager`, then runs `RegisterWorkspaces`, `Load`,
+the outbox, the notification client and `Run`, in that order. The command keeps
+flag parsing, config loading and backend selection, and calls `Serve`; the
+harness calls the same function, not a copy of it. `Serve` returns when `ctx`
+ends and leaves sandboxes up, as a shutdown does today. Before `h.Runner.Restart()`
+can call it again on the same `runner.db`, `Serve` must also wait for the outbox
+and notification goroutines it starts, which it doesn't yet (slice 5).
 
 **One harness per test.** Each harness has its own org, server, runner,
 `runner.db` and sandbox root, so tests can call `t.Parallel()`. They share one
@@ -1455,8 +1455,8 @@ Slices that must wait are marked.
   runner-event-replica slice. Observable state is what has to survive them.
 - **A harness-local copy of the runner wiring** instead of `runner.Serve`. It
   is less churn now, but it would drift from `gritz runner`, and the harness
-  would stop testing the real assembly order (`HandleEvents` before `Load`,
-  `Load` before `Run`).
+  would stop testing the real assembly order (`RegisterWorkspaces` before
+  `Load`, `Load` before `Run`).
 
 ## Open Questions
 
