@@ -35,6 +35,7 @@ type Runner struct {
 	t    *testing.T
 	opts runner.ServeOptions
 
+	// cancel stops Serve; nil while the runner is stopped.
 	cancel context.CancelFunc
 	// done is closed when Serve returns.
 	done chan struct{}
@@ -68,8 +69,8 @@ func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions
 		ReadyTimeout: 2 * time.Second,
 		Log:          log,
 	}}
-	r.start()
-	t.Cleanup(r.stop)
+	r.Start()
+	t.Cleanup(r.Stop)
 	// CreateTask needs the workspace the runner registers on startup.
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
 		workspaces := org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{})
@@ -83,9 +84,13 @@ func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions
 	return r
 }
 
-// start runs Serve on a goroutine. Its context isn't the test's, which ends
-// before cleanup starts: the runner is stopped in cleanup's order.
-func (r *Runner) start() {
+// Start runs Serve on a goroutine, on the runner's runner.db and backend. Its
+// context isn't the test's, which ends before cleanup starts: the runner is
+// stopped in cleanup's order. The runner must be stopped.
+func (r *Runner) Start() {
+	if r.cancel != nil {
+		panic("e2e: Start on a running runner")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -100,15 +105,20 @@ func (r *Runner) start() {
 	r.cancel, r.done = cancel, done
 }
 
-// stop stops the runner and waits for Serve to return.
-func (r *Runner) stop() {
+// Stop stops the runner and waits for Serve to return. Stopping a stopped
+// runner does nothing, so cleanup can stop a runner the test stopped.
+func (r *Runner) Stop() {
+	if r.cancel == nil {
+		return
+	}
 	r.cancel()
 	<-r.done
+	r.cancel, r.done = nil, nil
 }
 
 // Restart stops the runner and starts a new one on the same runner.db and
 // backend.
 func (r *Runner) Restart() {
-	r.stop()
-	r.start()
+	r.Stop()
+	r.Start()
 }

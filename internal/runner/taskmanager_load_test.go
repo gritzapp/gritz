@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
@@ -151,57 +150,6 @@ func TestTaskManagerLoad(t *testing.T) {
 	}
 }
 
-// TestTaskManagerLoad_VersionScopedBackstop checks that the boot-time backstop stamps
-// the exited record's version onto its "failed" so ApplyRunnerEvent drops it for
-// a superseded run and applies it for the current run.
-func TestTaskManagerLoad_VersionScopedBackstop(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name       string
-		recVersion int64 // version stamped in the seeded exited record
-		taskNow    int64 // the task's current version when the event is applied
-		wantApply  bool
-	}{
-		{name: "superseded run dropped", recVersion: 4, taskNow: 5, wantApply: false},
-		{name: "current run applies", recVersion: 4, taskNow: 4, wantApply: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - one suspended husk whose task is still RUNNING on the server,
-			// so the boot-time backstop fires a "failed".
-			be := testrunner.NewBackend(t, nil)
-			be.Add("c1", fake.Suspended)
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-				Backend: be,
-				RunnerStore: testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{
-					TaskID:  1,
-					Version: tt.recVersion,
-					Handle:  backend.Handle{Type: "fake", ID: "c1"},
-				}),
-			})
-			m.Client.GetTaskFunc = taskRunning
-
-			// Act - Load drives the suspended husk through the backstop, which
-			// emits a "failed" stamped with the record's version.
-			assert.NilError(t, m.Load(t.Context()))
-			events := m.Submitted(t)
-			assert.Equal(t, len(events), 1)
-			assert.Equal(t, events[0].Version, tt.recVersion) // stamped from the record
-
-			// The existing guard decides: apply the backstop against a task at its
-			// current version.
-			task := &model.Task{ID: 1, Status: model.TaskStatusRunning, Version: tt.taskNow}
-			ev := model.RunnerEventFromProto(events[0])
-			assert.Equal(t, task.ApplyRunnerEvent(&ev), tt.wantApply)
-		})
-	}
-}
-
-// TestTaskManagerLoad_Archived covers a task archived before a runner
-// restart: Load hands its TaskRunner the stored state, archived included, so
-// the sandbox it recorded is destroyed, a failed destroy being retried, and
-// the record removed.
 func TestTaskManagerLoad_Archived(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

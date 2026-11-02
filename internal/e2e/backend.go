@@ -197,6 +197,19 @@ func (b *Backend) KillDriver(taskID int64) {
 	}
 }
 
+// DestroySandbox destroys the task's sandbox, killing its driver, behind the
+// runner's back: a sandbox that vanished.
+func (b *Backend) DestroySandbox(taskID int64) {
+	b.t.Helper()
+	sb, err := b.local.Open(backend.Handle{Type: local.HandleType, ID: strconv.FormatInt(taskID, 10)})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	if err := sb.Destroy(context.Background()); err != nil {
+		b.t.Fatalf("task %d: destroy sandbox: %v", taskID, err)
+	}
+}
+
 // WaitSandbox waits until the task's sandbox has status want. A task that never
 // had a sandbox reports gone.
 func (b *Backend) WaitSandbox(taskID int64, want backend.Status) {
