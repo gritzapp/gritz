@@ -16,11 +16,6 @@ import (
 	"gotest.tools/v3/poll"
 )
 
-// maxOpenConns caps the shared pool. Each package's tests share one pool, and
-// go test runs several packages at once against one Postgres, whose default
-// max_connections is 100.
-const maxOpenConns = 10
-
 // openDB opens the test database once per test binary. The pool is never
 // closed: it goes away with the process.
 var openDB = sync.OnceValues(func() (*sql.DB, error) {
@@ -28,7 +23,9 @@ var openDB = sync.OnceValues(func() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(maxOpenConns)
+	// go test runs several packages at once against one Postgres, whose
+	// default max_connections is 100.
+	db.SetMaxOpenConns(10)
 	return db, nil
 })
 
