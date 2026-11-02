@@ -64,6 +64,9 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 - `h.Server.Mock(m *gritzclient.ClientMock)` replaces every method whose
   `<Method>Func` is set, for every caller (runner, driver, test), until
   `h.Server.Mock(nil)`. There is no call-through to the real method.
+- `h.Backend.Mock(m *backend.BackendMock)` and
+  `h.Backend.MockSandbox(taskID, m *backend.SandboxMock)` follow the same
+  rules for the backend and the task's sandbox, whether created or opened.
 - Mocks are for injecting failures, not for standing in for behaviour.
 - A mock skips the handler's own authorization checks: callers are still
   authenticated, but scopes aren't checked.
