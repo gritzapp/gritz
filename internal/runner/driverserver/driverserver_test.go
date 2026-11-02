@@ -574,19 +574,20 @@ func TestRun_Restart(t *testing.T) {
 	// Act
 	send(t, stream, restart(2, 6))
 
-	// Assert - run 5 was stopped and run 6 started in its place
+	// Assert - run 6 started in place of run 5
 	te.waitRecord(t, 6, runrecord.Running)
-	assert.Equal(t, len(te.dials()), 2)
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents()[:2], runnerEvents("started", "stopped"), protocmp.Transform())
 
 	// Act - stop run 6
 	send(t, stream, stop(3, 6))
 
-	// Assert
+	// Assert - run 5 was stopped, and each run dialed the server. Checked
+	// once the stream is idle: the record says running before the run dials.
 	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
 		Version:  6,
 		Reported: true,
 	}, protocmp.Transform())
+	assert.Equal(t, len(te.dials()), 2)
+	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents()[:2], runnerEvents("started", "stopped"), protocmp.Transform())
 }
 
 func TestRun_RestartIdle(t *testing.T) {
