@@ -72,6 +72,7 @@ type Config struct {
 	Cursor       *CursorOptions       `json:"cursor,omitempty"`
 	Sloppy       *SloppyOptions       `json:"sloppy,omitempty"`
 	Dummy        *DummyOptions        `json:"dummy,omitempty"`
+	Puppet       *PuppetOptions       `json:"puppet,omitempty"`
 
 	// Agent-managed state
 	SetupCommandsCompleted int   `json:"setup_commands_completed,omitempty"`

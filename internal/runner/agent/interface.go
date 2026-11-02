@@ -25,6 +25,7 @@ const (
 	TypeCursor  = "cursor"
 	TypeSloppy  = "sloppy"
 	TypeDummy   = "dummy"
+	TypePuppet  = "puppet"
 )
 
 // Agent abstracts the underlying agent implementation (e.g., Claude Code, Cursor).
@@ -58,6 +59,7 @@ type Options struct {
 	Cursor     *CursorOptions
 	Sloppy     *SloppyOptions
 	Dummy      *DummyOptions
+	Puppet     *PuppetOptions
 }
 
 // ClaudeOptions contains Claude-specific agent options.
@@ -99,6 +101,12 @@ type DummyOptions struct {
 	Commands []string
 	// Error, when set, is returned as an error from Prompt.
 	Error string
+}
+
+// PuppetOptions contains puppet-specific agent options.
+type PuppetOptions struct {
+	// URL is the endpoint each Prompt call is forwarded to.
+	URL string
 }
 
 // DummyToolCall specifies an MCP tool call to make.
@@ -165,6 +173,8 @@ func NewAgent(opts Options) (Agent, error) {
 			mcpServers: opts.McpServers,
 			options:    opts.Dummy,
 		}, nil
+	case TypePuppet:
+		return newPuppetAgent(log, opts.Env, opts.Puppet)
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", opts.Type)
 	}
