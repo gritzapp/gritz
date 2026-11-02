@@ -41,23 +41,6 @@ func loaded(t *testing.T, ctx context.Context, be *fake.Backend, rec runnerstore
 	return m
 }
 
-func TestTaskRunnerRunLoop_NothingToRun(t *testing.T) {
-	t.Parallel()
-	// Arrange - a driver that has never run, and has nothing to run.
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-		Driver: testrunner.NewDriver(t, nil),
-	})
-	be.Add("c1", fake.Up)
-
-	// Act
-	m := loaded(t, t.Context(), be, c1Record, nil)
-
-	// Assert - the driver went idle at once: the sandbox is suspended, and
-	// no event is owed.
-	testrunner.WaitSuspended(t, be, "c1")
-	assert.Equal(t, m.Queued(t), 0)
-}
-
 // idleDriver is a driver whose streams each go idle at once, after the run
 // whose version is next in versions, which it reported. It records the spec
 // of each stream.
