@@ -2,25 +2,19 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/lambdamicrovms"
-	"github.com/cenkalti/backoff/v5"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
-	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
-	"github.com/gritzapp/gritz/internal/runner/runnerstore"
-	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/urfave/cli/v3"
 )
@@ -111,14 +105,6 @@ var RunnerCommand = &cli.Command{
 		runnerID := cmd.String("id")
 		debug := cmd.Bool("debug")
 
-		// Wrap the incoming ctx so a durable local-store write failure can
-		// terminate the runner by cancelling it with a FatalError cause. This
-		// must happen before anything that takes ctx is spawned (Load's
-		// RunLoop goroutines, queue.Run, the notify goroutine, and m.Run) so
-		// they all observe the cancellation.
-		ctx, cancel := context.WithCancelCause(ctx)
-		defer cancel(nil)
-
 		// Create logger if debug is enabled
 		log := slog.Default()
 		if debug {
@@ -181,101 +167,19 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("unknown backend: %q", backendName)
 		}
 
-		// Open the runner's SQLite database, which holds the replica of its
-		// tasks' event logs that the TaskManager acts on, the task→sandbox-
-		// handle records, the single source of truth for which sandbox belongs
-		// to which task, and the runner event outbox.
-		stateDB := cmd.String("state-db")
-		if err := os.MkdirAll(filepath.Dir(stateDB), 0o755); err != nil {
-			return fmt.Errorf("failed to create state db directory: %w", err)
-		}
-		rstore, err := runnerstore.Open(stateDB)
-		if err != nil {
-			return fmt.Errorf("failed to open state db: %w", err)
-		}
-		defer rstore.Close()
-		tasklog := taskevents.New(taskevents.Options{
-			Store:        rstore,
+		log.Info("runner started", "server", serverAddr, "config", configPath, "poll", pollInterval, "concurrency", concurrency, "backend", backendName)
+
+		return runner.Serve(ctx, runner.ServeOptions{
 			Client:       client,
+			ServerURL:    serverAddr,
+			Token:        cfg.Token,
+			Backend:      be,
+			StateDB:      cmd.String("state-db"),
+			Workspaces:   workspaces,
 			RunnerID:     runnerID,
+			Concurrency:  int(concurrency),
 			PollInterval: pollInterval,
 			Log:          log,
 		})
-
-		// The outbox is durable: runner lifecycle events survive a restart and
-		// are redelivered on the next Run pass rather than being lost with an
-		// in-memory buffer.
-		queue := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-			Store:  rstore,
-			Client: client,
-			// Reproduce the old EventQueue's fixed retry interval (the poll
-			// interval) with a constant backoff, for a drop-in match.
-			Backoff: backoff.NewConstantBackOff(pollInterval),
-			Log:     log,
-		})
-
-		m, err := runner.NewTaskManager(runner.TaskManagerOptions{
-			Client:      client,
-			Backend:     be,
-			ServerURL:   serverAddr,
-			Workspaces:  workspaces,
-			Concurrency: int(concurrency),
-			RunnerID:    runnerID,
-			Log:         log,
-			Queue:       queue,
-			TaskLog:     tasklog,
-			RunnerStore: rstore,
-			Fatal:       cancel,
-		})
-		if err != nil {
-			return err
-		}
-		defer m.Close()
-
-		log.Info("runner started", "server", serverAddr, "config", configPath, "poll", pollInterval, "concurrency", concurrency, "backend", backendName)
-
-		// Register workspaces with the server (non-fatal if it fails)
-		if err := m.RegisterWorkspaces(ctx); err != nil {
-			log.Warn("failed to register workspaces", "err", err)
-		}
-
-		// Rehydrate the sandboxes the runner has records of: this starts a
-		// RunLoop per record, which reattaches to a running sandbox, and seeds
-		// the concurrency semaphore. It runs once, before Run admits new work.
-		if err := m.Load(ctx); err != nil {
-			return fmt.Errorf("failed to load sandboxes: %w", err)
-		}
-
-		// Start the outbox delivery goroutine. Its first pass redelivers any
-		// events that were persisted but not yet acknowledged before a restart.
-		go queue.Run(ctx)
-
-		// Subscribe to server-sent task change notifications so the runner
-		// reacts to new commands immediately instead of waiting for the
-		// fallback poll.
-		go func() {
-			nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-				BaseURL: serverAddr,
-				Runner:  runnerID,
-				Token:   cfg.Token,
-				Log:     log,
-				Handler: func(model.Notification) { m.Wake() },
-			})
-			if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Error("notification client stopped", "err", err)
-			}
-		}()
-
-		// Run the tasks until ctx is done. Distinguish a
-		// durable-store-write crash (die set a FatalError cause) from a
-		// graceful signal shutdown.
-		// The sentinel is what lets us return non-zero on a broken disk
-		// without depending on whatever cause signal.NotifyContext sets.
-		var fatal runner.FatalError
-		if cause := m.Run(ctx); errors.As(cause, &fatal) {
-			log.Error("runner terminating: durable store write failed", "err", cause)
-			return cause // non-zero exit → supervisor restarts + alerts
-		}
-		return nil // graceful signal shutdown → exit 0
 	},
 }
