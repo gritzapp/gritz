@@ -1,6 +1,8 @@
 package scenario_test
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -117,4 +119,28 @@ func TestArchive(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	assert.Equal(t, h.Backend.ReadFile(task.ID, "setup"), "setup\n")
+}
+
+func TestArchive_DestroyFails(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	// The first destroy fails, and removes the mock so the next one is real.
+	m := &backend.SandboxMock{
+		DestroyFunc: func(context.Context) error {
+			h.Backend.MockSandbox(task.ID, nil)
+			return errors.New("e2e: destroy failed")
+		},
+	}
+	h.Backend.MockSandbox(task.ID, m)
+
+	task.Archive()
+
+	// The runner retried the destroy.
+	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
+	assert.Assert(t, cmp.Len(m.DestroyCalls(), 1))
 }
