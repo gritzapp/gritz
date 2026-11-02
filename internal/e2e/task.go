@@ -27,6 +27,18 @@ func (task *Task) Update(req *gritzv1.UpdateTaskRequest) {
 	}
 }
 
+// Cancel cancels the task, as the task page does.
+func (task *Task) Cancel() {
+	task.org.server.t.Helper()
+	task.org.CancelTask(&gritzv1.CancelTaskRequest{Id: task.ID})
+}
+
+// Get returns the task.
+func (task *Task) Get() *gritzv1.Task {
+	task.org.server.t.Helper()
+	return task.org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+}
+
 // Events returns the task's events, oldest first.
 func (task *Task) Events() []*gritzv1.Event {
 	t := task.org.server.t
