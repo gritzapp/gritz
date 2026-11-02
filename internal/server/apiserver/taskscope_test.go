@@ -82,6 +82,22 @@ func newOrgWithTasks(t *testing.T, srv *Server) (context.Context, *teststore.Org
 
 // --- Behavioral spec: own task allowed, any other task denied ---
 
+func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
+	t.Parallel()
+	srv := New(Options{Store: teststore.New(t)})
+	_, org, taskA, taskB := newOrgWithTasks(t, srv)
+
+	own := scopedCtx(t, org, taskScopes(taskA.Id))
+
+	// Own task is always readable.
+	_, err := srv.GetTask(own, &gritzv1.GetTaskRequest{Id: taskA.Id})
+	assert.NilError(t, err)
+
+	// Any other task is denied.
+	_, err = srv.GetTask(own, &gritzv1.GetTaskRequest{Id: taskB.Id})
+	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+}
+
 func TestTaskScope_UpdateTask_OwnAllowed_OtherDenied(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{Store: teststore.New(t)})

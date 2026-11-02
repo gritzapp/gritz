@@ -47,6 +47,62 @@ func TestCreateLink(t *testing.T) {
 	assert.Equal(t, resp.Link.Subscribe, true)
 }
 
+func TestCreateLink_AppendsLinkEvent(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "Task with Link",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
+	assert.NilError(t, err)
+
+	// Act
+	linkResp, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
+		TaskId:    taskResp.Task.Id,
+		Relevance: "Related PR",
+		Url:       "https://github.com/example/repo/pull/123",
+		Title:     "Fix bug",
+		Subscribe: true,
+	})
+	assert.NilError(t, err)
+
+	// Assert - a link event mirroring the task_links row is appended to the
+	// task's stream (the timeline source of truth; task_links is the projection).
+	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+		TaskId: taskResp.Task.Id,
+	})
+	assert.NilError(t, err)
+	// The stream also carries the lifecycle CREATED event from task creation, so
+	// pick out the link event rather than asserting it is the only one.
+	var linkEvent *gritzv1.Event
+	for _, e := range eventsResp.Events {
+		if e.GetLink() != nil {
+			linkEvent = e
+		}
+	}
+	assert.Assert(t, linkEvent != nil)
+	link := linkEvent.GetLink()
+	assert.Equal(t, link.LinkId, linkResp.Link.Id)
+	assert.Equal(t, link.Relevance, "Related PR")
+	assert.Equal(t, link.Url, "https://github.com/example/repo/pull/123")
+	assert.Equal(t, link.Title, "Fix bug")
+	assert.Equal(t, link.Subscribe, true)
+	// The link event is about-task, not to-agent, so it does not wake the task.
+	assert.Equal(t, linkEvent.Wake, false)
+}
+
 func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 	t.Parallel()
 	// Arrange

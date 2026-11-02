@@ -94,6 +94,46 @@ func instructionPayloads(events []*gritzv1.Event) []*gritzv1.InstructionPayload 
 	return out
 }
 
+func TestGetTask_Permissions(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgA.UserID,
+		OrgID:  orgA.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     orgB.UserID,
+		OrgID:  orgB.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
+		Name:      "User A's Task",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
+	assert.NilError(t, err)
+
+	// Act
+	_, errA := srv.GetTask(ctxA, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
+	_, errB := srv.GetTask(ctxB, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
+
+	// Assert
+	assert.NilError(t, errA)
+	assert.ErrorContains(t, errB, "not found")
+}
+
 func TestCreateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -618,6 +658,40 @@ func TestCreateTask_BadWorkspace(t *testing.T) {
 		Workspace: "fake-workspace",
 	})
 	assert.ErrorContains(t, err, "not found")
+}
+
+func TestUpdateTask(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{
+			{RunnerID: "test-runner", Name: "test-workspace"},
+		},
+	})
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+		Name:      "Original Name",
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
+	assert.NilError(t, err)
+
+	// Act
+	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
+		Id:   createResp.Task.Id,
+		Name: "Updated Name",
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
+	assert.NilError(t, err)
+	assert.Equal(t, getResp.Task.Name, "Updated Name")
 }
 
 func TestUpdateTask_Permissions(t *testing.T) {

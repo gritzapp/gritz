@@ -123,6 +123,37 @@ func TestDeleteOrg_DefaultOrg(t *testing.T) {
 	assert.ErrorContains(t, err, "cannot delete your default org")
 }
 
+func TestAddAndListOrgMembers(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	ownerOrg := teststore.CreateOrg(t, srv.store, nil)
+	owner := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     ownerOrg.UserID,
+		OrgID:  ownerOrg.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	memberOrg := teststore.CreateOrg(t, srv.store, nil)
+	member := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     memberOrg.UserID,
+		OrgID:  memberOrg.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	memberEmail := apiauth.Caller(member).ID + "@test.com"
+
+	// Act
+	resp, err := srv.AddOrgMember(owner, &gritzv1.AddOrgMemberRequest{
+		Email: memberEmail,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Equal(t, resp.Member.Role, "member")
+	listResp, err := srv.ListOrgMembers(owner, &gritzv1.ListOrgMembersRequest{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(listResp.Members), 2)
+}
+
 func TestDeleteOrg_WithTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -203,4 +234,38 @@ func TestGetOrgSettings_NoGitHubInstallation(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.Equal(t, resp.GithubInstallationId, int64(0))
+}
+
+func TestRemoveOrgMember(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	ownerOrg := teststore.CreateOrg(t, srv.store, nil)
+	owner := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     ownerOrg.UserID,
+		OrgID:  ownerOrg.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	memberOrg := teststore.CreateOrg(t, srv.store, nil)
+	memberUser := apiauth.Caller(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     memberOrg.UserID,
+		OrgID:  memberOrg.OrgID,
+		Scopes: authscope.Admin(),
+	}))
+	memberEmail := memberUser.ID + "@test.com"
+	_, err := srv.AddOrgMember(owner, &gritzv1.AddOrgMemberRequest{
+		Email: memberEmail,
+	})
+	assert.NilError(t, err)
+
+	// Act
+	_, err = srv.RemoveOrgMember(owner, &gritzv1.RemoveOrgMemberRequest{
+		UserId: memberUser.ID,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	listResp, err := srv.ListOrgMembers(owner, &gritzv1.ListOrgMembersRequest{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(listResp.Members), 1)
 }
