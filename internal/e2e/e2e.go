@@ -102,7 +102,6 @@ func New(t *testing.T, opts *Options) *Harness {
 		log := newLog(t)
 		h.Agent = newAgent(t, h.Org)
 		h.Backend = newBackend(t, s.timeout, log)
-		h.Org.backend = h.Backend
 		h.Runner = newRunner(t, h.Org, h.Backend, h.Agent, opts.Runner, log)
 		t.Cleanup(h.Agent.server.Close)
 	}

@@ -49,6 +49,6 @@ func TestRestart_Completed(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	// The restart ran on the same sandbox, provisioned once.
-	assert.Equal(t, task.ReadFile("setup"), "setup\n")
+	assert.Equal(t, h.Backend.ReadFile(task.ID, "setup"), "setup\n")
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
 }

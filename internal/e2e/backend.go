@@ -177,6 +177,17 @@ func (b *Backend) Dir(taskID int64) string {
 	return filepath.Join(b.root, strconv.FormatInt(taskID, 10))
 }
 
+// ReadFile returns the content of name in the task's sandbox directory, as the
+// workspace's setup commands wrote it.
+func (b *Backend) ReadFile(taskID int64, name string) string {
+	b.t.Helper()
+	data, err := os.ReadFile(filepath.Join(b.Dir(taskID), name))
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return string(data)
+}
+
 // KillDriver kills the task's driver with SIGKILL, leaving its sandbox, and
 // returns once it has exited: a real lost run.
 func (b *Backend) KillDriver(taskID int64) {
