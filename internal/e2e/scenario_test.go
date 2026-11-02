@@ -20,10 +20,10 @@ import (
 func TestStart(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
 
-	task.Start()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
 	run := h.Agent.WaitRun(task.ID)
 	h.Backend.WaitSandbox(task.ID, backend.StatusUp)
 	assert.Assert(t, cmp.Contains(run.Prompt, "do the thing"))
@@ -41,9 +41,9 @@ func TestStart(t *testing.T) {
 func TestUnreportedRun(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
-	task.Start()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
 	run1 := h.Agent.WaitRun(task.ID)
 	// The driver's client doesn't retry a CodeInternal error; the runner's
 	// outbox does.
@@ -69,8 +69,6 @@ func TestUnreportedRun(t *testing.T) {
 func TestSandboxFails_Create(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
 	m := &backend.BackendMock{
 		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
 			return nil, errors.New("e2e: create failed")
@@ -78,7 +76,9 @@ func TestSandboxFails_Create(t *testing.T) {
 	}
 	h.Backend.Mock(m)
 
-	task.Start()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
 
 	task.WaitStatus(gritzv1.TaskStatus_FAILED)
 	// The mock fails every Create: remove it so the next tasks get sandboxes.
@@ -92,14 +92,14 @@ func TestSandboxFails_Create(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
 
 	// The slot was released: a second task runs.
-	other := h.Org.CreateTask(nil)
-	other.AddInstruction("do the other thing")
-	other.Start()
+	other := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the other thing"}},
+	})
 	h.Agent.WaitRun(other.ID).Complete()
 	other.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 
 	// Started again, the first task runs on a real sandbox.
-	task.Start()
+	task.Update(&gritzv1.UpdateTaskRequest{Start: true})
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 }
@@ -107,8 +107,10 @@ func TestSandboxFails_Create(t *testing.T) {
 func TestSandboxFails_Boot(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+		Draft:        true,
+	})
 	m := &backend.SandboxMock{
 		BootFunc: func(context.Context) error {
 			return errors.New("e2e: boot failed")
@@ -116,7 +118,7 @@ func TestSandboxFails_Boot(t *testing.T) {
 	}
 	h.Backend.MockSandbox(task.ID, m)
 
-	task.Start()
+	task.Update(&gritzv1.UpdateTaskRequest{Start: true})
 
 	task.WaitStatus(gritzv1.TaskStatus_FAILED)
 	// The mock fails every Boot of the task's sandbox: remove it so the task
@@ -131,14 +133,14 @@ func TestSandboxFails_Boot(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
 
 	// The slot was released: a second task runs.
-	other := h.Org.CreateTask(nil)
-	other.AddInstruction("do the other thing")
-	other.Start()
+	other := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the other thing"}},
+	})
 	h.Agent.WaitRun(other.ID).Complete()
 	other.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 
 	// Started again, the first task boots its sandbox for real.
-	task.Start()
+	task.Update(&gritzv1.UpdateTaskRequest{Start: true})
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 }
@@ -146,8 +148,10 @@ func TestSandboxFails_Boot(t *testing.T) {
 func TestDriverUnreachable(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+		Draft:        true,
+	})
 	m := &backend.SandboxMock{
 		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
 			return nil, errors.New("e2e: dial failed")
@@ -155,7 +159,7 @@ func TestDriverUnreachable(t *testing.T) {
 	}
 	h.Backend.MockSandbox(task.ID, m)
 
-	task.Start()
+	task.Update(&gritzv1.UpdateTaskRequest{Start: true})
 
 	// Failed once the runner's ReadyTimeout passed.
 	task.WaitStatus(gritzv1.TaskStatus_FAILED)
@@ -172,9 +176,9 @@ func TestDriverUnreachable(t *testing.T) {
 func TestDriverDies_MidRun(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
-	task.Start()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
 	run1 := h.Agent.WaitRun(task.ID)
 
 	h.Backend.KillDriver(task.ID)
@@ -184,8 +188,10 @@ func TestDriverDies_MidRun(t *testing.T) {
 	h.Backend.WaitSandbox(task.ID, backend.StatusSuspended)
 
 	// A wake boots the sandbox again, and its new driver acts on the start.
-	task.AddInstruction("more")
-	task.Start()
+	task.Update(&gritzv1.UpdateTaskRequest{
+		Start:           true,
+		AddInstructions: []*gritzv1.Instruction{{Text: "more"}},
+	})
 	run2 := h.Agent.WaitRun(task.ID)
 	assert.Assert(t, cmp.Contains(run2.Prompt, "more"))
 	run2.Complete()

@@ -126,7 +126,7 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 	// Arrange: a completed task subscribed to the issue.
 	h := e2e.New(t, nil)
 	url := "https://github.com/o/r/issues/1"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{

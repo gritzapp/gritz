@@ -65,7 +65,7 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange - run 1 starts and completes.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
@@ -110,7 +110,7 @@ func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
 	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: task.ID, Name: "renamed"})
@@ -128,7 +128,7 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange - run 1 starts and fails.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
@@ -173,7 +173,7 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -207,7 +207,7 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -246,7 +246,7 @@ func TestSubmitRunnerEvents_RunBoundaryCommandEvent(t *testing.T) {
 	// Arrange - run 1 is running, and a start is queued behind it.
 	h := e2e.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
@@ -299,7 +299,7 @@ func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.CancelTask(&gritzv1.CancelTaskRequest{Id: task.ID})
 

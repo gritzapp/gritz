@@ -24,7 +24,7 @@ func TestGetEvent(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -63,7 +63,7 @@ func TestGetEvent_Permissions(t *testing.T) {
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -88,7 +88,7 @@ func TestListEvents(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -120,6 +120,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/pull/1"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Draft:        true,
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -149,7 +150,7 @@ func TestListEventsWithLimit(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -186,7 +187,7 @@ func TestListEvents_Permissions(t *testing.T) {
 		h.Org: {"Org A's event 1", "Org A's event 2"},
 		other: {"Org B's event"},
 	} {
-		task := org.CreateTask(nil)
+		task := org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 		org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 		org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 			Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -218,7 +219,7 @@ func TestDeleteEvent(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -247,7 +248,7 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -275,7 +276,7 @@ func TestListEventsByTask(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -313,7 +314,7 @@ func TestListEventsByTask_Paged(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -374,7 +375,7 @@ func TestListEventsByTask_More(t *testing.T) {
 	// the oldest page is full (the exact-page_size boundary).
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -423,7 +424,7 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
@@ -482,6 +483,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 	h := e2e.New(t, nil)
 	url := "https://github.com/example/repo/pull/1"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Draft:        true,
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -532,7 +534,7 @@ func TestListEventsByTask_InvalidArgs(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act & Assert - a page size past the max → CodeInvalidArgument.
 	_, err := h.Org.Client.ListEventsByTask(t.Context(), &gritzv1.ListEventsByTaskRequest{
@@ -555,7 +557,7 @@ func TestListEventsByTask_Permissions(t *testing.T) {
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},

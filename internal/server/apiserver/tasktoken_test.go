@@ -17,7 +17,7 @@ func TestCreateTaskToken(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
 	resp, err := h.Org.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{
@@ -49,7 +49,7 @@ func TestCreateTaskToken_InvalidCapability(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
 	_, err := h.Org.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{
@@ -65,7 +65,7 @@ func TestCreateTaskToken_Denied(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	// A present-but-scopeless caller lacks the task_token.create capability.
 	key := h.Org.CreateScopedKey(authscope.Scopes{})
 
@@ -81,7 +81,7 @@ func TestCreateTaskToken_CrossOrg(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act - the other org's caller cannot mint a token for this org's task; the
 	// org-scoped read hides it.

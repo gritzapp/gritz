@@ -14,7 +14,7 @@ func TestOpenShell(t *testing.T) {
 	// Arrange: drive a task to a terminal (completed) status so it can be
 	// shelled. Runner events use version 0 to bypass the version check.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
@@ -41,7 +41,7 @@ func TestOpenShell_RejectsPending(t *testing.T) {
 	t.Parallel()
 	// Arrange: a started task is PENDING (non-terminal).
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -58,7 +58,7 @@ func TestOpenShell_RejectsRunning(t *testing.T) {
 	// Arrange: drive the task to RUNNING; opening a shell must not displace a
 	// live run.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
@@ -78,7 +78,7 @@ func TestOpenShell_CrossOrgDenied(t *testing.T) {
 	// Arrange: a completed task owned by the default org.
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},

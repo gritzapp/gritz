@@ -16,7 +16,7 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange - a pending task with a start command.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Test Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Test Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
 	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
@@ -54,7 +54,7 @@ func TestSubmitRunnerEvents_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -88,12 +88,14 @@ func TestListRunnerEvents(t *testing.T) {
 	// runner-2's task is started first, so once runner-1's events pass the
 	// watermark, runner-2's have too.
 	other := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Draft:     true,
 		Name:      "other",
 		Runner:    "runner-2",
 		Workspace: "test-workspace",
 	})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: other.ID, Start: true})
 	mine := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Draft:     true,
 		Name:      "mine",
 		Runner:    "runner-1",
 		Workspace: "test-workspace",
@@ -117,7 +119,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	t.Parallel()
 	// Arrange - read the runner's whole log.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	want := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID})
 	token := h.Org.WaitRunnerEvents(e2e.DefaultRunner, len(want))

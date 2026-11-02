@@ -262,10 +262,10 @@ There is no driver handle (see above).
 func TestStart(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
-	task := h.Org.CreateTask(nil)
-	task.AddInstruction("do the thing")
 
-	task.Start()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
 	run := h.Agent.WaitRun(task.ID)
 	assert.Assert(t, cmp.Contains(run.Prompt, "do the thing"))
 	run.Complete()
@@ -363,10 +363,10 @@ member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Ema
 | `ID` | the org |
 | `Owner` | the `*Member` `CreateOrg` made, owning the org; its `Resp` is nil |
 | `Client` | shorthand for `Owner.Client`: a `gritzclient.Client` making real API calls as the owner, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
-| `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (`DefaultRunner` and `DefaultWorkspace`, both `e2e`); always `draft`, since a `bool` has no unset value. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
+| `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (`DefaultRunner` and `DefaultWorkspace`, both `e2e`). `Draft` passes through as given, so a request with `Instructions` creates a started task. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
 | `CreateKey(req)` | `CreateKey`, as the keys page does (admin scopes); returns a `*Key` with its `ID` and a `Client` on it |
 | `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns a `*TaskToken` with its `Token` and a `Client` on it |
-| `UpdateTask(req)` | `UpdateTask`, as the task page does |
+| `UpdateTask(req)` | `UpdateTask`, as the task page does; for the API tests. Scenarios use `Task.Update` |
 | `ArchiveTask(req)` | `ArchiveTask`, as the task page does |
 | `CancelTask(req)` | `CancelTask`, as the task page does |
 | `SubmitRunnerEvents(req)` | `SubmitRunnerEvents`, as the org's runner calls it with its runner key |
@@ -542,12 +542,17 @@ reflection. Backend operations are plain calls with no streams, so there is no
 streaming question here.
 
 ```go
-// The task's first boot fails; the next one is real.
+// The task's first boot fails; the next one is real. The mock is keyed by task
+// id, so the task is created as a draft and started once it is installed.
+task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+	Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	Draft:        true,
+})
 m := &backend.SandboxMock{BootFunc: func(context.Context) error {
 	return errors.New("e2e: boot failed")
 }}
 h.Backend.MockSandbox(task.ID, m)
-task.Start()
+task.Update(&gritzv1.UpdateTaskRequest{Start: true})
 task.WaitStatus(gritzv1.TaskStatus_FAILED)
 assert.Assert(t, cmp.Len(m.BootCalls(), 1))
 h.Backend.MockSandbox(task.ID, nil)
@@ -587,7 +592,9 @@ the drivers can shut down. Further commands, such as calling a tool from the
 run, are later methods on `Run`.
 
 ```go
-task.Start()
+task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+	Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+})
 run := h.Agent.WaitRun(task.ID)
 
 task.Cancel()
@@ -603,8 +610,7 @@ the org's `Client` and `h.Backend`, and the commands go through the RPCs the web
 
 | Method | Through |
 |---|---|
-| `AddInstruction(text)` | `UpdateTask{add_instructions: [text]}` |
-| `Start()` | `UpdateTask{start: true}` |
+| `Update(req)` | `UpdateTask`, with `req.id` filled with the task's id |
 | `Cancel()`, `Restart()`, `Archive()`, `Unarchive()` | `CancelTask`, `RestartTask`, `ArchiveTask`, `UnarchiveTask` |
 | `Get()`, `Events()` | `GetTask`; `ListEventsByTask`, every page |
 | `Links()`, `Log()` | `ListLinks`; `ListLogChunksByTask`, concatenated |
@@ -612,9 +618,11 @@ the org's `Client` and `h.Backend`, and the commands go through the RPCs the web
 | `WaitEvent(match)` | `Org.WaitEvent` |
 | `ReadFile(name)` | a file in `h.Backend.Dir(id)`, as the workspace's setup commands wrote it |
 
-The composer sends `add_instructions` and `start` in one `UpdateTask`. The
-harness splits them so a test can add instructions before deciding how to start
-the task. A wake is `AddInstruction(...)` followed by `Start()`. Driving the
+A scenario creates a started task with `h.Org.CreateTask` and its
+`Instructions`, as the new-task page does. A wake or restart is one
+`Update{start: true, add_instructions: ...}`, as the composer sends it. A task
+that must start later, such as one whose sandbox is mocked by task id, is
+created with `Draft: true` and started with `Update{start: true}`. Driving the
 agent's runs is `h.Agent`.
 
 #### Waits and assertions
@@ -673,18 +681,21 @@ rebuilding tests the old driver; that is accepted (Trade-offs).
 ### Scenarios
 
 Each scenario is one top-level test in `internal/e2e`, with `Options.Runner`
-set. `run1 := WaitRun(task)` is `h.Agent.WaitRun(task.ID)`; "the setup file" is
+set. `Start` creates a started task with an instruction (or starts a draft with
+`Update{start: true}` once a per-task mock is installed); a wake is
+`Update{start: true, add_instructions: ...}`. `run1 := WaitRun(task)` is
+`h.Agent.WaitRun(task.ID)`; "the setup file" is
 a workspace with `Commands: [echo setup >> setup]`, so `ReadFile(setup)` holding
 one line shows the sandbox was provisioned once and its directory kept.
 
 | Test | Arrange / act | Assert |
 |---|---|---|
-| `TestStart` | `AddInstruction`; `Start`; `run1 := WaitRun`; `run1.Complete()` | `run1.Prompt` has the instruction; `COMPLETED` at v1; timeline has `SANDBOX_STARTED`, `SANDBOX_EXITED`; `Runs` has one run |
+| `TestStart` | `Start`; `run1 := WaitRun`; `run1.Complete()` | `run1.Prompt` has the instruction; `COMPLETED` at v1; timeline has `SANDBOX_STARTED`, `SANDBOX_EXITED`; `Runs` has one run |
 | `TestCancel_MidRun` | `Start`; `run1 := WaitRun`; `Cancel` | `run1.WaitCancelled()`; `CANCELLED`; one run; one `SANDBOX_STARTED` |
 | `TestRestart_MidRun` | `Start`; `run1 := WaitRun`; `Restart` | `run1.WaitCancelled()`; `run2 := WaitRun` has run 1's prompt, since the instructions were never completed; `Get().Version` = 2. Then `Cancel` → `run2.WaitCancelled()`, `CANCELLED` |
-| `TestWake_MidRun` (#1868) | `Start`; `run1 := WaitRun`; `AddInstruction("more")`; `Start` | Right after the wake, `Get()` is `RUNNING` at v1 with command `start`, so the wake landed on the open run. Then `run1.Complete()`; `run2 := WaitRun` has `more`; `run2.Complete()` → `COMPLETED` at **v2**; two runs in all |
+| `TestWake_MidRun` (#1868) | `Start`; `run1 := WaitRun`; wake with `more` | Right after the wake, `Get()` is `RUNNING` at v1 with command `start`, so the wake landed on the open run. Then `run1.Complete()`; `run2 := WaitRun` has `more`; `run2.Complete()` → `COMPLETED` at **v2**; two runs in all |
 | `TestCancel_PendingStart` | `Concurrency: 1`. A: `Start`, `runA := WaitRun`. B: `Start`, `WaitStatus(PENDING)`, `Cancel` | B is `CANCELLED`. Then cancel A, and run a third task C to `COMPLETED`. C's start is later in the log than B's cancel, so it acts as a barrier. Afterwards B has no runs and no `SANDBOX_STARTED`, and `h.Backend.WaitSandbox(B, gone)`: B never ran, even once the slot was free |
-| `TestArchive` | the setup file; `Start`; `WaitRun` → `Complete`; `COMPLETED`; `Archive` | `WaitSandbox(gone)`. Then `Unarchive`, `AddInstruction`, `Start`; `run2 := WaitRun` has the new instruction; `Complete` → `COMPLETED` at v2; the setup file holds one line: a fresh sandbox, provisioned again |
+| `TestArchive` | the setup file; `Start`; `WaitRun` → `Complete`; `COMPLETED`; `Archive` | `WaitSandbox(gone)`. Then `Unarchive`, wake with a new instruction; `run2 := WaitRun` has the new instruction; `Complete` → `COMPLETED` at v2; the setup file holds one line: a fresh sandbox, provisioned again |
 | `TestRunnerRestart_MidRun` | `Start`; `run1 := WaitRun`; `h.Runner.Restart()`; `Cancel` | `run1.WaitCancelled()`; `CANCELLED`; one run; one `SANDBOX_STARTED`: the new runner reattached and carried the cancel to the driver, without starting the run again |
 | `TestSuspendAfter` (slice 10) | `SuspendAfter: 300ms`, the setup file. Run 1 to `COMPLETED`; `WaitSandbox(suspended)`; wake | `run2 := WaitRun`; `Complete` → `COMPLETED` at v2; the setup file holds one line, so the directory survived and nothing re-provisioned it; `WaitSandbox(suspended)` again |
 | `TestSuspendAfter_Window` (slice 10) | default `suspend_after`; two runs back to back | the sandbox stays `up` between them and after |
@@ -1142,7 +1153,7 @@ type Member struct {
 }
 
 // CreateTask creates a task, filling the harness defaults where req leaves
-// them unset. It is always a draft. req may be nil.
+// them unset. Draft passes through as given. req may be nil.
 func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task
 
 // WaitTask waits until cond accepts task id, and returns it.
@@ -1299,11 +1310,8 @@ type Task struct {
 	// ... unexported
 }
 
-// AddInstruction adds an instruction with text.
-func (t *Task) AddInstruction(text string)
-
-// Start starts the task, or wakes it.
-func (t *Task) Start()
+// Update updates the task, filling req.Id with the task's id.
+func (t *Task) Update(req *gritzv1.UpdateTaskRequest)
 
 // Cancel cancels the task.
 func (t *Task) Cancel()
