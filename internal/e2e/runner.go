@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"slices"
@@ -71,10 +72,15 @@ func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions
 	}}
 	r.Start()
 	t.Cleanup(r.Stop)
-	// CreateTask needs the workspace the runner registers on startup.
+	// CreateTask needs the workspace the runner registers on startup. The
+	// check runs on poll's goroutine, where org.ListWorkspaces's t.Fatal would
+	// leave WaitOn waiting out its timeout: it returns the error instead.
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		workspaces := org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{})
-		if !slices.ContainsFunc(workspaces, func(ws *gritzv1.RegisteredWorkspace) bool {
+		resp, err := org.Client.ListWorkspaces(t.Context(), &gritzv1.ListWorkspacesRequest{})
+		if err != nil {
+			return poll.Error(fmt.Errorf("ListWorkspaces: %w", err))
+		}
+		if !slices.ContainsFunc(resp.Workspaces, func(ws *gritzv1.RegisteredWorkspace) bool {
 			return ws.RunnerId == DefaultRunner && ws.Name == DefaultWorkspace
 		}) {
 			return poll.Continue("runner %s has not registered workspace %s", DefaultRunner, DefaultWorkspace)
