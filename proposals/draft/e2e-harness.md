@@ -249,7 +249,7 @@ There is no driver handle (see above).
 func TestStart(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 	task.AddInstruction("do the thing")
 
 	task.Start()
@@ -329,13 +329,23 @@ visible.
 |---|---|
 | `ID`, `UserID` | the org and its user |
 | `Client` | a `gritzclient.Client` making real API calls as the user, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
-| `CreateTask()` | `CreateTask{draft: true, runner: "e2e", workspace: "e2e"}`, as the new-task page does; returns a `*Task`, which keeps its `*Org` |
+| `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (runner `e2e`, workspace `e2e`); always `draft`, since a `bool` has no unset value. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
+| `CreateKey(req)` | `CreateKey`, as the keys page does (admin scopes); returns a `*Key` with its `ID` and a `Client` on it |
+| `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns the token |
+| `GetTask(req)` | `GetTask`; returns the task |
+| `ListKeys(req)` | `ListKeys`; returns the keys |
+| `CreateScopedKey(scopes)` | a new `xat_` key holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them), written to the store since no RPC narrows a key; returns a `*Key` |
 | `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
 | `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
-| `CreateKey(scopes)` | a new `xat_` key in the org holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them); returns a `*Key` with its `ID` and a `Client` on it |
-| `CreateTaskToken(id)` | `CreateTaskToken{task_id: id}`, as the runner calls it; returns the token |
-| `GetTask(id)`, `ListKeys()` | `GetTask`, `ListKeys`; return the task, the keys |
 | `AddMember(other)` | adds `other`'s user to the org as a member, and returns a client acting as that user in this org |
+
+**Shorthand methods mirror their RPC.** A method that is one RPC takes that
+RPC's request, so a test can set any field and the harness never grows
+parameter lists. It returns what the test works with: a wrapper when there is
+behaviour to attach (`*Task`, `*Key` with its `Client`), otherwise the
+unwrapped value (the token, the task, the keys). Methods that aren't a single
+RPC (`CreateScopedKey`, `WaitTask`, `WaitEvent`, `AddMember`,
+`Server.CreateOrg`) keep their own shapes.
 
 **Setup goes through methods; `Client` is for the call under test.** A call
 that arranges the test, or reads state to assert on, goes through an `Org` (or
@@ -345,7 +355,7 @@ whose result or error it asserts. Methods are added when a test first needs
 them, not ahead of it.
 
 ```go
-own := h.Server.Client(h.Org.CreateTaskToken(task.ID))
+own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID}))
 ```
 
 `Client` and `AddMember`'s client carry the app JWT `/auth/token` issues the
@@ -925,8 +935,9 @@ type Org struct {
 	// ... unexported
 }
 
-// CreateTask creates a draft task in the org's workspace.
-func (o *Org) CreateTask() *Task
+// CreateTask creates a task, filling the harness defaults where req leaves
+// them unset. It is always a draft. req may be nil.
+func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task
 
 // WaitTask waits until cond accepts task id, and returns it.
 func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
@@ -941,17 +952,20 @@ type Key struct {
 	Client gritzclient.Client
 }
 
-// CreateKey creates a key in the org holding scopes.
-func (o *Org) CreateKey(scopes authscope.Scopes) *Key
+// CreateKey creates a key in the org, with the admin scopes the RPC grants.
+func (o *Org) CreateKey(req *gritzv1.CreateKeyRequest) *Key
 
-// CreateTaskToken mints a task token for task id, as the runner does.
-func (o *Org) CreateTaskToken(id int64) string
+// CreateScopedKey creates a key in the org holding scopes.
+func (o *Org) CreateScopedKey(scopes authscope.Scopes) *Key
 
-// GetTask returns task id.
-func (o *Org) GetTask(id int64) *gritzv1.Task
+// CreateTaskToken mints a task token, as the runner does, and returns it.
+func (o *Org) CreateTaskToken(req *gritzv1.CreateTaskTokenRequest) string
+
+// GetTask returns the task.
+func (o *Org) GetTask(req *gritzv1.GetTaskRequest) *gritzv1.Task
 
 // ListKeys returns the org's keys.
-func (o *Org) ListKeys() []*gritzv1.Key
+func (o *Org) ListKeys(req *gritzv1.ListKeysRequest) []*gritzv1.Key
 
 // AddMember adds other's user to the org, and returns a client acting as that
 // user in the org.
