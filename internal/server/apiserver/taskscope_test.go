@@ -66,7 +66,7 @@ func TestTaskScope_CreateTask_Denied(t *testing.T) {
 
 	// Act
 	_, err := token.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner: a.Resp.Task.Runner, Workspace: a.Resp.Task.Workspace,
+		Runner: e2e.DefaultRunner, Workspace: e2e.DefaultWorkspace,
 	})
 
 	// Assert
@@ -79,40 +79,70 @@ func TestTaskScope_CreateTask_Denied(t *testing.T) {
 // handlers pass the task's real archived state and the predicate denies an
 // archived task uniformly for reads and writes.
 
-func TestTaskScope_ArchivedGating(t *testing.T) {
+// An active task carries task.archived:"false" → matches → allowed.
+func TestTaskScope_ArchivedGating_ActiveReadAllowed(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	active := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
-	archived := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
+	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead,
+		authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false))})
+
+	// Act
+	_, err := key.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
+
+	// Assert
+	assert.NilError(t, err)
+}
+
+// An archived task carries task.archived:"true" → fails the "false" predicate
+// → denied for reads.
+func TestTaskScope_ArchivedGating_ArchivedReadDenied(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
 	// Run 1 starts and stops with no command pending, which completes the task.
-	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: archived.ID, Start: true})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
-			{TaskId: archived.ID, Event: "started", Version: 1},
-			{TaskId: archived.ID, Event: "stopped", Version: 1},
+			{TaskId: task.ID, Event: "started", Version: 1},
+			{TaskId: task.ID, Event: "stopped", Version: 1},
 		},
 	})
-	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived.ID})
-	activeReader := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead,
-		authscope.WithTaskID(active.ID), authscope.WithTaskArchived(false))})
-	archivedReader := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead,
-		authscope.WithTaskID(archived.ID), authscope.WithTaskArchived(false))})
-	archivedWriter := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskWrite,
-		authscope.WithTaskID(archived.ID), authscope.WithTaskArchived(false))})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
+	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead,
+		authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false))})
 
-	// Act & Assert - an active task carries task.archived:"false" → matches →
-	// allowed.
-	_, err := activeReader.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: active.ID})
-	assert.NilError(t, err)
+	// Act
+	_, err := key.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 
-	// Act & Assert - an archived task carries task.archived:"true" → fails the
-	// "false" predicate → denied, for reads...
-	_, err = archivedReader.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: archived.ID})
+	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+}
 
-	// ...and writes (this is the unarchive-resurrect hole, closed for free).
-	_, err = archivedWriter.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: archived.ID})
+// ...and for writes (this is the unarchive-resurrect hole, closed for free).
+func TestTaskScope_ArchivedGating_ArchivedWriteDenied(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
+	// Run 1 starts and stops with no command pending, which completes the task.
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: "started", Version: 1},
+			{TaskId: task.ID, Event: "stopped", Version: 1},
+		},
+	})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
+	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskWrite,
+		authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false))})
+
+	// Act
+	_, err := key.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID})
+
+	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 

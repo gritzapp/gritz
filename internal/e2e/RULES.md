@@ -22,6 +22,10 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 - Handles: `h.Server`, `h.Org` (the default org), and later `h.Backend` and
   `h.Runner`. Handles hold `t`, and their methods fail the test with `t.Fatal`
   instead of returning errors.
+- The runner is opt-in, through `e2e.Options`. Without it `h.Backend` and
+  `h.Runner` are nil, and a server-only test may act as the runner with
+  `Org.SubmitRunnerEvents`. Never do both: a test that enables the runner must
+  not submit runner events by hand, since they would race the real runner's.
 - More orgs come from `h.Server.CreateOrg()`. Users are org owners
   (`org.Owner`); to put a user in another org, add an owner by email with
   `AddOrgMember`. No separate user provisioning.
@@ -30,8 +34,12 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 ## Act through the client
 
 - The call under test (`// Act`) always goes through a `gritzclient.Client`:
-  `org.Client`, `member.Client`, `key.Client` or `h.Server.Client(token)`. The
-  test asserts on that call's own response or error.
+  `org.Client`, `member.Client`, `key.Client`, `token.Client` or
+  `h.Server.Client(token)` (only for credentials no harness method returns).
+  The test asserts on that call's own response or error.
+- Several act/assert pairs in one test are fine when they share one caller and
+  its setup and show a contrast (own task allowed, other task denied). Split
+  the test when each act needs its own setup.
 - Harness methods are for arranging and asserting only.
 
 ## Harness methods
