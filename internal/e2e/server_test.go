@@ -16,7 +16,7 @@ import (
 func TestMock(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	m := &gritzclient.ClientMock{
 		UpdateTaskFunc: func(context.Context, *gritzv1.UpdateTaskRequest) (*gritzv1.UpdateTaskResponse, error) {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("e2e: rejected"))
@@ -48,7 +48,7 @@ func TestAddOrgMember(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Email})
 

@@ -74,7 +74,7 @@ func TestUpdateTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	notifications := h.Org.Subscribe()
 
@@ -102,7 +102,7 @@ func TestCancelTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	notifications := h.Org.Subscribe()
 
@@ -126,7 +126,7 @@ func TestArchiveTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange - a draft can be archived directly.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	notifications := h.Org.Subscribe()
 
 	// Act
@@ -151,7 +151,7 @@ func TestUploadLogs_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	notifications := h.Org.Subscribe()
 
 	// Act
@@ -178,7 +178,7 @@ func TestCreateLink_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	notifications := h.Org.Subscribe()
 
 	// Act
@@ -206,7 +206,7 @@ func TestUpdateTask_ChannelMessage_QueuedOnStart(t *testing.T) {
 	// Arrange - run the task to a stop, so the start under test re-queues a
 	// task that isn't already queued.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	version := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Version
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -234,7 +234,7 @@ func TestUpdateTask_NoChannelMessage_NameOnly(t *testing.T) {
 	// Arrange - a running task has no pending runner, so a name-only update
 	// stays silent on the channel.
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	version := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Version
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -259,7 +259,7 @@ func TestSubmitRunnerEvents_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	version := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Version
 	notifications := h.Org.Subscribe()
@@ -288,7 +288,7 @@ func TestSubmitRunnerEvents_NotApplied_DoesNotPublish(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	notifications := h.Org.Subscribe()
 

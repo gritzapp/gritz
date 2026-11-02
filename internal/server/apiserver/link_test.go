@@ -14,7 +14,7 @@ func TestCreateLink(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
 
 	// Act
 	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
@@ -36,7 +36,7 @@ func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
 
 	// Act
 	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
@@ -69,7 +69,7 @@ func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
 
 	// Act - no routing_key supplied, so the server derives it from url
 	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
@@ -88,7 +88,7 @@ func TestCreateLink_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
 	// Act
 	_, err := other.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
@@ -105,7 +105,7 @@ func TestListLinks(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Links"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Links", Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
 		Relevance: "Link 1",
@@ -132,7 +132,7 @@ func TestListLinks_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
 		Relevance: "User A's Link",

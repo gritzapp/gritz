@@ -41,7 +41,7 @@ func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -67,7 +67,7 @@ func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act - a pending task can't be restarted, so start its sandbox first, then
@@ -114,7 +114,7 @@ func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act - started: PENDING -> RUNNING, actor is the runner.
@@ -164,7 +164,7 @@ func TestLifecycle_RunnerFailedFallsBackWhenNoReason(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},

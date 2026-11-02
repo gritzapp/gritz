@@ -102,7 +102,7 @@ func TestDeleteOrg_WithTasks(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
-	created.CreateTask(nil)
+	created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
 	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})

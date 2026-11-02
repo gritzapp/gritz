@@ -2,6 +2,7 @@ package e2e
 
 import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // Task is a task in the harness. Its commands go through the RPCs the task
@@ -14,19 +15,16 @@ type Task struct {
 	org *Org
 }
 
-// AddInstruction adds an instruction with text, without starting the task.
-func (task *Task) AddInstruction(text string) {
-	task.org.server.t.Helper()
-	task.org.UpdateTask(&gritzv1.UpdateTaskRequest{
-		Id:              task.ID,
-		AddInstructions: []*gritzv1.Instruction{{Text: text}},
-	})
-}
-
-// Start starts the task, or wakes it.
-func (task *Task) Start() {
-	task.org.server.t.Helper()
-	task.org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+// Update updates the task, as the task page does. It fills req.Id with the
+// task's id.
+func (task *Task) Update(req *gritzv1.UpdateTaskRequest) {
+	t := task.org.server.t
+	t.Helper()
+	req = proto.CloneOf(req)
+	req.Id = task.ID
+	if _, err := task.org.Client.UpdateTask(t.Context(), req); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
 }
 
 // Events returns the task's events, oldest first.

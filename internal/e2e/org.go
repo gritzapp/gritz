@@ -41,8 +41,9 @@ type Member struct {
 }
 
 // CreateTask creates a task, as the new-task page does. It fills the harness
-// defaults where req leaves them unset: the org's e2e runner and workspace. The
-// task is always a draft, since Draft has no unset value. req may be nil.
+// defaults where req leaves them unset: the org's e2e runner and workspace.
+// Draft passes through as given, so a request with instructions and no Draft
+// creates a started task. req may be nil.
 func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 	t := o.server.t
 	t.Helper()
@@ -51,7 +52,6 @@ func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 	} else {
 		req = proto.CloneOf(req)
 	}
-	req.Draft = true
 	req.Runner = cmp.Or(req.Runner, DefaultRunner)
 	req.Workspace = cmp.Or(req.Workspace, DefaultWorkspace)
 	resp, err := o.Client.CreateTask(t.Context(), req)

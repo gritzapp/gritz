@@ -18,7 +18,8 @@ func TestGetTask(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Name: "Test Task",
+		Draft: true,
+		Name:  "Test Task",
 		Instructions: []*gritzv1.Instruction{
 			{
 				Text: "Do something important",
@@ -72,7 +73,7 @@ func TestGetTask_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
 	// Act & Assert - the task's own org reads it.
 	_, err := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
@@ -174,7 +175,7 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Draft Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Draft Task", Draft: true})
 
 	// Act: exactly what the task page composer sends.
 	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
@@ -219,8 +220,8 @@ func TestListTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 1"})
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 2"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 1", Draft: true})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 2", Draft: true})
 
 	// Act
 	resp, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
@@ -234,8 +235,8 @@ func TestListTasks_IncludeArchived(t *testing.T) {
 	t.Parallel()
 	// Arrange: one active task and one archived task in the same org.
 	h := e2e.New(t, nil)
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active"})
-	archived := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active", Draft: true})
+	archived := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived.ID})
 
 	// Act & Assert - the default request (archived unset) returns active tasks
@@ -261,11 +262,11 @@ func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 	// Arrange: two active and two archived rows so each filter mints a
 	// next-page token.
 	h := e2e.New(t, nil)
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-1"})
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-2"})
-	archived1 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-1"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-1", Draft: true})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-2", Draft: true})
+	archived1 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-1", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived1.ID})
-	archived2 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-2"})
+	archived2 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-2", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived2.ID})
 
 	// Act & Assert - a token minted under archived=true, replayed under
@@ -298,9 +299,9 @@ func TestListTasks_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 1"})
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 2"})
-	other.CreateTask(&gritzv1.CreateTaskRequest{Name: "User B's Task"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 1", Draft: true})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 2", Draft: true})
+	other.CreateTask(&gritzv1.CreateTaskRequest{Name: "User B's Task", Draft: true})
 
 	// Act & Assert - each org lists only its own tasks.
 	respA, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
@@ -316,8 +317,8 @@ func TestListTasks_Pagination(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	first := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-1"})
-	second := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-2"})
+	first := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-1", Draft: true})
+	second := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-2", Draft: true})
 
 	// Act & Assert - the first page holds the newest task and a token for the
 	// next page.
@@ -415,7 +416,7 @@ func TestUpdateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Original Name"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Original Name", Draft: true})
 
 	// Act
 	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
@@ -434,7 +435,7 @@ func TestUpdateTask_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
 	// Act
 	_, err := other.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
@@ -451,7 +452,7 @@ func TestArchiveTask_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
 	// Act
 	_, err := other.Client.ArchiveTask(t.Context(), &gritzv1.ArchiveTaskRequest{Id: task.ID})
@@ -465,7 +466,7 @@ func TestCancelTask_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -480,7 +481,7 @@ func TestRestartTask_Permissions(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
@@ -517,7 +518,7 @@ func TestUpdateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "No archive"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "No archive", Draft: true})
 	assert.Equal(t, task.Resp.Task.AutoArchive.AsDuration(), time.Duration(0), "unset means never auto-archive")
 	want := 24 * time.Hour
 
@@ -556,6 +557,7 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	// Arrange: a draft can be archived directly.
 	h := e2e.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Draft:       true,
 		Name:        "Auto-archive task",
 		AutoArchive: durationpb.New(time.Hour),
 	})
