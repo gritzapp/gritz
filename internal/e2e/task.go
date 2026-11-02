@@ -48,6 +48,21 @@ func (task *Task) Get() *gritzv1.Task {
 	return task.org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
 }
 
+// Archive archives the task, as the task page does.
+func (task *Task) Archive() {
+	task.org.server.t.Helper()
+	task.org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
+}
+
+// Unarchive unarchives the task, as the task page does.
+func (task *Task) Unarchive() {
+	t := task.org.server.t
+	t.Helper()
+	if _, err := task.org.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID}); err != nil {
+		t.Fatalf("UnarchiveTask: %v", err)
+	}
+}
+
 // Events returns the task's events, oldest first.
 func (task *Task) Events() []*gritzv1.Event {
 	t := task.org.server.t
