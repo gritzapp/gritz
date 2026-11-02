@@ -1,14 +1,18 @@
 package scenario_test
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
 )
 
 func TestRunnerRestart_MidRun(t *testing.T) {
@@ -84,4 +88,34 @@ func TestRunnerRestart_SandboxGone(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Version, int64(1))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}
+
+func TestRunnerRestart_Archived(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	// The runner can't destroy the sandbox, so the archive is still pending
+	// when it stops.
+	m := &backend.SandboxMock{
+		DestroyFunc: func(context.Context) error { return errors.New("e2e: destroy failed") },
+	}
+	h.Backend.MockSandbox(task.ID, m)
+	task.Archive()
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		if len(m.DestroyCalls()) == 0 {
+			return poll.Continue("no destroy yet")
+		}
+		return poll.Success()
+	})
+	h.Runner.Stop()
+	h.Backend.MockSandbox(task.ID, nil)
+
+	h.Runner.Start()
+
+	// The new runner loaded the archived task and destroyed its sandbox.
+	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
 }

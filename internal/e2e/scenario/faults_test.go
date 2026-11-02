@@ -178,3 +178,21 @@ func TestDriverDies_MidRun(t *testing.T) {
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
 }
+
+func TestSandboxGone_MidRun(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	h.Backend.DestroySandbox(task.ID)
+
+	// The runner found the sandbox gone under its driver and reported the run
+	// failed, without starting it again.
+	run1.WaitCancelled()
+	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
+	assert.Equal(t, got.Version, int64(1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}

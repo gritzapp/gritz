@@ -17,7 +17,6 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
-	"gotest.tools/v3/poll"
 )
 
 // taskRunning is a GetTask that reports every task RUNNING on the server.
@@ -146,52 +145,6 @@ func TestTaskManagerLoad(t *testing.T) {
 			} else {
 				m.AssertRecord(t, 1, nil)
 			}
-		})
-	}
-}
-
-func TestTaskManagerLoad_Archived(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name       string
-		destroyErr error
-	}{
-		{name: "destroyed"},
-		{name: "destroy fails once", destroyErr: errors.New("boom")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - task 1 ran on c1, now suspended, and was archived.
-			be := testrunner.NewBackend(t, nil)
-			be.Add("c1", fake.Suspended)
-			if tt.destroyErr != nil {
-				be.FailNext(fake.OpDestroy, "c1", tt.destroyErr)
-			}
-			m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-				Backend:     be,
-				RunnerStore: testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}),
-			})
-			m.Replicated(t,
-				testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3),
-				testrunner.ArchiveEvent(2, 1),
-			)
-
-			// Act
-			assert.NilError(t, m.Load(t.Context()))
-
-			// Assert - c1 is destroyed, and its record removed.
-			testrunner.WaitSandbox(t, be, "c1", func(sbx fake.Info) bool { return sbx.Destroys == 1 })
-			poll.WaitOn(t, func(poll.LogT) poll.Result {
-				_, ok, err := m.RunnerStore.Sandbox(t.Context(), 1)
-				if err != nil {
-					return poll.Error(err)
-				}
-				if ok {
-					return poll.Continue("task 1 has a record")
-				}
-				return poll.Success()
-			}, poll.WithTimeout(3*time.Second))
 		})
 	}
 }
