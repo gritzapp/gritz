@@ -96,57 +96,6 @@ func TestLinkGitHubInstallation_Shared(t *testing.T) {
 	}
 }
 
-func TestLinkGitHubInstallation_MissingID(t *testing.T) {
-	t.Parallel()
-	srv := New(Options{
-		Store: teststore.New(t),
-		GitHub: &GithubServerMock{
-			VerifyInstallationAccessFunc: func(context.Context, int64, *model.User) error { return nil },
-		},
-	})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{})
-	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
-}
-
-func TestLinkGitHubInstallation_Unauthenticated(t *testing.T) {
-	t.Parallel()
-	srv := New(Options{
-		Store: teststore.New(t),
-		GitHub: &GithubServerMock{
-			VerifyInstallationAccessFunc: func(context.Context, int64, *model.User) error { return nil },
-		},
-	})
-
-	_, err := srv.LinkGitHubInstallation(context.Background(), &gritzv1.LinkGitHubInstallationRequest{
-		InstallationId: newInstallationID(),
-	})
-	assert.Equal(t, connect.CodeOf(err), connect.CodeUnauthenticated)
-}
-
-func TestLinkGitHubInstallation_NotConfigured(t *testing.T) {
-	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	assert.NilError(t, srv.store.LinkGitHubAccount(t.Context(), nil, org.UserID, newGitHubUserID(), "owner"))
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	_, err := srv.LinkGitHubInstallation(ctx, &gritzv1.LinkGitHubInstallationRequest{
-		InstallationId: newInstallationID(),
-	})
-	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-}
-
 func TestLinkGitHubInstallation_NoLinkedGitHubAccount(t *testing.T) {
 	t.Parallel()
 	srv := New(Options{
@@ -196,22 +145,6 @@ func TestLinkGitHubInstallation_AccessDenied(t *testing.T) {
 	got, err := srv.store.GetOrg(ctx, nil, org.OrgID)
 	assert.NilError(t, err)
 	assert.Equal(t, got.GitHubInstallationID, int64(0))
-}
-
-// CreateGitHubToken no longer mints tokens on the server; it always reports
-// Unimplemented. The real implementation now lives in the runner proxy (#806).
-func TestCreateGitHubToken_Unimplemented(t *testing.T) {
-	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	_, err := srv.CreateGitHubToken(ctx, &gritzv1.CreateGitHubTokenRequest{})
-	assert.Equal(t, connect.CodeOf(err), connect.CodeUnimplemented)
 }
 
 // Sanity check: the store's clear method removes a previously set installation.

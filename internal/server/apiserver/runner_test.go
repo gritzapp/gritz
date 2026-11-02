@@ -1,13 +1,12 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -15,106 +14,53 @@ import (
 
 func TestSubmitRunnerEvents(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange - a pending task with a start command.
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Test Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
+	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
+	assert.Equal(t, got.Version, int64(1))
 
-	// Create a task (starts as pending with start command)
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Test Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	taskID := createResp.Task.Id
-
-	// Verify initial state
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_PENDING)
-	assert.Equal(t, getResp.Task.Command, gritzv1.TaskCommand_START)
-	assert.Equal(t, getResp.Task.Version, int64(1))
-
-	// Send started event (simulating container start)
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
+	// Act - the run starts.
+	_, err := h.Org.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
-			{
-				TaskId:  taskID,
-				Event:   "started",
-				Version: 1,
-			},
+			{TaskId: task.ID, Event: "started", Version: 1},
 		},
 	})
-	assert.NilError(t, err)
 
-	// Verify task is running and command is cleared
-	getResp, err = srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
+	// Assert - the task is running and its command is cleared.
 	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_RUNNING)
-	assert.Equal(t, getResp.Task.Command, gritzv1.TaskCommand_NONE)
+	got = h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.Status, gritzv1.TaskStatus_RUNNING)
+	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
 
-	// Send stopped event (simulating container exit with code 0)
-	// Use version 0 to bypass version check (spontaneous event)
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
+	// Act - the run exits on its own; version 0 skips the version check.
+	_, err = h.Org.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
-			{
-				TaskId:  taskID,
-				Event:   "stopped",
-				Version: 0,
-			},
+			{TaskId: task.ID, Event: "stopped", Version: 0},
 		},
 	})
-	assert.NilError(t, err)
 
-	// Verify task status was updated to completed
-	getResp, err = srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
+	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_COMPLETED)
+	got = h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.Status, gritzv1.TaskStatus_COMPLETED)
 }
 
 func TestSubmitRunnerEvents_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
-	_, err = srv.SubmitRunnerEvents(ctxB, &gritzv1.SubmitRunnerEventsRequest{
+	_, err := other.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
-			{TaskId: taskResp.Task.Id, Event: "started", Version: 1},
+			{TaskId: task.ID, Event: "started", Version: 1},
 		},
 	})
 
@@ -124,75 +70,61 @@ func TestSubmitRunnerEvents_Permissions(t *testing.T) {
 
 func TestListRunnerEvents(t *testing.T) {
 	t.Parallel()
-	// Arrange - a task on each runner; creating one writes its command event.
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "runner-1", Name: "test-workspace"},
-			{RunnerID: "runner-2", Name: "test-workspace"},
+	// Arrange - a started task on each runner; starting one writes its command
+	// event.
+	h := e2e.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{
+			{Name: "test-workspace"},
 		},
 	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-2",
+		Workspaces: []*gritzv1.RegisteredWorkspace{
+			{Name: "test-workspace"},
+		},
 	})
-	// runner-2's task is created first, so once runner-1's events pass the
+	// runner-2's task is started first, so once runner-1's events pass the
 	// watermark, runner-2's have too.
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	other := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Name:      "other",
-		Workspace: "test-workspace",
 		Runner:    "runner-2",
-	})
-	assert.NilError(t, err)
-	mine, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "mine",
 		Workspace: "test-workspace",
+	})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: other.ID, Start: true})
+	mine := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Name:      "mine",
 		Runner:    "runner-1",
+		Workspace: "test-workspace",
 	})
-	assert.NilError(t, err)
-	want, err := srv.store.ListEventsByTask(ctx, nil, mine.Task.Id, org.OrgID, nil)
-	assert.NilError(t, err)
-	teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{
-		Runner: "runner-1",
-		Count:  len(want),
-	})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: mine.ID, Start: true})
+	want := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: mine.ID})
+	h.Org.WaitRunnerEvents("runner-1", len(want))
 
 	// Act - read runner-1's log from the start.
-	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
+	resp, err := h.Org.Client.ListRunnerEvents(t.Context(), &gritzv1.ListRunnerEventsRequest{
+		Runner: "runner-1",
+	})
 
 	// Assert - every event of runner-1's task, and nothing of runner-2's.
 	assert.NilError(t, err)
-	assert.DeepEqual(t, testx.ExtractField(resp.Events, "Id"), testx.ExtractField(want, "ID"))
+	assert.DeepEqual(t, testx.ExtractField(resp.Events, "Id"), testx.ExtractField(want, "Id"))
 	assert.Assert(t, resp.NextPageToken != "")
 }
 
 func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	t.Parallel()
 	// Arrange - read the runner's whole log.
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "runner-1", Name: "test-workspace"}},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "task",
-		Workspace: "test-workspace",
-		Runner:    "runner-1",
-	})
-	assert.NilError(t, err)
-	_, token := teststore.WaitRunnerEvents(t, srv.store, org, teststore.WaitRunnerEventsOptions{
-		Runner: "runner-1",
-		Count:  1,
-	})
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	want := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID})
+	token := h.Org.WaitRunnerEvents(e2e.DefaultRunner, len(want))
 
 	// Act
-	resp, err := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{
-		Runner:    "runner-1",
+	resp, err := h.Org.Client.ListRunnerEvents(t.Context(), &gritzv1.ListRunnerEventsRequest{
+		Runner:    e2e.DefaultRunner,
 		PageToken: token,
 	})
 
@@ -205,15 +137,17 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 func TestListRunnerEvents_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange - a caller scoped to runner-1's tasks.
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := scopedCtx(t, org, authscope.Scopes{
-		authscope.New(authscope.OpTaskRead, authscope.WithTaskRunner("runner-1")),
+	h := e2e.New(t, nil)
+	key := h.Org.CreateScopedKey(authscope.Scopes{
+		authscope.New(
+			authscope.OpTaskRead,
+			authscope.WithTaskRunner("runner-1"),
+		),
 	})
 
 	// Act
-	_, errOwn := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
-	_, errOther := srv.ListRunnerEvents(ctx, &gritzv1.ListRunnerEventsRequest{Runner: "runner-2"})
+	_, errOwn := key.Client.ListRunnerEvents(t.Context(), &gritzv1.ListRunnerEventsRequest{Runner: "runner-1"})
+	_, errOther := key.Client.ListRunnerEvents(t.Context(), &gritzv1.ListRunnerEventsRequest{Runner: "runner-2"})
 
 	// Assert
 	assert.NilError(t, errOwn)
@@ -222,13 +156,7 @@ func TestListRunnerEvents_Permissions(t *testing.T) {
 
 func TestListRunnerEvents_BadRequest(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 	tests := []struct {
 		name string
 		req  *gritzv1.ListRunnerEventsRequest
@@ -243,7 +171,7 @@ func TestListRunnerEvents_BadRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := srv.ListRunnerEvents(ctx, tt.req)
+			_, err := h.Org.Client.ListRunnerEvents(t.Context(), tt.req)
 			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 		})
 	}

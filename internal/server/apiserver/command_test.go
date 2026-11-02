@@ -1,266 +1,241 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/x/testx"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
 
 func TestCreateTask_CommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
+	// Arrange
+	h := e2e.New(t, nil)
+
+	// Act
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 	})
 
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Assert
+	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: resp.Task.Id,
+		Types:  []string{model.EventTypeCommand},
 	})
-	assert.NilError(t, err)
-
-	events, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+	}, protocmp.Transform())
 }
 
 func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange
+	h := e2e.New(t, nil)
 
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Act
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 		Draft:     true,
 	})
-	assert.NilError(t, err)
 
-	events, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
+	// Assert
 	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: resp.Task.Id,
+		Types:  []string{model.EventTypeCommand},
+	})
 	assert.Assert(t, cmp.Len(events, 0))
 }
 
 func TestUpdateTask_StartCommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
+	// Arrange - run 1 starts and completes.
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: "started", Version: 1},
+			{TaskId: task.ID, Event: "stopped", Version: 1},
 		},
 	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Status:    model.TaskStatusCompleted,
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
 
-	_, err := srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
-	assert.NilError(t, err)
+	// Act - start the completed task again.
+	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	events, err := srv.store.ListEventsByTask(ctx, nil, task.ID, org.OrgID, []string{model.EventTypeCommand})
+	// Assert - run 1's start and its clear, then the start for run 2.
 	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+		{
+			Command:   gritzv1.TaskCommand_NONE,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   2,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+	}, protocmp.Transform())
 }
 
 func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Status:    model.TaskStatusCompleted,
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 
-	_, err := srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{Id: task.ID, Name: "renamed"})
-	assert.NilError(t, err)
+	// Act
+	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: task.ID, Name: "renamed"})
 
-	events, err := srv.store.ListEventsByTask(ctx, nil, task.ID, org.OrgID, []string{model.EventTypeCommand})
+	// Assert
 	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
 	assert.Assert(t, cmp.Len(events, 0))
 }
 
 func TestRestartTask_CommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
+	// Arrange - run 1 starts and fails.
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Status:    model.TaskStatusFailed,
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "failed", Version: 1}},
 	})
 
-	_, err := srv.RestartTask(ctx, &gritzv1.RestartTaskRequest{Id: task.ID})
-	assert.NilError(t, err)
+	// Act
+	_, err := h.Org.Client.RestartTask(t.Context(), &gritzv1.RestartTaskRequest{Id: task.ID})
 
-	events, err := srv.store.ListEventsByTask(ctx, nil, task.ID, org.OrgID, []string{model.EventTypeCommand})
+	// Assert - run 1's start and its clear, then the restart for run 2.
 	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandRestart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+		{
+			Command:   gritzv1.TaskCommand_NONE,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+		{
+			Command:   gritzv1.TaskCommand_RESTART,
+			Version:   2,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+	}, protocmp.Transform())
 }
 
 func TestCancelTask_PendingCommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	_, err = srv.CancelTask(ctx, &gritzv1.CancelTaskRequest{Id: resp.Task.Id})
-	assert.NilError(t, err)
+	// Act
+	_, err := h.Org.Client.CancelTask(t.Context(), &gritzv1.CancelTaskRequest{Id: task.ID})
 
-	// The withdrawal is a none command for the start's version.
-	events, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
+	// Assert - the withdrawal is a none command for the start's version.
 	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
-			&model.CommandPayload{
-				Command:   model.TaskCommandNone,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+		{
+			Command:   gritzv1.TaskCommand_NONE,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+	}, protocmp.Transform())
 }
 
 func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	// Arrange
+	h := e2e.New(t, nil)
+	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
+	task := h.Org.CreateTask(nil)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: resp.Task.Id, Event: "started", Version: 1}},
+	// Act
+	_, err := runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	assert.NilError(t, err)
 
-	events, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
+	// Assert
 	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
-			&model.CommandPayload{
-				Command:   model.TaskCommandNone,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+		{
+			Command:   gritzv1.TaskCommand_NONE,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+	}, protocmp.Transform())
 }
 
 // TestSubmitRunnerEvents_RunBoundaryCommandEvent covers a start pending on a
@@ -268,104 +243,97 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 // version, and that move is a command event too.
 func TestSubmitRunnerEvents_RunBoundaryCommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
+	// Arrange - run 1 is running, and a start is queued behind it.
+	h := e2e.New(t, nil)
+	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
+	task := h.Org.CreateTask(nil)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Status:    model.TaskStatusRunning,
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-		Version:   1,
-	})
-	_, err := srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
-	assert.NilError(t, err)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act - run 1 exits with the start still pending.
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
+	_, err := runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 1}},
 	})
-	assert.NilError(t, err)
 
-	// Assert - the start, then the same start for run 2.
-	events, err := srv.store.ListEventsByTask(ctx, nil, task.ID, org.OrgID, []string{model.EventTypeCommand})
+	// Assert - run 1's start and its clear, the queued start, then the same
+	// start for run 2.
 	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   2,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+		{
+			Command:   gritzv1.TaskCommand_NONE,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   2,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+	}, protocmp.Transform())
 }
 
 func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CancelTask(ctx, &gritzv1.CancelTaskRequest{Id: resp.Task.Id})
-	assert.NilError(t, err)
+	// Arrange
+	h := e2e.New(t, nil)
+	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
+	task := h.Org.CreateTask(nil)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.CancelTask(&gritzv1.CancelTaskRequest{Id: task.ID})
 
-	// The runner had already acted on the withdrawn start: the server stops it.
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: resp.Task.Id, Event: "started", Version: 1}},
+	// Act - the runner had already acted on the withdrawn start: the server
+	// stops it.
+	_, err := runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	assert.NilError(t, err)
 
-	events, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
+	// Assert
 	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
-			&model.CommandPayload{
-				Command:   model.TaskCommandNone,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
-			&model.CommandPayload{
-				Command:   model.TaskCommandStop,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
+	})
+	got := testx.ProtoVariantsOf[*gritzv1.CommandPayload](events)
+	assert.DeepEqual(t, got, []*gritzv1.CommandPayload{
+		{
+			Command:   gritzv1.TaskCommand_START,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
 		},
-	)
+		{
+			Command:   gritzv1.TaskCommand_NONE,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+		{
+			Command:   gritzv1.TaskCommand_STOP,
+			Version:   1,
+			Runner:    e2e.DefaultRunner,
+			Workspace: e2e.DefaultWorkspace,
+		},
+	}, protocmp.Transform())
 }

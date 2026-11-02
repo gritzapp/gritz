@@ -62,7 +62,7 @@ func New(t *testing.T, opts *Options) *Harness {
 	ps := pubsub.NewLocalPubSub()
 	s := &Server{
 		t:       t,
-		store:   st,
+		Store:   st,
 		appKey:  appKey,
 		timeout: cmp.Or(opts.Timeout, 30*time.Second),
 	}

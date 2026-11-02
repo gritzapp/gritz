@@ -1,35 +1,21 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
-
-	// Blank-imported so their init registers the eventrouter schemas the
-	// handler serves. atlassianserver is already imported transitively by the
-	// apiserver package; githubserver is only referenced via an interface, so it
-	// must be pulled in explicitly here for its github/* types to be registered.
-	_ "github.com/gritzapp/gritz/internal/server/githubserver"
 )
 
 func TestGetEventTypes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.GetEventTypes(ctx, &gritzv1.GetEventTypesRequest{})
+	resp, err := h.Org.Client.GetEventTypes(t.Context(), &gritzv1.GetEventTypesRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -82,8 +68,8 @@ func TestGetEventTypes(t *testing.T) {
 		},
 	}, protocmp.Transform())
 
-	// The atlassian producer registers too (apiserver imports it), confirming the
-	// handler exposes the whole global registry, not just one source.
+	// The atlassian producer registers too, confirming the handler exposes the
+	// whole global registry, not just one source.
 	_, ok = byKey["atlassian:comment_created"]
 	assert.Assert(t, ok, "expected atlassian/comment_created to be registered")
 }

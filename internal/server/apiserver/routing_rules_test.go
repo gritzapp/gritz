@@ -1,34 +1,22 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
-
-	// Blank-imported so their init registers the eventrouter schemas that
-	// SetRoutingRules validates against (see event_types_test.go).
-	_ "github.com/gritzapp/gritz/internal/server/githubserver"
 )
 
 func TestGetRoutingRules_Default(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
+	resp, err := h.Org.Client.GetRoutingRules(t.Context(), &gritzv1.GetRoutingRulesRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -38,13 +26,7 @@ func TestGetRoutingRules_Default(t *testing.T) {
 func TestSetAndGetRoutingRules(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 	rules := []*gritzv1.RoutingRule{
 		{
 			Source: "github",
@@ -63,7 +45,7 @@ func TestSetAndGetRoutingRules(t *testing.T) {
 	}
 
 	// Act
-	setResp, err := srv.SetRoutingRules(ctx, &gritzv1.SetRoutingRulesRequest{
+	setResp, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
 		Rules: rules,
 	})
 
@@ -72,7 +54,7 @@ func TestSetAndGetRoutingRules(t *testing.T) {
 	assert.DeepEqual(t, setResp.Rules, rules, protocmp.Transform())
 
 	// Act
-	getResp, err := srv.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
+	getResp, err := h.Org.Client.GetRoutingRules(t.Context(), &gritzv1.GetRoutingRulesRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -82,13 +64,7 @@ func TestSetAndGetRoutingRules(t *testing.T) {
 func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 	rules := []*gritzv1.RoutingRule{
 		{
 			Source: "github",
@@ -108,7 +84,7 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 	}
 
 	// Act
-	setResp, err := srv.SetRoutingRules(ctx, &gritzv1.SetRoutingRulesRequest{Rules: rules})
+	setResp, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{Rules: rules})
 
 	// Assert: the namespace round-trips through set, and the default (empty)
 	// namespace is preserved untouched.
@@ -116,7 +92,7 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 	assert.DeepEqual(t, setResp.Rules, rules, protocmp.Transform())
 
 	// Act
-	getResp, err := srv.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
+	getResp, err := h.Org.Client.GetRoutingRules(t.Context(), &gritzv1.GetRoutingRulesRequest{})
 
 	// Assert: set -> get preserves each rule's namespace.
 	assert.NilError(t, err)
@@ -128,20 +104,9 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.SetRoutingRules(ctxA, &gritzv1.SetRoutingRulesRequest{
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
 			{
 				Source: "github",
@@ -152,10 +117,9 @@ func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 			},
 		},
 	})
-	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.GetRoutingRules(ctxB, &gritzv1.GetRoutingRulesRequest{})
+	resp, err := other.Client.GetRoutingRules(t.Context(), &gritzv1.GetRoutingRulesRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -165,14 +129,7 @@ func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
+	h := e2e.New(t, nil)
 	cases := map[string]*gritzv1.RoutingRule{
 		"empty type":   {Source: "github"},
 		"unknown type": {Source: "github", Type: "not_a_type"},
@@ -200,15 +157,16 @@ func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 	}
 	for name, rule := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := srv.SetRoutingRules(ctx, &gritzv1.SetRoutingRulesRequest{
+			// Act
+			_, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
 				Rules: []*gritzv1.RoutingRule{rule},
 			})
+
+			// Assert
 			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 		})
 	}
 
-	// The rejected writes never persisted anything.
-	resp, err := srv.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Rules), 0)
+	// Assert: the rejected writes never persisted anything.
+	assert.Equal(t, len(h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{})), 0)
 }

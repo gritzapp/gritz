@@ -1,135 +1,105 @@
-package apiserver
+package apiserver_test
 
 import (
-	"context"
-	"slices"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
-
-// lifecycleEvents returns the task's lifecycle events most-recent-first.
-// ListEventsByTask returns chronological (oldest-first) order, so the collected
-// events are reversed to put the most recent lifecycle event at index 0.
-func lifecycleEvents(t *testing.T, srv *Server, ctx context.Context, taskID int64) []*gritzv1.LifecyclePayload {
-	t.Helper()
-	resp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{TaskId: taskID})
-	assert.NilError(t, err)
-	var out []*gritzv1.LifecyclePayload
-	for _, e := range resp.Events {
-		if l := e.GetLifecycle(); l != nil {
-			out = append(out, l)
-		}
-	}
-	slices.Reverse(out)
-	return out
-}
-
-func lifecycleTestServer(t *testing.T) (*Server, context.Context) {
-	t.Helper()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	return srv, apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-}
 
 func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
 	t.Parallel()
-	srv, ctx := lifecycleTestServer(t)
+	// Arrange
+	h := e2e.New(t, nil)
 
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	// Act
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 	})
-	assert.NilError(t, err)
 
-	events := lifecycleEvents(t, srv, ctx, resp.Task.Id)
-	assert.Equal(t, len(events), 1)
-	assert.Equal(t, events[0].Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
-	assert.Equal(t, events[0].Actor.Kind, "user")
+	// Assert
+	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: resp.Task.Id,
+		Types:  []string{model.EventTypeLifecycle},
+	})
+	assert.Assert(t, cmp.Len(events, 1))
+	created := events[0].GetLifecycle()
+	assert.Equal(t, created.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
+	assert.Equal(t, created.Actor.Kind, "user")
 	// A freshly created task has no prior status; it lands in PENDING.
-	assert.Equal(t, events[0].FromStatus, "")
-	assert.Equal(t, events[0].ToStatus, "Pending")
+	assert.Equal(t, created.FromStatus, "")
+	assert.Equal(t, created.ToStatus, "Pending")
 }
 
 func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 	t.Parallel()
-	srv, ctx := lifecycleTestServer(t)
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Act
+	_, err := h.Org.Client.CancelTask(t.Context(), &gritzv1.CancelTaskRequest{Id: task.ID})
+
+	// Assert - the lifecycle event records the transition...
+	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeLifecycle},
 	})
-	assert.NilError(t, err)
-	taskID := resp.Task.Id
-
-	_, err = srv.CancelTask(ctx, &gritzv1.CancelTaskRequest{Id: taskID})
-	assert.NilError(t, err)
-
-	// The lifecycle event records the transition...
-	events := lifecycleEvents(t, srv, ctx, taskID)
-	assert.Equal(t, events[0].Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CANCELLED)
-	assert.Equal(t, events[0].FromStatus, "Pending")
-	assert.Equal(t, events[0].ToStatus, "Cancelled")
+	last := events[len(events)-1].GetLifecycle()
+	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CANCELLED)
+	assert.Equal(t, last.FromStatus, "Pending")
+	assert.Equal(t, last.ToStatus, "Cancelled")
 	// ...and the materialized status projection is updated in the same tx.
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_CANCELLED)
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.Status, gritzv1.TaskStatus_CANCELLED)
 }
 
 func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
 	t.Parallel()
-	srv, ctx := lifecycleTestServer(t)
+	// Arrange
+	h := e2e.New(t, nil)
+	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Act - a pending task can't be restarted, so start its sandbox first, then
+	// restart the running task. Runner events use version 0 to bypass the
+	// version check.
+	_, err := runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
 	})
 	assert.NilError(t, err)
-	taskID := resp.Task.Id
-
-	// A pending task can't be restarted, so start its sandbox first, then restart
-	// the running task. Runner events use version 0 to bypass the version check.
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 0}},
-	})
+	_, err = h.Org.Client.RestartTask(t.Context(), &gritzv1.RestartTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
-	_, err = srv.RestartTask(ctx, &gritzv1.RestartTaskRequest{Id: taskID})
-	assert.NilError(t, err)
-
 	// Drive it back to running, then to a terminal status so it can be archived.
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 0}},
+	_, err = runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
 	})
 	assert.NilError(t, err)
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "stopped", Version: 0}},
+	_, err = runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 0}},
 	})
 	assert.NilError(t, err)
-
-	_, err = srv.ArchiveTask(ctx, &gritzv1.ArchiveTaskRequest{Id: taskID})
+	_, err = h.Org.Client.ArchiveTask(t.Context(), &gritzv1.ArchiveTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
-	_, err = srv.UnarchiveTask(ctx, &gritzv1.UnarchiveTaskRequest{Id: taskID})
+	_, err = h.Org.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
 
-	// Collect the set of lifecycle kinds present on the stream.
+	// Assert - collect the set of lifecycle kinds present on the stream.
 	kinds := map[gritzv1.LifecycleKind]bool{}
-	for _, e := range lifecycleEvents(t, srv, ctx, taskID) {
-		kinds[e.Kind] = true
+	for _, e := range h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeLifecycle},
+	}) {
+		kinds[e.GetLifecycle().Kind] = true
 	}
 	assert.Assert(t, kinds[gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED])
 	assert.Assert(t, kinds[gritzv1.LifecycleKind_LIFECYCLE_KIND_RESTARTED])
@@ -141,70 +111,77 @@ func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
 
 func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 	t.Parallel()
-	srv, ctx := lifecycleTestServer(t)
+	// Arrange
+	h := e2e.New(t, nil)
+	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Act - started: PENDING -> RUNNING, actor is the runner.
+	_, err := runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	assert.NilError(t, err)
-	taskID := resp.Task.Id
 
-	// started: PENDING -> RUNNING, actor is the runner.
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 1}},
+	// Assert
+	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeLifecycle},
 	})
-	assert.NilError(t, err)
+	last := events[len(events)-1].GetLifecycle()
+	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED)
+	assert.Equal(t, last.Actor.Kind, "runner")
+	assert.Equal(t, last.FromStatus, "Pending")
+	assert.Equal(t, last.ToStatus, "Running")
 
-	events := lifecycleEvents(t, srv, ctx, taskID)
-	assert.Equal(t, events[0].Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED)
-	assert.Equal(t, events[0].Actor.Kind, "runner")
-	assert.Equal(t, events[0].FromStatus, "Pending")
-	assert.Equal(t, events[0].ToStatus, "Running")
-
-	// failed: RUNNING -> FAILED, with the producer's reason threaded into message.
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
+	// Act - failed: RUNNING -> FAILED, with the producer's reason threaded into
+	// message.
+	_, err = runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{
-			TaskId:  taskID,
+			TaskId:  task.ID,
 			Event:   "failed",
 			Version: 0,
 			Reason:  "setup command 0 failed: exit status 1",
 		}},
 	})
-	assert.NilError(t, err)
 
-	events = lifecycleEvents(t, srv, ctx, taskID)
-	assert.Equal(t, events[0].Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
-	assert.Equal(t, events[0].Message, "setup command 0 failed: exit status 1")
-	assert.Equal(t, events[0].ToStatus, "Failed")
+	// Assert
+	assert.NilError(t, err)
+	events = h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeLifecycle},
+	})
+	last = events[len(events)-1].GetLifecycle()
+	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
+	assert.Equal(t, last.Message, "setup command 0 failed: exit status 1")
+	assert.Equal(t, last.ToStatus, "Failed")
 }
 
 // TestLifecycle_RunnerFailedFallsBackWhenNoReason verifies that a "failed" event
 // with an empty reason (an old runner/driver) keeps the legacy message.
 func TestLifecycle_RunnerFailedFallsBackWhenNoReason(t *testing.T) {
 	t.Parallel()
-	srv, ctx := lifecycleTestServer(t)
-
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Arrange
+	h := e2e.New(t, nil)
+	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	assert.NilError(t, err)
-	taskID := resp.Task.Id
 
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 1}},
+	// Act
+	_, err := runner.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "failed", Version: 0}},
 	})
-	assert.NilError(t, err)
 
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "failed", Version: 0}},
+	// Assert
+	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeLifecycle},
 	})
-	assert.NilError(t, err)
-
-	events := lifecycleEvents(t, srv, ctx, taskID)
-	assert.Equal(t, events[0].Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
-	assert.Equal(t, events[0].Message, "container failed")
+	last := events[len(events)-1].GetLifecycle()
+	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
+	assert.Equal(t, last.Message, "container failed")
 }

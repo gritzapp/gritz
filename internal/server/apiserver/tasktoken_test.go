@@ -1,48 +1,43 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
 )
 
 func TestCreateTaskToken(t *testing.T) {
 	t.Parallel()
-	appKey, err := apiauth.CreateAppPrivateKey()
-	assert.NilError(t, err)
-	srv := New(Options{Store: teststore.New(t), AppKey: appKey})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 
-	resp, err := srv.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
+	// Act
+	resp, err := h.Org.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{
 		TaskId:       task.ID,
 		Capabilities: []string{agentauth.CapabilityGitHubToken},
 	})
+
+	// Assert
 	assert.NilError(t, err)
 	assert.Assert(t, resp.Token != "")
-
-	// The minted token is an ordinary app JWT: it verifies on the normal path and
-	// carries the task's org plus the narrow scopes derived from the row (not the
-	// admin wildcard the caller holds).
-	claims, err := apiauth.VerifyAppToken(appKey, resp.Token)
+	// The minted token is an ordinary app JWT: it verifies on the normal path...
+	_, err = h.Server.Client(resp.Token).GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
-	assert.Equal(t, claims.OrgID, org.OrgID)
+	// ...and carries the task's org plus the narrow scopes derived from the row
+	// (not the admin wildcard the caller holds). The server verified the
+	// signature above, so the claims are read without verifying it again.
+	var claims apiauth.AppClaims
+	_, _, err = jwt.NewParser().ParseUnverified(resp.Token, &claims)
+	assert.NilError(t, err)
+	assert.Equal(t, claims.OrgID, h.Org.ID)
 	want := agentauth.Scopes(agentauth.ScopeOptions{
 		TaskID:       task.ID,
 		Capabilities: []string{agentauth.CapabilityGitHubToken},
@@ -52,70 +47,46 @@ func TestCreateTaskToken(t *testing.T) {
 
 func TestCreateTaskToken_InvalidCapability(t *testing.T) {
 	t.Parallel()
-	appKey, err := apiauth.CreateAppPrivateKey()
-	assert.NilError(t, err)
-	srv := New(Options{Store: teststore.New(t), AppKey: appKey})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 
-	_, err = srv.CreateTaskToken(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	}), &gritzv1.CreateTaskTokenRequest{
+	// Act
+	_, err := h.Org.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{
 		TaskId:       task.ID,
 		Capabilities: []string{"bogus"},
 	})
 
+	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 }
 
 func TestCreateTaskToken_Denied(t *testing.T) {
 	t.Parallel()
-	appKey, err := apiauth.CreateAppPrivateKey()
-	assert.NilError(t, err)
-	srv := New(Options{Store: teststore.New(t), AppKey: appKey})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
-	})
-	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 	// A present-but-scopeless caller lacks the task_token.create capability.
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{ID: org.UserID, OrgID: org.OrgID})
+	key := h.Org.CreateScopedKey(authscope.Scopes{})
 
-	_, err = srv.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+	// Act
+	_, err := key.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
+	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
 func TestCreateTaskToken_CrossOrg(t *testing.T) {
 	t.Parallel()
-	appKey, err := apiauth.CreateAppPrivateKey()
-	assert.NilError(t, err)
-	srv := New(Options{Store: teststore.New(t), AppKey: appKey})
-	workspaces := &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
-	}
-	orgA := teststore.CreateOrg(t, srv.store, workspaces)
-	orgB := teststore.CreateOrg(t, srv.store, workspaces)
-	task := teststore.CreateTask(t, srv.store, orgA, &teststore.TaskOptions{
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
+	// Arrange
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(nil)
 
-	// orgB's caller cannot mint a token for orgA's task; the org-scoped read hides it.
-	_, err = srv.CreateTaskToken(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	}), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+	// Act - the other org's caller cannot mint a token for this org's task; the
+	// org-scoped read hides it.
+	_, err := other.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
+	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
 }

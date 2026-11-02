@@ -1,15 +1,12 @@
-package apiserver
+package apiserver_test
 
 import (
 	"fmt"
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/agentauth"
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -22,27 +19,12 @@ import (
 func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with Logs",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Logs"})
 
 	// Act
-	_, err = srv.UploadLogs(ctx, &gritzv1.UploadLogsRequest{
-		TaskId: taskResp.Task.Id,
+	_, err := h.Org.Client.UploadLogs(t.Context(), &gritzv1.UploadLogsRequest{
+		TaskId: task.ID,
 		Entries: []*gritzv1.LogEntry{
 			{Type: "info", Content: "First log entry"},
 			{Type: "error", Content: "Second log entry"},
@@ -51,11 +33,8 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - no report (or other) events were created from the dropped entries.
-	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: taskResp.Task.Id,
-	})
-	assert.NilError(t, err)
-	for _, e := range events.Events {
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID})
+	for _, e := range events {
 		assert.Assert(t, e.GetReport() == nil, "non-report entries must not become report events")
 	}
 }
@@ -63,27 +42,12 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with report",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with report"})
 
 	// Act - the agent's report tool uploads an `llm` entry.
-	_, err = srv.UploadLogs(ctx, &gritzv1.UploadLogsRequest{
-		TaskId: taskResp.Task.Id,
+	_, err := h.Org.Client.UploadLogs(t.Context(), &gritzv1.UploadLogsRequest{
+		TaskId: task.ID,
 		Entries: []*gritzv1.LogEntry{
 			{Type: "llm", Content: "Opened PR #952"},
 		},
@@ -91,12 +55,9 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - the report is a from-agent report event.
-	events, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: taskResp.Task.Id,
-	})
-	assert.NilError(t, err)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID})
 	var reports []*gritzv1.ReportPayload
-	for _, e := range events.Events {
+	for _, e := range events {
 		if r := e.GetReport(); r != nil {
 			assert.Equal(t, e.Wake, false)
 			reports = append(reports, r)
@@ -109,37 +70,13 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 func TestUploadLogs_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	other := h.Server.CreateOrg()
 
 	// Act
-	_, err = srv.UploadLogs(ctxB, &gritzv1.UploadLogsRequest{
-		TaskId: taskResp.Task.Id,
+	_, err := other.Client.UploadLogs(t.Context(), &gritzv1.UploadLogsRequest{
+		TaskId: task.ID,
 		Entries: []*gritzv1.LogEntry{
 			{Type: "llm", Content: "Sneaky report"},
 		},
@@ -156,15 +93,9 @@ func TestUploadLogs_Permissions(t *testing.T) {
 func TestAppendLogChunk_RoundTrip(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskID := createTestTask(t, srv, ctx)
-	agentCtx := scopedCtx(t, org, taskScopes(taskID))
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
 	// Act - ship the transcript in chunks, as the driver's FIFO sender does.
 	for _, data := range [][]byte{
@@ -172,20 +103,21 @@ func TestAppendLogChunk_RoundTrip(t *testing.T) {
 		{0x00, 0xff, 0x80},
 		[]byte("agent stopped\n"),
 	} {
-		_, err := srv.AppendLogChunk(agentCtx, &gritzv1.AppendLogChunkRequest{
-			TaskId: taskID, Version: 1, Data: data,
+		_, err := token.Client.AppendLogChunk(t.Context(), &gritzv1.AppendLogChunkRequest{
+			TaskId:  task.ID,
+			Version: 1,
+			Data:    data,
 		})
 		assert.NilError(t, err)
 	}
 
 	// Assert - a user read returns the chunks oldest-first, so their data
 	// concatenates straight into transcript order.
-	resp, err := srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{TaskId: taskID})
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(resp.Chunks, 3))
+	chunks := h.Org.ListLogChunksByTask(&gritzv1.ListLogChunksByTaskRequest{TaskId: task.ID})
+	assert.Assert(t, cmp.Len(chunks, 3))
 	var transcript []byte
-	for _, c := range resp.Chunks {
-		assert.Equal(t, c.TaskId, taskID)
+	for _, c := range chunks {
+		assert.Equal(t, c.TaskId, task.ID)
 		assert.Equal(t, c.Version, int64(1))
 		assert.Assert(t, c.CreatedAt != nil)
 		transcript = append(transcript, c.Data...)
@@ -198,14 +130,9 @@ func TestAppendLogChunk_RoundTrip(t *testing.T) {
 func TestAppendLogChunk_Bounds(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskID := createTestTask(t, srv, ctx)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	const maxLogChunkSize = 1 << 20 // the handler's 1 MiB ceiling
 
 	tests := []struct {
 		name string
@@ -218,8 +145,10 @@ func TestAppendLogChunk_Bounds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			_, err := srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
-				TaskId: taskID, Version: 1, Data: tt.data,
+			_, err := h.Org.Client.AppendLogChunk(t.Context(), &gritzv1.AppendLogChunkRequest{
+				TaskId:  task.ID,
+				Version: 1,
+				Data:    tt.data,
 			})
 
 			// Assert
@@ -229,8 +158,10 @@ func TestAppendLogChunk_Bounds(t *testing.T) {
 	}
 
 	// A chunk exactly at the cap is accepted — the check is an inclusive ceiling.
-	_, err := srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
-		TaskId: taskID, Version: 1, Data: make([]byte, maxLogChunkSize),
+	_, err := h.Org.Client.AppendLogChunk(t.Context(), &gritzv1.AppendLogChunkRequest{
+		TaskId:  task.ID,
+		Version: 1,
+		Data:    make([]byte, maxLogChunkSize),
 	})
 	assert.NilError(t, err)
 }
@@ -240,27 +171,22 @@ func TestAppendLogChunk_Bounds(t *testing.T) {
 func TestAppendLogChunk_Version(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskID := createTestTask(t, srv, ctx)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 
 	// Act
 	for _, version := range []int64{0, 2} {
-		_, err := srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
-			TaskId: taskID, Version: version, Data: []byte("x"),
+		_, err := h.Org.Client.AppendLogChunk(t.Context(), &gritzv1.AppendLogChunkRequest{
+			TaskId:  task.ID,
+			Version: version,
+			Data:    []byte("x"),
 		})
 		assert.NilError(t, err)
 	}
 
 	// Assert
-	resp, err := srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{TaskId: taskID})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, testx.ExtractField(resp.Chunks, "Version"), []int64{0, 2})
+	chunks := h.Org.ListLogChunksByTask(&gritzv1.ListLogChunksByTaskRequest{TaskId: task.ID})
+	assert.DeepEqual(t, testx.ExtractField(chunks, "Version"), []int64{0, 2})
 }
 
 // Another org's caller can neither append to nor read a task's log, even
@@ -268,33 +194,27 @@ func TestAppendLogChunk_Version(t *testing.T) {
 func TestAppendLogChunk_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := orgWithWorkspace(t, srv)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
+		TaskId:  task.ID,
+		Version: 1,
+		Data:    []byte("secret\n"),
 	})
-	taskID := createTestTask(t, srv, ctxA)
-	orgB := orgWithWorkspace(t, srv)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.AppendLogChunk(ctxA, &gritzv1.AppendLogChunkRequest{
-		TaskId: taskID, Version: 1, Data: []byte("secret\n"),
-	})
-	assert.NilError(t, err)
+	other := h.Server.CreateOrg()
 
-	// Act - org B tries to write to, then read, org A's log.
-	_, err = srv.AppendLogChunk(ctxB, &gritzv1.AppendLogChunkRequest{
-		TaskId: taskID, Version: 1, Data: []byte("sneaky\n"),
+	// Act & Assert - org B can't write to org A's log.
+	_, err := other.Client.AppendLogChunk(t.Context(), &gritzv1.AppendLogChunkRequest{
+		TaskId:  task.ID,
+		Version: 1,
+		Data:    []byte("sneaky\n"),
 	})
 	assert.ErrorContains(t, err, "not found")
-	resp, err := srv.ListLogChunksByTask(ctxB, &gritzv1.ListLogChunksByTaskRequest{TaskId: taskID})
 
-	// Assert - the read is org-scoped, so it leaks nothing.
+	// Act & Assert - the read is org-scoped, so it leaks nothing.
+	resp, err := other.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId: task.ID,
+	})
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(resp.Chunks, 0))
 }
@@ -304,23 +224,18 @@ func TestAppendLogChunk_Permissions(t *testing.T) {
 func TestListLogChunksByTask_TaskToken(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
+		TaskId:  task.ID,
+		Version: 1,
+		Data:    []byte("hello\n"),
 	})
-	taskID := createTestTask(t, srv, ctx)
-	agentCtx := scopedCtx(t, org, taskScopes(taskID))
-	_, err := srv.AppendLogChunk(agentCtx, &gritzv1.AppendLogChunkRequest{
-		TaskId: taskID, Version: 1, Data: []byte("hello\n"),
-	})
-	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.ListLogChunksByTask(agentCtx, &gritzv1.ListLogChunksByTaskRequest{
-		TaskId: taskID,
+	resp, err := token.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId: task.ID,
 	})
 
 	// Assert
@@ -335,29 +250,25 @@ func TestListLogChunksByTask_TaskToken(t *testing.T) {
 func TestListLogChunksByTask_Paged(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskID := createTestTask(t, srv, ctx)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 	var want []byte
 	for i := range 5 {
 		line := fmt.Appendf(nil, "line %d\n", i)
-		_, err := srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
-			TaskId: taskID, Version: 1, Data: line,
+		h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
+			TaskId:  task.ID,
+			Version: 1,
+			Data:    line,
 		})
-		assert.NilError(t, err)
 		want = append(want, line...)
 	}
 
 	// Act - the newest page is the last page-size chunks, with both tokens set:
 	// older history exists, and the live-follow token is always populated.
 	const pageSize = 2
-	newest, err := srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{
-		TaskId: taskID, PageSize: pageSize,
+	newest, err := h.Org.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId:   task.ID,
+		PageSize: pageSize,
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(newest.Chunks, pageSize))
@@ -373,8 +284,10 @@ func TestListLogChunksByTask_Paged(t *testing.T) {
 	resp := newest
 	for resp.PrevPageToken != "" {
 		assert.Equal(t, resp.More, true)
-		resp, err = srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{
-			TaskId: taskID, PageSize: pageSize, PageToken: resp.PrevPageToken,
+		resp, err = h.Org.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+			TaskId:    task.ID,
+			PageSize:  pageSize,
+			PageToken: resp.PrevPageToken,
 		})
 		assert.NilError(t, err)
 		assert.Assert(t, len(resp.Chunks) > 0)
@@ -394,36 +307,36 @@ func TestListLogChunksByTask_Paged(t *testing.T) {
 func TestListLogChunksByTask_Follow(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
+	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
+		TaskId:  task.ID,
+		Version: 1,
+		Data:    []byte("first\n"),
 	})
-	taskID := createTestTask(t, srv, ctx)
-	_, err := srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
-		TaskId: taskID, Version: 1, Data: []byte("first\n"),
+	tail, err := h.Org.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId: task.ID,
 	})
-	assert.NilError(t, err)
-	tail, err := srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{TaskId: taskID})
 	assert.NilError(t, err)
 
 	// Act - a poll with nothing new echoes the token and returns no chunks.
-	poll, err := srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{
-		TaskId: taskID, PageToken: tail.NextPageToken,
+	poll, err := h.Org.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId:    task.ID,
+		PageToken: tail.NextPageToken,
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(poll.Chunks, 0))
 	assert.Equal(t, poll.More, false)
 
 	// Act - once the driver appends, the same token yields only the new bytes.
-	_, err = srv.AppendLogChunk(ctx, &gritzv1.AppendLogChunkRequest{
-		TaskId: taskID, Version: 1, Data: []byte("second\n"),
+	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
+		TaskId:  task.ID,
+		Version: 1,
+		Data:    []byte("second\n"),
 	})
-	assert.NilError(t, err)
-	poll, err = srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{
-		TaskId: taskID, PageToken: poll.NextPageToken,
+	poll, err = h.Org.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+		TaskId:    task.ID,
+		PageToken: poll.NextPageToken,
 	})
 
 	// Assert
@@ -437,14 +350,8 @@ func TestListLogChunksByTask_Follow(t *testing.T) {
 func TestListLogChunksByTask_BadRequest(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := orgWithWorkspace(t, srv)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskID := createTestTask(t, srv, ctx)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(nil)
 
 	tests := []struct {
 		name     string
@@ -458,21 +365,14 @@ func TestListLogChunksByTask_BadRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			_, err := srv.ListLogChunksByTask(ctx, &gritzv1.ListLogChunksByTaskRequest{
-				TaskId: taskID, PageSize: tt.pageSize, PageToken: tt.token,
+			_, err := h.Org.Client.ListLogChunksByTask(t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+				TaskId:    task.ID,
+				PageSize:  tt.pageSize,
+				PageToken: tt.token,
 			})
 
 			// Assert
 			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 		})
 	}
-}
-
-// taskScopes mints the scopes a runner would grant a task token for taskID,
-// using the production minter so the tests track real grants.
-func taskScopes(taskID int64, caps ...string) authscope.Scopes {
-	return agentauth.Scopes(agentauth.ScopeOptions{
-		TaskID:       taskID,
-		Capabilities: caps,
-	})
 }
