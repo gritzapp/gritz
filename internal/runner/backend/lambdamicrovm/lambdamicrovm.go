@@ -118,6 +118,11 @@ func New(opts Options) (*Backend, error) {
 
 func (b *Backend) Close() error { return nil }
 
+// BinaryPath returns backend.BinaryPath, where the MicroVM image has the binary.
+func (b *Backend) BinaryPath() string {
+	return backend.BinaryPath
+}
+
 // ValidateWorkspace requires the lambda_microvm config a VM is launched with.
 func (b *Backend) ValidateWorkspace(ws *workspace.Workspace) error {
 	cfg := ws.LambdaMicroVM

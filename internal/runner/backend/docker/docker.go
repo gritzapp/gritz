@@ -76,6 +76,11 @@ func (b *Backend) Close() error {
 	return b.docker.Close()
 }
 
+// BinaryPath returns backend.BinaryPath, where create copies the binary.
+func (b *Backend) BinaryPath() string {
+	return backend.BinaryPath
+}
+
 // ValidateWorkspace reports whether the workspace's container config is
 // usable. Any network mode is: the driver server listens on a unix socket in
 // the container's filesystem, not on a port.

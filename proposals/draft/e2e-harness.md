@@ -124,19 +124,17 @@ whose longest socket path would be too long, and the harness puts its root under
 **The injected MCP server's binary.** The runner points the injected `gritz` MCP
 server at `backend.BinaryPath` (`/usr/local/bin/gritz`), which is where Docker
 copies the binary and where the Lambda image has it (`TaskManager.spec`). On the
-local backend the binary is wherever `Options.Binary` says. A new optional
-interface, shaped like `backend.RunEnver`, lets a backend say where:
+local backend the binary is wherever `Options.Binary` says. A new method on
+`backend.Backend` lets every backend say where; Docker and Lambda return
+`backend.BinaryPath`:
 
 ```go
-// BinaryPather is implemented by a Backend whose sandboxes have the gritz binary
-// somewhere other than BinaryPath.
-type BinaryPather interface {
-	BinaryPath() string
-}
+// BinaryPath returns the path of the gritz binary inside the backend's
+// sandboxes, which the injected MCP server runs.
+BinaryPath() string
 ```
 
-`TaskManager.spec` uses it for `McpServer.Command` when the backend implements
-it.
+`TaskManager.spec` uses it for `McpServer.Command`.
 
 ### Per-sandbox driver paths
 
@@ -152,7 +150,7 @@ agent touch today, and what makes each per sandbox:
 | `/tmp/gritz/<id>.json`, the agent config store | `agent.DefaultConfigStore` | `PrefixPath` |
 | `RunSpec.files` (the config store directory and file, the `/gritz` directory) and `/gritz/.provisioned` | `TaskManager.spec`, `driverserver.ProvisionedPath` | `PrefixPath` (today `FileRoot`) |
 | `/gritz/driver.sock` | `docker.DriverAddr` | `--addr`, already a flag |
-| `/usr/local/bin/gritz` in the agent config | `backend.BinaryPath` | `backend.BinaryPather` (above) |
+| `/usr/local/bin/gritz` in the agent config | `backend.BinaryPath` | `Backend.BinaryPath()` (above) |
 | `$HOME` (the agent CLIs' `os.UserHomeDir()` in `codex.go`, `cursor.go`, `sloppy.go`; `claude`'s `~/.claude`) | the process environment | the local backend sets `HOME=DIR/home` on the driver, and runs inherit it through `Options.Environ` |
 | The agent's and setup commands' working directory | `agent.Config.Cwd`, defaulting to `.` (`interface.go`); setup commands set no `Dir` | the driver's working directory, which the local backend sets to `DIR` |
 | `/gritz/driver.pid`, `/gritz/driver.out` | new, local backend only | inside `DIR` |
@@ -703,7 +701,7 @@ Further scenarios, several using mocks:
 | `TestConcurrent` | `Concurrency: 2`; three tasks, each with its own instruction, all started | each task's `WaitRun` has that task's instruction, and none another's; the third task's run arrives only once one of the first two completes; all `COMPLETED` |
 
 `TestTools`, which covered the injected gritz MCP server, the task token and the
-`BinaryPather` path, has no puppet equivalent until a run can call a tool (Open
+`Backend.BinaryPath()` path, has no puppet equivalent until a run can call a tool (Open
 Questions).
 
 ### Porting the existing tests
@@ -906,11 +904,11 @@ func (b *Backend) Close() error
 ```go
 package backend // github.com/gritzapp/gritz/internal/runner/backend
 
-// BinaryPather is implemented by a Backend whose sandboxes have the gritz binary
-// somewhere other than BinaryPath. // new
-type BinaryPather interface {
-	// BinaryPath returns the path of the gritz binary inside the sandbox.
+type Backend interface {
+	// BinaryPath returns the path of the gritz binary inside the backend's
+	// sandboxes, which the injected MCP server runs. // new
 	BinaryPath() string
+	// ... ValidateWorkspace, Create, Open, Close unchanged
 }
 ```
 
@@ -1324,7 +1322,7 @@ Slices that must wait are marked.
    `PrefixPath`. Depends on: nothing. Verifiable by: the existing
    `driverserver` tests on `PrefixPath`.
 2. **Local backend.** Delivers: `internal/runner/backend/local` (with `Kill`),
-   `backend.BinaryPather` with `TaskManager.spec` using it, and `gritz runner
+   `Backend.BinaryPath` with `TaskManager.spec` using it, and `gritz runner
    --backend local --local-root`. Depends on: (1). Verifiable by: `local` tests
    modelled on Docker's `TestSandbox_Lifecycle` against the prebuilt driver.
    - create → suspended, boot → up, a `Run` stream over `Dial`;
@@ -1462,7 +1460,7 @@ Slices that must wait are marked.
 
 - **Tool calls from a run.** The puppet answers in the test process, so a run
   can't call the injected gritz MCP server, and `TestTools` (the injected
-  server, the task token, the `BinaryPather` path) has no scenario. A later
+  server, the task token, the `Backend.BinaryPath()` path) has no scenario. A later
   `Run.CallTool(name, args)` would need the puppet to receive the command and
   call the tool inside the sandbox, which brings back a small command protocol.
   Add it when a scenario needs it, or cover the injected server elsewhere?
