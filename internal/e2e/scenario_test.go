@@ -71,9 +71,11 @@ func TestSandboxFails_Create(t *testing.T) {
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
 	task := h.Org.CreateTask(nil)
 	task.AddInstruction("do the thing")
-	m := &backend.BackendMock{CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
-		return nil, errors.New("e2e: create failed")
-	}}
+	m := &backend.BackendMock{
+		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
+			return nil, errors.New("e2e: create failed")
+		},
+	}
 	h.Backend.Mock(m)
 
 	task.Start()
@@ -107,9 +109,11 @@ func TestSandboxFails_Boot(t *testing.T) {
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
 	task := h.Org.CreateTask(nil)
 	task.AddInstruction("do the thing")
-	m := &backend.SandboxMock{BootFunc: func(context.Context) error {
-		return errors.New("e2e: boot failed")
-	}}
+	m := &backend.SandboxMock{
+		BootFunc: func(context.Context) error {
+			return errors.New("e2e: boot failed")
+		},
+	}
 	h.Backend.MockSandbox(task.ID, m)
 
 	task.Start()
@@ -144,9 +148,11 @@ func TestDriverUnreachable(t *testing.T) {
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
 	task := h.Org.CreateTask(nil)
 	task.AddInstruction("do the thing")
-	m := &backend.SandboxMock{DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
-		return nil, errors.New("e2e: dial failed")
-	}}
+	m := &backend.SandboxMock{
+		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+			return nil, errors.New("e2e: dial failed")
+		},
+	}
 	h.Backend.MockSandbox(task.ID, m)
 
 	task.Start()
