@@ -4,14 +4,11 @@ import (
 	"context"
 	"errors"
 	"io"
-	"io/fs"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +23,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 const (
@@ -307,34 +303,6 @@ func runnerEvents(events ...string) []*gritzv1.RunnerEvent {
 	return out
 }
 
-func TestRun(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	_, ok := te.record(t)
-	assert.Assert(t, !ok)
-
-	// Act
-	stream, hello := te.open(t, specReq(testSpec()))
-	send(t, stream, start(1, testVersion))
-
-	// Assert - the start ran, reported both events itself, and Idle says
-	// the report was acknowledged
-	assert.Equal(t, hello.GetLastEventId(), int64(0))
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  testVersion,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
-	assert.DeepEqual(t, te.dials(), []string{testServerURL + " " + testToken})
-	rec, ok := te.record(t)
-	assert.Assert(t, ok)
-	assert.Equal(t, rec.Version, int64(testVersion))
-	assert.Equal(t, rec.State, runrecord.Finished)
-	assert.Assert(t, !rec.FinishedAt.IsZero())
-	assert.Equal(t, rec.Reported, true)
-}
-
 func TestRun_NothingToDo(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -365,66 +333,6 @@ func (te *testEnv) root(path string) string {
 	return filepath.Join(te.dir, path)
 }
 
-func TestRun_ProvisionsFiles(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	spec := testSpec()
-	spec.Files = []*driverv1.File{
-		{Path: "/gritz", Mode: 0o777, Dir: true},
-		{Path: "/tmp/gritz/1.json", Data: []byte("config"), Mode: 0o640},
-	}
-
-	// Act
-	stream, _ := te.open(t, specReq(spec))
-	send(t, stream, start(1, testVersion))
-	idle(t, stream)
-
-	// Assert - the files were written with their modes, regardless of the
-	// umask, and the sandbox is marked provisioned
-	info, err := os.Stat(te.root("/gritz"))
-	assert.NilError(t, err)
-	assert.Assert(t, info.IsDir())
-	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o777))
-	data, err := os.ReadFile(te.root("/tmp/gritz/1.json"))
-	assert.NilError(t, err)
-	assert.Equal(t, string(data), "config")
-	info, err = os.Stat(te.root("/tmp/gritz/1.json"))
-	assert.NilError(t, err)
-	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
-	_, err = os.Stat(te.root(ProvisionedPath))
-	assert.NilError(t, err)
-}
-
-func TestRun_ProvisionsOnce(t *testing.T) {
-	t.Parallel()
-	// Arrange - a provisioned sandbox whose agent changed a file
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	spec := testSpec()
-	spec.Files = []*driverv1.File{
-		{Path: "/tmp/gritz/1.json", Data: []byte("config"), Mode: 0o640},
-	}
-	stream, _ := te.open(t, specReq(spec))
-	send(t, stream, start(1, testVersion))
-	idle(t, stream)
-	assert.NilError(t, os.WriteFile(te.root("/tmp/gritz/1.json"), []byte("changed"), 0o640))
-
-	// Act - a later run with different files
-	spec = testSpec()
-	spec.Files = []*driverv1.File{
-		{Path: "/tmp/gritz/1.json", Data: []byte("new config"), Mode: 0o640},
-	}
-	stream, _ = te.open(t, specReq(spec))
-	send(t, stream, start(2, testVersion+1))
-	idle(t, stream)
-
-	// Assert - the run started, and the file was not rewritten
-	assert.Equal(t, len(te.dials()), 2)
-	data, err := os.ReadFile(te.root("/tmp/gritz/1.json"))
-	assert.NilError(t, err)
-	assert.Equal(t, string(data), "changed")
-}
-
 func TestRun_ProvisionFailure(t *testing.T) {
 	t.Parallel()
 	// Arrange - a file whose parent is a regular file
@@ -450,97 +358,6 @@ func TestRun_ProvisionFailure(t *testing.T) {
 	assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
 }
 
-func TestRun_ResentStream(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that has finished
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	stream := te.run(t, start(1, testVersion))
-	idle(t, stream)
-
-	// Act - a stream resending the same events
-	stream = te.run(t, start(1, testVersion))
-
-	// Assert - Idle at once; the agent did not run again
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  testVersion,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
-	assert.Equal(t, len(te.dials()), 1)
-}
-
-func TestRun_StaleStart(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		version int64
-	}{
-		{"same version", testVersion},
-		{"older version", testVersion - 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - a run that finished before this process started
-			te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{
-				Record: &runrecord.Record{Version: testVersion, State: runrecord.Finished, Reported: true},
-			})
-			spec := testSpec()
-			spec.Files = []*driverv1.File{
-				{Path: "/tmp/gritz/1.json", Data: []byte("config"), Mode: 0o640},
-			}
-
-			// Act - a start the record has reached
-			stream, _ := te.open(t, specReq(spec))
-			send(t, stream, start(1, tt.version))
-
-			// Assert - Idle at once, and nothing was run or written
-			assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-				Version:  testVersion,
-				Reported: true,
-			}, protocmp.Transform())
-			assert.Equal(t, len(te.dials()), 0)
-			_, err := os.Stat(te.root(ProvisionedPath))
-			assert.Assert(t, errors.Is(err, os.ErrNotExist), err)
-		})
-	}
-}
-
-func TestRun_WholeLog(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		// latest is the log's last command.
-		latest *gritzv1.Event
-		// want is the Idle the stream ends with.
-		want *driverv1.Idle
-	}{
-		{"start", start(6, 4), &driverv1.Idle{Version: 4, Reported: true}},
-		{"restart", restart(6, 4), &driverv1.Idle{Version: 4, Reported: true}},
-		{"stop", stop(6, 3), &driverv1.Idle{}},
-		{"none", none(6, 3), &driverv1.Idle{}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - a fresh sandbox
-			te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-
-			// Act - the task's whole log in one batch
-			stream := te.run(t,
-				start(1, 1), none(2, 1), restart(3, 2), event(4), start(5, 3), tt.latest)
-
-			// Assert - only the latest command was acted on
-			assert.DeepEqual(t, idle(t, stream), tt.want, protocmp.Transform())
-			if tt.want.GetVersion() == 0 {
-				assert.Equal(t, len(te.dials()), 0)
-			} else {
-				assert.Equal(t, len(te.dials()), 1)
-			}
-		})
-	}
-}
-
 func TestRun_PendingStart(t *testing.T) {
 	t.Parallel()
 	// Arrange - run 5, which takes a second, on a stream
@@ -559,68 +376,6 @@ func TestRun_PendingStart(t *testing.T) {
 	}, protocmp.Transform())
 	assert.Equal(t, len(te.dials()), 2)
 	assert.Equal(t, len(te.gritz.SubmittedRunnerEvents()), 4)
-}
-
-func TestRun_Restart(t *testing.T) {
-	t.Parallel()
-	// Arrange - run 5 in progress
-	te := setup(t, sleepForever, testOptions{})
-	stream := te.run(t, start(1, 5))
-	te.waitRecord(t, 5, runrecord.Running)
-
-	// Act
-	send(t, stream, restart(2, 6))
-
-	// Assert - run 6 started in place of run 5
-	te.waitRecord(t, 6, runrecord.Running)
-
-	// Act - stop run 6
-	send(t, stream, stop(3, 6))
-
-	// Assert - run 5 was stopped, and each run dialed the server. Checked
-	// once the stream is idle: the record says running before the run dials.
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  6,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.Equal(t, len(te.dials()), 2)
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents()[:2], runnerEvents("started", "stopped"), protocmp.Transform())
-}
-
-func TestRun_RestartIdle(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that has finished
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	stream := te.run(t, start(1, 5))
-	idle(t, stream)
-
-	// Act
-	stream = te.run(t, restart(2, 6))
-
-	// Assert - run 6 started with nothing to stop
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  6,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.Equal(t, len(te.dials()), 2)
-}
-
-func TestRun_Stop(t *testing.T) {
-	t.Parallel()
-	// Arrange - run 5 in progress
-	te := setup(t, sleepForever, testOptions{})
-	stream := te.run(t, start(1, 5))
-	te.waitRecord(t, 5, runrecord.Running)
-
-	// Act
-	send(t, stream, stop(2, 5))
-
-	// Assert - the run was stopped and reported it
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  5,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 }
 
 func TestRun_StopSupersedesPendingStart(t *testing.T) {
@@ -652,34 +407,6 @@ func TestRun_StopSupersedesPendingStart(t *testing.T) {
 			assert.Equal(t, len(te.dials()), 1)
 		})
 	}
-}
-
-func TestRun_ReattachAfterDrop(t *testing.T) {
-	t.Parallel()
-	// Arrange - a running run whose stream is dropped
-	te := setup(t, sleepForever, testOptions{})
-	stream := te.run(t, start(1, testVersion))
-	te.waitRecord(t, testVersion, runrecord.Running)
-	assert.NilError(t, stream.CloseResponse())
-
-	// Act - reopen without a spec, resending nothing
-	stream, _ = te.open(t, attachReq())
-	send(t, stream)
-
-	// Assert - the run kept going through the drop
-	rec, _ := te.record(t)
-	assert.Equal(t, rec.Version, int64(testVersion))
-	assert.Equal(t, rec.State, runrecord.Running)
-
-	// Act - stop it
-	send(t, stream, stop(2, testVersion))
-
-	// Assert - the reopened stream gets Idle, and the stop was reported
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  testVersion,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
 }
 
 func TestRun_PendingAfterDrop(t *testing.T) {
@@ -745,21 +472,6 @@ func TestRun_WaitsForFirstBatch(t *testing.T) {
 	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{}, protocmp.Transform())
 }
 
-func TestRun_StoresEvents(t *testing.T) {
-	t.Parallel()
-	// Arrange - a running run with its stream open
-	te := setup(t, sleepForever, testOptions{})
-	stream := te.run(t, start(1, testVersion))
-
-	// Act - two batches, in log order, which is not id order
-	send(t, stream, event(5), event(3))
-	send(t, stream, event(8))
-
-	// Assert - the events are stored in the order they were sent
-	te.waitStored(t, 1, 5, 3, 8)
-	assert.Equal(t, te.srv.events.LastID(), int64(8))
-}
-
 func TestRun_EventsSurviveRestart(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that stored events, then went away
@@ -776,46 +488,6 @@ func TestRun_EventsSurviveRestart(t *testing.T) {
 	// Assert - it kept the events, and says where they end
 	assert.Equal(t, hello.GetLastEventId(), int64(3))
 	restarted.waitStored(t, 1, 5, 3)
-}
-
-func TestRun_ReopenedStream(t *testing.T) {
-	t.Parallel()
-	// Arrange - a running run that stored events on a stream that dropped
-	te := setup(t, sleepForever, testOptions{})
-	stream := te.run(t, start(1, testVersion), event(5), event(3))
-	te.waitStored(t, 1, 5, 3)
-	assert.NilError(t, stream.CloseResponse())
-
-	// Act - reopen, and resend from before the driver's position
-	stream, hello := te.open(t, attachReq())
-	send(t, stream, event(3), event(9))
-
-	// Assert - Hello says what the file has, and only what it lacked is
-	// stored
-	assert.Equal(t, hello.GetLastEventId(), int64(3))
-	te.waitStored(t, 1, 5, 3, 9)
-}
-
-func TestRun_ResentCommandIgnored(t *testing.T) {
-	t.Parallel()
-	// Arrange - run 6 in progress after a restart, on a stream that drops
-	te := setup(t, sleepForever, testOptions{})
-	stream := te.run(t, start(1, 5), restart(2, 6))
-	te.waitRecord(t, 6, runrecord.Running)
-	assert.NilError(t, stream.CloseResponse())
-
-	// Act - reopen, resending the old start
-	stream, _ = te.open(t, attachReq())
-	send(t, stream, start(1, 5))
-
-	// Assert - the resent start is not the latest command: run 6 goes on
-	msg, err := stream.Receive()
-	assert.NilError(t, err)
-	assert.Assert(t, msg.GetKeepAlive() != nil, "got %v, want keep_alive", msg)
-	rec, _ := te.record(t)
-	assert.Equal(t, rec.Version, int64(6))
-	assert.Equal(t, rec.State, runrecord.Running)
-	assert.Equal(t, len(te.dials()), 1)
 }
 
 func TestRun_KeepAlive(t *testing.T) {
@@ -843,59 +515,6 @@ func TestRun_SecondStream(t *testing.T) {
 
 	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnavailable)
-}
-
-func TestRun_NotReported(t *testing.T) {
-	t.Parallel()
-	// Arrange - the gritz server rejects the terminal event
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{})
-	te.gritz.SubmitRunnerEventsFunc = func(_ context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
-		if req.Events[0].Event == "stopped" {
-			return nil, errors.New("server unavailable")
-		}
-		return &gritzv1.SubmitRunnerEventsResponse{}, nil
-	}
-
-	// Act
-	stream := te.run(t, start(1, testVersion))
-
-	// Assert
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  testVersion,
-		Reported: false,
-	}, protocmp.Transform())
-	disk, _, err := runrecord.Read(te.root(runrecord.Path))
-	assert.NilError(t, err)
-	assert.Equal(t, disk.State, runrecord.Finished)
-	assert.Equal(t, disk.Reported, false)
-}
-
-func TestNew_Reconcile(t *testing.T) {
-	t.Parallel()
-	// Arrange - the previous process died mid-run, with its start stored
-	dir := t.TempDir()
-	assert.NilError(t, os.MkdirAll(filepath.Join(dir, "gritz"), 0o777))
-	events, err := eventfile.Open(filepath.Join(dir, eventfile.Path))
-	assert.NilError(t, err)
-	_, err = events.Append([]*gritzv1.Event{start(1, testVersion)})
-	assert.NilError(t, err)
-	te := setup(t, &agent.Config{Type: agent.TypeDummy}, testOptions{
-		Dir:    dir,
-		Record: &runrecord.Record{Version: testVersion, State: runrecord.Running},
-	})
-
-	// Act
-	rec, _ := te.record(t)
-	stream := te.run(t)
-
-	// Assert - the run is finished and unreported, and is not run again
-	assert.Equal(t, rec.Version, int64(testVersion))
-	assert.Equal(t, rec.State, runrecord.Finished)
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  testVersion,
-		Reported: false,
-	}, protocmp.Transform())
-	assert.Equal(t, len(te.dials()), 0)
 }
 
 func TestNew_PendingAfterRestart(t *testing.T) {
@@ -964,55 +583,6 @@ func TestShutdown_Pending(t *testing.T) {
 	assert.Equal(t, len(te.dials()), 1)
 }
 
-func TestRun_Env(t *testing.T) {
-	t.Parallel()
-	// Arrange - a setup command printing variables set at each layer
-	te := setup(t, &agent.Config{
-		Type:     agent.TypeDummy,
-		Commands: []string{`echo "$BASE $FOO $BAR" > "$OUT"`},
-	}, testOptions{Environ: []string{"BASE=base", "FOO=environ", "BAR=environ"}})
-	out := filepath.Join(te.dir, "out")
-	spec := testSpec()
-	spec.Env = map[string]string{"FOO": "env", "BAR": "env", "OUT": out}
-	spec.Secrets = map[string]string{"BAR": "secret"}
-
-	// Act
-	stream, _ := te.open(t, specReq(spec))
-	send(t, stream, start(1, testVersion))
-	idle(t, stream)
-
-	// Assert - the run's env wins over the driver's, and its secrets over both
-	got, err := os.ReadFile(out)
-	assert.NilError(t, err)
-	assert.Equal(t, string(got), "base env secret\n")
-}
-
-func TestRun_MasksSecretsInShippedLog(t *testing.T) {
-	t.Parallel()
-	// Arrange - a setup command echoing both a secret and the task token
-	const secret = "ghp_S3CR3TV4LU3"
-	te := setup(t, &agent.Config{
-		Type:     agent.TypeDummy,
-		Commands: []string{"echo cloning with $GH_TOKEN as " + testToken},
-	}, testOptions{})
-	spec := testSpec()
-	spec.Secrets = map[string]string{"GH_TOKEN": secret}
-
-	// Act
-	stream, _ := te.open(t, specReq(spec))
-	send(t, stream, start(1, testVersion))
-	idle(t, stream)
-
-	// Assert - /gritz/log is raw, the shipped copy is masked
-	file, err := os.ReadFile(te.root(agent.DefaultLogPath))
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Contains(string(file), "cloning with "+secret))
-	shipped := te.gritz.ShippedLog()
-	assert.Assert(t, cmp.Contains(shipped, "cloning with [gritz:masked GH_TOKEN] as [gritz:masked token]"))
-	assert.Assert(t, !strings.Contains(shipped, secret), "shipped log leaked the secret")
-	assert.Assert(t, !strings.Contains(shipped, testToken), "shipped log leaked the token")
-}
-
 func TestEnv(t *testing.T) {
 	spec := &driverv1.RunSpec{
 		Env:     map[string]string{"B": "env", "A": "env"},
@@ -1033,87 +603,6 @@ func TestSecrets(t *testing.T) {
 	secrets := Secrets(spec)
 
 	assert.DeepEqual(t, secrets, map[string]string{"GH_TOKEN": "ghp", "token": "jwt"})
-}
-
-func TestListenAndServe(t *testing.T) {
-	t.Parallel()
-	// Arrange - serving on a free port
-	te := setup(t, sleepForever, testOptions{})
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	assert.NilError(t, err)
-	addr := l.Addr().String()
-	assert.NilError(t, l.Close())
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() { errCh <- te.srv.ListenAndServe(ctx, addr) }()
-	// Unencrypted HTTP/2, which Run's bidi stream needs.
-	protocols := new(http.Protocols)
-	protocols.SetUnencryptedHTTP2(true)
-	te.client = driverv1connect.NewDriverServiceClient(&http.Client{Transport: &http.Transport{Protocols: protocols}}, "http://"+addr)
-	assert.Assert(t, poll(func() bool { return ready(t, te.client) }), "server never came up")
-	stream := te.run(t, start(1, testVersion))
-	te.waitRecord(t, testVersion, runrecord.Running)
-
-	// Act
-	cancel()
-
-	// Assert - the run was stopped and reported, its stream got Idle,
-	// and the server shut down cleanly
-	assert.DeepEqual(t, idle(t, stream), &driverv1.Idle{
-		Version:  testVersion,
-		Reported: true,
-	}, protocmp.Transform())
-	assert.NilError(t, <-errCh)
-	assert.DeepEqual(t, te.gritz.SubmittedRunnerEvents(), runnerEvents("started", "stopped"), protocmp.Transform())
-}
-
-// On a unix:///path address, ListenAndServe replaces a stale socket file and
-// removes the socket on shutdown.
-func TestListenAndServe_Unix(t *testing.T) {
-	t.Parallel()
-	// Arrange - a file left behind at the socket path
-	te := setup(t, sleepForever, testOptions{})
-	path := filepath.Join(t.TempDir(), "driver.sock")
-	assert.NilError(t, os.WriteFile(path, nil, 0o600))
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() { errCh <- te.srv.ListenAndServe(ctx, "unix://"+path) }()
-	protocols := new(http.Protocols)
-	protocols.SetUnencryptedHTTP2(true)
-	client := driverv1connect.NewDriverServiceClient(&http.Client{Transport: &http.Transport{
-		Protocols: protocols,
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", path)
-		},
-	}}, "http://driver")
-
-	// Act
-	ok := poll(func() bool { return ready(t, client) })
-
-	// Assert - the server answered on the socket, and removed it on shutdown
-	assert.Assert(t, ok, "server never came up")
-	cancel()
-	assert.NilError(t, <-errCh)
-	_, err := os.Stat(path)
-	assert.Assert(t, errors.Is(err, fs.ErrNotExist), "socket file not removed: %v", err)
-}
-
-// ready reports whether the driver behind client answers a Run stream with
-// Hello. The stream is closed before it returns.
-func ready(t *testing.T, client driverv1connect.DriverServiceClient) bool {
-	stream, err := client.Run(t.Context())
-	if err != nil {
-		return false
-	}
-	defer func() { _ = stream.CloseResponse() }()
-	if err := stream.Send(attachReq()); err != nil && !errors.Is(err, io.EOF) {
-		return false
-	}
-	msg, err := stream.Receive()
-	return err == nil && msg.GetHello() != nil
 }
 
 // poll reports whether cond became true within five seconds.

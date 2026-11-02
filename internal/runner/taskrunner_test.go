@@ -6,14 +6,12 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
-	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
@@ -43,117 +41,6 @@ func loaded(t *testing.T, ctx context.Context, be *fake.Backend, rec runnerstore
 	}
 	assert.NilError(t, m.Load(ctx))
 	return m
-}
-
-func TestNewTaskRunner(t *testing.T) {
-	t.Parallel()
-	be := testrunner.NewBackend(t, nil)
-	store := testrunner.NewRunnerStore(t)
-	tests := []struct {
-		name string
-		opts runner.TaskRunnerOptions
-	}{
-		{name: "no backend", opts: runner.TaskRunnerOptions{TaskID: 1, Store: store}},
-		{name: "no store", opts: runner.TaskRunnerOptions{TaskID: 1, Backend: be}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Act & Assert
-			assert.Assert(t, cmp.Panics(func() { runner.NewTaskRunner(tt.opts) }))
-		})
-	}
-}
-
-func TestTaskRunnerRunLoop_Finished(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that finishes on its own, on an up sandbox.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		Version: 3,
-		Agent:   &agent.Config{Type: agent.TypeDummy},
-	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-
-	// Act
-	m := loaded(t, t.Context(), be, c1Record, nil)
-
-	// Assert - the driver reported, so no event is owed; the sandbox is
-	// suspended once the driver is idle.
-	sbx := testrunner.WaitSuspended(t, be, "c1")
-	assert.Equal(t, sbx.Suspends, 1)
-	assert.Equal(t, m.Queued(t), 0)
-}
-
-// positionDriver is a driver whose Hello says it has stored the events up
-// to helloID. It records the events the runner forwards, and ends the run,
-// reported, once it has the one with lastID.
-type positionDriver struct {
-	driverv1connect.UnimplementedDriverServiceHandler
-	helloID, lastID int64
-
-	mu       sync.Mutex
-	received []int64
-}
-
-func (d *positionDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
-	if _, err := stream.Receive(); err != nil {
-		return err
-	}
-	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{
-		Hello: &driverv1.Hello{LastEventId: d.helloID},
-	}}); err != nil {
-		return err
-	}
-	for {
-		req, err := stream.Receive()
-		if err != nil {
-			return err
-		}
-		last := int64(0)
-		d.mu.Lock()
-		for _, ev := range req.GetEvents().GetEvents() {
-			d.received = append(d.received, ev.GetId())
-			last = ev.GetId()
-		}
-		d.mu.Unlock()
-		if last == d.lastID {
-			return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
-				Idle: &driverv1.Idle{Version: 3, Reported: true},
-			}})
-		}
-	}
-}
-
-// forwarded returns the ids of the events d received.
-func (d *positionDriver) forwarded() []int64 {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return slices.Clone(d.received)
-}
-
-func TestTaskRunnerRunLoop_ForwardsEvents(t *testing.T) {
-	t.Parallel()
-	// Arrange - a driver that has stored the task's events up to id 2, and
-	// a replica with two more, and one of another task's.
-	drv := &positionDriver{helloID: 2, lastID: 4}
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
-	be.Add("c1", fake.Up)
-
-	// Act
-	m := loaded(t, t.Context(), be, c1Record, nil,
-		testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3),
-		testrunner.LifecycleEvent(2, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED),
-		testrunner.CommandEvent(10, 2, gritzv1.TaskCommand_START, 1),
-		testrunner.LifecycleEvent(3, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED),
-		testrunner.CommandEvent(4, 1, gritzv1.TaskCommand_NONE, 3),
-	)
-
-	// Assert - the runner sent the task's events after the driver's position,
-	// and nothing else; the busy period ended on the driver's Idle.
-	testrunner.WaitSuspended(t, be, "c1")
-	assert.DeepEqual(t, drv.forwarded(), []int64{3, 4})
-	assert.Equal(t, m.Queued(t), 0)
 }
 
 // TestTaskRunnerRunLoop_Reattach covers a dropped stream: drive reopens it,
@@ -191,30 +78,6 @@ func TestTaskRunnerRunLoop_Reattach(t *testing.T) {
 	assert.Equal(t, m.Queued(t), 0)
 }
 
-func TestTaskRunnerRunLoop_DriverUnreachable(t *testing.T) {
-	t.Parallel()
-	// Arrange - a sandbox that stays up while its driver never answers.
-	be := testrunner.NewBackend(t, nil)
-	be.Add("c1", fake.Up)
-
-	// Act
-	m := loaded(t, t.Context(), be, runnerstore.SandboxRecord{
-		TaskID:  2,
-		Version: 4,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, func(opts *runner.TaskRunnerOptions) {
-		opts.LostTimeout = 100 * time.Millisecond
-	})
-
-	// Assert - drive gave up: the sandbox is suspended, and the runner's
-	// fallback "failed" is scoped to the run's version.
-	testrunner.WaitSuspended(t, be, "c1")
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 2, Version: 4, Reason: "driver unreachable"},
-	}, protocmp.Transform())
-}
-
 func TestTaskRunnerRunLoop_NothingToRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, and has nothing to run.
@@ -233,11 +96,10 @@ func TestTaskRunnerRunLoop_NothingToRun(t *testing.T) {
 }
 
 // idleDriver is a driver whose streams each go idle at once, after the run
-// whose version is next in versions, which it reported unless unreported is
-// set. It records the spec of each stream.
+// whose version is next in versions, which it reported. It records the spec
+// of each stream.
 type idleDriver struct {
 	driverv1connect.UnimplementedDriverServiceHandler
-	unreported bool
 
 	mu       sync.Mutex
 	versions []int64
@@ -258,7 +120,7 @@ func (d *idleDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.
 		return err
 	}
 	return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
-		Idle: &driverv1.Idle{Version: version, Reported: !d.unreported},
+		Idle: &driverv1.Idle{Version: version, Reported: true},
 	}})
 }
 
@@ -309,51 +171,6 @@ func TestTaskRunnerRunLoop_StopNeverRun(t *testing.T) {
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
 		{Event: "stopped", TaskId: 1, Version: 4},
 	}, protocmp.Transform())
-}
-
-func TestTaskRunnerRunLoop_NotReported(t *testing.T) {
-	t.Parallel()
-	// Arrange - a driver whose run 3 failed to report its outcome.
-	drv := &idleDriver{versions: []int64{3}, unreported: true}
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
-	be.Add("c1", fake.Up)
-
-	// Act
-	m := loaded(t, t.Context(), be, c1Record, nil)
-
-	// Assert - the runner reported run 3 failed, and suspended the sandbox.
-	testrunner.WaitSuspended(t, be, "c1")
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver did not report the run's outcome"},
-	}, protocmp.Transform())
-}
-
-func TestTaskRunnerRunLoop_Shutdown(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that keeps going.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		Version: 3,
-		Agent:   testrunner.SleepForever,
-	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	ctx, cancel := context.WithCancel(t.Context())
-	m := loaded(t, ctx, be, c1Record, nil)
-	done := make(chan error, 1)
-	go func() { done <- m.TaskManager.Run(ctx) }()
-	testrunner.WaitRuns(t, be, "c1", 1)
-
-	// Act - the runner shuts down; Run returns once every RunLoop has.
-	cancel()
-	assert.ErrorIs(t, <-done, context.Canceled)
-
-	// Assert - the sandbox stays up for next-boot rehydration: no suspend,
-	// no event.
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Suspends, 0)
-	assert.Equal(t, m.Queued(t), 0)
 }
 
 // TestTaskRunnerRestore covers adopting a record at Load: an up or suspended

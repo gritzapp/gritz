@@ -54,8 +54,6 @@ type BackendOptions struct {
 	Driver driverv1connect.DriverServiceClient
 	// Drivers overrides Driver for the sandboxes with these IDs.
 	Drivers map[string]driverv1connect.DriverServiceClient
-	// DriverNotReady is fake.Options.DriverNotReady.
-	DriverNotReady bool
 	// RunEnv is fake.Options.RunEnv.
 	RunEnv func(*workspace.Workspace) map[string]string
 }
@@ -74,8 +72,7 @@ func NewBackend(t *testing.T, opts *BackendOptions) *fake.Backend {
 			}
 			return opts.Driver
 		},
-		RunEnv:         opts.RunEnv,
-		DriverNotReady: opts.DriverNotReady,
+		RunEnv: opts.RunEnv,
 	})
 	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	return be
@@ -84,20 +81,13 @@ func NewBackend(t *testing.T, opts *BackendOptions) *fake.Backend {
 // DriverOptions configures NewDriver. Zero values are replaced with sensible
 // defaults.
 type DriverOptions struct {
-	// TaskID is the task whose run Agent starts; defaults to 1.
-	TaskID int64
 	// Version is the version the driver's server reports for every task, and
 	// of the run Agent starts; defaults to 1.
 	Version int64
-	// Agent, when set, starts run Version of TaskID with this agent config
+	// Agent, when set, starts run Version of task 1 with this agent config
 	// and leaves it going, or finished if the agent finishes on its own;
 	// when nil the driver has never run.
 	Agent *agent.Config
-	// EventID is the id of the start event Agent's run is started with,
-	// which the driver stores; defaults to 1. A runner forwards the events
-	// after it, so a test whose replica has the task's events gives that
-	// start this id there too.
-	EventID int64
 }
 
 // Driver is a driver server, reached through its embedded client.
@@ -116,27 +106,6 @@ func (d *Driver) Reported() []string {
 	return names
 }
 
-// WaitStarted waits until the driver's runs have reported n starts.
-func (d *Driver) WaitStarted(t *testing.T, n int) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		started := 0
-		for _, name := range d.Reported() {
-			if name == "started" {
-				started++
-			}
-		}
-		if started >= n {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("driver reported %d runs started, want %d", started, n)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
 // NewDriver serves a driver server and returns it. The driver reads the
 // agent config from where the TaskManager's spec provisions it, so a run it
 // starts with that spec runs the workspace's agent. The server is shut down
@@ -146,7 +115,7 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 	if opts == nil {
 		opts = &DriverOptions{}
 	}
-	taskID := cmp.Or(opts.TaskID, 1)
+	const taskID = 1
 	version := cmp.Or(opts.Version, 1)
 	dir := t.TempDir()
 	configs := agent.ConfigStore(filepath.Join(dir, string(agent.DefaultConfigStore)))
@@ -192,7 +161,7 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 		Spec: &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
 	}})
 	assert.NilError(t, stream.Send(&driverv1.RunRequest{Msg: &driverv1.RunRequest_Events{Events: &driverv1.TaskEvents{
-		Events: []*gritzv1.Event{CommandEvent(cmp.Or(opts.EventID, 1), taskID, gritzv1.TaskCommand_START, version)},
+		Events: []*gritzv1.Event{CommandEvent(1, taskID, gritzv1.TaskCommand_START, version)},
 	}}}))
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -267,15 +236,12 @@ func CommandEvent(id, taskID int64, command gritzv1.TaskCommand, version int64) 
 
 // ArchiveEvent returns event id of task taskID, which archives it.
 func ArchiveEvent(id, taskID int64) *gritzv1.Event {
-	return LifecycleEvent(id, taskID, gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED)
-}
-
-// LifecycleEvent returns event id of task taskID, a lifecycle event of kind.
-func LifecycleEvent(id, taskID int64, kind gritzv1.LifecycleKind) *gritzv1.Event {
 	return &gritzv1.Event{
-		Id:      id,
-		TaskId:  taskID,
-		Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: kind}},
+		Id:     id,
+		TaskId: taskID,
+		Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+			Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED,
+		}},
 	}
 }
 
