@@ -395,9 +395,13 @@ func (m *TaskManager) spec(ctx context.Context, c runnerstore.TaskChange) (*back
 	for _, capability := range ws.Capabilities {
 		mcpArgs = append(mcpArgs, "--capability", capability)
 	}
+	binary := backend.BinaryPath
+	if be, ok := m.backend.(backend.BinaryPather); ok {
+		binary = be.BinaryPath()
+	}
 	cfg.McpServers["gritz"] = agent.McpServer{
 		Type:    "stdio",
-		Command: backend.BinaryPath,
+		Command: binary,
 		Args:    mcpArgs,
 	}
 	cfgData, err := json.MarshalIndent(cfg, "", "  ")

@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/docker"
 	"github.com/gritzapp/gritz/internal/runner/backend/lambdamicrovm"
+	"github.com/gritzapp/gritz/internal/runner/backend/local"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/urfave/cli/v3"
 )
@@ -70,7 +72,7 @@ var RunnerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "backend",
-			Usage:   "Sandbox backend (docker, lambda-microvm)",
+			Usage:   "Sandbox backend (docker, lambda-microvm, local)",
 			Value:   docker.HandleType,
 			Sources: cli.EnvVars("GRITZ_BACKEND"),
 		},
@@ -84,6 +86,11 @@ var RunnerCommand = &cli.Command{
 			Name:    "lambda-microvm-region",
 			Usage:   "AWS region for the lambda-microvm backend (defaults to the SDK-resolved region)",
 			Sources: cli.EnvVars("GRITZ_LAMBDA_MICROVM_REGION"),
+		},
+		&cli.StringFlag{
+			Name:    "local-root",
+			Usage:   "Directory holding the local backend's sandboxes (the local backend runs agents on this host, unisolated)",
+			Sources: cli.EnvVars("GRITZ_LOCAL_ROOT"),
 		},
 		&cli.BoolFlag{
 			Name:  "debug",
@@ -159,6 +166,24 @@ var RunnerCommand = &cli.Command{
 				Cloud:  lambdamicrovms.NewFromConfig(awsCfg),
 				Region: awsCfg.Region,
 				Log:    log,
+			})
+			if err != nil {
+				return err
+			}
+		case local.HandleType:
+			root := cmd.String("local-root")
+			if root == "" {
+				return errors.New("local backend: --local-root is required")
+			}
+			binary, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("local backend: %w", err)
+			}
+			be, err = local.New(local.Options{
+				Root:    root,
+				Binary:  binary,
+				Environ: os.Environ(),
+				Log:     log,
 			})
 			if err != nil {
 				return err
