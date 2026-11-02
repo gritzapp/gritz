@@ -13,6 +13,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent/agentprompt"
+	"github.com/gritzapp/gritz/internal/runner/eventfile"
 	"github.com/gritzapp/gritz/internal/shell"
 	"github.com/gritzapp/gritz/internal/x/envx"
 )
@@ -28,6 +29,8 @@ type Driver struct {
 	// logs output is unchanged.
 	Log    *DriverLog
 	Config ConfigStore // where the task config file lives
+	// Events is the driver's event file, which the prompt renders from.
+	Events *eventfile.File
 
 	// ServerURL and Token are the driver's own server credentials, reused to dial
 	// the shell relay WebSocket when the task is a debug-shell run. They mirror
@@ -186,29 +189,28 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 		return err
 	}
 
-	// Fetch new events and drain to the tail before running the agent. This runs
-	// on every run (first run and wake) uniformly: it pages ListEventsByTask
-	// forward from cfg.NextEventToken (empty on the first run) to the tail,
-	// returning the instruction + external events accumulated across the walk
-	// (report/lifecycle/link events are filtered out for injection, but the token
-	// still advances over the full stream). The advanced cursor is held on cfg but
-	// persisted only by the post-run Save below, so a run that fails before that
-	// Save leaves the stored cursor untouched and the next run re-fetches from the
-	// same position (at-least-once). See
-	// proposals/draft/wake-prompt-event-injection.md.
-	events, token, err := d.drainEvents(ctx, cfg)
+	// Read the events stored after the last one prompted. This runs on every
+	// run (first run and wake) uniformly: on the first run cfg.PromptedEventID
+	// is 0 and this is the whole file. The cursor is a position in the file, not
+	// an id bound: the file is in the order the runner forwarded, so an event
+	// stored after the cursor is read even if its id is lower. The advanced
+	// cursor is held on cfg but persisted only by the post-run Save below, so a
+	// run that fails before that Save leaves the stored cursor untouched and the
+	// next run reads from the same position (at-least-once). See
+	// proposals/draft/runner-event-replica.md.
+	events, last, err := d.promptEvents(cfg.PromptedEventID)
 	if err != nil {
 		return err
 	}
-	cfg.NextEventToken = token
+	cfg.PromptedEventID = last
 
 	// Fetch the task's standing links for the first-run prompt. This runs only on
 	// the first run (!cfg.Started): the first-run branch of the template renders
 	// the brief in place of the get_my_task bootstrap instruction, so the agent
 	// learns its task without a tool round-trip. The brief's events are the
-	// instruction+external slice already drained above (on the first run
-	// cfg.NextEventToken is empty, so the drain starts at the head of the stream
-	// and returns exactly that slice); only the links need a fresh read. A wake
+	// instruction+external slice already read above (on the first run
+	// cfg.PromptedEventID is 0, so the read starts at the head of the file and
+	// returns exactly that slice); only the links need a fresh read. A wake
 	// run leaves promptLinks nil and is completely unchanged (the wake branch
 	// renders Events instead). See proposals/draft/first-run-brief-injection.md.
 	var promptLinks []*gritzv1.TaskLink
@@ -241,9 +243,9 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	defer a.Close()
 
 	// Compose the prompt's event stream so the template loops it once, the same way
-	// on both paths. The drained events are the same slice both times: on a wake
-	// they are the events pending since the last cursor; on the first run (empty
-	// cursor) they are the instruction+external brief from the head of the stream.
+	// on both paths. The events read are the same slice both times: on a wake
+	// they are the events pending since the last cursor; on the first run (zero
+	// cursor) they are the instruction+external brief from the head of the file.
 	// The links are attached only on the first run. A wake with nothing pending
 	// renders without either.
 	prompt, err := agentprompt.Render(agentprompt.Options{
@@ -261,7 +263,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 		return err
 	}
 
-	// Save config. The event cursor advanced in memory during the drain above but
+	// Save config. The event cursor advanced in memory during the read above but
 	// is persisted only here, after a.Prompt returned without error, so a run that
 	// failed mid-prompt leaves the stored cursor untouched (at-least-once).
 	cfg.Started = true
@@ -313,34 +315,23 @@ func (d *Driver) setup(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-// eventPageSize bounds each ListEventsByTask page the drain walks.
-const eventPageSize = 50
-
-// drainEvents walks the task's event stream forward from cfg.NextEventToken to
-// the tail via gritzclient.ListEventsByTask, filtered server-side (via the types
-// filter) to the injectable arms — to-agent instructions and self-contained
-// external triggers. It returns the events accumulated across the walk along with
-// the final next_page_token — the cursor position after the current filtered tail.
-//
-// The cursor tracks the filtered stream: because event ids are monotonic, every
-// future injectable event has a higher id than the saved token and is delivered
-// on a later wake, so pushing the filter server-side never drops one.
-func (d *Driver) drainEvents(ctx context.Context, cfg *Config) ([]*gritzv1.Event, string, error) {
-	token := cfg.NextEventToken
+// promptEvents returns the to-agent instructions and external triggers stored
+// in the event file after the event with id after (0 for the start of the
+// file), and the id of the last event stored, of any type, or after itself
+// when nothing is stored past it.
+func (d *Driver) promptEvents(after int64) ([]*gritzv1.Event, int64, error) {
+	stored, err := d.Events.After(after)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read events: %w", err)
+	}
+	last := after
 	var events []*gritzv1.Event
-	req := &gritzv1.ListEventsByTaskRequest{
-		TaskId:    d.TaskID,
-		PageSize:  eventPageSize,
-		PageToken: cfg.NextEventToken,
-		Types:     []string{model.EventTypeInstruction, model.EventTypeExternal},
-	}
-	for resp, err := range gritzclient.ListEventsByTask(ctx, d.Client, req) {
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to fetch events: %w", err)
+	for _, ev := range stored {
+		last = ev.GetId()
+		if ev.GetInstruction() != nil || ev.GetExternal() != nil {
+			events = append(events, ev)
 		}
-		token = resp.GetNextPageToken()
-		events = append(events, resp.GetEvents()...)
 	}
-	d.Log.Info("drained events", "count", len(events))
-	return events, token, nil
+	d.Log.Info("read events", "count", len(events))
+	return events, last, nil
 }

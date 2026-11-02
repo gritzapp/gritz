@@ -74,9 +74,9 @@ type Config struct {
 	Dummy        *DummyOptions        `json:"dummy,omitempty"`
 
 	// Agent-managed state
-	SetupCommandsCompleted int    `json:"setup_commands_completed,omitempty"`
-	Started                bool   `json:"started,omitempty"`
-	NextEventToken         string `json:"next_event_token,omitempty"` // pagination cursor for events already delivered to the agent
+	SetupCommandsCompleted int   `json:"setup_commands_completed,omitempty"`
+	Started                bool  `json:"started,omitempty"`
+	PromptedEventID        int64 `json:"prompted_event_id,omitempty"` // id of the last event-file event already delivered to the agent
 }
 
 type McpServer struct {

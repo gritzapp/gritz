@@ -12,6 +12,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/eventfile"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -23,11 +24,14 @@ import (
 const testTaskVersion = 7
 
 // setupDriver writes cfg for task 1 in a temporary config dir and returns a
-// driver backed by a mock client whose SubmitRunnerEvents always acks.
+// driver backed by an empty event file and a mock client whose
+// SubmitRunnerEvents always acks.
 func setupDriver(t *testing.T, cfg *Config) (*Driver, *gritzclient.ClientMock) {
 	t.Helper()
 	store := ConfigStore(t.TempDir())
 	assert.NilError(t, store.Save(1, cfg))
+	events, err := eventfile.Open(filepath.Join(t.TempDir(), "events.jsonl"))
+	assert.NilError(t, err)
 	mock := &gritzclient.ClientMock{
 		SubmitRunnerEventsFunc: func(_ context.Context, req *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
@@ -38,10 +42,6 @@ func setupDriver(t *testing.T, cfg *Config) (*Driver, *gritzclient.ClientMock) {
 				Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion},
 			}, nil
 		},
-		// A first (non-wake) run seeds the event cursor from the tail token.
-		ListEventsByTaskFunc: func(_ context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
-			return &gritzv1.ListEventsByTaskResponse{NextPageToken: "tail-token"}, nil
-		},
 		// A first (non-wake) run fetches the task's standing links for the prompt.
 		ListLinksFunc: func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
 			return &gritzv1.ListLinksResponse{}, nil
@@ -49,7 +49,7 @@ func setupDriver(t *testing.T, cfg *Config) (*Driver, *gritzclient.ClientMock) {
 	}
 	// Log is required; tests that don't inspect output use the discard log.
 	// TestDriverRun_LogsToSink overrides it with a file-backed one.
-	return &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, Config: store}, mock
+	return &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, Config: store, Events: events}, mock
 }
 
 func TestDriverRun(t *testing.T) {
@@ -72,131 +72,84 @@ func TestDriverRun(t *testing.T) {
 	)
 }
 
-func TestDriverRun_DrainsEventsToTail(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run whose event stream spans three pages: two with More=true
-	// then a final one (More=false) that marks the tail. The drain must follow
-	// next_page_token across all three and persist the final one.
-	store := ConfigStore(t.TempDir())
-	assert.NilError(t, store.Save(1, &Config{Type: TypeDummy}))
-	pages := map[string]*gritzv1.ListEventsByTaskResponse{
-		"":   {NextPageToken: "p1", More: true},
-		"p1": {NextPageToken: "p2", More: true},
-		"p2": {NextPageToken: "tail"}, // More defaults to false → tail reached
+// instruction returns an instruction event with id and text.
+func instruction(id int64, text string) *gritzv1.Event {
+	return &gritzv1.Event{
+		Id:      id,
+		Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: text}},
 	}
-	// The iterator mutates the request's PageToken in place, so the recorded call
-	// requests all alias one pointer — capture the token at call time instead.
-	var seenTokens []string
-	mock := &gritzclient.ClientMock{
-		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
-			return &gritzv1.SubmitRunnerEventsResponse{}, nil
-		},
-		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{
-				Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion},
-			}, nil
-		},
-		ListEventsByTaskFunc: func(_ context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
-			seenTokens = append(seenTokens, req.GetPageToken())
-			return pages[req.GetPageToken()], nil
-		},
-		ListLinksFunc: func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
-			return &gritzv1.ListLinksResponse{}, nil
-		},
-	}
-	driver := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, Config: store}
+}
 
-	// Act
+// runPrompt runs driver once with a fresh log file and returns the prompt the
+// dummy agent logged.
+func runPrompt(t *testing.T, driver *Driver) string {
+	t.Helper()
+	logPath := filepath.Join(t.TempDir(), "log")
+	driver.Log = OpenDriverLog(logPath, nil)
 	assert.NilError(t, driver.Run(t.Context()))
-
-	// Assert - the three pages were walked in order and the final tail token was
-	// persisted as the new cursor.
-	assert.DeepEqual(t, seenTokens, []string{"", "p1", "p2"})
-	cfg, err := store.Load(1)
+	assert.NilError(t, driver.Log.Close())
+	got, err := os.ReadFile(logPath)
 	assert.NilError(t, err)
-	assert.Equal(t, cfg.NextEventToken, "tail")
+	_, prompt, ok := strings.Cut(string(got), "dummy agent received prompt")
+	assert.Assert(t, ok, "no prompt in log: %s", got)
+	return prompt
 }
 
-func TestDrainEvents_RequestsServerSideTypeFilter(t *testing.T) {
+func TestDriverRun_PromptFromEventFile(t *testing.T) {
 	t.Parallel()
-	// Arrange - the drain pushes the instruction + external filter to the server
-	// via the request's Types field (the server does the filtering), then returns
-	// the events it gets back and the tail token.
-	page := &gritzv1.ListEventsByTaskResponse{
-		NextPageToken: "tail",
-		Events: []*gritzv1.Event{
-			{
-				Id: 1,
-				Payload: &gritzv1.Event_Instruction{
-					Instruction: &gritzv1.InstructionPayload{Text: "do the thing"},
-				},
-			},
-			{
-				Id: 3,
-				Payload: &gritzv1.Event_External{
-					External: &gritzv1.ExternalPayload{Description: "PR comment"},
-				},
-			},
-		},
-	}
-	var gotTypes []string
-	mock := &gritzclient.ClientMock{
-		ListEventsByTaskFunc: func(_ context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
-			gotTypes = req.GetTypes()
-			return page, nil
-		},
-	}
-	driver := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog}
-
-	// Act
-	events, token, err := driver.drainEvents(t.Context(), &Config{})
-
-	// Assert - the request carried the type filter, and the returned events and
-	// tail token passed through.
+	// Arrange - the first run's file holds an instruction and a command event
+	driver, _ := setupDriver(t, &Config{Type: TypeDummy})
+	_, err := driver.Events.Append([]*gritzv1.Event{
+		instruction(5, "first-instruction"),
+		{Id: 6, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START}}},
+	})
 	assert.NilError(t, err)
-	assert.DeepEqual(t, gotTypes, []string{"instruction", "external"})
-	assert.Equal(t, token, "tail")
-	assert.Assert(t, cmp.Len(events, 2))
-	assert.Equal(t, events[0].GetId(), int64(1))
-	assert.Equal(t, events[1].GetId(), int64(3))
+
+	// Act - the first run
+	first := runPrompt(t, driver)
+
+	// Assert - the brief carries the instruction, and the cursor is the last
+	// stored event, of any type
+	assert.Assert(t, cmp.Contains(first, "first-instruction"))
+	cfg, err := driver.Config.Load(1)
+	assert.NilError(t, err)
+	assert.Equal(t, cfg.PromptedEventID, int64(6))
+
+	// Arrange - an instruction committed late is stored after the prompted
+	// events, with an id below them
+	_, err = driver.Events.Append([]*gritzv1.Event{instruction(4, "late-instruction")})
+	assert.NilError(t, err)
+
+	// Act - the wake
+	wake := runPrompt(t, driver)
+
+	// Assert - the wake carries only the late instruction
+	assert.Assert(t, cmp.Contains(wake, "late-instruction"))
+	assert.Assert(t, !strings.Contains(wake, "first-instruction"), "wake re-prompted an event: %s", wake)
+	cfg, err = driver.Config.Load(1)
+	assert.NilError(t, err)
+	assert.Equal(t, cfg.PromptedEventID, int64(4))
 }
 
-func TestDriverRun_EventTokenNotAdvancedOnError(t *testing.T) {
+func TestDriverRun_PromptedEventNotAdvancedOnError(t *testing.T) {
 	t.Parallel()
-	// Arrange - a run whose agent errors. The drain computes a fresh tail token,
-	// but a failed run must leave the saved cursor untouched (at-least-once: the
-	// next run re-fetches from the same position).
-	store := ConfigStore(t.TempDir())
-	assert.NilError(t, store.Save(1, &Config{
-		Type:           TypeDummy,
-		NextEventToken: "old-token",
-		Dummy:          &DummyOptions{Error: "dummy agent failed on purpose"},
-	}))
-	mock := &gritzclient.ClientMock{
-		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
-			return &gritzv1.SubmitRunnerEventsResponse{}, nil
-		},
-		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
-			return &gritzv1.GetTaskResponse{
-				Task: &gritzv1.Task{Id: req.Id, Version: testTaskVersion},
-			}, nil
-		},
-		ListEventsByTaskFunc: func(_ context.Context, _ *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
-			return &gritzv1.ListEventsByTaskResponse{NextPageToken: "new-token"}, nil
-		},
-		ListLinksFunc: func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
-			return &gritzv1.ListLinksResponse{}, nil
-		},
-	}
-	driver := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, Config: store}
+	// Arrange - a run whose agent errors. The read advances the cursor in
+	// memory, but a failed run must leave the saved cursor untouched
+	// (at-least-once: the next run reads from the same position).
+	driver, _ := setupDriver(t, &Config{
+		Type:  TypeDummy,
+		Dummy: &DummyOptions{Error: "dummy agent failed on purpose"},
+	})
+	_, err := driver.Events.Append([]*gritzv1.Event{instruction(1, "do the thing")})
+	assert.NilError(t, err)
 
 	// Act - the driver reports the failure and exits 0, but the run did not succeed.
 	assert.NilError(t, driver.Run(t.Context()))
 
 	// Assert - the cursor was NOT advanced past its pre-run value.
-	cfg, err := store.Load(1)
+	cfg, err := driver.Config.Load(1)
 	assert.NilError(t, err)
-	assert.Equal(t, cfg.NextEventToken, "old-token")
+	assert.Equal(t, cfg.PromptedEventID, int64(0))
 }
 
 func TestDriverRun_AgentError(t *testing.T) {

@@ -15,7 +15,7 @@ func TestConfigStoreRoundTrip(t *testing.T) {
 		Type:                   TypeDummy,
 		Started:                true,
 		SetupCommandsCompleted: 2,
-		NextEventToken:         "cursor-abc123",
+		PromptedEventID:        42,
 	}
 
 	// Act

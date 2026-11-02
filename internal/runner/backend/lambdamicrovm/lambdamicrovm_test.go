@@ -49,9 +49,6 @@ func setup(t *testing.T, cfg *agent.Config) *testEnv {
 		SubmitRunnerEventsFunc: func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 			return &gritzv1.SubmitRunnerEventsResponse{}, nil
 		},
-		ListEventsByTaskFunc: func(_ context.Context, _ *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
-			return &gritzv1.ListEventsByTaskResponse{NextPageToken: "tail"}, nil
-		},
 		ListLinksFunc: func(_ context.Context, _ *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
 			return &gritzv1.ListLinksResponse{}, nil
 		},
