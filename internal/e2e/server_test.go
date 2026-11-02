@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -19,7 +18,7 @@ import (
 func TestUpdateTask(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 
 	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
 		Id:   task.ID,
@@ -27,15 +26,15 @@ func TestUpdateTask(t *testing.T) {
 	})
 
 	assert.NilError(t, err)
-	assert.Equal(t, h.Org.GetTask(task.ID).Name, "Updated Name")
+	assert.Equal(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Name, "Updated Name")
 }
 
 func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	taskA := h.Org.CreateTask()
-	taskB := h.Org.CreateTask()
-	own := h.Server.Client(h.Org.CreateTaskToken(taskA.ID))
+	taskA := h.Org.CreateTask(nil)
+	taskB := h.Org.CreateTask(nil)
+	own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: taskA.ID}))
 
 	_, errA := own.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: taskA.ID})
 	_, errB := own.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: taskB.ID})
@@ -48,7 +47,7 @@ func TestGetTask_Permissions(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
 	orgB := h.Server.CreateOrg()
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 
 	_, errA := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	_, errB := orgB.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
@@ -60,9 +59,9 @@ func TestGetTask_Permissions(t *testing.T) {
 func TestCreateTaskToken_Denied(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 	// A key with no scopes lacks the task_token.create capability.
-	scopeless := h.Org.CreateKey(nil)
+	scopeless := h.Org.CreateScopedKey(nil)
 
 	_, err := scopeless.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
@@ -72,7 +71,7 @@ func TestCreateTaskToken_Denied(t *testing.T) {
 func TestDeleteKey(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	key := h.Org.CreateKey(authscope.Admin())
+	key := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "to-delete"})
 	// The key works before it is deleted, so its rejection below is the delete's.
 	_, err := key.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 	assert.NilError(t, err)
@@ -80,7 +79,7 @@ func TestDeleteKey(t *testing.T) {
 	_, err = h.Org.Client.DeleteKey(t.Context(), &gritzv1.DeleteKeyRequest{Id: key.ID})
 
 	assert.NilError(t, err)
-	assert.Assert(t, !slices.ContainsFunc(h.Org.ListKeys(), func(k *gritzv1.Key) bool { return k.Id == key.ID }))
+	assert.Assert(t, !slices.ContainsFunc(h.Org.ListKeys(&gritzv1.ListKeysRequest{}), func(k *gritzv1.Key) bool { return k.Id == key.ID }))
 	_, err = key.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnauthenticated)
 }
@@ -88,7 +87,7 @@ func TestDeleteKey(t *testing.T) {
 func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 
 	linkResp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
@@ -120,7 +119,7 @@ func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 func TestMock(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 	m := &gritzclient.ClientMock{
 		UpdateTaskFunc: func(context.Context, *gritzv1.UpdateTaskRequest) (*gritzv1.UpdateTaskResponse, error) {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("e2e: rejected"))
@@ -152,7 +151,7 @@ func TestAddMember(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask()
+	task := h.Org.CreateTask(nil)
 
 	member := h.Org.AddMember(other)
 

@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
 	"gotest.tools/v3/poll"
 )
 
@@ -31,16 +33,21 @@ type Task struct {
 	org *Org
 }
 
-// CreateTask creates a draft task in the org's workspace, as the new-task page
-// does.
-func (o *Org) CreateTask() *Task {
+// CreateTask creates a task, as the new-task page does. It fills the harness
+// defaults where req leaves them unset: the org's e2e runner and workspace. The
+// task is always a draft, since Draft has no unset value. req may be nil.
+func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 	t := o.server.t
 	t.Helper()
-	resp, err := o.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Draft:     true,
-		Runner:    runnerID,
-		Workspace: workspace,
-	})
+	if req == nil {
+		req = &gritzv1.CreateTaskRequest{}
+	} else {
+		req = proto.CloneOf(req)
+	}
+	req.Draft = true
+	req.Runner = cmp.Or(req.Runner, runnerID)
+	req.Workspace = cmp.Or(req.Workspace, workspace)
+	resp, err := o.Client.CreateTask(t.Context(), req)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -54,40 +61,53 @@ type Key struct {
 	Client gritzclient.Client
 }
 
-// CreateKey creates a key in the org holding scopes.
-func (o *Org) CreateKey(scopes authscope.Scopes) *Key {
+// CreateKey creates a key in the org, as the keys page does. The RPC grants
+// admin scopes; CreateScopedKey makes a narrower key.
+func (o *Org) CreateKey(req *gritzv1.CreateKeyRequest) *Key {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.CreateKey(t.Context(), req)
+	if err != nil {
+		t.Fatalf("CreateKey: %v", err)
+	}
+	return &Key{ID: resp.Key.Id, Client: o.server.Client(resp.RawToken)}
+}
+
+// CreateScopedKey creates a key in the org holding scopes. No RPC can narrow a
+// key, so it writes the key to the store.
+func (o *Org) CreateScopedKey(scopes authscope.Scopes) *Key {
 	o.server.t.Helper()
 	id, token := o.server.createKey(o.ID, "e2e", scopes)
 	return &Key{ID: id, Client: o.server.Client(token)}
 }
 
-// CreateTaskToken mints a task token for task id, as the runner does.
-func (o *Org) CreateTaskToken(id int64) string {
+// CreateTaskToken mints a task token, as the runner does, and returns it.
+func (o *Org) CreateTaskToken(req *gritzv1.CreateTaskTokenRequest) string {
 	t := o.server.t
 	t.Helper()
-	resp, err := o.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: id})
+	resp, err := o.Client.CreateTaskToken(t.Context(), req)
 	if err != nil {
-		t.Fatalf("CreateTaskToken %d: %v", id, err)
+		t.Fatalf("CreateTaskToken: %v", err)
 	}
 	return resp.Token
 }
 
-// GetTask returns task id.
-func (o *Org) GetTask(id int64) *gritzv1.Task {
+// GetTask returns the task.
+func (o *Org) GetTask(req *gritzv1.GetTaskRequest) *gritzv1.Task {
 	t := o.server.t
 	t.Helper()
-	resp, err := o.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: id})
+	resp, err := o.Client.GetTask(t.Context(), req)
 	if err != nil {
-		t.Fatalf("GetTask %d: %v", id, err)
+		t.Fatalf("GetTask: %v", err)
 	}
 	return resp.Task
 }
 
 // ListKeys returns the org's keys.
-func (o *Org) ListKeys() []*gritzv1.Key {
+func (o *Org) ListKeys(req *gritzv1.ListKeysRequest) []*gritzv1.Key {
 	t := o.server.t
 	t.Helper()
-	resp, err := o.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
+	resp, err := o.Client.ListKeys(t.Context(), req)
 	if err != nil {
 		t.Fatalf("ListKeys: %v", err)
 	}
