@@ -222,17 +222,23 @@ component it owns:
 
 ```go
 type Harness struct {
-	Server  *Server  // the API side
+	Server  *Server  // the API side: URL, Client, CreateOrg, Mock
+	Org     *Org     // the default org, for tests that need only one
 	Backend *Backend // the local backend
 	Runner  *Runner  // the runner
 }
 ```
 
+`Org` isn't a component but a caller: a user in an org, with that user's
+client. Tests that need several orgs on one server (permissions, cross-org,
+org membership) create more with `h.Server.CreateOrg()`.
+
 Each handle holds `t`, and its methods fail the test with `t.Fatal` instead of
 returning errors. None of them exposes its real instance. The escape hatches go
 through the same path as everything else:
 
-- `h.Server.Client` is a real API client.
+- `h.Org.Client` is a real API client, and `h.Server.Client(token)` makes one
+  for any other credential.
 - `h.Backend` is itself a `backend.Backend`.
 - Mocks (`h.Server.Mock`, `h.Backend.Mock`, `h.Backend.MockSandbox`) replace
   methods for every caller, and apply to those escape hatches too.
@@ -243,7 +249,7 @@ There is no driver handle (see above).
 func TestStart(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	task := h.Server.CreateTask()
+	task := h.Org.CreateTask()
 	task.AddInstruction("do the thing")
 
 	task.Start()
@@ -259,20 +265,21 @@ func TestStart(t *testing.T) {
 **`e2e.New(t, opts)`** builds the following, and tears it all down with
 `t.Cleanup`:
 
-1. **Org and keys.** `teststore.New(t)` and `teststore.CreateOrg` create a fresh
-   org with a user. Two `xat_` keys are made for that user with `store.CreateKey`,
-   the same bootstrap `--no-auth` uses (`command/server.go`): a user key for
-   `h.Server`'s client, and a runner key for the runner. Isolation comes from the
-   org, as for every teststore test.
-2. **Server.** `server.New(server.Options{...}).Handler()` on `httptest.NewServer`.
-   It uses `apiauth.New` with `server.NewStoreKeyValidator`, a fresh app key from
-   `apiauth.CreateAppPrivateKey()` (task tokens), and a local pubsub feeding
-   `notifyserver`, so SSE notifications are live. The mock interceptor goes in
-   `server.Options.Interceptors`. The archiver and scheduler aren't started; no
-   scenario needs them.
+1. **Server.** `server.New(server.Options{...}).Handler()` on `httptest.NewServer`,
+   over `teststore.New(t)`. It uses `apiauth.New` with
+   `server.NewStoreKeyValidator`, a fresh app key from
+   `apiauth.CreateAppPrivateKey()` (user and task tokens), and a local pubsub
+   feeding `notifyserver`, so SSE notifications are live. `apiauth.New` gets a
+   `DevUser`, as `--no-auth` does, so it skips OIDC discovery; like the
+   `--no-auth` dev user it has no org and no scopes, so a request without a
+   token is authenticated but allowed nothing. `h.Server`'s mock router goes in
+   `server.Options.Wrap`. The archiver and scheduler aren't started; no scenario
+   needs them.
+2. **Default org.** `h.Server.CreateOrg()` makes `h.Org` (below). Isolation
+   comes from the org, as for every teststore test.
 3. **Backend.** A `local.Backend` on a fresh root, wrapped by `h.Backend`. The
    runner is given the wrapper.
-4. **Runner.** `runner.Serve` (below) with a `gritzclient` on the runner key,
+4. **Runner.** `runner.Serve` (below) with a `gritzclient` on `h.Org`'s runner key,
    the backend wrapper, `runner.db` in a temp directory, runner id `e2e`, and one
    workspace `e2e` whose agent is the dummy. The runner registers that workspace
    with the server itself (`RegisterWorkspaces`), so `CreateTask` finds it
@@ -300,16 +307,44 @@ real behaviour, and short transactions bound it.
 
 #### `h.Server`
 
+Things that don't belong to any one org.
+
 | Method | What it does |
 |---|---|
-| `CreateTask()` | `CreateTask{draft: true, runner: "e2e", workspace: "e2e"}`, as the new-task page does; returns a `*Task` |
-| `Client` | a `gritzclient.Client` making real API calls to the harness server as the harness user. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
-| `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
-| `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
+| `URL` | the server's base URL |
+| `Client(token)` | a `gritzclient.Client` calling the server with `token`: a task JWT, a key that was deleted, a bad key |
+| `CreateOrg()` | a fresh org with its own user (`teststore.CreateOrg`), and a runner key in it; returns an `*Org` |
 | `Mock(m)` | see below |
 
 There is no `Real` and no handler on `h.Server`: tests reach the server only as
 a client.
+
+#### `Org`
+
+A user in an org. `CreateTask`, `WaitTask` and `WaitEvent` live here rather than
+on `h.Server` because they act as a caller, and the caller decides what is
+visible.
+
+| Method | What it does |
+|---|---|
+| `ID`, `UserID` | the org and its user |
+| `Client` | a `gritzclient.Client` making real API calls as the user, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
+| `CreateTask()` | `CreateTask{draft: true, runner: "e2e", workspace: "e2e"}`, as the new-task page does; returns a `*Task`, which keeps its `*Org` |
+| `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
+| `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
+| `CreateKey(scopes)` | a client on a new `xat_` key in the org holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them) |
+| `AddMember(other)` | adds `other`'s user to the org as a member, and returns a client acting as that user in this org |
+
+`Client` and `AddMember`'s client carry the app JWT `/auth/token` issues the
+web UI (`apiauth.NewAppClaims`, signed with the harness's app key), not a key:
+keys carry no user, and the org and profile RPCs act on the caller's user id.
+The JWTs live for `apiauth.AppTokenTTL` (5 minutes), which bounds a test's
+length.
+
+The runner registers its workspaces with the server (below). `h.Org`'s runner
+key is the one the runner is given; it stays internal. Until `h.Runner` lands,
+`CreateOrg` registers the `e2e` workspace itself with that key, so every org can
+`CreateTask`.
 
 ```go
 // Mock installs m, replacing any previous mock: calls go to m's non-nil
@@ -328,17 +363,23 @@ response types (`SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsReque
 
 **How it works:**
 
-- **One interceptor.** `Mock` is backed by a `connect.Interceptor` in front of
-  the real handler. The harness passes it in `server.Options.Interceptors`, after
-  the auth and observability interceptors. Callers are still authenticated, and
-  a bad token is still rejected, before a mock answers.
-- **Routing.** For each unary call, `WrapUnary` takes the method name from
-  `req.Spec().Procedure` (`/gritz.v1.GritzService/SubmitRunnerEvents` →
-  `SubmitRunnerEvents`). It checks the installed mock's `<Method>Func` field by
-  reflection. That is fine in test code, and keeps working as RPCs are added.
-  - If the field is set, the interceptor calls the mock's method,
-    `SubmitRunnerEvents(ctx, req.Any())`, and wraps the result with
-    `connect.NewResponse`.
+- **A router, not an interceptor.** An interceptor can't answer for a mock:
+  it would have to return a `*connect.Response[Res]`, `connect.NewResponse` is
+  generic, `Res` is only known by reflection there, and `connect.AnyResponse`
+  can't be implemented outside connect. So `Mock` is backed by a router that
+  wraps the RPC implementation instead. `server.Options.Wrap` hands the harness
+  the apiserver, and the harness returns a `ClientMock` whose every
+  `<Method>Func` is a `reflect.MakeFunc` that routes the call. The wrapped
+  implementation sits behind the Connect interceptors and the `/mcp` endpoint,
+  so callers are still authenticated, and a bad token is still rejected, before
+  a mock answers. Authorization is not: scopes are checked inside each handler
+  (`AllowOp`, `Allow`), so a mocked method answers callers the real one would
+  deny.
+- **Routing.** For each call, the router checks the installed mock's
+  `<Method>Func` field by reflection. That is fine in test code, and keeps
+  working as RPCs are added.
+  - If the field is set, the router calls the mock's method,
+    `SubmitRunnerEvents(ctx, req)`, and the generated handler wraps its result.
   - Otherwise it calls the real handler.
 - **Typed, with no generics.** Each `<Method>Func` has the method's real request
   and response types, so a mock needs no type assertions.
@@ -351,9 +392,9 @@ response types (`SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsReque
   Call-through is a possible later addition (Open Questions), not part of this
   design.
 - **The harness's own calls too.** `Task` methods and the waits use
-  `h.Server.Client`, so they see the mock as well. `WaitTask` reads `GetTask`,
+  the org's `Client`, so they see the mock as well. `WaitTask` reads `GetTask`,
   so a test that mocks `GetTask` removes the mock before waiting.
-- **Free call recording.** The interceptor calls the mock's method, not the bare
+- **Free call recording.** The router calls the mock's method, not the bare
   `Func` field, so `m.<Method>Calls()` records every request sent while the mock
   was installed, whoever sent it.
 - **One mock at a time.** `Mock` returns nothing. A second `Mock(m2)` replaces
@@ -380,7 +421,7 @@ h.Server.Mock(m)
 #### `h.Backend`
 
 `h.Backend` is a `backend.Backend`, and it is what the runner is given. It wraps
-the `local.Backend`, which it doesn't expose: like `h.Server.Client`, the handle
+the `local.Backend`, which it doesn't expose: like `h.Org.Client`, the handle
 itself is the escape hatch (`h.Backend.Open(handle)`), and it goes through the
 same mocks the runner sees. Its `Create` and `Open` return wrapped sandboxes, so
 mocks also apply to sandboxes the runner restores at `Load`.
@@ -436,8 +477,8 @@ runner can meet, one can be added then.
 
 #### `Task`
 
-A `Task` holds the harness and the task id. Its methods are implemented through
-`h.Server` and `h.Backend`, and the commands go through the RPCs the web UI uses
+A `Task` holds its `Org` and the task id. Its methods are implemented through
+the org's `Client` and `h.Backend`, and the commands go through the RPCs the web UI uses
 (`webui/src/routes/tasks.$id.tsx`, `tasks.new.tsx`):
 
 | Method | Through |
@@ -447,8 +488,8 @@ A `Task` holds the harness and the task id. Its methods are implemented through
 | `Cancel()`, `Restart()`, `Archive()`, `Unarchive()` | `CancelTask`, `RestartTask`, `ArchiveTask`, `UnarchiveTask` |
 | `Get()`, `Events()` | `GetTask`; `ListEventsByTask`, every page |
 | `Links()`, `Log()` | `ListLinks`; `ListLogChunksByTask`, concatenated |
-| `WaitStatus(status)` | `h.Server.WaitTask` |
-| `WaitEvent(match)` | `h.Server.WaitEvent` |
+| `WaitStatus(status)` | `Org.WaitTask` |
+| `WaitEvent(match)` | `Org.WaitEvent` |
 | `ReadFile(name)`, `WaitFile(name, want)` | a file in `h.Backend.Dir(id)` |
 
 The composer sends `add_instructions` and `start` in one `UpdateTask`. The
@@ -784,9 +825,10 @@ type PuppetAgent struct{ ... }
 package server // github.com/gritzapp/gritz/internal/server
 
 type Options struct {
-	// Interceptors run after the auth and observability interceptors, in front
-	// of the API handlers. // new
-	Interceptors []connect.Interceptor
+	// Wrap, when set, wraps the RPC implementation behind the Connect
+	// interceptors and the MCP endpoint, so callers are authenticated before
+	// it runs. Tests use it to mock RPCs. // new
+	Wrap func(gritzv1connect.GritzServiceHandler) gritzv1connect.GritzServiceHandler
 	// ... existing fields
 }
 ```
@@ -833,6 +875,7 @@ type Options struct {
 // Harness is a server, a local backend and a runner for one test.
 type Harness struct {
 	Server  *Server
+	Org     *Org // the default org
 	Backend *Backend
 	Runner  *Runner
 }
@@ -842,26 +885,49 @@ func New(t *testing.T, opts *Options) *Harness
 
 // Server is the harness's API server.
 type Server struct {
-	// Client makes real API calls to the server as the harness user.
-	Client gritzclient.Client
 	// URL is the server's base URL.
 	URL string
 	// ... unexported
 }
 
-// CreateTask creates a draft task in the harness's workspace.
-func (s *Server) CreateTask() *Task
+// Client returns a client that calls the server with token.
+func (s *Server) Client(token string) gritzclient.Client
 
-// WaitTask waits until cond accepts task id, and returns it.
-func (s *Server) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
-
-// WaitEvent waits until one of task id's events matches, and returns it.
-func (s *Server) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event
+// CreateOrg creates an org with its own user, and registers the harness's
+// workspace in it.
+func (s *Server) CreateOrg() *Org
 
 // Mock installs m, replacing any previous mock: calls go to m's non-nil
 // <Method>Func fields, and every method left nil goes to the real server.
 // Mock(nil) removes it.
 func (s *Server) Mock(m *gritzclient.ClientMock)
+
+// Org is a user in an org, with an admin client.
+type Org struct {
+	ID     int64
+	UserID string
+	// Client makes real API calls as the user, acting in the org with admin
+	// scopes, as the web UI does.
+	Client gritzclient.Client
+	// ... unexported
+}
+
+// CreateTask creates a draft task in the org's workspace.
+func (o *Org) CreateTask() *Task
+
+// WaitTask waits until cond accepts task id, and returns it.
+func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
+
+// WaitEvent waits until one of task id's events matches, and returns it.
+func (o *Org) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event
+
+// CreateKey creates a key in the org holding scopes, and returns a client
+// that calls with it.
+func (o *Org) CreateKey(scopes authscope.Scopes) gritzclient.Client
+
+// AddMember adds other's user to the org, and returns a client acting as that
+// user in the org.
+func (o *Org) AddMember(other *Org) gritzclient.Client
 
 // Backend is the harness's local backend, and the backend.Backend the runner
 // is given.
@@ -895,7 +961,7 @@ type Runner struct{ ... }
 // backend.
 func (r *Runner) Restart()
 
-// Task is a task in the harness's org.
+// Task is a task in an org.
 type Task struct {
 	ID int64
 	// ... unexported
@@ -951,9 +1017,9 @@ DIR`, where the local backend's binary is the running executable.
 
 **How it fits:**
 
-- **Setup.** `e2e.New` creates the org and keys in teststore. It serves
-  `server.New(...).Handler()` on httptest, with `h.Server`'s mock interceptor in
-  `Options.Interceptors`. It wraps a `local.Backend` on a fresh root in
+- **Setup.** `e2e.New` serves `server.New(...).Handler()` on httptest, with
+  `h.Server`'s mock router in `Options.Wrap`, and creates `h.Org` and its keys
+  in teststore. It wraps a `local.Backend` on a fresh root in
   `h.Backend`, and runs `runner.Serve` with that wrapper on a goroutine.
 - **The runner.** `gritz runner` calls `Serve` after parsing its flags. The
   runner's `TaskRunner`s create and boot local sandboxes through `h.Backend` and
@@ -964,7 +1030,7 @@ DIR`, where the local backend's binary is the running executable.
   prompt and runs the steps. `Tool` steps start the injected MCP server from
   `BinaryPather.BinaryPath()`.
 - **Every call to the server** comes from the harness's `Client`, the runner,
-  the driver or the MCP server. Each passes the mock interceptor, which sends it
+  the driver or the MCP server. Each passes the mock router, which sends it
   to the installed `ClientMock` or to the real handler.
 - **The test** drives tasks through `Task`, which calls the user-facing RPCs and
   reads the sandbox directory through `h.Backend`.
@@ -1004,9 +1070,8 @@ Slices that must wait are marked.
    runner` behaving as before against a dev server; this slice adds no tests.
    Slice 9 changes what `Serve` calls (`Load`, `TaskManager.Run`), so whichever
    lands second rebases.
-6. **Server interceptors.** Delivers: `server.Options.Interceptors`. Depends on:
-   nothing. Verifiable by: an interceptor test
-   seeing the authenticated caller.
+6. **Server wrapping.** Delivers: `server.Options.Wrap`. Depends on: nothing.
+   Verifiable by: the e2e server tests, which mock through it.
 7. **Harness and `TestStart`.** Delivers: `internal/e2e` with the `Server`,
    `Backend`, `Runner` and `Task` handles, their waits, and `TestStart`; no mocks
    yet. Depends on: (1)–(6). Verifiable by: `TestStart` passes under `mise run
@@ -1077,7 +1142,7 @@ Slices that must wait are marked.
   every scenario but a stream cut mid-flight.
 - **Exposing the real instances** (`Real` on each handle). Tests that hold the
   apiserver or the backend directly bypass the mocks, and drift towards
-  asserting on internals. `h.Server.Client` and `h.Backend` itself give the same
+  asserting on internals. `h.Org.Client` and `h.Backend` itself give the same
   reach through the same path every other caller takes.
 - **`testrunner.Server` and `ClientMock` instead of the apiserver.** They miss
   command events, the xid watermark, the run boundary and the server's version
