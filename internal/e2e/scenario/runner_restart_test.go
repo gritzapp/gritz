@@ -63,3 +63,25 @@ func TestRunnerRestart_PendingWake(t *testing.T) {
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
 }
+
+func TestRunnerRestart_SandboxGone(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	// The sandbox vanishes while no runner is watching, so no driver is left
+	// to report its run.
+	h.Runner.Stop()
+	h.Backend.DestroySandbox(task.ID)
+	run1.WaitCancelled()
+	h.Runner.Start()
+
+	// The new runner found the sandbox gone and the task still running, and
+	// reported the run failed, without starting it again.
+	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
+	assert.Equal(t, got.Version, int64(1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}
