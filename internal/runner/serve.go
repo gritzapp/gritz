@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -124,14 +125,18 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 		return fmt.Errorf("failed to load sandboxes: %w", err)
 	}
 
+	// The outbox and the notification client use rstore and m, so Serve
+	// waits for them before its deferred closes run.
+	var wg sync.WaitGroup
+
 	// Start the outbox delivery goroutine. Its first pass redelivers any
 	// events that were persisted but not yet acknowledged before a restart.
-	go queue.Run(ctx)
+	wg.Go(func() { queue.Run(ctx) })
 
 	// Subscribe to server-sent task change notifications so the runner
 	// reacts to new commands immediately instead of waiting for the
 	// fallback poll.
-	go func() {
+	wg.Go(func() {
 		nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
 			BaseURL: opts.ServerURL,
 			Runner:  opts.RunnerID,
@@ -142,15 +147,17 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 		if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("notification client stopped", "err", err)
 		}
-	}()
+	})
 
-	// Run the tasks until ctx is done. Distinguish a
-	// durable-store-write crash (die set a FatalError cause) from a
-	// graceful signal shutdown.
+	// Run the tasks until ctx is done, which stops the goroutines above too.
+	cause := m.Run(ctx)
+	wg.Wait()
+	// Distinguish a durable-store-write crash (die set a FatalError cause)
+	// from a graceful signal shutdown.
 	// The sentinel is what lets us return non-zero on a broken disk
 	// without depending on whatever cause signal.NotifyContext sets.
 	var fatal FatalError
-	if cause := m.Run(ctx); errors.As(cause, &fatal) {
+	if errors.As(cause, &fatal) {
 		log.Error("runner terminating: durable store write failed", "err", cause)
 		return cause // non-zero exit → supervisor restarts + alerts
 	}
