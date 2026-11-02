@@ -799,7 +799,7 @@ run if it broke.
 | `TestTaskRunnerRunLoop_DriverUnreachable` | a | Deleted: `TestDriverDies_MidRun`, which reaches `attach`'s `LostTimeout` (a killed driver's sandbox is suspended, not gone) |
 | `TestTaskRunnerRunLoop_NotReported` | a | Deleted: `TestUnreportedRun` |
 | `TestTaskRunnerRunLoop_Shutdown` | a | Deleted: `TestRunnerRestart_MidRun`: the sandbox stays up across the restart, and the run isn't started again |
-| `TestTaskRunnerRunLoop_Reattach` | b | Kept: reconnecting to a driver that is still alive needs a stream cut mid-flight, which takes call-through (Open Questions) |
+| `TestTaskRunnerRunLoop_Reattach` | b | Deleted: `TestRunDropped`, which cuts the runner's `Run` stream twice with `Backend.CloseRunStream` (the stream the run was started on, then the one the runner reattached with) and stops the run over the reopened stream |
 | `TestTaskRunnerRunLoop_NothingToRun` | a | Kept: no scenario reattaches to a driver that has never run |
 | `TestTaskRunnerRunLoop_Reopen` | a | Kept: `TestWake_MidRun` and `TestRunnerRestart_PendingWake` reach the reopen only when the run-boundary start beats the driver's `Idle`, about two runs in five of the latter, none of the former |
 | `TestTaskRunnerRunLoop_StopNeverRun` | a | Deleted: `TestRunnerRestart_RestartCancelledAfterRun` (the stop reaches a driver already idle after run 1) |
@@ -1580,9 +1580,9 @@ the event file) included; its slice 10, `suspend_after`, was split out into
   it (the request would then stay open after cancellation, and the puppet would
   report the cancellation instead of aborting). Worth it for one scenario?
 - **Call-through.** A mocked method replaces the real one. Some cases need to
-  wrap the real one instead: a `Dial` that cuts the real `Run` stream mid-flight,
-  so the runner reconnects to a driver that is still alive
-  (`TestTaskRunnerRunLoop_Reattach`), or a submit that fails only for `stopped`.
+  wrap the real one instead, for example a submit that fails only for
+  `stopped`. (Cutting the real `Run` stream mid-flight didn't need it:
+  `Backend.CloseRunStream` wraps the client `Dial` returns.)
   Would a later `Mock` option make the real implementation reachable from the
   mock, for example a `Real` passed to the `Func`?
 - **Streaming RPCs.** `GritzService` has none, so `Mock` covers every RPC today.

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/local"
@@ -32,6 +34,10 @@ type Backend struct {
 	mu sync.Mutex
 	// sandboxMocks are the installed sandbox mocks, by task id.
 	sandboxMocks map[int64]*backend.SandboxMock
+	// runs cut the latest Run stream opened to each task's driver, by task id.
+	runs map[int64]func()
+	// opened counts the Run streams opened to each task's driver, by task id.
+	opened map[int64]int
 }
 
 var _ backend.Backend = (*Backend)(nil)
@@ -55,7 +61,7 @@ func newBackend(t *testing.T, timeout time.Duration, log *slog.Logger) *Backend 
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := &Backend{t: t, local: lb, root: root, timeout: timeout, sandboxMocks: map[int64]*backend.SandboxMock{}}
+	b := &Backend{t: t, local: lb, root: root, timeout: timeout, sandboxMocks: map[int64]*backend.SandboxMock{}, runs: map[int64]func(){}, opened: map[int64]int{}}
 	t.Cleanup(b.destroy)
 	return b
 }
@@ -210,6 +216,31 @@ func (b *Backend) DestroySandbox(taskID int64) {
 	}
 }
 
+// CloseRunStream cuts the runner's latest Run stream to the task's driver,
+// leaving the driver running: a dropped connection. It returns once the runner
+// has opened a new stream to the driver. A stream must have been opened.
+func (b *Backend) CloseRunStream(taskID int64) {
+	t := b.t
+	t.Helper()
+	b.mu.Lock()
+	cut, ok := b.runs[taskID]
+	n := b.opened[taskID]
+	delete(b.runs, taskID)
+	b.mu.Unlock()
+	if !ok {
+		t.Fatalf("task %d: no Run stream to drop", taskID)
+	}
+	cut()
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.opened[taskID] == n {
+			return poll.Continue("task %d: the runner has not reopened its Run stream", taskID)
+		}
+		return poll.Success()
+	}, poll.WithTimeout(b.timeout), poll.WithDelay(20*time.Millisecond))
+}
+
 // WaitSandbox waits until the task's sandbox has status want. A task that never
 // had a sandbox reports gone.
 func (b *Backend) WaitSandbox(taskID int64, want backend.Status) {
@@ -256,7 +287,39 @@ func (s *sandbox) Dial(ctx context.Context, jwt string) (driverv1connect.DriverS
 	if m := s.b.sandboxMock(s.taskID); m != nil && m.DialFunc != nil {
 		return m.Dial(ctx, jwt)
 	}
-	return s.local.Dial(ctx, jwt)
+	client, err := s.local.Dial(ctx, jwt)
+	if err != nil {
+		return nil, err
+	}
+	return &driverClient{b: s.b, taskID: s.taskID, client: client}, nil
+}
+
+// driverClient is a client to a task's driver whose Run streams
+// CloseRunStream can cut.
+type driverClient struct {
+	b      *Backend
+	taskID int64
+	client driverv1connect.DriverServiceClient
+}
+
+func (c *driverClient) Run(ctx context.Context) (*connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse], error) {
+	ctx, cancel := context.WithCancel(ctx)
+	stream, err := c.client.Run(ctx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	c.b.mu.Lock()
+	// Both are needed: CloseRequest alone leaves the driver's side open, so
+	// the runner's Receive never returns, and the HTTP/2 transport doesn't
+	// watch the context of a request whose body is still open.
+	c.b.runs[c.taskID] = func() {
+		cancel()
+		_ = stream.CloseRequest()
+	}
+	c.b.opened[c.taskID]++
+	c.b.mu.Unlock()
+	return stream, nil
 }
 
 func (s *sandbox) Status(ctx context.Context) (backend.Status, error) {

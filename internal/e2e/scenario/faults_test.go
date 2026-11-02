@@ -245,3 +245,25 @@ func TestSandboxGone_Suspended(t *testing.T) {
 	assert.Equal(t, got.Version, int64(3))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
 }
+
+func TestRunDropped(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	// The first drop cuts the stream the run was started on, the second the
+	// one the runner reattached with; it reopens both.
+	h.Backend.CloseRunStream(task.ID)
+	h.Backend.CloseRunStream(task.ID)
+	task.Cancel()
+
+	// The driver kept going, got the stop on the reopened stream, and stopped
+	// run 1.
+	run1.WaitCancelled()
+	got := task.WaitStatus(gritzv1.TaskStatus_CANCELLED)
+	assert.Equal(t, got.Version, int64(1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}

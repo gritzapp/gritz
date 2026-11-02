@@ -41,41 +41,6 @@ func loaded(t *testing.T, ctx context.Context, be *fake.Backend, rec runnerstore
 	return m
 }
 
-// TestTaskRunnerRunLoop_Reattach covers a dropped stream: drive reopens it,
-// and the busy period ends on the reopened stream's Idle.
-func TestTaskRunnerRunLoop_Reattach(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that keeps going until it is stopped.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		Version: 3,
-		Agent:   testrunner.SleepForever,
-	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	server := testrunner.NewServer(testrunner.ServerOptions{})
-	server.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend:     be,
-		Server:      server,
-		RunnerStore: testrunner.NewRunnerStore(t, c1Record),
-	})
-	assert.NilError(t, m.Load(t.Context()))
-	m.Run(t)
-	testrunner.WaitRuns(t, be, "c1", 1)
-
-	// Act - cut the attached stream, wait for drive to reattach, then stop
-	// the run.
-	be.Drop("c1")
-	testrunner.WaitRuns(t, be, "c1", 2)
-	m.Add(testrunner.CommandEvent(2, 1, gritzv1.TaskCommand_STOP, 3))
-
-	// Assert - the reattached stream saw Idle: the driver reported, the
-	// sandbox is suspended, and no event is owed.
-	testrunner.WaitSuspended(t, be, "c1")
-	assert.DeepEqual(t, client.Reported(), []string{"started", "stopped"})
-	assert.Equal(t, m.Queued(t), 0)
-}
-
 func TestTaskRunnerRunLoop_NothingToRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, and has nothing to run.
