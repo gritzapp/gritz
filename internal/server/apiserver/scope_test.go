@@ -1,12 +1,15 @@
 package apiserver
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
 )
 
@@ -59,4 +62,15 @@ func TestAllMethodsScopeChecked(t *testing.T) {
 				"%s must deny an empty-scopes caller", name)
 		})
 	}
+}
+
+// scopedCtx returns a context carrying a caller in org with exactly the given
+// scopes — the narrow-token analogue of the admin-scoped contexts other tests build.
+func scopedCtx(t *testing.T, org *teststore.Org, scopes authscope.Scopes) context.Context {
+	t.Helper()
+	return apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: scopes,
+	})
 }

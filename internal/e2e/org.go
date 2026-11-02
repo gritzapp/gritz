@@ -23,6 +23,8 @@ type Org struct {
 	Client gritzclient.Client
 
 	server *Server
+	// runner calls the server with the org's runner key.
+	runner gritzclient.Client
 }
 
 // Member is a user acting in an org.
@@ -65,6 +67,34 @@ func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	return &Task{ID: resp.Task.Id, Resp: resp, org: o}
+}
+
+// UpdateTask updates a task, as the task page does.
+func (o *Org) UpdateTask(req *gritzv1.UpdateTaskRequest) {
+	t := o.server.t
+	t.Helper()
+	if _, err := o.Client.UpdateTask(t.Context(), req); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+}
+
+// ArchiveTask archives a task, as the task page does.
+func (o *Org) ArchiveTask(req *gritzv1.ArchiveTaskRequest) {
+	t := o.server.t
+	t.Helper()
+	if _, err := o.Client.ArchiveTask(t.Context(), req); err != nil {
+		t.Fatalf("ArchiveTask: %v", err)
+	}
+}
+
+// SubmitRunnerEvents reports runner events as the org's runner does, with its
+// runner key.
+func (o *Org) SubmitRunnerEvents(req *gritzv1.SubmitRunnerEventsRequest) {
+	t := o.server.t
+	t.Helper()
+	if _, err := o.runner.SubmitRunnerEvents(t.Context(), req); err != nil {
+		t.Fatalf("SubmitRunnerEvents: %v", err)
+	}
 }
 
 // Key is an xat_ key in an org.
