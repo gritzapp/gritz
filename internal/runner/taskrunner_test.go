@@ -15,7 +15,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
-	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -152,22 +151,4 @@ func TestTaskRunnerRunLoop_Reopen(t *testing.T) {
 	assert.Equal(t, specs[1].GetTaskId(), int64(1))
 	assert.Equal(t, m.Queued(t), 0)
 	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-}
-
-func TestTaskRunnerRunLoop_StopNeverRun(t *testing.T) {
-	t.Parallel()
-	// Arrange - a driver that goes idle after run 3, and a stop of run 4,
-	// a restart cancelled before the driver started it.
-	drv := &idleDriver{versions: []int64{3}}
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
-	be.Add("c1", fake.Up)
-
-	// Act
-	m := loaded(t, t.Context(), be, c1Record, nil, testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_STOP, 4))
-
-	// Assert - no run will report run 4, so the runner reported it stopped.
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "stopped", TaskId: 1, Version: 4},
-	}, protocmp.Transform())
 }

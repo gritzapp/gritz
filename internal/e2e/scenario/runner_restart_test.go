@@ -174,3 +174,70 @@ func TestRunnerRestart_Completed(t *testing.T) {
 	assert.Equal(t, got.Version, int64(2))
 	assert.Equal(t, h.Backend.ReadFile(task.ID, "setup"), "setup\n")
 }
+
+func TestRunnerRestart_CancelledSandboxGone(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	// While no runner is running, the sandbox vanishes and the task is
+	// cancelled.
+	h.Runner.Stop()
+	h.Backend.DestroySandbox(task.ID)
+	run1.WaitCancelled()
+	task.Cancel()
+	h.Runner.Start()
+
+	// No driver is left to stop the run, so the runner reported it stopped.
+	got := task.WaitStatus(gritzv1.TaskStatus_CANCELLED)
+	assert.Equal(t, got.Version, int64(1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}
+
+func TestRunnerRestart_RestartCancelled(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	// While no runner is running, the task is restarted and cancelled, so
+	// the new runner gets the restart and the stop together.
+	h.Runner.Stop()
+	task.Restart()
+	task.Cancel()
+	h.Runner.Start()
+
+	// The driver stopped run 1 and never started run 2, so the runner
+	// reported run 2 stopped.
+	run1.WaitCancelled()
+	got := task.WaitStatus(gritzv1.TaskStatus_CANCELLED)
+	assert.Equal(t, got.Version, int64(2))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}
+
+func TestRunnerRestart_RestartCancelledAfterRun(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	// While no runner is running, the task is restarted and cancelled, and
+	// run 1 finishes, so the driver is idle when the new runner attaches.
+	h.Runner.Stop()
+	task.Restart()
+	task.Cancel()
+	run1.Complete()
+	h.Runner.Start()
+
+	// Run 2 never started, so the runner reported it stopped.
+	got := task.WaitStatus(gritzv1.TaskStatus_CANCELLED)
+	assert.Equal(t, got.Version, int64(2))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}
