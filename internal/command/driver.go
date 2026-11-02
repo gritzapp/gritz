@@ -12,8 +12,8 @@ import (
 	"syscall"
 
 	"github.com/gritzapp/gritz/internal/runner/driverserver"
-	"github.com/gritzapp/gritz/internal/x/awsmicrovm/validatescript"
 	"github.com/gritzapp/gritz/internal/x/awsmicrovm"
+	"github.com/gritzapp/gritz/internal/x/awsmicrovm/validatescript"
 	"github.com/urfave/cli/v3"
 )
 
@@ -25,6 +25,11 @@ var DriverCommand = &cli.Command{
 			Name:  "addr",
 			Usage: "TCP address or unix:///path to serve on",
 			Value: ":8080",
+		},
+		&cli.StringFlag{
+			Name:  "prefix",
+			Usage: "Directory prepended to every in-sandbox path the driver uses (a path prefix, not a chroot)",
+			Value: "/",
 		},
 		&cli.BoolFlag{
 			Name:  "aws-lambda-hooks",
@@ -39,7 +44,10 @@ var DriverCommand = &cli.Command{
 		if cmd.IsSet("aws-lambda-validate") && !cmd.Bool("aws-lambda-hooks") {
 			return errors.New("--aws-lambda-validate requires --aws-lambda-hooks")
 		}
-		srv, err := driverserver.New(driverserver.Options{Environ: os.Environ()})
+		srv, err := driverserver.New(driverserver.Options{
+			PrefixPath: cmd.String("prefix"),
+			Environ:    os.Environ(),
+		})
 		if err != nil {
 			return err
 		}

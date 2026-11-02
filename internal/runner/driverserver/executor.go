@@ -23,20 +23,11 @@ import (
 // ExecutorOptions configures an Executor. Every field takes its default when
 // zero.
 type ExecutorOptions struct {
-	// RecordPath is the run record. Defaults to runrecord.Path.
-	RecordPath string
-	// LogPath is the append-only driver log each run appends to. Defaults to
-	// agent.DefaultLogPath.
-	LogPath string
-	// Config is where the task config file lives. Defaults to
-	// agent.DefaultConfigStore.
-	Config agent.ConfigStore
+	// PrefixPath is as Options.PrefixPath.
+	PrefixPath string
 	// Events is the driver's event file, which each run's prompt renders
 	// from. Required.
 	Events *eventfile.File
-	// FileRoot is the directory the RunSpec file paths and ProvisionedPath
-	// are relative to. Defaults to "/".
-	FileRoot string
 	// Environ is the base of every run's environment, which RunSpec.env and
 	// then RunSpec.secrets are layered on.
 	Environ []string
@@ -51,11 +42,11 @@ type ExecutorOptions struct {
 // decides nothing: the driver loop tells it which run to start and when to
 // stop it.
 type Executor struct {
+	prefix     string
 	recordPath string
 	logPath    string
 	config     agent.ConfigStore
 	events     *eventfile.File
-	fileRoot   string
 	environ    []string
 	newClient  func(serverURL, token string) gritzclient.Client
 	log        *slog.Logger
@@ -85,12 +76,13 @@ type Executor struct {
 // still running means the previous process died mid-run, so it is rewritten
 // as finished and unreported.
 func NewExecutor(opts ExecutorOptions) (*Executor, error) {
+	prefix := cmp.Or(opts.PrefixPath, "/")
 	e := &Executor{
-		recordPath: cmp.Or(opts.RecordPath, runrecord.Path),
-		logPath:    cmp.Or(opts.LogPath, agent.DefaultLogPath),
-		config:     cmp.Or(opts.Config, agent.DefaultConfigStore),
+		prefix:     prefix,
+		recordPath: filepath.Join(prefix, runrecord.Path),
+		logPath:    filepath.Join(prefix, agent.DefaultLogPath),
+		config:     agent.ConfigStore(filepath.Join(prefix, string(agent.DefaultConfigStore))),
 		events:     opts.Events,
-		fileRoot:   cmp.Or(opts.FileRoot, "/"),
 		environ:    opts.Environ,
 		newClient:  opts.NewClient,
 		log:        cmp.Or(opts.Log, slog.Default()),
@@ -163,14 +155,14 @@ func (e *Executor) Start(version int64, spec *driverv1.RunSpec) error {
 // then creates the marker. Files are written once per sandbox, so anything the
 // agent changes in them survives later runs.
 func (e *Executor) provision(files []*driverv1.File) error {
-	marker := filepath.Join(e.fileRoot, ProvisionedPath)
+	marker := filepath.Join(e.prefix, ProvisionedPath)
 	if _, err := os.Stat(marker); err == nil {
 		return nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("provision: %w", err)
 	}
 	for _, f := range files {
-		if err := writeFile(filepath.Join(e.fileRoot, f.GetPath()), f); err != nil {
+		if err := writeFile(filepath.Join(e.prefix, f.GetPath()), f); err != nil {
 			return fmt.Errorf("provision %s: %w", f.GetPath(), err)
 		}
 	}

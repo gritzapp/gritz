@@ -67,11 +67,12 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 	if te.dir == "" {
 		te.dir = t.TempDir()
 	}
-	store := agent.ConfigStore(filepath.Join(te.dir, "config"))
+	store := agent.ConfigStore(te.root(string(agent.DefaultConfigStore)))
 	assert.NilError(t, store.Save(testTaskID, cfg))
-	recordPath := filepath.Join(te.dir, "run.json")
+	// The backend creates the sandbox's /gritz directory.
+	assert.NilError(t, os.MkdirAll(te.root("/gritz"), 0o777))
 	if opts.Record != nil {
-		assert.NilError(t, runrecord.Write(recordPath, *opts.Record))
+		assert.NilError(t, runrecord.Write(te.root(runrecord.Path), *opts.Record))
 	}
 	te.gritz = &gritzclient.ClientMock{
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
@@ -90,11 +91,7 @@ func setup(t *testing.T, cfg *agent.Config, opts testOptions) *testEnv {
 		},
 	}
 	srv, err := New(Options{
-		RecordPath: recordPath,
-		EventsPath: filepath.Join(te.dir, "events.jsonl"),
-		LogPath:    filepath.Join(te.dir, "log"),
-		Config:     store,
-		FileRoot:   filepath.Join(te.dir, "root"),
+		PrefixPath: te.dir,
 		Environ:    opts.Environ,
 		NewClient: func(serverURL, token string) gritzclient.Client {
 			te.mu.Lock()
@@ -287,7 +284,7 @@ func (te *testEnv) waitStored(t *testing.T, want ...int64) {
 // record reads the run record from disk.
 func (te *testEnv) record(t *testing.T) (runrecord.Record, bool) {
 	t.Helper()
-	rec, ok, err := runrecord.Read(filepath.Join(te.dir, "run.json"))
+	rec, ok, err := runrecord.Read(te.root(runrecord.Path))
 	assert.NilError(t, err)
 	return rec, ok
 }
@@ -363,9 +360,9 @@ func TestRun_NothingToDo(t *testing.T) {
 	}
 }
 
-// root returns the path of a sandbox path under the test's file root.
+// root returns the path of a sandbox path under the test's prefix.
 func (te *testEnv) root(path string) string {
-	return filepath.Join(te.dir, "root", path)
+	return filepath.Join(te.dir, path)
 }
 
 func TestRun_ProvisionsFiles(t *testing.T) {
@@ -867,7 +864,7 @@ func TestRun_NotReported(t *testing.T) {
 		Version:  testVersion,
 		Reported: false,
 	}, protocmp.Transform())
-	disk, _, err := runrecord.Read(filepath.Join(te.dir, "run.json"))
+	disk, _, err := runrecord.Read(te.root(runrecord.Path))
 	assert.NilError(t, err)
 	assert.Equal(t, disk.State, runrecord.Finished)
 	assert.Equal(t, disk.Reported, false)
@@ -877,7 +874,8 @@ func TestNew_Reconcile(t *testing.T) {
 	t.Parallel()
 	// Arrange - the previous process died mid-run, with its start stored
 	dir := t.TempDir()
-	events, err := eventfile.Open(filepath.Join(dir, "events.jsonl"))
+	assert.NilError(t, os.MkdirAll(filepath.Join(dir, "gritz"), 0o777))
+	events, err := eventfile.Open(filepath.Join(dir, eventfile.Path))
 	assert.NilError(t, err)
 	_, err = events.Append([]*gritzv1.Event{start(1, testVersion)})
 	assert.NilError(t, err)
@@ -905,7 +903,8 @@ func TestNew_PendingAfterRestart(t *testing.T) {
 	// Arrange - the previous process stored a start and died before it
 	// acted on it
 	dir := t.TempDir()
-	events, err := eventfile.Open(filepath.Join(dir, "events.jsonl"))
+	assert.NilError(t, os.MkdirAll(filepath.Join(dir, "gritz"), 0o777))
+	events, err := eventfile.Open(filepath.Join(dir, eventfile.Path))
 	assert.NilError(t, err)
 	_, err = events.Append([]*gritzv1.Event{start(1, testVersion)})
 	assert.NilError(t, err)
@@ -1005,7 +1004,7 @@ func TestRun_MasksSecretsInShippedLog(t *testing.T) {
 	idle(t, stream)
 
 	// Assert - /gritz/log is raw, the shipped copy is masked
-	file, err := os.ReadFile(filepath.Join(te.dir, "log"))
+	file, err := os.ReadFile(te.root(agent.DefaultLogPath))
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Contains(string(file), "cloning with "+secret))
 	shipped := te.gritz.ShippedLog()
