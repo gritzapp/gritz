@@ -27,6 +27,10 @@ type Backend interface {
 	// handle this backend cannot decode (another type, malformed Data).
 	Open(h Handle) (Sandbox, error)
 
+	// BinaryPath returns the path of the gritz binary inside the backend's
+	// sandboxes, which the injected MCP server runs.
+	BinaryPath() string
+
 	Close() error
 }
 
@@ -36,13 +40,6 @@ type Backend interface {
 // run's own.
 type RunEnver interface {
 	RunEnv(ws *workspace.Workspace) map[string]string
-}
-
-// BinaryPather is implemented by a Backend whose sandboxes have the gritz binary
-// somewhere other than BinaryPath.
-type BinaryPather interface {
-	// BinaryPath returns the path of the gritz binary inside the sandbox.
-	BinaryPath() string
 }
 
 // Sandbox is a reference to one provisioned sandbox, in whatever state it is

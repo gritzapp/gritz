@@ -25,9 +25,9 @@ import (
 // it for a sandbox that is gone.
 var ErrGone = errors.New("backend: sandbox is gone")
 
-// BinaryPath is the path inside the sandbox where backends provision the
-// gritz driver binary. The sandbox command and the injected MCP server
-// reference it.
+// BinaryPath is the path inside the sandbox where the Docker and Lambda
+// backends provision the gritz driver binary, and what their
+// Backend.BinaryPath returns.
 const BinaryPath = "/usr/local/bin/gritz"
 
 // Handle identifies a backend's sandbox. ID is the index key (a container id,

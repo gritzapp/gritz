@@ -183,6 +183,11 @@ func New(opts Options) *Backend {
 	}
 }
 
+// BinaryPath returns backend.BinaryPath.
+func (b *Backend) BinaryPath() string {
+	return backend.BinaryPath
+}
+
 // ValidateWorkspace accepts every workspace.
 func (b *Backend) ValidateWorkspace(*workspace.Workspace) error {
 	return nil

@@ -76,10 +76,7 @@ type Backend struct {
 	locks map[string]*sync.Mutex
 }
 
-var (
-	_ backend.Backend      = (*Backend)(nil)
-	_ backend.BinaryPather = (*Backend)(nil)
-)
+var _ backend.Backend = (*Backend)(nil)
 
 // New returns a Backend over opts.Root, rejecting a root too long for the
 // drivers' socket paths. It creates Root if it is missing.

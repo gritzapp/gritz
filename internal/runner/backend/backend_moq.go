@@ -20,6 +20,9 @@ var _ Backend = &BackendMock{}
 //
 //		// make and configure a mocked Backend
 //		mockedBackend := &BackendMock{
+//			BinaryPathFunc: func() string {
+//				panic("mock out the BinaryPath method")
+//			},
 //			CloseFunc: func() error {
 //				panic("mock out the Close method")
 //			},
@@ -39,6 +42,9 @@ var _ Backend = &BackendMock{}
 //
 //	}
 type BackendMock struct {
+	// BinaryPathFunc mocks the BinaryPath method.
+	BinaryPathFunc func() string
+
 	// CloseFunc mocks the Close method.
 	CloseFunc func() error
 
@@ -53,6 +59,9 @@ type BackendMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// BinaryPath holds details about calls to the BinaryPath method.
+		BinaryPath []struct {
+		}
 		// Close holds details about calls to the Close method.
 		Close []struct {
 		}
@@ -74,10 +83,38 @@ type BackendMock struct {
 			Ws *workspace.Workspace
 		}
 	}
+	lockBinaryPath        sync.RWMutex
 	lockClose             sync.RWMutex
 	lockCreate            sync.RWMutex
 	lockOpen              sync.RWMutex
 	lockValidateWorkspace sync.RWMutex
+}
+
+// BinaryPath calls BinaryPathFunc.
+func (mock *BackendMock) BinaryPath() string {
+	if mock.BinaryPathFunc == nil {
+		panic("BackendMock.BinaryPathFunc: method is nil but Backend.BinaryPath was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockBinaryPath.Lock()
+	mock.calls.BinaryPath = append(mock.calls.BinaryPath, callInfo)
+	mock.lockBinaryPath.Unlock()
+	return mock.BinaryPathFunc()
+}
+
+// BinaryPathCalls gets all the calls that were made to BinaryPath.
+// Check the length with:
+//
+//	len(mockedBackend.BinaryPathCalls())
+func (mock *BackendMock) BinaryPathCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockBinaryPath.RLock()
+	calls = mock.calls.BinaryPath
+	mock.lockBinaryPath.RUnlock()
+	return calls
 }
 
 // Close calls CloseFunc.
