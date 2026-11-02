@@ -274,11 +274,6 @@ type ManagerOptions struct {
 	Concurrency int
 	// PollInterval is the event log's; defaults to its own.
 	PollInterval time.Duration
-	// Fatal is runner.TaskManagerOptions.Fatal.
-	Fatal context.CancelCauseFunc
-	// QueueStore is the store behind the Manager's Queue; defaults to
-	// RunnerStore.
-	QueueStore *runnerstore.Store
 	// TaskRunner, when set, adjusts the options of the manager's TaskRunners
 	// before they are built, after their reattach timings are shortened.
 	TaskRunner func(*runner.TaskRunnerOptions)
@@ -334,7 +329,7 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_COMPLETED}}, nil
 	}
 	m.Queue = runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-		Store:   cmp.Or(opts.QueueStore, m.RunnerStore),
+		Store:   m.RunnerStore,
 		Client:  m.Client,
 		Backoff: backoff.NewConstantBackOff(0),
 		Log:     slog.Default(),
@@ -366,7 +361,6 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 			PollInterval: opts.PollInterval,
 		}),
 		RunnerStore: m.RunnerStore,
-		Fatal:       opts.Fatal,
 		NewTaskRunner: func(o runner.TaskRunnerOptions) *runner.TaskRunner {
 			o.RetryInterval = 10 * time.Millisecond
 			o.RetryMaxInterval = 50 * time.Millisecond
@@ -389,21 +383,14 @@ func (m *Manager) Add(events ...*gritzv1.Event) {
 	m.Wake()
 }
 
-// Run runs the manager, as TaskManager.Run does, until the test ends. Load
-// must have returned first, if the test calls it.
+// Run runs the manager, as TaskManager.Run does, until the test ends, and
+// waits for it to stop. Load must have returned first, if the test calls it.
 func (m *Manager) Run(t *testing.T) {
-	t.Helper()
-	m.RunContext(t, t.Context())
-}
-
-// RunContext runs the manager until ctx is done, and waits for it to stop
-// when the test ends.
-func (m *Manager) RunContext(t *testing.T, ctx context.Context) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = m.TaskManager.Run(ctx)
+		_ = m.TaskManager.Run(t.Context())
 	}()
 	t.Cleanup(func() { <-done })
 }

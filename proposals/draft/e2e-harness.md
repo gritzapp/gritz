@@ -787,7 +787,7 @@ run if it broke.
 | `TestTaskManagerLoad_VersionScopedBackstop` | b | Deleted: `TestRunnerRestart_SandboxGone` (the backstop's `failed`, scoped to the run that was lost). Its second half tested `model.Task.ApplyRunnerEvent`'s version guard, which `internal/model`'s tests cover |
 | `TestTaskManagerLoad_Archived` | b | Deleted: `TestRunnerRestart_Archived` (an archive left pending by a failing destroy is carried out by the next runner's `Load`), `TestArchive_DestroyFails` (a failed destroy is retried) |
 | `TestTaskManagerLoad_SandboxGone` | b | Deleted: `TestSandboxGone_MidRun`, which asserts the failure's reason through the task's sandbox-failed lifecycle event, so the `LostTimeout` fallback ("driver unreachable") doesn't pass it |
-| `TestTaskManagerRun_Fatal`, `TestTaskManagerDie_StopWithoutSandbox` | b | Kept: a broken disk can't be produced end to end |
+| `TestTaskManagerRun_Fatal`, `TestTaskManagerDie_StopWithoutSandbox` | b | Merged into `TestTaskManagerRun_Fatal` in `taskmanager_start_test.go`, on backend and client mocks with no `testrunner`: a broken disk can't be produced end to end, and the two asserted the same cause from either side |
 
 #### `internal/runner` (`taskrunner_test.go`, `internal_test.go`, `eventoutbox_test.go`)
 
