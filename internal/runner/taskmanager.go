@@ -3,11 +3,8 @@ package runner
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
-	"path"
 	"regexp"
 	"sync"
 
@@ -15,7 +12,6 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
@@ -357,16 +353,17 @@ func (m *TaskManager) newRunner(taskID int64) *TaskRunner {
 	})
 }
 
-// spec assembles the sandbox spec for a task: the task token, the run's
-// environment and secrets, and the agent config with the injected gritz MCP
-// server.
-func (m *TaskManager) spec(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, error) {
+// specs builds the sandbox spec of the task's run c, and the driver.v1
+// RunSpec its run is started with; see TaskRunnerOptions.Spec. It looks up
+// and validates the workspace and mints the task token, and leaves the rest
+// to buildSpecs.
+func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error) {
 	ws, err := m.workspaces.Get(c.Workspace)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace: %w", err)
+		return nil, nil, fmt.Errorf("failed to get workspace: %w", err)
 	}
 	if err := m.backend.ValidateWorkspace(ws); err != nil {
-		return nil, fmt.Errorf("invalid workspace %q: %w", c.Workspace, err)
+		return nil, nil, fmt.Errorf("invalid workspace %q: %w", c.Workspace, err)
 	}
 
 	// Mint the task token via the server rather than signing it locally: the runner
@@ -378,92 +375,19 @@ func (m *TaskManager) spec(ctx context.Context, c runnerstore.TaskChange) (*back
 		Capabilities: ws.Capabilities,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create task token: %w", err)
+		return nil, nil, fmt.Errorf("failed to create task token: %w", err)
 	}
-	token := tokenResp.Token
-
-	// Build agent config
-	cfg := ws.AgentConfig()
-	mcpArgs := []string{
-		"tool", "agent-mcp",
-		"--server", m.serverURL,
-		"--task", fmt.Sprint(c.ID),
-		"--runner", m.runnerID,
-		"--workspace", c.Workspace,
-		"--token", token,
-	}
-	for _, capability := range ws.Capabilities {
-		mcpArgs = append(mcpArgs, "--capability", capability)
-	}
-	cfg.McpServers["gritz"] = agent.McpServer{
-		Type:    "stdio",
-		Command: m.backend.BinaryPath(),
-		Args:    mcpArgs,
-	}
-	cfgData, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	return &backend.Spec{
-		TaskID:    c.ID,
-		Version:   c.Version,
-		Workspace: ws,
-		ServerURL: m.serverURL,
-		Token:     token,
-		// The agent's tools (the git credential helper, the GitHub MCP server)
-		// reach the server through these.
-		Env: map[string]string{
-			"GRITZ_TASK_ID": fmt.Sprint(c.ID),
-			"GRITZ_TOKEN":   token,
-			"GRITZ_SERVER":  m.serverURL,
-		},
-		Secrets: maps.Clone(ws.Secrets),
-		Files: []backend.File{
-			// Allow non-root agents to write to this directory.
-			{Path: path.Dir(agent.DefaultConfigStore.Path(c.ID)), Mode: 0777, Dir: true},
-			{Path: agent.DefaultConfigStore.Path(c.ID), Data: cfgData, Mode: 0666},
-			// Pre-create the log dir 0777 so a non-root driver can write the
-			// append-only /gritz/log file (the driver's MkdirAll is only a
-			// fallback for a directly-invoked driver).
-			{Path: path.Dir(agent.DefaultLogPath), Mode: 0777, Dir: true},
-		},
-	}, nil
-}
-
-// specs builds the sandbox spec of the task's run c, and the driver.v1
-// RunSpec its run is started with; see TaskRunnerOptions.Spec.
-func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error) {
-	spec, err := m.spec(ctx, c)
-	if err != nil {
-		return nil, nil, err
-	}
-	return spec, m.runSpec(spec), nil
-}
-
-// runSpec builds the driver.v1 RunSpec for spec. A backend whose sandboxes
-// have no environment of their own adds the workspace's to the run's, under
-// spec.Env.
-func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
-	env := map[string]string{}
+	var runEnv map[string]string
 	if be, ok := m.backend.(backend.RunEnver); ok {
-		maps.Copy(env, be.RunEnv(spec.Workspace))
+		runEnv = be.RunEnv(ws)
 	}
-	maps.Copy(env, spec.Env)
-	rs := &driverv1.RunSpec{
-		TaskId:    spec.TaskID,
-		ServerUrl: spec.ServerURL,
-		Token:     spec.Token,
-		Env:       env,
-		Secrets:   maps.Clone(spec.Secrets),
-	}
-	for _, f := range spec.Files {
-		rs.Files = append(rs.Files, &driverv1.File{
-			Path: f.Path,
-			Data: f.Data,
-			Mode: f.Mode,
-			Dir:  f.Dir,
-		})
-	}
-	return rs
+	return buildSpecs(specInput{
+		Change:     c,
+		Workspace:  ws,
+		ServerURL:  m.serverURL,
+		RunnerID:   m.runnerID,
+		Token:      tokenResp.Token,
+		BinaryPath: m.backend.BinaryPath(),
+		RunEnv:     runEnv,
+	})
 }

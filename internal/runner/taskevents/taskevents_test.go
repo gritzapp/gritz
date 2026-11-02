@@ -3,6 +3,7 @@ package taskevents_test
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -11,10 +12,10 @@ import (
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/poll"
 
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
-	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"github.com/gritzapp/gritz/internal/x/testx"
 )
 
@@ -36,6 +37,56 @@ func run(t *testing.T, l *taskevents.Log) (stop func() error) {
 	return stop
 }
 
+// server is an in-memory runner event log: tests append events to it and
+// read them back through client. It serves ListRunnerEvents in pages, with
+// the offset of the next page as the page token.
+type server struct {
+	pageSize int
+
+	mu     sync.Mutex
+	events []*gritzv1.Event
+}
+
+// newServer returns a server with an empty log, serving pages of at most
+// pageSize events.
+func newServer(pageSize int) *server {
+	return &server{pageSize: pageSize}
+}
+
+// Add appends events to the log.
+func (s *server) Add(events ...*gritzv1.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, events...)
+}
+
+// ListRunnerEvents serves the page of the log that starts at the request's
+// page token. It ignores the request's runner: the log is the runner's.
+func (s *server) ListRunnerEvents(_ context.Context, req *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	offset := 0
+	if req.GetPageToken() != "" {
+		var err error
+		offset, err = strconv.Atoi(req.GetPageToken())
+		if err != nil {
+			return nil, err
+		}
+	}
+	end := min(offset+s.pageSize, len(s.events))
+	return &gritzv1.ListRunnerEventsResponse{
+		Events:        s.events[offset:end],
+		NextPageToken: strconv.Itoa(end),
+		More:          end < len(s.events),
+	}, nil
+}
+
+// Client returns a client whose ListRunnerEvents is s's, so its calls can be
+// inspected.
+func (s *server) Client() *gritzclient.ClientMock {
+	return &gritzclient.ClientMock{ListRunnerEventsFunc: s.ListRunnerEvents}
+}
+
 func openStore(t *testing.T, path string) *runnerstore.Store {
 	store, err := runnerstore.Open(path)
 	assert.NilError(t, err)
@@ -46,7 +97,7 @@ func openStore(t *testing.T, path string) *runnerstore.Store {
 func TestLog(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 2})
+	srv := newServer(2)
 	srv.Add(
 		&gritzv1.Event{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
 		&gritzv1.Event{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "b"}}},
@@ -111,7 +162,7 @@ func TestLog_Restart(t *testing.T) {
 	t.Parallel()
 	// Arrange - a first Log replicates events 1 and 2, then stops.
 	path := filepath.Join(t.TempDir(), "runner.db")
-	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 10})
+	srv := newServer(10)
 	srv.Add(
 		&gritzv1.Event{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
 		&gritzv1.Event{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "b"}}},
@@ -175,7 +226,7 @@ func TestLog_Boot(t *testing.T) {
 		"0", // the fake server below has no events, so it serves empty pages from here
 	)
 	assert.NilError(t, err)
-	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 10})
+	srv := newServer(10)
 	l := taskevents.New(taskevents.Options{
 		Store:    store,
 		Client:   srv.Client(),
@@ -200,7 +251,7 @@ func TestLog_Boot(t *testing.T) {
 func TestLog_Tasks(t *testing.T) {
 	t.Parallel()
 	// Arrange - one event per page.
-	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 1})
+	srv := newServer(1)
 	srv.Add(
 		&gritzv1.Event{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
 		&gritzv1.Event{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}},
@@ -234,7 +285,7 @@ func TestLog_Tasks(t *testing.T) {
 func TestStreamRead_Blocks(t *testing.T) {
 	t.Parallel()
 	// Arrange - event 1 is replicated.
-	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 10})
+	srv := newServer(10)
 	srv.Add(&gritzv1.Event{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{Text: "a"}}})
 	l := taskevents.New(taskevents.Options{
 		Store:    openStore(t, filepath.Join(t.TempDir(), "runner.db")),
@@ -281,7 +332,7 @@ func TestStreamRead_Blocks(t *testing.T) {
 func TestLog_PollInterval(t *testing.T) {
 	t.Parallel()
 	// Arrange - the first sync finds no events.
-	srv := testrunner.NewServer(testrunner.ServerOptions{PageSize: 10})
+	srv := newServer(10)
 	client := srv.Client()
 	l := taskevents.New(taskevents.Options{
 		Store:        openStore(t, filepath.Join(t.TempDir(), "runner.db")),
