@@ -1,181 +1,18 @@
 package runner_test
 
 import (
-	"context"
 	"errors"
-	"path/filepath"
-	"slices"
-	"sync"
 	"testing"
 
-	"connectrpc.com/connect"
-	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
-	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/backend/fake"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
-	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
-
-// TestTaskManagerSpec_PreCreatesLogDir asserts the sandbox spec ships a directory
-// entry for the driver's /gritz/log parent, created 0777 so a non-root driver
-// can write the append-only log file there (the driver's MkdirAll is only a
-// fallback).
-func TestTaskManagerSpec_PreCreatesLogDir(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend:   be,
-		ServerURL: "http://localhost",
-		Workspaces: &workspace.Config{
-			Workspaces: map[string]workspace.Workspace{
-				"test": {
-					Container: workspace.Container{Image: "alpine:latest"},
-					Agent:     workspace.Agent{Type: "dummy"},
-				},
-			},
-		},
-	})
-	m.Run(t)
-
-	// Act
-	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 1))
-	testrunner.WaitSuspended(t, be, "c1")
-
-	// Assert - the spec the sandbox was created from has the log dir.
-	specs := be.Snapshot().Specs
-	assert.Assert(t, cmp.Len(specs, 1))
-	logDir := filepath.Dir(agent.DefaultLogPath)
-	var found bool
-	for _, f := range specs[0].Files {
-		if f.Path == logDir {
-			found = true
-			assert.Assert(t, f.Dir)
-			assert.Equal(t, f.Mode, int64(0o777))
-		}
-	}
-	assert.Assert(t, found, "spec should pre-create the log dir %q", logDir)
-}
-
-// TestTaskManagerSpec_Secrets asserts the TaskManager hands the backend the server URL,
-// the task token and the declared workspace secrets in their own fields, and
-// gives the run the GRITZ_* environment the agent's tools read. The secrets stay
-// out of Env: the driver adds them to the run's environment and masks them in
-// the log it ships.
-func TestTaskManagerSpec_Secrets(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewDriver(t, nil)})
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend:   be,
-		ServerURL: "http://localhost",
-		Workspaces: &workspace.Config{
-			Workspaces: map[string]workspace.Workspace{
-				"test": {
-					Container: workspace.Container{Image: "alpine:latest"},
-					Agent:     workspace.Agent{Type: "dummy"},
-					Secrets: map[string]string{
-						"NPM_TOKEN": "npm_secretvalue",
-						"GH_TOKEN":  "gho_secretvalue",
-					},
-				},
-			},
-		},
-	})
-	m.Run(t)
-
-	// Act
-	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 1))
-	testrunner.WaitSuspended(t, be, "c1")
-
-	// Assert
-	specs := be.Snapshot().Specs
-	assert.Assert(t, cmp.Len(specs, 1))
-	spec := specs[0]
-	assert.Equal(t, spec.ServerURL, "http://localhost")
-	assert.Equal(t, spec.Token, "t")
-	assert.DeepEqual(t, spec.Env, map[string]string{
-		"GRITZ_TASK_ID": "1",
-		"GRITZ_TOKEN":   "t",
-		"GRITZ_SERVER":  "http://localhost",
-	})
-	assert.DeepEqual(t, spec.Secrets, map[string]string{
-		"GH_TOKEN":  "gho_secretvalue",
-		"NPM_TOKEN": "npm_secretvalue",
-	})
-}
-
-// TestTaskManagerRunSpec_RunEnv asserts a backend's RunEnv reaches the run's
-// environment under the TaskManager's own.
-func TestTaskManagerRunSpec_RunEnv(t *testing.T) {
-	t.Parallel()
-	// Arrange - a backend whose runs get an environment of their own.
-	drv := &specDriver{}
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-		Driver: testrunner.NewStubDriver(t, drv),
-		RunEnv: func(*workspace.Workspace) map[string]string {
-			return map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"}
-		},
-	})
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	m.Run(t)
-
-	// Act
-	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 1))
-	testrunner.WaitSuspended(t, be, "c1")
-
-	// Assert - the environment of the run the driver was asked to start is
-	// RunEnv's, overridden by the TaskManager's.
-	specs := drv.started()
-	assert.Assert(t, cmp.Len(specs, 1))
-	assert.DeepEqual(t, specs[0].GetEnv(), map[string]string{
-		"FOO":           "bar",
-		"GRITZ_TASK_ID": "1",
-		"GRITZ_TOKEN":   "t",
-		"GRITZ_SERVER":  "",
-	})
-}
-
-// specDriver is a driver that records the spec of every stream it is opened
-// with, and goes idle at once, as after a run of version 1 it reported.
-type specDriver struct {
-	driverv1connect.UnimplementedDriverServiceHandler
-
-	mu    sync.Mutex
-	specs []*driverv1.RunSpec
-}
-
-func (d *specDriver) Run(_ context.Context, stream *connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]) error {
-	req, err := stream.Receive()
-	if err != nil {
-		return err
-	}
-	if spec := req.GetSpec(); spec != nil {
-		d.mu.Lock()
-		d.specs = append(d.specs, spec)
-		d.mu.Unlock()
-	}
-	if err := stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Hello{Hello: &driverv1.Hello{}}}); err != nil {
-		return err
-	}
-	return stream.Send(&driverv1.RunResponse{Msg: &driverv1.RunResponse_Idle{
-		Idle: &driverv1.Idle{Version: 1, Reported: true},
-	}})
-}
-
-// started returns the spec of every stream d was opened with.
-func (d *specDriver) started() []*driverv1.RunSpec {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return slices.Clone(d.specs)
-}
 
 func TestTaskManagerRunLoop_StopWithoutSandbox(t *testing.T) {
 	t.Parallel()

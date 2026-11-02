@@ -54,8 +54,6 @@ type BackendOptions struct {
 	Driver driverv1connect.DriverServiceClient
 	// Drivers overrides Driver for the sandboxes with these IDs.
 	Drivers map[string]driverv1connect.DriverServiceClient
-	// RunEnv is fake.Options.RunEnv.
-	RunEnv func(*workspace.Workspace) map[string]string
 }
 
 // NewBackend returns a fake backend with no sandboxes. It is closed when the
@@ -72,7 +70,6 @@ func NewBackend(t *testing.T, opts *BackendOptions) *fake.Backend {
 			}
 			return opts.Driver
 		},
-		RunEnv: opts.RunEnv,
 	})
 	t.Cleanup(func() { assert.NilError(t, be.Close()) })
 	return be

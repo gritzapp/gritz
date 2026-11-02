@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/cenkalti/backoff/v5"
@@ -15,7 +16,6 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
-	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 )
@@ -57,7 +57,7 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 				},
 			}
 			queue := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-				Store:   testrunner.NewRunnerStore(t),
+				Store:   openStore(t),
 				Client:  mock,
 				Backoff: backoff.NewConstantBackOff(0),
 				Log:     slog.Default(),
@@ -68,7 +68,7 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 			}))
 
 			// Act
-			testrunner.Drain(t, queue)
+			drain(t, queue)
 
 			// Assert - the queue drained, and the event was resubmitted only
 			// after a transient error.
@@ -124,9 +124,41 @@ func TestTaskManagerEventsSurviveRestart(t *testing.T) {
 
 	// The events survived the restart and are redelivered in FIFO order, with
 	// their TaskId/Version/Reason intact.
-	testrunner.Drain(t, restarted)
+	drain(t, restarted)
 	assert.DeepEqual(t, mock.SubmittedRunnerEvents(), []*gritzv1.RunnerEvent{
 		{Event: "started", TaskId: 1},
 		{Event: "failed", TaskId: 2, Version: 5, Reason: "boom"},
 	}, protocmp.Transform())
+}
+
+// openStore opens a fresh runnerstore in a temp dir, closed when the test
+// ends.
+func openStore(t *testing.T) *runnerstore.Store {
+	t.Helper()
+	s, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, s.Close()) })
+	return s
+}
+
+// drain runs queue until it has delivered the events it holds. The outbox's
+// first Run pass delivers everything already persisted, so this exercises the
+// same durable path production uses.
+func drain(t *testing.T, queue *runner.RunnerEventOutbox) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go queue.Run(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		n, err := queue.Len()
+		assert.NilError(t, err)
+		if n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("outbox did not drain")
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
