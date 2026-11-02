@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -26,9 +27,7 @@ func TestUpdateTask(t *testing.T) {
 	})
 
 	assert.NilError(t, err)
-	resp, err := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
-	assert.NilError(t, err)
-	assert.Equal(t, resp.Task.Name, "Updated Name")
+	assert.Equal(t, h.Org.GetTask(task.ID).Name, "Updated Name")
 }
 
 func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
@@ -36,9 +35,7 @@ func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
 	h := e2e.New(t, nil)
 	taskA := h.Org.CreateTask()
 	taskB := h.Org.CreateTask()
-	tokenResp, err := h.Org.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: taskA.ID})
-	assert.NilError(t, err)
-	own := h.Server.Client(tokenResp.Token)
+	own := h.Server.Client(h.Org.CreateTaskToken(taskA.ID))
 
 	_, errA := own.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: taskA.ID})
 	_, errB := own.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: taskB.ID})
@@ -67,7 +64,7 @@ func TestCreateTaskToken_Denied(t *testing.T) {
 	// A key with no scopes lacks the task_token.create capability.
 	scopeless := h.Org.CreateKey(nil)
 
-	_, err := scopeless.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+	_, err := scopeless.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
@@ -75,19 +72,16 @@ func TestCreateTaskToken_Denied(t *testing.T) {
 func TestDeleteKey(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	createResp, err := h.Org.Client.CreateKey(t.Context(), &gritzv1.CreateKeyRequest{Name: "to-delete"})
-	assert.NilError(t, err)
-	key := h.Server.Client(createResp.RawToken)
-	_, err = key.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
-	assert.NilError(t, err)
-
-	_, err = h.Org.Client.DeleteKey(t.Context(), &gritzv1.DeleteKeyRequest{Id: createResp.Key.Id})
+	key := h.Org.CreateKey(authscope.Admin())
+	// The key works before it is deleted, so its rejection below is the delete's.
+	_, err := key.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 	assert.NilError(t, err)
 
-	listResp, err := h.Org.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
+	_, err = h.Org.Client.DeleteKey(t.Context(), &gritzv1.DeleteKeyRequest{Id: key.ID})
+
 	assert.NilError(t, err)
-	assert.Assert(t, !slices.ContainsFunc(listResp.Keys, func(k *gritzv1.Key) bool { return k.Id == createResp.Key.Id }))
-	_, err = key.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
+	assert.Assert(t, !slices.ContainsFunc(h.Org.ListKeys(), func(k *gritzv1.Key) bool { return k.Id == key.ID }))
+	_, err = key.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeUnauthenticated)
 }
 

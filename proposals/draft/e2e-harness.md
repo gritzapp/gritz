@@ -332,8 +332,21 @@ visible.
 | `CreateTask()` | `CreateTask{draft: true, runner: "e2e", workspace: "e2e"}`, as the new-task page does; returns a `*Task`, which keeps its `*Org` |
 | `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
 | `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
-| `CreateKey(scopes)` | a client on a new `xat_` key in the org holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them) |
+| `CreateKey(scopes)` | a new `xat_` key in the org holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them); returns a `*Key` with its `ID` and a `Client` on it |
+| `CreateTaskToken(id)` | `CreateTaskToken{task_id: id}`, as the runner calls it; returns the token |
+| `GetTask(id)`, `ListKeys()` | `GetTask`, `ListKeys`; return the task, the keys |
 | `AddMember(other)` | adds `other`'s user to the org as a member, and returns a client acting as that user in this org |
+
+**Setup goes through methods; `Client` is for the call under test.** A call
+that arranges the test, or reads state to assert on, goes through an `Org` (or
+`Server`) method that returns the useful value and fails the test with
+`t.Fatal` itself. A test calls `Client` directly only for the call under test,
+whose result or error it asserts. Methods are added when a test first needs
+them, not ahead of it.
+
+```go
+own := h.Server.Client(h.Org.CreateTaskToken(task.ID))
+```
 
 `Client` and `AddMember`'s client carry the app JWT `/auth/token` issues the
 web UI (`apiauth.NewAppClaims`, signed with the harness's app key), not a key:
@@ -921,9 +934,24 @@ func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
 // WaitEvent waits until one of task id's events matches, and returns it.
 func (o *Org) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event
 
-// CreateKey creates a key in the org holding scopes, and returns a client
-// that calls with it.
-func (o *Org) CreateKey(scopes authscope.Scopes) gritzclient.Client
+// Key is an xat_ key in an org.
+type Key struct {
+	ID string
+	// Client calls the server with the key.
+	Client gritzclient.Client
+}
+
+// CreateKey creates a key in the org holding scopes.
+func (o *Org) CreateKey(scopes authscope.Scopes) *Key
+
+// CreateTaskToken mints a task token for task id, as the runner does.
+func (o *Org) CreateTaskToken(id int64) string
+
+// GetTask returns task id.
+func (o *Org) GetTask(id int64) *gritzv1.Task
+
+// ListKeys returns the org's keys.
+func (o *Org) ListKeys() []*gritzv1.Key
 
 // AddMember adds other's user to the org, and returns a client acting as that
 // user in the org.
