@@ -3,19 +3,18 @@ package e2e_test
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
-	"gotest.tools/v3/poll"
 )
 
 func TestStart(t *testing.T) {
@@ -32,12 +31,8 @@ func TestStart(t *testing.T) {
 
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(1))
-	var kinds []gritzv1.LifecycleKind
-	for _, e := range task.Events() {
-		if l := e.GetLifecycle(); l != nil {
-			kinds = append(kinds, l.Kind)
-		}
-	}
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	kinds := testx.ExtractField(lifecycle, "Kind").([]gritzv1.LifecycleKind)
 	assert.Assert(t, cmp.Contains(kinds, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED))
 	assert.Assert(t, cmp.Contains(kinds, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
@@ -60,21 +55,9 @@ func TestUnreportedRun(t *testing.T) {
 	h.Server.Mock(m)
 
 	run1.Complete()
-	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		var got []string
-		for _, call := range m.SubmitRunnerEventsCalls() {
-			for _, ev := range call.SubmitRunnerEventsRequest.Events {
-				if ev.TaskId == task.ID {
-					got = append(got, ev.Event)
-				}
-			}
-		}
-		stopped := slices.Index(got, "stopped")
-		if stopped < 0 || !slices.Contains(got[stopped:], "failed") {
-			return poll.Continue("task %d: submitted %v, want stopped and then failed", task.ID, got)
-		}
-		return poll.Success()
-	}, poll.WithTimeout(30*time.Second), poll.WithDelay(20*time.Millisecond))
+	events := m.RunnerEventWaiter(t)
+	events.Wait(task.ID, model.RunnerEventStopped) // the driver's report, rejected
+	events.Wait(task.ID, model.RunnerEventFailed)  // then the runner's backstop
 	h.Server.Mock(nil)
 
 	// The driver went idle with its run unreported, the runner reported it
@@ -126,9 +109,11 @@ func TestSandboxFails(t *testing.T) {
 			task.WaitStatus(gritzv1.TaskStatus_FAILED)
 			tt.unmock(h, task.ID)
 
-			failed := lifecycles(task, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
-			assert.Assert(t, cmp.Len(failed, 1))
-			assert.Assert(t, cmp.Contains(failed[0].Message, "e2e: "+tt.name+" failed"))
+			lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+			failed := testx.FindFunc(t, lifecycle, func(l *gritzv1.LifecyclePayload, _ int) bool {
+				return l.Kind == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+			})
+			assert.Assert(t, cmp.Contains(failed.Message, "e2e: "+tt.name+" failed"))
 			assert.Equal(t, calls(), 1)
 			assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
 
@@ -161,9 +146,11 @@ func TestDriverUnreachable(t *testing.T) {
 
 	// Failed once the runner's ReadyTimeout passed.
 	task.WaitStatus(gritzv1.TaskStatus_FAILED)
-	failed := lifecycles(task, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
-	assert.Assert(t, cmp.Len(failed, 1))
-	assert.Assert(t, cmp.Contains(failed[0].Message, "e2e: dial failed"))
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	failed := testx.FindFunc(t, lifecycle, func(l *gritzv1.LifecyclePayload, _ int) bool {
+		return l.Kind == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.Assert(t, cmp.Contains(failed.Message, "e2e: dial failed"))
 	h.Backend.WaitSandbox(task.ID, backend.StatusSuspended)
 	assert.Assert(t, len(m.DialCalls()) > 0)
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
@@ -192,15 +179,4 @@ func TestDriverDies_MidRun(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
-}
-
-// lifecycles returns the task's lifecycle events of kind, oldest first.
-func lifecycles(task *e2e.Task, kind gritzv1.LifecycleKind) []*gritzv1.LifecyclePayload {
-	var got []*gritzv1.LifecyclePayload
-	for _, e := range task.Events() {
-		if l := e.GetLifecycle(); l != nil && l.Kind == kind {
-			got = append(got, l)
-		}
-	}
-	return got
 }
