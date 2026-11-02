@@ -46,10 +46,10 @@ existing tests onto them and delete what they cover.
           logs, MCP tools        │ h.Runner: runner.Serve (temp runner.db)
                                  │   │
                                  │   ▼ h.Backend: local backend
-                               driver process (prebuilt gritz driver --root DIR)   black box
-                                     │
+                               driver process (prebuilt gritz driver --prefix DIR)   black box
+                                     │ Agent.Prompt
                                      ▼
-                               puppet agent, driven by the test
+                               puppet agent ──HTTP──▶ h.Agent: each Prompt call is a run the test holds open
 ```
 
 Only two things are fake:
@@ -57,7 +57,8 @@ Only two things are fake:
 - **The sandbox** is a directory on the runner host, and the driver is an
   ordinary child process. The local backend provides it.
 - **The agent** is a new `puppet` agent (below). It has no behaviour of its own:
-  the test drives each run through a control channel to the harness.
+  it forwards each `Prompt` call to the harness, and the test decides when and
+  how the run ends.
 
 Everything else is production code: the apiserver behind its real auth, the
 runner's real wiring on its own SQLite `runner.db`, the prebuilt driver binary
@@ -68,7 +69,9 @@ injected `gritz` MCP server, log shipping and secret masking.
 the API server configure it, and the harness has no handle on it and no mocks
 of it. Tests see it only through its effects:
 
-- the files its scripts write in the sandbox directory;
+- the files its setup commands write in the sandbox directory;
+- the runs it gives the agent: each `Prompt` call, with its prompt, and whether
+  it is cancelled;
 - what it reports to the server: runner events with their versions, log chunks,
   and the events its tool calls create.
 
@@ -94,12 +97,12 @@ Docker's `gritz-<task id>` container names.
 | Operation | Local backend |
 |---|---|
 | `Create` | `mkdir Root/<id>` (fails if it exists, as a Docker name clash does). Nothing is copied: the driver binary is run in place. |
-| `Boot` | No-op if up; `ErrGone` if the directory is missing. Otherwise starts `Binary driver --addr unix://DIR/gritz/driver.sock --root DIR` as a child process and writes its pid to `DIR/gritz/driver.pid`. The process runs with working directory `DIR` and environment `Environ` plus `HOME=DIR/home`, in its own process group (`Setpgid`), with stdout and stderr appended to `DIR/gritz/driver.out`. Boot returns once the process has started; driver readiness stays the runner's job, as with Docker. |
+| `Boot` | No-op if up; `ErrGone` if the directory is missing. Otherwise starts `Binary driver --addr unix://DIR/gritz/driver.sock --prefix DIR` as a child process and writes its pid to `DIR/gritz/driver.pid`. The process runs with working directory `DIR` and environment `Environ` plus `HOME=DIR/home`, in its own process group (`Setpgid`), with stdout and stderr appended to `DIR/gritz/driver.out`. Boot returns once the process has started; driver readiness stays the runner's job, as with Docker. |
 | `Dial` | A driver client over the socket: unencrypted HTTP/2 with prior knowledge and the JWT as bearer, the same transport the Docker backend uses minus the exec tunnel. |
 | `Suspend` | `SIGTERM` to the driver, which stops its run and reports it, as `docker stop` does. Waits for it to exit, then `SIGKILL`s the process group after `suspendTimeout`. The directory stays, so the next `Boot` finds the driver's files where it left them. |
 | `Destroy` | `SIGKILL` the process group, then remove the directory. A missing directory is not an error. |
 | `Kill` (local only) | `SIGKILL` the process group and leave the directory. Not part of `backend.Sandbox`; `h.Backend.KillDriver` uses it to produce a real lost run. |
-| `Status` | `gone` if the directory is missing; `up` if the pid file names a live process whose `/proc/<pid>/cmdline` carries `--root DIR`; `suspended` otherwise. |
+| `Status` | `gone` if the directory is missing; `up` if the pid file names a live process whose `/proc/<pid>/cmdline` carries `--prefix DIR`; `suspended` otherwise. |
 | `Open` | Rehydrates from the handle, with no I/O. |
 | `Close` | Does nothing. Drivers outlive the backend, as containers outlive a Docker client. |
 | `ValidateWorkspace` | Accepts every workspace. The local backend reads no runtime section (`container:`, `lambda_microvm:`). |
@@ -143,11 +146,11 @@ agent touch today, and what makes each per sandbox:
 
 | Path | Defined by | How it becomes per sandbox |
 |---|---|---|
-| `/gritz/run.json` | `runrecord.Path` | `Root` (below) |
-| `/gritz/events.jsonl` | `eventfile.Path` | `Root` |
-| `/gritz/log` | `agent.DefaultLogPath` | `Root` |
-| `/tmp/gritz/<id>.json`, the agent config store | `agent.DefaultConfigStore` | `Root` |
-| `RunSpec.files` (the config store directory and file, the `/gritz` directory) and `/gritz/.provisioned` | `TaskManager.spec`, `driverserver.ProvisionedPath` | `Root` (today `FileRoot`) |
+| `/gritz/run.json` | `runrecord.Path` | `PrefixPath` (below) |
+| `/gritz/events.jsonl` | `eventfile.Path` | `PrefixPath` |
+| `/gritz/log` | `agent.DefaultLogPath` | `PrefixPath` |
+| `/tmp/gritz/<id>.json`, the agent config store | `agent.DefaultConfigStore` | `PrefixPath` |
+| `RunSpec.files` (the config store directory and file, the `/gritz` directory) and `/gritz/.provisioned` | `TaskManager.spec`, `driverserver.ProvisionedPath` | `PrefixPath` (today `FileRoot`) |
 | `/gritz/driver.sock` | `docker.DriverAddr` | `--addr`, already a flag |
 | `/usr/local/bin/gritz` in the agent config | `backend.BinaryPath` | `backend.BinaryPather` (above) |
 | `$HOME` (the agent CLIs' `os.UserHomeDir()` in `codex.go`, `cursor.go`, `sloppy.go`; `claude`'s `~/.claude`) | the process environment | the local backend sets `HOME=DIR/home` on the driver, and runs inherit it through `Options.Environ` |
@@ -160,60 +163,56 @@ set them (`testrunner.NewDriver` and `driverserver_test.go`'s `setup`), and they
 build the same layout by hand. These five options are replaced by one:
 
 ```go
-// Root is the directory every in-sandbox path is resolved under: the run record,
-// the event file, the driver log, the agent config store, the RunSpec files and
-// the provisioned marker. Defaults to "/".
-Root string
+// PrefixPath is prepended to every in-sandbox path: the run record, the event
+// file, the driver log, the agent config store, the RunSpec files and the
+// provisioned marker. Defaults to "/".
+PrefixPath string
 ```
 
-`gritz driver` gains `--root` to set it. A sandbox's paths are its in-container
-paths under `Root`, so the runner keeps sending absolute paths in `RunSpec.files`
-and needs no change. Docker and Lambda keep the default `/`.
+`gritz driver` gains `--prefix` to set it. It is only a path prefix, not a
+chroot: nothing is isolated. A sandbox's paths are its in-container paths under
+`PrefixPath`, so the runner keeps sending absolute paths in `RunSpec.files` and
+needs no change. Docker and Lambda keep the default `/`.
 
 ### The puppet agent
 
 The test needs per-run control of what the agent does: keep run 1 going until
-the test has cancelled it, let run 2 finish, make run 3 fail, call a tool at a
-chosen moment. Doing that with scripts (a fenced block in the instructions that
-the dummy agent parses and runs) or with timed sleeps makes scenarios depend on
-timing and on a script format, and the dummy's workspace-level `DummyOptions`
-can't vary per run at all.
+the test has cancelled it, let run 2 finish, make run 3 fail. Doing that with
+scripts (a fenced block in the instructions that the dummy agent parses and
+runs) or with timed sleeps makes scenarios depend on timing and on a script
+format, and the dummy's workspace-level `DummyOptions` can't vary per run at
+all.
 
 Instead, a new agent type, **`puppet`** (`internal/runner/agent`, next to
-`claude`, `codex` and `dummy`), is driven entirely from outside:
+`claude`, `codex` and `dummy`), has no behaviour of its own. It forwards each
+`Agent.Prompt` call to the harness, and the test answers it:
 
-- **It has no behaviour of its own.** When the driver prompts it, it reports the
-  run (task, run version, prompt) to a control endpoint the harness runs, then
-  does what the test tells it until the test ends the run: complete it, fail it,
-  call a gritz MCP tool, and so on. A stop, restart or shutdown cancels it as it
-  would any agent.
-- **The workspace points it at the harness**, e.g. `agent: puppet: url: …`.
-  Under the local backend the driver runs on the runner host, so it can reach
-  an `httptest` endpoint in the test process.
-- **The test gets a handle on each run** as it happens, keyed by run version, and
-  steps it explicitly. Scenarios stop sleeping and polling files to know where a
-  run is: a run stays open exactly until the test releases it, so "cancel
-  mid-run" is guaranteed to be mid-run, and the prompt each run received is
-  captured for assertions (which instructions reached which run).
+- **One HTTP request per `Prompt`.** The workspace points the puppet at the
+  harness (`agent: puppet: url: …`). Under the local backend the driver runs on
+  the runner host, so it can reach an `httptest` endpoint in the test process.
+  `Prompt(ctx, prompt, resume)` posts `{task_id, prompt, resume}`, with the task
+  id from `GRITZ_TASK_ID`, and holds the request open until the harness replies
+  with success or an error message. `Prompt` returns nil or that error.
+- **Cancellation is the request ending.** When the driver cancels `ctx` (a stop,
+  a restart, a shutdown), the request is aborted and `Prompt` returns an error
+  wrapping `context.Canceled`, as the `Agent` contract requires. The harness
+  sees the request's context end and marks the run cancelled. A killed driver
+  closes the connection, which the harness sees the same way.
+- **Runs are identified by order.** `Prompt` carries no run version, and nothing
+  else exposes one to the agent. The harness queues a task's runs in the order
+  they arrive; the task's version is checked through the API (`COMPLETED` at
+  v2), not through the agent.
+- **No tool calls.** The test answers in the test process, which can't reach
+  the injected gritz MCP server inside the sandbox. Calling a tool from a run is
+  a possible later command on `Run` (Open Questions).
 - **The driver stays a black box.** The puppet is just the agent the real driver
   runs; nothing reaches into the driver.
 - **The dummy agent is unchanged** and keeps its existing uses.
 
-**Open:** the control protocol (transport, message shapes, how a run waits for
-its next command, timeouts, cleanup of runs a test never releases, reconnects
-after `KillDriver`) and the harness API for it (the run handle and its methods).
-Settle both when this slice is built. Scenarios below are still written in terms
-of the earlier scripted-dummy design (`Script`, `Sh`, `Block`, `Error`,
-`WaitFile`); their behaviours stand and will be re-expressed against the puppet's
-API.
-
-**`GRITZ_RUN_VERSION`.** Nothing exposes the run version to the agent today. The
-agent's environment has only `GRITZ_TASK_ID`, `GRITZ_TOKEN` and `GRITZ_SERVER`
-(`TaskManager.spec`), and the version is known only to the driver: the run record
-in `Executor.Start`, and `task.GetVersion()` in `Driver.Run`. `Executor.execute`
-adds `GRITZ_RUN_VERSION=<version>` to the run's environment, after the spec's env
-and secrets so neither can override it. Setup commands and the agent both see
-it. It is useful to the puppet, to real agents and to hooks.
+The test side is `h.Agent` (below): `h.Agent.WaitRun(taskID)` returns the task's
+next run, and the run stays open until the test ends it with `Complete` or
+`Fail`, or the driver cancels it. "Cancel mid-run" is therefore guaranteed to be
+mid-run, and the prompt each run received is captured for assertions.
 
 ### Harness
 
@@ -226,12 +225,13 @@ type Harness struct {
 	Org     *Org     // the default org, for tests that need only one
 	Backend *Backend // the local backend; nil unless Options.Runner
 	Runner  *Runner  // the runner; nil unless Options.Runner
+	Agent   *Agent   // the puppet agent's runs; nil unless Options.Runner
 }
 ```
 
-**The runner is opt-in.** `Options.Runner` turns on the backend and the runner.
-Without it, `h.Backend` and `h.Runner` stay nil and the harness is a server and
-its orgs. Server-only tests (scope checks, the RPCs' own behaviour) leave it off
+**The runner is opt-in.** `Options.Runner` (a `*RunnerOptions`) turns on the
+backend, the runner and the agent. Without it, `h.Backend`, `h.Runner` and
+`h.Agent` stay nil and the harness is a server and its orgs. Server-only tests (scope checks, the RPCs' own behaviour) leave it off
 and act as the runner themselves with `Org.SubmitRunnerEvents`, on the org's
 runner key. A test must not do both: with the runner on, hand-submitted runner
 events race the real runner's, so a test that enables the runner reaches every
@@ -256,12 +256,14 @@ There is no driver handle (see above).
 ```go
 func TestStart(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
 	task := h.Org.CreateTask(nil)
 	task.AddInstruction("do the thing")
 
 	task.Start()
-	// The test lets the puppet's run 1 complete (API open, see "The puppet agent").
+	run := h.Agent.WaitRun(task.ID)
+	assert.Assert(t, cmp.Contains(run.Prompt, "do the thing"))
+	run.Complete()
 
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(1))
@@ -285,18 +287,23 @@ func TestStart(t *testing.T) {
    needs them.
 2. **Default org.** `h.Server.CreateOrg()` makes `h.Org` (below). Isolation
    comes from the org, as for every teststore test.
-3. **Backend** (only with `Options.Runner`). A `local.Backend` on a fresh root,
-   wrapped by `h.Backend`. The runner is given the wrapper.
-4. **Runner** (only with `Options.Runner`). `runner.Serve` (below) with a `gritzclient` on `h.Org`'s runner key,
+3. **Agent** (only with `Options.Runner`). The puppet's endpoint on its own
+   `httptest.NewServer`, behind `h.Agent`.
+4. **Backend** (only with `Options.Runner`). A `local.Backend` on a fresh root,
+   wrapped by `h.Backend`, running `prebuilt/gritz-linux-$GOARCH`. The runner is
+   given the wrapper.
+5. **Runner** (only with `Options.Runner`). `runner.Serve` (below) with a `gritzclient` on `h.Org`'s runner key,
    the backend wrapper, `runner.db` in a temp directory, runner id `e2e`, and one
-   workspace `e2e` whose agent is the dummy. The runner registers that workspace
+   workspace `e2e` whose agent is the puppet, pointed at `h.Agent`'s endpoint,
+   with `RunnerOptions.Commands` and `Secrets`. The runner registers that workspace
    with the server itself (`RegisterWorkspaces`), so `CreateTask` finds it
    through the production path. The runner subscribes to the harness server's
    notifications, so commands reach the runner without waiting for the poll.
-5. **Cleanup**, in reverse order: remove the mocks; stop the runner and wait for it;
-   `Destroy` every sandbox under the root, which kills the drivers; remove the
-   root; close the server; `teststore` drops the org. Without `Options.Runner`
-   only the mocks and the server are torn down.
+6. **Cleanup**, in reverse order: remove the mocks; fail every run the test left
+   open; stop the runner and wait for it; `Destroy` every sandbox under the root,
+   which kills the drivers; remove the root; close the agent's endpoint and the
+   server; `teststore` drops the org. Without `Options.Runner` only the mocks and
+   the server are torn down.
 
 **`runner.Serve`.** `gritz runner`'s wiring is all inline in the CLI action
 (`internal/command/runner.go`). It builds the `runnerstore`, `taskevents.Log`,
@@ -551,6 +558,37 @@ The runner has no escape hatch. No client path leads into it, and its internals
 are what the tests must not depend on. If a setup need appears that only the
 runner can meet, one can be added then.
 
+#### `h.Agent`
+
+The test's side of the puppet agent. Every `Prompt` call the puppet forwards is
+a `Run`, queued per task in arrival order and held open until it ends.
+
+| Method | What it does |
+|---|---|
+| `WaitRun(taskID)` | waits for the task's next run, the first one no earlier `WaitRun` returned, and returns it. A second `WaitRun` returns run 2 |
+| `Runs(taskID)` | every run the task has had so far, in order, without waiting: `cmp.Len(h.Agent.Runs(id), 1)` asserts that no second run happened |
+
+| `Run` | What it does |
+|---|---|
+| `Prompt`, `Resume` | the arguments the driver passed to `Prompt` |
+| `Complete()` | ends the run: `Prompt` returns nil |
+| `Fail(msg)` | ends the run: `Prompt` returns an error with `msg` |
+| `WaitCancelled()` | waits until the driver cancels the run (its request ends) |
+
+`Complete` and `Fail` fail the test if the run has already ended. A run the test
+never ends stays open until the driver cancels it, or until cleanup fails it so
+the drivers can shut down. Further commands, such as calling a tool from the
+run, are later methods on `Run`.
+
+```go
+task.Start()
+run := h.Agent.WaitRun(task.ID)
+
+task.Cancel()
+run.WaitCancelled()
+task.WaitStatus(gritzv1.TaskStatus_CANCELLED)
+```
+
 #### `Task`
 
 A `Task` holds its `Org` and the task id. Its methods are implemented through
@@ -566,16 +604,12 @@ the org's `Client` and `h.Backend`, and the commands go through the RPCs the web
 | `Links()`, `Log()` | `ListLinks`; `ListLogChunksByTask`, concatenated |
 | `WaitStatus(status)` | `Org.WaitTask` |
 | `WaitEvent(match)` | `Org.WaitEvent` |
-| `ReadFile(name)`, `WaitFile(name, want)` | a file in `h.Backend.Dir(id)` |
+| `ReadFile(name)` | a file in `h.Backend.Dir(id)`, as the workspace's setup commands wrote it |
 
 The composer sends `add_instructions` and `start` in one `UpdateTask`. The
 harness splits them so a test can add instructions before deciding how to start
 the task. A wake is `AddInstruction(...)` followed by `Start()`. Driving the
-agent's runs is the puppet's API (open).
-
-`WaitFile` is an addition to the decided API. Scenarios need to know exactly
-that the script has got this far before they act, and `WaitStatus(RUNNING)`
-fires at `started`, before the agent runs.
+agent's runs is `h.Agent`.
 
 #### Waits and assertions
 
@@ -585,14 +619,16 @@ through `t` with the last state they saw:
 - `WaitTask` reports the status, version and command, plus the last few events.
 - `WaitEvent` reports every event.
 - `WaitSandbox` reports the last status.
-- `WaitFile` reports the file's content.
+- `WaitRun` reports the task's runs so far and the task's status.
+- `WaitCancelled` reports the run's prompt and the task's status.
 
 **Only observable outcomes.** Tests assert on:
 
 - task status and version;
 - the event timeline, links and the shipped log;
 - sandbox state through the backend;
-- the files the script wrote.
+- the runs the agent got, and their prompts;
+- the files the setup commands wrote.
 
 Tests never open `runner.db` or call into the driver. The
 driver's own files in the sandbox directory (`gritz/run.json`,
@@ -604,64 +640,71 @@ unchanged.
 
 ```go
 type Options struct {
-	Runner       bool              // stand up h.Backend and h.Runner; off → both nil (server-only)
+	Timeout time.Duration  // every wait's; default 30s
+	Runner  *RunnerOptions // nil: no backend, runner or agent (server-only)
+}
+
+type RunnerOptions struct {
 	Concurrency  int               // runner slots; default 2
-	SuspendAfter time.Duration     // the e2e workspace's suspend_after (from slice 10); 0 → workspace default
 	Commands     []string          // the workspace's setup commands
 	Secrets      map[string]string // the workspace's secrets
+	SuspendAfter time.Duration     // the e2e workspace's suspend_after (from slice 10); 0 → workspace default
 	PollInterval time.Duration     // the runner's; default 1s, a backstop to SSE
-	Timeout      time.Duration     // every wait's; default 30s
 }
 ```
 
-The harness sets the runner's `LostTimeout` and `ReadyTimeout`
-(`runner.ServeOptions`) to 2s, so scenarios about lost or unready drivers
-don't wait out the 10s defaults. The runner fields (`Concurrency` through
-`PollInterval`) apply only with `Runner`.
+Everything that only means something with a runner is in `RunnerOptions`, so a
+test can't set it without turning the runner on. `&e2e.RunnerOptions{}` is a
+runner with defaults. The harness sets the runner's `LostTimeout` and
+`ReadyTimeout` (`runner.ServeOptions`) to 2s, so scenarios about lost or
+unready drivers don't wait out the 10s defaults.
 
 **The driver binary** is `prebuilt/gritz-linux-$GOARCH`, which the tests already
 require (`mise run build`, as `TestTaskManagerStart` and the Docker backend tests
-do). The prebuilt can be stale against the source; see Open Questions.
+do). A developer who changes the driver and runs the scenarios without
+rebuilding tests the old driver; that is accepted (Trade-offs).
 
 ### Scenarios
 
-Each scenario is one top-level test in `internal/e2e`. They are written in
-terms of the earlier scripted-dummy design; the behaviour each one checks stands,
-and the steps will be re-expressed against the puppet's API once it is settled. "Append runs" is
-`Sh("echo $GRITZ_RUN_VERSION >> runs")`, so the file `runs` records which runs
-the agent executed in this sandbox.
+Each scenario is one top-level test in `internal/e2e`, with `Options.Runner`
+set. `run1 := WaitRun(task)` is `h.Agent.WaitRun(task.ID)`; "the setup file" is
+a workspace with `Commands: [echo setup >> setup]`, so `ReadFile(setup)` holding
+one line shows the sandbox was provisioned once and its directory kept.
 
 | Test | Arrange / act | Assert |
 |---|---|---|
-| `TestStart` | `Script(append runs)`; `Start` | `COMPLETED` at v1; `runs` = `1`; timeline has `SANDBOX_STARTED`, `SANDBOX_EXITED` |
-| `TestCancel_MidRun` | `Script(append runs, Block())`; `Start`; `WaitFile(runs, 1)`; `Cancel` | `CANCELLED`; `runs` = `1`; one `SANDBOX_STARTED` |
-| `TestRestart_MidRun` | as above, then `Restart` | `WaitFile(runs, 1 2)`: run 2 got the same, uncompleted script; `Get().Version` = 2; `Cancel` → `CANCELLED` |
-| `TestWake_MidRun` (#1868) | `Script(append runs, Sleep(3s))`; `Start`; `WaitFile(runs, 1)`; `Script(append runs)`; `Start` | Right after the wake, `Get()` is `RUNNING` at v1 with command `start`, so the wake landed on the running run; if run 1 had already ended, the test fails instead of passing vacuously. Then `COMPLETED` at **v2**; `runs` = `1 2`; run 1's script did not run again |
-| `TestCancel_PendingStart` | `Concurrency: 1`. A: `Script(append runs, Block())`, `Start`, `WaitFile`. B: `Script(Sh(touch ran))`, `Start`, `WaitStatus(PENDING)`, `Cancel` | B is `CANCELLED`. Then cancel A, and run a third task C to `COMPLETED`. C's start is later in the log than B's cancel, so it acts as a barrier. Afterwards B has no `SANDBOX_STARTED`, and `h.Backend.WaitSandbox(B, gone)`: B never ran, even once the slot was free |
-| `TestArchive` | `Script(Sh(touch f))`; `Start`; `COMPLETED`; `Archive` | `WaitSandbox(gone)`. Then `Unarchive`, `Script(Sh(test ! -e f), append runs)`, `Start` → `COMPLETED` at v2 with `runs` = `2`: a fresh sandbox, which got the task's whole log and acted only on its latest command |
-| `TestRunnerRestart_MidRun` | `Script(append runs, Block())`; `Start`; `WaitFile`; `h.Runner.Restart()`; `Cancel` | `CANCELLED`; `runs` = `1`; one `SANDBOX_STARTED`: the new runner reattached and carried the cancel to the driver, without starting the run again |
-| `TestSuspendAfter` (slice 10) | `SuspendAfter: 300ms`. `Script(append runs)`; `Start`; `COMPLETED`; `WaitSandbox(suspended)`; `Script(append runs)`; `Start` | `COMPLETED` at v2; `runs` = `1 2` in the same file, so the directory survived and nothing re-created it; `WaitSandbox(suspended)` again |
-| `TestSuspendAfter_Window` (slice 10) | default `suspend_after`; two runs back to back | the sandbox stays `up` between them and after; `runs` = `1 2` |
+| `TestStart` | `AddInstruction`; `Start`; `run1 := WaitRun`; `run1.Complete()` | `run1.Prompt` has the instruction; `COMPLETED` at v1; timeline has `SANDBOX_STARTED`, `SANDBOX_EXITED`; `Runs` has one run |
+| `TestCancel_MidRun` | `Start`; `run1 := WaitRun`; `Cancel` | `run1.WaitCancelled()`; `CANCELLED`; one run; one `SANDBOX_STARTED` |
+| `TestRestart_MidRun` | `Start`; `run1 := WaitRun`; `Restart` | `run1.WaitCancelled()`; `run2 := WaitRun` has run 1's prompt, since the instructions were never completed; `Get().Version` = 2. Then `Cancel` → `run2.WaitCancelled()`, `CANCELLED` |
+| `TestWake_MidRun` (#1868) | `Start`; `run1 := WaitRun`; `AddInstruction("more")`; `Start` | Right after the wake, `Get()` is `RUNNING` at v1 with command `start`, so the wake landed on the open run. Then `run1.Complete()`; `run2 := WaitRun` has `more`; `run2.Complete()` → `COMPLETED` at **v2**; two runs in all |
+| `TestCancel_PendingStart` | `Concurrency: 1`. A: `Start`, `runA := WaitRun`. B: `Start`, `WaitStatus(PENDING)`, `Cancel` | B is `CANCELLED`. Then cancel A, and run a third task C to `COMPLETED`. C's start is later in the log than B's cancel, so it acts as a barrier. Afterwards B has no runs and no `SANDBOX_STARTED`, and `h.Backend.WaitSandbox(B, gone)`: B never ran, even once the slot was free |
+| `TestArchive` | the setup file; `Start`; `WaitRun` → `Complete`; `COMPLETED`; `Archive` | `WaitSandbox(gone)`. Then `Unarchive`, `AddInstruction`, `Start`; `run2 := WaitRun` has the new instruction; `Complete` → `COMPLETED` at v2; the setup file holds one line: a fresh sandbox, provisioned again |
+| `TestRunnerRestart_MidRun` | `Start`; `run1 := WaitRun`; `h.Runner.Restart()`; `Cancel` | `run1.WaitCancelled()`; `CANCELLED`; one run; one `SANDBOX_STARTED`: the new runner reattached and carried the cancel to the driver, without starting the run again |
+| `TestSuspendAfter` (slice 10) | `SuspendAfter: 300ms`, the setup file. Run 1 to `COMPLETED`; `WaitSandbox(suspended)`; wake | `run2 := WaitRun`; `Complete` → `COMPLETED` at v2; the setup file holds one line, so the directory survived and nothing re-provisioned it; `WaitSandbox(suspended)` again |
+| `TestSuspendAfter_Window` (slice 10) | default `suspend_after`; two runs back to back | the sandbox stays `up` between them and after |
 
 Further scenarios, several using mocks:
 
 | Test | Arrange / act | Assert |
 |---|---|---|
-| `TestWake_CancelledAtBoundary` | as `TestWake_MidRun`, then `Cancel` while run 1 sleeps | `CANCELLED`; `runs` = `1`: the pending start of v2 was superseded and never ran |
-| `TestRestart_CancelledBeforeStart` | `Script(append runs, Sh("trap '' TERM; while :; do sleep 0.1; done"))`; `Start`; `WaitFile`; `Restart`; `Cancel` | `CANCELLED`; `runs` = `1`. Run 1 ignores `SIGTERM` and outlives the restart until `Sh`'s kill delay, so the cancel lands before run 2 can start. No run reports v2, so the runner reports it `stopped` |
-| `TestRunnerRestart_PendingWake` | as `TestWake_MidRun`, then `h.Runner.Restart()` while run 1 sleeps | `COMPLETED` at v2; `runs` = `1 2`: the pending start survived the dropped stream |
-| `TestDriverDies_MidRun` | `Script(append runs, Block())`; `Start`; `WaitFile`; `h.Backend.KillDriver(task.ID)` | `FAILED`; the sandbox `suspended`. Then `Script(append runs)`, `Start` → `COMPLETED` at v2 with `runs` = `1 2`: the sandbox booted again, the driver reconciled its interrupted run and acted on the new start |
-| `TestUnreportedRun` | `Script(append runs, Sleep(2s))`; `Start`; `WaitFile(runs, 1)`; `h.Server.Mock` with `SubmitRunnerEvents` failing with `CodeInternal` (example above), which the driver's client doesn't retry and the runner's outbox does; wait until `m.SubmitRunnerEventsCalls()` holds the driver's `stopped` and then the runner's `failed`; `h.Server.Mock(nil)` | `FAILED`: the driver went idle with its run unreported, the runner reported it `failed`, and the outbox delivered that report once the real method answered again |
-| `TestSandboxFails` (table: `h.Backend.Mock` with `CreateFunc`, `h.Backend.MockSandbox` with `BootFunc`) | `Concurrency: 1`; the mock returns an error; `Script(append runs)`; `Start`; `WaitStatus(FAILED)`; remove the mock with `nil` | the failure's reason is the mock's error, and the mock recorded one call. Then a second task runs to `COMPLETED`, so the slot was released, and the first task, started again, `COMPLETED`s |
-| `TestDriverUnreachable` | `h.Backend.MockSandbox` with a `DialFunc` returning an error; `Start` | `FAILED` once `ReadyTimeout` passes; the sandbox `suspended` |
-| `TestAgentError` | `Script(Error("boom"))`; `Start` | `FAILED`; `SANDBOX_FAILED` carries `boom` |
-| `TestTools` | `Script(Tool("report", {message}), Tool("create_link", {url, subscribe: true}), Tool("update_my_task", {name}))` | a report event with the message, the subscribed link, and the new name. Covers the injected MCP server, the task token and the `BinaryPather` path |
-| `TestEnv` | `Secrets: {E2E_SECRET: s3cret}`; `Script(Sh(env > env))` | `env` has `GRITZ_RUN_VERSION=1`, `GRITZ_TASK_ID`, `E2E_SECRET=s3cret`, and `HOME` inside the sandbox directory |
-| `TestSecretsMasked` | `Secrets: {E2E_SECRET: s3cret}`; `Script(Sh(echo $E2E_SECRET; echo $GRITZ_TOKEN))` | `Log()` has `[gritz:masked E2E_SECRET]` and `[gritz:masked token]`, and neither value |
-| `TestSetupCommands` | `Commands: [echo setup >> setup]`; two runs | `setup` = `setup`: the commands ran on the first run only; `Log()` has their output |
-| `TestCancel_DuringSetup` | `Commands: [sleep 60]`; `Start`; `WaitStatus(RUNNING)`; `Cancel` | `CANCELLED` well before 60s |
-| `TestRestart_Completed` | complete run 1, then `Restart` | `COMPLETED` at v2 in the same sandbox |
-| `TestConcurrent` | `Concurrency: 2`, three tasks, each `Script(append runs)` | all `COMPLETED`; each sandbox's `runs` = `1`: no cross-talk between sandboxes |
+| `TestWake_CancelledAtBoundary` | as `TestWake_MidRun`, then `Cancel` while run 1 is open | `run1.WaitCancelled()`; `CANCELLED`; one run: the pending start of v2 was superseded and never ran |
+| `TestRestart_CancelledBeforeStart` | `Start`; `run1 := WaitRun`; `Restart`; `Cancel` before run 1 has stopped | `CANCELLED`; one run. No run reports v2, so the runner reports it `stopped`. **Needs a run that outlives its cancellation** (Open Questions); until `Run` has a way to hold the stop, it can't be arranged |
+| `TestRunnerRestart_PendingWake` | as `TestWake_MidRun`, then `h.Runner.Restart()` while run 1 is open, then `run1.Complete()` | `run2 := WaitRun`; `Complete` → `COMPLETED` at v2: the pending start survived the dropped stream |
+| `TestDriverDies_MidRun` | `Start`; `run1 := WaitRun`; `h.Backend.KillDriver(task.ID)` | `run1.WaitCancelled()`; `FAILED`; the sandbox `suspended`. Then wake; `run2 := WaitRun`; `Complete` → `COMPLETED` at v2: the sandbox booted again, the driver reconciled its interrupted run and acted on the new start |
+| `TestUnreportedRun` | `Start`; `run1 := WaitRun`; `h.Server.Mock` with `SubmitRunnerEvents` failing with `CodeInternal` (example above), which the driver's client doesn't retry and the runner's outbox does; `run1.Complete()`; wait until `m.SubmitRunnerEventsCalls()` holds the driver's `stopped` and then the runner's `failed`; `h.Server.Mock(nil)` | `FAILED`: the driver went idle with its run unreported, the runner reported it `failed`, and the outbox delivered that report once the real method answered again |
+| `TestSandboxFails` (table: `h.Backend.Mock` with `CreateFunc`, `h.Backend.MockSandbox` with `BootFunc`) | `Concurrency: 1`; the mock returns an error; `Start`; `WaitStatus(FAILED)`; remove the mock with `nil` | the failure's reason is the mock's error, the mock recorded one call, and the task had no runs. Then a second task runs to `COMPLETED`, so the slot was released, and the first task, started again, `COMPLETED`s |
+| `TestDriverUnreachable` | `h.Backend.MockSandbox` with a `DialFunc` returning an error; `Start` | `FAILED` once `ReadyTimeout` passes; the sandbox `suspended`; no runs |
+| `TestAgentError` | `Start`; `WaitRun` → `Fail("boom")` | `FAILED`; `SANDBOX_FAILED` carries `boom` |
+| `TestEnv` | `Secrets: {E2E_SECRET: s3cret}`, `Commands: [env > env]`; run 1 to `COMPLETED` | `env` has `GRITZ_TASK_ID`, `E2E_SECRET=s3cret`, and `HOME` inside the sandbox directory |
+| `TestSecretsMasked` | `Secrets: {E2E_SECRET: s3cret}`, `Commands: [echo $E2E_SECRET; echo $GRITZ_TOKEN]`; run 1 to `COMPLETED` | `Log()` has `[gritz:masked E2E_SECRET]` and `[gritz:masked token]`, and neither value |
+| `TestSetupCommands` | the setup file; two runs | the setup file holds one line: the commands ran on the first run only; `Log()` has their output |
+| `TestCancel_DuringSetup` | `Commands: [sleep 60]`; `Start`; `WaitStatus(RUNNING)`; `Cancel` | `CANCELLED` well before 60s; no runs |
+| `TestRestart_Completed` | the setup file; run 1 to `COMPLETED`, then `Restart` | `run2 := WaitRun`; `Complete` → `COMPLETED` at v2; the setup file holds one line: the same sandbox |
+| `TestConcurrent` | `Concurrency: 2`; three tasks, each with its own instruction, all started | each task's `WaitRun` has that task's instruction, and none another's; the third task's run arrives only once one of the first two completes; all `COMPLETED` |
+
+`TestTools`, which covered the injected gritz MCP server, the task token and the
+`BinaryPather` path, has no puppet equivalent until a run can call a tool (Open
+Questions).
 
 ### Porting the existing tests
 
@@ -688,7 +731,7 @@ most fault-injection tests (a), not (b).
 | `TestTaskManagerFollow_StopRunOpen` | a | `TestCancel_MidRun` |
 | `TestTaskManagerFollow_Start` | c | `handled`. Acting on the latest command: `TestArchive` (the whole log), `TestWake_CancelledAtBoundary` |
 | `TestTaskManagerFollow_Restart` | a | `TestRestart_MidRun` |
-| `TestTaskManagerFollow_RestartCancelled` | a | `TestRestart_CancelledBeforeStart` |
+| `TestTaskManagerFollow_RestartCancelled` | a | `TestRestart_CancelledBeforeStart`, once it can be arranged (Open Questions); keep it until then |
 | `TestTaskManagerFollow_SlowDriver` | c | `handled` before readiness. A real driver's start-up latency is in every scenario |
 | `TestTaskManagerFollow_StartRunOpen` | c | A follower and a `Run` goroutine become one `RunLoop` in slice 9. `TestWake_MidRun` |
 | `TestTaskManagerFollow_StartWaitsForSlot`, `_StopSupersedesWaitingStart` | a | `TestCancel_PendingStart`, `TestConcurrent` |
@@ -722,7 +765,7 @@ most fault-injection tests (a), not (b).
 | `TestTaskRunnerRun_DriverUnreachable`, `_NotReady` | a | `TestDriverUnreachable` |
 | `TestTaskRunnerRun_NothingToRun` | a | `TestRunnerRestart_MidRun`, `TestArchive` (unarchive) |
 | `TestTaskRunnerRun_Reopen` | a | `TestWake_MidRun`, `TestRunnerRestart_PendingWake` |
-| `TestTaskRunnerRun_StopNeverRun` | a | `TestRestart_CancelledBeforeStart` |
+| `TestTaskRunnerRun_StopNeverRun` | a | `TestRestart_CancelledBeforeStart`, once it can be arranged (Open Questions); keep it until then |
 | `TestTaskRunnerRun_NotReported` | a | `TestUnreportedRun` |
 | `TestTaskRunnerRun_Shutdown` | a | `TestRunnerRestart_MidRun`: the sandbox stays up across the restart |
 | `TestTaskRunnerBoot`, `_Create`, `_BootFails`, `_Concurrent`, `TestTaskRunnerRestore` | c | Boot, claiming and `ErrRunning` are reshaped by `RunLoop` in slice 9 |
@@ -875,17 +918,17 @@ type BinaryPather interface {
 package driverserver // github.com/gritzapp/gritz/internal/runner/driverserver
 
 type Options struct {
-	// Root is the directory every in-sandbox path is resolved under: the run
-	// record, event file, driver log, agent config store, RunSpec files and
-	// provisioned marker. Defaults to "/". // new
-	Root string
+	// PrefixPath is prepended to every in-sandbox path: the run record, event
+	// file, driver log, agent config store, RunSpec files and provisioned
+	// marker. Defaults to "/". // new
+	PrefixPath string
 	// RecordPath, EventsPath, LogPath, Config and FileRoot are removed. // removed
 	// ... Environ, NewClient, KeepAlive, Log unchanged
 }
 
 type ExecutorOptions struct {
-	// Root is as Options.Root. // new
-	Root string
+	// PrefixPath is as Options.PrefixPath. // new
+	PrefixPath string
 	// RecordPath, LogPath, Config and FileRoot are removed. // removed
 	// ... Environ, NewClient, Log unchanged
 }
@@ -894,9 +937,31 @@ type ExecutorOptions struct {
 ```go
 package agent // github.com/gritzapp/gritz/internal/runner/agent
 
-// PuppetAgent is driven entirely by a control endpoint: it reports each run
-// and does what it is told until the run ends. // new; API open
+// AgentTypePuppet is the puppet agent's type. // new
+const AgentTypePuppet = "puppet"
+
+// PuppetOptions contains puppet-specific agent options. // new
+type PuppetOptions struct {
+	// URL is the endpoint each Prompt call is forwarded to.
+	URL string
+}
+
+// PuppetAgent forwards each Prompt call to a control endpoint, one HTTP request
+// held open until the endpoint answers, and returns its answer. Cancelling ctx
+// aborts the request. // new
 type PuppetAgent struct{ ... }
+
+// PuppetRequest is the body of a forwarded Prompt call. // new
+type PuppetRequest struct {
+	TaskID int64  `json:"task_id"`
+	Prompt string `json:"prompt"`
+	Resume bool   `json:"resume"`
+}
+
+// PuppetResponse is the endpoint's answer; Error empty means success. // new
+type PuppetResponse struct {
+	Error string `json:"error,omitempty"`
+}
 ```
 
 ```go
@@ -948,24 +1013,30 @@ const (
 
 // Options configures a Harness; zero values take defaults.
 type Options struct {
-	// Runner stands up h.Backend and h.Runner; without it both are nil and
-	// the test may act as the runner with Org.SubmitRunnerEvents.
-	Runner       bool
-	Concurrency  int
-	SuspendAfter time.Duration
-	Commands     []string
-	Secrets      map[string]string
-	PollInterval time.Duration
-	Timeout      time.Duration
+	Timeout time.Duration
+	// Runner stands up h.Backend, h.Runner and h.Agent; without it they are
+	// nil and the test may act as the runner with Org.SubmitRunnerEvents.
+	Runner *RunnerOptions
 }
 
-// Harness is a server, and optionally a local backend and a runner, for one
-// test.
+// RunnerOptions configures the runner and its workspace; zero values take
+// defaults.
+type RunnerOptions struct {
+	Concurrency  int
+	Commands     []string
+	Secrets      map[string]string
+	SuspendAfter time.Duration
+	PollInterval time.Duration
+}
+
+// Harness is a server, and optionally a local backend, a runner and an agent,
+// for one test.
 type Harness struct {
 	Server  *Server
 	Org     *Org     // the default org
 	Backend *Backend // nil unless Options.Runner
 	Runner  *Runner  // nil unless Options.Runner
+	Agent   *Agent   // nil unless Options.Runner
 }
 
 // New stands up a harness and registers its teardown with t.Cleanup.
@@ -1138,6 +1209,32 @@ type Runner struct{ ... }
 // backend.
 func (r *Runner) Restart()
 
+// Agent is the test's side of the puppet agent.
+type Agent struct{ ... }
+
+// WaitRun waits for the task's next run, the first one no earlier WaitRun
+// returned, and returns it.
+func (a *Agent) WaitRun(taskID int64) *Run
+
+// Runs returns every run the task has had so far, in order.
+func (a *Agent) Runs(taskID int64) []*Run
+
+// Run is one Prompt call, held open until it ends.
+type Run struct {
+	Prompt string
+	Resume bool
+	// ... unexported
+}
+
+// Complete ends the run; Prompt returns nil.
+func (r *Run) Complete()
+
+// Fail ends the run; Prompt returns an error with msg.
+func (r *Run) Fail(msg string)
+
+// WaitCancelled waits until the driver cancels the run.
+func (r *Run) WaitCancelled()
+
 // Task is a task in an org.
 type Task struct {
 	ID int64
@@ -1145,8 +1242,6 @@ type Task struct {
 	Resp *gritzv1.CreateTaskResponse
 	// ... unexported
 }
-
-// Script adds an instruction carrying steps.
 
 // AddInstruction adds an instruction with text.
 func (t *Task) AddInstruction(text string)
@@ -1186,50 +1281,49 @@ func (t *Task) WaitEvent(match func(*gritzv1.Event) bool) *gritzv1.Event
 
 // ReadFile returns the content of name in the task's sandbox directory.
 func (t *Task) ReadFile(name string) string
-
-// WaitFile waits until name in the task's sandbox directory holds want.
-func (t *Task) WaitFile(name, want string)
 ```
 
-**CLI:** `gritz driver --root DIR`. `gritz runner --backend local --local-root
+**CLI:** `gritz driver --prefix DIR`. `gritz runner --backend local --local-root
 DIR`, where the local backend's binary is the running executable.
 
 **How it fits:**
 
 - **Setup.** `e2e.New` serves `server.New(...).Handler()` on httptest, with
   `h.Server`'s mock router in `Options.Wrap`, and creates `h.Org` and its keys
-  in teststore. It wraps a `local.Backend` on a fresh root in
-  `h.Backend`, and runs `runner.Serve` with that wrapper on a goroutine.
+  in teststore. With `Options.Runner`, it serves `h.Agent`'s endpoint, wraps a
+  `local.Backend` on a fresh root in `h.Backend`, and runs `runner.Serve` with
+  that wrapper on a goroutine.
 - **The runner.** `gritz runner` calls `Serve` after parsing its flags. The
   runner's `TaskRunner`s create and boot local sandboxes through `h.Backend` and
-  its mocks. `Boot` starts `gritz driver --root DIR` from `prebuilt/`.
-- **Inside the sandbox.** The driver resolves every path under `--root`, sets
-  `GRITZ_RUN_VERSION`, and runs the puppet agent, which reports the run to the
-  harness and does what the test tells it. (Was: the dummy `e2escript.Parse`s its
-  prompt and runs the steps. `Tool` steps start the injected MCP server from
-  `BinaryPather.BinaryPath()`.
+  its mocks. `Boot` starts `gritz driver --prefix DIR` from `prebuilt/`.
+- **Inside the sandbox.** The driver resolves every path under `--prefix`, runs
+  the setup commands, and prompts the puppet agent, which forwards the `Prompt`
+  to `h.Agent` and returns whatever the test answers.
 - **Every call to the server** comes from the harness's `Client`, the runner,
   the driver or the MCP server. Each passes the mock router, which sends it
   to the installed `ClientMock` or to the real handler.
 - **The test** drives tasks through `Task`, which calls the user-facing RPCs and
-  reads the sandbox directory through `h.Backend`.
+  reads the sandbox directory through `h.Backend`, and drives the agent's runs
+  through `h.Agent`.
 
 ## Implementation Plan
 
+Already landed: server wrapping (`server.Options.Wrap`) and the server side of
+the harness (`e2e.New`, `h.Server`, `Org` and its shorthands, `h.Server.Store`),
+with the apiserver tests ported onto it (#1896, #1900, #1902).
+
 runner-event-replica slice 8 (the driver acts on commands) has landed; slices
-9–11 haven't. Slices 1–9 below don't depend on the runner's internals. They can
+9–11 haven't. Slices 1–6 below don't depend on the runner's internals. They can
 land now, and the scenarios then act as the regression net for slices 9–11.
 Slices that must wait are marked.
 
-1. **Driver `Root`.** Delivers: `driverserver.Options.Root` and
-   `ExecutorOptions.Root` in place of `RecordPath`, `EventsPath`, `LogPath`,
-   `Config` and `FileRoot`; `gritz driver --root`; `testrunner.NewDriver` and
-   `driverserver_test.go`'s `setup` set only `Root`. Depends on: nothing.
-   Verifiable by: the existing `driverserver` tests on `Root`.
-2. **`GRITZ_RUN_VERSION`.** Delivers: `Executor.execute` adds it to the run's
-   environment. Depends on: nothing. Verifiable by: `TestRun_Env` sees it, and a
-   spec env or secret of that name doesn't override it.
-3. **Local backend.** Delivers: `internal/runner/backend/local` (with `Kill`),
+1. **Driver `PrefixPath`.** Delivers: `driverserver.Options.PrefixPath` and
+   `ExecutorOptions.PrefixPath` in place of `RecordPath`, `EventsPath`,
+   `LogPath`, `Config` and `FileRoot`; `gritz driver --prefix`;
+   `testrunner.NewDriver` and `driverserver_test.go`'s `setup` set only
+   `PrefixPath`. Depends on: nothing. Verifiable by: the existing
+   `driverserver` tests on `PrefixPath`.
+2. **Local backend.** Delivers: `internal/runner/backend/local` (with `Kill`),
    `backend.BinaryPather` with `TaskManager.spec` using it, and `gritz runner
    --backend local --local-root`. Depends on: (1). Verifiable by: `local` tests
    modelled on Docker's `TestSandbox_Lifecycle` against the prebuilt driver.
@@ -1239,58 +1333,60 @@ Slices that must wait are marked.
    - a second `Backend` on the same root sees and suspends a sandbox the first
      booted;
    - two sandboxes run side by side.
-4. **Puppet agent.** Delivers: the `puppet` agent type and the harness's control
-   endpoint, with the protocol and the run-handle API settled then (open in this
-   proposal). Depends on: nothing. Verifiable by: an agent test driving one run
-   through each command against a stdio MCP server.
-5. **`runner.Serve`.** Delivers: the runner's wiring moved out of
+3. **Puppet agent.** Delivers: the `puppet` agent type, `PuppetOptions` in the
+   workspace config, and `PuppetAgent` with `PuppetRequest`/`PuppetResponse`.
+   Depends on: nothing. Verifiable by: agent tests against an `httptest` endpoint:
+   a `Prompt` that the endpoint answers with success returns nil, one answered
+   with an error returns it, and cancelling `ctx` aborts the request and returns
+   an error wrapping `context.Canceled`.
+4. **`runner.Serve`.** Delivers: the runner's wiring moved out of
    `command/runner.go` into `runner.Serve`, with `LostTimeout` and
    `ReadyTimeout` in its options. Depends on: nothing. Verifiable by: `gritz
    runner` behaving as before against a dev server; this slice adds no tests.
-   Slice 9 changes what `Serve` calls (`Load`, `TaskManager.Run`), so whichever
-   lands second rebases.
-6. **Server wrapping.** Delivers: `server.Options.Wrap`. Depends on: nothing.
-   Verifiable by: the e2e server tests, which mock through it.
-7. **Harness and `TestStart`.** Delivers: `internal/e2e` with the `Server`,
-   `Backend`, `Runner` and `Task` handles, their waits, and `TestStart`; no mocks
-   yet. Depends on: (1)–(6). Verifiable by: `TestStart` passes under `mise run
-   test`, also with `-count=5 -race`; a deliberately broken assertion reports the
-   last state seen.
-8. **Mocks and fault scenarios.** Delivers: `Server.Mock`, `Backend.Mock`,
+   Slice 9 of runner-event-replica changes what `Serve` calls (`Load`,
+   `TaskManager.Run`), so whichever lands second rebases.
+5. **Harness runner, backend and agent, and `TestStart`.** Delivers:
+   `Options.Runner` and `RunnerOptions`; `h.Agent` with `WaitRun`, `Runs` and
+   `Run`; `h.Backend` without mocks (`Dir`, `WaitSandbox`); `h.Runner` with
+   `Restart`; the `Task` methods; and `TestStart`. Depends on: (1)–(4).
+   Verifiable by: `TestStart` passes under `mise run test`, also with
+   `-count=5 -race`; a deliberately broken assertion reports the last state
+   seen.
+6. **Backend mocks and fault scenarios.** Delivers: `Backend.Mock`,
    `Backend.MockSandbox`, `KillDriver`, and `TestUnreportedRun`,
    `TestSandboxFails`, `TestDriverUnreachable`, `TestDriverDies_MidRun`.
-   Depends on: (7). Verifiable by: the scenarios pass; a test that a mocked
+   Depends on: (5). Verifiable by: the scenarios pass; a test that a mocked
    method records its calls, that a second mock replaces the first, and that
    after `Mock(nil)` the real implementation answers again.
-9. **The other scenarios.** Delivers: every scenario above except
-   `TestSuspendAfter*`, in PRs of two or three. All of them describe behaviour
-   the runner already has after slice 8: archive through `Prune`, reattach
-   through `Load`, the lost driver through `TaskLostEvent`. A scenario that fails
-   has found a bug, and lands with its fix or is skipped with an issue link.
-   Depends on: (7), and (8) for those with mocks. Verifiable by: the scenarios
-   pass.
-10. **Delete constructor-panic tests.** Delivers: `TestNewTaskRunner` removed.
-    Depends on: nothing.
-11. **runner-event-replica slices 9–11 (not part of this proposal), verified
-    with scenarios.** Each slice deletes its (c) tests with the code. The
-    behaviour lists under their "Verifiable by" are covered by the scenarios from
-    (8) and (9), which must keep passing, instead of new `runner_test` cases on
-    the fake backend.
-12. **`suspend_after` scenarios.** Delivers: `Options.SuspendAfter`,
+7. **The other scenarios.** Delivers: every scenario above except
+   `TestSuspendAfter*` and `TestRestart_CancelledBeforeStart`, in PRs of two or
+   three. All of them describe behaviour the runner already has after slice 8:
+   archive through `Prune`, reattach through `Load`, the lost driver through
+   `TaskLostEvent`. A scenario that fails has found a bug, and lands with its
+   fix or is skipped with an issue link. Depends on: (5), and (6) for those
+   with mocks. Verifiable by: the scenarios pass.
+8. **Delete constructor-panic tests.** Delivers: `TestNewTaskRunner` removed.
+   Depends on: nothing.
+9. **runner-event-replica slices 9–11 (not part of this proposal), verified
+   with scenarios.** Each slice deletes its (c) tests with the code. The
+   behaviour lists under their "Verifiable by" are covered by the scenarios from
+   (6) and (7), which must keep passing, instead of new `runner_test` cases on
+   the fake backend.
+10. **`suspend_after` scenarios.** Delivers: `RunnerOptions.SuspendAfter`,
     `TestSuspendAfter`, `TestSuspendAfter_Window`. **Waits for runner-event-replica
     slice 10.** Verifiable by: the scenarios pass.
-13. **Port pass.** Delivers: every (a) test deleted, including most of
+11. **Port pass.** Delivers: every (a) test deleted, including most of
     `driverserver_test.go`, and the driver-loop table test for the cases no
     scenario reaches. **Waits for slice 11**, the last of runner-event-replica,
     as #1890 asks: until then the code under test still moves, and (a) tests are
-    cheap to keep while it does. Depends on: (9), (12). Verifiable by: `mise run
+    cheap to keep while it does. Depends on: (7), (10). Verifiable by: `mise run
     test` passes; coverage of `internal/runner/...` from the e2e package
     (`-coverpkg`) doesn't drop on the paths the deleted tests covered, apart from
     the gaps named above.
-14. **Delete pass.** Delivers: the remaining (b) runner tests moved onto the
+12. **Delete pass.** Delivers: the remaining (b) runner tests moved onto the
     local backend; `backend/fake` and `fake_test.go` deleted; `testrunner`
     reduced to nothing, its last helpers moved into the test files that use them.
-    Closes #1890. Depends on: (13). Verifiable by: `mise run test`; nothing
+    Closes #1890. Depends on: (11). Verifiable by: `mise run test`; nothing
     imports `backend/fake` or `testrunner`.
 
 ## Trade-offs
@@ -1338,6 +1434,22 @@ Slices that must wait are marked.
   how it ends. The puppet captures prompts as well.
 - **The workspace-level dummy config** (`DummyOptions`). Fixed per runner, so
   run 1 and run 2 can't differ.
+- **A puppet driven by a command protocol** (it reports each run, then
+  long-polls the harness for commands such as "call this tool", "complete",
+  "fail"). It could call tools from inside the sandbox, but it is a second
+  protocol to design and keep in step with the test API. Forwarding `Prompt`
+  as it is called needs no protocol beyond the call itself, and new commands
+  can still be added to `Run` when a scenario needs one.
+- **`GRITZ_RUN_VERSION` in every run's environment**, so the agent can report
+  which run version it is in. It would let the harness tell a repeated v1 run
+  from a new v2, but it puts a variable in every real agent's environment for
+  the tests' sake. Runs are identified by order instead, and the task's version
+  is checked through the API.
+- **Building the driver per test run** (`go build` once per test process, on the
+  first runner-enabled harness) instead of the prebuilt. The driver under test
+  would always be the current source, but it departs from how every other test
+  gets its binaries (`mise run build`). The prebuilt is used, and a stale one is
+  the developer's to rebuild.
 - **Asserting on runner internals** (`runner.db`, fake-backend counters). That is
   more precise, but those are exactly the assertions that churn with every
   runner-event-replica slice. Observable state is what has to survive them.
@@ -1348,15 +1460,18 @@ Slices that must wait are marked.
 
 ## Open Questions
 
-- **The puppet's protocol and API.** See "The puppet agent": transport, message
-  shapes, timeouts, cleanup and the harness's run handle are open.
-- **A stale prebuilt.** The driver comes from `prebuilt/`, built by `mise run
-  build`. A developer who changes the driver and runs `go test ./internal/e2e`
-  without rebuilding tests the old driver, silently. A `TestMain` could instead
-  `go build` the binary once per package run (cached, a few seconds), at the cost
-  of departing from the decided "use the prebuilt". Alternatively, the harness
-  could compare the prebuilt's embedded VCS revision with the test binary's and
-  fail on a mismatch.
+- **Tool calls from a run.** The puppet answers in the test process, so a run
+  can't call the injected gritz MCP server, and `TestTools` (the injected
+  server, the task token, the `BinaryPather` path) has no scenario. A later
+  `Run.CallTool(name, args)` would need the puppet to receive the command and
+  call the tool inside the sandbox, which brings back a small command protocol.
+  Add it when a scenario needs it, or cover the injected server elsewhere?
+- **A run that outlives its cancellation.** `TestRestart_CancelledBeforeStart`
+  needs run 1 to keep going after the driver cancels it, so a cancel can land
+  before run 2 starts. The puppet's `Prompt` returns as soon as `ctx` is
+  cancelled. A later `Run` method could hold the return until the test releases
+  it (the request would then stay open after cancellation, and the puppet would
+  report the cancellation instead of aborting). Worth it for one scenario?
 - **Call-through.** A mocked method replaces the real one. Some cases need to
   wrap the real one instead: a `Dial` that cuts the real `Run` stream mid-flight,
   so the runner reconnects to a driver that is still alive
@@ -1377,7 +1492,7 @@ Slices that must wait are marked.
   one slow scenario (skipped under `-short`) for keep-alives?
 - **Amending runner-event-replica.** Slice 9 and 10's "Verifiable by" lists
   name `runner_test` cases on the fake backend. Should that proposal be edited
-  to point at the scenarios once slice 9 here lands?
+  to point at the scenarios once slice 7 here lands?
 - **`gritz runner --backend local` for users.** It runs agents with the runner's
   own privileges and filesystem. Should the flag be hidden, or refuse to start
   without an explicit `--local-unsafe`-style acknowledgement?
