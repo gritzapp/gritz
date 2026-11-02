@@ -10,10 +10,14 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-// testSpecInput returns the input for the specs of run 1 of task 1 in a
-// dummy-agent workspace with secrets.
-func testSpecInput() specInput {
-	return specInput{
+// TestBuildSpecs_PreCreatesLogDir asserts the sandbox spec ships a directory
+// entry for the driver's /gritz/log parent, created 0777 so a non-root driver
+// can write the append-only log file there (the driver's MkdirAll is only a
+// fallback).
+func TestBuildSpecs_PreCreatesLogDir(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	in := specInput{
 		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
 		Workspace: &workspace.Workspace{
 			Container: workspace.Container{Image: "alpine:latest"},
@@ -28,16 +32,9 @@ func testSpecInput() specInput {
 		Token:      "t",
 		BinaryPath: "/gritz/bin/gritz",
 	}
-}
 
-// TestBuildSpecs_PreCreatesLogDir asserts the sandbox spec ships a directory
-// entry for the driver's /gritz/log parent, created 0777 so a non-root driver
-// can write the append-only log file there (the driver's MkdirAll is only a
-// fallback).
-func TestBuildSpecs_PreCreatesLogDir(t *testing.T) {
-	t.Parallel()
 	// Act
-	spec, _, err := buildSpecs(testSpecInput())
+	spec, _, err := buildSpecs(in)
 
 	// Assert
 	assert.NilError(t, err)
@@ -60,8 +57,25 @@ func TestBuildSpecs_PreCreatesLogDir(t *testing.T) {
 // them in the log it ships.
 func TestBuildSpecs_Secrets(t *testing.T) {
 	t.Parallel()
+	// Arrange
+	in := specInput{
+		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
+		Workspace: &workspace.Workspace{
+			Container: workspace.Container{Image: "alpine:latest"},
+			Agent:     workspace.Agent{Type: "dummy"},
+			Secrets: map[string]string{
+				"NPM_TOKEN": "npm_secretvalue",
+				"GH_TOKEN":  "gho_secretvalue",
+			},
+		},
+		ServerURL:  "http://localhost",
+		RunnerID:   "test-runner",
+		Token:      "t",
+		BinaryPath: "/gritz/bin/gritz",
+	}
+
 	// Act
-	spec, _, err := buildSpecs(testSpecInput())
+	spec, _, err := buildSpecs(in)
 
 	// Assert
 	assert.NilError(t, err)
@@ -83,8 +97,22 @@ func TestBuildSpecs_Secrets(t *testing.T) {
 func TestBuildSpecs_RunEnv(t *testing.T) {
 	t.Parallel()
 	// Arrange - a backend whose runs get an environment of their own.
-	in := testSpecInput()
-	in.RunEnv = map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"}
+	in := specInput{
+		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
+		Workspace: &workspace.Workspace{
+			Container: workspace.Container{Image: "alpine:latest"},
+			Agent:     workspace.Agent{Type: "dummy"},
+			Secrets: map[string]string{
+				"NPM_TOKEN": "npm_secretvalue",
+				"GH_TOKEN":  "gho_secretvalue",
+			},
+		},
+		ServerURL:  "http://localhost",
+		RunnerID:   "test-runner",
+		Token:      "t",
+		BinaryPath: "/gritz/bin/gritz",
+		RunEnv:     map[string]string{"FOO": "bar", "GRITZ_TASK_ID": "shadowed"},
+	}
 
 	// Act
 	_, rs, err := buildSpecs(in)
