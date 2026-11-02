@@ -38,6 +38,13 @@ type RunEnver interface {
 	RunEnv(ws *workspace.Workspace) map[string]string
 }
 
+// BinaryPather is implemented by a Backend whose sandboxes have the gritz binary
+// somewhere other than BinaryPath.
+type BinaryPather interface {
+	// BinaryPath returns the path of the gritz binary inside the sandbox.
+	BinaryPath() string
+}
+
 // Sandbox is a reference to one provisioned sandbox, in whatever state it is
 // in: created, running, suspended or gone. It holds the per-sandbox state its
 // backend needs (the Docker container ID, the Lambda endpoint and cached proxy
