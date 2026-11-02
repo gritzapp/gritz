@@ -768,12 +768,12 @@ run if it broke.
 | `TestTaskManagerRunLoop_Restart` | a | Deleted: `TestRestart_MidRun` |
 | `TestTaskManagerRunLoop_SlowDriver` | c | Deleted: every scenario boots a real driver process and waits out its start-up |
 | `TestTaskManagerRunLoop_StartWaitsForSlot` | a | Deleted: `TestConcurrent` |
-| `TestTaskManagerRunLoop_StopSupersedesWaitingStart` | a | Deleted: `TestCancel_PendingStart`. A real cancel of a pending task withdraws the start (`NONE`) rather than stopping it, so the runner's own `stopped` report stays with `TestTaskManagerRunLoop_StopWithoutSandbox` |
+| `TestTaskManagerRunLoop_StopSupersedesWaitingStart` | a | Deleted: `TestCancel_PendingStart`. A real cancel of a pending task withdraws the start (`NONE`) rather than stopping it; the runner's own `stopped` report is covered by the `TestRunnerRestart_*Cancelled*` scenarios |
 | `TestTaskManagerRunLoop_Archive` | a | Deleted: `TestArchive` |
 | `TestTaskManagerRunLoop_CreateFails` | a | Deleted: `TestSandboxFails_Create` |
 | `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load`: `TestRunnerRestart_Completed` |
 | `TestTaskManagerRunLoop_NotReady` | a | Deleted: `TestDriverUnreachable` |
-| `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written (Open Questions). No scenario makes the runner report `stopped` itself |
+| `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Deleted: `TestRunnerRestart_CancelledSandboxGone` (a stop for a task whose sandbox vanished), `TestRunnerRestart_RestartCancelled` (a restart and a stop that reach a live driver together). Stopping the runner lets the cancel land before run 2 starts, without a run that outlives its cancellation |
 | `TestTaskManagerRunLoop_BootFails` | a | Deleted: `TestSandboxFails_Boot`, which restarts the runner before starting the task again, so the sandbox kept after the failed boot must have been recorded before it. Archiving the never-booted sandbox is the same destroy as `TestArchive` and isn't ported |
 | `TestTaskManagerRunLoop_Gone` | c | Deleted: `TestSandboxGone_Suspended` (a wake finds the suspended sandbox gone and fails the run with `backend.ErrGone`; the next wake gets a fresh sandbox) |
 
@@ -802,7 +802,7 @@ run if it broke.
 | `TestTaskRunnerRunLoop_Reattach` | b | Kept: reconnecting to a driver that is still alive needs a stream cut mid-flight, which takes call-through (Open Questions) |
 | `TestTaskRunnerRunLoop_NothingToRun` | a | Kept: no scenario reattaches to a driver that has never run |
 | `TestTaskRunnerRunLoop_Reopen` | a | Kept: `TestWake_MidRun` and `TestRunnerRestart_PendingWake` reach the reopen only when the run-boundary start beats the driver's `Idle`, about two runs in five of the latter, none of the former |
-| `TestTaskRunnerRunLoop_StopNeverRun` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written |
+| `TestTaskRunnerRunLoop_StopNeverRun` | a | Deleted: `TestRunnerRestart_RestartCancelledAfterRun` (the stop reaches a driver already idle after run 1) |
 | `TestTaskRunnerRestore` | b | Deleted. `up`: `TestRunnerRestart_MidRun`, `TestTaskManagerLoad_Slot`. `suspended`: `TestRunnerRestart_DriverKilled`, and `TestRunnerRestart_Completed` (the record is kept, so a wake boots the same sandbox). `gone`: `TestRunnerRestart_SandboxGone`; dropping its record isn't observable, since the RunLoop clears it right after `Load` (#1933). The `status error` and `open fails` cases are dropped |
 | `TestDoubling` | b | Kept: backoff arithmetic |
 | `TestRunnerEventOutbox_Permanent`, `TestTaskManagerEventsSurviveRestart` | b | Kept: retry classification and durability |
@@ -1573,7 +1573,9 @@ the event file) included; its slice 10, `suspend_after`, was split out into
   Add it when a scenario needs it, or cover the injected server elsewhere?
 - **A run that outlives its cancellation.** `TestRestart_CancelledBeforeStart`
   needs run 1 to keep going after the driver cancels it, so a cancel can land
-  before run 2 starts. The puppet's `Prompt` returns as soon as `ctx` is
+  before run 2 starts. (`TestRunnerRestart_RestartCancelled` reaches the same
+  state by stopping the runner before the restart and the cancel, which covers
+  the runner's side without this.) The puppet's `Prompt` returns as soon as `ctx` is
   cancelled. A later `Run` method could hold the return until the test releases
   it (the request would then stay open after cancellation, and the puppet would
   report the cancellation instead of aborting). Worth it for one scenario?
