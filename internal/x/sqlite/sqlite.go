@@ -43,16 +43,18 @@ type Options struct {
 // Open opens the database file at path with the ncruces (no-cgo) driver.
 func Open(path string, opts Options) (*sql.DB, error) {
 	// The pragmas go in the DSN so they apply to every connection the pool
-	// opens, not only the first.
+	// opens, not only the first. They run in order, and busy_timeout goes
+	// first: journal_mode takes a lock, and before busy_timeout it fails with
+	// SQLITE_BUSY at once if another connection holds one.
 	var pragmas []string
+	if opts.BusyTimeout != 0 {
+		pragmas = append(pragmas, "busy_timeout("+strconv.FormatInt(opts.BusyTimeout.Milliseconds(), 10)+")")
+	}
 	if opts.JournalMode != "" {
 		pragmas = append(pragmas, "journal_mode("+string(opts.JournalMode)+")")
 	}
 	if opts.Synchronous != "" {
 		pragmas = append(pragmas, "synchronous("+string(opts.Synchronous)+")")
-	}
-	if opts.BusyTimeout != 0 {
-		pragmas = append(pragmas, "busy_timeout("+strconv.FormatInt(opts.BusyTimeout.Milliseconds(), 10)+")")
 	}
 	dsn := "file:" + (&url.URL{Path: path}).EscapedPath()
 	if len(pragmas) > 0 {
