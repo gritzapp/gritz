@@ -113,6 +113,7 @@ func New(opts Options) (*Server, error) {
 		RecordPath: opts.RecordPath,
 		LogPath:    opts.LogPath,
 		Config:     opts.Config,
+		Events:     events,
 		FileRoot:   opts.FileRoot,
 		Environ:    opts.Environ,
 		NewClient:  opts.NewClient,

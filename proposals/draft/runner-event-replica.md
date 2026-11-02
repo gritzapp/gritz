@@ -398,11 +398,9 @@ is never acted on.
    slot and goes back to step 1.
 4. **Block in `drive`** until the driver is idle.
 5. **Release the slot.**
-6. **Wait for a newer change or `suspend_after`**, then suspend the sandbox
-   and go back to step 1. A change that needs the driver goes straight back
-   to step 2 with the sandbox still up.
+6. **Suspend the sandbox** and go back to step 1.
 
-Two changes are handled wherever `RunLoop` waits (steps 1, 2 and 6):
+Two changes are handled wherever `RunLoop` waits (steps 1 and 2):
 
 - **Archived.** The server archives only finished tasks, or drafts with no
   pending command, so archiving never cancels a run. An archive that arrives
@@ -446,22 +444,16 @@ where to resume forwarding.
 
 #### `suspend_after`
 
-`suspend_after` is a workspace config field (a duration, default 5m): how long
-a sandbox stays up after `drive` returns. A follow-up start within that window,
-such as an instruction that wakes the task, finds the sandbox already up and
-skips the boot.
-
-```yaml
-workspaces:
-  gritz:
-    suspend_after: 5m
-```
+Split out into https://github.com/gritzapp/gritz/issues/1888: a workspace
+setting that keeps a sandbox up for a while after `drive` returns, so a
+follow-up start skips the boot. In this effort the runner suspends as soon as
+`drive` returns.
 
 #### Slots
 
 A slot counts an active driver `Run`, that is, a busy period: it is taken
 before the boot and released when `drive` returns, however many run versions
-the driver ran in between. A sandbox waiting out `suspend_after` holds no slot.
+the driver ran in between.
 
 #### What goes away
 
@@ -851,17 +843,6 @@ func (s *Stream) Read(ctx context.Context, after int64) ([]*gritzv1.Event, error
 ```
 
 ```go
-package workspace // github.com/gritzapp/gritz/internal/runner/workspace
-
-type Workspace struct {
-	// ... existing fields
-	// SuspendAfter is how long a sandbox stays up after its driver goes
-	// idle; 0 → 5m. // new
-	SuspendAfter time.Duration `yaml:"suspend_after"`
-}
-```
-
-```go
 package runner // github.com/gritzapp/gritz/internal/runner
 
 // Run runs the Log and hands each task's reports to its TaskRunner, creating
@@ -1034,12 +1015,9 @@ unreported run.
    creating a new one, a dropped stream reattaching, a gone sandbox reported
    `failed`, and a restarted runner going straight to `drive` for an up
    sandbox without starting the run again.
-10. **`suspend_after`** — Delivers: the workspace field (default 5m) and step
-    6's timer: a sandbox stays up after `drive` returns, and a change that
-    needs the driver within the window drives it again without a boot.
-    Depends on: (9). Verifiable by: `runner_test` with a fake clock: no
-    suspend before the timer, a suspend after it, and a start inside the
-    window reusing the up sandbox.
+10. **`suspend_after`** — Split out into
+    https://github.com/gritzapp/gritz/issues/1888; the runner suspends as
+    soon as `drive` returns.
 11. **Prompt from the event file** — Delivers: the prompt renders from
     `eventfile`; `drainEvents` and `NextEventToken` removed. Depends on: (7).
     Verifiable by: agent prompt tests for first run and wake, including an
@@ -1093,10 +1071,10 @@ unreported run.
   release the slot and suspend between two runs of one busy task, and another
   task could take the slot in between. A busy period keeps one slot and one
   stream for as long as the task has work.
-- **Suspend as soon as the driver is idle.** Rejected: a follow-up
-  instruction shortly after a run would pay a full boot. `suspend_after`
-  trades a few minutes of an idle sandbox for that, per workspace, and holds
-  no slot while it waits.
+- **Suspend as soon as the driver is idle.** Chosen for now: a follow-up
+  instruction shortly after a run pays a full boot. `suspend_after`
+  (https://github.com/gritzapp/gritz/issues/1888) would trade a few minutes
+  of an idle sandbox for that, per workspace, holding no slot while it waits.
 - **Cost of the watermark.** It is cluster-wide: the oldest writing transaction
   anywhere holds back every runner. A slow migration or a session idle in a
   transaction delays delivery until it ends. `idle_in_transaction_session_timeout`

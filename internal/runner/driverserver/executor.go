@@ -15,6 +15,7 @@ import (
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent"
+	"github.com/gritzapp/gritz/internal/runner/eventfile"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"github.com/gritzapp/gritz/internal/runner/runrecord"
 )
@@ -30,6 +31,9 @@ type ExecutorOptions struct {
 	// Config is where the task config file lives. Defaults to
 	// agent.DefaultConfigStore.
 	Config agent.ConfigStore
+	// Events is the driver's event file, which each run's prompt renders
+	// from. Required.
+	Events *eventfile.File
 	// FileRoot is the directory the RunSpec file paths and ProvisionedPath
 	// are relative to. Defaults to "/".
 	FileRoot string
@@ -50,6 +54,7 @@ type Executor struct {
 	recordPath string
 	logPath    string
 	config     agent.ConfigStore
+	events     *eventfile.File
 	fileRoot   string
 	environ    []string
 	newClient  func(serverURL, token string) gritzclient.Client
@@ -84,6 +89,7 @@ func NewExecutor(opts ExecutorOptions) (*Executor, error) {
 		recordPath: cmp.Or(opts.RecordPath, runrecord.Path),
 		logPath:    cmp.Or(opts.LogPath, agent.DefaultLogPath),
 		config:     cmp.Or(opts.Config, agent.DefaultConfigStore),
+		events:     opts.Events,
 		fileRoot:   cmp.Or(opts.FileRoot, "/"),
 		environ:    opts.Environ,
 		newClient:  opts.NewClient,
@@ -249,6 +255,7 @@ func (e *Executor) runAgent(ctx context.Context, spec *driverv1.RunSpec) error {
 		Client:    client,
 		Log:       log,
 		Config:    e.config,
+		Events:    e.events,
 		ServerURL: spec.GetServerUrl(),
 		Token:     spec.GetToken(),
 		Env:       Env(e.environ, spec),

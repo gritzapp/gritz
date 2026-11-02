@@ -68,8 +68,7 @@ func TestTaskManagerStart(t *testing.T) {
 				Version:   task.Version,
 			}}, nil
 		},
-		// The driver drains the event stream before running the agent; an empty
-		// page (more=false) makes the drain a single no-op call.
+		// The agent's get_my_task lists the task's events.
 		ListEventsByTaskFunc: func(_ context.Context, req *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
 			return &gritzv1.ListEventsByTaskResponse{}, nil
 		},
