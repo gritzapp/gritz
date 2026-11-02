@@ -40,8 +40,6 @@ const (
 	// Workspace is the workspace a Manager has by default, and a
 	// CommandEvent's command runs in.
 	Workspace = "test"
-	// ProbeVersion is the version AssertTracked's probe Boot runs.
-	ProbeVersion = 1000
 )
 
 // SleepForever is an agent config whose dummy agent runs until it is stopped.
@@ -254,17 +252,6 @@ func NewStubDriver(t *testing.T, h driverv1connect.DriverServiceHandler) driverv
 	return serve(t, mux)
 }
 
-// StartChange returns task taskID's start at version, in the Workspace
-// workspace, as TaskRunner.Start takes it.
-func StartChange(taskID, version int64) runnerstore.TaskChange {
-	return runnerstore.TaskChange{
-		ID:        taskID,
-		Command:   gritzv1.TaskCommand_START,
-		Version:   version,
-		Workspace: Workspace,
-	}
-}
-
 // CommandEvent returns event id of task taskID, the command command at
 // version, in the Workspace workspace.
 func CommandEvent(id, taskID int64, command gritzv1.TaskCommand, version int64) *gritzv1.Event {
@@ -324,8 +311,7 @@ type ManagerOptions struct {
 	ServerURL  string
 	// Concurrency defaults to 1.
 	Concurrency int
-	// PollInterval is the TaskManager's and its event log's; defaults to
-	// theirs.
+	// PollInterval is the event log's; defaults to its own.
 	PollInterval time.Duration
 	// Fatal is runner.TaskManagerOptions.Fatal.
 	Fatal context.CancelCauseFunc
@@ -344,8 +330,8 @@ type Manager struct {
 	// Server is the runner event log the manager replicates once it runs; Add
 	// appends to it.
 	Server *Server
-	// RunnerStore holds the manager's replica of Server, its followers'
-	// positions, and its sandbox records.
+	// RunnerStore holds the manager's replica of Server and its sandbox
+	// records.
 	RunnerStore *runnerstore.Store
 	// Client is the server. It serves Server's events, mints task tokens,
 	// accepts runner events, and reports every task completed.
@@ -355,8 +341,7 @@ type Manager struct {
 	Queue *runner.RunnerEventOutbox
 }
 
-// NewManager returns a Manager running as RunnerID, with its HandleEvents
-// running until the test ends.
+// NewManager returns a Manager running as RunnerID.
 func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	t.Helper()
 	if opts == nil {
@@ -383,7 +368,7 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 	m.Client.SubmitRunnerEventsFunc = func(_ context.Context, _ *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 		return &gritzv1.SubmitRunnerEventsResponse{}, nil
 	}
-	// Prune and Load's backstop find every task live and not running.
+	// Load's backstop finds every task not running.
 	m.Client.GetTaskFunc = func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 		return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Status: gritzv1.TaskStatus_COMPLETED}}, nil
 	}
@@ -419,9 +404,8 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 			RunnerID:     RunnerID,
 			PollInterval: opts.PollInterval,
 		}),
-		RunnerStore:  m.RunnerStore,
-		PollInterval: opts.PollInterval,
-		Fatal:        opts.Fatal,
+		RunnerStore: m.RunnerStore,
+		Fatal:       opts.Fatal,
 		NewTaskRunner: func(o runner.TaskRunnerOptions) *runner.TaskRunner {
 			o.RetryInterval = 10 * time.Millisecond
 			o.RetryMaxInterval = 50 * time.Millisecond
@@ -434,7 +418,6 @@ func NewManager(t *testing.T, opts *ManagerOptions) *Manager {
 		},
 	})
 	assert.NilError(t, err)
-	go m.HandleEvents(t.Context())
 	return m
 }
 
@@ -465,40 +448,13 @@ func (m *Manager) RunContext(t *testing.T, ctx context.Context) {
 }
 
 // Replicated stores events in the manager's replica as replication would,
-// for a test that doesn't run the manager: a Run stream forwards them, but
-// the task's follower never sees them.
+// for a test that doesn't run the manager: a Run stream forwards them, and
+// Load hands the tasks' stored state to their TaskRunners, but nothing
+// reports them on the event log's Tasks.
 func (m *Manager) Replicated(t *testing.T, events ...*gritzv1.Event) {
 	t.Helper()
 	_, err := m.RunnerStore.AppendEvents(t.Context(), events, "replicated")
 	assert.NilError(t, err)
-}
-
-// Handled returns the id of the last event the task's follower handled.
-func (m *Manager) Handled(t *testing.T, taskID int64) int64 {
-	t.Helper()
-	handled, err := m.RunnerStore.Handled(t.Context(), taskID)
-	if err != nil {
-		// The task isn't stored yet.
-		return 0
-	}
-	return handled
-}
-
-// WaitHandled waits until the task's follower has handled event id: it
-// carried out the command it acted on, or found none to act on.
-func (m *Manager) WaitHandled(t *testing.T, taskID, id int64) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		got := m.Handled(t, taskID)
-		if got == id {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("task %d handled event %d, want %d", taskID, got, id)
-		}
-		time.Sleep(time.Millisecond)
-	}
 }
 
 // Queued returns the number of events in the manager's outbox.
@@ -509,9 +465,7 @@ func (m *Manager) Queued(t *testing.T) int {
 	return n
 }
 
-// WaitQueued waits until the manager's outbox holds n events. A TaskRunner's
-// send returns once HandleEvents has received the event, which it enqueues
-// only after.
+// WaitQueued waits until the manager's outbox holds n events.
 func (m *Manager) WaitQueued(t *testing.T, n int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -578,30 +532,6 @@ func (m *Manager) AssertRecord(t *testing.T, taskID int64, want *runnerstore.San
 	AssertRecord(t, m.RunnerStore, taskID, want)
 }
 
-// AssertTracked asserts the task's record, as AssertRecord does, and that
-// its TaskRunner holds sandbox want.Handle.ID, or, with want nil, no sandbox. It
-// finds out by booting the TaskRunner at ProbeVersion, which changes its
-// state and the record, so it is the last thing a test does with the task.
-func (m *Manager) AssertTracked(t *testing.T, taskID int64, want *runnerstore.SandboxRecord) {
-	t.Helper()
-	m.AssertRecord(t, taskID, want)
-	before := m.Backend.Snapshot()
-	err := m.Runner(taskID).Boot(t.Context(), backend.Spec{TaskID: taskID, Version: ProbeVersion})
-	after := m.Backend.Snapshot()
-	assert.Assert(t, !errors.Is(err, runner.ErrRunning), "task %d's TaskRunner is claimed, so it cannot be probed", taskID)
-	if want == nil {
-		// A TaskRunner with no sandbox creates one.
-		assert.Equal(t, len(after.Specs), len(before.Specs)+1, "task %d's TaskRunner holds a sandbox", taskID)
-		return
-	}
-	// A TaskRunner holding want.Handle.ID boots it, and creates nothing.
-	assert.NilError(t, err)
-	assert.Equal(t, len(after.Specs), len(before.Specs), "task %d's TaskRunner held no sandbox", taskID)
-	was, _ := before.Sandbox(want.Handle.ID)
-	now, _ := after.Sandbox(want.Handle.ID)
-	assert.Equal(t, now.Boots, was.Boots+1, "task %d's TaskRunner does not hold %s", taskID, want.Handle.ID)
-}
-
 // WaitRuns waits until the runner has made at least n Run calls on sandbox
 // id's driver that went through. The fake counts a call once it can cut it,
 // so the n-th stream can then be cut with Drop, Set or Suspend.
@@ -616,8 +546,23 @@ func WaitRuns(t *testing.T, be *fake.Backend, id string, n int) {
 	assert.NilError(t, err, "sandbox %s did not get %d Run calls", id, n)
 }
 
-// NewStream returns task taskID's event stream in store, read through an
-// event log that never replicates: it has the events already in store.
-func NewStream(store *runnerstore.Store, taskID int64) *taskevents.Stream {
-	return taskevents.New(taskevents.Options{Store: store}).Stream(taskID)
+// WaitSandbox waits until sandbox id in be satisfies fn, and returns it.
+func WaitSandbox(t *testing.T, be *fake.Backend, id string, fn func(fake.Info) bool) fake.Info {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	snap, err := be.Wait(ctx, func(s fake.Snapshot) bool {
+		sbx, ok := s.Sandbox(id)
+		return ok && fn(sbx)
+	})
+	assert.NilError(t, err, "sandbox %s did not reach the state waited for", id)
+	sbx, _ := snap.Sandbox(id)
+	return sbx
+}
+
+// WaitSuspended waits until sandbox id in be is suspended, as after its busy
+// period, and returns it.
+func WaitSuspended(t *testing.T, be *fake.Backend, id string) fake.Info {
+	t.Helper()
+	return WaitSandbox(t, be, id, func(sbx fake.Info) bool { return sbx.State == fake.Suspended })
 }

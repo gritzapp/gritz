@@ -9,11 +9,8 @@ import (
 	"maps"
 	"path"
 	"regexp"
-	"slices"
 	"sync"
-	"time"
 
-	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
@@ -26,9 +23,10 @@ import (
 )
 
 // TaskManager orchestrates the runner's tasks: it replicates their event log,
-// hands each unarchived task's reports to its TaskRunner, whose follower acts
-// on the task's commands, builds the specs their sandboxes are created and run
-// with, and keeps the registry of the tasks' TaskRunners.
+// hands each task's reports to its TaskRunner, whose RunLoop manages the
+// task's sandbox, and owns what the TaskRunners share: the concurrency slots,
+// the runner-event outbox and the specs their sandboxes are created and run
+// with. It has no command logic: the drivers act on the commands.
 type TaskManager struct {
 	backend    backend.Backend
 	client     gritzclient.Client
@@ -42,35 +40,24 @@ type TaskManager struct {
 	// tasklog is the runner's replica of its tasks' event logs. Run runs it,
 	// and feeds its task reports to the TaskRunners.
 	tasklog *taskevents.Log
-	// store is tasklog's store, where each follower keeps its position, and
-	// holds the tasks' sandbox records.
+	// store is tasklog's store, which also holds the tasks' sandbox records.
 	store *runnerstore.Store
-	// pollInterval is Run's interval between Prune passes, and caps a
-	// follower's backoff between attempts at a command.
-	pollInterval time.Duration
-	fatal        context.CancelCauseFunc
-	// events is the unbuffered channel the TaskRunners send their events on;
-	// HandleEvents drains it.
-	events chan TaskEvent
+	fatal context.CancelCauseFunc
 	// newTaskRunner builds the manager's TaskRunners; see
 	// TaskManagerOptions.NewTaskRunner.
 	newTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 
-	// mu guards tasks, the registry of the tasks' TaskRunners: one for each
-	// task the runner has seen, from its first command (or its record, at
-	// Load) until retire drops it once the task is archived or deleted. A
-	// TaskRunner stays registered with no sandbox, before it creates one and
-	// after it destroys it or finds it gone. Only Load reads the sandbox
-	// records, to rebuild the registry at boot.
-	mu    sync.Mutex
+	// tasks is the registry of the tasks' TaskRunners, one per task whose
+	// RunLoop is running: from the task's first unarchived report (or its
+	// record, at Load) until RunLoop returns. Load fills it before Run
+	// starts, and from then on only Run's goroutine touches it.
 	tasks map[int64]*TaskRunner
+	// done receives each TaskRunner whose RunLoop returned nil; Run drops
+	// it from tasks.
+	done chan *TaskRunner
+	// loops counts the RunLoop goroutines; Run waits for them on shutdown.
+	loops sync.WaitGroup
 }
-
-const (
-	// defaultPollInterval is Run's prune interval when TaskManagerOptions
-	// leaves it unset.
-	defaultPollInterval = 30 * time.Second
-)
 
 type TaskManagerOptions struct {
 	Client gritzclient.Client
@@ -95,9 +82,6 @@ type TaskManagerOptions struct {
 	// for the task→sandbox-handle mapping: the runner is the only writer, and
 	// backends never touch it. Required.
 	RunnerStore *runnerstore.Store
-	// PollInterval is how often Run prunes, and the most a follower waits
-	// before it retries a command. Defaults to 30s.
-	PollInterval time.Duration
 	// Fatal terminates the runner by cancelling its root context with the given
 	// cause. It is invoked by die when a durable local-store write fails; the
 	// command layer wraps ctx with context.WithCancelCause and passes the
@@ -106,8 +90,8 @@ type TaskManagerOptions struct {
 	Fatal context.CancelCauseFunc
 	// NewTaskRunner builds the TaskRunner of each task the manager registers.
 	// Its options carry the task's ID and the manager's Backend, RunnerStore,
-	// events channel and Log; it may fill in the rest. Defaults to
-	// NewTaskRunner.
+	// Slots, Queue, the task's Stream, the spec builder and Log; it may fill
+	// in the rest. Defaults to NewTaskRunner.
 	NewTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 }
 
@@ -156,11 +140,10 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		queue:         opts.Queue,
 		tasklog:       opts.TaskLog,
 		store:         opts.RunnerStore,
-		pollInterval:  cmp.Or(opts.PollInterval, defaultPollInterval),
 		fatal:         fatal,
-		events:        make(chan TaskEvent),
 		newTaskRunner: newTaskRunner,
 		tasks:         map[int64]*TaskRunner{},
+		done:          make(chan *TaskRunner),
 	}
 	return m, nil
 }
@@ -177,7 +160,8 @@ func (e FatalError) Unwrap() error { return e.err }
 
 // die terminates the runner by cancelling its root context with a
 // FatalError cause. It is the response to a durable local-store write
-// failure (outbox Enqueue or runnerstore WriteSandbox): those failures are
+// failure (outbox Enqueue or runnerstore WriteSandbox), which a RunLoop
+// returns, or a failure of the event log's store: those failures are
 // non-transient (ENOSPC/EIO/EROFS) and silently dropping a lifecycle event
 // defeats the whole point of the durable store, so the runner fails loud and
 // lets its supervisor restart and alert. Riding ctx cancellation instead of os.Exit preserves the
@@ -186,56 +170,18 @@ func (e FatalError) Unwrap() error { return e.err }
 // the first failure is the one reported.
 func (m *TaskManager) die(err error) { m.fatal(FatalError{err}) }
 
-// HandleEvents handles the TaskRunners' events until ctx is done. It must be
-// running before Load is called, and run on the same context as Load, Run and
-// the Run goroutines they start, so that no TaskRunner blocks sending to it
-// after it has stopped.
-//
-// A TaskFatalEvent terminates the runner; a TaskLostEvent is reported to the
-// server as the run's "failed". Handling an event never takes a TaskRunner's
-// lock, so a TaskRunner may send while holding it.
-func (m *TaskManager) HandleEvents(ctx context.Context) {
-	for {
-		select {
-		case ev := <-m.events:
-			m.handle(ev)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// handle handles one TaskRunner event; see HandleEvents.
-func (m *TaskManager) handle(ev TaskEvent) {
-	switch ev := ev.(type) {
-	case TaskFatalEvent:
-		m.die(ev.Err)
-	case TaskLostEvent:
-		if err := m.queue.Enqueue(model.RunnerEvent{
-			TaskID:  ev.TaskID,
-			Version: ev.Version,
-			Event:   model.RunnerEventFailed,
-			Reason:  ev.Reason,
-		}); err != nil {
-			m.die(fmt.Errorf("persist %s for task %d: %w", model.RunnerEventFailed, ev.TaskID, err))
-		}
-	default:
-		panic(fmt.Sprintf("unknown task event %T", ev))
-	}
-}
-
 // Wake makes the event log check the server for new events now. Wake-ups
 // coalesce: a burst of them before the next check results in a single one.
 func (m *TaskManager) Wake() { m.tasklog.Wake() }
 
-// Run runs the event log and the tasks' followers until ctx is done, then
-// returns context.Cause(ctx) once they have stopped. Each task the log
-// reports has its TaskRunner follow it while it is unarchived; an archived
-// task's TaskRunner stops following and is retired. Every PollInterval Run also runs
-// Prune. If the log fails, Run terminates the runner through die.
+// Run runs the event log and hands each task's reports to its TaskRunner
+// until ctx is done, then returns context.Cause(ctx) once the log and every
+// RunLoop have stopped. An unarchived task with no TaskRunner gets one, whose
+// RunLoop starts; a TaskRunner whose RunLoop returned nil, its task archived
+// and its sandbox destroyed, is dropped. If the log or a RunLoop fails, Run
+// terminates the runner through die.
 //
-// HandleEvents must be running, and Load must have returned, before Run is
-// called, all on the same ctx.
+// Load must have returned before Run is called, on the same ctx.
 func (m *TaskManager) Run(ctx context.Context) error {
 	logDone := make(chan struct{})
 	go func() {
@@ -244,64 +190,54 @@ func (m *TaskManager) Run(ctx context.Context) error {
 			m.die(fmt.Errorf("event log: %w", err))
 		}
 	}()
-	prune := time.NewTicker(m.pollInterval)
-	defer prune.Stop()
 	for {
 		select {
 		case c := <-m.tasklog.Tasks():
-			m.apply(ctx, c)
-		case <-prune.C:
-			if err := m.Prune(ctx); err != nil {
-				m.log.Error("failed to prune sandboxes", "err", err)
+			if tr := m.tasks[c.ID]; tr != nil {
+				tr.Change(c)
+			} else if !c.Archived {
+				m.start(ctx, m.newRunner(c.ID), c)
 			}
+		case tr := <-m.done:
+			m.remove(ctx, tr)
 		case <-ctx.Done():
-			m.mu.Lock()
-			runners := slices.Collect(maps.Values(m.tasks))
-			m.mu.Unlock()
-			for _, tr := range runners {
-				tr.unfollow()
-			}
 			<-logDone
+			m.loops.Wait()
 			return context.Cause(ctx)
 		}
 	}
 }
 
-// apply applies one of the event log's task reports: an archived task is
-// retired, and an unarchived one is handed to its TaskRunner, which starts
-// following the task if it isn't yet. Reports may repeat a task's state, and
-// applying one twice changes nothing.
-func (m *TaskManager) apply(ctx context.Context, c runnerstore.TaskChange) {
-	if c.Archived {
-		m.retire(ctx, c.ID)
-		return
-	}
-	tr := m.Runner(c.ID)
-	tr.Set(c)
-	tr.follow(ctx)
+// start registers tr, hands it c, the task's first report, and runs its
+// RunLoop on its own goroutine. When RunLoop returns nil, tr is sent to Run
+// to be removed; an error terminates the runner, unless ctx is done.
+func (m *TaskManager) start(ctx context.Context, tr *TaskRunner, c runnerstore.TaskChange) {
+	m.tasks[c.ID] = tr
+	tr.Change(c)
+	m.loops.Go(func() {
+		if err := tr.RunLoop(ctx); err != nil {
+			if ctx.Err() == nil {
+				m.die(fmt.Errorf("task %d: %w", c.ID, err))
+			}
+			return
+		}
+		select {
+		case m.done <- tr:
+		case <-ctx.Done():
+		}
+	})
 }
 
-// Wait blocks until every Run goroutine the TaskRunners started has returned,
-// or ctx is done, when it returns ctx's cause. It must not be called while the
-// manager can still start runs (Load, TaskRunner.Start, or a follower with a
-// command to handle): each of them can start a Run goroutine, which must not
-// join the wait once it has begun.
-func (m *TaskManager) Wait(ctx context.Context) error {
-	m.mu.Lock()
-	runners := slices.Collect(maps.Values(m.tasks))
-	m.mu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		for _, tr := range runners {
-			tr.wait()
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return context.Cause(ctx)
+// remove drops tr, whose RunLoop returned once its task was archived. A
+// report that reached tr after RunLoop decided to return is not lost: if the
+// task's latest report is no longer archived, a fresh TaskRunner starts from
+// it.
+func (m *TaskManager) remove(ctx context.Context, tr *TaskRunner) {
+	taskID := tr.opts.TaskID
+	delete(m.tasks, taskID)
+	m.log.Info("task runner removed", "task", taskID)
+	if c, _ := tr.latest(); !c.Archived {
+		m.start(ctx, m.newRunner(taskID), c)
 	}
 }
 
@@ -330,46 +266,54 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 }
 
 // Load rehydrates this runner's sandboxes at boot, before Run admits new work.
-// The sandbox records enumerate; Status answers liveness per record. An up
-// sandbox gets the same Run goroutine as the live path, which reattaches
-// to the recorded run; a suspended husk or a gone sandbox is a lost-report
-// backstop, and a gone sandbox's dangling record is dropped (nothing to reuse
-// or destroy). The slots are seeded with the up count last, so they may exceed
-// capacity in over-limit scenarios — that's fine.
+// Each sandbox record is adopted by a TaskRunner for its task through
+// TaskRunner.Restore, which also answers the sandbox's liveness, and handed
+// the task's stored state (archived included) before its RunLoop starts: an
+// up sandbox is driven, reattaching to whatever its driver is doing, and the
+// sandbox of a task archived before the restart is destroyed. A suspended
+// husk or a gone sandbox is a lost-report backstop, and a gone sandbox's
+// dangling record is dropped. The slots are seeded with the up count, so
+// they may exceed capacity in over-limit scenarios — that's fine.
 //
-// Load rebuilds the task registry from the records it keeps: it is the only
-// reader of the sandbox records. Each record is adopted by its task's
-// TaskRunner through TaskRunner.Restore, which claims the TaskRunner of an up sandbox for its Run.
 // A record whose handle cannot be opened is dropped like a gone sandbox's,
 // leaving its TaskRunner with no sandbox.
-//
-// HandleEvents must already be running: the Run goroutines Load starts are
-// the first to send it events.
 func (m *TaskManager) Load(ctx context.Context) error {
 	recs, err := m.store.Sandboxes(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list records: %w", err)
 	}
 	var running int64
+	type restored struct {
+		tr *TaskRunner
+		c  runnerstore.TaskChange
+	}
+	var runners []restored
 	for _, rec := range recs {
-		tr := m.Runner(rec.TaskID)
+		c, err := m.store.Task(ctx, rec.TaskID)
+		if err != nil {
+			return fmt.Errorf("failed to read task %d: %w", rec.TaskID, err)
+		}
+		tr := m.newRunner(rec.TaskID)
 		st, err := tr.Restore(ctx, rec)
 		if err != nil {
 			m.log.Error("load: restore", "task", rec.TaskID, "err", err)
-			continue
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			tr.start(ctx, nil)
 			running++
 		case backend.StatusSuspended: // stopped container / SUSPENDED VM (husk preserved)
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		}
+		runners = append(runners, restored{tr, c})
 	}
+	// Seed the slots before any RunLoop can take or give one back.
 	m.slots.Set(running)
 	m.log.Info("initialized running sandbox count", "count", running)
+	for _, r := range runners {
+		m.start(ctx, r.tr, r.c)
+	}
 	return nil
 }
 
@@ -399,29 +343,18 @@ func (m *TaskManager) failIfTaskRunning(ctx context.Context, taskID, version int
 	}
 }
 
-// Runner returns the task's TaskRunner, registering one with no sandbox if the
-// task has none. The TaskRunner stays registered until retire drops it; nothing
-// else does.
-func (m *TaskManager) Runner(taskID int64) *TaskRunner {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tr := m.tasks[taskID]
-	if tr == nil {
-		tr = m.newTaskRunner(TaskRunnerOptions{
-			TaskID:       taskID,
-			Backend:      m.backend,
-			Store:        m.store,
-			Events:       m.events,
-			Slots:        m.slots,
-			Queue:        m.queue,
-			Stream:       m.tasklog.Stream(taskID),
-			Spec:         m.specs,
-			PollInterval: m.pollInterval,
-			Log:          m.log,
-		})
-		m.tasks[taskID] = tr
-	}
-	return tr
+// newRunner builds a TaskRunner for the task, with no sandbox.
+func (m *TaskManager) newRunner(taskID int64) *TaskRunner {
+	return m.newTaskRunner(TaskRunnerOptions{
+		TaskID:  taskID,
+		Backend: m.backend,
+		Store:   m.store,
+		Slots:   m.slots,
+		Queue:   m.queue,
+		Stream:  m.tasklog.Stream(taskID),
+		Spec:    m.specs,
+		Log:     m.log,
+	})
 }
 
 // spec assembles the sandbox spec for a task: the task token, the run's
@@ -533,66 +466,4 @@ func (m *TaskManager) runSpec(spec *backend.Spec) *driverv1.RunSpec {
 		})
 	}
 	return rs
-}
-
-// Prune retires the archived and deleted tasks among those with a TaskRunner:
-// it checks each with the server, as a task deleted from the
-// server leaves no event to report it. Run calls it, on its own goroutine, so
-// it is never called concurrently with Run.
-func (m *TaskManager) Prune(ctx context.Context) error {
-	m.mu.Lock()
-	ids := slices.Collect(maps.Keys(m.tasks))
-	m.mu.Unlock()
-	for _, taskID := range ids {
-		stale, err := m.stale(ctx, taskID)
-		if err != nil {
-			m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
-			continue
-		}
-		if stale {
-			m.retire(ctx, taskID)
-		}
-	}
-	return nil
-}
-
-// retire stops the task's follower, then retires the task's TaskRunner and
-// drops it from the registry; see TaskRunner.Retire. With the follower
-// stopped, only a Run can still hold the TaskRunner, and Retire refuses a
-// claimed one, so nothing still uses a TaskRunner that is dropped once its
-// last Run goroutine has released its slot. One that can't be retired yet
-// stays registered, and Prune tries again.
-func (m *TaskManager) retire(ctx context.Context, taskID int64) {
-	m.mu.Lock()
-	tr := m.tasks[taskID]
-	m.mu.Unlock()
-	if tr == nil {
-		return
-	}
-	tr.unfollow()
-	ok, err := tr.Retire(ctx)
-	if err != nil {
-		m.log.Error("failed to prune sandbox", "task", taskID, "err", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	tr.wait()
-	m.mu.Lock()
-	delete(m.tasks, taskID)
-	m.mu.Unlock()
-	m.log.Info("task pruned", "task", taskID)
-}
-
-// stale reports whether the task is archived or deleted on the server.
-func (m *TaskManager) stale(ctx context.Context, taskID int64) (bool, error) {
-	resp, err := m.client.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-	if connect.CodeOf(err) == connect.CodeNotFound {
-		return true, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to get task: %w", err)
-	}
-	return resp.Task.Archived, nil
 }

@@ -4,14 +4,9 @@ import gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 
 // PageTask is one task's command and archive events in a page.
 type PageTask struct {
-	ID      int64
-	Command *gritzv1.CommandPayload // last command event in the page, or nil
-	// CommandEventID is the id of the page's last command event, set with
-	// Command. It is temporary scaffolding for the runner's followers, and
-	// goes along with the tasks' handled position once the driver acts on
-	// commands (L8).
-	CommandEventID int64
-	Archived       *bool // last archive event's result, or nil
+	ID       int64
+	Command  *gritzv1.CommandPayload // last command event in the page, or nil
+	Archived *bool                   // last archive event's result, or nil
 }
 
 // TaskChanges folds a page's events into one PageTask per task with a command
@@ -34,7 +29,6 @@ func TaskChanges(events []*gritzv1.Event) []PageTask {
 		}
 		if command != nil {
 			tasks[i].Command = command
-			tasks[i].CommandEventID = e.GetId()
 		}
 		if isArchive {
 			tasks[i].Archived = &archived

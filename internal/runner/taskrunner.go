@@ -25,89 +25,67 @@ import (
 )
 
 // TaskRunner is the runner's state for a task: its sandbox, the task's
-// sandbox record in the runner store, the driver's Run stream held on it, and
-// the follower that acts on the task's commands; see Follow. It is
-// the runner's object for the task, not for one sandbox: it may have no
-// sandbox yet, and it outlives the sandbox it has. Boot creates a sandbox and writes its record,
-// and Restore adopts the record a previous process wrote; Destroy and Retire
-// destroy the sandbox and delete its record, and Boot and Restore delete the
-// record of a sandbox they find gone. The TaskRunner stays usable throughout,
-// and the next Boot creates a fresh sandbox.
+// sandbox record in the runner store, and the task's latest report, which
+// RunLoop acts on. It is the runner's object for the task, not for one
+// sandbox: it may have no sandbox yet, and it outlives the sandbox it has.
+// RunLoop boots, drives and suspends the sandbox as the task's reports ask,
+// and destroys it once the task is archived; Restore adopts the record a
+// previous process wrote, before RunLoop starts.
 type TaskRunner struct {
 	// opts is the TaskRunner's configuration, with its defaults applied.
 	opts TaskRunnerOptions
-	// mu serializes the TaskRunner's methods. Run holds it only to capture the
-	// sandbox it holds the stream on, and to end the busy period; see finish.
-	mu sync.Mutex
-	// sbx is the task's sbx, or nil while it has none. It is set by Boot,
-	// which creates it, or by Restore, and cleared by clear. Guarded by mu.
+	// sbx is the task's sandbox, or nil while it has none, and rec its
+	// record, as last written to the runner store; zero while sbx is nil.
+	// Only RunLoop uses them, once Restore has set them.
 	sbx backend.Sandbox
-	// rec is sb's record, as last written to the runner store; zero while sb
-	// is nil. Guarded by mu.
 	rec runnerstore.SandboxRecord
-	// running is set from Boot (or Restore) until Run returns, so a second
-	// Run is not started meanwhile, and the sandbox is not destroyed under it.
-	// A command handled while it is set reaches the driver on Run's stream.
-	// Guarded by mu.
-	running bool
-	// runs counts the Run goroutines start started that have not returned;
-	// see wait.
-	runs sync.WaitGroup
+	// up is set by Restore for a sandbox it finds up: RunLoop drives it
+	// first, with the slot Load counted for it.
+	up bool
 
 	// changeMu guards change, the task's latest report, and hasChange,
-	// whether there has been one. It is apart from mu, which a command holds
-	// while it boots the sandbox, so Set never waits for one.
+	// whether there has been one.
 	changeMu  sync.Mutex
 	change    runnerstore.TaskChange
 	hasChange bool
-	// changed wakes Follow when Set stores a report.
+	// changed wakes RunLoop when Change stores a report.
 	changed wakeup.Chan
-
-	// stopFollow stops the Follow goroutine follow started, and followDone is
-	// closed once it has returned; both are nil while there is none. Only the
-	// manager's Run goroutine uses them.
-	stopFollow context.CancelFunc
-	followDone chan struct{}
 }
 
 // TaskRunnerOptions configures a TaskRunner.
 type TaskRunnerOptions struct {
 	// TaskID is the task the TaskRunner runs.
 	TaskID int64
-	// Backend creates the sandbox Boot needs, and opens the sandbox of a
+	// Backend creates the sandbox the task boots, and opens the sandbox of a
 	// record Restore adopts. Required.
 	Backend backend.Backend
 	// Store holds the task's record. Required.
 	Store *runnerstore.Store
-	// Events receives the TaskRunner's events; see TaskRunner.send. Required.
-	Events chan<- TaskEvent
-	// Slots are the concurrency slots a run holds, shared by all the
-	// manager's TaskRunners. Required to Follow or Start.
+	// Slots are the concurrency slots a busy period holds, shared by all the
+	// manager's TaskRunners. Required to RunLoop.
 	Slots *Slots
-	// Queue is the outbox the commands' runner events are reported to.
-	// Required to Follow.
+	// Queue is the outbox the runner's own runner events are reported to.
+	// Required to RunLoop.
 	Queue *RunnerEventOutbox
-	// Stream is the task's event stream, which Run forwards to the driver.
-	// Required to Run.
+	// Stream is the task's event stream, which drive forwards to the driver.
+	// Required to RunLoop.
 	Stream *taskevents.Stream
 	// Spec builds the sandbox spec of the task's run c, and the driver.v1
-	// RunSpec its run is started with. Required to Follow or Start.
+	// RunSpec its stream is opened with. Required to RunLoop.
 	Spec func(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error)
-	// PollInterval caps Follow's backoff between attempts at a command;
-	// defaults to 30s.
-	PollInterval time.Duration
 	// Log is the logger; defaults to slog.Default().
 	Log *slog.Logger
-	// RetryInterval is the first pause between attempts to reach the driver
-	// or reattach to a run; defaults to 250ms.
+	// RetryInterval is the first pause between attempts to reach the driver,
+	// reattach to it, or destroy an archived task's sandbox; defaults to
+	// 250ms.
 	RetryInterval time.Duration
-	// RetryMaxInterval caps the reattach backoff; defaults to 10s.
+	// RetryMaxInterval caps those backoffs; defaults to 10s.
 	RetryMaxInterval time.Duration
-	// LostTimeout is how long Run keeps reattaching without a good message
-	// from the driver before it gives up on the run; defaults to 2m.
+	// LostTimeout is how long drive keeps reattaching without a good message
+	// from the driver before it gives up on it; defaults to 2m.
 	LostTimeout time.Duration
-	// ReadyTimeout is how long a started sandbox's driver has to answer and
-	// accept its run; defaults to 1m.
+	// ReadyTimeout is how long a booted sandbox's driver has to answer;
+	// defaults to 1m.
 	ReadyTimeout time.Duration
 }
 
@@ -128,96 +106,75 @@ const (
 )
 
 // NewTaskRunner returns a TaskRunner for opts.TaskID with no sandbox. It has no
-// side effects: Boot creates the sandbox and Restore adopts a record. It
-// panics if Backend, Store or Events is missing.
+// side effects: RunLoop creates the sandbox and Restore adopts a record. It
+// panics if Backend or Store is missing.
 func NewTaskRunner(opts TaskRunnerOptions) *TaskRunner {
 	switch {
 	case opts.Backend == nil:
 		panic("runner: TaskRunnerOptions.Backend is required")
 	case opts.Store == nil:
 		panic("runner: TaskRunnerOptions.Store is required")
-	case opts.Events == nil:
-		panic("runner: TaskRunnerOptions.Events is required")
 	}
 	opts.Log = cmp.Or(opts.Log, slog.Default())
 	opts.RetryInterval = cmp.Or(opts.RetryInterval, defaultRetryInterval)
 	opts.RetryMaxInterval = cmp.Or(opts.RetryMaxInterval, defaultRetryMaxInterval)
 	opts.LostTimeout = cmp.Or(opts.LostTimeout, defaultLostTimeout)
 	opts.ReadyTimeout = cmp.Or(opts.ReadyTimeout, defaultReadyTimeout)
-	opts.PollInterval = cmp.Or(opts.PollInterval, defaultPollInterval)
 	return &TaskRunner{opts: opts, changed: wakeup.New()}
 }
 
-// TaskEvent is something a TaskRunner reports to its manager, on the
-// manager's events channel; see TaskManager.HandleEvents. Only this package
-// implements it, so the manager's type switch is exhaustive.
-type TaskEvent interface{ taskEvent() }
+// fatalError is a durable local-store write failure: RunLoop returns it, and
+// the manager terminates the runner with it.
+type fatalError struct{ err error }
 
-// TaskFatalEvent reports a durable write failure that must terminate the
-// runner.
-type TaskFatalEvent struct {
-	TaskID int64
-	Err    error
-}
-
-// TaskLostEvent reports a run whose outcome the driver did not report: the
-// manager reports it "failed", scoped to Version.
-type TaskLostEvent struct {
-	TaskID  int64
-	Version int64
-	Reason  string
-}
-
-func (TaskFatalEvent) taskEvent() {}
-func (TaskLostEvent) taskEvent()  {}
-
-// ErrRunning is returned by Boot and Destroy when a Run is still open, so
-// nothing was done.
-var ErrRunning = errors.New("sandbox is still running")
+func (e fatalError) Error() string { return e.err.Error() }
+func (e fatalError) Unwrap() error { return e.err }
 
 // record returns the task's record of sb's handle at version.
 func (tr *TaskRunner) record(sb backend.Sandbox, version int64) runnerstore.SandboxRecord {
 	return runnerstore.SandboxRecord{TaskID: tr.opts.TaskID, Version: version, Handle: sb.Handle()}
 }
 
-// write records rec in the runner store and on tr. A store write failure
-// terminates the runner, through a TaskFatalEvent: the runner store is the
-// runner's durable local state, and a write failure here is the same
-// non-transient disk failure as an outbox Enqueue failure, so crash rather than
-// lose the handle. The record is written even if ctx is done, so a sandbox
-// created as the runner shuts down is not left untracked. The returned error
-// still unwinds the caller (releasing the concurrency slot) as ctx tears down. The
-// caller holds tr.mu.
+// write records rec in the runner store and on tr. A store write failure is a
+// fatalError: the runner store is the runner's durable local state, and a
+// write failure here is the same non-transient disk failure as an outbox
+// Enqueue failure, so crash rather than lose the handle. The record is
+// written even if ctx is done, so a sandbox created as the runner shuts down
+// is not left untracked.
 func (tr *TaskRunner) write(ctx context.Context, rec runnerstore.SandboxRecord) error {
 	if err := tr.opts.Store.WriteSandbox(context.WithoutCancel(ctx), rec); err != nil {
-		tr.send(ctx, TaskFatalEvent{
-			TaskID: tr.opts.TaskID,
-			Err:    fmt.Errorf("record handle for task %d: %w", tr.opts.TaskID, err),
-		})
-		return fmt.Errorf("failed to record task handle: %w", err)
+		return fatalError{fmt.Errorf("record handle for task %d: %w", tr.opts.TaskID, err)}
 	}
 	tr.rec = rec
 	return nil
 }
 
-// send sends ev to the manager, or drops it if ctx is done first: the runner
-// is shutting down, and the manager's HandleEvents, which runs on the same
-// context, may have stopped. The manager never takes a TaskRunner's lock to
-// handle an event, so the caller may hold tr.mu.
-func (tr *TaskRunner) send(ctx context.Context, ev TaskEvent) {
-	select {
-	case tr.opts.Events <- ev:
-	case <-ctx.Done():
-		tr.opts.Log.Warn("task event dropped at shutdown", "task", tr.opts.TaskID, "event", ev)
+// enqueue reports ev to the server through the outbox. A failure to persist
+// it is a fatalError.
+func (tr *TaskRunner) enqueue(ev model.RunnerEvent) error {
+	if err := tr.opts.Queue.Enqueue(ev); err != nil {
+		return fatalError{fmt.Errorf("persist %s for task %d: %w", ev.Event, ev.TaskID, err)}
 	}
+	return nil
+}
+
+// fail reports run version of the task failed for why.
+func (tr *TaskRunner) fail(version int64, why string) error {
+	tr.opts.Log.Error("run failed", "task", tr.opts.TaskID, "version", version, "reason", why)
+	return tr.enqueue(model.RunnerEvent{
+		TaskID:  tr.opts.TaskID,
+		Event:   model.RunnerEventFailed,
+		Version: version,
+		Reason:  why,
+	})
 }
 
 // clear deletes the task's record and leaves tr with no sandbox, which it
 // always does: a record that cannot be deleted is only logged, since it tracks
-// a sandbox that is gone or destroyed. The next Boot overwrites it, and if
-// there is none, the next boot's Load finds the sandbox gone and drops it. The
-// caller holds tr.mu. The record is deleted even if ctx is done, since the
-// sandbox it tracks already is.
+// a sandbox that is gone or destroyed. The next boot overwrites it, and if
+// there is none, the next runner's Load finds the sandbox gone and drops it.
+// The record is deleted even if ctx is done, since the sandbox it tracks
+// already is.
 func (tr *TaskRunner) clear(ctx context.Context) {
 	if err := tr.opts.Store.RemoveSandbox(context.WithoutCancel(ctx), tr.opts.TaskID); err != nil {
 		tr.opts.Log.Error("failed to remove record", "task", tr.opts.TaskID, "err", err)
@@ -225,24 +182,18 @@ func (tr *TaskRunner) clear(ctx context.Context) {
 	tr.sbx, tr.rec = nil, runnerstore.SandboxRecord{}
 }
 
-// Boot brings up the task's sandbox for run spec.Version, claiming tr for the
-// run Run then starts. With no sandbox, Boot creates one from spec and records
-// its handle; with one, it stamps the record with spec.Version and reuses it,
-// since a task is bound 1:1 to its sandbox. Then it boots the sandbox.
+// boot brings up the task's sandbox for run spec.Version. With no sandbox,
+// boot creates one from spec and records its handle; with one, it stamps the
+// record with spec.Version and reuses it, since a task is bound 1:1 to its
+// sandbox. Then it boots the sandbox.
 //
-// If the sandbox is gone, Boot deletes its record, leaving tr with no
+// If the sandbox is gone, boot deletes its record, leaving tr with no
 // sandbox, and returns backend.ErrGone: the caller reports the run failed, and
-// the next Boot creates a fresh sandbox. Any other failure to boot it keeps
-// the sandbox and its record, so Destroy can still destroy it. If a Run is
-// still open, Boot returns ErrRunning without doing anything.
-func (tr *TaskRunner) Boot(ctx context.Context, spec backend.Spec) error {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	if tr.running {
-		return ErrRunning
-	}
+// the next boot creates a fresh sandbox. Any other failure to boot it keeps
+// the sandbox and its record, so it can still be destroyed.
+func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 	if tr.sbx == nil {
-		if err := tr.create(ctx, &spec); err != nil {
+		if err := tr.create(ctx, spec); err != nil {
 			return err
 		}
 	} else if rec := tr.record(tr.sbx, spec.Version); !reflect.DeepEqual(rec, tr.rec) {
@@ -256,14 +207,13 @@ func (tr *TaskRunner) Boot(ctx context.Context, spec backend.Spec) error {
 	} else if err != nil {
 		return err
 	}
-	tr.running = true
 	return nil
 }
 
 // create creates the task's sandbox from spec and records its handle at
 // spec.Version. If the record cannot be written, the new sandbox is destroyed,
 // on a best-effort basis and even if ctx is done, so it is not left untracked.
-// The caller holds tr.mu, and tr has no sandbox.
+// tr has no sandbox.
 func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 	sb, err := tr.opts.Backend.Create(ctx, spec)
 	if err != nil {
@@ -279,18 +229,18 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 	return nil
 }
 
-// Restore adopts rec, a record a previous process wrote, on a TaskRunner with
-// no sandbox yet, and reports the status of the sandbox it opens from rec's
-// handle. An up sandbox claims tr for a Run reattaching to the recorded run, in
-// the same lock acquisition that installs it, as Boot does for a new run.
+// Restore adopts rec, a record a previous process wrote, and reports the
+// status of the sandbox it opens from rec's handle. RunLoop drives an up
+// sandbox first, as it reattaches to whatever the driver is doing. Restore
+// is called before RunLoop starts, on a TaskRunner with no sandbox.
 //
 // A handle that cannot be opened, or a sandbox that is gone, leaves tr with no
 // sandbox and its record deleted; see clear. A failed status check keeps the
-// sandbox and its record, since the sandbox may still be there, and claims
-// nothing.
+// sandbox and its record, since the sandbox may still be there.
 func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord) (backend.Status, error) {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
+	if tr.sbx != nil {
+		panic("runner: Restore on a TaskRunner with a sandbox")
+	}
 	sb, err := tr.opts.Backend.Open(rec.Handle)
 	if err != nil {
 		tr.clear(ctx)
@@ -305,24 +255,17 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord
 	case backend.StatusGone:
 		tr.clear(ctx)
 	case backend.StatusUp:
-		tr.running = true
+		tr.up = true
 	}
 	return st, nil
 }
 
-// Destroy destroys the task's sandbox and deletes its record, leaving tr with
+// destroy destroys the task's sandbox and deletes its record, leaving tr with
 // no sandbox. The record is deleted only after the destroy succeeds, so a
-// failed destroy leaves the sandbox tracked and the removal is retried.
-// Destroying a gone sandbox is not an error, so a sandbox that vanished is
-// simply dropped. A task with no sandbox has nothing to destroy. If a run is
-// claimed, from Boot (or Restore) until its Run returns, Destroy returns
-// ErrRunning without doing anything.
-func (tr *TaskRunner) Destroy(ctx context.Context) error {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	if tr.running {
-		return ErrRunning
-	}
+// failed destroy leaves the sandbox tracked. Destroying a gone sandbox is not
+// an error, so a sandbox that vanished is simply dropped. A task with no
+// sandbox has nothing to destroy.
+func (tr *TaskRunner) destroy(ctx context.Context) error {
 	if tr.sbx == nil {
 		return nil
 	}
@@ -333,36 +276,10 @@ func (tr *TaskRunner) Destroy(ctx context.Context) error {
 	return nil
 }
 
-// Retire destroys the task's sandbox, as Destroy does, if tr is idle: no run
-// is claimed, and the sandbox is not up. Both a suspended husk and a gone sandbox
-// count as "no live sandbox". It reports whether tr is now idle with no
-// sandbox, which it also is if it had none.
-func (tr *TaskRunner) Retire(ctx context.Context) (bool, error) {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	if tr.running {
-		return false, nil
-	}
-	if tr.sbx == nil {
-		return true, nil
-	}
-	status, err := tr.sbx.Status(ctx)
-	if err != nil {
-		return false, fmt.Errorf("failed to get sandbox status: %w", err)
-	}
-	if status == backend.StatusUp {
-		return false, nil
-	}
-	if err := tr.sbx.Destroy(ctx); err != nil {
-		return false, fmt.Errorf("failed to remove sandbox: %w", err)
-	}
-	tr.clear(ctx)
-	return true, nil
-}
-
-// Set stores c as the task's latest report, replacing the one before it, and
-// wakes Follow.
-func (tr *TaskRunner) Set(c runnerstore.TaskChange) {
+// Change stores c as the task's latest report, replacing the one before it,
+// and wakes RunLoop. RunLoop only ever looks at the latest report, so a
+// command superseded before RunLoop got to it is never acted on.
+func (tr *TaskRunner) Change(c runnerstore.TaskChange) {
 	tr.changeMu.Lock()
 	tr.change, tr.hasChange = c, true
 	tr.changeMu.Unlock()
@@ -376,400 +293,328 @@ func (tr *TaskRunner) latest() (runnerstore.TaskChange, bool) {
 	return tr.change, tr.hasChange
 }
 
-// follow runs Follow on its own goroutine, on the runner's root context ctx,
-// unless it already runs. The manager calls it when it hands tr a report.
-func (tr *TaskRunner) follow(ctx context.Context) {
-	if tr.followDone != nil {
-		return
-	}
-	fctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	tr.stopFollow, tr.followDone = cancel, done
-	go func() {
-		defer close(done)
-		tr.Follow(ctx, fctx)
-	}()
+// wantsRun reports whether c's command needs the driver to run version
+// c.Version.
+func wantsRun(c runnerstore.TaskChange) bool {
+	return c.Command == gritzv1.TaskCommand_START || c.Command == gritzv1.TaskCommand_RESTART
 }
 
-// unfollow stops the Follow goroutine, if there is one, and waits for it to
-// return: a command it is handling is carried out first.
-func (tr *TaskRunner) unfollow() {
-	if tr.followDone == nil {
-		return
-	}
-	tr.stopFollow()
-	<-tr.followDone
-	tr.stopFollow, tr.followDone = nil, nil
+// handled is what RunLoop has done, kept in memory only: a runner that
+// restarts may boot a sandbox again for a start it already carried out,
+// which the driver finds nothing to do for.
+type handled struct {
+	// driven is the newest version RunLoop has driven, booted or failed: a
+	// start or restart needs the driver only if it is newer.
+	driven int64
+	// stopped is the newest version whose stop needs no report from the
+	// runner: the driver ran it, or the runner has reported it stopped.
+	stopped int64
 }
 
-// Follow is the task's follower. It acts on the command of the task's latest
-// report, which Set stores: commands are a desired state, so the latest
-// supersedes the ones before it, and a report that repeats a command already
-// handled does nothing. Once the command is carried out, it stores the
-// command's event id as handled and waits for the next report.
+// RunLoop is the TaskRunner's lifetime: it boots, drives and suspends the
+// task's sandbox as the task's reports ask, and returns nil once the task is
+// archived and its sandbox destroyed. The manager hands it the task's first
+// report before it starts.
 //
-// A start or restart that isn't carried out, because there was no
-// concurrency slot for it, leaves handled where it was. The follower tries
-// again once a run releases its slot, the task has a new report, or a backoff
-// ends, acting on the latest report each time, so a newer command takes the
-// place of the one that waited.
+// Each pass waits for a start or restart newer than the last version it
+// handled, takes a slot, boots the sandbox, and holds the driver's stream in
+// drive until the driver is idle; then it releases the slot and suspends the
+// sandbox. A sandbox Restore found up is driven first, with the slot Load
+// counted for it. Only the wait for a slot is preempted by a newer report;
+// an archive that arrives during a boot or a drive waits for it to end.
 //
-// Commands are carried out on ctx, the runner's root context, as the Run
-// goroutines they start must outlive the follower; fctx ends the follower.
-// A store error terminates the runner, through a TaskFatalEvent.
-func (tr *TaskRunner) Follow(ctx, fctx context.Context) {
-	opts, taskID := tr.opts, tr.opts.TaskID
-	handled, err := opts.Store.Handled(ctx, taskID)
-	if err != nil {
-		if ctx.Err() == nil {
-			tr.send(ctx, TaskFatalEvent{TaskID: taskID, Err: err})
+// On shutdown RunLoop returns ctx's cause, and leaves the sandbox as it is
+// for the next runner's Load. Any other error is a durable-write failure, a
+// fatalError, which terminates the runner.
+func (tr *TaskRunner) RunLoop(ctx context.Context) error {
+	if tr.opts.Slots == nil || tr.opts.Queue == nil || tr.opts.Stream == nil || tr.opts.Spec == nil {
+		panic("runner: TaskRunnerOptions.Slots, Queue, Stream and Spec are required to RunLoop")
+	}
+	if _, ok := tr.latest(); !ok {
+		panic("runner: RunLoop before the TaskRunner's first Change")
+	}
+	var h handled
+	if tr.up {
+		if err := tr.busy(ctx, &h, nil); err != nil {
+			return err
 		}
-		return
 	}
-	retry := doubling(min(time.Second, opts.PollInterval), opts.PollInterval)
 	for {
-		// Take the signal before handling, so a slot released while the
-		// handler runs still wakes the retry.
-		released := opts.Slots.Released()
-		c, ok := tr.latest()
-		if !ok || c.CommandEventID <= handled {
-			select {
-			case <-tr.changed:
-				continue
-			case <-fctx.Done():
-				return
-			}
+		c, archived, err := tr.next(ctx, &h)
+		if err != nil || archived {
+			return err
 		}
-		if err := tr.command(ctx, c); err != nil {
-			opts.Log.Debug("command waits", "task", taskID, "command", c.Command, "version", c.Version, "reason", err)
-			if !tr.await(fctx, released, retry.NextBackOff()) {
-				return
+		if err := tr.acquire(ctx); errors.Is(err, errChanged) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		h.driven = c.Version
+		spec, runSpec, err := tr.opts.Spec(ctx, c)
+		if err == nil {
+			err = tr.boot(ctx, spec)
+		}
+		if err != nil {
+			if fe := (fatalError{}); errors.As(err, &fe) {
+				return err
+			}
+			if ctx.Err() != nil {
+				return context.Cause(ctx)
+			}
+			tr.opts.Slots.Release()
+			if err := tr.fail(c.Version, err.Error()); err != nil {
+				return err
 			}
 			continue
 		}
-		if err := opts.Store.SetHandled(ctx, taskID, c.CommandEventID); err != nil {
-			if ctx.Err() == nil {
-				tr.send(ctx, TaskFatalEvent{TaskID: taskID, Err: err})
-			}
-			return
+		if err := tr.busy(ctx, &h, runSpec); err != nil {
+			return err
 		}
-		handled = c.CommandEventID
-		retry.Reset()
 	}
 }
 
-// await waits for a reason to try a command again: released firing, a new
-// report for the task, or the backoff d running out. It reports false if ctx
-// ended first.
-func (tr *TaskRunner) await(ctx context.Context, released <-chan struct{}, d time.Duration) bool {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-released:
-	case <-tr.changed:
-	case <-timer.C:
-	case <-ctx.Done():
-	}
-	return ctx.Err() == nil
-}
-
-// command carries out the task's command c. A non-nil error, errNoSlot,
-// means it wasn't carried out, and the follower tries again. No command needs
-// nothing done.
-func (tr *TaskRunner) command(ctx context.Context, c runnerstore.TaskChange) error {
-	switch c.Command {
-	case gritzv1.TaskCommand_STOP:
-		tr.stopTask(ctx, c)
-		return nil
-	case gritzv1.TaskCommand_START, gritzv1.TaskCommand_RESTART:
-		return tr.startTask(ctx, c)
-	default:
-		return nil
-	}
-}
-
-// errNoSlot is what startTask returns when every concurrency slot is taken:
-// the run waits for one, and its command is tried again.
-var errNoSlot = errors.New("concurrency limit reached")
-
-// enqueue reports ev to the server through the outbox. A failure to persist
-// it terminates the runner, through a TaskFatalEvent.
-func (tr *TaskRunner) enqueue(ctx context.Context, ev model.RunnerEvent) {
-	if err := tr.opts.Queue.Enqueue(ev); err != nil {
-		tr.send(ctx, TaskFatalEvent{
-			TaskID: ev.TaskID,
-			Err:    fmt.Errorf("persist %s for task %d: %w", ev.Event, ev.TaskID, err),
-		})
+// next waits for the task's latest report to want a run newer than h.driven,
+// and returns it. Meanwhile it handles the two reports that need no driver:
+// a stop newer than h.stopped, which no Run is open to report, is reported
+// "stopped" here, and an archive destroys the sandbox and its record, when
+// next reports archived. A destroy that fails is retried with backoff.
+func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskChange, archived bool, err error) {
+	retry := doubling(tr.opts.RetryInterval, tr.opts.RetryMaxInterval)
+	for {
+		var timer <-chan time.Time
+		c, _ := tr.latest()
+		switch {
+		case c.Archived:
+			err := tr.destroy(ctx)
+			if err == nil {
+				tr.opts.Log.Info("task archived, sandbox destroyed", "task", tr.opts.TaskID)
+				return c, true, nil
+			}
+			if ctx.Err() != nil {
+				return c, false, context.Cause(ctx)
+			}
+			tr.opts.Log.Error("failed to destroy archived task's sandbox", "task", tr.opts.TaskID, "err", err)
+			timer = time.After(retry.NextBackOff())
+		case wantsRun(c) && c.Version > h.driven:
+			return c, false, nil
+		case c.Command == gritzv1.TaskCommand_STOP && c.Version > h.stopped:
+			h.stopped = c.Version
+			if err := tr.enqueue(model.RunnerEvent{
+				TaskID:  tr.opts.TaskID,
+				Event:   model.RunnerEventStopped,
+				Version: c.Version,
+			}); err != nil {
+				return c, false, err
+			}
+		}
+		select {
+		case <-tr.changed:
+		case <-timer:
+		case <-ctx.Done():
+			return c, false, context.Cause(ctx)
+		}
 	}
 }
 
-// stopTask reports the task's stop c done, unless a Run stream is open: the
-// driver acts on the stop from the stream then, and the run it stops reports
-// itself. With no stream open there is no run to stop, and no driver to
-// report it, so the runner reports "stopped" to land the task in cancelled.
-func (tr *TaskRunner) stopTask(ctx context.Context, c runnerstore.TaskChange) {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	if tr.running {
-		return
+// errChanged is what acquire returns when a report arrived while it waited.
+var errChanged = errors.New("task changed while waiting for a slot")
+
+// acquire takes a slot, as Slots.Acquire does, unless a report arrives
+// first: then it returns errChanged, and RunLoop looks at the latest report
+// again, so a cancel that lands while a start waits means the start never
+// runs. A report that arrives as the slot is taken gives the slot back too.
+func (tr *TaskRunner) acquire(ctx context.Context) error {
+	actx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case <-tr.changed:
+			cancel(errChanged)
+		case <-actx.Done():
+		}
+	}()
+	err := tr.opts.Slots.Acquire(actx)
+	cancel(nil)
+	// Wait for the watcher, so that only RunLoop reads tr.changed once
+	// acquire returns.
+	<-done
+	if errors.Is(context.Cause(actx), errChanged) {
+		if err == nil {
+			tr.opts.Slots.Release()
+		}
+		return errChanged
 	}
-	tr.enqueue(ctx, model.RunnerEvent{
-		TaskID:  c.ID,
-		Event:   model.RunnerEventStopped,
-		Version: c.Version,
-	})
+	return err
 }
 
-// startTask handles a start or a restart, c: it takes a slot, boots the
-// task's sandbox, and starts a Run goroutine that holds the driver's stream
-// until the driver is idle. The driver decides what to run from the events
-// forwarded on the stream, so a start it has already carried out does
-// nothing there, and a restart stops the run in progress first.
-//
-// With a Run stream already open, startTask does nothing: c reaches the
-// driver on that stream, and Run reopens it if the driver went idle before c
-// did. A non-nil error means no slot was free, and the follower tries again.
-func (tr *TaskRunner) startTask(ctx context.Context, c runnerstore.TaskChange) error {
-	tr.mu.Lock()
-	running := tr.running
-	tr.mu.Unlock()
-	if running {
-		return nil
-	}
-	if !tr.opts.Slots.TryAcquire() {
-		return errNoSlot
-	}
-	// Only the follower claims tr once Load has returned, so with no Run
-	// open, Start finds tr unclaimed.
-	if err := tr.Start(ctx, c); err != nil {
-		tr.opts.Slots.Release()
-		tr.opts.Log.Error("failed to start task", "task", c.ID, "err", err)
-		tr.enqueue(ctx, model.RunnerEvent{
-			TaskID:  c.ID,
-			Event:   model.RunnerEventFailed,
-			Version: c.Version,
-			Reason:  err.Error(),
-		})
-	}
-	return nil
-}
-
-// Start brings up the task's sandbox for the task's run c, and opens the
-// driver's stream on it with c's spec, on a Run goroutine. It creates the
-// sandbox if tr has none, or reuses it, and stamps the record with c's
-// version; see Boot for what a failure leaves behind.
-//
-// Start returns once the platform reports the sandbox running: waiting for the
-// driver happens in Run, so a slow sandbox does not hold up the task's
-// follower. A failure there is reported as the run's "failed".
-//
-// If a Run is still open, Start returns ErrRunning without starting anything.
-func (tr *TaskRunner) Start(ctx context.Context, c runnerstore.TaskChange) error {
-	spec, runSpec, err := tr.opts.Spec(ctx, c)
+// busy ends a busy period: it drives the sandbox until the driver is idle,
+// releases the slot and suspends the sandbox. On shutdown, or a fatalError,
+// it returns the error, with the slot held and the sandbox left as it is.
+func (tr *TaskRunner) busy(ctx context.Context, h *handled, spec *driverv1.RunSpec) error {
+	version, err := tr.drive(ctx, spec)
 	if err != nil {
 		return err
 	}
-	if err := tr.Boot(ctx, *spec); err != nil {
-		return err
-	}
-	// Hold the stream on the runner's root context: it is opened there, after
-	// the record is stamped with c's version, so a runner that restarts in
-	// between reattaches to the sandbox.
-	tr.start(ctx, runSpec)
+	tr.opts.Slots.Release()
+	h.driven = max(h.driven, version)
+	h.stopped = max(h.stopped, version)
+	tr.suspend(ctx)
 	return nil
 }
 
-// start calls Run on its own goroutine, which holds the run's concurrency
-// slot. Once Run returns, the slot is released and the followers waiting for
-// one woken, unless the runner is shutting down: then the slot stays held and
-// the sandbox is left for the next boot.
-func (tr *TaskRunner) start(ctx context.Context, spec *driverv1.RunSpec) {
-	tr.runs.Go(func() {
-		if err := tr.Run(ctx, spec); err != nil {
-			return
-		}
-		tr.opts.Slots.Release()
-	})
-}
-
-// wait blocks until every Run goroutine start started has returned.
-func (tr *TaskRunner) wait() { tr.runs.Wait() }
-
-// Run holds the driver's Run stream on the task's sandbox for one busy
-// period. It opens the stream with spec, or with none to reattach, as Load
-// does: the driver keeps the spec it has. It forwards the task's events on it
-// and returns once the driver is idle, after suspending the sandbox. The
-// driver acts on the commands it is forwarded, and reports its runs; Run
-// reports a run the driver did not, and a lost one, as "failed".
+// drive holds the driver's Run stream on the task's sandbox for one busy
+// period, and returns the version of the driver's last run once it is idle.
+// It opens the stream with spec, or with none to reattach, as for a sandbox
+// Load found up: the driver keeps the spec it has. It forwards the task's
+// events on it; the driver acts on the commands among them, and reports its
+// runs. drive reports a run the driver did not as "failed".
 //
 // If the task's latest report wants a run newer than the driver's last once
 // the driver goes idle, the driver went idle before that command reached it:
-// Run reopens the stream, with the spec of that report, instead of returning.
+// drive reopens the stream, with the spec of that report, instead of
+// returning.
 //
-// A lost run is sent to the manager as a TaskLostEvent before tr is released
-// for another Run.
+// A dropped stream is reopened with backoff. If the sandbox is gone, or the
+// driver cannot be reached for LostTimeout, drive reports the latest run
+// "failed" and returns its version; a gone sandbox's record is dropped.
 //
-// Cancelled by ctx, Run returns its error with no event: the runner is
-// shutting down, and the sandbox stays alive for next-boot rehydration. That
-// is the only error.
-func (tr *TaskRunner) Run(ctx context.Context, spec *driverv1.RunSpec) error {
-	if tr.opts.Stream == nil {
-		panic("runner: TaskRunnerOptions.Stream is required to Run")
-	}
-	tr.mu.Lock()
-	tr.running = true
+// On shutdown drive returns ctx's cause. Any other error is a fatalError.
+func (tr *TaskRunner) drive(ctx context.Context, spec *driverv1.RunSpec) (int64, error) {
+	taskID := tr.opts.TaskID
 	sbx := tr.sbx
-	tr.mu.Unlock()
+	reopen := doubling(tr.opts.RetryInterval, tr.opts.RetryMaxInterval)
+	var reopened int64
 	for {
 		idle, lost, err := tr.run(ctx, sbx, spec)
 		if err != nil {
-			tr.release()
-			return err // shutdown: leave the sandbox alive for next-boot rehydration
+			return 0, err
 		}
 		if lost != "" {
-			tr.lost(ctx, lost)
-			return nil
+			return tr.lost(ctx, lost)
 		}
-		next, reopen := tr.finish(ctx, sbx, idle)
-		if !reopen {
-			return nil
+		version := idle.GetVersion()
+		if version != 0 && !idle.GetReported() {
+			if err := tr.fail(version, "driver did not report the run's outcome"); err != nil {
+				return 0, err
+			}
 		}
-		tr.opts.Log.Info("driver went idle before the latest command, reopening", "task", tr.opts.TaskID, "version", next.Version)
-		if _, spec, err = tr.opts.Spec(ctx, next); err != nil {
+		c, _ := tr.latest()
+		if !wantsRun(c) || c.Version <= version {
+			if version > tr.rec.Version {
+				// The driver ran a version the runner didn't boot for, on a
+				// stream already open: keep the record on the run that went
+				// last.
+				if err := tr.write(ctx, tr.record(sbx, version)); err != nil {
+					return 0, err
+				}
+			}
+			tr.opts.Log.Info("driver idle", "task", taskID, "version", version)
+			return version, nil
+		}
+		tr.opts.Log.Info("driver went idle before the latest command, reopening", "task", taskID, "version", c.Version)
+		// A driver that keeps going idle without running c is not hammered.
+		if c.Version == reopened && !common.SleepContext(ctx, reopen.NextBackOff()) {
+			return 0, context.Cause(ctx)
+		}
+		reopened = c.Version
+		if c.Version != tr.rec.Version {
+			if err := tr.write(ctx, tr.record(sbx, c.Version)); err != nil {
+				return 0, err
+			}
+		}
+		if _, spec, err = tr.opts.Spec(ctx, c); err != nil {
 			if ctx.Err() != nil {
-				tr.release()
-				return ctx.Err()
+				return 0, context.Cause(ctx)
 			}
-			tr.suspend(ctx, sbx)
-			tr.lost(ctx, fmt.Sprintf("failed to build the run's spec: %v", err))
-			return nil
+			return tr.lost(ctx, fmt.Sprintf("failed to build the run's spec: %v", err))
 		}
 	}
 }
 
-// release releases tr's claim, once its Run holds no stream any more.
-func (tr *TaskRunner) release() {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	tr.running = false
+// lost reports the task's latest run failed for why, as drive gave up on its
+// driver, and returns its version: the latest report's, or the record's if
+// that is newer.
+func (tr *TaskRunner) lost(ctx context.Context, why string) (int64, error) {
+	c, _ := tr.latest()
+	version := max(c.Version, tr.rec.Version)
+	if tr.sbx != nil && tr.gone(ctx, tr.sbx) {
+		tr.clear(ctx)
+	}
+	if err := tr.fail(version, why); err != nil {
+		return 0, err
+	}
+	return version, nil
 }
 
-// lost reports the run tr's record is stamped with lost for why, then
-// releases tr's claim.
-func (tr *TaskRunner) lost(ctx context.Context, why string) {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	version := tr.rec.Version
-	tr.opts.Log.Error("run lost", "task", tr.opts.TaskID, "version", version, "reason", why)
-	tr.send(ctx, TaskLostEvent{TaskID: tr.opts.TaskID, Version: version, Reason: why})
-	tr.running = false
+// gone reports whether sbx is gone, by the platform's account. A failed
+// status check counts as not gone.
+func (tr *TaskRunner) gone(ctx context.Context, sbx backend.Sandbox) bool {
+	st, err := sbx.Status(ctx)
+	return err == nil && st == backend.StatusGone
 }
 
-// finish ends the busy period the driver's idle ends: it reports the last
-// run "failed" if the driver did not report it, stamps the record with the
-// last run's version, suspends sbx and releases tr's claim. If the task's
-// latest report wants a newer run than the driver's last, it returns that
-// report instead, with the record stamped with its version, and the sandbox
-// up and claimed, for Run to reopen the stream.
-//
-// It holds tr.mu throughout, so a command the follower handles meanwhile
-// finds the stream open, and reaches the driver after the reopen, or finds
-// it closed and is carried out by the follower. A stop newer than the
-// driver's last run is one the driver never ran: it is reported "stopped"
-// here, as no run will report it.
-func (tr *TaskRunner) finish(ctx context.Context, sbx backend.Sandbox, idle *driverv1.Idle) (next runnerstore.TaskChange, reopen bool) {
-	tr.mu.Lock()
-	defer tr.mu.Unlock()
-	taskID, version := tr.opts.TaskID, idle.GetVersion()
-	if version != 0 && !idle.GetReported() {
-		tr.opts.Log.Error("run lost", "task", taskID, "version", version, "reason", "driver did not report the run's outcome")
-		tr.send(ctx, TaskLostEvent{TaskID: taskID, Version: version, Reason: "driver did not report the run's outcome"})
-	}
-	c, ok := tr.latest()
-	if ok && c.Version > version {
-		switch c.Command {
-		case gritzv1.TaskCommand_START, gritzv1.TaskCommand_RESTART:
-			if c.Version != tr.rec.Version {
-				// A failure terminates the runner; the stream is reopened
-				// meanwhile all the same.
-				_ = tr.write(ctx, tr.record(sbx, c.Version))
-			}
-			return c, true
-		case gritzv1.TaskCommand_STOP:
-			tr.enqueue(ctx, model.RunnerEvent{
-				TaskID:  taskID,
-				Event:   model.RunnerEventStopped,
-				Version: c.Version,
-			})
-		}
-	}
-	if version > tr.rec.Version {
-		// The driver ran a version the runner didn't boot for, on a stream
-		// already open: keep the record on the run that went last.
-		_ = tr.write(ctx, tr.record(sbx, version))
-	}
-	tr.suspend(ctx, sbx)
-	tr.running = false
-	tr.opts.Log.Info("driver idle", "task", taskID, "version", version)
-	return runnerstore.TaskChange{}, false
-}
-
-// run holds one busy period's stream on sb until the driver's Idle, which it
+// run holds one busy period's stream on sbx until the driver's Idle, which it
 // returns: it opens it with spec, waiting for the driver to be ready, unless
 // spec is nil, and reopens a dropped stream. A driver that could not be
-// reached is reported lost with why, after sb is suspended. The only error is
-// ctx's.
+// reached is reported lost with why. The only error is ctx's cause.
 func (tr *TaskRunner) run(ctx context.Context, sbx backend.Sandbox, spec *driverv1.RunSpec) (idle *driverv1.Idle, lost string, err error) {
 	if spec != nil {
-		idle, err := tr.ready(ctx, sbx, spec)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, "", ctx.Err()
-			}
-			tr.opts.Log.Error("driver not ready", "task", tr.opts.TaskID, "err", err)
-			tr.suspend(ctx, sbx)
-			return nil, err.Error(), nil
-		}
-		if idle != nil {
-			return idle, "", nil
+		idle, lost, err := tr.ready(ctx, sbx, spec)
+		if err != nil || lost != "" || idle != nil {
+			return idle, lost, err
 		}
 	}
 	return tr.attach(ctx, sbx, spec)
 }
 
-// ready opens Run streams on sb with spec, backing off exponentially, until
+// ready opens Run streams on sbx with spec, backing off exponentially, until
 // the driver answers one with Hello: opening Run is the readiness check. The
 // driver has the runner's readyTimeout for it. If the driver went idle on
 // that stream, ready returns its Idle; if the stream dropped after the Hello,
-// it returns neither Idle nor an error, and the caller reattaches.
-func (tr *TaskRunner) ready(ctx context.Context, sbx backend.Sandbox, spec *driverv1.RunSpec) (*driverv1.Idle, error) {
+// it returns neither Idle nor why the driver was lost, and the caller
+// reattaches. A sandbox that is gone, or a driver that is not ready in time,
+// is lost.
+func (tr *TaskRunner) ready(ctx context.Context, sbx backend.Sandbox, spec *driverv1.RunSpec) (idle *driverv1.Idle, lost string, err error) {
 	opts := tr.opts
-	ctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
+	rctx, cancel := context.WithTimeout(ctx, opts.ReadyTimeout)
 	defer cancel()
 	bo := doubling(opts.RetryInterval, readyMaxInterval)
 	for {
-		idle, hello, err := tr.session(ctx, sbx, spec)
+		idle, hello, err := tr.session(rctx, sbx, spec)
 		if idle != nil || hello {
-			return idle, nil
+			return idle, "", nil
 		}
-		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return nil, fmt.Errorf("driver server did not become ready: %w", err)
+		if ctx.Err() != nil {
+			return nil, "", context.Cause(ctx)
+		}
+		if tr.gone(ctx, sbx) {
+			return nil, "sandbox gone", nil
+		}
+		if !common.SleepContext(rctx, bo.NextBackOff()) {
+			if ctx.Err() != nil {
+				return nil, "", context.Cause(ctx)
+			}
+			opts.Log.Error("driver not ready", "task", opts.TaskID, "err", err)
+			return nil, fmt.Sprintf("driver server did not become ready: %v", err), nil
 		}
 	}
 }
 
-// attach reopens Run streams on sb until the driver's Idle, which it
-// returns, or why the driver was lost. The only error is ctx's. spec, if not
-// nil, goes on every stream it opens, as on the first.
+// attach reopens Run streams on sbx until the driver's Idle, which it
+// returns, or why the driver was lost. The only error is ctx's cause. spec,
+// if not nil, goes on every stream it opens, as on the first.
 //
-// A dropped stream is reopened, backing off exponentially. Reopening gives up
-// once lostTimeout has passed without a good message — a Hello — from the
-// driver: attach suspends the sandbox and reports the driver lost. That
-// covers a sandbox that went down under the stream too, which only happens
-// when something outside the runner fails: the runner never suspends a
-// sandbox it holds a stream on. It returns only once the suspend succeeded or
-// the sandbox is gone, so the sandbox is never up with no Run holding it;
-// while the platform cannot suspend it, attach keeps retrying.
+// A dropped stream is reopened, backing off exponentially. A sandbox that is
+// gone is lost at once. Reopening gives up once lostTimeout has passed
+// without a good message — a Hello — from the driver: attach suspends the
+// sandbox and reports the driver lost. That covers a sandbox that went down
+// under the stream too, which only happens when something outside the runner
+// fails: the runner never suspends a sandbox it holds a stream on. It returns
+// only once the suspend succeeded or the sandbox is gone, so the sandbox is
+// never up with no Run holding it; while the platform cannot suspend it,
+// attach keeps retrying.
 func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, spec *driverv1.RunSpec) (idle *driverv1.Idle, lost string, err error) {
 	opts, taskID := tr.opts, tr.opts.TaskID
 	lastGood := time.Now()
@@ -778,7 +623,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, spec *dri
 	for {
 		idle, hello, err := tr.session(ctx, sbx, spec)
 		if ctx.Err() != nil {
-			return nil, "", ctx.Err()
+			return nil, "", context.Cause(ctx)
 		}
 		if idle != nil {
 			return idle, "", nil
@@ -789,6 +634,9 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, spec *dri
 			lastGood = time.Now()
 			bo.Reset()
 			lastErr = ""
+		} else if tr.gone(ctx, sbx) {
+			opts.Log.Error("sandbox gone under its driver", "task", taskID, "err", err)
+			return nil, "sandbox gone", nil
 		}
 		if time.Since(lastGood) >= opts.LostTimeout {
 			// Give up on the driver; suspend the sandbox instead. While that
@@ -805,7 +653,7 @@ func (tr *TaskRunner) attach(ctx context.Context, sbx backend.Sandbox, spec *dri
 			lastErr = msg
 		}
 		if !common.SleepContext(ctx, bo.NextBackOff()) {
-			return nil, "", ctx.Err()
+			return nil, "", context.Cause(ctx)
 		}
 	}
 }
@@ -909,11 +757,14 @@ func (tr *TaskRunner) forward(ctx context.Context, stream *runStream, after int6
 	}
 }
 
-// suspend suspends the run's sandbox sb once the run is over. Failures are logged:
-// the run's outcome is already known.
-func (tr *TaskRunner) suspend(ctx context.Context, sb backend.Sandbox) {
-	if err := sb.Suspend(ctx); err != nil && !errors.Is(err, backend.ErrGone) {
-		tr.opts.Log.Error("failed to suspend sandbox after its run", "task", tr.opts.TaskID, "err", err)
+// suspend suspends the task's sandbox, if it has one, once its busy period
+// is over. Failures are logged: the runs' outcomes are already known.
+func (tr *TaskRunner) suspend(ctx context.Context) {
+	if tr.sbx == nil {
+		return
+	}
+	if err := tr.sbx.Suspend(ctx); err != nil && !errors.Is(err, backend.ErrGone) {
+		tr.opts.Log.Error("failed to suspend sandbox after its busy period", "task", tr.opts.TaskID, "err", err)
 	}
 }
 
