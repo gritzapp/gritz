@@ -29,6 +29,8 @@ type Org struct {
 // Task is a task in the harness.
 type Task struct {
 	ID int64
+	// Resp is the CreateTask response the task was made from.
+	Resp *gritzv1.CreateTaskResponse
 
 	org *Org
 }
@@ -51,7 +53,7 @@ func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	return &Task{ID: resp.Task.Id, org: o}
+	return &Task{ID: resp.Task.Id, Resp: resp, org: o}
 }
 
 // Key is an xat_ key in an org.
@@ -59,6 +61,9 @@ type Key struct {
 	ID string
 	// Client calls the server with the key.
 	Client gritzclient.Client
+	// Resp is the CreateKey response the key was made from; nil for a key
+	// from CreateScopedKey, which doesn't go through the RPC.
+	Resp *gritzv1.CreateKeyResponse
 }
 
 // CreateKey creates a key in the org, as the keys page does. The RPC grants
@@ -70,11 +75,11 @@ func (o *Org) CreateKey(req *gritzv1.CreateKeyRequest) *Key {
 	if err != nil {
 		t.Fatalf("CreateKey: %v", err)
 	}
-	return &Key{ID: resp.Key.Id, Client: o.server.Client(resp.RawToken)}
+	return &Key{ID: resp.Key.Id, Client: o.server.Client(resp.RawToken), Resp: resp}
 }
 
 // CreateScopedKey creates a key in the org holding scopes. No RPC can narrow a
-// key, so it writes the key to the store.
+// key, so it writes the key to the store, and the Key's Resp is nil.
 func (o *Org) CreateScopedKey(scopes authscope.Scopes) *Key {
 	o.server.t.Helper()
 	id, token := o.server.createKey(o.ID, "e2e", scopes)

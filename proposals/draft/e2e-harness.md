@@ -343,7 +343,11 @@ visible.
 RPC's request, so a test can set any field and the harness never grows
 parameter lists. It returns what the test works with: a wrapper when there is
 behaviour to attach (`*Task`, `*Key` with its `Client`), otherwise the
-unwrapped value (the token, the task, the keys). Methods that aren't a single
+unwrapped value (the token, the task, the keys). A wrapper built from one RPC
+carries that RPC's response in `Resp` (`Task.Resp` is the `CreateTaskResponse`,
+`Key.Resp` the `CreateKeyResponse`), so a test can reach anything the shorthand
+didn't pick out. A `*Key` from `CreateScopedKey` has a nil `Resp`, since no RPC
+made it. Methods that aren't a single
 RPC (`CreateScopedKey`, `WaitTask`, `WaitEvent`, `AddMember`,
 `Server.CreateOrg`) keep their own shapes.
 
@@ -945,17 +949,20 @@ func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
 // WaitEvent waits until one of task id's events matches, and returns it.
 func (o *Org) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event
 
+// CreateKey creates a key in the org, with the admin scopes the RPC grants.
+func (o *Org) CreateKey(req *gritzv1.CreateKeyRequest) *Key
+
 // Key is an xat_ key in an org.
 type Key struct {
 	ID string
 	// Client calls the server with the key.
 	Client gritzclient.Client
+	// Resp is the CreateKey response the key was made from; nil for a key
+	// from CreateScopedKey, which doesn't go through the RPC.
+	Resp *gritzv1.CreateKeyResponse
 }
 
-// CreateKey creates a key in the org, with the admin scopes the RPC grants.
-func (o *Org) CreateKey(req *gritzv1.CreateKeyRequest) *Key
-
-// CreateScopedKey creates a key in the org holding scopes.
+// CreateScopedKey creates a key in the org holding scopes. Its Resp is nil.
 func (o *Org) CreateScopedKey(scopes authscope.Scopes) *Key
 
 // CreateTaskToken mints a task token, as the runner does, and returns it.
@@ -1006,6 +1013,8 @@ func (r *Runner) Restart()
 // Task is a task in an org.
 type Task struct {
 	ID int64
+	// Resp is the CreateTask response the task was made from.
+	Resp *gritzv1.CreateTaskResponse
 	// ... unexported
 }
 
