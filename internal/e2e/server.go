@@ -1,18 +1,21 @@
 package e2e
 
 import (
-	"fmt"
+	"crypto/ed25519"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/gritzclient"
+	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
-	"google.golang.org/protobuf/encoding/prototext"
-	"gotest.tools/v3/poll"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 )
 
 // The handler and client interfaces share their methods, so a ClientMock can
@@ -21,77 +24,43 @@ var _ gritzv1connect.GritzServiceHandler = (*gritzclient.ClientMock)(nil)
 
 // Server is the harness's API server.
 type Server struct {
-	// Client makes real API calls to the server as the harness user.
-	Client gritzclient.Client
 	// URL is the server's base URL.
 	URL string
 
 	t       *testing.T
+	store   *store.Store
+	appKey  ed25519.PrivateKey
 	timeout time.Duration
 	mock    atomic.Pointer[gritzclient.ClientMock]
 }
 
-// Task is a task in the harness's org.
-type Task struct {
-	ID int64
+// Client returns a client that calls the server with token.
+func (s *Server) Client(token string) gritzclient.Client {
+	return gritzclient.New(gritzclient.Options{BaseURL: s.URL, Token: token})
 }
 
-// CreateTask creates a draft task in the harness's workspace, as the new-task
-// page does.
-func (s *Server) CreateTask() *Task {
+// CreateOrg creates an org with its own user, and registers the harness's
+// workspace in it.
+func (s *Server) CreateOrg() *Org {
 	s.t.Helper()
-	resp, err := s.Client.CreateTask(s.t.Context(), &gritzv1.CreateTaskRequest{
-		Draft:     true,
-		Runner:    runnerID,
-		Workspace: workspace,
-	})
-	if err != nil {
-		s.t.Fatalf("CreateTask: %v", err)
+	org := teststore.CreateOrg(s.t, s.store, nil)
+	o := &Org{
+		ID:     org.OrgID,
+		UserID: org.UserID,
+		server: s,
 	}
-	return &Task{ID: resp.Task.Id}
-}
-
-// WaitTask waits until cond accepts task id, and returns it.
-func (s *Server) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task {
-	s.t.Helper()
-	var task *gritzv1.Task
-	poll.WaitOn(s.t, func(poll.LogT) poll.Result {
-		resp, err := s.Client.GetTask(s.t.Context(), &gritzv1.GetTaskRequest{Id: id})
-		if err != nil {
-			return poll.Error(fmt.Errorf("GetTask %d: %w", id, err))
-		}
-		task = resp.Task
-		if cond(task) {
-			return poll.Success()
-		}
-		events, err := s.events(id)
-		if err != nil {
-			return poll.Error(err)
-		}
-		return poll.Continue("task %d: status %s, version %d, command %s; last events:%s",
-			id, task.Status, task.Version, task.Command, formatEvents(events[max(len(events)-5, 0):]))
-	}, s.pollOps()...)
-	return task
-}
-
-// WaitEvent waits until one of task id's events matches, and returns it.
-func (s *Server) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event {
-	s.t.Helper()
-	var found *gritzv1.Event
-	poll.WaitOn(s.t, func(poll.LogT) poll.Result {
-		events, err := s.events(id)
-		if err != nil {
-			return poll.Error(err)
-		}
-		for _, e := range events {
-			if match(e) {
-				found = e
-				return poll.Success()
-			}
-		}
-		return poll.Continue("task %d: no matching event in:%s", id, formatEvents(events))
-	}, s.pollOps()...)
-	return found
+	o.Client = s.Client(s.userToken(o.UserID, o.ID))
+	// The runner registers its workspaces on startup; until the harness has a
+	// runner, it registers the one CreateTask uses with a runner key.
+	_, err := s.Client(s.createKey(o.ID, "e2e-runner", authscope.Admin())).
+		RegisterWorkspaces(s.t.Context(), &gritzv1.RegisterWorkspacesRequest{
+			RunnerId:   runnerID,
+			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: workspace}},
+		})
+	if err != nil {
+		s.t.Fatalf("RegisterWorkspaces: %v", err)
+	}
+	return o
 }
 
 // Mock installs m, replacing any previous mock: calls go to m's non-nil
@@ -101,38 +70,35 @@ func (s *Server) Mock(m *gritzclient.ClientMock) {
 	s.mock.Store(m)
 }
 
-func (s *Server) pollOps() []poll.SettingOp {
-	return []poll.SettingOp{poll.WithTimeout(s.timeout), poll.WithDelay(20 * time.Millisecond)}
+// userToken returns the app JWT /auth/token issues the web UI for userID
+// acting in orgID. A key would not do: keys carry no user.
+func (s *Server) userToken(userID string, orgID int64) string {
+	s.t.Helper()
+	token, err := apiauth.SignAppToken(s.appKey, apiauth.NewAppClaims(&apiauth.UserInfo{ID: userID, OrgID: orgID}))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return token
 }
 
-// events returns every event of task id, oldest first.
-func (s *Server) events(id int64) ([]*gritzv1.Event, error) {
-	var events []*gritzv1.Event
-	token := ""
-	for {
-		resp, err := s.Client.ListEventsByTask(s.t.Context(), &gritzv1.ListEventsByTaskRequest{
-			TaskId:    id,
-			PageSize:  200,
-			PageToken: token,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("ListEventsByTask %d: %w", id, err)
-		}
-		events = append(resp.Events, events...)
-		if resp.PrevPageToken == "" {
-			return events, nil
-		}
-		token = resp.PrevPageToken
+// createKey creates an xat_ key in orgID, as the --no-auth bootstrap does, and
+// returns its raw token.
+func (s *Server) createKey(orgID int64, name string, scopes authscope.Scopes) string {
+	s.t.Helper()
+	token, err := apiauth.GenerateKey()
+	if err != nil {
+		s.t.Fatal(err)
 	}
-}
-
-func formatEvents(events []*gritzv1.Event) string {
-	var b strings.Builder
-	for _, e := range events {
-		b.WriteString("\n\t")
-		b.WriteString(prototext.MarshalOptions{}.Format(e))
+	if err := s.store.CreateKey(s.t.Context(), nil, &model.Key{
+		ID:        uuid.NewString(),
+		Name:      name,
+		TokenHash: apiauth.HashKey(token),
+		OrgID:     orgID,
+		Scopes:    scopes,
+	}); err != nil {
+		s.t.Fatal(err)
 	}
-	return b.String()
+	return token
 }
 
 // route wraps the server's RPC implementation: each call goes to the installed

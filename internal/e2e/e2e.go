@@ -8,16 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/gritzclient"
-	"github.com/gritzapp/gritz/internal/model"
-	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server"
 	"github.com/gritzapp/gritz/internal/server/notifyserver"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
-	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 )
 
@@ -35,7 +29,10 @@ type Options struct {
 
 // Harness is gritz for one test.
 type Harness struct {
+	// Server is the API server.
 	Server *Server
+	// Org is the default org, for tests that need only one.
+	Org *Org
 }
 
 // New stands up a harness and registers its teardown with t.Cleanup.
@@ -45,10 +42,6 @@ func New(t *testing.T, opts *Options) *Harness {
 		opts = &Options{}
 	}
 	st := teststore.New(t)
-	org := teststore.CreateOrg(t, st, nil)
-	userKey := createKey(t, st, org, "e2e-user")
-	runnerKey := createKey(t, st, org, "e2e-runner")
-
 	appKey, err := apiauth.CreateAppPrivateKey()
 	if err != nil {
 		t.Fatal(err)
@@ -61,13 +54,18 @@ func New(t *testing.T, opts *Options) *Harness {
 		// A DevUser skips the OIDC discovery a real login needs. Like the
 		// --no-auth dev user it holds no org and no scopes, so a request without
 		// a token is authenticated but allowed nothing.
-		DevUser: &apiauth.UserInfo{ID: org.UserID},
+		DevUser: &apiauth.UserInfo{ID: "e2e-dev"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ps := pubsub.NewLocalPubSub()
-	s := &Server{t: t, timeout: cmp.Or(opts.Timeout, 30*time.Second)}
+	s := &Server{
+		t:       t,
+		store:   st,
+		appKey:  appKey,
+		timeout: cmp.Or(opts.Timeout, 30*time.Second),
+	}
 	srv := server.New(server.Options{
 		Store:     st,
 		Auth:      auth,
@@ -85,37 +83,5 @@ func New(t *testing.T, opts *Options) *Harness {
 	// Registered after ts.Close, so it runs first.
 	t.Cleanup(func() { s.Mock(nil) })
 	s.URL = ts.URL
-	s.Client = gritzclient.New(gritzclient.Options{BaseURL: ts.URL, Token: userKey})
-
-	// The runner registers its workspaces on startup; until the harness has a
-	// runner, it registers the one CreateTask uses with the runner's key.
-	_, err = gritzclient.New(gritzclient.Options{BaseURL: ts.URL, Token: runnerKey}).
-		RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
-			RunnerId:   runnerID,
-			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: workspace}},
-		})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &Harness{Server: s}
-}
-
-// createKey creates an admin xat_ key in org, as the --no-auth bootstrap does,
-// and returns its raw token.
-func createKey(t *testing.T, st *store.Store, org *teststore.Org, name string) string {
-	t.Helper()
-	token, err := apiauth.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.CreateKey(t.Context(), nil, &model.Key{
-		ID:        uuid.NewString(),
-		Name:      name,
-		TokenHash: apiauth.HashKey(token),
-		OrgID:     org.OrgID,
-		Scopes:    authscope.Admin(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return token
+	return &Harness{Server: s, Org: s.CreateOrg()}
 }
