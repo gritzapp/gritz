@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/gritzapp/gritz/internal/runner/agent/puppet"
 )
 
 // ErrStop is a sentinel error used to signal graceful agent cancellation.
@@ -59,7 +61,7 @@ type Options struct {
 	Cursor     *CursorOptions
 	Sloppy     *SloppyOptions
 	Dummy      *DummyOptions
-	Puppet     *PuppetOptions
+	Puppet     *puppet.Options
 }
 
 // ClaudeOptions contains Claude-specific agent options.
@@ -101,12 +103,6 @@ type DummyOptions struct {
 	Commands []string
 	// Error, when set, is returned as an error from Prompt.
 	Error string
-}
-
-// PuppetOptions contains puppet-specific agent options.
-type PuppetOptions struct {
-	// URL is the endpoint each Prompt call is forwarded to.
-	URL string
 }
 
 // DummyToolCall specifies an MCP tool call to make.

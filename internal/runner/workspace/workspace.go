@@ -12,6 +12,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/runner/agent"
+	"github.com/gritzapp/gritz/internal/runner/agent/puppet"
 	"github.com/gritzapp/gritz/internal/x/expandvar"
 	"gopkg.in/yaml.v3"
 )
@@ -402,7 +403,7 @@ func (w *Workspace) AgentConfig() agent.Config {
 		}
 	}
 	if w.Agent.Puppet != nil {
-		cfg.Puppet = &agent.PuppetOptions{
+		cfg.Puppet = &puppet.Options{
 			URL: w.Agent.Puppet.URL,
 		}
 	}

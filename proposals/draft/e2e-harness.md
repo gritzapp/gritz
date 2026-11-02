@@ -183,9 +183,12 @@ runs) or with timed sleeps makes scenarios depend on timing and on a script
 format, and the dummy's workspace-level `DummyOptions` can't vary per run at
 all.
 
-Instead, a new agent type, **`puppet`** (`internal/runner/agent`, next to
-`claude`, `codex` and `dummy`), has no behaviour of its own. It forwards each
-`Agent.Prompt` call to the harness, and the test answers it:
+Instead, a new agent type, **`puppet`**, has no behaviour of its own. It forwards
+each `Agent.Prompt` call to the harness, and the test answers it. It lives in its
+own package, `internal/runner/agent/puppet`, which holds both sides: the client
+`puppet.Agent` the driver runs, and the `puppet.Server` the harness serves. The
+package doesn't import `agent`; `agent.NewAgent` builds a `puppet.Agent` for
+`TypePuppet`, and `agent.Config` holds `*puppet.Options`.
 
 - **One HTTP request per `Prompt`.** The workspace points the puppet at the
   harness (`agent: puppet: url: …`). Under the local backend the driver runs on
@@ -193,10 +196,14 @@ Instead, a new agent type, **`puppet`** (`internal/runner/agent`, next to
   `Prompt(ctx, prompt, resume)` posts `{task_id, prompt, resume}`, with the task
   id from `GRITZ_TASK_ID`, and holds the request open until the harness replies
   with success or an error message. `Prompt` returns nil or that error.
+- **Each request is a `puppet.Run`.** `puppet.Server` queues a task's runs in
+  arrival order and holds each open until `Complete` or `Fail` answers it, or
+  until the request's context ends, which closes `Cancelled()`. `Close` fails
+  every open run (and any that arrive later), so drivers can shut down.
 - **Cancellation is the request ending.** When the driver cancels `ctx` (a stop,
   a restart, a shutdown), the request is aborted and `Prompt` returns an error
-  wrapping `context.Canceled`, as the `Agent` contract requires. The harness
-  sees the request's context end and marks the run cancelled. A killed driver
+  wrapping `context.Canceled`, as the `Agent` contract requires. The server
+  sees the request's context end and closes the run's `Cancelled()`. A killed driver
   closes the connection, which the harness sees the same way.
 - **Runs are identified by order.** `Prompt` carries no run version, and nothing
   else exposes one to the agent. The harness queues a task's runs in the order
@@ -287,7 +294,7 @@ func TestStart(t *testing.T) {
    needs them.
 2. **Default org.** `h.Server.CreateOrg()` makes `h.Org` (below). Isolation
    comes from the org, as for every teststore test.
-3. **Agent** (only with `Options.Runner`). The puppet's endpoint on its own
+3. **Agent** (only with `Options.Runner`). A `puppet.Server` on its own
    `httptest.NewServer`, behind `h.Agent`.
 4. **Backend** (only with `Options.Runner`). A `local.Backend` on a fresh root,
    wrapped by `h.Backend`, running `prebuilt/gritz-linux-$GOARCH`. The runner is
@@ -560,8 +567,9 @@ runner can meet, one can be added then.
 
 #### `h.Agent`
 
-The test's side of the puppet agent. Every `Prompt` call the puppet forwards is
-a `Run`, queued per task in arrival order and held open until it ends.
+The test's side of the puppet agent, a thin wrapper over `puppet.Server` that
+fails the test where the server returns errors. Every `Prompt` call the puppet
+forwards is a `Run`, queued per task in arrival order and held open until it ends.
 
 | Method | What it does |
 |---|---|
@@ -937,31 +945,81 @@ type ExecutorOptions struct {
 ```go
 package agent // github.com/gritzapp/gritz/internal/runner/agent
 
-// AgentTypePuppet is the puppet agent's type. // new
-const AgentTypePuppet = "puppet"
+// TypePuppet is the puppet agent's type. // new
+const TypePuppet = "puppet"
 
-// PuppetOptions contains puppet-specific agent options. // new
-type PuppetOptions struct {
-	// URL is the endpoint each Prompt call is forwarded to.
-	URL string
+type Config struct {
+	Puppet *puppet.Options `json:"puppet,omitempty"` // new
+	// ... other fields unchanged
 }
 
-// PuppetAgent forwards each Prompt call to a control endpoint, one HTTP request
-// held open until the endpoint answers, and returns its answer. Cancelling ctx
-// aborts the request. // new
-type PuppetAgent struct{ ... }
+type Options struct {
+	Puppet *puppet.Options // new
+	// ... other fields unchanged
+}
+```
 
-// PuppetRequest is the body of a forwarded Prompt call. // new
-type PuppetRequest struct {
+```go
+package puppet // github.com/gritzapp/gritz/internal/runner/agent/puppet // new
+
+// Options configures an Agent.
+type Options struct {
+	// URL is the Server endpoint each Prompt call is forwarded to.
+	URL string
+	// Log is where the agent logs. It defaults to discarding.
+	Log *slog.Logger `json:"-"`
+}
+
+// Agent forwards each Prompt call to a Server, one HTTP request held open
+// until the Server answers, and returns its answer. Cancelling ctx aborts the
+// request. It implements agent.Agent.
+type Agent struct{ ... }
+
+func New(taskID int64, opts Options) *Agent
+func (a *Agent) Prompt(ctx context.Context, prompt string, resume bool) error
+func (a *Agent) Close() error
+
+// Request is the body of a forwarded Prompt call.
+type Request struct {
 	TaskID int64  `json:"task_id"`
 	Prompt string `json:"prompt"`
 	Resume bool   `json:"resume"`
 }
 
-// PuppetResponse is the endpoint's answer; Error empty means success. // new
-type PuppetResponse struct {
+// Response is the Server's answer; Error empty means success.
+type Response struct {
 	Error string `json:"error,omitempty"`
 }
+
+// Server is the http.Handler Agents forward to. Each request becomes a Run,
+// queued per task in arrival order and held open until it ends.
+type Server struct{ ... }
+
+func NewServer() *Server
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request)
+// Next returns the task's next run, the first one no earlier Next returned.
+func (s *Server) Next(ctx context.Context, taskID int64) (*Run, error)
+// Runs returns every run the task has had so far, in arrival order.
+func (s *Server) Runs(taskID int64) []*Run
+// Close fails every open run, and every run that arrives later.
+func (s *Server) Close()
+
+// Run is one forwarded Prompt call.
+type Run struct {
+	TaskID int64
+	Prompt string
+	Resume bool
+	// ... unexported
+}
+
+// Complete ends the run: Prompt returns nil. It errors if the run already ended.
+func (r *Run) Complete() error
+// Fail ends the run: Prompt returns an error with msg. It errors if the run
+// already ended.
+func (r *Run) Fail(msg string) error
+// Cancelled is closed when the request ends without an answer (ctx cancelled,
+// driver killed).
+func (r *Run) Cancelled() <-chan struct{}
 ```
 
 ```go
@@ -1209,7 +1267,7 @@ type Runner struct{ ... }
 // backend.
 func (r *Runner) Restart()
 
-// Agent is the test's side of the puppet agent.
+// Agent is the test's side of the puppet agent, wrapping a puppet.Server.
 type Agent struct{ ... }
 
 // WaitRun waits for the task's next run, the first one no earlier WaitRun
@@ -1333,12 +1391,15 @@ Slices that must wait are marked.
    - a second `Backend` on the same root sees and suspends a sandbox the first
      booted;
    - two sandboxes run side by side.
-3. **Puppet agent.** Delivers: the `puppet` agent type, `PuppetOptions` in the
-   workspace config, and `PuppetAgent` with `PuppetRequest`/`PuppetResponse`.
-   Depends on: nothing. Verifiable by: agent tests against an `httptest` endpoint:
-   a `Prompt` that the endpoint answers with success returns nil, one answered
-   with an error returns it, and cancelling `ctx` aborts the request and returns
-   an error wrapping `context.Canceled`.
+3. **Puppet agent.** Delivers: the `internal/runner/agent/puppet` package, with
+   the client `Agent`, the `Server` and its `Run`s, and the `Request`/`Response`
+   wire types; the `puppet` agent type, built by `agent.NewAgent`, and
+   `puppet.Options` in the agent and workspace config. Depends on: nothing.
+   Verifiable by: tests driving the real `Agent` against the real `Server` over
+   `httptest`: `Complete` makes `Prompt` return nil, `Fail` makes it return the
+   message, cancelling `ctx` closes `Cancelled()` and makes `Prompt` return an
+   error wrapping `context.Canceled`, `Next` returns runs in arrival order,
+   `Complete` on an ended run errors, and `Close` fails open runs.
 4. **`runner.Serve`.** Delivers: the runner's wiring moved out of
    `command/runner.go` into `runner.Serve`, with `LostTimeout` and
    `ReadyTimeout` in its options. Depends on: nothing. Verifiable by: `gritz
