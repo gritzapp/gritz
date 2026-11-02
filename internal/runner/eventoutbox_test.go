@@ -56,8 +56,11 @@ func TestRunnerEventOutbox_Permanent(t *testing.T) {
 					return &gritzv1.SubmitRunnerEventsResponse{}, nil
 				},
 			}
+			store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+			assert.NilError(t, err)
+			t.Cleanup(func() { assert.NilError(t, store.Close()) })
 			queue := runner.NewRunnerEventOutbox(runner.RunnerEventOutboxOptions{
-				Store:   openStore(t),
+				Store:   store,
 				Client:  mock,
 				Backoff: backoff.NewConstantBackOff(0),
 				Log:     slog.Default(),
@@ -129,16 +132,6 @@ func TestTaskManagerEventsSurviveRestart(t *testing.T) {
 		{Event: "started", TaskId: 1},
 		{Event: "failed", TaskId: 2, Version: 5, Reason: "boom"},
 	}, protocmp.Transform())
-}
-
-// openStore opens a fresh runnerstore in a temp dir, closed when the test
-// ends.
-func openStore(t *testing.T) *runnerstore.Store {
-	t.Helper()
-	s, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
-	assert.NilError(t, err)
-	t.Cleanup(func() { assert.NilError(t, s.Close()) })
-	return s
 }
 
 // drain runs queue until it has delivered the events it holds. The outbox's
