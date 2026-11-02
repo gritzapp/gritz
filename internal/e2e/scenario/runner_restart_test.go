@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -239,5 +240,40 @@ func TestRunnerRestart_RestartCancelledAfterRun(t *testing.T) {
 	// Run 2 never started, so the runner reported it stopped.
 	got := task.WaitStatus(gritzv1.TaskStatus_CANCELLED)
 	assert.Equal(t, got.Version, int64(2))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+}
+
+func TestRunnerRestart_DriverNeverRan(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+		Draft:        true,
+	})
+	// The runner boots the sandbox but can't reach its driver, and stops
+	// before it does: the driver is up and has never run.
+	m := &backend.SandboxMock{
+		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+			return nil, errors.New("e2e: dial failed")
+		},
+	}
+	h.Backend.MockSandbox(task.ID, m)
+	task.Update(&gritzv1.UpdateTaskRequest{Start: true})
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		if len(m.DialCalls()) == 0 {
+			return poll.Continue("no dial yet")
+		}
+		return poll.Success()
+	})
+	h.Runner.Stop()
+	h.Backend.MockSandbox(task.ID, nil)
+
+	h.Runner.Start()
+
+	// The new runner attached to the idle driver without failing a run it
+	// never had, and started run 1 on it.
+	h.Agent.WaitRun(task.ID).Complete()
+	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	assert.Equal(t, got.Version, int64(1))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
 }
