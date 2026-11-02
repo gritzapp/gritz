@@ -1,8 +1,12 @@
 package e2e
 
 import (
+	"bytes"
+	"fmt"
+
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/proto"
+	"gotest.tools/v3/poll"
 )
 
 // Task is a task in the harness. Its commands go through the RPCs the task
@@ -78,4 +82,52 @@ func (task *Task) Events() []*gritzv1.Event {
 func (task *Task) WaitStatus(status gritzv1.TaskStatus) *gritzv1.Task {
 	task.org.server.t.Helper()
 	return task.org.WaitTask(task.ID, func(got *gritzv1.Task) bool { return got.Status == status })
+}
+
+// WaitLog waits until match accepts the task's shipped log, every chunk
+// concatenated, and returns it. The driver ships the log on its own schedule,
+// flushing a run's tail only after reporting it, so a log is waited for rather
+// than read.
+func (task *Task) WaitLog(match func(log string) bool) string {
+	t := task.org.server.t
+	t.Helper()
+	var log string
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		var err error
+		log, err = task.org.log(task.ID)
+		if err != nil {
+			return poll.Error(err)
+		}
+		if match(log) {
+			return poll.Success()
+		}
+		return poll.Continue("task %d: no matching log in:\n%s", task.ID, log)
+	}, task.org.pollOps()...)
+	return log
+}
+
+// log returns task id's shipped log, every chunk concatenated.
+func (o *Org) log(id int64) (string, error) {
+	var chunks []*gritzv1.LogChunk
+	token := ""
+	for {
+		resp, err := o.Client.ListLogChunksByTask(o.server.t.Context(), &gritzv1.ListLogChunksByTaskRequest{
+			TaskId:    id,
+			PageSize:  200,
+			PageToken: token,
+		})
+		if err != nil {
+			return "", fmt.Errorf("ListLogChunksByTask %d: %w", id, err)
+		}
+		chunks = append(resp.Chunks, chunks...)
+		if resp.PrevPageToken == "" {
+			break
+		}
+		token = resp.PrevPageToken
+	}
+	var b bytes.Buffer
+	for _, c := range chunks {
+		b.Write(c.Data)
+	}
+	return b.String(), nil
 }
