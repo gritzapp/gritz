@@ -172,6 +172,11 @@ func (b *Backend) sandboxMock(taskID int64) *backend.SandboxMock {
 	return b.sandboxMocks[taskID]
 }
 
+// Dir returns the task's sandbox directory.
+func (b *Backend) Dir(taskID int64) string {
+	return filepath.Join(b.root, strconv.FormatInt(taskID, 10))
+}
+
 // KillDriver kills the task's driver with SIGKILL, leaving its sandbox, and
 // returns once it has exited: a real lost run.
 func (b *Backend) KillDriver(taskID int64) {

@@ -1,6 +1,9 @@
 package e2e
 
 import (
+	"os"
+	"path/filepath"
+
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -33,6 +36,15 @@ func (task *Task) Cancel() {
 	task.org.CancelTask(&gritzv1.CancelTaskRequest{Id: task.ID})
 }
 
+// Restart restarts the task, as the task page does.
+func (task *Task) Restart() {
+	t := task.org.server.t
+	t.Helper()
+	if _, err := task.org.Client.RestartTask(t.Context(), &gritzv1.RestartTaskRequest{Id: task.ID}); err != nil {
+		t.Fatalf("RestartTask: %v", err)
+	}
+}
+
 // Get returns the task.
 func (task *Task) Get() *gritzv1.Task {
 	task.org.server.t.Helper()
@@ -54,4 +66,20 @@ func (task *Task) Events() []*gritzv1.Event {
 func (task *Task) WaitStatus(status gritzv1.TaskStatus) *gritzv1.Task {
 	task.org.server.t.Helper()
 	return task.org.WaitTask(task.ID, func(got *gritzv1.Task) bool { return got.Status == status })
+}
+
+// ReadFile returns the content of name in the task's sandbox directory, as the
+// workspace's setup commands wrote it. Only the default org's tasks with
+// Options.Runner have one.
+func (task *Task) ReadFile(name string) string {
+	t := task.org.server.t
+	t.Helper()
+	if task.org.backend == nil {
+		panic("e2e: Task.ReadFile called on a task of an org without a backend")
+	}
+	b, err := os.ReadFile(filepath.Join(task.org.backend.Dir(task.ID), name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
