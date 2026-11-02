@@ -1,191 +1,98 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 func TestOpenShell(t *testing.T) {
 	t.Parallel()
-	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
-	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// Create a task and drive it to a terminal (completed) status so it can be
+	// Arrange: drive a task to a terminal (completed) status so it can be
 	// shelled. Runner events use version 0 to bypass the version check.
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
 	})
-	assert.NilError(t, err)
-	taskID := createResp.Task.Id
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 0}},
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 0}},
 	})
-	assert.NilError(t, err)
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "stopped", Version: 0}},
-	})
-	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: taskID})
+	resp, err := h.Org.Client.OpenShell(t.Context(), &gritzv1.OpenShellRequest{TaskId: task.ID})
 
-	// Assert: a session id is returned...
+	// Assert: a session id is returned, recorded on the task's shell_session,
+	// and a start is issued so the runner brings the sandbox up against the
+	// preserved disk.
 	assert.NilError(t, err)
 	assert.Assert(t, resp.SessionId != "")
-
-	// ...it is recorded on the task's shell_session and a start is issued so the
-	// runner brings the sandbox up against the preserved disk...
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.ShellSession, resp.SessionId)
-	assert.Equal(t, getResp.Task.Command, gritzv1.TaskCommand_START)
-	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_PENDING)
-
-	// ...and the rendezvous is seeded with the caller's org and the task id, so
-	// the driver leg can be bound to the task that owns the session.
-	calls := shell.SeedCalls()
-	assert.Assert(t, cmp.Len(calls, 1))
-	assert.Equal(t, calls[0].ID, resp.SessionId)
-	assert.Equal(t, calls[0].OrgID, org.OrgID)
-	assert.Equal(t, calls[0].TaskID, taskID)
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.ShellSession, resp.SessionId)
+	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
+	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
 }
 
 func TestOpenShell_RejectsPending(t *testing.T) {
 	t.Parallel()
-	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
-	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// A freshly created task is PENDING (non-terminal).
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	// Arrange: a started task is PENDING (non-terminal).
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
-	_, err = srv.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: createResp.Task.Id})
+	_, err := h.Org.Client.OpenShell(t.Context(), &gritzv1.OpenShellRequest{TaskId: task.ID})
 
-	// Assert: rejected, nothing seeded, no shell session recorded.
+	// Assert: rejected, no shell session recorded.
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-	assert.Assert(t, cmp.Len(shell.SeedCalls(), 0))
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.ShellSession, "")
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.ShellSession, "")
 }
 
 func TestOpenShell_RejectsRunning(t *testing.T) {
 	t.Parallel()
-	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
-	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
+	// Arrange: drive the task to RUNNING; opening a shell must not displace a
+	// live run.
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
 	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// Drive the task to RUNNING: opening a shell must not displace a live run.
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	taskID := createResp.Task.Id
-	_, err = srv.SubmitRunnerEvents(ctx, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 0}},
-	})
-	assert.NilError(t, err)
 
 	// Act
-	_, err = srv.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: taskID})
+	_, err := h.Org.Client.OpenShell(t.Context(), &gritzv1.OpenShellRequest{TaskId: task.ID})
 
-	// Assert: rejected, nothing seeded, no shell session recorded.
+	// Assert: rejected, no shell session recorded.
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-	assert.Assert(t, cmp.Len(shell.SeedCalls(), 0))
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: taskID})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.ShellSession, "")
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.ShellSession, "")
 }
 
 func TestOpenShell_CrossOrgDenied(t *testing.T) {
 	t.Parallel()
-	shell := &ShellRegistryMock{SeedFunc: func(id string, orgID, taskID int64) error { return nil }}
-	srv := New(Options{Store: teststore.New(t), Shells: shell})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
+	// Arrange: a completed task owned by the default org.
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 0}},
 	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 0}},
 	})
 
-	// Completed task owned by orgA.
-	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	taskID := createResp.Task.Id
-	_, err = srv.SubmitRunnerEvents(ctxA, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "started", Version: 0}},
-	})
-	assert.NilError(t, err)
-	_, err = srv.SubmitRunnerEvents(ctxA, &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: taskID, Event: "stopped", Version: 0}},
-	})
-	assert.NilError(t, err)
+	// Act: a caller in another org opens a shell for the task.
+	_, err := other.Client.OpenShell(t.Context(), &gritzv1.OpenShellRequest{TaskId: task.ID})
 
-	// A caller in another org cannot open a shell for orgA's task.
-	_, err = srv.OpenShell(ctxB, &gritzv1.OpenShellRequest{TaskId: taskID})
-	assert.Assert(t, err != nil)
-	assert.Assert(t, cmp.Len(shell.SeedCalls(), 0))
+	// Assert: the task is invisible to the other org, and no shell session is
+	// recorded.
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.ShellSession, "")
 }

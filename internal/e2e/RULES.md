@@ -54,6 +54,9 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 - Go through the real RPCs, the ones the web UI and MCP tools use. Write to the
   store directly only when no RPC exists for it, and say so in the method's doc
   comment.
+- `h.Server.Store` is an escape hatch, under the same condition: a test may use
+  it to arrange or assert state that no RPC can reach, and says why in a
+  comment. The call under test never goes through it.
 - Don't add a method until a test uses it.
 
 ## Mocks

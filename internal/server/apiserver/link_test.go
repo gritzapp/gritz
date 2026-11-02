@@ -1,39 +1,24 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestCreateLink(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with Link",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link"})
 
 	// Act
-	resp, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
-		TaskId:    taskResp.Task.Id,
+	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+		TaskId:    task.ID,
 		Relevance: "Related PR",
 		Url:       "https://github.com/example/repo/pull/123",
 		Title:     "Fix bug",
@@ -42,7 +27,7 @@ func TestCreateLink(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, resp.Link.TaskId, taskResp.Task.Id)
+	assert.Equal(t, resp.Link.TaskId, task.ID)
 	assert.Equal(t, resp.Link.Url, "https://github.com/example/repo/pull/123")
 	assert.Equal(t, resp.Link.Subscribe, true)
 }
@@ -50,83 +35,45 @@ func TestCreateLink(t *testing.T) {
 func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with Link",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link"})
 
 	// Act
-	linkResp, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
-		TaskId:    taskResp.Task.Id,
+	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+		TaskId:    task.ID,
 		Relevance: "Related PR",
 		Url:       "https://github.com/example/repo/pull/123",
 		Title:     "Fix bug",
 		Subscribe: true,
 	})
-	assert.NilError(t, err)
 
 	// Assert - a link event mirroring the task_links row is appended to the
 	// task's stream (the timeline source of truth; task_links is the projection).
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: taskResp.Task.Id,
-	})
 	assert.NilError(t, err)
-	// The stream also carries the lifecycle CREATED event from task creation, so
-	// pick out the link event rather than asserting it is the only one.
-	var linkEvent *gritzv1.Event
-	for _, e := range eventsResp.Events {
-		if e.GetLink() != nil {
-			linkEvent = e
-		}
-	}
-	assert.Assert(t, linkEvent != nil)
-	link := linkEvent.GetLink()
-	assert.Equal(t, link.LinkId, linkResp.Link.Id)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeLink},
+	})
+	assert.Assert(t, cmp.Len(events, 1))
+	link := events[0].GetLink()
+	assert.Equal(t, link.LinkId, resp.Link.Id)
 	assert.Equal(t, link.Relevance, "Related PR")
 	assert.Equal(t, link.Url, "https://github.com/example/repo/pull/123")
 	assert.Equal(t, link.Title, "Fix bug")
 	assert.Equal(t, link.Subscribe, true)
 	// The link event is about-task, not to-agent, so it does not wake the task.
-	assert.Equal(t, linkEvent.Wake, false)
+	assert.Equal(t, events[0].Wake, false)
 }
 
 func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with Link",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link"})
 
 	// Act - no routing_key supplied, so the server derives it from url
-	resp, err := srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
-		TaskId: taskResp.Task.Id,
+	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+		TaskId: task.ID,
 		Url:    "https://github.com/example/repo/pull/123#issuecomment-9",
 	})
 
@@ -139,37 +86,13 @@ func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 func TestCreateLink_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
 
 	// Act
-	_, err = srv.CreateLink(ctxB, &gritzv1.CreateLinkRequest{
-		TaskId:    taskResp.Task.Id,
+	_, err := other.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+		TaskId:    task.ID,
 		Relevance: "Sneaky link",
 		Url:       "https://github.com/example/repo/pull/123",
 	})
@@ -181,90 +104,48 @@ func TestCreateLink_Permissions(t *testing.T) {
 func TestListLinks(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task with Links",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
-		TaskId:    taskResp.Task.Id,
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Links"})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
+		TaskId:    task.ID,
 		Relevance: "Link 1",
 		Url:       "https://github.com/example/repo/pull/1",
 	})
-	assert.NilError(t, err)
-	_, err = srv.CreateLink(ctx, &gritzv1.CreateLinkRequest{
-		TaskId:    taskResp.Task.Id,
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
+		TaskId:    task.ID,
 		Relevance: "Link 2",
 		Url:       "https://github.com/example/repo/pull/2",
 	})
-	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.ListLinks(ctx, &gritzv1.ListLinksRequest{
-		TaskId: taskResp.Task.Id,
+	resp, err := h.Org.Client.ListLinks(t.Context(), &gritzv1.ListLinksRequest{
+		TaskId: task.ID,
 	})
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Links), 2)
+	assert.Assert(t, cmp.Len(resp.Links, 2))
 }
 
 func TestListLinks_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	taskResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateLink(ctxA, &gritzv1.CreateLinkRequest{
-		TaskId:    taskResp.Task.Id,
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
+		TaskId:    task.ID,
 		Relevance: "User A's Link",
 		Url:       "https://github.com/example/repo/pull/1",
 	})
-	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.ListLinks(ctxB, &gritzv1.ListLinksRequest{
-		TaskId: taskResp.Task.Id,
+	resp, err := other.Client.ListLinks(t.Context(), &gritzv1.ListLinksRequest{
+		TaskId: task.ID,
 	})
 
-	// Assert - User B gets empty list, not an error (blanket read skips the row
-	// load; the list query is org-scoped).
+	// Assert - the other org gets an empty list, not an error (blanket read
+	// skips the row load; the list query is org-scoped).
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Links), 0)
+	assert.Assert(t, cmp.Len(resp.Links, 0))
 }

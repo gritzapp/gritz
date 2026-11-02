@@ -321,12 +321,13 @@ Things that don't belong to any one org.
 | Method | What it does |
 |---|---|
 | `URL` | the server's base URL |
+| `Store` | the server's `*store.Store`, an escape hatch: a test may use it to arrange or assert state no RPC can reach, and says why in a comment. The call under test never goes through it |
 | `Client(token)` | a `gritzclient.Client` calling the server with `token`, for credentials no harness method returns: a key that was deleted, a bad key |
 | `CreateOrg()` | a fresh org with its own user (`teststore.CreateOrg`), and a runner key in it; returns an `*Org` |
 | `Mock(m)` | see below |
 
-There is no `Real` and no handler on `h.Server`: tests reach the server only as
-a client.
+There is no `Real` and no handler on `h.Server`: the call under test reaches the
+server only as a client.
 
 #### `Org`
 
@@ -355,11 +356,31 @@ member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Ema
 | `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns a `*TaskToken` with its `Token` and a `Client` on it |
 | `UpdateTask(req)` | `UpdateTask`, as the task page does |
 | `ArchiveTask(req)` | `ArchiveTask`, as the task page does |
+| `CancelTask(req)` | `CancelTask`, as the task page does |
 | `SubmitRunnerEvents(req)` | `SubmitRunnerEvents`, as the org's runner calls it with its runner key |
+| `RegisterWorkspaces(req)` | `RegisterWorkspaces`, as the org's runner calls it on startup with its runner key |
+| `WaitRunnerEvents(runner, count)` | polls `ListRunnerEvents` until `runner`'s log holds at least `count` events, and returns the page token that resumes after them |
+| `CreateOrg(req)` | `CreateOrg`, as the org switcher does, then registers the harness's workspace in the new org; returns an `*Org` whose owner is this org's owner |
 | `GetTask(req)` | `GetTask`; returns the task |
+| `ListTasks(req)` | `ListTasks`; returns the tasks |
+| `ListEventsByTask(req)` | `ListEventsByTask`; returns one page of events |
+| `GetEvent(req)` | `GetEvent`; returns the event |
+| `ListExternalEvents(req)` | `ListExternalEvents`; returns the events |
+| `TestEvent(req)` | `TestEvent`, as the test event dialog does; returns the response. With `Fire` it is the only RPC that writes external events |
+| `CreateLink(req)` | `CreateLink`, as the agent's `create_link` tool does; returns the link |
+| `SetRoutingRules(req)` | `SetRoutingRules`; returns the rules as stored |
+| `GetRoutingRules(req)` | `GetRoutingRules`; returns the rules |
+| `AppendLogChunk(req)` | `AppendLogChunk`, as the driver's log shipper does |
+| `ListLogChunksByTask(req)` | `ListLogChunksByTask`; returns one page of chunks |
+| `CreateSchedule(req)` | `CreateSchedule`, filling `DefaultRunner` and `DefaultWorkspace` where `req` leaves them unset; returns the schedule |
+| `GetSchedule(req)` | `GetSchedule`; returns the schedule |
+| `ListSchedules(req)` | `ListSchedules`; returns the schedules |
+| `ListWorkspaces(req)` | `ListWorkspaces`; returns the workspaces |
+| `ListOrgs(req)` | `ListOrgs`; returns the owner's orgs |
 | `ListKeys(req)` | `ListKeys`; returns the keys |
 | `AddOrgMember(req)` | `AddOrgMember`, as the owner; returns the added user as a `*Member` acting in this org |
 | `ListOrgMembers(req)` | `ListOrgMembers`; returns the members |
+| `Subscribe()` | subscribes to the org's notifications on the server's `/events` stream as its owner, and returns once it is live; `Notifications.Next()` waits for the next one |
 | `CreateScopedKey(scopes)` | a new `xat_` key holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them), written to the store since no RPC narrows a key; returns a `*Key` |
 | `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
 | `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
@@ -954,6 +975,8 @@ func New(t *testing.T, opts *Options) *Harness
 type Server struct {
 	// URL is the server's base URL.
 	URL string
+	// Store is the server's store, an escape hatch for state no RPC can reach.
+	Store *store.Store
 	// ... unexported
 }
 
@@ -1051,6 +1074,37 @@ func (o *Org) AddOrgMember(req *gritzv1.AddOrgMemberRequest) *Member
 
 // ListOrgMembers returns the org's members.
 func (o *Org) ListOrgMembers(req *gritzv1.ListOrgMembersRequest) []*gritzv1.OrgMember
+
+func (o *Org) CancelTask(req *gritzv1.CancelTaskRequest)
+func (o *Org) RegisterWorkspaces(req *gritzv1.RegisterWorkspacesRequest)
+func (o *Org) WaitRunnerEvents(runner string, count int) string
+func (o *Org) CreateOrg(req *gritzv1.CreateOrgRequest) *Org
+func (o *Org) ListTasks(req *gritzv1.ListTasksRequest) []*gritzv1.Task
+func (o *Org) ListEventsByTask(req *gritzv1.ListEventsByTaskRequest) []*gritzv1.Event
+func (o *Org) GetEvent(req *gritzv1.GetEventRequest) *gritzv1.Event
+func (o *Org) ListExternalEvents(req *gritzv1.ListExternalEventsRequest) []*gritzv1.Event
+func (o *Org) TestEvent(req *gritzv1.TestEventRequest) *gritzv1.TestEventResponse
+func (o *Org) CreateLink(req *gritzv1.CreateLinkRequest) *gritzv1.TaskLink
+func (o *Org) SetRoutingRules(req *gritzv1.SetRoutingRulesRequest) []*gritzv1.RoutingRule
+func (o *Org) GetRoutingRules(req *gritzv1.GetRoutingRulesRequest) []*gritzv1.RoutingRule
+func (o *Org) AppendLogChunk(req *gritzv1.AppendLogChunkRequest)
+func (o *Org) ListLogChunksByTask(req *gritzv1.ListLogChunksByTaskRequest) []*gritzv1.LogChunk
+func (o *Org) CreateSchedule(req *gritzv1.CreateScheduleRequest) *gritzv1.Schedule
+func (o *Org) GetSchedule(req *gritzv1.GetScheduleRequest) *gritzv1.Schedule
+func (o *Org) ListSchedules(req *gritzv1.ListSchedulesRequest) []*gritzv1.Schedule
+func (o *Org) ListWorkspaces(req *gritzv1.ListWorkspacesRequest) []*gritzv1.RegisteredWorkspace
+func (o *Org) ListOrgs(req *gritzv1.ListOrgsRequest) []*gritzv1.Org
+
+// Notifications is a subscription to an org's notifications on the /events
+// stream.
+type Notifications struct{ ... }
+
+// Subscribe subscribes as the org's owner and returns once the subscription
+// is live.
+func (o *Org) Subscribe() *Notifications
+
+// Next waits for the next notification and returns it.
+func (n *Notifications) Next() model.Notification
 
 // Backend is the harness's local backend, and the backend.Backend the runner
 // is given.

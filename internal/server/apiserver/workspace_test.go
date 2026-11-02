@@ -1,40 +1,34 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestRegisterWorkspaces(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange
+	h := e2e.New(t, nil)
 
-	// Register workspaces
-	_, err := srv.RegisterWorkspaces(ctx, &gritzv1.RegisterWorkspacesRequest{
+	// Act
+	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-a", Description: "First workspace"},
 			{Name: "workspace-b"},
 		},
 	})
-	assert.NilError(t, err)
 
-	// List workspaces
-	listResp, err := srv.ListWorkspaces(ctx, &gritzv1.ListWorkspacesRequest{})
+	// Assert - runner-1's workspaces beside the harness's own.
 	assert.NilError(t, err)
-	assert.DeepEqual(t, listResp.Workspaces, []*gritzv1.RegisteredWorkspace{
+	assert.DeepEqual(t, h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), []*gritzv1.RegisteredWorkspace{
+		{Name: e2e.DefaultWorkspace, RunnerId: e2e.DefaultRunner},
 		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace"},
 		{Name: "workspace-b", RunnerId: "runner-1"},
 	}, protocmp.Transform(), protocmp.IgnoreFields(&gritzv1.RegisteredWorkspace{}, "updated_at"))
@@ -43,188 +37,116 @@ func TestRegisterWorkspaces(t *testing.T) {
 func TestRegisterWorkspaces_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// User A registers workspaces
-	_, err := srv.RegisterWorkspaces(ctxA, &gritzv1.RegisterWorkspacesRequest{
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-a"},
 		},
 	})
-	assert.NilError(t, err)
-
-	// User B registers different workspaces
-	_, err = srv.RegisterWorkspaces(ctxB, &gritzv1.RegisterWorkspacesRequest{
+	other.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-b"},
 		},
 	})
-	assert.NilError(t, err)
 
 	// Act
-	listRespA, errA := srv.ListWorkspaces(ctxA, &gritzv1.ListWorkspacesRequest{})
-	listRespB, errB := srv.ListWorkspaces(ctxB, &gritzv1.ListWorkspacesRequest{})
+	respA, errA := h.Org.Client.ListWorkspaces(t.Context(), &gritzv1.ListWorkspacesRequest{})
+	respB, errB := other.Client.ListWorkspaces(t.Context(), &gritzv1.ListWorkspacesRequest{})
 
-	// Assert - each user should only see their own workspaces
+	// Assert - each org sees only its own workspaces.
 	assert.NilError(t, errA)
 	assert.NilError(t, errB)
-	assert.Equal(t, len(listRespA.Workspaces), 1)
-	assert.Equal(t, listRespA.Workspaces[0].Name, "workspace-a")
-	assert.Equal(t, len(listRespB.Workspaces), 1)
-	assert.Equal(t, listRespB.Workspaces[0].Name, "workspace-b")
+	assert.DeepEqual(t, testx.ExtractField(respA.Workspaces, "Name"), []string{e2e.DefaultWorkspace, "workspace-a"})
+	assert.DeepEqual(t, testx.ExtractField(respB.Workspaces, "Name"), []string{e2e.DefaultWorkspace, "workspace-b"})
 }
 
 func TestRegisterWorkspaces_SameRunnerDifferentUsers(t *testing.T) {
 	t.Parallel()
-	// Arrange - both users register workspaces for the same runner ID
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// User A registers workspaces for runner-1
-	_, err := srv.RegisterWorkspaces(ctxA, &gritzv1.RegisterWorkspacesRequest{
+	// Arrange - both orgs register workspaces for the same runner ID.
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-a"},
 		},
 	})
-	assert.NilError(t, err)
-
-	// User B registers workspaces for the same runner-1
-	_, err = srv.RegisterWorkspaces(ctxB, &gritzv1.RegisterWorkspacesRequest{
+	other.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-b"},
 		},
 	})
-	assert.NilError(t, err)
 
-	// Act - User A re-registers (should only delete their own workspaces)
-	_, err = srv.RegisterWorkspaces(ctxA, &gritzv1.RegisterWorkspacesRequest{
+	// Act - re-registering replaces only the caller's org's workspaces.
+	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-c"},
 		},
 	})
-	assert.NilError(t, err)
 
-	// Assert - User A should see workspace-c, User B should still see workspace-b
-	listRespA, err := srv.ListWorkspaces(ctxA, &gritzv1.ListWorkspacesRequest{})
+	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, len(listRespA.Workspaces), 1)
-	assert.Equal(t, listRespA.Workspaces[0].Name, "workspace-c")
-
-	listRespB, err := srv.ListWorkspaces(ctxB, &gritzv1.ListWorkspacesRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listRespB.Workspaces), 1)
-	assert.Equal(t, listRespB.Workspaces[0].Name, "workspace-b")
+	assert.DeepEqual(t,
+		testx.ExtractField(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
+		[]string{e2e.DefaultWorkspace, "workspace-c"},
+	)
+	assert.DeepEqual(t,
+		testx.ExtractField(other.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
+		[]string{e2e.DefaultWorkspace, "workspace-b"},
+	)
 }
 
 func TestClearWorkspaces(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// Register workspaces
-	_, err := srv.RegisterWorkspaces(ctx, &gritzv1.RegisterWorkspacesRequest{
+	// Arrange
+	h := e2e.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-a"},
 			{Name: "workspace-b"},
 		},
 	})
-	assert.NilError(t, err)
 
-	// Verify workspaces exist
-	listResp, err := srv.ListWorkspaces(ctx, &gritzv1.ListWorkspacesRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listResp.Workspaces), 2)
+	// Act
+	_, err := h.Org.Client.ClearWorkspaces(t.Context(), &gritzv1.ClearWorkspacesRequest{})
 
-	// Clear workspaces
-	_, err = srv.ClearWorkspaces(ctx, &gritzv1.ClearWorkspacesRequest{})
+	// Assert
 	assert.NilError(t, err)
-
-	// Verify workspaces are cleared
-	listResp, err = srv.ListWorkspaces(ctx, &gritzv1.ListWorkspacesRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listResp.Workspaces), 0)
+	assert.Assert(t, cmp.Len(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), 0))
 }
 
 func TestClearWorkspaces_Permissions(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// User A registers workspaces
-	_, err := srv.RegisterWorkspaces(ctxA, &gritzv1.RegisterWorkspacesRequest{
+	// Arrange
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-a"},
 		},
 	})
-	assert.NilError(t, err)
-
-	// User B registers workspaces
-	_, err = srv.RegisterWorkspaces(ctxB, &gritzv1.RegisterWorkspacesRequest{
+	other.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
 			{Name: "workspace-b"},
 		},
 	})
-	assert.NilError(t, err)
 
-	// User A clears workspaces - should only clear their own
-	_, err = srv.ClearWorkspaces(ctxA, &gritzv1.ClearWorkspacesRequest{})
-	assert.NilError(t, err)
+	// Act - clears only the caller's org's workspaces.
+	_, err := h.Org.Client.ClearWorkspaces(t.Context(), &gritzv1.ClearWorkspacesRequest{})
 
-	// Verify User A has no workspaces
-	listRespA, err := srv.ListWorkspaces(ctxA, &gritzv1.ListWorkspacesRequest{})
+	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, len(listRespA.Workspaces), 0)
-
-	// Verify User B still has their workspaces
-	listRespB, err := srv.ListWorkspaces(ctxB, &gritzv1.ListWorkspacesRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listRespB.Workspaces), 1)
-	assert.Equal(t, listRespB.Workspaces[0].Name, "workspace-b")
+	assert.Assert(t, cmp.Len(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), 0))
+	assert.DeepEqual(t,
+		testx.ExtractField(other.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
+		[]string{e2e.DefaultWorkspace, "workspace-b"},
+	)
 }

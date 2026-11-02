@@ -19,7 +19,6 @@ import (
 )
 
 //go:generate go tool moq -out github_moq_test.go . GithubServer
-//go:generate go tool moq -out shell_moq_test.go . ShellRegistry
 
 // GithubServer is the subset of *githubserver.Server the apiserver depends on.
 // It is an interface so LinkGitHubInstallation's membership check can be mocked

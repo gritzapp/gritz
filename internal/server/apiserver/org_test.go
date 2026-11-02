@@ -1,28 +1,21 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestCreateOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{
+	resp, err := h.Org.Client.CreateOrg(t.Context(), &gritzv1.CreateOrgRequest{
 		Name: "my-org",
 	})
 
@@ -35,71 +28,41 @@ func TestCreateOrg(t *testing.T) {
 func TestListOrgs(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "org-1"})
-	assert.NilError(t, err)
-	_, err = srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "org-2"})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "org-1"})
+	h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "org-2"})
 
 	// Act
-	resp, err := srv.ListOrgs(ctx, &gritzv1.ListOrgsRequest{})
+	resp, err := h.Org.Client.ListOrgs(t.Context(), &gritzv1.ListOrgsRequest{})
 
-	// Assert
+	// Assert - the two created and the owner's default org.
 	assert.NilError(t, err)
-	// 2 created + 1 from CreateOrg
-	assert.Equal(t, len(resp.Orgs), 3)
+	assert.Assert(t, cmp.Len(resp.Orgs, 3))
 }
 
 func TestDeleteOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "to-delete"})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "to-delete"})
 
 	// Act
-	_, err = srv.DeleteOrg(ctx, &gritzv1.DeleteOrgRequest{Id: createResp.Org.Id})
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 
 	// Assert
 	assert.NilError(t, err)
-	resp, err := srv.ListOrgs(ctx, &gritzv1.ListOrgsRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Orgs), 1)
+	assert.Assert(t, cmp.Len(h.Org.ListOrgs(&gritzv1.ListOrgsRequest{}), 1))
 }
 
 func TestDeleteOrg_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateOrg(ctxA, &gritzv1.CreateOrgRequest{Name: "user-a-org"})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "user-a-org"})
 
 	// Act
-	_, err = srv.DeleteOrg(ctxB, &gritzv1.DeleteOrgRequest{Id: createResp.Org.Id})
+	_, err := other.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 
 	// Assert
 	assert.ErrorContains(t, err, "only the org owner can delete it")
@@ -108,16 +71,10 @@ func TestDeleteOrg_Permissions(t *testing.T) {
 func TestDeleteOrg_DefaultOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	_, err := srv.DeleteOrg(ctx, &gritzv1.DeleteOrgRequest{Id: org.OrgID})
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: h.Org.ID})
 
 	// Assert
 	assert.ErrorContains(t, err, "cannot delete your default org")
@@ -126,91 +83,48 @@ func TestDeleteOrg_DefaultOrg(t *testing.T) {
 func TestAddAndListOrgMembers(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	ownerOrg := teststore.CreateOrg(t, srv.store, nil)
-	owner := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     ownerOrg.UserID,
-		OrgID:  ownerOrg.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	memberOrg := teststore.CreateOrg(t, srv.store, nil)
-	member := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     memberOrg.UserID,
-		OrgID:  memberOrg.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	memberEmail := apiauth.Caller(member).ID + "@test.com"
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
 
 	// Act
-	resp, err := srv.AddOrgMember(owner, &gritzv1.AddOrgMemberRequest{
-		Email: memberEmail,
+	resp, err := h.Org.Client.AddOrgMember(t.Context(), &gritzv1.AddOrgMemberRequest{
+		Email: other.Owner.Email,
 	})
 
 	// Assert
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Member.Role, "member")
-	listResp, err := srv.ListOrgMembers(owner, &gritzv1.ListOrgMembersRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listResp.Members), 2)
+	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 2))
 }
 
 func TestDeleteOrg_WithTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateOrg(ctx, &gritzv1.CreateOrgRequest{Name: "has-tasks"})
-	assert.NilError(t, err)
-	orgCtx := apiauth.WithUser(ctx, &apiauth.UserInfo{
-		ID:     apiauth.Caller(ctx).ID,
-		OrgID:  createResp.Org.Id,
-		Scopes: authscope.Admin(),
-	})
-	_, err = srv.RegisterWorkspaces(orgCtx, &gritzv1.RegisterWorkspacesRequest{
-		RunnerId: "test-runner",
-		Workspaces: []*gritzv1.RegisteredWorkspace{
-			{Name: "default"},
-		},
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateTask(orgCtx, &gritzv1.CreateTaskRequest{
-		Runner:    "test-runner",
-		Workspace: "default",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
+	created.CreateTask(nil)
 
 	// Act
-	_, err = srv.DeleteOrg(ctx, &gritzv1.DeleteOrgRequest{Id: createResp.Org.Id})
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 
 	// Assert
 	assert.NilError(t, err)
-	listResp, err := srv.ListOrgs(ctx, &gritzv1.ListOrgsRequest{})
-	assert.NilError(t, err)
-	for _, o := range listResp.Orgs {
-		assert.Assert(t, o.Id != createResp.Org.Id)
+	for _, o := range h.Org.ListOrgs(&gritzv1.ListOrgsRequest{}) {
+		assert.Assert(t, o.Id != created.ID)
 	}
 }
 
 func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	err := srv.store.SetOrgGitHubInstallation(ctx, nil, org.OrgID, 12345)
+	h := e2e.New(t, nil)
+	// SetOrgGitHubInstallation verifies the installation with GitHub, which the
+	// harness has no client for, so the installation is written to the store.
+	err := h.Server.Store.SetOrgGitHubInstallation(t.Context(), nil, h.Org.ID, 12345)
 	assert.NilError(t, err)
 
 	// Act
-	resp, err := srv.GetOrgSettings(ctx, &gritzv1.GetOrgSettingsRequest{})
+	resp, err := h.Org.Client.GetOrgSettings(t.Context(), &gritzv1.GetOrgSettingsRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -220,16 +134,10 @@ func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
 func TestGetOrgSettings_NoGitHubInstallation(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.GetOrgSettings(ctx, &gritzv1.GetOrgSettingsRequest{})
+	resp, err := h.Org.Client.GetOrgSettings(t.Context(), &gritzv1.GetOrgSettingsRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -239,33 +147,16 @@ func TestGetOrgSettings_NoGitHubInstallation(t *testing.T) {
 func TestRemoveOrgMember(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	ownerOrg := teststore.CreateOrg(t, srv.store, nil)
-	owner := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     ownerOrg.UserID,
-		OrgID:  ownerOrg.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	memberOrg := teststore.CreateOrg(t, srv.store, nil)
-	memberUser := apiauth.Caller(apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     memberOrg.UserID,
-		OrgID:  memberOrg.OrgID,
-		Scopes: authscope.Admin(),
-	}))
-	memberEmail := memberUser.ID + "@test.com"
-	_, err := srv.AddOrgMember(owner, &gritzv1.AddOrgMemberRequest{
-		Email: memberEmail,
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Email})
 
 	// Act
-	_, err = srv.RemoveOrgMember(owner, &gritzv1.RemoveOrgMemberRequest{
-		UserId: memberUser.ID,
+	_, err := h.Org.Client.RemoveOrgMember(t.Context(), &gritzv1.RemoveOrgMemberRequest{
+		UserId: member.UserID,
 	})
 
 	// Assert
 	assert.NilError(t, err)
-	listResp, err := srv.ListOrgMembers(owner, &gritzv1.ListOrgMembersRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listResp.Members), 1)
+	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 1))
 }

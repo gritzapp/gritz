@@ -1,15 +1,13 @@
-package apiserver
+package apiserver_test
 
 import (
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/apiauth"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
@@ -17,23 +15,10 @@ import (
 
 func TestGetTask(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	// Create a task using the API
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Test Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Name: "Test Task",
 		Instructions: []*gritzv1.Instruction{
 			{
 				Text: "Do something important",
@@ -45,115 +30,69 @@ func TestGetTask(t *testing.T) {
 			},
 		},
 	})
-	assert.NilError(t, err)
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
-	// Get the task via the API
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{
-		Id: createResp.Task.Id,
-	})
-	assert.NilError(t, err)
+	// Act
+	resp, err := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 
-	// Verify the task matches what we created. Instructions are no longer a task
-	// field — they are instruction events in the stream, asserted below.
-	expected := &gritzv1.Task{
-		Id:          createResp.Task.Id,
+	// Assert: instructions are not a task field; they are instruction events in
+	// the stream, asserted below.
+	assert.NilError(t, err)
+	assert.DeepEqual(t, resp.Task, &gritzv1.Task{
+		Id:          task.ID,
 		Name:        "Test Task",
-		Runner:      "test-runner",
-		Workspace:   "test-workspace",
+		Runner:      e2e.DefaultRunner,
+		Workspace:   e2e.DefaultWorkspace,
 		Status:      gritzv1.TaskStatus_PENDING,
 		Command:     gritzv1.TaskCommand_START,
 		Actions:     &gritzv1.TaskActions{Cancel: true},
 		Version:     1,
-		CreatedAt:   getResp.Task.CreatedAt, // Copy timestamps since we can't predict them
-		UpdatedAt:   getResp.Task.UpdatedAt,
+		CreatedAt:   resp.Task.CreatedAt, // Copy timestamps since we can't predict them
+		UpdatedAt:   resp.Task.UpdatedAt,
 		AutoArchive: durationpb.New(0),
-	}
-
-	assert.DeepEqual(t, getResp.Task, expected, protocmp.Transform())
-
-	// The initial instructions are seeded into the stream as instruction events.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: createResp.Task.Id,
-	})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
-		{Text: "Do something important", Url: "https://example.com/issue/1"},
-		{Text: "Do something else", Url: "https://example.com/issue/2"},
 	}, protocmp.Transform())
-}
-
-// instructionPayloads extracts the instruction-arm payloads from a stream, in
-// order — the brief's instruction projection.
-func instructionPayloads(events []*gritzv1.Event) []*gritzv1.InstructionPayload {
-	var out []*gritzv1.InstructionPayload
-	for _, e := range events {
-		if inst := e.GetInstruction(); inst != nil {
-			out = append(out, inst)
-		}
-	}
-	return out
+	// The initial instructions are seeded into the stream as instruction events.
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeInstruction},
+	})
+	assert.Equal(t, len(events), 2)
+	assert.DeepEqual(t, events[0].GetInstruction(), &gritzv1.InstructionPayload{
+		Text: "Do something important",
+		Url:  "https://example.com/issue/1",
+	}, protocmp.Transform())
+	assert.DeepEqual(t, events[1].GetInstruction(), &gritzv1.InstructionPayload{
+		Text: "Do something else",
+		Url:  "https://example.com/issue/2",
+	}, protocmp.Transform())
 }
 
 func TestGetTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+
+	// Act & Assert - the task's own org reads it.
+	_, err := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
 
-	// Act
-	_, errA := srv.GetTask(ctxA, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	_, errB := srv.GetTask(ctxB, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-
-	// Assert
-	assert.NilError(t, errA)
-	assert.ErrorContains(t, errB, "not found")
+	// Act & Assert - another org can't see it.
+	_, err = other.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
+	assert.ErrorContains(t, err, "not found")
 }
 
 func TestCreateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "New Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 		Instructions: []*gritzv1.Instruction{
 			{
 				Text: "Do something",
@@ -164,11 +103,11 @@ func TestCreateTask(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	expected := &gritzv1.Task{
+	assert.DeepEqual(t, resp.Task, &gritzv1.Task{
 		Id:          resp.Task.Id,
 		Name:        "New Task",
-		Runner:      "test-runner",
-		Workspace:   "test-workspace",
+		Runner:      e2e.DefaultRunner,
+		Workspace:   e2e.DefaultWorkspace,
 		Status:      gritzv1.TaskStatus_PENDING,
 		Command:     gritzv1.TaskCommand_START,
 		Actions:     &gritzv1.TaskActions{Cancel: true},
@@ -176,16 +115,16 @@ func TestCreateTask(t *testing.T) {
 		CreatedAt:   resp.Task.CreatedAt,
 		UpdatedAt:   resp.Task.UpdatedAt,
 		AutoArchive: durationpb.New(0),
-	}
-	assert.DeepEqual(t, resp.Task, expected, protocmp.Transform())
-
+	}, protocmp.Transform())
 	// The initial instruction is seeded into the stream as an instruction event.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
 		TaskId: resp.Task.Id,
+		Types:  []string{model.EventTypeInstruction},
 	})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
-		{Text: "Do something", Url: "https://example.com/issue/1"},
+	assert.Equal(t, len(events), 1)
+	assert.DeepEqual(t, events[0].GetInstruction(), &gritzv1.InstructionPayload{
+		Text: "Do something",
+		Url:  "https://example.com/issue/1",
 	}, protocmp.Transform())
 }
 
@@ -194,34 +133,24 @@ func TestCreateTask(t *testing.T) {
 func TestCreateTask_Draft(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Draft Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 		Draft:     true,
 	})
 
 	// Assert: draft, no command, and startable + archivable. Not cancellable and
 	// not restartable — there is nothing to cancel, and nothing to restart.
 	assert.NilError(t, err)
-	expected := &gritzv1.Task{
+	assert.DeepEqual(t, resp.Task, &gritzv1.Task{
 		Id:          resp.Task.Id,
 		Name:        "Draft Task",
-		Runner:      "test-runner",
-		Workspace:   "test-workspace",
+		Runner:      e2e.DefaultRunner,
+		Workspace:   e2e.DefaultWorkspace,
 		Status:      gritzv1.TaskStatus_DRAFT,
 		Command:     gritzv1.TaskCommand_NONE,
 		Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
@@ -229,23 +158,13 @@ func TestCreateTask_Draft(t *testing.T) {
 		CreatedAt:   resp.Task.CreatedAt,
 		UpdatedAt:   resp.Task.UpdatedAt,
 		AutoArchive: durationpb.New(0),
-	}
-	assert.DeepEqual(t, resp.Task, expected, protocmp.Transform())
-
-	// No instruction events, but the Created lifecycle event is still there so
-	// the timeline is not empty.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: resp.Task.Id,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, len(instructionPayloads(eventsResp.Events)), 0)
-	assert.Equal(t, len(eventsResp.Events), 1)
-	assert.Equal(t, eventsResp.Events[0].GetLifecycle().Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
-
-	// No command event, so no runner ever acts on it: nothing is launched.
-	commands, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
-	assert.NilError(t, err)
-	assert.Equal(t, len(commands), 0)
+	}, protocmp.Transform())
+	// The Created lifecycle event is the only event, so the timeline is not
+	// empty, and there is no instruction and no command event: no runner ever
+	// acts on it, so nothing is launched.
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	assert.Equal(t, len(events), 1)
+	assert.Equal(t, events[0].GetLifecycle().Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
 }
 
 // The first instruction from the composer starts a draft task: it lands on
@@ -254,101 +173,57 @@ func TestCreateTask_Draft(t *testing.T) {
 func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Draft Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-		Draft:     true,
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Draft Task"})
 
 	// Act: exactly what the task page composer sends.
-	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
-		Id:              resp.Task.Id,
+	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
+		Id:              task.ID,
 		Start:           true,
 		AddInstructions: []*gritzv1.Instruction{{Text: "Do something"}},
 	})
 
 	// Assert
 	assert.NilError(t, err)
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Status, gritzv1.TaskStatus_PENDING)
-	assert.Equal(t, getResp.Task.Command, gritzv1.TaskCommand_START)
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
+	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
 	// The draft was never provisioned (version 0), so its first run is run 1 —
 	// the same run number an ordinary create starts at.
-	assert.Equal(t, getResp.Task.Version, int64(1))
-
+	assert.Equal(t, got.Version, int64(1))
 	// The runner now has work for it: a start for run 1.
-	commands, err := srv.store.ListEventsByTask(ctx, nil, resp.Task.Id, org.OrgID, []string{model.EventTypeCommand})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(commands, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "test-runner",
-				Workspace: "test-workspace",
-			},
-		},
-	)
-
-	// The instruction is in the stream and woke the task.
-	eventsResp, err := srv.ListEventsByTask(ctx, &gritzv1.ListEventsByTaskRequest{
-		TaskId: resp.Task.Id,
+	commands := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeCommand},
 	})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, instructionPayloads(eventsResp.Events), []*gritzv1.InstructionPayload{
-		{Text: "Do something"},
+	assert.Equal(t, len(commands), 1)
+	assert.DeepEqual(t, commands[0].GetCommand(), &gritzv1.CommandPayload{
+		Command:   gritzv1.TaskCommand_START,
+		Version:   1,
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 	}, protocmp.Transform())
-	for _, e := range eventsResp.Events {
-		if e.GetInstruction() != nil {
-			assert.Assert(t, e.Wake, "the first instruction must wake the task")
-		}
-	}
+	// The instruction is in the stream and woke the task.
+	instructions := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+		TaskId: task.ID,
+		Types:  []string{model.EventTypeInstruction},
+	})
+	assert.Equal(t, len(instructions), 1)
+	assert.DeepEqual(t, instructions[0].GetInstruction(), &gritzv1.InstructionPayload{
+		Text: "Do something",
+	}, protocmp.Transform())
+	assert.Assert(t, instructions[0].Wake, "the first instruction must wake the task")
 }
 
 func TestListTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task 1",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Task 2",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 1"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 2"})
 
 	// Act
-	resp, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{})
+	resp, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
 
 	// Assert
 	assert.NilError(t, err)
@@ -357,96 +232,60 @@ func TestListTasks(t *testing.T) {
 
 func TestListTasks_IncludeArchived(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange: one active task and one archived task in the same org.
+	h := e2e.New(t, nil)
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active"})
+	archived := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived"})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived.ID})
 
-	// One active task and one archived task in the same org.
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "active",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	assert.NilError(t, srv.store.CreateTask(ctx, nil, &model.Task{
-		Runner: "test-runner", Workspace: "test-workspace", Status: model.TaskStatusCompleted, OrgID: org.OrgID, Archived: true,
-	}))
-
-	// The default request (archived unset) returns active tasks only, unchanged.
-	def, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{})
+	// Act & Assert - the default request (archived unset) returns active tasks
+	// only.
+	def, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(def.Tasks), 1)
 	assert.Assert(t, !def.Tasks[0].Archived)
 
-	// Archived: false is likewise active-only.
-	off, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{Archived: false})
+	// Act & Assert - Archived: false is likewise active-only.
+	off, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{Archived: false})
 	assert.NilError(t, err)
 	assert.Equal(t, len(off.Tasks), 1)
 
-	// Archived: true returns active and archived rows together.
-	on, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{Archived: true})
+	// Act & Assert - Archived: true returns active and archived rows together.
+	on, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{Archived: true})
 	assert.NilError(t, err)
 	assert.Equal(t, len(on.Tasks), 2)
 }
 
 func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange: two active and two archived rows so each filter mints a
+	// next-page token.
+	h := e2e.New(t, nil)
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-1"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-2"})
+	archived1 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-1"})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived1.ID})
+	archived2 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-2"})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived2.ID})
 
-	// Two active and two archived rows so each filter mints a next-page token.
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "active-1",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "active-2",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	assert.NilError(t, srv.store.CreateTask(ctx, nil, &model.Task{
-		Runner: "test-runner", Workspace: "test-workspace", Status: model.TaskStatusCompleted, OrgID: org.OrgID, Archived: true,
-	}))
-	assert.NilError(t, srv.store.CreateTask(ctx, nil, &model.Task{
-		Runner: "test-runner", Workspace: "test-workspace", Status: model.TaskStatusCompleted, OrgID: org.OrgID, Archived: true,
-	}))
-
-	// A token minted under archived=true, replayed under archived=false → invalid.
-	archivedPage, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, Archived: true})
+	// Act & Assert - a token minted under archived=true, replayed under
+	// archived=false, is invalid.
+	archivedPage, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{PageSize: 1, Archived: true})
 	assert.NilError(t, err)
 	assert.Assert(t, archivedPage.NextPageToken != "")
-	_, err = srv.ListTasks(ctx, &gritzv1.ListTasksRequest{
+	_, err = h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{
 		PageSize:  1,
 		PageToken: archivedPage.NextPageToken,
 		Archived:  false,
 	})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 
-	// And the reverse: an active-minted token replayed under archived=true.
-	activePage, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1, Archived: false})
+	// Act & Assert - and the reverse: an active-minted token replayed under
+	// archived=true.
+	activePage, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{PageSize: 1, Archived: false})
 	assert.NilError(t, err)
 	assert.Assert(t, activePage.NextPageToken != "")
-	_, err = srv.ListTasks(ctx, &gritzv1.ListTasksRequest{
+	_, err = h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{
 		PageSize:  1,
 		PageToken: activePage.NextPageToken,
 		Archived:  true,
@@ -457,277 +296,149 @@ func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 func TestListTasks_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task 1",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task 2",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateTask(ctxB, &gritzv1.CreateTaskRequest{
-		Name:      "User B's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 1"})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 2"})
+	other.CreateTask(&gritzv1.CreateTaskRequest{Name: "User B's Task"})
 
-	// Act
-	respA, err := srv.ListTasks(ctxA, &gritzv1.ListTasksRequest{})
+	// Act & Assert - each org lists only its own tasks.
+	respA, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
 	assert.NilError(t, err)
-	respB, err := srv.ListTasks(ctxB, &gritzv1.ListTasksRequest{})
-	assert.NilError(t, err)
-
-	// Assert
 	assert.Equal(t, len(respA.Tasks), 2)
+
+	respB, err := other.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
+	assert.NilError(t, err)
 	assert.Equal(t, len(respB.Tasks), 1)
 }
 
 func TestListTasks_Pagination(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange
+	h := e2e.New(t, nil)
+	first := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-1"})
+	second := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-2"})
 
-	first, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "task-1",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	second, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "task-2",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-
-	// The first page holds the newest task and a token for the next page.
-	page1, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{PageSize: 1})
+	// Act & Assert - the first page holds the newest task and a token for the
+	// next page.
+	page1, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{PageSize: 1})
 	assert.NilError(t, err)
 	assert.Equal(t, len(page1.Tasks), 1)
-	assert.Equal(t, page1.Tasks[0].Id, second.Task.Id)
+	assert.Equal(t, page1.Tasks[0].Id, second.ID)
 	assert.Assert(t, page1.NextPageToken != "")
 
-	// Passing that token back returns the next (older) task and no further pages.
-	page2, err := srv.ListTasks(ctx, &gritzv1.ListTasksRequest{
+	// Act & Assert - passing that token back returns the next (older) task and
+	// no further pages.
+	page2, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{
 		PageSize:  1,
 		PageToken: page1.NextPageToken,
 	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(page2.Tasks), 1)
-	assert.Equal(t, page2.Tasks[0].Id, first.Task.Id)
+	assert.Equal(t, page2.Tasks[0].Id, first.ID)
 	assert.Equal(t, page2.NextPageToken, "")
 }
 
 func TestCreateTask_Namespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Namespaced Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 		Namespace: "reviewbot",
 	})
 
 	// Assert: the response carries the namespace...
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Task.Namespace, "reviewbot")
-
 	// ...and it is persisted, readable back on the task.
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Namespace, "reviewbot")
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id})
+	assert.Equal(t, got.Namespace, "reviewbot")
 }
 
 func TestCreateTask_DefaultNamespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act: no namespace set — the default (empty) namespace.
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Default Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
 	})
 
-	// Assert: empty namespace behaves as today.
+	// Assert
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Task.Namespace, "")
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Namespace, "")
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id})
+	assert.Equal(t, got.Namespace, "")
 }
 
 func TestCreateTask_BadRunner(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange
+	h := e2e.New(t, nil)
 
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	// Act
+	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Bad Task",
 		Runner:    "nonexistent-runner",
-		Workspace: "test-workspace",
+		Workspace: e2e.DefaultWorkspace,
 	})
+
+	// Assert
 	assert.ErrorContains(t, err, "not found")
 }
 
 func TestCreateTask_BadWorkspace(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	// Arrange
+	h := e2e.New(t, nil)
 
-	_, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	// Act
+	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Bad Task",
-		Runner:    "test-runner",
+		Runner:    e2e.DefaultRunner,
 		Workspace: "fake-workspace",
 	})
+
+	// Assert
 	assert.ErrorContains(t, err, "not found")
 }
 
 func TestUpdateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Original Name",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Original Name"})
 
 	// Act
-	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
-		Id:   createResp.Task.Id,
+	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
+		Id:   task.ID,
 		Name: "Updated Name",
 	})
 
 	// Assert
 	assert.NilError(t, err)
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Name, "Updated Name")
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.Name, "Updated Name")
 }
 
 func TestUpdateTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
 
 	// Act
-	_, err = srv.UpdateTask(ctxB, &gritzv1.UpdateTaskRequest{
-		Id:   createResp.Task.Id,
+	_, err := other.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
+		Id:   task.ID,
 		Name: "Hijacked Name",
 	})
 
@@ -738,38 +449,12 @@ func TestUpdateTask_Permissions(t *testing.T) {
 func TestArchiveTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
 
 	// Act
-	_, err = srv.ArchiveTask(ctxB, &gritzv1.ArchiveTaskRequest{
-		Id: createResp.Task.Id,
-	})
+	_, err := other.Client.ArchiveTask(t.Context(), &gritzv1.ArchiveTaskRequest{Id: task.ID})
 
 	// Assert
 	assert.ErrorContains(t, err, "not found")
@@ -778,38 +463,13 @@ func TestArchiveTask_Permissions(t *testing.T) {
 func TestCancelTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
-	_, err = srv.CancelTask(ctxB, &gritzv1.CancelTaskRequest{
-		Id: createResp.Task.Id,
-	})
+	_, err := other.Client.CancelTask(t.Context(), &gritzv1.CancelTaskRequest{Id: task.ID})
 
 	// Assert
 	assert.ErrorContains(t, err, "not found")
@@ -818,38 +478,13 @@ func TestCancelTask_Permissions(t *testing.T) {
 func TestRestartTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctxA, &gritzv1.CreateTaskRequest{
-		Name:      "User A's Task",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task"})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
 	// Act
-	_, err = srv.RestartTask(ctxB, &gritzv1.RestartTaskRequest{
-		Id: createResp.Task.Id,
-	})
+	_, err := other.Client.RestartTask(t.Context(), &gritzv1.RestartTaskRequest{Id: task.ID})
 
 	// Assert
 	assert.ErrorContains(t, err, "not found")
@@ -857,128 +492,82 @@ func TestRestartTask_Permissions(t *testing.T) {
 
 func TestCreateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
+	// Arrange
+	h := e2e.New(t, nil)
 	want := 90 * time.Minute
-	resp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+
+	// Act
+	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:        "With archive",
-		Runner:      "test-runner",
-		Workspace:   "test-workspace",
+		Runner:      e2e.DefaultRunner,
+		Workspace:   e2e.DefaultWorkspace,
 		AutoArchive: durationpb.New(want),
 	})
+
+	// Assert
 	assert.NilError(t, err)
 	assert.Assert(t, resp.Task.AutoArchive != nil, "AutoArchive should be set on response")
 	assert.Equal(t, resp.Task.AutoArchive.AsDuration(), want)
-
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.NilError(t, err)
-	assert.Assert(t, getResp.Task.AutoArchive != nil)
-	assert.Equal(t, getResp.Task.AutoArchive.AsDuration(), want)
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id})
+	assert.Assert(t, got.AutoArchive != nil)
+	assert.Equal(t, got.AutoArchive.AsDuration(), want)
 }
 
 func TestUpdateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "No archive",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, createResp.Task.AutoArchive.AsDuration(), time.Duration(0), "unset means never auto-archive")
-
-	// Set a value via Update
+	// Arrange
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "No archive"})
+	assert.Equal(t, task.Resp.Task.AutoArchive.AsDuration(), time.Duration(0), "unset means never auto-archive")
 	want := 24 * time.Hour
-	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
-		Id:          createResp.Task.Id,
+
+	// Act & Assert - setting a value.
+	_, err := h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
+		Id:          task.ID,
 		AutoArchive: durationpb.New(want),
 	})
 	assert.NilError(t, err)
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Assert(t, getResp.Task.AutoArchive != nil)
-	assert.Equal(t, getResp.Task.AutoArchive.AsDuration(), want)
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Assert(t, got.AutoArchive != nil)
+	assert.Equal(t, got.AutoArchive.AsDuration(), want)
 
-	// Omitting AutoArchive on Update leaves the existing value untouched.
-	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
-		Id:   createResp.Task.Id,
+	// Act & Assert - omitting AutoArchive leaves the existing value untouched.
+	_, err = h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
+		Id:   task.ID,
 		Name: "just a rename",
 	})
 	assert.NilError(t, err)
-	getResp, err = srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.AutoArchive.AsDuration(), want, "omitted AutoArchive preserves existing value")
+	got = h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.AutoArchive.AsDuration(), want, "omitted AutoArchive preserves existing value")
 
-	// Setting to zero reverts to "never auto-archive" (omitted on the wire).
-	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
-		Id:          createResp.Task.Id,
+	// Act & Assert - setting zero reverts to "never auto-archive" (omitted on
+	// the wire).
+	_, err = h.Org.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{
+		Id:          task.ID,
 		AutoArchive: durationpb.New(0),
 	})
 	assert.NilError(t, err)
-	getResp, err = srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.AutoArchive.AsDuration(), time.Duration(0), "zero duration means never auto-archive")
+	got = h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, got.AutoArchive.AsDuration(), time.Duration(0), "zero duration means never auto-archive")
 }
 
 func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	t.Parallel()
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
+	// Arrange: a draft can be archived directly.
+	h := e2e.New(t, nil)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Name:        "Auto-archive task",
-		Runner:      "test-runner",
-		Workspace:   "test-workspace",
 		AutoArchive: durationpb.New(time.Hour),
 	})
-	assert.NilError(t, err)
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 
-	// Put the task in a terminal state, then archive it manually.
-	dbTask, err := srv.store.GetTask(ctx, nil, createResp.Task.Id, org.OrgID)
-	assert.NilError(t, err)
-	dbTask.Status = 5 // COMPLETED
-	dbTask.Command = 0
-	assert.NilError(t, srv.store.UpdateTask(ctx, nil, dbTask))
+	// Act
+	_, err := h.Org.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID})
 
-	_, err = srv.ArchiveTask(ctx, &gritzv1.ArchiveTaskRequest{Id: createResp.Task.Id})
+	// Assert: unarchive clears auto_archive so the archiver doesn't immediately
+	// re-archive.
 	assert.NilError(t, err)
-
-	// Unarchive should clear auto_archive so the archiver doesn't immediately re-archive.
-	_, err = srv.UnarchiveTask(ctx, &gritzv1.UnarchiveTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Assert(t, !getResp.Task.Archived, "task should be unarchived")
-	assert.Equal(t, getResp.Task.AutoArchive.AsDuration(), time.Duration(0), "AutoArchive should reset to 0 (never) on unarchive")
+	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Assert(t, !got.Archived, "task should be unarchived")
+	assert.Equal(t, got.AutoArchive.AsDuration(), time.Duration(0), "AutoArchive should reset to 0 (never) on unarchive")
 }

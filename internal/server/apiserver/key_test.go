@@ -1,28 +1,23 @@
-package apiserver
+package apiserver_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
 )
 
 func TestCreateKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
+	resp, err := h.Org.Client.CreateKey(t.Context(), &gritzv1.CreateKeyRequest{
 		Name: "test-key",
 	})
 
@@ -37,23 +32,18 @@ func TestCreateKey(t *testing.T) {
 func TestCreateKeyStoresAdminScopes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
+	h := e2e.New(t, nil)
 
 	// Act
-	resp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
+	resp, err := h.Org.Client.CreateKey(t.Context(), &gritzv1.CreateKeyRequest{
 		Name: "admin-key",
 	})
-	assert.NilError(t, err)
 
 	// Assert - new keys carry the admin wildcard (*.*); there is no way to
-	// choose narrower scopes yet.
-	key, err := srv.store.GetKey(ctx, nil, resp.Key.Id, org.OrgID)
+	// choose narrower scopes yet. No RPC exposes a key's scopes, so read them
+	// from the store.
+	assert.NilError(t, err)
+	key, err := h.Server.Store.GetKey(t.Context(), nil, resp.Key.Id, h.Org.ID)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, key.Scopes, authscope.Admin())
 }
@@ -61,125 +51,89 @@ func TestCreateKeyStoresAdminScopes(t *testing.T) {
 func TestCreateAndListKeys(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
-		Name: "key-1",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
-		Name: "key-2",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "key-1"})
+	h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "key-2"})
 
 	// Act
-	resp, err := srv.ListKeys(ctx, &gritzv1.ListKeysRequest{})
+	resp, err := h.Org.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 
-	// Assert
+	// Assert - the org also holds the harness's runner key, so look for the
+	// created keys by name.
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Keys), 2)
+	var names []string
+	for _, k := range resp.Keys {
+		names = append(names, k.Name)
+	}
+	assert.Assert(t, slices.Contains(names, "key-1"), "keys: %v", names)
+	assert.Assert(t, slices.Contains(names, "key-2"), "keys: %v", names)
 }
 
 func TestDeleteKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, nil)
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
-		Name: "to-delete",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	key := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "to-delete"})
 
 	// Act
-	_, err = srv.DeleteKey(ctx, &gritzv1.DeleteKeyRequest{
-		Id: createResp.Key.Id,
+	_, err := h.Org.Client.DeleteKey(t.Context(), &gritzv1.DeleteKeyRequest{
+		Id: key.ID,
 	})
-	assert.NilError(t, err)
 
 	// Assert
-	listResp, err := srv.ListKeys(ctx, &gritzv1.ListKeysRequest{})
 	assert.NilError(t, err)
-	assert.Equal(t, len(listResp.Keys), 0)
+	for _, k := range h.Org.ListKeys(&gritzv1.ListKeysRequest{}) {
+		assert.Assert(t, k.Id != key.ID, "deleted key %s is still listed", key.ID)
+	}
 }
 
 func TestListKeys_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	_, err := srv.CreateKey(ctxA, &gritzv1.CreateKeyRequest{
-		Name: "user-a-key",
-	})
-	assert.NilError(t, err)
-	_, err = srv.CreateKey(ctxB, &gritzv1.CreateKeyRequest{
-		Name: "user-b-key",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	orgA := h.Org
+	orgB := h.Server.CreateOrg()
+	orgA.CreateKey(&gritzv1.CreateKeyRequest{Name: "user-a-key"})
+	orgB.CreateKey(&gritzv1.CreateKeyRequest{Name: "user-b-key"})
 
 	// Act
-	respA, err := srv.ListKeys(ctxA, &gritzv1.ListKeysRequest{})
+	respA, err := orgA.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 	assert.NilError(t, err)
-	respB, err := srv.ListKeys(ctxB, &gritzv1.ListKeysRequest{})
+	respB, err := orgB.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
 	assert.NilError(t, err)
 
-	// Assert - each user only sees their own keys
-	assert.Equal(t, len(respA.Keys), 1)
-	assert.Equal(t, respA.Keys[0].Name, "user-a-key")
-	assert.Equal(t, len(respB.Keys), 1)
-	assert.Equal(t, respB.Keys[0].Name, "user-b-key")
+	// Assert - each org only sees its own keys
+	var namesA, namesB []string
+	for _, k := range respA.Keys {
+		namesA = append(namesA, k.Name)
+	}
+	for _, k := range respB.Keys {
+		namesB = append(namesB, k.Name)
+	}
+	assert.Assert(t, slices.Contains(namesA, "user-a-key"), "org A keys: %v", namesA)
+	assert.Assert(t, !slices.Contains(namesA, "user-b-key"), "org A keys: %v", namesA)
+	assert.Assert(t, slices.Contains(namesB, "user-b-key"), "org B keys: %v", namesB)
+	assert.Assert(t, !slices.Contains(namesB, "user-a-key"), "org B keys: %v", namesB)
 }
 
 func TestDeleteKey_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	orgA := teststore.CreateOrg(t, srv.store, nil)
-	ctxA := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgA.UserID,
-		OrgID:  orgA.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	orgB := teststore.CreateOrg(t, srv.store, nil)
-	ctxB := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     orgB.UserID,
-		OrgID:  orgB.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateKey(ctxA, &gritzv1.CreateKeyRequest{
-		Name: "user-a-key",
-	})
-	assert.NilError(t, err)
+	h := e2e.New(t, nil)
+	orgB := h.Server.CreateOrg()
+	key := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "user-a-key"})
 
-	// Act - User B tries to delete User A's key
-	_, err = srv.DeleteKey(ctxB, &gritzv1.DeleteKeyRequest{
-		Id: createResp.Key.Id,
+	// Act - org B tries to delete org A's key
+	_, err := orgB.Client.DeleteKey(t.Context(), &gritzv1.DeleteKeyRequest{
+		Id: key.ID,
 	})
 
 	// Assert - delete doesn't error (SQL DELETE with no rows is not an error)
-	// but the key should still exist for User A
+	// but the key should still exist for org A
 	assert.NilError(t, err)
-	listResp, err := srv.ListKeys(ctxA, &gritzv1.ListKeysRequest{})
-	assert.NilError(t, err)
-	assert.Equal(t, len(listResp.Keys), 1)
+	var ids []string
+	for _, k := range h.Org.ListKeys(&gritzv1.ListKeysRequest{}) {
+		ids = append(ids, k.Id)
+	}
+	assert.Assert(t, slices.Contains(ids, key.ID), "org A keys: %v", ids)
 }

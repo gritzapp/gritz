@@ -26,9 +26,12 @@ var _ gritzv1connect.GritzServiceHandler = (*gritzclient.ClientMock)(nil)
 type Server struct {
 	// URL is the server's base URL.
 	URL string
+	// Store is the server's store. It is an escape hatch only: use it to
+	// arrange or assert state that no RPC can reach, and say why in a comment
+	// where it is used. The call under test never goes through it.
+	Store *store.Store
 
 	t       *testing.T
-	store   *store.Store
 	appKey  ed25519.PrivateKey
 	timeout time.Duration
 	mock    atomic.Pointer[gritzclient.ClientMock]
@@ -43,18 +46,25 @@ func (s *Server) Client(token string) gritzclient.Client {
 // workspace in it.
 func (s *Server) CreateOrg() *Org {
 	s.t.Helper()
-	org := teststore.CreateOrg(s.t, s.store, nil)
-	user, err := s.store.GetUser(s.t.Context(), nil, org.UserID)
+	org := teststore.CreateOrg(s.t, s.Store, nil)
+	user, err := s.Store.GetUser(s.t.Context(), nil, org.UserID)
 	if err != nil {
 		s.t.Fatal(err)
 	}
+	return s.newOrg(org.OrgID, user.ID, user.Email)
+}
+
+// newOrg returns the handle of org id, owned by the user ownerID, and
+// registers the harness's workspace in it.
+func (s *Server) newOrg(id int64, ownerID, ownerEmail string) *Org {
+	s.t.Helper()
 	owner := &Member{
-		UserID: user.ID,
-		Email:  user.Email,
-		Client: s.Client(s.userToken(user.ID, org.OrgID)),
+		UserID: ownerID,
+		Email:  ownerEmail,
+		Client: s.Client(s.userToken(ownerID, id)),
 	}
 	o := &Org{
-		ID:     org.OrgID,
+		ID:     id,
 		Owner:  owner,
 		Client: owner.Client,
 		server: s,
@@ -63,14 +73,10 @@ func (s *Server) CreateOrg() *Org {
 	// runner, it registers the one CreateTask uses with a runner key.
 	_, runnerKey := s.createKey(o.ID, "e2e-runner", authscope.Admin())
 	o.runner = s.Client(runnerKey)
-	_, err = o.runner.
-		RegisterWorkspaces(s.t.Context(), &gritzv1.RegisterWorkspacesRequest{
-			RunnerId:   DefaultRunner,
-			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: DefaultWorkspace}},
-		})
-	if err != nil {
-		s.t.Fatalf("RegisterWorkspaces: %v", err)
-	}
+	o.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId:   DefaultRunner,
+		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: DefaultWorkspace}},
+	})
 	return o
 }
 
@@ -101,7 +107,7 @@ func (s *Server) createKey(orgID int64, name string, scopes authscope.Scopes) (s
 		s.t.Fatal(err)
 	}
 	id := uuid.NewString()
-	if err := s.store.CreateKey(s.t.Context(), nil, &model.Key{
+	if err := s.Store.CreateKey(s.t.Context(), nil, &model.Key{
 		ID:        id,
 		Name:      name,
 		TokenHash: apiauth.HashKey(token),
