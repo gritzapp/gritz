@@ -28,48 +28,6 @@ func taskRunning(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTa
 	}, nil
 }
 
-// TestTaskManagerLoad_RestartReattaches covers a runner restart mid-run: the
-// first runner process shuts down while it follows the run, and the next one
-// reattaches to it from the record in Load.
-func TestTaskManagerLoad_RestartReattaches(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that keeps going on an up sandbox, recorded at its
-	// version, followed by a runner that then shuts down.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		Version: 3,
-		Agent:   testrunner.SleepForever,
-	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	store := testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-	server := testrunner.NewServer(testrunner.ServerOptions{})
-	server.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
-	first := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Server: server, RunnerStore: store})
-	ctx, cancel := context.WithCancel(t.Context())
-	assert.NilError(t, first.Load(ctx))
-	testrunner.WaitRuns(t, be, "c1", 1)
-	cancel()
-	// The sandbox stays up for next-boot rehydration.
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Suspends, 0)
-
-	// Act - the next runner process loads the record and goes straight to
-	// drive, over its own Open of the same sandbox; then the run is stopped.
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be, Server: server, RunnerStore: store})
-	assert.NilError(t, m.Load(t.Context()))
-	testrunner.WaitRuns(t, be, "c1", sbx.Runs+1)
-	m.Run(t)
-	m.Add(testrunner.CommandEvent(2, 1, gritzv1.TaskCommand_STOP, 3))
-
-	// Assert - the reattached runner saw Idle: the sandbox is suspended, it
-	// was never booted, and no event is owed; the driver ran run 3 once.
-	sbx = testrunner.WaitSuspended(t, be, "c1")
-	assert.Equal(t, sbx.Boots, 0)
-	assert.Equal(t, m.Queued(t), 0)
-	assert.DeepEqual(t, client.Reported(), []string{"started", "stopped"})
-}
-
 func TestTaskManagerLoad(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -350,26 +308,6 @@ func TestTaskManagerDie_StopWithoutSandbox(t *testing.T) {
 	}
 	var fatal runner.FatalError
 	assert.Assert(t, errors.As(context.Cause(ctx), &fatal))
-}
-
-// TestTaskManagerGracefulShutdown_NoFatalCause is the complement: on the happy path the
-// durable write succeeds, die never fires, and a plain ctx cancel (the signal
-// shutdown) leaves no FatalError cause — so the command layer's exit mapping
-// returns nil (exit 0) rather than crashing.
-func TestTaskManagerGracefulShutdown_NoFatalCause(t *testing.T) {
-	t.Parallel()
-	ctx, cancelCause := context.WithCancelCause(context.Background())
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Fatal: cancelCause})
-	m.RunContext(t, ctx)
-
-	// The durable enqueue succeeds, so die never fires.
-	m.Add(testrunner.CommandEvent(1, 7, gritzv1.TaskCommand_STOP, 3))
-	m.WaitQueued(t, 1)
-
-	// A graceful signal shutdown cancels ctx with no FatalError cause.
-	cancelCause(nil)
-	var fatal runner.FatalError
-	assert.Assert(t, !errors.As(context.Cause(ctx), &fatal))
 }
 
 // TestTaskManagerLoad_SandboxGone covers a sandbox that vanishes under its

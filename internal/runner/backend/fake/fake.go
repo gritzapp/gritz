@@ -1,7 +1,7 @@
 // Package fake is an in-memory backend.Backend for tests. Its sandboxes follow
 // the state machine documented on backend.Sandbox and nothing else of a
 // platform: no transitional states, no images, no files. Tests arrange
-// sandboxes with Add, Set, SetDriverReady, FailNext and Drop, reach their drivers through the
+// sandboxes with Add, Set, FailNext and Drop, reach their drivers through the
 // clients Options.Dial gives, drive them through the backend.Backend and
 // backend.Sandbox interfaces, and observe them with Snapshot and Wait. It
 // implements backend.RunEnver as well, with the environment Options.RunEnv
@@ -114,10 +114,6 @@ type Options struct {
 	// RunEnv returns the environment RunEnv gives runs of a workspace's
 	// sandboxes; nil means none.
 	RunEnv func(ws *workspace.Workspace) map[string]string
-	// DriverNotReady makes every sandbox start with its driver not ready, as
-	// a driver that is not listening yet, until SetDriverReady makes it
-	// ready.
-	DriverNotReady bool
 }
 
 // Backend is an in-memory backend.Backend whose sandboxes follow the
@@ -130,8 +126,6 @@ type Backend struct {
 	typ    string
 	dial   func(backend.Handle) driverv1connect.DriverServiceClient
 	runEnv func(*workspace.Workspace) map[string]string
-	// driverNotReady is Options.DriverNotReady.
-	driverNotReady bool
 
 	mu sync.Mutex
 	// sandboxes is every sandbox the fake has held, by ID; order is their
@@ -147,8 +141,6 @@ type Backend struct {
 	next int
 	// changed is closed and replaced on every change to the table.
 	changed chan struct{}
-	// notReady is the IDs of the sandboxes whose driver is not ready.
-	notReady map[string]bool
 	// runs cancels the context of every Run call open on a sandbox's
 	// driver, by sandbox ID and then by call.
 	runs map[string]map[int]context.CancelFunc
@@ -170,16 +162,14 @@ func New(opts Options) *Backend {
 		typ = DefaultType
 	}
 	return &Backend{
-		typ:            typ,
-		dial:           opts.Dial,
-		runEnv:         opts.RunEnv,
-		notReady:       map[string]bool{},
-		driverNotReady: opts.DriverNotReady,
-		sandboxes:      map[string]*Info{},
-		runs:           map[string]map[int]context.CancelFunc{},
-		failures:       map[failKey][]error{},
-		next:           1,
-		changed:        make(chan struct{}),
+		typ:       typ,
+		dial:      opts.Dial,
+		runEnv:    opts.RunEnv,
+		sandboxes: map[string]*Info{},
+		runs:      map[string]map[int]context.CancelFunc{},
+		failures:  map[failKey][]error{},
+		next:      1,
+		changed:   make(chan struct{}),
 	}
 }
 
@@ -308,30 +298,6 @@ func (b *Backend) Set(id string, state State) {
 	cancelAll(cancels)
 }
 
-// SetDriverReady makes sandbox id's driver ready or not, without changing
-// the sandbox's state. While the sandbox is up and its driver is not ready,
-// every call to the driver fails as Unavailable, as for a driver that is not
-// listening yet; making it not ready cuts the Run calls open on it, as Drop
-// does. Drivers are ready unless Options.DriverNotReady is set. It panics if
-// id is unknown: that is a test bug.
-func (b *Backend) SetDriverReady(id string, ready bool) {
-	b.mu.Lock()
-	if b.sandboxes[id] == nil {
-		b.mu.Unlock()
-		panic(fmt.Sprintf("fake: SetDriverReady(%q): unknown id", id))
-	}
-	var cancels []context.CancelFunc
-	if ready {
-		delete(b.notReady, id)
-	} else {
-		b.notReady[id] = true
-		cancels = b.cutLocked(id)
-	}
-	b.changedLocked()
-	b.mu.Unlock()
-	cancelAll(cancels)
-}
-
 // Drop cancels every Run call open on sandbox id's driver, as a network blip
 // would, without changing its state. Those streams fail; the next calls go
 // through again. It panics if id is unknown: that is a test bug.
@@ -425,13 +391,9 @@ func (b *Backend) failLocked(op Op, id string) error {
 	return nil
 }
 
-// addLocked adds sbx to the table, with its driver not ready if
-// Options.DriverNotReady is set. b.mu must be held.
+// addLocked adds sbx to the table. b.mu must be held.
 func (b *Backend) addLocked(sbx *Info) {
 	b.sandboxes[sbx.Handle.ID] = sbx
-	if b.driverNotReady {
-		b.notReady[sbx.Handle.ID] = true
-	}
 	b.order = append(b.order, sbx.Handle.ID)
 	b.changedLocked()
 }
@@ -659,15 +621,12 @@ func (c *client) checkLocked() error {
 	if c.driver == nil {
 		return connect.NewError(connect.CodeUnavailable, errors.New("fake: sandbox has no driver"))
 	}
-	if c.b.notReady[c.id] {
-		return connect.NewError(connect.CodeUnavailable, errors.New("fake: driver is not ready"))
-	}
 	return nil
 }
 
 // Run counts the call in the sandbox's Info.Runs, then calls through on a
-// context the fake cancels when the sandbox leaves up, on Drop, when its
-// driver is made not ready, and on Close. A stream it cuts fails as Canceled.
+// context the fake cancels when the sandbox leaves up, on Drop, and on
+// Close. A stream it cuts fails as Canceled.
 // A call is counted only once its context is registered, so a test that waits
 // for Runs >= n can then cut the n-th stream.
 func (c *client) Run(ctx context.Context) (*connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse], error) {
@@ -748,7 +707,6 @@ type Info struct {
 	// failed, is not counted.
 	Boots, Suspends, Destroys, Dials int
 	// Runs counts the Run calls on the sandbox's driver that went through:
-	// made while it was up and its driver ready, and so cut by Drop, by
-	// leaving up and by Close.
+	// made while it was up, and so cut by Drop, by leaving up and by Close.
 	Runs int
 }

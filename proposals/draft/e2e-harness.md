@@ -735,114 +735,142 @@ The categories:
 - **(b) Keep.** It covers tricky local logic that end-to-end tests can't pin
   precisely or can't reach (broken disks, encoding edge cases). Keep it as a
   focused unit test.
-- **(c) Intermediate.** It tests a design that runner-event-replica slices 9–11
-  remove anyway. Delete it with that code in the slice, without porting it. Where
-  the behaviour lives on, a scenario takes over.
+- **(c) Intermediate.** It tested a design that runner-event-replica slices 9
+  and 11 removed. Where the behaviour lives on, a scenario takes over.
 
-Slice 8 has landed, so the tables use the names on `master` after it. Mocks make
-most fault-injection tests (a), not (b).
+runner-event-replica has landed (slice 10, `suspend_after`, was split out into
+#1888), and so have the scenarios below except `TestSuspendAfter*` and
+`TestRestart_CancelledBeforeStart`. The port pass deleted every (a) and (c)
+test that a scenario on `master` covers, after reading each one against its
+scenario. A test whose scenario isn't written, or that a scenario doesn't
+really cover, was kept; the tables say why. "Deleted" names the covering
+scenario; "kept" gives the reason.
+
+Two checks went into the "really covers" calls. Running the scenarios with
+`-coverpkg=./internal/runner/...` showed which `TaskRunner` paths they reach:
+the runner never reports `stopped` itself (`next`'s stop branch), it reopens a
+stream after an early `Idle` only in about two of five runs of
+`TestRunnerRestart_PendingWake`, and it never sees a driver that ran a version
+it didn't boot for. The driver runs as a separate process, so its code isn't
+measured: those calls come from reading the scenario. For example, a wake
+mid-run is a `start` at the version already running, which the driver must
+ignore. That is the stale-start rule, and `TestWake_MidRun` would see a third
+run if it broke.
 
 #### `internal/runner` (`taskmanager_start_test.go`)
 
-| Test | | Notes |
+| Test | | Outcome |
 |---|---|---|
-| `TestTaskManagerStart` | a | `TestStart`, without a Docker daemon. Docker specifics stay in `backend/docker`'s tests |
-| `TestTaskManagerSpec_PreCreatesLogDir`, `_Secrets`, `TestTaskManagerRunSpec_RunEnv` | b | Spec building: the 0777 directories for non-root containers, secrets kept out of `Env`, Lambda's `RunEnv`. End to end everything runs as one user with no `RunEnv`, so these can't be seen there. Rewrite against the spec builder, with no manager or fake backend |
-| `TestTaskManagerFollow_StopWithoutSandbox` | c | The follower goes in slice 9. Its rule, a stop with no `Run` open is reported by the runner, is in `TestRestart_CancelledBeforeStart` |
-| `TestTaskManagerFollow_StopRunOpen` | a | `TestCancel_MidRun` |
-| `TestTaskManagerFollow_Start` | c | `handled`. Acting on the latest command: `TestArchive` (the whole log), `TestWake_CancelledAtBoundary` |
-| `TestTaskManagerFollow_Restart` | a | `TestRestart_MidRun` |
-| `TestTaskManagerFollow_RestartCancelled` | a | `TestRestart_CancelledBeforeStart`, once it can be arranged (Open Questions); keep it until then |
-| `TestTaskManagerFollow_SlowDriver` | c | `handled` before readiness. A real driver's start-up latency is in every scenario |
-| `TestTaskManagerFollow_StartRunOpen` | c | A follower and a `Run` goroutine become one `RunLoop` in slice 9. `TestWake_MidRun` |
-| `TestTaskManagerFollow_StartWaitsForSlot`, `_StopSupersedesWaitingStart` | a | `TestCancel_PendingStart`, `TestConcurrent` |
-| `TestTaskManagerFollow_Archive` | a | `TestArchive` |
-| `TestTaskManagerFollow_ResumesFromHandled` | c | `handled` goes in slice 9. `TestRunnerRestart_MidRun` |
-| `TestTaskManagerStart_Create`, `_Restart`, `TestTaskManagerWait`, `_Done` | c | `TaskRunner.Start`/`Wait` become `RunLoop`. `TestStart`, `TestRestart_Completed` |
-| `TestTaskManagerStart_CreateFails`, `_BootFails` | a | `TestSandboxFails` |
-| `TestTaskManagerStart_NotReady` | a | `TestDriverUnreachable` |
-| `TestTaskManagerStart_Gone` | c | `TestDriverDies_MidRun` |
-| `TestTaskManagerRemove`, `TestTaskManagerAfterDestroy` | c | `Destroy` becomes archive handling in `RunLoop`. `TestArchive` |
+| `TestTaskManagerStart` | a | Deleted: `TestStart`, without a Docker daemon. Docker specifics stay in `backend/docker`'s tests |
+| `TestTaskManagerSpec_PreCreatesLogDir`, `_Secrets`, `TestTaskManagerRunSpec_RunEnv` | b | Kept: spec building (the 0777 directories for non-root containers, secrets kept out of `Env`, Lambda's `RunEnv`). End to end everything runs as one user with no `RunEnv` |
+| `TestTaskManagerRunLoop_StopRunOpen` | a | Deleted: `TestCancel_MidRun` |
+| `TestTaskManagerRunLoop_Start` | c | Deleted: `TestCancel_PendingStart` (a start withdrawn while it waits never runs), `TestSandboxFails_*` (started again, the task runs once at the new version) |
+| `TestTaskManagerRunLoop_Restart` | a | Deleted: `TestRestart_MidRun` |
+| `TestTaskManagerRunLoop_SlowDriver` | c | Deleted: every scenario boots a real driver process and waits out its start-up |
+| `TestTaskManagerRunLoop_StartWaitsForSlot` | a | Deleted: `TestConcurrent` |
+| `TestTaskManagerRunLoop_StopSupersedesWaitingStart` | a | Deleted: `TestCancel_PendingStart`. A real cancel of a pending task withdraws the start (`NONE`) rather than stopping it, so the runner's own `stopped` report stays with `TestTaskManagerRunLoop_StopWithoutSandbox` |
+| `TestTaskManagerRunLoop_Archive` | a | Deleted: `TestArchive` |
+| `TestTaskManagerRunLoop_CreateFails` | a | Deleted: `TestSandboxFails_Create` |
+| `TestTaskManagerRunLoop_RestartSuspended` | a | Deleted: `TestRestart_Completed`, `TestSetupCommands` (the suspended sandbox is booted again, provisioned once). Restoring a suspended record at `Load` stays in `TestTaskRunnerRestore` and `TestTaskManagerLoad` |
+| `TestTaskManagerRunLoop_NotReady` | a | Deleted: `TestDriverUnreachable` |
+| `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written (Open Questions). No scenario makes the runner report `stopped` itself |
+| `TestTaskManagerRunLoop_BootFails` | a | Kept: `TestSandboxFails_Boot` covers the failed boot, but not its second half, archiving the task destroys the sandbox that never booted |
+| `TestTaskManagerRunLoop_Gone` | c | Kept: no scenario removes a sandbox behind the runner's back. `TestDriverDies_MidRun` leaves it suspended, not gone |
 
 #### `internal/runner` (`taskmanager_load_test.go`)
 
-| Test | | Notes |
+| Test | | Outcome |
 |---|---|---|
-| `TestTaskManagerLoad_RestartReattaches`, `TestTaskManagerLoad` (up) | a | `TestRunnerRestart_MidRun` |
-| `TestTaskManagerLoad` (suspended, gone, status error, open fails), `TestTaskManagerLoad_VersionScopedBackstop` | b | The lost-run backstop (`failIfTaskRunning`) stays in slice 9. It needs a sandbox that died while no runner was running, which `h.Runner.Restart()` (stop and start in one call) can't arrange. Rewrite on the local backend: a directory with no driver is suspended, no directory is gone. Revisit with runner-event-replica's `sandboxes.version` open question |
-| `TestTaskManagerPrune` | c | `Prune` goes in slice 9 |
-| `TestTaskManagerRun` | c + b | The prune half goes. The fatal half (a failed durable write ends `Run` with `FatalError`) stays |
-| `TestTaskManagerDie_StopWithoutSandbox`, `TestTaskManagerHandleEvents_Fatal` | b | A broken disk can't be produced end to end |
-| `TestTaskManagerGracefulShutdown_NoFatalCause` | a | Every `h.Runner.Restart()` shuts down gracefully |
-| `TestTaskManagerHandleEvents_Lost` | c | `TaskLostEvent` goes in slice 9. `TestDriverDies_MidRun`, `TestDriverUnreachable` |
+| `TestTaskManagerLoad_RestartReattaches` | a | Deleted: `TestRunnerRestart_MidRun` |
+| `TestTaskManagerGracefulShutdown_NoFatalCause` | a | Deleted: every `h.Runner.Restart()` shuts the runner down, and the harness fails the test if `Serve` returns a `FatalError` |
+| `TestTaskManagerLoad` | b | Kept. The lost-run backstop (`failIfTaskRunning`) needs a sandbox that died while no runner was running, which `h.Runner.Restart()` can't arrange. The `up` row stays with the table: it also pins that the slot `Load` counts for a reattached run is given back |
+| `TestTaskManagerLoad_VersionScopedBackstop` | b | Kept: the backstop's version scoping |
+| `TestTaskManagerLoad_Archived` | b | Kept: no scenario archives a task while no runner is running |
+| `TestTaskManagerLoad_SandboxGone` | b | Kept: no scenario makes a sandbox vanish under its driver's stream |
+| `TestTaskManagerRun_Fatal`, `TestTaskManagerDie_StopWithoutSandbox` | b | Kept: a broken disk can't be produced end to end |
 
 #### `internal/runner` (`taskrunner_test.go`, `internal_test.go`, `eventoutbox_test.go`)
 
-| Test | | Notes |
+| Test | | Outcome |
 |---|---|---|
-| `TestNewTaskRunner` | delete | It tests constructor panics, which `CLAUDE.md` says not to test. Delete it in the first port PR |
-| `TestTaskRunnerRun_Finished`, `_ForwardsEvents` | a | `TestStart`; every scenario depends on the driver receiving its commands over the forwarded stream |
-| `TestTaskRunnerRun_Reattach` | b | Reconnecting after a dropped stream, with the driver still alive, needs a stream cut mid-flight. That takes a `Dial` that wraps the real client, which is call-through (Open Questions). Keep it until call-through exists |
-| `TestTaskRunnerRun_DriverUnreachable`, `_NotReady` | a | `TestDriverUnreachable` |
-| `TestTaskRunnerRun_NothingToRun` | a | `TestRunnerRestart_MidRun`, `TestArchive` (unarchive) |
-| `TestTaskRunnerRun_Reopen` | a | `TestWake_MidRun`, `TestRunnerRestart_PendingWake` |
-| `TestTaskRunnerRun_StopNeverRun` | a | `TestRestart_CancelledBeforeStart`, once it can be arranged (Open Questions); keep it until then |
-| `TestTaskRunnerRun_NotReported` | a | `TestUnreportedRun` |
-| `TestTaskRunnerRun_Shutdown` | a | `TestRunnerRestart_MidRun`: the sandbox stays up across the restart |
-| `TestTaskRunnerBoot`, `_Create`, `_BootFails`, `_Concurrent`, `TestTaskRunnerRestore` | c | Boot, claiming and `ErrRunning` are reshaped by `RunLoop` in slice 9 |
-| `TestTaskRunnerSend_Shutdown` | c | `TaskLostEvent` |
-| `TestDoubling` | b | Backoff arithmetic |
-| `TestRunnerEventOutbox_Permanent`, `TestTaskManagerEventsSurviveRestart` | b | Retry classification and durability |
+| `TestNewTaskRunner` | delete | Deleted: it tested constructor panics, which `CLAUDE.md` says not to test |
+| `TestTaskRunnerRunLoop_Finished` | a | Deleted: `TestStart`, `TestRunnerRestart_PendingWake` (a reattached run that finishes on its own) |
+| `TestTaskRunnerRunLoop_ForwardsEvents` | a | Deleted: every scenario depends on the driver receiving its commands over the forwarded stream, and `TestConcurrent` on each driver getting only its own task's events. Resending from before the driver's position is harmless: the event file skips what it has (`eventfile`'s `TestAppend_SkipsStored`) |
+| `TestTaskRunnerRunLoop_DriverUnreachable` | a | Deleted: `TestDriverDies_MidRun`, which reaches `attach`'s `LostTimeout` (a killed driver's sandbox is suspended, not gone) |
+| `TestTaskRunnerRunLoop_NotReported` | a | Deleted: `TestUnreportedRun` |
+| `TestTaskRunnerRunLoop_Shutdown` | a | Deleted: `TestRunnerRestart_MidRun`: the sandbox stays up across the restart, and the run isn't started again |
+| `TestTaskRunnerRunLoop_Reattach` | b | Kept: reconnecting to a driver that is still alive needs a stream cut mid-flight, which takes call-through (Open Questions) |
+| `TestTaskRunnerRunLoop_NothingToRun` | a | Kept: no scenario reattaches to a driver that has never run |
+| `TestTaskRunnerRunLoop_Reopen` | a | Kept: `TestWake_MidRun` and `TestRunnerRestart_PendingWake` reach the reopen only when the run-boundary start beats the driver's `Idle`, about two runs in five of the latter, none of the former |
+| `TestTaskRunnerRunLoop_StopNeverRun` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written |
+| `TestTaskRunnerRestore` | b | Kept: suspended, gone and unopenable records, and a failed status check, need a sandbox that changed while no runner was running |
+| `TestDoubling` | b | Kept: backoff arithmetic |
+| `TestRunnerEventOutbox_Permanent`, `TestTaskManagerEventsSurviveRestart` | b | Kept: retry classification and durability |
 
 #### `internal/runner/driverserver`
 
-The driver is a black box, so its tests port to scenarios. At most one small
-table test of the driver loop's decision rules (`loop.actLocked` and
-`loop.idle`) stays, and only for the cases no scenario reaches.
+The driver is a black box, so its tests port to scenarios. The driver-loop table
+test of the cases no scenario reaches isn't written: those tests are kept as
+they are.
 
-| Test | | Notes |
+| Test | | Outcome |
 |---|---|---|
-| `TestRun`, `TestRun_NothingToDo` | a | `TestStart`, `TestRunnerRestart_MidRun` |
-| `TestRun_ProvisionsFiles`, `_ProvisionsOnce` | a | Every scenario needs the provisioned agent config. `TestSetupCommands` needs it provisioned once, because its progress lives in that file |
-| `TestRun_ProvisionFailure` | a (gap) | No scenario reaches it. The failure leaves the start pending, and the loop logs it and retries; we accept the gap |
-| `TestRun_ResentStream`, `_StaleStart`, `_ResentCommandIgnored` | a | `TestRunnerRestart_MidRun`, `TestRunnerRestart_PendingWake`, `TestSuspendAfter` |
-| `TestRun_WholeLog` | a | `TestArchive`: the unarchived task's fresh sandbox gets the whole log |
-| `TestRun_PendingStart` | a | `TestWake_MidRun` |
-| `TestRun_Restart`, `_RestartIdle` | a | `TestRestart_MidRun`, `TestRestart_Completed` |
-| `TestRun_Stop`, `_StopSupersedesPendingStart` | a | `TestCancel_MidRun`, `TestWake_CancelledAtBoundary` |
-| `TestRun_ReattachAfterDrop`, `_PendingAfterDrop` | a | `TestRunnerRestart_MidRun`, `TestRunnerRestart_PendingWake`: to the driver, a restarted runner's stream is a reopened one |
-| `TestRun_NoSpec`, `TestNew_PendingAfterRestart`, `TestShutdown`, `TestShutdown_Pending` | b → loop table | A driver that restarted with a stored start, or that shuts down mid-run or with a start pending, needs timing no scenario controls. These four become rows of the loop table test |
-| `TestRun_WaitsForFirstBatch`, `_SecondStream` | a | Every scenario's stream; a second stream only arises in the restart race, which the runner retries |
-| `TestRun_KeepAlive` | a (gap) | No scenario stays quiet for longer than the runner's 45s idle timeout; see Open Questions |
-| `TestRun_StoresEvents`, `_EventsSurviveRestart`, `_ReopenedStream` | a | `TestSuspendAfter` (the driver restarts with its file), `TestRunnerRestart_MidRun`, `TestDriverDies_MidRun` |
-| `TestRun_NotReported` | a | `TestUnreportedRun` |
-| `TestNew_Reconcile` | a | `TestDriverDies_MidRun` |
-| `TestRun_Env`, `TestEnv`, `TestSecrets` | a | `TestEnv` |
-| `TestRun_MasksSecretsInShippedLog` | a | `TestSecretsMasked`. The masking itself stays covered in `redact` and `logship` |
-| `TestListenAndServe`, `_Unix` | a | Every scenario serves on a Unix socket. TCP differs only in the address `netx.Listen` gets |
+| `TestRun` | a | Deleted: `TestStart` |
+| `TestRun_ProvisionsFiles` | a | Deleted: every scenario needs the provisioned agent config |
+| `TestRun_ProvisionsOnce` | a | Deleted: `TestSetupCommands`, `TestRestart_Completed`. Setup progress lives in the provisioned config, so a re-provisioned sandbox would run the commands again |
+| `TestRun_ResentStream`, `_StaleStart` | a | Deleted: `TestWake_MidRun`. The wake is a `start` at the running version, which the driver ignores while the run goes on and once it has finished |
+| `TestRun_WholeLog` | a | Deleted: `TestArchive`: the unarchived task's fresh sandbox gets the whole log and runs only the latest start |
+| `TestRun_Restart`, `_RestartIdle` | a | Deleted: `TestRestart_MidRun`, `TestRestart_Completed` |
+| `TestRun_Stop` | a | Deleted: `TestCancel_MidRun` |
+| `TestRun_ReattachAfterDrop` | a | Deleted: `TestRunnerRestart_MidRun`: to the driver, a restarted runner's stream is a reopened one |
+| `TestRun_StoresEvents` | a | Deleted: every wake scenario's prompt renders from the stored events. Storage order is `eventfile`'s (`TestAppend`) |
+| `TestRun_ReopenedStream`, `_ResentCommandIgnored` | a | Deleted: `TestRunnerRestart_MidRun`, `TestRunnerRestart_PendingWake` reopen streams on a driver with stored events. Skipping resent events is `eventfile`'s `TestAppend_SkipsStored` |
+| `TestRun_NotReported` | a | Deleted: `TestUnreportedRun` |
+| `TestNew_Reconcile` | a | Deleted: `TestDriverDies_MidRun`. An unreconciled `running` record would block the next start |
+| `TestRun_Env` | a | Deleted: `TestEnv`. The precedence of environ, env and secrets stays in the `Env` unit test |
+| `TestRun_MasksSecretsInShippedLog` | a | Deleted: `TestSecretsMasked`. The masking itself stays covered in `redact` and `logship` |
+| `TestListenAndServe`, `_Unix` | a | Deleted: every scenario serves on a Unix socket, and `TestDriverDies_MidRun`'s next driver replaces the socket file the killed one left. The shutdown half is `TestShutdown`'s |
+| `TestRun_NothingToDo` | a | Kept: no scenario opens a stream on a driver with nothing to start |
+| `TestRun_ProvisionFailure` | a (gap) | Kept: no scenario reaches it |
+| `TestRun_PendingStart`, `_StopSupersedesPendingStart`, `_PendingAfterDrop` | a | Kept: a wake mid-run doesn't make a newer start pending in the driver; one arrives only when the run-boundary start beats the driver's `Idle`, which the coverage run never saw. The restart row of `_StopSupersedesPendingStart` is `TestRestart_CancelledBeforeStart`, not written |
+| `TestRun_WaitsForFirstBatch` | a | Kept: the scenarios would still pass without it, as the runner reopens a stream that went idle too early |
+| `TestRun_SecondStream` | a | Kept: a second stream only arises in the restart race, which no scenario forces |
+| `TestRun_EventsSurviveRestart` | a | Kept: `TestSuspendAfter` isn't written, and `TestDriverDies_MidRun` would pass with a lost file, since the runner resends from the driver's position |
+| `TestRun_KeepAlive` | a (gap) | Kept: no scenario stays quiet for longer than the runner's 45s idle timeout; see Open Questions |
+| `TestRun_NoSpec`, `TestNew_PendingAfterRestart`, `TestShutdown`, `TestShutdown_Pending` | b | Kept: they need timing no scenario controls |
+| `TestEnv`, `TestSecrets` | b | Kept: the precedence of the run's environment, and the task token over a workspace secret named `token` |
 
 #### Other runner packages
 
-| Package / test | | Notes |
+| Package / test | | Outcome |
 |---|---|---|
-| `backend/fake` (`fake_test.go`) | c | They go with the fake (see below) |
-| `testrunner` | c | Shrinks to what (b) tests use (`NewRunnerStore`, `Server`, the event builders), which then moves into those packages' own test files |
-| `taskevents` (all) | b | Replication, cursor, boot and blocking `Read` |
-| `runnerstore`: `TestHandled`, `TestAppendEvents_CommandEventID` | c | Their columns are dropped in slice 9 |
-| `runnerstore`: the rest, `TestTaskChanges` | b | Projection and storage |
-| `eventfile`, `runrecord` (all) | b | Encoding, torn lines and reconcile. The packages are shared code; their tests don't drive the driver |
-| `driverclient` (all) | b | The runner's side of the stream: hidden keep-alives and the idle timeout |
-| `agent`: `TestDriverRun_DrainsEventsToTail`, `TestDrainEvents_RequestsServerSideTypeFilter`, `TestDriverRun_EventTokenNotAdvancedOnError` | c | `drainEvents` goes in slice 11 |
-| `agent`: `TestDriverRun`, `_AgentError`, `_AgentConfiguredError`, `_SetupCommandError`, `_Stop`, `_SetupCommandOutputTeed`, `_ShipsLogToServer`, `_MasksSecretsInShippedLog`, `_MasksTokenInShippedLog`, `TestDriverSetup_Cancel` | a | `TestStart`, `TestAgentError`, `TestSetupCommands`, `TestCancel_MidRun`, `TestCancel_DuringSetup`, `TestSecretsMasked` |
-| `agent`: `TestDriverRun_StartedSubmitError`, `_StoppedSubmitError`, `_FailedSubmitError`, `_GetTaskError` | a | `TestUnreportedRun`, plus a row per RPC mocked to fail (`SubmitRunnerEvents` on `started`/`failed`, `GetTask`) if the outcomes differ |
-| `agent`: `TestDriverRun_LogsToSink` | a | The raw `/gritz/log` is the driver's internals; `Log()` shows what ships |
-| `agent`: `TestRun_ForksIntoShell` | b | The shell relay, which no scenario drives |
-| `backend/docker`, `backend/lambdamicrovm`, `TestSpecClone` | b | Backend contracts; no scenario uses those backends |
+| `backend/fake` (`fake_test.go`) | c | Kept, with the fake, until the delete pass. Its driver-not-ready option, which only deleted tests used, is gone |
+| `testrunner` | c | Kept until the delete pass, less the helpers only deleted tests used |
+| `taskevents` (all) | b | Kept: replication, cursor, boot and blocking `Read` |
+| `runnerstore` (all), `TestTaskChanges` | b | Kept: projection and storage |
+| `eventfile`, `runrecord` (all) | b | Kept: encoding, torn lines and reconcile |
+| `driverclient` (all) | b | Kept: the runner's side of the stream, hidden keep-alives and the idle timeout |
+| `agent`: `TestDriverRun` | a | Deleted: `TestStart` |
+| `agent`: `TestDriverRun_AgentError`, `_AgentConfiguredError` | a | Deleted: `TestAgentError` |
+| `agent`: `TestDriverRun_Stop` | a | Deleted: `TestCancel_MidRun` |
+| `agent`: `TestDriverSetup_Cancel` | a | Deleted: `TestCancel_DuringSetup` |
+| `agent`: `TestDriverRun_StoppedSubmitError` | a | Deleted: `TestUnreportedRun` |
+| `agent`: `TestDriverRun_LogsToSink` | a | Deleted: `TestSetupCommands`: two runs, each with its delimiter, in the shipped log |
+| `agent`: `TestDriverRun_MasksTokenInShippedLog` | a | Deleted: `TestSecretsMasked` masks the task token |
+| `agent`: `TestDriverRun_PromptFromEventFile`, `_PromptedEventNotAdvancedOnError` | b | Kept: slice 11's prompt tests. No scenario pins what a wake's prompt leaves out, or the cursor after a failed run |
+| `agent`: `TestDriverRun_SetupCommandError` | a | Kept: no scenario has a failing setup command |
+| `agent`: `TestDriverRun_SetupCommandOutputTeed` | a | Kept: `TestSetupCommands` ships a succeeding command's stdout, not a failing one's stderr |
+| `agent`: `TestDriverRun_StartedSubmitError`, `_FailedSubmitError`, `_GetTaskError` | a | Kept: no scenario fails those RPCs. `TestUnreportedRun` fails only the `stopped` submit |
+| `agent`: `TestDriverRun_ShipsLogToServer` | a | Kept: no scenario pins the end-of-run flush, or the version chunks are stamped with |
+| `agent`: `TestDriverRun_MasksSecretsInShippedLog` | a | Kept: `TestSecretsMasked` covers the mask, but not that `/gritz/log` stays raw |
+| `agent`: `TestRun_ForksIntoShell` | b | Kept: the shell relay, which no scenario drives |
+| `backend/docker`, `backend/lambdamicrovm`, `TestSpecClone` | b | Kept: backend contracts; no scenario uses those backends |
 
-**The fake backend.** After the port, nothing needs `backend/fake`. Fault
-injection moves to `h.Backend.Mock` and `MockSandbox`. The (b) runner tests that still need a
-backend (the `Load` backstop, the fatal-write tests) use the local backend
-directly. `fake` (≈750 lines) and `fake_test.go` (≈1150) are deleted.
+**The fake backend.** Once the kept runner tests move off it, nothing needs
+`backend/fake`. Fault injection is `h.Backend.Mock` and `MockSandbox`. The (b)
+runner tests that still need a backend (the `Load` backstop, the fatal-write
+tests) use the local backend directly. `fake` (≈700 lines) and `fake_test.go`
+(≈1150) are deleted.
 
 #### Server tests
 
@@ -867,16 +895,16 @@ and sorts its known areas:
 - **Polling and waiting tests**: `WaitHandled` and `AssertTracked` go with
   (c). `teststore.WaitRunnerEvents` stays (xid watermark, b). The harness's waits
   replace the rest and poll only for observable state.
-- **Intermediate runner tests**: (c), deleted inside slices 9–11 as #1890 says.
+- **Intermediate runner tests**: (c), deleted in the port pass where a scenario
+  covers their behaviour.
 - **Slow tests**: the scenarios need no Docker daemon. `TestDial_TunnelsThroughExec`
   stays Docker's own concern.
 - **`driverserver` and fake backend tests**: the driver is a black box, so its
   tests port to scenarios. At most a table test of the loop's decision rules
   stays. Mocks replace the fake, which goes.
 
-The harness lands before slices 9–11. Those slices can then verify themselves
-with scenarios rather than with new fake-backend runner tests that #1890 would
-only delete again.
+The harness landed alongside slices 9–11, and the port pass didn't wait for
+the last of them: the old runner tests were making runner changes hard.
 
 ### API
 
@@ -1382,10 +1410,9 @@ the harness (`e2e.New`, `h.Server`, `Org` and its shorthands, `h.Server.Store`),
 with the apiserver tests ported onto it (#1896, #1900, #1902) and moved to
 `internal/e2e/api`.
 
-runner-event-replica slice 8 (the driver acts on commands) has landed; slices
-9–11 haven't. Slices 1–6 below don't depend on the runner's internals. They can
-land now, and the scenarios then act as the regression net for slices 9–11.
-Slices that must wait are marked.
+runner-event-replica has landed, slices 9 (`RunLoop`) and 11 (the prompt from
+the event file) included; its slice 10, `suspend_after`, was split out into
+#1888. Slices 1–9 and 11 below have landed. Slices that must wait are marked.
 
 1. **Driver `PrefixPath`.** Delivers: `driverserver.Options.PrefixPath` and
    `ExecutorOptions.PrefixPath` in place of `RecordPath`, `EventsPath`,
@@ -1439,28 +1466,33 @@ Slices that must wait are marked.
    fix or is skipped with an issue link. Depends on: (5), and (6) for those
    with mocks. Verifiable by: the scenarios pass.
 8. **Delete constructor-panic tests.** Delivers: `TestNewTaskRunner` removed.
-   Depends on: nothing.
+   Depends on: nothing. Done in the port pass (11).
 9. **runner-event-replica slices 9–11 (not part of this proposal), verified
    with scenarios.** Each slice deletes its (c) tests with the code. The
    behaviour lists under their "Verifiable by" are covered by the scenarios from
    (6) and (7), which must keep passing, instead of new `runner_test` cases on
    the fake backend.
 10. **`suspend_after` scenarios.** Delivers: `RunnerOptions.SuspendAfter`,
-    `TestSuspendAfter`, `TestSuspendAfter_Window`. **Waits for runner-event-replica
-    slice 10.** Verifiable by: the scenarios pass.
-11. **Port pass.** Delivers: every (a) test deleted, including most of
-    `driverserver_test.go`, and the driver-loop table test for the cases no
-    scenario reaches. **Waits for slice 11**, the last of runner-event-replica,
-    as #1890 asks: until then the code under test still moves, and (a) tests are
-    cheap to keep while it does. Depends on: (7), (10). Verifiable by: `mise run
-    test` passes; coverage of `internal/runner/...` from the e2e package
-    (`-coverpkg`) doesn't drop on the paths the deleted tests covered, apart from
-    the gaps named above.
-12. **Delete pass.** Delivers: the remaining (b) runner tests moved onto the
-    local backend; `backend/fake` and `fake_test.go` deleted; `testrunner`
-    reduced to nothing, its last helpers moved into the test files that use them.
-    Closes #1890. Depends on: (11). Verifiable by: `mise run test`; nothing
-    imports `backend/fake` or `testrunner`.
+    `TestSuspendAfter`, `TestSuspendAfter_Window`. **Waits for #1888**
+    (`suspend_after`). Verifiable by: the scenarios pass.
+11. **Port pass.** Delivered: the (a) and (c) tests that a scenario on `master`
+    covers deleted, with `TestNewTaskRunner` and the `testrunner` and
+    `backend/fake` helpers only they used. The tests listed as kept in "Porting
+    the existing tests" stay: their scenario isn't written
+    (`TestRestart_CancelledBeforeStart`, `TestSuspendAfter*`, `TestTools`), or no
+    scenario reaches their case. The driver-loop table test isn't written; the
+    driver tests it would replace are kept as they are. It no longer waits for
+    the end of runner-event-replica: the old tests made runner changes hard, so
+    they went first. Depends on: (7). Verified by: `mise run test` passes;
+    `-coverpkg` runs of the scenarios backed the calls on racy paths (see the
+    porting section).
+12. **Delete pass.** Delivers: the kept tests ported once their scenarios
+    exist (after (10) and the Open Questions on a run that outlives its
+    cancellation and on call-through), the rest of the (b) runner tests moved
+    onto the local backend; `backend/fake` and `fake_test.go` deleted;
+    `testrunner` reduced to nothing, its last helpers moved into the test files
+    that use them. Closes #1890. Depends on: (11). Verifiable by: `mise run
+    test`; nothing imports `backend/fake` or `testrunner`.
 
 ## Trade-offs
 
@@ -1548,7 +1580,7 @@ Slices that must wait are marked.
 - **Call-through.** A mocked method replaces the real one. Some cases need to
   wrap the real one instead: a `Dial` that cuts the real `Run` stream mid-flight,
   so the runner reconnects to a driver that is still alive
-  (`TestTaskRunnerRun_Reattach`), or a submit that fails only for `stopped`.
+  (`TestTaskRunnerRunLoop_Reattach`), or a submit that fails only for `stopped`.
   Would a later `Mock` option make the real implementation reachable from the
   mock, for example a `Real` passed to the `Func`?
 - **Streaming RPCs.** `GritzService` has none, so `Mock` covers every RPC today.
@@ -1561,8 +1593,10 @@ Slices that must wait are marked.
   can route to), or leave streaming RPCs unmockable until a scenario needs one.
 - **Gaps from porting `driverserver`.** Keep-alives matter only for streams
   quiet for longer than the runner's 45s idle timeout, and no scenario is that
-  slow. Provisioning failures are unreachable from outside. Accept both, or add
-  one slow scenario (skipped under `-short`) for keep-alives?
+  slow. Provisioning failures are unreachable from outside. The port pass kept
+  `TestRun_KeepAlive` and `TestRun_ProvisionFailure` for now. Accept both gaps
+  in the delete pass, or add one slow scenario (skipped under `-short`) for
+  keep-alives?
 - **Amending runner-event-replica.** Slice 9 and 10's "Verifiable by" lists
   name `runner_test` cases on the fake backend. Should that proposal be edited
   to point at the scenarios once slice 7 here lands?
