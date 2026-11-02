@@ -38,7 +38,7 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 
 - A shorthand method for an RPC takes that RPC's **proto request** and returns
   the **useful value**: a wrapper when there's behaviour to attach (`*Task`,
-  `*Key`, `*Member`), otherwise the plain value (a token string, a
+  `*Key`, `*TaskToken`, `*Member`), otherwise the plain value (a
   `*gritzv1.Task`, a slice).
 - Wrappers made by a single RPC carry its proto response in `Resp`.
 - Methods that are more than one RPC keep their own shapes (`CreateOrg`,
