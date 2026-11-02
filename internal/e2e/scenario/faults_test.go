@@ -202,3 +202,43 @@ func TestSandboxGone_MidRun(t *testing.T) {
 	})
 	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{"sandbox gone"})
 }
+
+func TestSandboxGone_Suspended(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	h.Backend.WaitSandbox(task.ID, backend.StatusSuspended)
+	h.Backend.DestroySandbox(task.ID)
+
+	// A wake finds the sandbox gone when booting it, and fails the run
+	// without creating a new one.
+	task.Update(&gritzv1.UpdateTaskRequest{
+		Start:           true,
+		AddInstructions: []*gritzv1.Instruction{{Text: "more"}},
+	})
+	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
+	assert.Equal(t, got.Version, int64(2))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	failed := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
+		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{backend.ErrGone.Error()})
+
+	// The next wake gets a fresh sandbox.
+	task.Update(&gritzv1.UpdateTaskRequest{
+		Start:           true,
+		AddInstructions: []*gritzv1.Instruction{{Text: "again"}},
+	})
+	run3 := h.Agent.WaitRun(task.ID)
+	assert.Assert(t, cmp.Contains(run3.Prompt, "again"))
+	run3.Complete()
+	got = task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	assert.Equal(t, got.Version, int64(3))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
+}
