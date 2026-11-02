@@ -85,8 +85,9 @@ func TestTaskScope_ArchivedGating_ActiveReadAllowed(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
-	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead,
-		authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false))})
+	key := h.Org.CreateScopedKey(authscope.Scopes{
+		authscope.New(authscope.OpTaskRead, authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false)),
+	})
 
 	// Act
 	_, err := key.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
@@ -111,8 +112,9 @@ func TestTaskScope_ArchivedGating_ArchivedReadDenied(t *testing.T) {
 		},
 	})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
-	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead,
-		authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false))})
+	key := h.Org.CreateScopedKey(authscope.Scopes{
+		authscope.New(authscope.OpTaskRead, authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false)),
+	})
 
 	// Act
 	_, err := key.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
@@ -136,8 +138,9 @@ func TestTaskScope_ArchivedGating_ArchivedWriteDenied(t *testing.T) {
 		},
 	})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
-	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskWrite,
-		authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false))})
+	key := h.Org.CreateScopedKey(authscope.Scopes{
+		authscope.New(authscope.OpTaskWrite, authscope.WithTaskID(task.ID), authscope.WithTaskArchived(false)),
+	})
 
 	// Act
 	_, err := key.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID})
