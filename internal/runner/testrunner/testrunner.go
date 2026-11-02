@@ -89,7 +89,8 @@ type DriverOptions struct {
 	// of the run Agent starts; defaults to 1.
 	Version int64
 	// Agent, when set, starts run Version of TaskID with this agent config
-	// and leaves it going; when nil the driver has never run.
+	// and leaves it going, or finished if the agent finishes on its own;
+	// when nil the driver has never run.
 	Agent *agent.Config
 	// EventID is the id of the start event Agent's run is started with,
 	// which the driver stores; defaults to 1. A runner forwards the events
@@ -185,7 +186,9 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 		return d
 	}
 	// Start the run with a start event, and close its stream once the run
-	// record says it is going, which leaves it going.
+	// record is the run's, which leaves it going. An agent that finishes on
+	// its own may be past running by the time the record is read, so the
+	// state is not checked.
 	assert.NilError(t, configs.Save(taskID, opts.Agent))
 	stream := OpenRun(t, t.Context(), d, &driverv1.RunRequest{Msg: &driverv1.RunRequest_Spec{
 		Spec: &driverv1.RunSpec{TaskId: taskID, ServerUrl: "http://gritz.test", Token: "token"},
@@ -197,7 +200,7 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 	for {
 		rec, _, err := runrecord.Read(filepath.Join(dir, "run.json"))
 		assert.NilError(t, err)
-		if rec.Version == version && rec.State == runrecord.Running {
+		if rec.Version == version {
 			break
 		}
 		if time.Now().After(deadline) {
