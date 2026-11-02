@@ -62,7 +62,8 @@ func (s *Server) CreateOrg() *Org {
 	// The runner registers its workspaces on startup; until the harness has a
 	// runner, it registers the one CreateTask uses with a runner key.
 	_, runnerKey := s.createKey(o.ID, "e2e-runner", authscope.Admin())
-	_, err = s.Client(runnerKey).
+	o.runner = s.Client(runnerKey)
+	_, err = o.runner.
 		RegisterWorkspaces(s.t.Context(), &gritzv1.RegisterWorkspacesRequest{
 			RunnerId:   runnerID,
 			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: workspace}},

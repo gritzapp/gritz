@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -465,4 +466,13 @@ func TestListLogChunksByTask_BadRequest(t *testing.T) {
 			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 		})
 	}
+}
+
+// taskScopes mints the scopes a runner would grant a task token for taskID,
+// using the production minter so the tests track real grants.
+func taskScopes(taskID int64, caps ...string) authscope.Scopes {
+	return agentauth.Scopes(agentauth.ScopeOptions{
+		TaskID:       taskID,
+		Capabilities: caps,
+	})
 }
