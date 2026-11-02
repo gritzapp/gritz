@@ -154,16 +154,50 @@ func TestMock(t *testing.T) {
 	h.Org.WaitTask(task.ID, func(got *gritzv1.Task) bool { return got.Name == "real" })
 }
 
-func TestAddMember(t *testing.T) {
+func TestAddOrgMember(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(nil)
 
-	member := h.Org.AddMember(other)
+	member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Email})
 
-	_, err := member.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
+	// The member sees the org's task; its owner, acting in its own org, doesn't.
+	_, err := member.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
 	_, err = other.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	assert.ErrorContains(t, err, "not found")
+}
+
+func TestAddAndListOrgMembers(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+
+	// Act
+	resp, err := h.Org.Client.AddOrgMember(t.Context(), &gritzv1.AddOrgMemberRequest{
+		Email: other.Owner.Email,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Equal(t, resp.Member.Role, "member")
+	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 2))
+}
+
+func TestRemoveOrgMember(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: h.Server.CreateOrg().Owner.Email})
+
+	// Act
+	_, err := h.Org.Client.RemoveOrgMember(t.Context(), &gritzv1.RemoveOrgMemberRequest{
+		UserId: member.UserID,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 1))
 }

@@ -229,8 +229,8 @@ type Harness struct {
 }
 ```
 
-`Org` isn't a component but a caller: a user in an org, with that user's
-client. Tests that need several orgs on one server (permissions, cross-org,
+`Org` isn't a component but a caller: an org and the user who owns it, with
+that user's client. Tests that need several orgs on one server (permissions, cross-org,
 org membership) create more with `h.Server.CreateOrg()`.
 
 Each handle holds `t`, and its methods fail the test with `t.Fatal` instead of
@@ -321,35 +321,48 @@ a client.
 
 #### `Org`
 
-A user in an org. `CreateTask`, `WaitTask` and `WaitEvent` live here rather than
-on `h.Server` because they act as a caller, and the caller decides what is
-visible.
+An org and its owner. `CreateTask`, `WaitTask` and `WaitEvent` live here
+rather than on `h.Server` because they act as a caller, and the caller decides
+what is visible.
+
+Users are explicit: a `Member` is a user acting in an org, with `UserID`,
+`Email`, a `Client` and, when `AddOrgMember` added it, the `Resp`. Users come
+from orgs. Every `CreateOrg` provisions a user with a unique email, so a test
+adds another org's owner by email; there is no separate user-provisioning
+method:
+
+```go
+other := h.Server.CreateOrg()
+member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Email})
+```
 
 | Method | What it does |
 |---|---|
-| `ID`, `UserID` | the org and its user |
-| `Client` | a `gritzclient.Client` making real API calls as the user, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
+| `ID` | the org |
+| `Owner` | the `*Member` `CreateOrg` made, owning the org; its `Resp` is nil |
+| `Client` | shorthand for `Owner.Client`: a `gritzclient.Client` making real API calls as the owner, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
 | `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (runner `e2e`, workspace `e2e`); always `draft`, since a `bool` has no unset value. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
 | `CreateKey(req)` | `CreateKey`, as the keys page does (admin scopes); returns a `*Key` with its `ID` and a `Client` on it |
 | `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns the token |
 | `GetTask(req)` | `GetTask`; returns the task |
 | `ListKeys(req)` | `ListKeys`; returns the keys |
+| `AddOrgMember(req)` | `AddOrgMember`, as the owner; returns the added user as a `*Member` acting in this org |
+| `ListOrgMembers(req)` | `ListOrgMembers`; returns the members |
 | `CreateScopedKey(scopes)` | a new `xat_` key holding `scopes` (`authscope.Scopes`, as `keys.scopes` stores them), written to the store since no RPC narrows a key; returns a `*Key` |
 | `WaitTask(id, cond)` | polls `GetTask` until `cond` accepts the task, and returns it |
 | `WaitEvent(id, match)` | polls `ListEventsByTask` until an event matches, and returns it |
-| `AddMember(other)` | adds `other`'s user to the org as a member, and returns a client acting as that user in this org |
 
 **Shorthand methods mirror their RPC.** A method that is one RPC takes that
 RPC's request, so a test can set any field and the harness never grows
 parameter lists. It returns what the test works with: a wrapper when there is
-behaviour to attach (`*Task`, `*Key` with its `Client`), otherwise the
+behaviour to attach (`*Task`, `*Key` and `*Member` with their `Client`), otherwise the
 unwrapped value (the token, the task, the keys). A wrapper built from one RPC
 carries that RPC's response in `Resp` (`Task.Resp` is the `CreateTaskResponse`,
-`Key.Resp` the `CreateKeyResponse`), so a test can reach anything the shorthand
+`Key.Resp` the `CreateKeyResponse`, `Member.Resp` the `AddOrgMemberResponse`), so a test can reach anything the shorthand
 didn't pick out. A `*Key` from `CreateScopedKey` has a nil `Resp`, since no RPC
-made it. Methods that aren't a single
-RPC (`CreateScopedKey`, `WaitTask`, `WaitEvent`, `AddMember`,
-`Server.CreateOrg`) keep their own shapes.
+made it, and neither has an org's `Owner`. Methods that aren't a single RPC
+(`CreateScopedKey`, `WaitTask`, `WaitEvent`, `Server.CreateOrg`) keep their own
+shapes.
 
 **Setup goes through methods; `Client` is for the call under test.** A call
 that arranges the test, or reads state to assert on, goes through an `Org` (or
@@ -362,7 +375,7 @@ them, not ahead of it.
 own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID}))
 ```
 
-`Client` and `AddMember`'s client carry the app JWT `/auth/token` issues the
+A `Member`'s `Client` carries the app JWT `/auth/token` issues the
 web UI (`apiauth.NewAppClaims`, signed with the harness's app key), not a key:
 keys carry no user, and the org and profile RPCs act on the caller's user id.
 The JWTs live for `apiauth.AppTokenTTL` (5 minutes), which bounds a test's
@@ -929,14 +942,26 @@ func (s *Server) CreateOrg() *Org
 // Mock(nil) removes it.
 func (s *Server) Mock(m *gritzclient.ClientMock)
 
-// Org is a user in an org, with an admin client.
+// Org is an org with its owner.
 type Org struct {
-	ID     int64
+	ID int64
+	// Owner is the user CreateOrg made, owning the org.
+	Owner *Member
+	// Client is shorthand for Owner.Client.
+	Client gritzclient.Client
+	// ... unexported
+}
+
+// Member is a user acting in an org.
+type Member struct {
 	UserID string
+	Email  string
 	// Client makes real API calls as the user, acting in the org with admin
 	// scopes, as the web UI does.
 	Client gritzclient.Client
-	// ... unexported
+	// Resp is the AddOrgMember response that added the user; nil for an org's
+	// owner.
+	Resp *gritzv1.AddOrgMemberResponse
 }
 
 // CreateTask creates a task, filling the harness defaults where req leaves
@@ -974,9 +999,12 @@ func (o *Org) GetTask(req *gritzv1.GetTaskRequest) *gritzv1.Task
 // ListKeys returns the org's keys.
 func (o *Org) ListKeys(req *gritzv1.ListKeysRequest) []*gritzv1.Key
 
-// AddMember adds other's user to the org, and returns a client acting as that
-// user in the org.
-func (o *Org) AddMember(other *Org) gritzclient.Client
+// AddOrgMember adds a user to the org as its owner does, and returns the user
+// acting in the org.
+func (o *Org) AddOrgMember(req *gritzv1.AddOrgMemberRequest) *Member
+
+// ListOrgMembers returns the org's members.
+func (o *Org) ListOrgMembers(req *gritzv1.ListOrgMembersRequest) []*gritzv1.OrgMember
 
 // Backend is the harness's local backend, and the backend.Backend the runner
 // is given.

@@ -44,16 +44,25 @@ func (s *Server) Client(token string) gritzclient.Client {
 func (s *Server) CreateOrg() *Org {
 	s.t.Helper()
 	org := teststore.CreateOrg(s.t, s.store, nil)
+	user, err := s.store.GetUser(s.t.Context(), nil, org.UserID)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	owner := &Member{
+		UserID: user.ID,
+		Email:  user.Email,
+		Client: s.Client(s.userToken(user.ID, org.OrgID)),
+	}
 	o := &Org{
 		ID:     org.OrgID,
-		UserID: org.UserID,
+		Owner:  owner,
+		Client: owner.Client,
 		server: s,
 	}
-	o.Client = s.Client(s.userToken(o.UserID, o.ID))
 	// The runner registers its workspaces on startup; until the harness has a
 	// runner, it registers the one CreateTask uses with a runner key.
 	_, runnerKey := s.createKey(o.ID, "e2e-runner", authscope.Admin())
-	_, err := s.Client(runnerKey).
+	_, err = s.Client(runnerKey).
 		RegisterWorkspaces(s.t.Context(), &gritzv1.RegisterWorkspacesRequest{
 			RunnerId:   runnerID,
 			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: workspace}},
