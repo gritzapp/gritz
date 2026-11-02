@@ -95,7 +95,7 @@ func New(t *testing.T, opts *Options) *Harness {
 	t.Cleanup(ts.Close)
 	s.URL = ts.URL
 	h := &Harness{Server: s, Org: s.createOrg(opts.Runner == nil)}
-	// Cleanups run in reverse: remove the mock; fail the runs left open; stop
+	// Cleanups run in reverse: remove the mocks; fail the runs left open; stop
 	// the runner; destroy the sandboxes, killing their drivers, and remove the
 	// root; close the agent's endpoint and the server.
 	if opts.Runner != nil {
@@ -105,7 +105,12 @@ func New(t *testing.T, opts *Options) *Harness {
 		h.Runner = newRunner(t, h.Org, h.Backend, h.Agent, opts.Runner, log)
 		t.Cleanup(h.Agent.server.Close)
 	}
-	t.Cleanup(func() { s.Mock(nil) })
+	t.Cleanup(func() {
+		s.Mock(nil)
+		if h.Backend != nil {
+			h.Backend.unmock()
+		}
+	})
 	return h
 }
 
