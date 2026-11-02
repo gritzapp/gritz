@@ -75,6 +75,26 @@ func TestCreateTaskToken_InvalidCapability(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 }
 
+func TestCreateTaskToken_Denied(t *testing.T) {
+	t.Parallel()
+	appKey, err := apiauth.CreateAppPrivateKey()
+	assert.NilError(t, err)
+	srv := New(Options{Store: teststore.New(t), AppKey: appKey})
+	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "test-runner", Name: "test-workspace"}},
+	})
+	task := teststore.CreateTask(t, srv.store, org, &teststore.TaskOptions{
+		Runner:    "test-runner",
+		Workspace: "test-workspace",
+	})
+	// A present-but-scopeless caller lacks the task_token.create capability.
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{ID: org.UserID, OrgID: org.OrgID})
+
+	_, err = srv.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+
+	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+}
+
 func TestCreateTaskToken_CrossOrg(t *testing.T) {
 	t.Parallel()
 	appKey, err := apiauth.CreateAppPrivateKey()

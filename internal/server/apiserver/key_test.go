@@ -85,6 +85,33 @@ func TestCreateAndListKeys(t *testing.T) {
 	assert.Equal(t, len(resp.Keys), 2)
 }
 
+func TestDeleteKey(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := New(Options{Store: teststore.New(t)})
+	org := teststore.CreateOrg(t, srv.store, nil)
+	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
+		ID:     org.UserID,
+		OrgID:  org.OrgID,
+		Scopes: authscope.Admin(),
+	})
+	createResp, err := srv.CreateKey(ctx, &gritzv1.CreateKeyRequest{
+		Name: "to-delete",
+	})
+	assert.NilError(t, err)
+
+	// Act
+	_, err = srv.DeleteKey(ctx, &gritzv1.DeleteKeyRequest{
+		Id: createResp.Key.Id,
+	})
+	assert.NilError(t, err)
+
+	// Assert
+	listResp, err := srv.ListKeys(ctx, &gritzv1.ListKeysRequest{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(listResp.Keys), 0)
+}
+
 func TestListKeys_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
