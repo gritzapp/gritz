@@ -8,22 +8,33 @@ import (
 
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/gritzclient"
-	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 	"gotest.tools/v3/poll"
 )
 
-// Org is a user in an org, with an admin client.
+// Org is an org with its owner.
 type Org struct {
-	ID     int64
-	UserID string
-	// Client makes real API calls as the user, acting in the org with admin
-	// scopes, as the web UI does.
+	ID int64
+	// Owner is the user CreateOrg made, owning the org.
+	Owner *Member
+	// Client is shorthand for Owner.Client.
 	Client gritzclient.Client
 
 	server *Server
+}
+
+// Member is a user acting in an org.
+type Member struct {
+	UserID string
+	Email  string
+	// Client makes real API calls as the user, acting in the org with admin
+	// scopes, as the web UI does.
+	Client gritzclient.Client
+	// Resp is the AddOrgMember response that added the user; nil for an org's
+	// owner.
+	Resp *gritzv1.AddOrgMemberResponse
 }
 
 // Task is a task in the harness.
@@ -119,19 +130,32 @@ func (o *Org) ListKeys(req *gritzv1.ListKeysRequest) []*gritzv1.Key {
 	return resp.Keys
 }
 
-// AddMember adds other's user to the org, and returns a client acting as that
-// user in the org.
-func (o *Org) AddMember(other *Org) gritzclient.Client {
+// AddOrgMember adds a user to the org as its owner does, and returns the user
+// acting in the org.
+func (o *Org) AddOrgMember(req *gritzv1.AddOrgMemberRequest) *Member {
 	t := o.server.t
 	t.Helper()
-	if err := o.server.store.AddOrgMember(t.Context(), nil, &model.OrgMember{
-		OrgID:  o.ID,
-		UserID: other.UserID,
-		Role:   "member",
-	}); err != nil {
-		t.Fatal(err)
+	resp, err := o.Client.AddOrgMember(t.Context(), req)
+	if err != nil {
+		t.Fatalf("AddOrgMember: %v", err)
 	}
-	return o.server.Client(o.server.userToken(other.UserID, o.ID))
+	return &Member{
+		UserID: resp.Member.UserId,
+		Email:  resp.Member.Email,
+		Client: o.server.Client(o.server.userToken(resp.Member.UserId, o.ID)),
+		Resp:   resp,
+	}
+}
+
+// ListOrgMembers returns the org's members.
+func (o *Org) ListOrgMembers(req *gritzv1.ListOrgMembersRequest) []*gritzv1.OrgMember {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.ListOrgMembers(t.Context(), req)
+	if err != nil {
+		t.Fatalf("ListOrgMembers: %v", err)
+	}
+	return resp.Members
 }
 
 // WaitTask waits until cond accepts task id, and returns it.
