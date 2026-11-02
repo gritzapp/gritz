@@ -191,8 +191,8 @@ func TestLog_Boot(t *testing.T) {
 	assert.DeepEqual(t,
 		reports,
 		[]runnerstore.TaskChange{
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, CommandEventID: 1},
-			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 2, CommandEventID: 3},
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 2},
 		},
 	)
 }
@@ -223,10 +223,10 @@ func TestLog_Tasks(t *testing.T) {
 	assert.DeepEqual(t,
 		reports,
 		[]runnerstore.TaskChange{
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, CommandEventID: 1},
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, CommandEventID: 1, Archived: true},
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, CommandEventID: 1},
-			{ID: 10, Command: gritzv1.TaskCommand_STOP, Version: 2, CommandEventID: 5},
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, Archived: true},
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1},
+			{ID: 10, Command: gritzv1.TaskCommand_STOP, Version: 2},
 		},
 	)
 }

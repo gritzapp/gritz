@@ -10,46 +10,42 @@ import (
 	"database/sql"
 )
 
-const getTaskHandled = `-- name: GetTaskHandled :one
-SELECT handled FROM tasks WHERE id = ?
+const getTask = `-- name: GetTask :one
+SELECT id, command, version, archived, workspace FROM tasks WHERE id = ?
 `
 
-func (q *Queries) GetTaskHandled(ctx context.Context, id int64) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getTaskHandled, id)
-	var handled int64
-	err := row.Scan(&handled)
-	return handled, err
+func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getTask, id)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Command,
+		&i.Version,
+		&i.Archived,
+		&i.Workspace,
+	)
+	return i, err
 }
 
 const listUnarchivedTasks = `-- name: ListUnarchivedTasks :many
-SELECT id, command, version, workspace, command_event_id, archived FROM tasks WHERE archived IS NOT 1 ORDER BY id
+SELECT id, command, version, archived, workspace FROM tasks WHERE archived IS NOT 1 ORDER BY id
 `
 
-type ListUnarchivedTasksRow struct {
-	ID             int64
-	Command        sql.NullInt64
-	Version        sql.NullInt64
-	Workspace      sql.NullString
-	CommandEventID sql.NullInt64
-	Archived       sql.NullBool
-}
-
-func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]ListUnarchivedTasksRow, error) {
+func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]Task, error) {
 	rows, err := q.db.QueryContext(ctx, listUnarchivedTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListUnarchivedTasksRow
+	var items []Task
 	for rows.Next() {
-		var i ListUnarchivedTasksRow
+		var i Task
 		if err := rows.Scan(
 			&i.ID,
 			&i.Command,
 			&i.Version,
-			&i.Workspace,
-			&i.CommandEventID,
 			&i.Archived,
+			&i.Workspace,
 		); err != nil {
 			return nil, err
 		}
@@ -64,68 +60,41 @@ func (q *Queries) ListUnarchivedTasks(ctx context.Context) ([]ListUnarchivedTask
 	return items, nil
 }
 
-const setTaskHandled = `-- name: SetTaskHandled :exec
-UPDATE tasks SET handled = ?1 WHERE id = ?2
-`
-
-type SetTaskHandledParams struct {
-	Handled int64
-	ID      int64
-}
-
-func (q *Queries) SetTaskHandled(ctx context.Context, arg SetTaskHandledParams) error {
-	_, err := q.db.ExecContext(ctx, setTaskHandled, arg.Handled, arg.ID)
-	return err
-}
-
 const upsertTask = `-- name: UpsertTask :one
-INSERT INTO tasks (id, command, version, workspace, command_event_id, archived)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+INSERT INTO tasks (id, command, version, workspace, archived)
+VALUES (?1, ?2, ?3, ?4, ?5)
 ON CONFLICT (id) DO UPDATE SET
     command   = coalesce(excluded.command, command),
     version   = coalesce(excluded.version, version),
     workspace = coalesce(excluded.workspace, workspace),
-    command_event_id = coalesce(excluded.command_event_id, command_event_id),
     archived  = coalesce(excluded.archived, archived)
-RETURNING id, command, version, workspace, command_event_id, archived
+RETURNING id, command, version, archived, workspace
 `
 
 type UpsertTaskParams struct {
-	ID             int64
-	Command        sql.NullInt64
-	Version        sql.NullInt64
-	Workspace      sql.NullString
-	CommandEventID sql.NullInt64
-	Archived       sql.NullBool
-}
-
-type UpsertTaskRow struct {
-	ID             int64
-	Command        sql.NullInt64
-	Version        sql.NullInt64
-	Workspace      sql.NullString
-	CommandEventID sql.NullInt64
-	Archived       sql.NullBool
+	ID        int64
+	Command   sql.NullInt64
+	Version   sql.NullInt64
+	Workspace sql.NullString
+	Archived  sql.NullBool
 }
 
 // Fields the page didn't touch are passed as NULL and keep their stored value.
-func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (UpsertTaskRow, error) {
+func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (Task, error) {
 	row := q.db.QueryRowContext(ctx, upsertTask,
 		arg.ID,
 		arg.Command,
 		arg.Version,
 		arg.Workspace,
-		arg.CommandEventID,
 		arg.Archived,
 	)
-	var i UpsertTaskRow
+	var i Task
 	err := row.Scan(
 		&i.ID,
 		&i.Command,
 		&i.Version,
-		&i.Workspace,
-		&i.CommandEventID,
 		&i.Archived,
+		&i.Workspace,
 	)
 	return i, err
 }

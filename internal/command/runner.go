@@ -113,9 +113,9 @@ var RunnerCommand = &cli.Command{
 
 		// Wrap the incoming ctx so a durable local-store write failure can
 		// terminate the runner by cancelling it with a FatalError cause. This
-		// must happen before anything that takes ctx is spawned (HandleEvents,
-		// Load's Run goroutines, queue.Run, the notify goroutine, and
-		// m.Run) so they all observe the cancellation.
+		// must happen before anything that takes ctx is spawned (Load's
+		// RunLoop goroutines, queue.Run, the notify goroutine, and m.Run) so
+		// they all observe the cancellation.
 		ctx, cancel := context.WithCancelCause(ctx)
 		defer cancel(nil)
 
@@ -215,18 +215,17 @@ var RunnerCommand = &cli.Command{
 		})
 
 		m, err := runner.NewTaskManager(runner.TaskManagerOptions{
-			Client:       client,
-			Backend:      be,
-			ServerURL:    serverAddr,
-			Workspaces:   workspaces,
-			Concurrency:  int(concurrency),
-			RunnerID:     runnerID,
-			Log:          log,
-			Queue:        queue,
-			TaskLog:      tasklog,
-			RunnerStore:  rstore,
-			PollInterval: pollInterval,
-			Fatal:        cancel,
+			Client:      client,
+			Backend:     be,
+			ServerURL:   serverAddr,
+			Workspaces:  workspaces,
+			Concurrency: int(concurrency),
+			RunnerID:    runnerID,
+			Log:         log,
+			Queue:       queue,
+			TaskLog:     tasklog,
+			RunnerStore: rstore,
+			Fatal:       cancel,
 		})
 		if err != nil {
 			return err
@@ -240,13 +239,9 @@ var RunnerCommand = &cli.Command{
 			log.Warn("failed to register workspaces", "err", err)
 		}
 
-		// Handle the TaskRunners' events. It must run before Load, whose Run
-		// goroutines are the first to send them.
-		go m.HandleEvents(ctx)
-
-		// Rehydrate sandboxes that were running when the runner was stopped: this
-		// re-attaches a Run goroutine per running sandbox and seeds the
-		// concurrency semaphore. It runs once, before Run admits new work.
+		// Rehydrate the sandboxes the runner has records of: this starts a
+		// RunLoop per record, which reattaches to a running sandbox, and seeds
+		// the concurrency semaphore. It runs once, before Run admits new work.
 		if err := m.Load(ctx); err != nil {
 			return fmt.Errorf("failed to load sandboxes: %w", err)
 		}
@@ -271,7 +266,7 @@ var RunnerCommand = &cli.Command{
 			}
 		}()
 
-		// Follow the tasks (and prune) until ctx is done. Distinguish a
+		// Run the tasks until ctx is done. Distinguish a
 		// durable-store-write crash (die set a FatalError cause) from a
 		// graceful signal shutdown.
 		// The sentinel is what lets us return non-zero on a broken disk

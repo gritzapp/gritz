@@ -4,7 +4,7 @@
 // The worker is a single goroutine; each tick it asks the store for a small
 // batch of due tasks and archives them through the same transactional path
 // the manual ArchiveTask handler uses, so the same "change" notification fires
-// and the runner's existing Prune() loop reaps the container on its next tick.
+// and the archive event reaches the task's runner, which destroys its sandbox.
 package archiver
 
 import (

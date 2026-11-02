@@ -23,58 +23,38 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// restoredRunner returns the TaskRunner of rec's task, managed by a test
-// manager on be and restored from rec as Load does, along with the manager.
-// rec's sandbox must be in be; restoring an up one claims the TaskRunner for
-// its Run. tune, when set, is ManagerOptions.TaskRunner.
-func restoredRunner(t *testing.T, be *fake.Backend, rec runnerstore.SandboxRecord, tune func(*runner.TaskRunnerOptions)) (*runner.TaskRunner, *testrunner.Manager) {
+// c1Record is task 1's record of sandbox c1, at version 3.
+var c1Record = runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
+
+// loaded returns a test manager on be that has loaded rec, a record of an
+// up sandbox, with its task's stored events: Load starts the task's RunLoop,
+// which drives the sandbox first. ctx is Load's. tune, when set, is
+// ManagerOptions.TaskRunner. The events are stored as Replicated does, so
+// the manager is not to be Run.
+func loaded(t *testing.T, ctx context.Context, be *fake.Backend, rec runnerstore.SandboxRecord, tune func(*runner.TaskRunnerOptions), events ...*gritzv1.Event) *testrunner.Manager {
 	t.Helper()
 	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
 		Backend:     be,
 		RunnerStore: testrunner.NewRunnerStore(t, rec),
 		TaskRunner:  tune,
 	})
-	tr := m.Runner(rec.TaskID)
-	_, err := tr.Restore(t.Context(), rec)
-	assert.NilError(t, err)
-	return tr, m
-}
-
-// runAsync calls tr's Run on its own goroutine, and returns the channel its
-// error is sent on.
-func runAsync(ctx context.Context, tr *runner.TaskRunner, spec *driverv1.RunSpec) <-chan error {
-	done := make(chan error, 1)
-	go func() { done <- tr.Run(ctx, spec) }()
-	return done
-}
-
-// waitDone waits for the error of a Run started with runAsync.
-func waitDone(t *testing.T, done <-chan error) error {
-	t.Helper()
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return")
-		return nil
+	if len(events) > 0 {
+		m.Replicated(t, events...)
 	}
+	assert.NilError(t, m.Load(ctx))
+	return m
 }
 
 func TestNewTaskRunner(t *testing.T) {
 	t.Parallel()
 	be := testrunner.NewBackend(t, nil)
 	store := testrunner.NewRunnerStore(t)
-	events := make(chan runner.TaskEvent)
 	tests := []struct {
 		name string
 		opts runner.TaskRunnerOptions
 	}{
-		{
-			name: "no backend",
-			opts: runner.TaskRunnerOptions{TaskID: 1, Store: store, Events: events},
-		},
-		{name: "no store", opts: runner.TaskRunnerOptions{TaskID: 1, Backend: be, Events: events}},
-		{name: "no events", opts: runner.TaskRunnerOptions{TaskID: 1, Backend: be, Store: store}},
+		{name: "no backend", opts: runner.TaskRunnerOptions{TaskID: 1, Store: store}},
+		{name: "no store", opts: runner.TaskRunnerOptions{TaskID: 1, Backend: be}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,7 +65,7 @@ func TestNewTaskRunner(t *testing.T) {
 	}
 }
 
-func TestTaskRunnerRun_Finished(t *testing.T) {
+func TestTaskRunnerRunLoop_Finished(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that finishes on its own, on an up sandbox.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
@@ -94,20 +74,13 @@ func TestTaskRunnerRun_Finished(t *testing.T) {
 	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
 
 	// Act
-	err := tr.Run(t.Context(), nil)
+	m := loaded(t, t.Context(), be, c1Record, nil)
 
-	// Assert - the driver reported, so no event is owed; the sandbox is suspended
-	// after Idle.
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
+	// Assert - the driver reported, so no event is owed; the sandbox is
+	// suspended once the driver is idle.
+	sbx := testrunner.WaitSuspended(t, be, "c1")
 	assert.Equal(t, sbx.Suspends, 1)
 	assert.Equal(t, m.Queued(t), 0)
 }
@@ -159,38 +132,33 @@ func (d *positionDriver) forwarded() []int64 {
 	return slices.Clone(d.received)
 }
 
-func TestTaskRunnerRun_ForwardsEvents(t *testing.T) {
+func TestTaskRunnerRunLoop_ForwardsEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has stored the task's events up to id 2, and
 	// a replica with two more, and one of another task's.
 	drv := &positionDriver{helloID: 2, lastID: 4}
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
-	_, err := m.RunnerStore.AppendEvents(t.Context(), []*gritzv1.Event{
+
+	// Act
+	m := loaded(t, t.Context(), be, c1Record, nil,
 		testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3),
 		testrunner.LifecycleEvent(2, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED),
 		testrunner.CommandEvent(10, 2, gritzv1.TaskCommand_START, 1),
 		testrunner.LifecycleEvent(3, 1, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED),
 		testrunner.CommandEvent(4, 1, gritzv1.TaskCommand_NONE, 3),
-	}, "cursor")
-	assert.NilError(t, err)
-
-	// Act
-	err = tr.Run(t.Context(), nil)
+	)
 
 	// Assert - the runner sent the task's events after the driver's position,
-	// and nothing else; the run ended on the driver's Idle.
-	assert.NilError(t, err)
+	// and nothing else; the busy period ended on the driver's Idle.
+	testrunner.WaitSuspended(t, be, "c1")
 	assert.DeepEqual(t, drv.forwarded(), []int64{3, 4})
 	assert.Equal(t, m.Queued(t), 0)
 }
 
-func TestTaskRunnerRun_Reattach(t *testing.T) {
+// TestTaskRunnerRunLoop_Reattach covers a dropped stream: drive reopens it,
+// and the busy period ends on the reopened stream's Idle.
+func TestTaskRunnerRunLoop_Reattach(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going until it is stopped.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
@@ -199,36 +167,38 @@ func TestTaskRunnerRun_Reattach(t *testing.T) {
 	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
-	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
+	server := testrunner.NewServer(testrunner.ServerOptions{})
+	server.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 3))
+	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
+		Backend:     be,
+		Server:      server,
+		RunnerStore: testrunner.NewRunnerStore(t, c1Record),
+	})
+	assert.NilError(t, m.Load(t.Context()))
 	m.Run(t)
-	done := runAsync(t.Context(), tr, nil)
 	testrunner.WaitRuns(t, be, "c1", 1)
 
-	// Act - cut the attached stream, wait for Run to reattach, then stop the
-	// run.
+	// Act - cut the attached stream, wait for drive to reattach, then stop
+	// the run.
 	be.Drop("c1")
 	testrunner.WaitRuns(t, be, "c1", 2)
 	m.Add(testrunner.CommandEvent(2, 1, gritzv1.TaskCommand_STOP, 3))
 
 	// Assert - the reattached stream saw Idle: the driver reported, the
 	// sandbox is suspended, and no event is owed.
-	assert.NilError(t, waitDone(t, done))
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
+	testrunner.WaitSuspended(t, be, "c1")
+	assert.DeepEqual(t, client.Reported(), []string{"started", "stopped"})
 	assert.Equal(t, m.Queued(t), 0)
 }
 
-func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
+func TestTaskRunnerRunLoop_DriverUnreachable(t *testing.T) {
 	t.Parallel()
 	// Arrange - a sandbox that stays up while its driver never answers.
 	be := testrunner.NewBackend(t, nil)
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
+
+	// Act
+	m := loaded(t, t.Context(), be, runnerstore.SandboxRecord{
 		TaskID:  2,
 		Version: 4,
 		Handle:  backend.Handle{Type: "fake", ID: "c1"},
@@ -236,41 +206,29 @@ func TestTaskRunnerRun_DriverUnreachable(t *testing.T) {
 		opts.LostTimeout = 100 * time.Millisecond
 	})
 
-	// Act
-	err := tr.Run(t.Context(), nil)
-
-	// Assert - Run gave up: the sandbox is suspended, and the runner's fallback
-	// "failed" is scoped to the run's version.
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
+	// Assert - drive gave up: the sandbox is suspended, and the runner's
+	// fallback "failed" is scoped to the run's version.
+	testrunner.WaitSuspended(t, be, "c1")
 	m.WaitQueued(t, 1)
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 2, Version: 4, Reason: "driver unreachable"},
 	}, protocmp.Transform())
 }
 
-func TestTaskRunnerRun_NothingToRun(t *testing.T) {
+func TestTaskRunnerRunLoop_NothingToRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that has never run, and has nothing to run.
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
 		Driver: testrunner.NewDriver(t, nil),
 	})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
 
 	// Act
-	err := tr.Run(t.Context(), nil)
+	m := loaded(t, t.Context(), be, c1Record, nil)
 
 	// Assert - the driver went idle at once: the sandbox is suspended, and
 	// no event is owed.
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
+	testrunner.WaitSuspended(t, be, "c1")
 	assert.Equal(t, m.Queued(t), 0)
 }
 
@@ -311,122 +269,67 @@ func (d *idleDriver) opened() []*driverv1.RunSpec {
 	return slices.Clone(d.specs)
 }
 
-func TestTaskRunnerRun_Reopen(t *testing.T) {
+func TestTaskRunnerRunLoop_Reopen(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that goes idle after run 3 before the task's start
 	// of run 4 reaches it, and after run 4 on the next stream.
 	drv := &idleDriver{versions: []int64{3, 4}}
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
-	tr.Set(testrunner.StartChange(1, 4))
 
 	// Act
-	err := tr.Run(t.Context(), nil)
+	m := loaded(t, t.Context(), be, c1Record, nil, testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 4))
 
-	// Assert - Run reopened the stream with run 4's spec instead of
+	// Assert - drive reopened the stream with run 4's spec instead of
 	// returning, with the record moved to run 4; then the sandbox was
 	// suspended once.
-	assert.NilError(t, err)
+	sbx := testrunner.WaitSuspended(t, be, "c1")
+	assert.Equal(t, sbx.Suspends, 1)
 	specs := drv.opened()
 	assert.Assert(t, cmp.Len(specs, 2))
 	assert.Assert(t, specs[0] == nil)
 	assert.Equal(t, specs[1].GetTaskId(), int64(1))
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
-	assert.Equal(t, sbx.Suspends, 1)
 	assert.Equal(t, m.Queued(t), 0)
 	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
 }
 
-func TestTaskRunnerRun_StopNeverRun(t *testing.T) {
+func TestTaskRunnerRunLoop_StopNeverRun(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver that goes idle after run 3, and a stop of run 4,
 	// a restart cancelled before the driver started it.
 	drv := &idleDriver{versions: []int64{3}}
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
-	tr.Set(runnerstore.TaskChange{ID: 1, Command: gritzv1.TaskCommand_STOP, Version: 4, Workspace: testrunner.Workspace})
 
 	// Act
-	err := tr.Run(t.Context(), nil)
+	m := loaded(t, t.Context(), be, c1Record, nil, testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_STOP, 4))
 
 	// Assert - no run will report run 4, so the runner reported it stopped.
-	assert.NilError(t, err)
 	m.WaitQueued(t, 1)
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
 		{Event: "stopped", TaskId: 1, Version: 4},
 	}, protocmp.Transform())
 }
 
-func TestTaskRunnerRun_NotReported(t *testing.T) {
+func TestTaskRunnerRunLoop_NotReported(t *testing.T) {
 	t.Parallel()
 	// Arrange - a driver whose run 3 failed to report its outcome.
 	drv := &idleDriver{versions: []int64{3}, unreported: true}
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: testrunner.NewStubDriver(t, drv)})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
 
 	// Act
-	err := tr.Run(t.Context(), nil)
+	m := loaded(t, t.Context(), be, c1Record, nil)
 
 	// Assert - the runner reported run 3 failed, and suspended the sandbox.
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
+	testrunner.WaitSuspended(t, be, "c1")
 	m.WaitQueued(t, 1)
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
 		{Event: "failed", TaskId: 1, Version: 3, Reason: "driver did not report the run's outcome"},
 	}, protocmp.Transform())
 }
 
-// TestTaskRunnerRun_NotReady covers a run started on a sandbox whose driver
-// never comes up: the run is reported failed and the sandbox suspended.
-func TestTaskRunnerRun_NotReady(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-		Driver:         testrunner.NewDriver(t, nil),
-		DriverNotReady: true,
-	})
-	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 1,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, func(opts *runner.TaskRunnerOptions) {
-		opts.ReadyTimeout = 100 * time.Millisecond
-	})
-
-	// Act
-	err := tr.Run(t.Context(), &driverv1.RunSpec{TaskId: 1})
-
-	// Assert
-	assert.NilError(t, err)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Suspended)
-	m.WaitQueued(t, 1)
-	events := m.Submitted(t)
-	assert.Assert(t, cmp.Len(events, 1))
-	assert.Equal(t, events[0].Event, "failed")
-	assert.Equal(t, events[0].Version, int64(1))
-	assert.Assert(t, cmp.Contains(events[0].Reason, "driver server did not become ready"))
-}
-
-func TestTaskRunnerRun_Shutdown(t *testing.T) {
+func TestTaskRunnerRunLoop_Shutdown(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run that keeps going.
 	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
@@ -435,165 +338,51 @@ func TestTaskRunnerRun_Shutdown(t *testing.T) {
 	})
 	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
 	be.Add("c1", fake.Up)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
 	ctx, cancel := context.WithCancel(t.Context())
-	done := runAsync(ctx, tr, nil)
+	m := loaded(t, ctx, be, c1Record, nil)
+	done := make(chan error, 1)
+	go func() { done <- m.TaskManager.Run(ctx) }()
 	testrunner.WaitRuns(t, be, "c1", 1)
 
-	// Act - the runner shuts down.
+	// Act - the runner shuts down; Run returns once every RunLoop has.
 	cancel()
+	assert.ErrorIs(t, <-done, context.Canceled)
 
-	// Assert - Run returns ctx's error, so the manager keeps the slot, and the
-	// sandbox stays up for next-boot rehydration: no suspend, no event.
-	assert.ErrorIs(t, waitDone(t, done), context.Canceled)
+	// Assert - the sandbox stays up for next-boot rehydration: no suspend,
+	// no event.
 	sbx, _ := be.Snapshot().Sandbox("c1")
 	assert.Equal(t, sbx.State, fake.Up)
 	assert.Equal(t, sbx.Suspends, 0)
 	assert.Equal(t, m.Queued(t), 0)
 }
 
-// TestTaskRunnerBoot covers booting a TaskRunner for runs: Boot stamps the
-// record with the run's version, and refuses a second run while the first is
-// claimed.
-func TestTaskRunnerBoot(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	be := testrunner.NewBackend(t, nil)
-	be.Add("c1", fake.Suspended)
-	tr, m := restoredRunner(t, be, runnerstore.SandboxRecord{
-		TaskID:  1,
-		Version: 3,
-		Handle:  backend.Handle{Type: "fake", ID: "c1"},
-	}, nil)
-
-	// Act
-	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
-	again := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 5})
-
-	// Assert - the first Boot reused c1 and booted it; the second, refused,
-	// left the record at the first's version. The refusal shows the TaskRunner
-	// is claimed, which also rules out probing it.
-	assert.NilError(t, err)
-	assert.ErrorIs(t, again, runner.ErrRunning)
-	snap := be.Snapshot()
-	assert.Assert(t, cmp.Len(snap.Specs, 0))
-	sbx, _ := snap.Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Boots, 1)
-	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-}
-
-// TestTaskRunnerBoot_Create covers booting a TaskRunner with no sandbox:
-// Boot creates one from the spec, records its handle, and boots it.
-func TestTaskRunnerBoot_Create(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	be := testrunner.NewBackend(t, nil)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	tr := m.Runner(1)
-
-	// Act
-	err := tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
-
-	// Assert - the TaskRunner is claimed, so the store and the fake tell what
-	// it did.
-	assert.NilError(t, err)
-	snap := be.Snapshot()
-	assert.DeepEqual(t, snap.Specs, []backend.Spec{{TaskID: 1, Version: 4}})
-	sbx, _ := snap.Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Up)
-	assert.Equal(t, sbx.Boots, 1)
-	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-}
-
-// TestTaskRunnerBoot_BootFails covers a sandbox Boot creates but cannot
-// boot: the error is returned, and the TaskRunner keeps the sandbox and its
-// record, unclaimed.
-func TestTaskRunnerBoot_BootFails(t *testing.T) {
-	t.Parallel()
-	// Arrange - the sandbox Boot creates refuses to boot.
-	boom := errors.New("boom")
-	be := testrunner.NewBackend(t, nil)
-	be.FailNext(fake.OpBoot, "", boom)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-
-	// Act
-	err := m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
-
-	// Assert - the record surviving the failed boot shows it was written
-	// before the sandbox was booted.
-	assert.ErrorIs(t, err, boom)
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Created)
-	assert.Equal(t, sbx.Boots, 0)
-	m.AssertTracked(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-}
-
-// TestTaskRunnerBoot_Concurrent covers two Boots racing on a task with no
-// sandbox: one sandbox is created and booted, and the other Boot finds it
-// claimed.
-func TestTaskRunnerBoot_Concurrent(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	be := testrunner.NewBackend(t, nil)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-
-	// Act
-	errs := make(chan error, 2)
-	for range 2 {
-		go func() { errs <- m.Runner(1).Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4}) }()
-	}
-	first, second := <-errs, <-errs
-
-	// Assert - one Boot created and booted the sandbox, the other booted
-	// nothing.
-	assert.Assert(t, (first == nil) != (second == nil), "first: %v, second: %v", first, second)
-	assert.ErrorIs(t, errors.Join(first, second), runner.ErrRunning)
-	snap := be.Snapshot()
-	assert.Assert(t, cmp.Len(snap.Specs, 1))
-	sbx, _ := snap.Sandbox("c1")
-	assert.Equal(t, sbx.Boots, 1)
-	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 4, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-}
-
-// TestTaskRunnerRestore covers adopting a record at Load: an up sandbox is
-// claimed for its Run, a suspended one is kept unclaimed, a gone or unopenable one
-// leaves no sandbox and no record, and a failed status check keeps both.
+// TestTaskRunnerRestore covers adopting a record at Load: an up or suspended
+// sandbox is kept, a gone or unopenable one leaves no record, and a failed
+// status check keeps it.
 func TestTaskRunnerRestore(t *testing.T) {
 	t.Parallel()
-	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
+	rec := c1Record
 	tests := []struct {
 		name string
 		// state is the sandbox's state in the fake; 0 means the fake never
 		// had it.
-		state       fake.State
-		openErr     error
-		statusErr   error
-		wantStatus  backend.Status
-		wantErr     bool
-		wantSandbox bool // the sandbox and record are kept
-		wantClaimed bool // which also shows the sandbox was adopted
+		state      fake.State
+		openErr    error
+		statusErr  error
+		wantStatus backend.Status
+		wantErr    bool
+		wantRecord bool
 	}{
-		{
-			name:        "up",
-			state:       fake.Up,
-			wantStatus:  backend.StatusUp,
-			wantSandbox: true,
-			wantClaimed: true,
-		},
-		{name: "suspended", state: fake.Suspended, wantStatus: backend.StatusSuspended, wantSandbox: true},
+		{name: "up", state: fake.Up, wantStatus: backend.StatusUp, wantRecord: true},
+		{name: "suspended", state: fake.Suspended, wantStatus: backend.StatusSuspended, wantRecord: true},
 		{name: "gone", state: fake.Gone, wantStatus: backend.StatusGone},
 		{name: "never existed", wantStatus: backend.StatusGone},
 		{
-			name:        "status error",
-			state:       fake.Up,
-			statusErr:   errors.New("boom"),
-			wantErr:     true,
-			wantSandbox: true,
+			name:       "status error",
+			state:      fake.Up,
+			statusErr:  errors.New("boom"),
+			wantErr:    true,
+			wantRecord: true,
 		},
 		{
 			name:    "open fails",
@@ -622,7 +411,6 @@ func TestTaskRunnerRestore(t *testing.T) {
 				TaskID:  rec.TaskID,
 				Backend: be,
 				Store:   store,
-				Events:  make(chan runner.TaskEvent, 1),
 			})
 
 			// Act
@@ -635,78 +423,13 @@ func TestTaskRunnerRestore(t *testing.T) {
 				assert.NilError(t, err)
 				assert.Equal(t, st, tt.wantStatus)
 			}
-			if tt.wantSandbox {
+			if tt.wantRecord {
 				testrunner.AssertRecord(t, store, rec.TaskID, &rec)
 			} else {
 				testrunner.AssertRecord(t, store, rec.TaskID, nil)
 			}
 			// Restore never destroys, even a gone sandbox.
 			assert.Assert(t, cmp.Len(be.Snapshot().Destroyed, 0))
-
-			// Probe, last - a Boot shows what the TaskRunner holds: claimed
-			// refuses, c1 is booted, and no sandbox means a Create.
-			before := be.Snapshot()
-			err = tr.Boot(t.Context(), backend.Spec{TaskID: 1, Version: 4})
-			after := be.Snapshot()
-			was, _ := before.Sandbox("c1")
-			now, _ := after.Sandbox("c1")
-			switch {
-			case tt.wantClaimed:
-				assert.ErrorIs(t, err, runner.ErrRunning)
-			case tt.wantSandbox:
-				assert.NilError(t, err)
-				assert.Equal(t, now.Boots, was.Boots+1, "TaskRunner does not hold c1")
-				assert.Equal(t, len(after.Specs), 0, "TaskRunner held no sandbox")
-			default:
-				assert.NilError(t, err)
-				assert.Equal(t, len(after.Specs), 1, "TaskRunner kept a sandbox")
-			}
 		})
 	}
-}
-
-// TestTaskRunnerSend_Shutdown covers a lost run with nothing handling events:
-// Run's send returns once ctx is done, dropping the event.
-func TestTaskRunnerSend_Shutdown(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run followed on an up sandbox by a TaskRunner whose events
-	// nobody reads.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		Version: 3,
-		Agent:   testrunner.SleepForever,
-	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	rec := runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}}
-	store := testrunner.NewRunnerStore(t, rec)
-	tr := runner.NewTaskRunner(runner.TaskRunnerOptions{
-		TaskID:  1,
-		Backend: be,
-		Store:   store,
-		Stream:  testrunner.NewStream(store, 1),
-		Events:  make(chan runner.TaskEvent),
-		// The suspended sandbox's driver is unreachable until LostTimeout.
-		LostTimeout: 100 * time.Millisecond,
-	})
-	_, err := tr.Restore(t.Context(), rec)
-	assert.NilError(t, err)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	done := runAsync(ctx, tr, nil)
-	testrunner.WaitRuns(t, be, "c1", 1)
-	// The sandbox stops under the run. Once LostTimeout passes, Run suspends it,
-	// which is the last thing it does before sending the lost run.
-	be.Set("c1", fake.Suspended)
-	_, err = be.Wait(t.Context(), func(s fake.Snapshot) bool {
-		sbx, _ := s.Sandbox("c1")
-		return sbx.Suspends == 1
-	})
-	assert.NilError(t, err)
-
-	// Act - the runner shuts down.
-	cancel()
-
-	// Assert - Run returned without an error: the run was lost, not shut
-	// down, and its event was dropped.
-	assert.NilError(t, waitDone(t, done))
 }

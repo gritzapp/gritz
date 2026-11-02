@@ -135,10 +135,10 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	assert.DeepEqual(t,
 		changes,
 		[]runnerstore.TaskChange{
-			{ID: 20, Command: gritzv1.TaskCommand_STOP, Version: 2, Workspace: "ws-2", CommandEventID: 6, Archived: true},
-			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", CommandEventID: 3},
-			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", CommandEventID: 8},
-			{ID: 50, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", CommandEventID: 10, Archived: true},
+			{ID: 20, Command: gritzv1.TaskCommand_STOP, Version: 2, Workspace: "ws-2", Archived: true},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 50, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", Archived: true},
 		},
 	)
 	tasks, err := store.UnarchivedTasks(t.Context())
@@ -146,14 +146,14 @@ func TestAppendEvents_Tasks(t *testing.T) {
 	assert.DeepEqual(t,
 		tasks,
 		[]runnerstore.TaskChange{
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", CommandEventID: 1},
-			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", CommandEventID: 3},
-			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", CommandEventID: 8},
+			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
+			{ID: 40, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"},
 		},
 	)
 }
 
-func TestAppendEvents_CommandEventID(t *testing.T) {
+func TestAppendEvents_KeepsCommand(t *testing.T) {
 	t.Parallel()
 	// Arrange - task 10 is archived before it has had a command.
 	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
@@ -188,47 +188,39 @@ func TestAppendEvents_CommandEventID(t *testing.T) {
 	)
 	assert.NilError(t, err)
 
-	// Assert - a task with no command reads 0, the page's last command event
+	// Assert - a task with no command reads none, the page's last command
 	// is stored and read back, and the archive-only page keeps it.
 	assert.DeepEqual(t, archived, []runnerstore.TaskChange{{ID: 10, Archived: true}})
-	want := runnerstore.TaskChange{ID: 10, Command: gritzv1.TaskCommand_STOP, Version: 1, Workspace: "ws", CommandEventID: 4}
+	want := runnerstore.TaskChange{ID: 10, Command: gritzv1.TaskCommand_STOP, Version: 1, Workspace: "ws"}
 	assert.DeepEqual(t, commanded, []runnerstore.TaskChange{want})
 	assert.DeepEqual(t, unarchived, []runnerstore.TaskChange{want})
 	want.Archived = true
 	assert.DeepEqual(t, rearchived, []runnerstore.TaskChange{want})
 }
 
-func TestHandled(t *testing.T) {
+func TestTask(t *testing.T) {
 	t.Parallel()
-	// Arrange - task 10 is stored with a start.
+	// Arrange - task 10 is started, then archived.
 	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
 	assert.NilError(t, err)
 	t.Cleanup(func() { assert.NilError(t, store.Close()) })
 	_, err = store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
 			{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws"}}},
+			{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
 		},
 		"page-1",
 	)
 	assert.NilError(t, err)
-	before, err := store.Handled(t.Context(), 10)
+
+	// Act
+	archived, err := store.Task(t.Context(), 10)
+	assert.NilError(t, err)
+	unknown, err := store.Task(t.Context(), 20)
 	assert.NilError(t, err)
 
-	// Act - the follower handles the start, then a later page changes the
-	// task's command.
-	assert.NilError(t, store.SetHandled(t.Context(), 10, 1))
-	_, err = store.AppendEvents(t.Context(),
-		[]*gritzv1.Event{
-			{Id: 2, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_STOP, Version: 1, Workspace: "ws"}}},
-		},
-		"page-2",
-	)
-	assert.NilError(t, err)
-
-	// Assert - a new task has handled nothing, and storing a page keeps the
-	// stored position.
-	assert.Equal(t, before, int64(0))
-	handled, err := store.Handled(t.Context(), 10)
-	assert.NilError(t, err)
-	assert.Equal(t, handled, int64(1))
+	// Assert - an archived task reads back its state, and a task with no
+	// stored state has the zero state.
+	assert.DeepEqual(t, archived, runnerstore.TaskChange{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1, Workspace: "ws", Archived: true})
+	assert.DeepEqual(t, unknown, runnerstore.TaskChange{ID: 20})
 }
