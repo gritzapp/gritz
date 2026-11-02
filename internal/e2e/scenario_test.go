@@ -66,70 +66,77 @@ func TestUnreportedRun(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
 }
 
-func TestSandboxFails(t *testing.T) {
+func TestSandboxFails_Create(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name string
-		// mock makes the task's sandbox fail with err, and returns how many
-		// calls the mock has had.
-		mock func(h *e2e.Harness, taskID int64, err error) (calls func() int)
-		// unmock removes the mock.
-		unmock func(h *e2e.Harness, taskID int64)
-	}{
-		{
-			name: "create",
-			mock: func(h *e2e.Harness, _ int64, err error) func() int {
-				m := &backend.BackendMock{CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
-					return nil, err
-				}}
-				h.Backend.Mock(m)
-				return func() int { return len(m.CreateCalls()) }
-			},
-			unmock: func(h *e2e.Harness, _ int64) { h.Backend.Mock(nil) },
-		},
-		{
-			name: "boot",
-			mock: func(h *e2e.Harness, taskID int64, err error) func() int {
-				m := &backend.SandboxMock{BootFunc: func(context.Context) error { return err }}
-				h.Backend.MockSandbox(taskID, m)
-				return func() int { return len(m.BootCalls()) }
-			},
-			unmock: func(h *e2e.Harness, taskID int64) { h.Backend.MockSandbox(taskID, nil) },
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
-			task := h.Org.CreateTask(nil)
-			task.AddInstruction("do the thing")
-			calls := tt.mock(h, task.ID, errors.New("e2e: "+tt.name+" failed"))
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
+	task := h.Org.CreateTask(nil)
+	task.AddInstruction("do the thing")
+	m := &backend.BackendMock{CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
+		return nil, errors.New("e2e: create failed")
+	}}
+	h.Backend.Mock(m)
 
-			task.Start()
-			task.WaitStatus(gritzv1.TaskStatus_FAILED)
-			tt.unmock(h, task.ID)
+	task.Start()
 
-			lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
-			failed := testx.FindFunc(t, lifecycle, func(l *gritzv1.LifecyclePayload, _ int) bool {
-				return l.Kind == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
-			})
-			assert.Assert(t, cmp.Contains(failed.Message, "e2e: "+tt.name+" failed"))
-			assert.Equal(t, calls(), 1)
-			assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
+	task.WaitStatus(gritzv1.TaskStatus_FAILED)
+	// The mock fails every Create: remove it so the next tasks get sandboxes.
+	h.Backend.Mock(nil)
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	failed := testx.FindFunc(t, lifecycle, func(l *gritzv1.LifecyclePayload, _ int) bool {
+		return l.Kind == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.Assert(t, cmp.Contains(failed.Message, "e2e: create failed"))
+	assert.Assert(t, cmp.Len(m.CreateCalls(), 1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
 
-			// The slot was released: a second task runs.
-			other := h.Org.CreateTask(nil)
-			other.AddInstruction("do the other thing")
-			other.Start()
-			h.Agent.WaitRun(other.ID).Complete()
-			other.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	// The slot was released: a second task runs.
+	other := h.Org.CreateTask(nil)
+	other.AddInstruction("do the other thing")
+	other.Start()
+	h.Agent.WaitRun(other.ID).Complete()
+	other.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 
-			// Started again, the first task runs on a real sandbox.
-			task.Start()
-			h.Agent.WaitRun(task.ID).Complete()
-			task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
-		})
-	}
+	// Started again, the first task runs on a real sandbox.
+	task.Start()
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+}
+
+func TestSandboxFails_Boot(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
+	task := h.Org.CreateTask(nil)
+	task.AddInstruction("do the thing")
+	m := &backend.SandboxMock{BootFunc: func(context.Context) error {
+		return errors.New("e2e: boot failed")
+	}}
+	h.Backend.MockSandbox(task.ID, m)
+
+	task.Start()
+
+	task.WaitStatus(gritzv1.TaskStatus_FAILED)
+	// The mock fails every Boot of the task's sandbox: remove it so the task
+	// can run when started again.
+	h.Backend.MockSandbox(task.ID, nil)
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	failed := testx.FindFunc(t, lifecycle, func(l *gritzv1.LifecyclePayload, _ int) bool {
+		return l.Kind == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.Assert(t, cmp.Contains(failed.Message, "e2e: boot failed"))
+	assert.Assert(t, cmp.Len(m.BootCalls(), 1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
+
+	// The slot was released: a second task runs.
+	other := h.Org.CreateTask(nil)
+	other.AddInstruction("do the other thing")
+	other.Start()
+	h.Agent.WaitRun(other.ID).Complete()
+	other.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+
+	// Started again, the first task boots its sandbox for real.
+	task.Start()
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 }
 
 func TestDriverUnreachable(t *testing.T) {
