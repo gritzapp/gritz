@@ -30,14 +30,14 @@ func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
 	h := e2e.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B"})
-	own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID}))
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
 	// Act & Assert - own task is always readable.
-	_, err := own.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: a.ID})
+	_, err := token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: a.ID})
 	assert.NilError(t, err)
 
 	// Act & Assert - any other task is denied.
-	_, err = own.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: b.ID})
+	_, err = token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: b.ID})
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
@@ -47,12 +47,12 @@ func TestTaskScope_UpdateTask_OwnAllowed_OtherDenied(t *testing.T) {
 	h := e2e.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B"})
-	own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID}))
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
 	// Act & Assert
-	_, err := own.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: a.ID, Name: "renamed"})
+	_, err := token.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: a.ID, Name: "renamed"})
 	assert.NilError(t, err)
-	_, err = own.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: b.ID, Name: "hijack"})
+	_, err = token.Client.UpdateTask(t.Context(), &gritzv1.UpdateTaskRequest{Id: b.ID, Name: "hijack"})
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
@@ -62,10 +62,10 @@ func TestTaskScope_CreateTask_Denied(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
-	own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID}))
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
 	// Act
-	_, err := own.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+	_, err := token.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Runner: a.Resp.Task.Runner, Workspace: a.Resp.Task.Workspace,
 	})
 
@@ -124,7 +124,7 @@ func TestTaskScope_WrongInstanceDenied(t *testing.T) {
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B"})
 	// Scoped to task A only (read+write on its id).
-	own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID}))
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
 	// The row-loading task handlers whose post-load Allow must reject a caller
 	// scoped to a different task. Each row calls the handler on task id.
@@ -197,7 +197,7 @@ func TestTaskScope_WrongInstanceDenied(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			err := tt.call(t.Context(), own, b.ID)
+			err := tt.call(t.Context(), token.Client, b.ID)
 
 			// Assert
 			assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied,
@@ -215,10 +215,10 @@ func TestTaskScope_SubmitRunnerEvents_PartialBatch(t *testing.T) {
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B"})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: a.ID, Start: true})
-	own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID}))
+	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
 	// Act
-	_, err := own.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
+	_, err := token.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
 			{TaskId: a.ID, Event: "started", Version: 1},
 			{TaskId: b.ID, Event: "started", Version: 1},

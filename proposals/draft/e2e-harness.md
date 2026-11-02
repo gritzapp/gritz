@@ -312,7 +312,7 @@ Things that don't belong to any one org.
 | Method | What it does |
 |---|---|
 | `URL` | the server's base URL |
-| `Client(token)` | a `gritzclient.Client` calling the server with `token`: a task JWT, a key that was deleted, a bad key |
+| `Client(token)` | a `gritzclient.Client` calling the server with `token`, for credentials no harness method returns: a key that was deleted, a bad key |
 | `CreateOrg()` | a fresh org with its own user (`teststore.CreateOrg`), and a runner key in it; returns an `*Org` |
 | `Mock(m)` | see below |
 
@@ -343,7 +343,10 @@ member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Ema
 | `Client` | shorthand for `Owner.Client`: a `gritzclient.Client` making real API calls as the owner, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
 | `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (runner `e2e`, workspace `e2e`); always `draft`, since a `bool` has no unset value. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
 | `CreateKey(req)` | `CreateKey`, as the keys page does (admin scopes); returns a `*Key` with its `ID` and a `Client` on it |
-| `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns the token |
+| `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns a `*TaskToken` with its `Token` and a `Client` on it |
+| `UpdateTask(req)` | `UpdateTask`, as the task page does |
+| `ArchiveTask(req)` | `ArchiveTask`, as the task page does |
+| `SubmitRunnerEvents(req)` | `SubmitRunnerEvents`, as the org's runner calls it with its runner key |
 | `GetTask(req)` | `GetTask`; returns the task |
 | `ListKeys(req)` | `ListKeys`; returns the keys |
 | `AddOrgMember(req)` | `AddOrgMember`, as the owner; returns the added user as a `*Member` acting in this org |
@@ -355,10 +358,10 @@ member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Ema
 **Shorthand methods mirror their RPC.** A method that is one RPC takes that
 RPC's request, so a test can set any field and the harness never grows
 parameter lists. It returns what the test works with: a wrapper when there is
-behaviour to attach (`*Task`, `*Key` and `*Member` with their `Client`), otherwise the
-unwrapped value (the token, the task, the keys). A wrapper built from one RPC
+behaviour to attach (`*Task`, `*Key`, `*TaskToken` and `*Member` with their `Client`), otherwise the
+unwrapped value (the task, the keys). A wrapper built from one RPC
 carries that RPC's response in `Resp` (`Task.Resp` is the `CreateTaskResponse`,
-`Key.Resp` the `CreateKeyResponse`, `Member.Resp` the `AddOrgMemberResponse`), so a test can reach anything the shorthand
+`Key.Resp` the `CreateKeyResponse`, `TaskToken.Resp` the `CreateTaskTokenResponse`, `Member.Resp` the `AddOrgMemberResponse`), so a test can reach anything the shorthand
 didn't pick out. A `*Key` from `CreateScopedKey` has a nil `Resp`, since no RPC
 made it, and neither has an org's `Owner`. Methods that aren't a single RPC
 (`CreateScopedKey`, `WaitTask`, `WaitEvent`, `Server.CreateOrg`) keep their own
@@ -372,7 +375,8 @@ whose result or error it asserts. Methods are added when a test first needs
 them, not ahead of it.
 
 ```go
-own := h.Server.Client(h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID}))
+token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+_, err := token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 ```
 
 A `Member`'s `Client` carries the app JWT `/auth/token` issues the
@@ -990,8 +994,27 @@ type Key struct {
 // CreateScopedKey creates a key in the org holding scopes. Its Resp is nil.
 func (o *Org) CreateScopedKey(scopes authscope.Scopes) *Key
 
-// CreateTaskToken mints a task token, as the runner does, and returns it.
-func (o *Org) CreateTaskToken(req *gritzv1.CreateTaskTokenRequest) string
+// TaskToken is a task JWT, as the runner mints it.
+type TaskToken struct {
+	Token string
+	// Client calls the server with the token.
+	Client gritzclient.Client
+	// Resp is the CreateTaskToken response the token was made from.
+	Resp *gritzv1.CreateTaskTokenResponse
+}
+
+// CreateTaskToken mints a task token, as the runner does.
+func (o *Org) CreateTaskToken(req *gritzv1.CreateTaskTokenRequest) *TaskToken
+
+// UpdateTask updates a task, as the task page does.
+func (o *Org) UpdateTask(req *gritzv1.UpdateTaskRequest)
+
+// ArchiveTask archives a task, as the task page does.
+func (o *Org) ArchiveTask(req *gritzv1.ArchiveTaskRequest)
+
+// SubmitRunnerEvents reports runner events as the org's runner does, with its
+// runner key.
+func (o *Org) SubmitRunnerEvents(req *gritzv1.SubmitRunnerEventsRequest)
 
 // GetTask returns the task.
 func (o *Org) GetTask(req *gritzv1.GetTaskRequest) *gritzv1.Task

@@ -127,15 +127,24 @@ func (o *Org) CreateScopedKey(scopes authscope.Scopes) *Key {
 	return &Key{ID: id, Client: o.server.Client(token)}
 }
 
-// CreateTaskToken mints a task token, as the runner does, and returns it.
-func (o *Org) CreateTaskToken(req *gritzv1.CreateTaskTokenRequest) string {
+// TaskToken is a task JWT, as the runner mints it.
+type TaskToken struct {
+	Token string
+	// Client calls the server with the token.
+	Client gritzclient.Client
+	// Resp is the CreateTaskToken response the token was made from.
+	Resp *gritzv1.CreateTaskTokenResponse
+}
+
+// CreateTaskToken mints a task token, as the runner does.
+func (o *Org) CreateTaskToken(req *gritzv1.CreateTaskTokenRequest) *TaskToken {
 	t := o.server.t
 	t.Helper()
 	resp, err := o.Client.CreateTaskToken(t.Context(), req)
 	if err != nil {
 		t.Fatalf("CreateTaskToken: %v", err)
 	}
-	return resp.Token
+	return &TaskToken{Token: resp.Token, Client: o.server.Client(resp.Token), Resp: resp}
 }
 
 // GetTask returns the task.
