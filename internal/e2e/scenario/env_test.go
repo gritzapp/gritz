@@ -1,8 +1,6 @@
 package scenario_test
 
 import (
-	"bytes"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,12 +25,10 @@ func TestEnv(t *testing.T) {
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 
-	dir := h.Backend.Dir(task.ID)
-	data, err := os.ReadFile(filepath.Join(dir, "env"))
-	assert.NilError(t, err)
-	env := strings.Split(strings.TrimSpace(string(data)), "\n")
+	env := strings.Split(strings.TrimSpace(h.Backend.ReadFile(task.ID, "env")), "\n")
 	assert.Assert(t, cmp.Contains(env, "GRITZ_TASK_ID="+strconv.FormatInt(task.ID, 10)))
 	assert.Assert(t, cmp.Contains(env, "E2E_SECRET=s3cret"))
+	dir := h.Backend.Dir(task.ID)
 	home := testx.FindFunc(t, env, func(kv string, _ int) bool { return strings.HasPrefix(kv, "HOME=") })
 	assert.Assert(t, strings.HasPrefix(strings.TrimPrefix(home, "HOME="), dir+string(filepath.Separator)), home)
 }
@@ -53,9 +49,8 @@ func TestSecretsMasked(t *testing.T) {
 	log := task.WaitLog(func(log string) bool {
 		return strings.Contains(log, "[gritz:masked E2E_SECRET]") && strings.Contains(log, "[gritz:masked token]")
 	})
-	token, err := os.ReadFile(filepath.Join(h.Backend.Dir(task.ID), "token"))
-	assert.NilError(t, err)
-	assert.Assert(t, len(bytes.TrimSpace(token)) > 0)
+	token := strings.TrimSpace(h.Backend.ReadFile(task.ID, "token"))
+	assert.Assert(t, token != "")
 	assert.Assert(t, !strings.Contains(log, "s3cret"), log)
-	assert.Assert(t, !strings.Contains(log, string(bytes.TrimSpace(token))), log)
+	assert.Assert(t, !strings.Contains(log, token), log)
 }
