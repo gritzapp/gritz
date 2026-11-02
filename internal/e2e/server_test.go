@@ -49,10 +49,17 @@ func TestGetTask_Permissions(t *testing.T) {
 	orgB := h.Server.CreateOrg()
 	task := h.Org.CreateTask(nil)
 
-	_, errA := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
+	respA, errA := h.Org.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	_, errB := orgB.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 
 	assert.NilError(t, errA)
+	// CreateTask answers with nanosecond timestamps; Postgres stores microseconds.
+	assert.DeepEqual(t,
+		respA.Task,
+		task.Resp.Task,
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 	assert.ErrorContains(t, errB, "not found")
 }
 
