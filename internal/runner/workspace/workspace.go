@@ -115,6 +115,7 @@ type Agent struct {
 	Cursor     *CursorConfig              `yaml:"cursor,omitempty"`
 	Sloppy     *SloppyConfig              `yaml:"sloppy,omitempty"`
 	Dummy      *DummyConfig               `yaml:"dummy,omitempty"`
+	Puppet     *PuppetConfig              `yaml:"puppet,omitempty"`
 }
 
 // ClaudeConfig contains Claude-specific agent configuration.
@@ -156,6 +157,12 @@ type DummyConfig struct {
 	Commands []string
 	// Error, when set, is returned as an error from the agent.
 	Error string `yaml:"error"`
+}
+
+// PuppetConfig contains Puppet-specific agent configuration.
+type PuppetConfig struct {
+	// URL is the endpoint each Prompt call is forwarded to.
+	URL string `yaml:"url"`
 }
 
 func (w *Workspace) Validate() error {
@@ -392,6 +399,11 @@ func (w *Workspace) AgentConfig() agent.Config {
 			ToolCalls: w.Agent.Dummy.ToolCalls,
 			Commands:  w.Agent.Dummy.Commands,
 			Error:     w.Agent.Dummy.Error,
+		}
+	}
+	if w.Agent.Puppet != nil {
+		cfg.Puppet = &agent.PuppetOptions{
+			URL: w.Agent.Puppet.URL,
 		}
 	}
 	maps.Copy(cfg.McpServers, w.Agent.McpServers)
