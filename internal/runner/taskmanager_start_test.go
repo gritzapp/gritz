@@ -1,7 +1,6 @@
 package runner_test
 
 import (
-	"errors"
 	"testing"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -67,39 +66,4 @@ func TestTaskManagerRunLoop_RestartCancelled(t *testing.T) {
 		{Event: "stopped", TaskId: 1, Version: 4},
 	}, protocmp.Transform())
 	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-}
-
-// TestTaskManagerRunLoop_BootFails covers a sandbox that cannot be booted
-// after it is created: the run is reported failed with the record kept, and
-// archiving the task destroys the sandbox.
-func TestTaskManagerRunLoop_BootFails(t *testing.T) {
-	t.Parallel()
-	// Arrange - the sandbox the start creates refuses to boot.
-	be := testrunner.NewBackend(t, nil)
-	be.FailNext(fake.OpBoot, "", errors.New("boom"))
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{Backend: be})
-	m.Run(t)
-
-	// Act
-	m.Add(testrunner.CommandEvent(1, 1, gritzv1.TaskCommand_START, 1))
-
-	// Assert - the run failed with the record and sandbox kept and nothing
-	// run. The record surviving the failed boot also shows it was written
-	// before the sandbox was booted.
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 1, Reason: "boom"},
-	}, protocmp.Transform())
-	m.AssertRecord(t, 1, &runnerstore.SandboxRecord{TaskID: 1, Version: 1, Handle: backend.Handle{Type: "fake", ID: "c1"}})
-	sbx, _ := be.Snapshot().Sandbox("c1")
-	assert.Equal(t, sbx.State, fake.Created)
-	assert.Equal(t, sbx.Dials, 0)
-
-	// Act - the task is archived.
-	m.Add(testrunner.ArchiveEvent(2, 1))
-
-	// Assert - the TaskRunner still held c1: it is destroyed, and the record
-	// is gone.
-	testrunner.WaitSandbox(t, be, "c1", func(sbx fake.Info) bool { return sbx.Destroys == 1 })
-	m.AssertRecord(t, 1, nil)
 }

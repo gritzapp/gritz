@@ -119,7 +119,10 @@ func TestSandboxFails_Boot(t *testing.T) {
 	h.Agent.WaitRun(other.ID).Complete()
 	other.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 
-	// Started again, the first task boots its sandbox for real.
+	// Its sandbox was recorded before the boot that failed, so a restarted
+	// runner still has it: started again, the first task boots that sandbox
+	// for real.
+	h.Runner.Restart()
 	task.Update(&gritzv1.UpdateTaskRequest{Start: true})
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
