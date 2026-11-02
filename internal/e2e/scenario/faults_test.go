@@ -3,6 +3,7 @@ package scenario_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -189,10 +190,15 @@ func TestSandboxGone_MidRun(t *testing.T) {
 
 	h.Backend.DestroySandbox(task.ID)
 
-	// The runner found the sandbox gone under its driver and reported the run
-	// failed, without starting it again.
+	// The runner found the sandbox gone under its driver, rather than waiting
+	// out the driver, and reported the run failed without starting it again.
 	run1.WaitCancelled()
 	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Version, int64(1))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	failed := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
+		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{"sandbox gone"})
 }

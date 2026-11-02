@@ -786,7 +786,7 @@ run if it broke.
 | `TestTaskManagerLoad` | b | Kept. The lost-run backstop (`failIfTaskRunning`) needs a sandbox that died while no runner was running, which `h.Runner.Restart()` can't arrange. The `up` row stays with the table: it also pins that the slot `Load` counts for a reattached run is given back |
 | `TestTaskManagerLoad_VersionScopedBackstop` | b | Deleted: `TestRunnerRestart_SandboxGone` (the backstop's `failed`, scoped to the run that was lost). Its second half tested `model.Task.ApplyRunnerEvent`'s version guard, which `internal/model`'s tests cover |
 | `TestTaskManagerLoad_Archived` | b | Deleted: `TestRunnerRestart_Archived` (an archive left pending by a failing destroy is carried out by the next runner's `Load`), `TestArchive_DestroyFails` (a failed destroy is retried) |
-| `TestTaskManagerLoad_SandboxGone` | b | Kept: no scenario makes a sandbox vanish under its driver's stream |
+| `TestTaskManagerLoad_SandboxGone` | b | Deleted: `TestSandboxGone_MidRun`, which asserts the failure's reason through the task's sandbox-failed lifecycle event, so the `LostTimeout` fallback ("driver unreachable") doesn't pass it |
 | `TestTaskManagerRun_Fatal`, `TestTaskManagerDie_StopWithoutSandbox` | b | Kept: a broken disk can't be produced end to end |
 
 #### `internal/runner` (`taskrunner_test.go`, `internal_test.go`, `eventoutbox_test.go`)
