@@ -1,8 +1,6 @@
 package scenario_test
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -34,9 +32,7 @@ func TestSetupCommands(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	// The commands ran on the first run only.
-	setup, err := os.ReadFile(filepath.Join(h.Backend.Dir(task.ID), "setup"))
-	assert.NilError(t, err)
-	assert.Equal(t, string(setup), "setup\n")
+	assert.Equal(t, h.Backend.ReadFile(task.ID, "setup"), "setup\n")
 	log := task.WaitLog(func(log string) bool { return strings.Contains(log, "==== run version=2 ") })
 	// A line of its own: the driver also logs the command it runs.
 	lines := strings.Split(log, "\n")
