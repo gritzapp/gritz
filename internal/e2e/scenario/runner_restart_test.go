@@ -90,6 +90,33 @@ func TestRunnerRestart_SandboxGone(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
 }
 
+func TestRunnerRestart_DriverKilled(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	run1 := h.Agent.WaitRun(task.ID)
+
+	// The driver dies while no runner is watching, leaving its sandbox
+	// suspended and its run unreported.
+	h.Runner.Stop()
+	h.Backend.KillDriver(task.ID)
+	run1.WaitCancelled()
+	h.Runner.Start()
+
+	// The new runner found the sandbox suspended and the task still running,
+	// and reported the run failed before booting the sandbox again.
+	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
+	assert.Equal(t, got.Version, int64(1))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
+	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
+	failed := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
+		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{"sandbox exited"})
+}
+
 func TestRunnerRestart_Archived(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
