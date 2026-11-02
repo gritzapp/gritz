@@ -146,3 +146,31 @@ func TestRunnerRestart_Archived(t *testing.T) {
 	// The new runner loaded the archived task and destroyed its sandbox.
 	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
 }
+
+func TestRunnerRestart_Completed(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+		Commands: []string{"echo setup >> setup"},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+	})
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	h.Backend.WaitSandbox(task.ID, backend.StatusSuspended)
+
+	h.Runner.Restart()
+
+	// The new runner kept the suspended sandbox, so a wake boots it again
+	// rather than creating another.
+	task.Update(&gritzv1.UpdateTaskRequest{
+		Start:           true,
+		AddInstructions: []*gritzv1.Instruction{{Text: "more"}},
+	})
+	run2 := h.Agent.WaitRun(task.ID)
+	assert.Assert(t, cmp.Contains(run2.Prompt, "more"))
+	run2.Complete()
+	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	assert.Equal(t, got.Version, int64(2))
+	assert.Equal(t, h.Backend.ReadFile(task.ID, "setup"), "setup\n")
+}

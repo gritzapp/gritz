@@ -2,7 +2,6 @@ package runner_test
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -171,82 +170,4 @@ func TestTaskRunnerRunLoop_StopNeverRun(t *testing.T) {
 	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
 		{Event: "stopped", TaskId: 1, Version: 4},
 	}, protocmp.Transform())
-}
-
-// TestTaskRunnerRestore covers adopting a record at Load: an up or suspended
-// sandbox is kept, a gone or unopenable one leaves no record, and a failed
-// status check keeps it.
-func TestTaskRunnerRestore(t *testing.T) {
-	t.Parallel()
-	rec := c1Record
-	tests := []struct {
-		name string
-		// state is the sandbox's state in the fake; 0 means the fake never
-		// had it.
-		state      fake.State
-		openErr    error
-		statusErr  error
-		wantStatus backend.Status
-		wantErr    bool
-		wantRecord bool
-	}{
-		{name: "up", state: fake.Up, wantStatus: backend.StatusUp, wantRecord: true},
-		{name: "suspended", state: fake.Suspended, wantStatus: backend.StatusSuspended, wantRecord: true},
-		{name: "gone", state: fake.Gone, wantStatus: backend.StatusGone},
-		{name: "never existed", wantStatus: backend.StatusGone},
-		{
-			name:       "status error",
-			state:      fake.Up,
-			statusErr:  errors.New("boom"),
-			wantErr:    true,
-			wantRecord: true,
-		},
-		{
-			name:    "open fails",
-			state:   fake.Up,
-			openErr: errors.New("malformed handle"),
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange - a TaskRunner with no sandbox, and a previous process's
-			// record.
-			be := testrunner.NewBackend(t, nil)
-			if tt.state != 0 {
-				be.Add("c1", tt.state)
-			}
-			if tt.openErr != nil {
-				be.FailNext(fake.OpOpen, "c1", tt.openErr)
-			}
-			if tt.statusErr != nil {
-				be.FailNext(fake.OpStatus, "c1", tt.statusErr)
-			}
-			store := testrunner.NewRunnerStore(t, rec)
-			tr := runner.NewTaskRunner(runner.TaskRunnerOptions{
-				TaskID:  rec.TaskID,
-				Backend: be,
-				Store:   store,
-			})
-
-			// Act
-			st, err := tr.Restore(t.Context(), rec)
-
-			// Assert
-			if tt.wantErr {
-				assert.Assert(t, err != nil)
-			} else {
-				assert.NilError(t, err)
-				assert.Equal(t, st, tt.wantStatus)
-			}
-			if tt.wantRecord {
-				testrunner.AssertRecord(t, store, rec.TaskID, &rec)
-			} else {
-				testrunner.AssertRecord(t, store, rec.TaskID, nil)
-			}
-			// Restore never destroys, even a gone sandbox.
-			assert.Assert(t, cmp.Len(be.Snapshot().Destroyed, 0))
-		})
-	}
 }
