@@ -15,10 +15,10 @@ import (
 	"github.com/gritzapp/gritz/internal/store/teststore"
 )
 
-// The runner and workspace every harness task is created on.
+// The runner and workspace CreateTask uses where its request leaves them unset.
 const (
-	runnerID  = "e2e"
-	workspace = "e2e"
+	DefaultRunner    = "e2e"
+	DefaultWorkspace = "e2e"
 )
 
 // Options configures a Harness; zero values take defaults.

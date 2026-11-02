@@ -224,10 +224,18 @@ component it owns:
 type Harness struct {
 	Server  *Server  // the API side: URL, Client, CreateOrg, Mock
 	Org     *Org     // the default org, for tests that need only one
-	Backend *Backend // the local backend
-	Runner  *Runner  // the runner
+	Backend *Backend // the local backend; nil unless Options.Runner
+	Runner  *Runner  // the runner; nil unless Options.Runner
 }
 ```
+
+**The runner is opt-in.** `Options.Runner` turns on the backend and the runner.
+Without it, `h.Backend` and `h.Runner` stay nil and the harness is a server and
+its orgs. Server-only tests (scope checks, the RPCs' own behaviour) leave it off
+and act as the runner themselves with `Org.SubmitRunnerEvents`, on the org's
+runner key. A test must not do both: with the runner on, hand-submitted runner
+events race the real runner's, so a test that enables the runner reaches every
+status through it.
 
 `Org` isn't a component but a caller: an org and the user who owns it, with
 that user's client. Tests that need several orgs on one server (permissions, cross-org,
@@ -277,9 +285,9 @@ func TestStart(t *testing.T) {
    needs them.
 2. **Default org.** `h.Server.CreateOrg()` makes `h.Org` (below). Isolation
    comes from the org, as for every teststore test.
-3. **Backend.** A `local.Backend` on a fresh root, wrapped by `h.Backend`. The
-   runner is given the wrapper.
-4. **Runner.** `runner.Serve` (below) with a `gritzclient` on `h.Org`'s runner key,
+3. **Backend** (only with `Options.Runner`). A `local.Backend` on a fresh root,
+   wrapped by `h.Backend`. The runner is given the wrapper.
+4. **Runner** (only with `Options.Runner`). `runner.Serve` (below) with a `gritzclient` on `h.Org`'s runner key,
    the backend wrapper, `runner.db` in a temp directory, runner id `e2e`, and one
    workspace `e2e` whose agent is the dummy. The runner registers that workspace
    with the server itself (`RegisterWorkspaces`), so `CreateTask` finds it
@@ -287,7 +295,8 @@ func TestStart(t *testing.T) {
    notifications, so commands reach the runner without waiting for the poll.
 5. **Cleanup**, in reverse order: remove the mocks; stop the runner and wait for it;
    `Destroy` every sandbox under the root, which kills the drivers; remove the
-   root; close the server; `teststore` drops the org.
+   root; close the server; `teststore` drops the org. Without `Options.Runner`
+   only the mocks and the server are torn down.
 
 **`runner.Serve`.** `gritz runner`'s wiring is all inline in the CLI action
 (`internal/command/runner.go`). It builds the `runnerstore`, `taskevents.Log`,
@@ -341,7 +350,7 @@ member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Ema
 | `ID` | the org |
 | `Owner` | the `*Member` `CreateOrg` made, owning the org; its `Resp` is nil |
 | `Client` | shorthand for `Owner.Client`: a `gritzclient.Client` making real API calls as the owner, acting in the org with admin scopes. It is the escape hatch for RPCs no method wraps. It goes through the same path as any client, so it gets mocked methods too |
-| `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (runner `e2e`, workspace `e2e`); always `draft`, since a `bool` has no unset value. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
+| `CreateTask(req)` | `CreateTask`, as the new-task page does, filling the harness defaults where `req` leaves them unset (`DefaultRunner` and `DefaultWorkspace`, both `e2e`); always `draft`, since a `bool` has no unset value. `req` may be nil. Returns a `*Task`, which keeps its `*Org` |
 | `CreateKey(req)` | `CreateKey`, as the keys page does (admin scopes); returns a `*Key` with its `ID` and a `Client` on it |
 | `CreateTaskToken(req)` | `CreateTaskToken`, as the runner calls it; returns a `*TaskToken` with its `Token` and a `Client` on it |
 | `UpdateTask(req)` | `UpdateTask`, as the task page does |
@@ -386,9 +395,11 @@ The JWTs live for `apiauth.AppTokenTTL` (5 minutes), which bounds a test's
 length.
 
 The runner registers its workspaces with the server (below). `h.Org`'s runner
-key is the one the runner is given; it stays internal. Until `h.Runner` lands,
-`CreateOrg` registers the `e2e` workspace itself with that key, so every org can
-`CreateTask`.
+key is the one the runner is given; it stays internal. Without
+`Options.Runner` (and until `h.Runner` lands), `CreateOrg` registers the
+`DefaultWorkspace` on `DefaultRunner` itself with that key, so every org can
+`CreateTask`, and `Org.SubmitRunnerEvents` uses the same key to act as the
+runner.
 
 ```go
 // Mock installs m, replacing any previous mock: calls go to m's non-nil
@@ -572,6 +583,7 @@ unchanged.
 
 ```go
 type Options struct {
+	Runner       bool              // stand up h.Backend and h.Runner; off → both nil (server-only)
 	Concurrency  int               // runner slots; default 2
 	SuspendAfter time.Duration     // the e2e workspace's suspend_after (from slice 10); 0 → workspace default
 	Commands     []string          // the workspace's setup commands
@@ -583,7 +595,8 @@ type Options struct {
 
 The harness sets the runner's `LostTimeout` and `ReadyTimeout`
 (`runner.ServeOptions`) to 2s, so scenarios about lost or unready drivers
-don't wait out the 10s defaults.
+don't wait out the 10s defaults. The runner fields (`Concurrency` through
+`PollInterval`) apply only with `Runner`.
 
 **The driver binary** is `prebuilt/gritz-linux-$GOARCH`, which the tests already
 require (`mise run build`, as `TestTaskManagerStart` and the Docker backend tests
@@ -906,8 +919,17 @@ func Serve(ctx context.Context, opts ServeOptions) error
 ```go
 package e2e // github.com/gritzapp/gritz/internal/e2e  // new
 
+// The runner and workspace CreateTask uses where its request leaves them unset.
+const (
+	DefaultRunner    = "e2e"
+	DefaultWorkspace = "e2e"
+)
+
 // Options configures a Harness; zero values take defaults.
 type Options struct {
+	// Runner stands up h.Backend and h.Runner; without it both are nil and
+	// the test may act as the runner with Org.SubmitRunnerEvents.
+	Runner       bool
 	Concurrency  int
 	SuspendAfter time.Duration
 	Commands     []string
@@ -916,12 +938,13 @@ type Options struct {
 	Timeout      time.Duration
 }
 
-// Harness is a server, a local backend and a runner for one test.
+// Harness is a server, and optionally a local backend and a runner, for one
+// test.
 type Harness struct {
 	Server  *Server
-	Org     *Org // the default org
-	Backend *Backend
-	Runner  *Runner
+	Org     *Org     // the default org
+	Backend *Backend // nil unless Options.Runner
+	Runner  *Runner  // nil unless Options.Runner
 }
 
 // New stands up a harness and registers its teardown with t.Cleanup.

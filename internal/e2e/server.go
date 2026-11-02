@@ -65,8 +65,8 @@ func (s *Server) CreateOrg() *Org {
 	o.runner = s.Client(runnerKey)
 	_, err = o.runner.
 		RegisterWorkspaces(s.t.Context(), &gritzv1.RegisterWorkspacesRequest{
-			RunnerId:   runnerID,
-			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: workspace}},
+			RunnerId:   DefaultRunner,
+			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: DefaultWorkspace}},
 		})
 	if err != nil {
 		s.t.Fatalf("RegisterWorkspaces: %v", err)

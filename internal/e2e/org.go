@@ -60,8 +60,8 @@ func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 		req = proto.CloneOf(req)
 	}
 	req.Draft = true
-	req.Runner = cmp.Or(req.Runner, runnerID)
-	req.Workspace = cmp.Or(req.Workspace, workspace)
+	req.Runner = cmp.Or(req.Runner, DefaultRunner)
+	req.Workspace = cmp.Or(req.Workspace, DefaultWorkspace)
 	resp, err := o.Client.CreateTask(t.Context(), req)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
