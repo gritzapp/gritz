@@ -471,10 +471,8 @@ func (tr *TaskRunner) busy(ctx context.Context, h *handled, spec *driverv1.RunSp
 // events on it; the driver acts on the commands among them, and reports its
 // runs. drive reports a run the driver did not as "failed".
 //
-// If the task's latest report wants a run newer than the driver's last once
-// the driver goes idle, the driver went idle before that command reached it:
-// drive reopens the stream, with the spec of that report, instead of
-// returning.
+// A start that reaches the runner after the driver went idle is left to
+// RunLoop, which boots the sandbox again for it.
 //
 // A dropped stream is reopened with backoff. If the sandbox is gone, or the
 // driver cannot be reached for LostTimeout, drive reports the latest run
@@ -482,55 +480,28 @@ func (tr *TaskRunner) busy(ctx context.Context, h *handled, spec *driverv1.RunSp
 //
 // On shutdown drive returns ctx's cause. Any other error is a fatalError.
 func (tr *TaskRunner) drive(ctx context.Context, spec *driverv1.RunSpec) (int64, error) {
-	taskID := tr.opts.TaskID
-	sbx := tr.sbx
-	reopen := doubling(tr.opts.RetryInterval, tr.opts.RetryMaxInterval)
-	var reopened int64
-	for {
-		idle, lost, err := tr.run(ctx, sbx, spec)
-		if err != nil {
+	idle, lost, err := tr.run(ctx, tr.sbx, spec)
+	if err != nil {
+		return 0, err
+	}
+	if lost != "" {
+		return tr.lost(ctx, lost)
+	}
+	version := idle.GetVersion()
+	if version != 0 && !idle.GetReported() {
+		if err := tr.fail(version, "driver did not report the run's outcome"); err != nil {
 			return 0, err
 		}
-		if lost != "" {
-			return tr.lost(ctx, lost)
-		}
-		version := idle.GetVersion()
-		if version != 0 && !idle.GetReported() {
-			if err := tr.fail(version, "driver did not report the run's outcome"); err != nil {
-				return 0, err
-			}
-		}
-		c, _ := tr.latest()
-		if !wantsRun(c) || c.Version <= version {
-			if version > tr.rec.Version {
-				// The driver ran a version the runner didn't boot for, on a
-				// stream already open: keep the record on the run that went
-				// last.
-				if err := tr.write(ctx, tr.record(sbx, version)); err != nil {
-					return 0, err
-				}
-			}
-			tr.opts.Log.Info("driver idle", "task", taskID, "version", version)
-			return version, nil
-		}
-		tr.opts.Log.Info("driver went idle before the latest command, reopening", "task", taskID, "version", c.Version)
-		// A driver that keeps going idle without running c is not hammered.
-		if c.Version == reopened && !common.SleepContext(ctx, reopen.NextBackOff()) {
-			return 0, context.Cause(ctx)
-		}
-		reopened = c.Version
-		if c.Version != tr.rec.Version {
-			if err := tr.write(ctx, tr.record(sbx, c.Version)); err != nil {
-				return 0, err
-			}
-		}
-		if _, spec, err = tr.opts.Spec(ctx, c); err != nil {
-			if ctx.Err() != nil {
-				return 0, context.Cause(ctx)
-			}
-			return tr.lost(ctx, fmt.Sprintf("failed to build the run's spec: %v", err))
+	}
+	if version > tr.rec.Version {
+		// The driver ran a version the runner didn't boot for, on a stream
+		// already open: keep the record on the run that went last.
+		if err := tr.write(ctx, tr.record(tr.sbx, version)); err != nil {
+			return 0, err
 		}
 	}
+	tr.opts.Log.Info("driver idle", "task", tr.opts.TaskID, "version", version)
+	return version, nil
 }
 
 // lost reports the task's latest run failed for why, as drive gave up on its
