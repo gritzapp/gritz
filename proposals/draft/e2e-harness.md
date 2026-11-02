@@ -775,7 +775,7 @@ run if it broke.
 | `TestTaskManagerRunLoop_NotReady` | a | Deleted: `TestDriverUnreachable` |
 | `TestTaskManagerRunLoop_StopWithoutSandbox`, `_RestartCancelled` | a | Kept: `TestRestart_CancelledBeforeStart` isn't written (Open Questions). No scenario makes the runner report `stopped` itself |
 | `TestTaskManagerRunLoop_BootFails` | a | Kept: `TestSandboxFails_Boot` covers the failed boot, but not its second half, archiving the task destroys the sandbox that never booted |
-| `TestTaskManagerRunLoop_Gone` | c | Kept: no scenario removes a sandbox behind the runner's back. `TestDriverDies_MidRun` leaves it suspended, not gone |
+| `TestTaskManagerRunLoop_Gone` | c | Deleted: `TestSandboxGone_Suspended` (a wake finds the suspended sandbox gone and fails the run with `backend.ErrGone`; the next wake gets a fresh sandbox) |
 
 #### `internal/runner` (`taskmanager_load_test.go`)
 

@@ -11,7 +11,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 func TestTaskManagerRunLoop_StopWithoutSandbox(t *testing.T) {
@@ -105,49 +104,3 @@ func TestTaskManagerRunLoop_BootFails(t *testing.T) {
 	m.AssertRecord(t, 1, nil)
 }
 
-// TestTaskManagerRunLoop_Gone covers a task whose recorded sandbox has
-// vanished: the boot fails with the run reported failed and the record
-// dropped, and the next start creates a fresh sandbox.
-func TestTaskManagerRunLoop_Gone(t *testing.T) {
-	t.Parallel()
-	// Arrange - task 8's recorded sandbox, restored suspended, is then removed
-	// behind the runner's back.
-	rec := runnerstore.SandboxRecord{TaskID: 8, Version: 1, Handle: backend.Handle{Type: "fake", ID: "c1"}}
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{
-		Driver: testrunner.NewDriver(t, &testrunner.DriverOptions{Version: 3}),
-	})
-	be.Add("c1", fake.Suspended)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend:     be,
-		RunnerStore: testrunner.NewRunnerStore(t, rec),
-	})
-	assert.NilError(t, m.Load(t.Context()))
-	be.Set("c1", fake.Gone)
-	m.Run(t)
-
-	// Act
-	m.Add(testrunner.CommandEvent(1, 8, gritzv1.TaskCommand_START, 2))
-
-	// Assert - the run failed, no fresh sandbox was created, and the
-	// dangling record was removed.
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 8, Version: 2, Reason: backend.ErrGone.Error()},
-	}, protocmp.Transform())
-	assert.Assert(t, cmp.Len(be.Snapshot().Specs, 0))
-	m.AssertRecord(t, 8, nil)
-
-	// Act - the task is started again.
-	m.Add(testrunner.CommandEvent(2, 8, gritzv1.TaskCommand_START, 3))
-
-	// Assert - the task got one fresh sandbox, which ran the workspace's
-	// agent; the driver reported, and the sandbox is suspended. The runner
-	// never destroyed the vanished sandbox; it only dropped it.
-	testrunner.WaitSuspended(t, be, "c2")
-	snap := be.Snapshot()
-	assert.Assert(t, cmp.Len(snap.Specs, 1))
-	assert.Equal(t, snap.Specs[0].Version, int64(3))
-	assert.Assert(t, cmp.Len(snap.Destroyed, 0))
-	assert.Equal(t, m.Queued(t), 0)
-	m.AssertRecord(t, 8, &runnerstore.SandboxRecord{TaskID: 8, Version: 3, Handle: backend.Handle{Type: "fake", ID: "c2"}})
-}
