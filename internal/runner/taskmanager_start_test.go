@@ -29,7 +29,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/testrunner"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/x/dockerx"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -176,9 +175,20 @@ func TestTaskManagerStart(t *testing.T) {
 	assert.Equal(t, rec.Handle.Type, docker.HandleType)
 	assert.Assert(t, rec.Handle.ID != "")
 
-	// Wait for the container to be stopped once the driver is idle.
-	err = dockerx.ContainerWait(t.Context(), dc, "gritz-1", container.WaitConditionNotRunning)
-	assert.NilError(t, err)
+	// Wait for the container to exit once the driver is idle. The record is
+	// written when the container is created, before it is started, and a
+	// created container already counts as not running, so ContainerWait's
+	// not-running condition could return before the container ever ran.
+	poll.WaitOn(t, func(poll.LogT) poll.Result {
+		info, err := dc.ContainerInspect(t.Context(), "gritz-1")
+		if err != nil {
+			return poll.Error(err)
+		}
+		if info.State.Status != container.StateExited {
+			return poll.Continue("container is %s", info.State.Status)
+		}
+		return poll.Success()
+	}, poll.WithTimeout(time.Minute))
 
 	// Remove the container
 	err = dc.ContainerRemove(t.Context(), "gritz-1", container.RemoveOptions{})
