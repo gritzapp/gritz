@@ -26,6 +26,8 @@ type Org struct {
 	// runnerKey is the org's runner key, and runner calls the server with it.
 	runnerKey string
 	runner    gritzclient.Client
+	// backend is h.Backend for the default org with a runner; otherwise nil.
+	backend *Backend
 }
 
 // Member is a user acting in an org.
