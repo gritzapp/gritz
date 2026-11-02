@@ -221,8 +221,12 @@ mid-run, and the prompt each run received is captured for assertions.
 
 ### Harness
 
-`internal/e2e` stands the system up per test. A `Harness` exposes one handle per
-component it owns:
+`internal/e2e` stands the system up per test; it holds only the harness and its
+own tests. The tests built on it live in two test-only packages beside it:
+`internal/e2e/api` for the API tests (one file per area, such as `task_test.go`
+or `taskscope_test.go`) and `internal/e2e/scenario` for the runner scenarios
+(one file per area, such as `start_test.go` or `faults_test.go`). A `Harness`
+exposes one handle per component it owns:
 
 ```go
 type Harness struct {
@@ -680,8 +684,8 @@ rebuilding tests the old driver; that is accepted (Trade-offs).
 
 ### Scenarios
 
-Each scenario is one top-level test in `internal/e2e`, with `Options.Runner`
-set. `Start` creates a started task with an instruction (or starts a draft with
+Each scenario is one top-level test in `internal/e2e/scenario`, in the file
+for its area, with `Options.Runner` set. `Start` creates a started task with an instruction (or starts a draft with
 `Update{start: true}` once a per-task mock is installed); a wake is
 `Update{start: true, add_instructions: ...}`. `run1 := WaitRun(task)` is
 `h.Agent.WaitRun(task.ID)`; "the setup file" is
@@ -844,7 +848,8 @@ directly. `fake` (≈750 lines) and `fake_test.go` (≈1150) are deleted.
 
 No server test is deleted. The apiserver, store, model, event router and archiver
 tests already use a real Postgres store and pin the server's state machine
-precisely, one transition per test. Examples are `command_test.go`'s command
+precisely, one transition per test. Examples are `internal/e2e/api`'s
+`command_test.go` with its command
 event per path, `TestSubmitRunnerEvents_RunBoundaryCommandEvent`,
 `TestListRunnerEvents_CommitOutOfIDOrder` and `TestTask_RunVersion_*`. Those are
 (b). The scenarios add what no server test can show: that the runner and driver
@@ -1374,7 +1379,8 @@ DIR`, where the local backend's binary is the running executable.
 
 Already landed: server wrapping (`server.Options.Wrap`) and the server side of
 the harness (`e2e.New`, `h.Server`, `Org` and its shorthands, `h.Server.Store`),
-with the apiserver tests ported onto it (#1896, #1900, #1902).
+with the apiserver tests ported onto it (#1896, #1900, #1902) and moved to
+`internal/e2e/api`.
 
 runner-event-replica slice 8 (the driver acts on commands) has landed; slices
 9–11 haven't. Slices 1–6 below don't depend on the runner's internals. They can
