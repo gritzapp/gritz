@@ -107,14 +107,6 @@ func TestTaskScope_ArchivedGating_ArchivedReadDenied(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
-	// Run 1 starts and stops with no command pending, which completes the task.
-	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
-	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{
-			{TaskId: task.ID, Event: "started", Version: 1},
-			{TaskId: task.ID, Event: "stopped", Version: 1},
-		},
-	})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 	key := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(
@@ -137,14 +129,6 @@ func TestTaskScope_ArchivedGating_ArchivedWriteDenied(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
-	// Run 1 starts and stops with no command pending, which completes the task.
-	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
-	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{
-			{TaskId: task.ID, Event: "started", Version: 1},
-			{TaskId: task.ID, Event: "stopped", Version: 1},
-		},
-	})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 	key := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(
