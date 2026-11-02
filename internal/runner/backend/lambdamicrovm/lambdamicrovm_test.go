@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -40,8 +41,10 @@ func setup(t *testing.T, cfg *agent.Config) *testEnv {
 	t.Helper()
 	te := &testEnv{}
 	dir := t.TempDir()
-	store := agent.ConfigStore(filepath.Join(dir, "config"))
+	store := agent.ConfigStore(filepath.Join(dir, string(agent.DefaultConfigStore)))
 	assert.NilError(t, store.Save(testTaskID, cfg))
+	// The image has the /gritz directory.
+	assert.NilError(t, os.MkdirAll(filepath.Join(dir, "gritz"), 0o777))
 	gritz := &gritzclient.ClientMock{
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: 1}}, nil
@@ -57,11 +60,7 @@ func setup(t *testing.T, cfg *agent.Config) *testEnv {
 		},
 	}
 	srv, err := driverserver.New(driverserver.Options{
-		RecordPath: filepath.Join(dir, "run.json"),
-		EventsPath: filepath.Join(dir, "events.jsonl"),
-		LogPath:    filepath.Join(dir, "log"),
-		Config:     store,
-		FileRoot:   filepath.Join(dir, "root"),
+		PrefixPath: dir,
 		NewClient:  func(_, _ string) gritzclient.Client { return gritz },
 		KeepAlive:  20 * time.Millisecond,
 	})

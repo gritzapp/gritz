@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -148,8 +149,9 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 	taskID := cmp.Or(opts.TaskID, 1)
 	version := cmp.Or(opts.Version, 1)
 	dir := t.TempDir()
-	root := filepath.Join(dir, "root")
-	configs := agent.ConfigStore(filepath.Join(root, string(agent.DefaultConfigStore)))
+	configs := agent.ConfigStore(filepath.Join(dir, string(agent.DefaultConfigStore)))
+	// The backend creates the sandbox's /gritz directory.
+	assert.NilError(t, os.MkdirAll(filepath.Join(dir, "gritz"), 0o777))
 	gritz := &gritzclient.ClientMock{
 		GetTaskFunc: func(_ context.Context, req *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Id: req.Id, Version: version}}, nil
@@ -165,11 +167,7 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 		},
 	}
 	srv, err := driverserver.New(driverserver.Options{
-		RecordPath: filepath.Join(dir, "run.json"),
-		EventsPath: filepath.Join(dir, "events.jsonl"),
-		LogPath:    filepath.Join(dir, "log"),
-		Config:     configs,
-		FileRoot:   root,
+		PrefixPath: dir,
 		NewClient:  func(_, _ string) gritzclient.Client { return gritz },
 		KeepAlive:  20 * time.Millisecond,
 	})
@@ -198,7 +196,7 @@ func NewDriver(t *testing.T, opts *DriverOptions) *Driver {
 	}}}))
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		rec, _, err := runrecord.Read(filepath.Join(dir, "run.json"))
+		rec, _, err := runrecord.Read(filepath.Join(dir, runrecord.Path))
 		assert.NilError(t, err)
 		if rec.Version == version {
 			break

@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"sync"
 	"time"
@@ -29,7 +30,6 @@ import (
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/eventfile"
 	"github.com/gritzapp/gritz/internal/x/envx"
 	"github.com/gritzapp/gritz/internal/x/netx"
@@ -45,24 +45,16 @@ const DefaultKeepAlive = 15 * time.Second
 const httpShutdownTimeout = 5 * time.Second
 
 // ProvisionedPath is the marker a sandbox gets once a run has written its
-// RunSpec files. Like the files, it lives under Options.FileRoot.
+// RunSpec files. Like the files, it lives under Options.PrefixPath.
 const ProvisionedPath = "/gritz/.provisioned"
 
 // Options configures a Server. Every field takes its default when zero.
 type Options struct {
-	// RecordPath is the run record. Defaults to runrecord.Path.
-	RecordPath string
-	// EventsPath is the event file. Defaults to eventfile.Path.
-	EventsPath string
-	// LogPath is the append-only driver log each run appends to. Defaults to
-	// agent.DefaultLogPath.
-	LogPath string
-	// Config is where the task config file lives. Defaults to
-	// agent.DefaultConfigStore.
-	Config agent.ConfigStore
-	// FileRoot is the directory the RunSpec file paths and ProvisionedPath
-	// are relative to. Defaults to "/".
-	FileRoot string
+	// PrefixPath is prepended to every in-sandbox path: the run record, the
+	// event file, the driver log, the agent config store, the RunSpec files
+	// and the provisioned marker. It is only a path prefix, not a chroot.
+	// Defaults to "/".
+	PrefixPath string
 	// Environ is the base of every run's environment, which RunSpec.env and
 	// then RunSpec.secrets are layered on. The command sets it to
 	// os.Environ(), so whatever a custom image sets reaches the agent.
@@ -100,7 +92,7 @@ func New(opts Options) (*Server, error) {
 		keepAlive: cmp.Or(opts.KeepAlive, DefaultKeepAlive),
 		log:       cmp.Or(opts.Log, slog.Default()),
 	}
-	events, err := eventfile.Open(cmp.Or(opts.EventsPath, eventfile.Path))
+	events, err := eventfile.Open(filepath.Join(cmp.Or(opts.PrefixPath, "/"), eventfile.Path))
 	if err != nil {
 		return nil, err
 	}
@@ -110,11 +102,8 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	exec, err := NewExecutor(ExecutorOptions{
-		RecordPath: opts.RecordPath,
-		LogPath:    opts.LogPath,
-		Config:     opts.Config,
+		PrefixPath: opts.PrefixPath,
 		Events:     events,
-		FileRoot:   opts.FileRoot,
 		Environ:    opts.Environ,
 		NewClient:  opts.NewClient,
 		Log:        s.log,
