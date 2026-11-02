@@ -844,8 +844,8 @@ they are.
 
 | Package / test | | Outcome |
 |---|---|---|
-| `backend/fake` (`fake_test.go`) | c | Kept, with the fake, until the delete pass. Its driver-not-ready option, which only deleted tests used, is gone |
-| `testrunner` | c | Kept until the delete pass, less the helpers only deleted tests used |
+| `backend/fake` (`fake_test.go`) | c | Deleted with the fake in the delete pass (#1930) |
+| `testrunner` | c | Deleted in the delete pass (#1930) |
 | `taskevents` (all) | b | Kept: replication, cursor, boot and blocking `Read` |
 | `runnerstore` (all), `TestTaskChanges` | b | Kept: projection and storage |
 | `eventfile`, `runrecord` (all) | b | Kept: encoding, torn lines and reconcile |
