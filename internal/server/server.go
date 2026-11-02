@@ -28,7 +28,7 @@ import (
 
 type Server struct {
 	log       *slog.Logger
-	api       *apiserver.Server
+	api       gritzv1connect.GritzServiceHandler
 	auth      *apiauth.Auth
 	github    *githubserver.Server
 	atlassian *atlassianserver.Server
@@ -55,6 +55,10 @@ type Options struct {
 	// OrgResolver authorizes cookie-authenticated (browser) operators on the
 	// shell attach leg, the same way it does for the SSE stream.
 	OrgResolver shellserver.OrgResolver
+	// Wrap, when set, wraps the RPC implementation behind the Connect
+	// interceptors and the MCP endpoint, so callers are authenticated before
+	// it runs. Tests use it to mock RPCs.
+	Wrap func(gritzv1connect.GritzServiceHandler) gritzv1connect.GritzServiceHandler
 }
 
 func New(opts Options) *Server {
@@ -99,7 +103,10 @@ func New(opts Options) *Server {
 	if opts.GitHub != nil {
 		apiOpts.GitHub = opts.GitHub
 	}
-	api := apiserver.New(apiOpts)
+	var api gritzv1connect.GritzServiceHandler = apiserver.New(apiOpts)
+	if opts.Wrap != nil {
+		api = opts.Wrap(api)
+	}
 	return &Server{
 		log:       log,
 		api:       api,
