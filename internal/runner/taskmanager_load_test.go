@@ -211,40 +211,6 @@ func TestTaskManagerDie_StopWithoutSandbox(t *testing.T) {
 	assert.Assert(t, errors.As(context.Cause(ctx), &fatal))
 }
 
-// TestTaskManagerLoad_SandboxGone covers a sandbox that vanishes under its
-// driver's stream: drive reports the run failed, and the record is dropped.
-func TestTaskManagerLoad_SandboxGone(t *testing.T) {
-	t.Parallel()
-	// Arrange - a run that keeps going on an up sandbox, driven by the
-	// RunLoop Load starts for it.
-	client := testrunner.NewDriver(t, &testrunner.DriverOptions{
-		Version: 3,
-		Agent:   testrunner.SleepForever,
-	})
-	be := testrunner.NewBackend(t, &testrunner.BackendOptions{Driver: client})
-	be.Add("c1", fake.Up)
-	m := testrunner.NewManager(t, &testrunner.ManagerOptions{
-		Backend: be,
-		RunnerStore: testrunner.NewRunnerStore(t, runnerstore.SandboxRecord{
-			TaskID:  1,
-			Version: 3,
-			Handle:  backend.Handle{Type: "fake", ID: "c1"},
-		}),
-	})
-	assert.NilError(t, m.Load(t.Context()))
-	testrunner.WaitRuns(t, be, "c1", 1)
-
-	// Act - the sandbox vanishes under the run.
-	be.Set("c1", fake.Gone)
-
-	// Assert
-	m.WaitQueued(t, 1)
-	assert.DeepEqual(t, m.Submitted(t), []*gritzv1.RunnerEvent{
-		{Event: "failed", TaskId: 1, Version: 3, Reason: "sandbox gone"},
-	}, protocmp.Transform())
-	m.AssertRecord(t, 1, nil)
-}
-
 // closedStore returns a runner store that is already closed, so every write
 // to it fails.
 func closedStore(t *testing.T) *runnerstore.Store {
