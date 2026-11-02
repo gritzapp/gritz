@@ -77,7 +77,7 @@ Tests interfere with it only from outside: its calls to the server through
 
 **Faults are injected at the seams, with moq mocks rather than hand-written
 fakes.** A mock installed on the server or the backend replaces the methods it
-sets, for every caller, until it is restored. Every other method reaches the
+sets, for every caller, until it is removed. Every other method reaches the
 real implementation.
 
 ### Local backend
@@ -296,7 +296,7 @@ func TestStart(t *testing.T) {
    with the server itself (`RegisterWorkspaces`), so `CreateTask` finds it
    through the production path. The runner subscribes to the harness server's
    notifications, so commands reach the runner without waiting for the poll.
-5. **Cleanup**, in reverse order: restore mocks; stop the runner and wait for it;
+5. **Cleanup**, in reverse order: remove the mocks; stop the runner and wait for it;
    `Destroy` every sandbox under the root, which kills the drivers; remove the
    root; close the server; `teststore` drops the org.
 
@@ -330,9 +330,10 @@ There is no `Real` and no handler on `h.Server`: tests reach the server only as
 a client.
 
 ```go
-// Mock routes calls to m's non-nil <Method>Func fields until restore is called;
-// every method left nil goes to the real server.
-func (s *Server) Mock(m *gritzclient.ClientMock) (restore func())
+// Mock installs m, replacing any previous mock: calls go to m's non-nil
+// <Method>Func fields, and every method left nil goes to the real server.
+// Mock(nil) removes it.
+func (s *Server) Mock(m *gritzclient.ClientMock)
 ```
 
 **The mock type.** `gritzclient.Client` is `gritzv1connect.GritzServiceClient`,
@@ -361,19 +362,22 @@ response types (`SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsReque
   and response types, so a mock needs no type assertions.
 - **Replace, not wrap.** A mocked method replaces the real one for every caller
   (the runner, the driver, the injected MCP server and the test itself) until
-  `restore()`. It doesn't call the real method; there is no `next`. To make a
-  call fail once and then behave, the test calls `restore()` once it sees the
-  failure in `m.<Method>Calls()`, and the real method answers again.
+  the mock is replaced or removed. It doesn't call the real method; there is no
+  `next`. To make a call fail once and then behave, the test calls
+  `h.Server.Mock(nil)` once it sees the failure in `m.<Method>Calls()`, and the
+  real method answers again.
   Call-through is a possible later addition (Open Questions), not part of this
   design.
 - **The harness's own calls too.** `Task` methods and the waits use
   `h.Server.Client`, so they see the mock as well. `WaitTask` reads `GetTask`,
-  so a test that mocks `GetTask` restores it before waiting.
+  so a test that mocks `GetTask` removes the mock before waiting.
 - **Free call recording.** The interceptor calls the mock's method, not the bare
   `Func` field, so `m.<Method>Calls()` records every request sent while the mock
   was installed, whoever sent it.
-- **One mock at a time.** Installing a second mock before the first is restored
-  panics. Cleanup restores any mock left installed.
+- **One mock at a time.** `Mock` returns nothing. A second `Mock(m2)` replaces
+  the first, and it is `m2`'s methods that are mocked from then on. A test that
+  wants to change one method copies the fields it keeps. Cleanup removes any
+  mock still installed.
 - **Streaming RPCs.** `GritzService` has none today (`/events` SSE is plain
   HTTP), so there is nothing to mock. With `simple`, a streaming method's client
   and handler signatures differ (`*connect.ServerStreamForClient[Res]` versus a
@@ -382,13 +386,13 @@ response types (`SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsReque
 
 ```go
 // The driver's terminal report fails, and so does the runner's report of the
-// unreported run, until restore.
+// unreported run, until the mock is removed.
 m := &gritzclient.ClientMock{
 	SubmitRunnerEventsFunc: func(context.Context, *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("e2e: rejected"))
 	},
 }
-restore := h.Server.Mock(m)
+h.Server.Mock(m)
 ```
 
 #### `h.Backend`
@@ -404,21 +408,24 @@ mocks also apply to sandboxes the runner restores at `Load`.
 | `Dir(taskID)` | the task's sandbox directory, `Root/<id>` |
 | `WaitSandbox(taskID, state)` | polls the sandbox's `Status()` until it is `backend.StatusUp`, `StatusSuspended` or `StatusGone`. A task that never had a sandbox reports `gone` |
 | `KillDriver(taskID)` | `SIGKILL`s the driver's process group through `local.Backend.Kill`, leaving the directory: a real lost run |
-| `Mock(m)` | replaces the `Backend` methods whose `<Method>Func` is set (`Create`, `Open`, `ValidateWorkspace`) until `restore` |
-| `MockSandbox(taskID, m)` | replaces the methods of the task's sandbox whose `<Method>Func` is set (`Boot`, `Dial`, `Status`, `Suspend`, `Destroy`, `Handle`) until `restore`. It applies to whichever sandbox the task has or gets, created or opened |
+| `Mock(m)` | installs `m`, replacing any previous mock: the `Backend` methods whose `<Method>Func` is set (`Create`, `Open`, `ValidateWorkspace`) go to it. `Mock(nil)` removes it |
+| `MockSandbox(taskID, m)` | replaces the methods of the task's sandbox whose `<Method>Func` is set (`Boot`, `Dial`, `Status`, `Suspend`, `Destroy`, `Handle`), replacing the task's previous sandbox mock; `MockSandbox(taskID, nil)` removes it. It applies to whichever sandbox the task has or gets, created or opened |
 
 ```go
-// Mock replaces m's non-nil methods of the backend until restore is called.
-func (b *Backend) Mock(m *backend.BackendMock) (restore func())
+// Mock installs m, replacing any previous mock: m's non-nil methods replace
+// the backend's. Mock(nil) removes it.
+func (b *Backend) Mock(m *backend.BackendMock)
 
-// MockSandbox replaces m's non-nil methods of the task's sandbox until restore
-// is called.
-func (b *Backend) MockSandbox(taskID int64, m *backend.SandboxMock) (restore func())
+// MockSandbox installs m for the task's sandbox, replacing any previous one:
+// m's non-nil methods replace the sandbox's. MockSandbox(taskID, nil) removes
+// it.
+func (b *Backend) MockSandbox(taskID int64, m *backend.SandboxMock)
 ```
 
 These use the moq mocks `backend` already generates (`backend_moq.go`), with the
 same rules as `h.Server.Mock`: a mocked method replaces the real one, there is no
-call-through, calls are recorded, and cleanup restores. There are only a handful
+call-through, a new mock replaces the previous one, `nil` removes it, calls are
+recorded, and cleanup removes any mock left installed. There are only a handful
 of methods, so the wrapper checks each `Func` field directly rather than by
 reflection. Backend operations are plain calls with no streams, so there is no
 streaming question here.
@@ -428,11 +435,11 @@ streaming question here.
 m := &backend.SandboxMock{BootFunc: func(context.Context) error {
 	return errors.New("e2e: boot failed")
 }}
-restore := h.Backend.MockSandbox(task.ID, m)
+h.Backend.MockSandbox(task.ID, m)
 task.Start()
 task.WaitStatus(gritzv1.TaskStatus_FAILED)
 assert.Assert(t, cmp.Len(m.BootCalls(), 1))
-restore()
+h.Backend.MockSandbox(task.ID, nil)
 ```
 
 #### `h.Runner`
@@ -541,8 +548,8 @@ Further scenarios, several using mocks:
 | `TestRestart_CancelledBeforeStart` | `Script(append runs, Sh("trap '' TERM; while :; do sleep 0.1; done"))`; `Start`; `WaitFile`; `Restart`; `Cancel` | `CANCELLED`; `runs` = `1`. Run 1 ignores `SIGTERM` and outlives the restart until `Sh`'s kill delay, so the cancel lands before run 2 can start. No run reports v2, so the runner reports it `stopped` |
 | `TestRunnerRestart_PendingWake` | as `TestWake_MidRun`, then `h.Runner.Restart()` while run 1 sleeps | `COMPLETED` at v2; `runs` = `1 2`: the pending start survived the dropped stream |
 | `TestDriverDies_MidRun` | `Script(append runs, Block())`; `Start`; `WaitFile`; `h.Backend.KillDriver(task.ID)` | `FAILED`; the sandbox `suspended`. Then `Script(append runs)`, `Start` → `COMPLETED` at v2 with `runs` = `1 2`: the sandbox booted again, the driver reconciled its interrupted run and acted on the new start |
-| `TestUnreportedRun` | `Script(append runs, Sleep(2s))`; `Start`; `WaitFile(runs, 1)`; `h.Server.Mock` with `SubmitRunnerEvents` failing with `CodeInternal` (example above), which the driver's client doesn't retry and the runner's outbox does; wait until `m.SubmitRunnerEventsCalls()` holds the driver's `stopped` and then the runner's `failed`; `restore()` | `FAILED`: the driver went idle with its run unreported, the runner reported it `failed`, and the outbox delivered that report once the real method answered again |
-| `TestSandboxFails` (table: `h.Backend.Mock` with `CreateFunc`, `h.Backend.MockSandbox` with `BootFunc`) | `Concurrency: 1`; the mock returns an error; `Script(append runs)`; `Start`; `WaitStatus(FAILED)`; `restore()` | the failure's reason is the mock's error, and the mock recorded one call. Then a second task runs to `COMPLETED`, so the slot was released, and the first task, started again, `COMPLETED`s |
+| `TestUnreportedRun` | `Script(append runs, Sleep(2s))`; `Start`; `WaitFile(runs, 1)`; `h.Server.Mock` with `SubmitRunnerEvents` failing with `CodeInternal` (example above), which the driver's client doesn't retry and the runner's outbox does; wait until `m.SubmitRunnerEventsCalls()` holds the driver's `stopped` and then the runner's `failed`; `h.Server.Mock(nil)` | `FAILED`: the driver went idle with its run unreported, the runner reported it `failed`, and the outbox delivered that report once the real method answered again |
+| `TestSandboxFails` (table: `h.Backend.Mock` with `CreateFunc`, `h.Backend.MockSandbox` with `BootFunc`) | `Concurrency: 1`; the mock returns an error; `Script(append runs)`; `Start`; `WaitStatus(FAILED)`; remove the mock with `nil` | the failure's reason is the mock's error, and the mock recorded one call. Then a second task runs to `COMPLETED`, so the slot was released, and the first task, started again, `COMPLETED`s |
 | `TestDriverUnreachable` | `h.Backend.MockSandbox` with a `DialFunc` returning an error; `Start` | `FAILED` once `ReadyTimeout` passes; the sandbox `suspended` |
 | `TestAgentError` | `Script(Error("boom"))`; `Start` | `FAILED`; `SANDBOX_FAILED` carries `boom` |
 | `TestTools` | `Script(Tool("report", {message}), Tool("create_link", {url, subscribe: true}), Tool("update_my_task", {name}))` | a report event with the message, the subscribed link, and the new name. Covers the injected MCP server, the task token and the `BinaryPather` path |
@@ -905,9 +912,10 @@ func (s *Server) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task
 // WaitEvent waits until one of task id's events matches, and returns it.
 func (s *Server) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Event
 
-// Mock routes calls to m's non-nil <Method>Func fields until restore is called;
-// every method left nil goes to the real server.
-func (s *Server) Mock(m *gritzclient.ClientMock) (restore func())
+// Mock installs m, replacing any previous mock: calls go to m's non-nil
+// <Method>Func fields, and every method left nil goes to the real server.
+// Mock(nil) removes it.
+func (s *Server) Mock(m *gritzclient.ClientMock)
 
 // Backend is the harness's local backend, and the backend.Backend the runner
 // is given.
@@ -925,12 +933,14 @@ func (b *Backend) WaitSandbox(taskID int64, want backend.Status)
 // KillDriver kills the task's driver with SIGKILL, leaving its sandbox.
 func (b *Backend) KillDriver(taskID int64)
 
-// Mock replaces m's non-nil methods of the backend until restore is called.
-func (b *Backend) Mock(m *backend.BackendMock) (restore func())
+// Mock installs m, replacing any previous mock: m's non-nil methods replace
+// the backend's. Mock(nil) removes it.
+func (b *Backend) Mock(m *backend.BackendMock)
 
-// MockSandbox replaces m's non-nil methods of the task's sandbox until restore
-// is called.
-func (b *Backend) MockSandbox(taskID int64, m *backend.SandboxMock) (restore func())
+// MockSandbox installs m for the task's sandbox, replacing any previous one:
+// m's non-nil methods replace the sandbox's. MockSandbox(taskID, nil) removes
+// it.
+func (b *Backend) MockSandbox(taskID int64, m *backend.SandboxMock)
 
 // Runner is the harness's runner.
 type Runner struct{ ... }
@@ -1062,8 +1072,8 @@ Slices that must wait are marked.
    `Backend.MockSandbox`, `KillDriver`, and `TestUnreportedRun`,
    `TestSandboxFails`, `TestDriverUnreachable`, `TestDriverDies_MidRun`.
    Depends on: (7). Verifiable by: the scenarios pass; a test that a mocked
-   method records its calls and that a restored one reaches the real
-   implementation again.
+   method records its calls, that a second mock replaces the first, and that
+   after `Mock(nil)` the real implementation answers again.
 9. **The other scenarios.** Delivers: every scenario above except
    `TestSuspendAfter*`, in PRs of two or three. All of them describe behaviour
    the runner already has after slice 8: archive through `Prune`, reattach
@@ -1119,7 +1129,7 @@ Slices that must wait are marked.
 - **Untyped hooks with call-through** (a `next` handler, `connect.AnyRequest`).
   Hooks would need a type assertion each and a second, untyped API next to the
   mocks the repo already generates. Mocks are typed with no generics. Their only
-  loss is call-through, which "restore once the failure is seen" covers for
+  loss is call-through, which "remove the mock once the failure is seen" covers for
   every scenario but a stream cut mid-flight.
 - **Exposing the real instances** (`Real` on each handle). Tests that hold the
   apiserver or the backend directly bypass the mocks, and drift towards
