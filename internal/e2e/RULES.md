@@ -3,6 +3,16 @@
 Rules for `internal/e2e` and the tests built on it. The design is in
 `proposals/draft/e2e-harness.md`.
 
+## Where tests live
+
+- `internal/e2e` holds the harness only, plus its own tests (`server_test.go`).
+- API tests built on the harness live in `internal/e2e/api` (`package
+  api_test`), one file per area: `task_test.go`, `taskscope_test.go`,
+  `event_test.go`, ...
+- Runner scenarios live in `internal/e2e/scenario` (`package scenario_test`),
+  one file per area: `start_test.go`, `faults_test.go`, ... A new group of
+  scenarios gets its own file.
+
 ## What's real
 
 - Use real code everywhere: the API server and its auth, the store (`teststore`

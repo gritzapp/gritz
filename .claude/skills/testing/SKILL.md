@@ -84,7 +84,7 @@ API tests go through the e2e harness in `internal/e2e`:
 
 Follow `internal/e2e/RULES.md` for how to use and extend the harness.
 
-API tests on the harness live next to the code they test, as an external test package: `package apiserver_test` in `internal/server/apiserver` (see `taskscope_test.go`).
+API tests on the harness live in `internal/e2e/api` (`package api_test`), one file per area (see `taskscope_test.go`). Runner scenarios live in `internal/e2e/scenario` (`package scenario_test`), also one file per area. `internal/e2e` itself holds only the harness and its own tests.
 
 ## Interface Test Doubles
 
