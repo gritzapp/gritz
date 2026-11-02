@@ -4,7 +4,9 @@ package teststore
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,22 +16,33 @@ import (
 	"gotest.tools/v3/poll"
 )
 
-// New creates a *store.Store connected to the test database.
-// It skips the test if TEST_DATABASE_URL is not set and registers
-// a cleanup function to close the database connection.
+// maxOpenConns caps the shared pool. Each package's tests share one pool, and
+// go test runs several packages at once against one Postgres, whose default
+// max_connections is 100.
+const maxOpenConns = 10
+
+// openDB opens the test database once per test binary. The pool is never
+// closed: it goes away with the process.
+var openDB = sync.OnceValues(func() (*sql.DB, error) {
+	db, err := store.Open(os.Getenv("TEST_DATABASE_URL"), false)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(maxOpenConns)
+	return db, nil
+})
+
+// New returns a *store.Store on the test database, sharing the package's
+// pool. It skips the test if TEST_DATABASE_URL is not set.
 func New(t *testing.T) *store.Store {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
+	if os.Getenv("TEST_DATABASE_URL") == "" {
 		t.Skip("TEST_DATABASE_URL not set")
 	}
-	db, err := store.Open(dsn, false)
+	db, err := openDB()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		db.Close()
-	})
 	return store.New(db)
 }
 
