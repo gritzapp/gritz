@@ -46,17 +46,25 @@ func (s *Server) Client(token string) gritzclient.Client {
 // workspace in it.
 func (s *Server) CreateOrg() *Org {
 	s.t.Helper()
+	return s.createOrg(true)
+}
+
+// createOrg creates an org with its own user, registering the harness's
+// workspace in it if register is set.
+func (s *Server) createOrg(register bool) *Org {
+	s.t.Helper()
 	org := teststore.CreateOrg(s.t, s.Store, nil)
 	user, err := s.Store.GetUser(s.t.Context(), nil, org.UserID)
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	return s.newOrg(org.OrgID, user.ID, user.Email)
+	return s.newOrg(org.OrgID, user.ID, user.Email, register)
 }
 
-// newOrg returns the handle of org id, owned by the user ownerID, and
-// registers the harness's workspace in it.
-func (s *Server) newOrg(id int64, ownerID, ownerEmail string) *Org {
+// newOrg returns the handle of org id, owned by the user ownerID, with a
+// runner key, and registers the harness's workspace in it if register is set.
+// The harness's runner registers it in the org it serves.
+func (s *Server) newOrg(id int64, ownerID, ownerEmail string, register bool) *Org {
 	s.t.Helper()
 	owner := &Member{
 		UserID: ownerID,
@@ -69,14 +77,16 @@ func (s *Server) newOrg(id int64, ownerID, ownerEmail string) *Org {
 		Client: owner.Client,
 		server: s,
 	}
-	// The runner registers its workspaces on startup; until the harness has a
-	// runner, it registers the one CreateTask uses with a runner key.
-	_, runnerKey := s.createKey(o.ID, "e2e-runner", authscope.Admin())
-	o.runner = s.Client(runnerKey)
-	o.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
-		RunnerId:   DefaultRunner,
-		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: DefaultWorkspace}},
-	})
+	_, o.runnerKey = s.createKey(o.ID, "e2e-runner", authscope.Admin())
+	o.runner = s.Client(o.runnerKey)
+	if register {
+		// Registered as the runner does on startup, so CreateTask finds the
+		// workspace in an org no runner serves.
+		o.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+			RunnerId:   DefaultRunner,
+			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: DefaultWorkspace}},
+		})
+	}
 	return o
 }
 

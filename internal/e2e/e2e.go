@@ -4,7 +4,10 @@ package e2e
 
 import (
 	"cmp"
+	"io"
+	"log/slog"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +28,10 @@ const (
 type Options struct {
 	// Timeout bounds every wait; default 30s.
 	Timeout time.Duration
+	// Runner stands up h.Backend, h.Runner and h.Agent for the default org;
+	// without it they are nil and the test may act as the runner with
+	// Org.SubmitRunnerEvents.
+	Runner *RunnerOptions
 }
 
 // Harness is gritz for one test.
@@ -33,6 +40,12 @@ type Harness struct {
 	Server *Server
 	// Org is the default org, for tests that need only one.
 	Org *Org
+	// Backend is the local backend; nil unless Options.Runner.
+	Backend *Backend
+	// Runner is the runner serving Org; nil unless Options.Runner.
+	Runner *Runner
+	// Agent is the puppet agent's runs; nil unless Options.Runner.
+	Agent *Agent
 }
 
 // New stands up a harness and registers its teardown with t.Cleanup.
@@ -80,8 +93,49 @@ func New(t *testing.T, opts *Options) *Harness {
 	})
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	// Registered after ts.Close, so it runs first.
-	t.Cleanup(func() { s.Mock(nil) })
 	s.URL = ts.URL
-	return &Harness{Server: s, Org: s.CreateOrg()}
+	h := &Harness{Server: s, Org: s.createOrg(opts.Runner == nil)}
+	// Cleanups run in reverse: remove the mock; fail the runs left open; stop
+	// the runner; destroy the sandboxes, killing their drivers, and remove the
+	// root; close the agent's endpoint and the server.
+	if opts.Runner != nil {
+		log := newLog(t)
+		h.Agent = newAgent(t, h.Org)
+		h.Backend = newBackend(t, s.timeout, log)
+		h.Runner = newRunner(t, h.Org, h.Backend, h.Agent, opts.Runner, log)
+		t.Cleanup(h.Agent.server.Close)
+	}
+	t.Cleanup(func() { s.Mock(nil) })
+	return h
+}
+
+// newLog returns a logger writing to t's output. A local backend's driver
+// reapers may still log after the sandboxes are destroyed, so it drops what is
+// written once the cleanup registered here has run, after the runner's and the
+// backend's.
+func newLog(t *testing.T) *slog.Logger {
+	w := &testWriter{w: t.Output()}
+	t.Cleanup(w.close)
+	return slog.New(slog.NewTextHandler(w, nil))
+}
+
+type testWriter struct {
+	mu     sync.Mutex
+	w      io.Writer
+	closed bool
+}
+
+func (w *testWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return len(p), nil
+	}
+	return w.w.Write(p)
+}
+
+func (w *testWriter) close() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closed = true
 }

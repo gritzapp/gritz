@@ -23,8 +23,9 @@ type Org struct {
 	Client gritzclient.Client
 
 	server *Server
-	// runner calls the server with the org's runner key.
-	runner gritzclient.Client
+	// runnerKey is the org's runner key, and runner calls the server with it.
+	runnerKey string
+	runner    gritzclient.Client
 }
 
 // Member is a user acting in an org.
@@ -37,15 +38,6 @@ type Member struct {
 	// Resp is the AddOrgMember response that added the user; nil for an org's
 	// owner.
 	Resp *gritzv1.AddOrgMemberResponse
-}
-
-// Task is a task in the harness.
-type Task struct {
-	ID int64
-	// Resp is the CreateTask response the task was made from.
-	Resp *gritzv1.CreateTaskResponse
-
-	org *Org
 }
 
 // CreateTask creates a task, as the new-task page does. It fills the harness
@@ -137,7 +129,7 @@ func (o *Org) CreateOrg(req *gritzv1.CreateOrgRequest) *Org {
 	if err != nil {
 		t.Fatalf("CreateOrg: %v", err)
 	}
-	return o.server.newOrg(resp.Org.Id, o.Owner.UserID, o.Owner.Email)
+	return o.server.newOrg(resp.Org.Id, o.Owner.UserID, o.Owner.Email, true)
 }
 
 // ListOrgs returns the orgs o's owner belongs to.
@@ -448,8 +440,7 @@ func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task {
 		if err != nil {
 			return poll.Error(err)
 		}
-		return poll.Continue("task %d: status %s, version %d, command %s; last events:%s",
-			id, task.Status, task.Version, task.Command, formatEvents(events[max(len(events)-5, 0):]))
+		return poll.Continue("%s; last events:%s", formatTask(task), formatEvents(events[max(len(events)-5, 0):]))
 	}, o.pollOps()...)
 	return task
 }
