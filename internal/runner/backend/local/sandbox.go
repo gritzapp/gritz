@@ -52,9 +52,9 @@ func (s *sandbox) driver() (int, bool) {
 }
 
 // Boot starts the sandbox's driver. Booting a sandbox whose driver is up is a
-// no-op. It returns once the process has started: driver readiness is the
-// runner's job.
-func (s *sandbox) Boot(context.Context) error {
+// no-op. It returns once the process has started and reads as up: driver
+// readiness, its socket answering, is the runner's job.
+func (s *sandbox) Boot(ctx context.Context) error {
 	unlock := s.lock()
 	defer unlock()
 	ok, err := exists(s.dir)
@@ -67,7 +67,7 @@ func (s *sandbox) Boot(context.Context) error {
 	if _, up := s.driver(); up {
 		return nil
 	}
-	return s.b.startDriver(s.dir)
+	return s.b.startDriver(ctx, s.dir)
 }
 
 // Dial returns a client for the sandbox's driver over its unix socket. It

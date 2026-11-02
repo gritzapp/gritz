@@ -82,10 +82,10 @@ var _ backend.Backend = (*Backend)(nil)
 // drivers' socket paths. It creates Root if it is missing.
 func New(opts Options) (*Backend, error) {
 	if opts.Root == "" {
-		return nil, errors.New("local backend: no root")
+		panic("local: New called without Options.Root")
 	}
 	if opts.Binary == "" {
-		return nil, errors.New("local backend: no binary")
+		panic("local: New called without Options.Binary")
 	}
 	root, err := filepath.Abs(opts.Root)
 	if err != nil {
@@ -233,9 +233,9 @@ func signalGroup(pid int, sig syscall.Signal) error {
 }
 
 // startDriver starts the driver for the sandbox directory dir and writes its
-// pid file. A goroutine reaps it when it exits and removes the pid file, if it
-// still names it.
-func (b *Backend) startDriver(dir string) error {
+// pid file, and returns once the driver reads as up. A goroutine reaps it when
+// it exits and removes the pid file, if it still names it.
+func (b *Backend) startDriver(ctx context.Context, dir string) error {
 	out, err := os.OpenFile(filepath.Join(dir, outPath), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open driver output: %w", err)
@@ -260,12 +260,27 @@ func (b *Backend) startDriver(dir string) error {
 		return fmt.Errorf("failed to write driver pid file: %w", err)
 	}
 	b.log.Info("started driver", "dir", dir, "pid", pid)
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		err := cmd.Wait()
 		b.log.Info("driver exited", "dir", dir, "pid", pid, "err", err)
 		if data, err := os.ReadFile(pidFile); err == nil && string(data) == strconv.Itoa(pid) {
 			_ = os.Remove(pidFile)
 		}
 	}()
+	// Start returns once the exec has closed the parent's pipe, which is
+	// before the kernel sets the new command line that alive reads.
+	t := time.NewTicker(time.Millisecond)
+	defer t.Stop()
+	for !alive(pid, dir) {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("driver %d did not start: %w", pid, context.Cause(ctx))
+		case <-exited:
+			return fmt.Errorf("driver %d exited on start; see %s", pid, filepath.Join(dir, outPath))
+		case <-t.C:
+		}
+	}
 	return nil
 }
