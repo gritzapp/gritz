@@ -1,9 +1,6 @@
 services:
   postgres:
     image: postgres:18-alpine
-    # Every test opens its own pool, and go test runs packages and their
-    # parallel tests at once: on a many-core machine the default 100 runs out.
-    command: ["postgres", "-c", "max_connections=1000"]
     environment:
       POSTGRES_USER: gritz
       POSTGRES_PASSWORD: gritz
