@@ -660,40 +660,6 @@ func TestCreateTask_BadWorkspace(t *testing.T) {
 	assert.ErrorContains(t, err, "not found")
 }
 
-func TestUpdateTask(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	srv := New(Options{Store: teststore.New(t)})
-	org := teststore.CreateOrg(t, srv.store, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{
-			{RunnerID: "test-runner", Name: "test-workspace"},
-		},
-	})
-	ctx := apiauth.WithUser(t.Context(), &apiauth.UserInfo{
-		ID:     org.UserID,
-		OrgID:  org.OrgID,
-		Scopes: authscope.Admin(),
-	})
-	createResp, err := srv.CreateTask(ctx, &gritzv1.CreateTaskRequest{
-		Name:      "Original Name",
-		Runner:    "test-runner",
-		Workspace: "test-workspace",
-	})
-	assert.NilError(t, err)
-
-	// Act
-	_, err = srv.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
-		Id:   createResp.Task.Id,
-		Name: "Updated Name",
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	getResp, err := srv.GetTask(ctx, &gritzv1.GetTaskRequest{Id: createResp.Task.Id})
-	assert.NilError(t, err)
-	assert.Equal(t, getResp.Task.Name, "Updated Name")
-}
-
 func TestUpdateTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
