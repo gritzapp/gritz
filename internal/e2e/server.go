@@ -52,7 +52,8 @@ func (s *Server) CreateOrg() *Org {
 	o.Client = s.Client(s.userToken(o.UserID, o.ID))
 	// The runner registers its workspaces on startup; until the harness has a
 	// runner, it registers the one CreateTask uses with a runner key.
-	_, err := s.Client(s.createKey(o.ID, "e2e-runner", authscope.Admin())).
+	_, runnerKey := s.createKey(o.ID, "e2e-runner", authscope.Admin())
+	_, err := s.Client(runnerKey).
 		RegisterWorkspaces(s.t.Context(), &gritzv1.RegisterWorkspacesRequest{
 			RunnerId:   runnerID,
 			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: workspace}},
@@ -82,15 +83,16 @@ func (s *Server) userToken(userID string, orgID int64) string {
 }
 
 // createKey creates an xat_ key in orgID, as the --no-auth bootstrap does, and
-// returns its raw token.
-func (s *Server) createKey(orgID int64, name string, scopes authscope.Scopes) string {
+// returns its id and raw token.
+func (s *Server) createKey(orgID int64, name string, scopes authscope.Scopes) (string, string) {
 	s.t.Helper()
 	token, err := apiauth.GenerateKey()
 	if err != nil {
 		s.t.Fatal(err)
 	}
+	id := uuid.NewString()
 	if err := s.store.CreateKey(s.t.Context(), nil, &model.Key{
-		ID:        uuid.NewString(),
+		ID:        id,
 		Name:      name,
 		TokenHash: apiauth.HashKey(token),
 		OrgID:     orgID,
@@ -98,7 +100,7 @@ func (s *Server) createKey(orgID int64, name string, scopes authscope.Scopes) st
 	}); err != nil {
 		s.t.Fatal(err)
 	}
-	return token
+	return id, token
 }
 
 // route wraps the server's RPC implementation: each call goes to the installed

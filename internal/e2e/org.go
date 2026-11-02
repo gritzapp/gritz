@@ -47,11 +47,51 @@ func (o *Org) CreateTask() *Task {
 	return &Task{ID: resp.Task.Id, org: o}
 }
 
-// CreateKey creates a key in the org holding scopes, and returns a client
-// that calls with it.
-func (o *Org) CreateKey(scopes authscope.Scopes) gritzclient.Client {
+// Key is an xat_ key in an org.
+type Key struct {
+	ID string
+	// Client calls the server with the key.
+	Client gritzclient.Client
+}
+
+// CreateKey creates a key in the org holding scopes.
+func (o *Org) CreateKey(scopes authscope.Scopes) *Key {
 	o.server.t.Helper()
-	return o.server.Client(o.server.createKey(o.ID, "e2e", scopes))
+	id, token := o.server.createKey(o.ID, "e2e", scopes)
+	return &Key{ID: id, Client: o.server.Client(token)}
+}
+
+// CreateTaskToken mints a task token for task id, as the runner does.
+func (o *Org) CreateTaskToken(id int64) string {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.CreateTaskToken(t.Context(), &gritzv1.CreateTaskTokenRequest{TaskId: id})
+	if err != nil {
+		t.Fatalf("CreateTaskToken %d: %v", id, err)
+	}
+	return resp.Token
+}
+
+// GetTask returns task id.
+func (o *Org) GetTask(id int64) *gritzv1.Task {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: id})
+	if err != nil {
+		t.Fatalf("GetTask %d: %v", id, err)
+	}
+	return resp.Task
+}
+
+// ListKeys returns the org's keys.
+func (o *Org) ListKeys() []*gritzv1.Key {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.ListKeys(t.Context(), &gritzv1.ListKeysRequest{})
+	if err != nil {
+		t.Fatalf("ListKeys: %v", err)
+	}
+	return resp.Keys
 }
 
 // AddMember adds other's user to the org, and returns a client acting as that
