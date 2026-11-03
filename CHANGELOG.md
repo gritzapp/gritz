@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.1](https://github.com/gritzapp/gritz/compare/v4.0.0...v4.0.1) (2026-11-03)
+
+
+### Miscellaneous
+
+* update Go to 1.27.3 ([5127287](https://github.com/gritzapp/gritz/commit/5127287e1b27cc132f0e0fdfaf4c136ab793e8e9))
+
 ## [4.0.0](https://github.com/gritzapp/gritz/compare/v3.14.0...v4.0.0) (2026-11-02)
 
 
