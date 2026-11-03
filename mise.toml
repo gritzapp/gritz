@@ -3,11 +3,11 @@ pin=true
 
 [tools]
 node = "25.9.0"
-go = "1.26.5"
+go = "1.27.3"
 "npm:pnpm" = "11.11.0"
 dbmate = "2.33.0"
 "aqua:siderolabs/conform" = "0.1.0-alpha.31"
-"aqua:golangci/golangci-lint" = "2.12.2"
+"aqua:golangci/golangci-lint" = "2.15.0"
 
 [tasks.build]
 description = "Build gritz binaries for all architectures"

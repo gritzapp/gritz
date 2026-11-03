@@ -36,9 +36,12 @@ func startProxy(t *testing.T, upstreamURL string) string {
 	err := up.Swap(t.Context(), &mcp.StreamableClientTransport{Endpoint: upstreamURL})
 	assert.NilError(t, err)
 	srv := mcp.NewServer(&mcp.Implementation{Name: "mcproxy", Version: "0"}, &mcp.ServerOptions{
-		HasTools:     true,
-		HasPrompts:   true,
-		HasResources: true,
+		Capabilities: &mcp.ServerCapabilities{
+			Logging:   &mcp.LoggingCapabilities{},
+			Tools:     &mcp.ToolCapabilities{ListChanged: true},
+			Prompts:   &mcp.PromptCapabilities{ListChanged: true},
+			Resources: &mcp.ResourceCapabilities{ListChanged: true},
+		},
 	})
 	srv.AddReceivingMiddleware(up.Dispatch)
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)

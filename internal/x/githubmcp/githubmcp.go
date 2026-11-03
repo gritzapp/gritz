@@ -90,9 +90,12 @@ func (s *Server) Run(ctx context.Context) error {
 		Name:    "gritz-github-mcp",
 		Version: "1.0.0",
 	}, &mcp.ServerOptions{
-		HasTools:     true,
-		HasPrompts:   true,
-		HasResources: true,
+		Capabilities: &mcp.ServerCapabilities{
+			Logging:   &mcp.LoggingCapabilities{},
+			Tools:     &mcp.ToolCapabilities{ListChanged: true},
+			Prompts:   &mcp.PromptCapabilities{ListChanged: true},
+			Resources: &mcp.ResourceCapabilities{ListChanged: true},
+		},
 	})
 	srv.AddReceivingMiddleware(s.upstream.Dispatch)
 	return srv.Run(ctx, &mcp.StdioTransport{})

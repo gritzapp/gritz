@@ -55,7 +55,8 @@ func TestRead_Break(t *testing.T) {
 
 	// Act
 	var got []string
-	for line := range Read(r) {
+	for line, err := range Read(r) {
+		assert.NilError(t, err)
 		got = append(got, string(line))
 		break
 	}

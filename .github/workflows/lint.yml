@@ -27,7 +27,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          go-version: '1.27'
           # Key the cache on this file too, so the test and lint jobs don't share
           # (and race to save) one setup-go cache.
           cache-dependency-path: |
@@ -40,4 +40,4 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.12.2
+          version: v2.15.0
