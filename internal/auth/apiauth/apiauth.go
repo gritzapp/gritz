@@ -89,8 +89,6 @@ type KeyValidator interface {
 	ValidateKey(ctx context.Context, keyHash string) (*UserInfo, error)
 }
 
-//go:generate go tool moq -out user_resolver_moq_test.go . UserResolver
-
 // UserResolver provisions users on login and resolves orgs for token issuance.
 type UserResolver interface {
 	// Provision creates the user and their default org on first login.
@@ -113,6 +111,10 @@ type Config struct {
 	PostLogoutURI string
 	EncryptionKey []byte
 	Scopes        []string
+	// SkipNonceVerify skips checking the ID token's nonce on login. gritz sends
+	// no nonce, so the check requires the token to carry none, which fails
+	// with providers that set one anyway (Cognito federating to another IdP).
+	SkipNonceVerify bool
 	// KeyValidator validates xat_ API keys.
 	KeyValidator KeyValidator
 	// UserResolver provisions users on login and resolves orgs for token issuance.
@@ -174,6 +176,14 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 			oidc.ScopeOfflineAccess,
 		}
 	}
+	rpOpts := []rp.Option{
+		// used to store the encrypted token & refresh token & state in cookies
+		rp.WithCookieHandler(httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey)),
+	}
+	if cfg.SkipNonceVerify {
+		// a nil nonce func makes the ID token verifier skip the check
+		rpOpts = append(rpOpts, rp.WithVerifierOpts(rp.WithNonce(nil)))
+	}
 	authN, err := authentication.New(ctx,
 		// my zitadel instance domain
 		zitadel.New(cfg.Domain),
@@ -191,14 +201,7 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 					cfg.RedirectURI,
 					// what jwt claims we want
 					cfg.Scopes,
-					// used to store the encrypted token & refresh token & state in cookies
-					rp.WithCookieHandler(httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey)),
-					// We send no nonce, and the code flow doesn't need one: the
-					// state cookie binds the callback to the browser and the code
-					// is redeemed with the client secret. Skip the check, since
-					// the default expects the ID token to carry no nonce, and
-					// Cognito federating to another IdP sets one we never sent.
-					rp.WithVerifierOpts(rp.WithNonce(nil)),
+					rpOpts...,
 				)
 			},
 			// renew expired sessions with the refresh token
