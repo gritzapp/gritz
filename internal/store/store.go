@@ -31,6 +31,11 @@ func (s *Store) q(tx *sql.Tx) *sqlc.Queries {
 	return sqlc.New(s.db)
 }
 
+// Ping checks that the database is reachable.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
 // WithTx runs f within a transaction.
 func (s *Store) WithTx(ctx context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) error {
 	if tx != nil {

@@ -37,7 +37,7 @@ services:
       # Under --no-auth the server injects the fixed dev API key before the HTTP
       # listener starts, so once it answers, the key the runner uses already
       # exists. The runner waits on this healthcheck, so it never races the key.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:6464/ui/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:6464/healthz"]
       interval: 3s
       timeout: 5s
       retries: 20
