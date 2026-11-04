@@ -1,5 +1,19 @@
 # Changelog
 
+## [4.2.1](https://github.com/gritzapp/gritz/compare/v4.2.0...v4.2.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **auth:** make skipping the nonce check opt-in ([e37dde5](https://github.com/gritzapp/gritz/commit/e37dde59dfd96c4aeda1d6dce09b13240ca264dc))
+* **auth:** skip the ID token nonce check on login ([162d3cd](https://github.com/gritzapp/gritz/commit/162d3cdebfb66781e087ee22f77a001ee4935868)), closes [#1969](https://github.com/gritzapp/gritz/issues/1969)
+* **server:** keep database credentials out of the logs ([00520f3](https://github.com/gritzapp/gritz/commit/00520f3e089d1c25e2ca84a66175add86d3825f1)), closes [#1968](https://github.com/gritzapp/gritz/issues/1968)
+
+
+### Miscellaneous
+
+* **store:** drop the invalid database URL test ([51a2c3b](https://github.com/gritzapp/gritz/commit/51a2c3b0fcd7917757c74256363917b209ea5999))
+
 ## [4.2.0](https://github.com/gritzapp/gritz/compare/v4.1.0...v4.2.0) (2026-11-04)
 
 
