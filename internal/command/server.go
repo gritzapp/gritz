@@ -60,10 +60,6 @@ var ServerCommand = &cli.Command{
 			Usage:   "ZITADEL client secret",
 			Sources: cli.EnvVars("GRITZ_AUTH_CLIENT_SECRET"),
 		},
-		// Amazon Cognito: GRITZ_AUTH_DOMAIN=cognito-idp.<region>.amazonaws.com/<pool-id>
-		// and GRITZ_AUTH_OIDC_SCOPES=openid,email,profile (Cognito rejects
-		// offline_access and issues refresh tokens without it). Logout does not
-		// end the Cognito session: Cognito publishes no end_session_endpoint.
 		&cli.StringSliceFlag{
 			Name:    "auth-oidc-scopes",
 			Usage:   "Comma-separated OIDC scopes requested at login, replacing the default openid,profile,email,offline_access (e.g. openid,email,profile for Amazon Cognito)",
