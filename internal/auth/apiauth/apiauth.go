@@ -209,8 +209,6 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		),
 		// tell zitadel where to redirect to after logout
 		authentication.WithPostLogoutRedirectURI[*openid.DefaultContext](cfg.PostLogoutURI),
-		// store session in cookie instead of in-memory (survives server restarts)
-		authentication.WithCookieSession[*openid.DefaultContext](),
 		// provision user and default org on first login
 		authentication.WithOnAuthenticated(func(ctx context.Context, authCtx *openid.DefaultContext) error {
 			_, err := cfg.UserResolver.Provision(ctx, &UserInfo{
