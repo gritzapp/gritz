@@ -46,8 +46,9 @@ const DriverPort = 8080
 const allIngressConnector = "arn:aws:lambda:%s:aws:network-connector:aws-network-connector:ALL_INGRESS"
 
 // defaultMaxDuration is used when a workspace does not set
-// max_duration_seconds. Lambda caps the value at 28800 (8h).
-const defaultMaxDuration int32 = 14400
+// max_duration_seconds: Lambda's cap of 28800 (8h), so a sandbox gets the
+// full lifetime unless the workspace asks for less.
+const defaultMaxDuration int32 = 28800
 
 const (
 	// tokenLifetime is the lifetime of a minted proxy token, and
