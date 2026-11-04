@@ -60,6 +60,21 @@ var ServerCommand = &cli.Command{
 			Usage:   "ZITADEL client secret",
 			Sources: cli.EnvVars("GRITZ_AUTH_CLIENT_SECRET"),
 		},
+		// Amazon Cognito: GRITZ_AUTH_DOMAIN=cognito-idp.<region>.amazonaws.com/<pool-id>,
+		// GRITZ_AUTH_OIDC_SCOPES=openid,email,profile (Cognito rejects
+		// offline_access and issues refresh tokens without it), and
+		// GRITZ_AUTH_OIDC_END_SESSION_ENDPOINT=https://<domain>.auth.<region>.amazoncognito.com/logout?client_id=<client-id>&logout_uri=<base-url>
+		// (Cognito's discovery document has no end_session_endpoint).
+		&cli.StringSliceFlag{
+			Name:    "auth-oidc-scopes",
+			Usage:   "Comma-separated OIDC scopes requested at login, replacing the default openid,profile,email,offline_access (e.g. openid,email,profile for Amazon Cognito)",
+			Sources: cli.EnvVars("GRITZ_AUTH_OIDC_SCOPES"),
+		},
+		&cli.StringFlag{
+			Name:    "auth-oidc-end-session-endpoint",
+			Usage:   "URL logout redirects to verbatim, instead of the provider's discovered end_session_endpoint (e.g. https://<domain>.auth.<region>.amazoncognito.com/logout?client_id=<client-id>&logout_uri=<base-url> for Amazon Cognito)",
+			Sources: cli.EnvVars("GRITZ_AUTH_OIDC_END_SESSION_ENDPOINT"),
+		},
 		&cli.StringFlag{
 			Name:    "base-url",
 			Usage:   "Base URL for the server (e.g. https://gritz.example.com)",
@@ -224,16 +239,18 @@ var ServerCommand = &cli.Command{
 			}
 		}
 		auth, err := apiauth.New(ctx, apiauth.Config{
-			Domain:        domain,
-			ClientID:      cmd.String("auth-client-id"),
-			ClientSecret:  cmd.String("auth-client-secret"),
-			RedirectURI:   baseURL + "/auth/callback",
-			PostLogoutURI: baseURL,
-			EncryptionKey: key,
-			KeyValidator:  server.NewStoreKeyValidator(st),
-			UserResolver:  resolver,
-			AppKey:        appKey,
-			DevUser:       devUser,
+			Domain:             domain,
+			ClientID:           cmd.String("auth-client-id"),
+			ClientSecret:       cmd.String("auth-client-secret"),
+			RedirectURI:        baseURL + "/auth/callback",
+			PostLogoutURI:      baseURL,
+			EncryptionKey:      key,
+			Scopes:             cmd.StringSlice("auth-oidc-scopes"),
+			EndSessionEndpoint: cmd.String("auth-oidc-end-session-endpoint"),
+			KeyValidator:       server.NewStoreKeyValidator(st),
+			UserResolver:       resolver,
+			AppKey:             appKey,
+			DevUser:            devUser,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to initialize auth: %w", err)
