@@ -61,9 +61,9 @@ var ServerCommand = &cli.Command{
 			Sources: cli.EnvVars("GRITZ_AUTH_CLIENT_SECRET"),
 		},
 		&cli.StringSliceFlag{
-			Name:    "auth-oidc-scopes",
+			Name:    "auth-scopes",
 			Usage:   "Comma-separated OIDC scopes requested at login, replacing the default openid,profile,email,offline_access (e.g. openid,email,profile for Amazon Cognito)",
-			Sources: cli.EnvVars("GRITZ_AUTH_OIDC_SCOPES"),
+			Sources: cli.EnvVars("GRITZ_AUTH_SCOPES"),
 		},
 		&cli.StringFlag{
 			Name:    "base-url",
@@ -235,7 +235,7 @@ var ServerCommand = &cli.Command{
 			RedirectURI:   baseURL + "/auth/callback",
 			PostLogoutURI: baseURL,
 			EncryptionKey: key,
-			Scopes:        cmd.StringSlice("auth-oidc-scopes"),
+			Scopes:        cmd.StringSlice("auth-scopes"),
 			KeyValidator:  server.NewStoreKeyValidator(st),
 			UserResolver:  resolver,
 			AppKey:        appKey,
