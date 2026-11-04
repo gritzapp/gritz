@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.2](https://github.com/gritzapp/gritz/compare/v4.2.1...v4.2.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* **auth:** keep login sessions in memory instead of the session cookie ([c4dd46b](https://github.com/gritzapp/gritz/commit/c4dd46b678ca3f4bd734a55a7f9fb56acfa515cb)), closes [#1973](https://github.com/gritzapp/gritz/issues/1973)
+
 ## [4.2.1](https://github.com/gritzapp/gritz/compare/v4.2.0...v4.2.1) (2026-11-04)
 
 
