@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"net/url"
 
 	"github.com/amacneil/dbmate/v2/pkg/dbmate"
@@ -10,7 +11,9 @@ import (
 func Migrate(databaseURL string) error {
 	u, err := url.Parse(databaseURL)
 	if err != nil {
-		return err
+		// The parse error quotes the URL (or a fragment of it), which may
+		// include the password.
+		return errors.New("invalid database URL")
 	}
 	db := dbmate.New(u)
 	db.FS = migrations
