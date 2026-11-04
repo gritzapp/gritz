@@ -26,6 +26,6 @@ func HealthHandler(log *slog.Logger, st *store.Store) http.Handler {
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		w.Write([]byte("ok\n"))
+		_, _ = w.Write([]byte("ok\n"))
 	})
 }
