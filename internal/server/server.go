@@ -37,6 +37,7 @@ type Server struct {
 	cors      bool
 	notify    *notifyserver.Server
 	shell     *shellserver.Registry
+	store     *store.Store
 }
 
 type Options struct {
@@ -118,11 +119,14 @@ func New(opts Options) *Server {
 		cors:      opts.CORS,
 		notify:    opts.Notify,
 		shell:     shell,
+		store:     opts.Store,
 	}
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := otelx.NewMux("gritz")
+	// Health check for load balancers (public)
+	mux.Handle("GET /healthz", HealthHandler(s.log, s.store))
 	// App JWT token endpoint (cookie-authenticated)
 	mux.Handle("/auth/token", alice.New(s.auth.CheckAuth()).Then(s.auth.HandleToken()))
 	// Auth routes (login, callback, logout)
