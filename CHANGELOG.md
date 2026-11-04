@@ -1,5 +1,20 @@
 # Changelog
 
+## [4.1.0](https://github.com/gritzapp/gritz/compare/v4.0.1...v4.1.0) (2026-11-04)
+
+
+### Features
+
+* **auth:** configurable OIDC scopes and end-session URL ([4aa0285](https://github.com/gritzapp/gritz/commit/4aa0285599aff832c7c40c979fd0064de8c5f3c0))
+* **lambdamicrovm:** default max_duration_seconds to 8 hours ([ea9cbd3](https://github.com/gritzapp/gritz/commit/ea9cbd3b2e8493b014c877438d8340e9dbb85eb1))
+
+
+### Miscellaneous
+
+* **auth:** drop the Cognito comment on the scopes flag ([080a78b](https://github.com/gritzapp/gritz/commit/080a78bde15092d8bf7fe2230ecea2db9e99af16))
+* **auth:** drop the end-session URL override ([4747755](https://github.com/gritzapp/gritz/commit/4747755dc3fafadd4617eb7b155ac05551e21df8))
+* **auth:** rename the scopes flag to auth-scopes ([514aa2f](https://github.com/gritzapp/gritz/commit/514aa2f209d1e6369f43c4c5c53c75ae6e6f08dc))
+
 ## [4.0.1](https://github.com/gritzapp/gritz/compare/v4.0.0...v4.0.1) (2026-11-03)
 
 
