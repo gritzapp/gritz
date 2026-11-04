@@ -14,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/logctx"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	httphelper "github.com/zitadel/oidc/v3/pkg/http"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/zitadel-go/v3/pkg/authentication"
@@ -87,6 +88,8 @@ func WithUser(ctx context.Context, user *UserInfo) context.Context {
 type KeyValidator interface {
 	ValidateKey(ctx context.Context, keyHash string) (*UserInfo, error)
 }
+
+//go:generate go tool moq -out user_resolver_moq_test.go . UserResolver
 
 // UserResolver provisions users on login and resolves orgs for token issuance.
 type UserResolver interface {
@@ -178,17 +181,26 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 		string(cfg.EncryptionKey),
 		// Initialize cookie-based authentication (for web UI)
 		openid.WithCodeFlow[*openid.DefaultContext](
-			openid.ClientIDSecretAuthentication(
-				// credentials to access our zitadel instance
-				cfg.ClientID,
-				cfg.ClientSecret,
-				// where to redirect the browswer after login
-				cfg.RedirectURI,
-				// what jwt claims we want
-				cfg.Scopes,
-				// used to store the encrypted token & refresh token & state in cookies
-				httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey),
-			),
+			func(ctx context.Context, issuer string) (rp.RelyingParty, error) {
+				return rp.NewRelyingPartyOIDC(ctx,
+					issuer,
+					// credentials to access our zitadel instance
+					cfg.ClientID,
+					cfg.ClientSecret,
+					// where to redirect the browswer after login
+					cfg.RedirectURI,
+					// what jwt claims we want
+					cfg.Scopes,
+					// used to store the encrypted token & refresh token & state in cookies
+					rp.WithCookieHandler(httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey)),
+					// We send no nonce, and the code flow doesn't need one: the
+					// state cookie binds the callback to the browser and the code
+					// is redeemed with the client secret. Skip the check, since
+					// the default expects the ID token to carry no nonce, and
+					// Cognito federating to another IdP sets one we never sent.
+					rp.WithVerifierOpts(rp.WithNonce(nil)),
+				)
+			},
 			// renew expired sessions with the refresh token
 			openid.WithRefresh(),
 		),
