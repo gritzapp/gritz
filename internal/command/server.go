@@ -65,6 +65,11 @@ var ServerCommand = &cli.Command{
 			Usage:   "Comma-separated OIDC scopes requested at login, replacing the default openid,profile,email,offline_access (e.g. openid,email,profile for Amazon Cognito)",
 			Sources: cli.EnvVars("GRITZ_AUTH_SCOPES"),
 		},
+		&cli.BoolFlag{
+			Name:    "auth-skip-nonce-verify",
+			Usage:   "Skip checking the ID token nonce on login, for providers that set one gritz never sent (e.g. Amazon Cognito federating to another IdP)",
+			Sources: cli.EnvVars("GRITZ_AUTH_SKIP_NONCE_VERIFY"),
+		},
 		&cli.StringFlag{
 			Name:    "base-url",
 			Usage:   "Base URL for the server (e.g. https://gritz.example.com)",
@@ -229,17 +234,18 @@ var ServerCommand = &cli.Command{
 			}
 		}
 		auth, err := apiauth.New(ctx, apiauth.Config{
-			Domain:        domain,
-			ClientID:      cmd.String("auth-client-id"),
-			ClientSecret:  cmd.String("auth-client-secret"),
-			RedirectURI:   baseURL + "/auth/callback",
-			PostLogoutURI: baseURL,
-			EncryptionKey: key,
-			Scopes:        cmd.StringSlice("auth-scopes"),
-			KeyValidator:  server.NewStoreKeyValidator(st),
-			UserResolver:  resolver,
-			AppKey:        appKey,
-			DevUser:       devUser,
+			Domain:          domain,
+			ClientID:        cmd.String("auth-client-id"),
+			ClientSecret:    cmd.String("auth-client-secret"),
+			RedirectURI:     baseURL + "/auth/callback",
+			PostLogoutURI:   baseURL,
+			EncryptionKey:   key,
+			Scopes:          cmd.StringSlice("auth-scopes"),
+			SkipNonceVerify: cmd.Bool("auth-skip-nonce-verify"),
+			KeyValidator:    server.NewStoreKeyValidator(st),
+			UserResolver:    resolver,
+			AppKey:          appKey,
+			DevUser:         devUser,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to initialize auth: %w", err)
