@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.2.0](https://github.com/gritzapp/gritz/compare/v4.1.0...v4.2.0) (2026-11-04)
+
+
+### Features
+
+* **server:** add /healthz endpoint that pings the database ([5881557](https://github.com/gritzapp/gritz/commit/5881557a5b8c472a8e96c1b77cdb9f6f3a6b9940)), closes [#1962](https://github.com/gritzapp/gritz/issues/1962)
+
+
+### Bug Fixes
+
+* **server:** ignore the healthz write error explicitly ([eb6ca45](https://github.com/gritzapp/gritz/commit/eb6ca45fd7197e51beb484bf89fd11ee8995a4a2))
+
 ## [4.1.0](https://github.com/gritzapp/gritz/compare/v4.0.1...v4.1.0) (2026-11-04)
 
 
