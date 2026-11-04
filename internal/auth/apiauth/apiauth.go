@@ -109,7 +109,14 @@ type Config struct {
 	RedirectURI   string
 	PostLogoutURI string
 	EncryptionKey []byte
-	Scopes        []string
+	// Scopes are requested at login. Empty means openid, profile, email and
+	// offline_access.
+	Scopes []string
+	// EndSessionEndpoint, when set, is where logout sends the browser after
+	// clearing the session, verbatim, instead of the provider's discovered
+	// end_session_endpoint. It is for providers that don't publish one, such
+	// as Amazon Cognito, whose logout URL carries its own query parameters.
+	EndSessionEndpoint string
 	// KeyValidator validates xat_ API keys.
 	KeyValidator KeyValidator
 	// UserResolver provisions users on login and resolves orgs for token issuance.
@@ -171,27 +178,31 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 			oidc.ScopeOfflineAccess,
 		}
 	}
+	codeFlow := openid.WithCodeFlow[*openid.DefaultContext](
+		openid.ClientIDSecretAuthentication(
+			// credentials to access our zitadel instance
+			cfg.ClientID,
+			cfg.ClientSecret,
+			// where to redirect the browswer after login
+			cfg.RedirectURI,
+			// what jwt claims we want
+			cfg.Scopes,
+			// used to store the encrypted token & refresh token & state in cookies
+			httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey),
+		),
+		// renew expired sessions with the refresh token
+		openid.WithRefresh(),
+	)
+	if cfg.EndSessionEndpoint != "" {
+		codeFlow = withEndSessionEndpoint(codeFlow, cfg.EndSessionEndpoint)
+	}
 	authN, err := authentication.New(ctx,
 		// my zitadel instance domain
 		zitadel.New(cfg.Domain),
 		// not sure?
 		string(cfg.EncryptionKey),
 		// Initialize cookie-based authentication (for web UI)
-		openid.WithCodeFlow[*openid.DefaultContext](
-			openid.ClientIDSecretAuthentication(
-				// credentials to access our zitadel instance
-				cfg.ClientID,
-				cfg.ClientSecret,
-				// where to redirect the browswer after login
-				cfg.RedirectURI,
-				// what jwt claims we want
-				cfg.Scopes,
-				// used to store the encrypted token & refresh token & state in cookies
-				httphelper.NewCookieHandler(cfg.EncryptionKey, cfg.EncryptionKey),
-			),
-			// renew expired sessions with the refresh token
-			openid.WithRefresh(),
-		),
+		codeFlow,
 		// tell zitadel where to redirect to after logout
 		authentication.WithPostLogoutRedirectURI[*openid.DefaultContext](cfg.PostLogoutURI),
 		// store session in cookie instead of in-memory (survives server restarts)
