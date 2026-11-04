@@ -353,7 +353,7 @@ var ServerCommand = &cli.Command{
 			}
 		}()
 
-		slog.Info("starting server", "addr", addr, "db", dbPath)
+		slog.Info("starting server", "addr", addr)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("server error: %w", err)
 		}
