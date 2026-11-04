@@ -45,6 +45,7 @@ workspaces:
       # Optional. Defaults to the managed ALL_INGRESS connector, which the
       # managed proxy needs.
       ingress_connector: arn:aws:lambda:us-east-1:aws:network-connector:aws-network-connector:ALL_INGRESS
+      # Optional. Defaults to 28800 (8h), the most Lambda allows.
       max_duration_seconds: 14400
       environment:
         CLAUDE_CODE_OAUTH_TOKEN: ${env:CLAUDE_CODE_OAUTH_TOKEN}
