@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.3](https://github.com/gritzapp/gritz/compare/v4.2.2...v4.2.3) (2026-11-05)
+
+
+### Bug Fixes
+
+* **auth:** fall back to given and family name when OIDC omits name ([1b5edd8](https://github.com/gritzapp/gritz/commit/1b5edd8dd42ddc8fe8d96de046d39fc2c17212e0)), closes [#1977](https://github.com/gritzapp/gritz/issues/1977)
+
 ## [4.2.2](https://github.com/gritzapp/gritz/compare/v4.2.1...v4.2.2) (2026-11-04)
 
 
