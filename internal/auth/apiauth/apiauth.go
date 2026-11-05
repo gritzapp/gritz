@@ -62,6 +62,15 @@ func (u *UserInfo) AuditName() string {
 	return name
 }
 
+// profileName returns the user's name claim, falling back to given_name and
+// family_name for providers that don't send name (e.g. Amazon Cognito).
+func profileName(info *oidc.UserInfo) string {
+	if info.Name != "" {
+		return info.Name
+	}
+	return strings.TrimSpace(info.GivenName + " " + info.FamilyName)
+}
+
 type userInfoKey struct{}
 
 // Caller returns the authenticated user from context.
@@ -214,7 +223,7 @@ func New(ctx context.Context, cfg Config) (*Auth, error) {
 			_, err := cfg.UserResolver.Provision(ctx, &UserInfo{
 				ID:    authCtx.UserInfo.Subject,
 				Email: authCtx.UserInfo.Email,
-				Name:  authCtx.UserInfo.Name,
+				Name:  profileName(authCtx.UserInfo),
 			})
 			return err
 		}),
@@ -430,7 +439,7 @@ func (a *Auth) User(r *http.Request) *UserInfo {
 		return &UserInfo{
 			ID:       ctx.UserInfo.Subject,
 			Email:    ctx.UserInfo.Email,
-			Name:     ctx.UserInfo.Name,
+			Name:     profileName(ctx.UserInfo),
 			Type:     AuthTypeCookie,
 			ClientID: r.Header.Get("X-Client-ID"),
 			// TODO: revisit permissions for cookie auth. Cookie sessions are
