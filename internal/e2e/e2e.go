@@ -6,7 +6,6 @@ import (
 	"cmp"
 	"io"
 	"log/slog"
-	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -82,20 +81,17 @@ func New(t *testing.T, opts *Options) *Harness {
 		timeout: cmp.Or(opts.Timeout, 30*time.Second),
 	}
 	// The server needs its own URL (the Atlassian webhook URL is built from
-	// it), so the test server starts before the handler it serves exists.
-	var handler http.Handler
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler.ServeHTTP(w, r)
-	}))
+	// it); an unstarted test server has already bound its listener.
+	ts := httptest.NewUnstartedServer(nil)
 	t.Cleanup(ts.Close)
-	s.URL = ts.URL
+	baseURL := "http://" + ts.Listener.Addr().String()
 	srv := server.New(server.Options{
 		Store:     st,
 		Auth:      auth,
 		Publisher: ps,
 		Atlassian: atlassianserver.New(atlassianserver.Options{
 			Store:     st,
-			BaseURL:   ts.URL,
+			BaseURL:   baseURL,
 			Publisher: ps,
 		}),
 		Notify: notifyserver.New(notifyserver.Options{
@@ -106,7 +102,9 @@ func New(t *testing.T, opts *Options) *Harness {
 		OrgResolver: resolver,
 		Wrap:        s.route,
 	})
-	handler = srv.Handler()
+	ts.Config.Handler = srv.Handler()
+	ts.Start()
+	s.URL = ts.URL
 	h := &Harness{Server: s, Org: s.createOrg(opts.Runner == nil)}
 	// Cleanups run in reverse: remove the mocks; fail the runs left open; stop
 	// the runner; destroy the sandboxes, killing their drivers, and remove the
