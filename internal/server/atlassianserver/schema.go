@@ -10,7 +10,7 @@ func init() {
 }
 
 // RegisterSchemas records the eventrouter schema for every event type
-// atlassianserver emits (see toInputEvent) on reg. Each schema declares the
+// atlassianserver emits (see toInputEvents) on reg. Each schema declares the
 // complete valid attr set for its type (the derived body/url plus its emitted
 // dimensions). Every AttrDef is declared inline per event type so its display
 // copy (label/help/placeholder) speaks to that specific event rather than
@@ -77,6 +77,37 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 				Label:       "User",
 				Placeholder: "5b10ac8d82e05b22cc7d4ef5",
 				Help:        "Atlassian account id of the user who added the label(s). Enter the bare id (no [~accountid:…] wrapper).",
+			},
+		},
+	})
+	reg.MustRegister(eventrouter.EventTypeDef{
+		Source: "atlassian",
+		Type:   EventTypeIssueAssigned,
+		Label:  "Jira: Issue Assigned",
+		Attrs: []eventrouter.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Issue Description",
+				Placeholder: "gritz:",
+				Help:        "Matched against the description of the assigned issue.",
+			},
+			{
+				Key:         "url",
+				Label:       "Issue URL",
+				Placeholder: "https://your-domain.atlassian.net/browse/PROJ-",
+				Help:        "Matched against the assigned issue URL, e.g. to scope a rule to a single project.",
+			},
+			{
+				Key:         "assignee",
+				Label:       "Assignee",
+				Placeholder: "5b10ac8d82e05b22cc7d4ef5",
+				Help:        "Atlassian account id of the user newly assigned to the issue. Enter the bare id (no [~accountid:…] wrapper).",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "5b10ac8d82e05b22cc7d4ef5",
+				Help:        "Atlassian account id of the user who assigned the issue. Enter the bare id (no [~accountid:…] wrapper).",
 			},
 		},
 	})

@@ -125,6 +125,79 @@ func TestAddedLabels(t *testing.T) {
 	}
 }
 
+func TestNewAssignee(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  WebhookPayload
+		expected *User
+	}{
+		{
+			name: "Assigned",
+			payload: WebhookPayload{
+				Changelog: &Changelog{
+					Items: []ChangelogItem{
+						{Field: "assignee", To: "bot456", ToString: "Gritz Bot"},
+					},
+				},
+			},
+			expected: &User{AccountID: "bot456", DisplayName: "Gritz Bot"},
+		},
+		{
+			name: "Reassigned",
+			payload: WebhookPayload{
+				Changelog: &Changelog{
+					Items: []ChangelogItem{
+						{Field: "labels", FromString: "", ToString: "gritz"},
+						{Field: "assignee", From: "old123", FromString: "Old User", To: "bot456", ToString: "Gritz Bot"},
+					},
+				},
+			},
+			expected: &User{AccountID: "bot456", DisplayName: "Gritz Bot"},
+		},
+		{
+			name: "Unassigned",
+			payload: WebhookPayload{
+				Changelog: &Changelog{
+					Items: []ChangelogItem{
+						{Field: "assignee", From: "old123", FromString: "Old User"},
+					},
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "OtherFieldChange",
+			payload: WebhookPayload{
+				Changelog: &Changelog{
+					Items: []ChangelogItem{
+						{Field: "status", FromString: "To Do", ToString: "In Progress"},
+					},
+				},
+			},
+			expected: nil,
+		},
+		{
+			name:     "NoChangelog",
+			payload:  WebhookPayload{},
+			expected: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.payload.NewAssignee()
+			assert.DeepEqual(t, got, tt.expected)
+		})
+	}
+}
+
+func TestParseWebhookAssigneeChange(t *testing.T) {
+	// Jira sends account ids in from/to and null for an empty side.
+	body := []byte(`{"webhookEvent":"jira:issue_updated","changelog":{"items":[{"field":"assignee","fieldtype":"jira","fieldId":"assignee","from":null,"fromString":null,"to":"bot456","toString":"Gritz Bot"}]}}`)
+	payload, err := ParseWebhook(body)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, payload.NewAssignee(), &User{AccountID: "bot456", DisplayName: "Gritz Bot"})
+}
+
 func TestIssueBrowseURL(t *testing.T) {
 	tests := []struct {
 		name     string

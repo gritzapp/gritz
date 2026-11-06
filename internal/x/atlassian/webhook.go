@@ -33,10 +33,14 @@ type Changelog struct {
 
 // ChangelogItem represents a single field change within a Changelog. For label
 // changes, Field is "labels" and FromString/ToString hold the space-separated
-// label lists before and after the change.
+// label lists before and after the change. For assignee changes, Field is
+// "assignee", From/To hold the old and new assignee's account ids and
+// FromString/ToString their display names.
 type ChangelogItem struct {
 	Field      string `json:"field"`
+	From       string `json:"from"`
 	FromString string `json:"fromString"`
+	To         string `json:"to"`
 	ToString   string `json:"toString"`
 }
 
@@ -62,6 +66,24 @@ func (p *WebhookPayload) AddedLabels() []string {
 			}
 		}
 		return added
+	}
+	return nil
+}
+
+// NewAssignee returns the user this webhook event assigned the issue to. It
+// returns nil when the event carries no assignee change or unassigns the issue.
+func (p *WebhookPayload) NewAssignee() *User {
+	if p.Changelog == nil {
+		return nil
+	}
+	for _, item := range p.Changelog.Items {
+		if item.Field != "assignee" {
+			continue
+		}
+		if item.To == "" {
+			return nil
+		}
+		return &User{AccountID: item.To, DisplayName: item.ToString}
 	}
 	return nil
 }
