@@ -88,12 +88,12 @@ func (s *Server) DeleteOrg(ctx context.Context, req *gritzv1.DeleteOrgRequest) (
 		if err := s.store.ArchiveOrg(ctx, tx, req.Id); err != nil {
 			return err
 		}
-		tasks, err := s.store.ListTasks(ctx, tx, req.Id)
+		unarchived, err := s.store.HasUnarchivedTasks(ctx, tx, req.Id)
 		if err != nil {
 			return err
 		}
-		if len(tasks) > 0 {
-			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("org has %d unarchived tasks; archive them before deleting the org", len(tasks)))
+		if unarchived {
+			return connect.NewError(connect.CodeFailedPrecondition, errors.New("org has unarchived tasks; archive them before deleting the org"))
 		}
 		if err := s.store.DisableSchedules(ctx, tx, req.Id); err != nil {
 			return err
