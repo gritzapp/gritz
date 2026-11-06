@@ -22,15 +22,7 @@ UPDATE orgs SET
 WHERE id = $1;
 
 -- name: ArchiveOrg :exec
--- Archives the org and disconnects its integrations: with no webhook secret the
--- Atlassian handler rejects the org's webhooks, and with no installation GitHub
--- events no longer resolve to it.
-UPDATE orgs SET
-    archived = TRUE,
-    atlassian_webhook_secret = '',
-    github_installation_id = NULL,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $1;
+UPDATE orgs SET archived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1;
 
 -- name: AddOrgMember :exec
 INSERT INTO org_members (org_id, user_id, role, created_at)
@@ -55,7 +47,7 @@ WHERE om.org_id = $1
 ORDER BY om.created_at;
 
 -- name: GetOrgAtlassianWebhookSecret :one
-SELECT atlassian_webhook_secret FROM orgs WHERE id = $1;
+SELECT atlassian_webhook_secret FROM orgs WHERE id = $1 AND archived = FALSE;
 
 -- name: SetOrgAtlassianWebhookSecret :exec
 UPDATE orgs SET atlassian_webhook_secret = $2 WHERE id = $1;

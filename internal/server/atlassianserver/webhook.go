@@ -33,9 +33,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up the org's webhook secret
+	// Look up the org's webhook secret. A missing or archived org has none.
 	secret, err := h.Store.GetOrgAtlassianWebhookSecret(r.Context(), nil, orgID)
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("failed to get Atlassian webhook secret", "org_id", orgID, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
