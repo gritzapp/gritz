@@ -162,6 +162,22 @@ func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
 	assert.Assert(t, cmp.Contains(resp.Body, "webhook not configured"))
 }
 
+func TestDeleteOrg_RejectsKey(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-key"})
+	key := created.CreateKey(&gritzv1.CreateKeyRequest{Name: "k"})
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	assert.NilError(t, err)
+
+	// Act
+	_, err = key.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeUnauthenticated)
+}
+
 func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
 	t.Parallel()
 	// Arrange
