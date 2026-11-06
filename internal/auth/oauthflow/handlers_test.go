@@ -1,6 +1,7 @@
 package oauthflow_test
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -18,8 +19,8 @@ import (
 )
 
 // authorize runs the authorization code flow for the org's owner and returns
-// the oauth2 client config and the issued token.
-func authorize(t *testing.T, st *store.Store, org *teststore.Org) (*oauth2.Config, *oauth2.Token) {
+// the oauth2 client config, the issued token and the app key that signed it.
+func authorize(t *testing.T, st *store.Store, org *teststore.Org) (*oauth2.Config, *oauth2.Token, ed25519.PrivateKey) {
 	t.Helper()
 	key, err := apiauth.CreateAppPrivateKey()
 	assert.NilError(t, err)
@@ -98,7 +99,7 @@ func authorize(t *testing.T, st *store.Store, org *teststore.Org) (*oauth2.Confi
 	assert.NilError(t, err)
 	assert.Assert(t, token.AccessToken != "")
 	assert.Assert(t, token.RefreshToken != "")
-	return oauthCfg, token
+	return oauthCfg, token, key
 }
 
 // refresh exchanges the refresh token for a new token.
@@ -113,7 +114,7 @@ func TestAuthorizationCodeFlow(t *testing.T) {
 	// Arrange
 	st := teststore.New(t)
 	org := teststore.CreateOrg(t, st, nil)
-	oauthCfg, token := authorize(t, st, org)
+	oauthCfg, token, _ := authorize(t, st, org)
 
 	// Act
 	newToken, err := refresh(t, oauthCfg, token)
@@ -128,7 +129,7 @@ func TestRefreshToken_ArchivedOrg(t *testing.T) {
 	// Arrange
 	st := teststore.New(t)
 	org := teststore.CreateOrg(t, st, nil)
-	oauthCfg, token := authorize(t, st, org)
+	oauthCfg, token, _ := authorize(t, st, org)
 	assert.NilError(t, st.ArchiveOrg(t.Context(), nil, org.OrgID))
 
 	// Act
@@ -143,7 +144,7 @@ func TestRefreshToken_RemovedMember(t *testing.T) {
 	// Arrange
 	st := teststore.New(t)
 	org := teststore.CreateOrg(t, st, nil)
-	oauthCfg, token := authorize(t, st, org)
+	oauthCfg, token, _ := authorize(t, st, org)
 	assert.NilError(t, st.RemoveOrgMember(t.Context(), nil, org.OrgID, org.UserID))
 
 	// Act
@@ -151,4 +152,20 @@ func TestRefreshToken_RemovedMember(t *testing.T) {
 
 	// Assert
 	assert.ErrorContains(t, err, "invalid refresh_token")
+}
+
+func TestRefreshToken_RejectedAsBearer(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	st := teststore.New(t)
+	org := teststore.CreateOrg(t, st, nil)
+	_, token, key := authorize(t, st, org)
+
+	// Act
+	_, err := apiauth.VerifyAppToken(key, token.RefreshToken)
+
+	// Assert
+	assert.ErrorContains(t, err, `token_type "refresh_token"`)
+	_, err = apiauth.VerifyAppToken(key, token.AccessToken)
+	assert.NilError(t, err)
 }
