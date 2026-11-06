@@ -106,6 +106,11 @@ func (s *Store) DeleteSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID 
 	})
 }
 
+// DisableSchedules disables all of the org's schedules.
+func (s *Store) DisableSchedules(ctx context.Context, tx *sql.Tx, orgID int64) error {
+	return s.q(tx).DisableSchedules(ctx, orgID)
+}
+
 // ClaimDueSchedules locks and returns up to limit due, enabled schedules,
 // skipping rows another server instance already holds (FOR UPDATE SKIP LOCKED).
 // The locks are held until tx commits, so a caller must pass a real transaction:

@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/server"
+	"github.com/gritzapp/gritz/internal/server/atlassianserver"
 	"github.com/gritzapp/gritz/internal/server/notifyserver"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -79,10 +81,23 @@ func New(t *testing.T, opts *Options) *Harness {
 		appKey:  appKey,
 		timeout: cmp.Or(opts.Timeout, 30*time.Second),
 	}
+	// The server needs its own URL (the Atlassian webhook URL is built from
+	// it), so the test server starts before the handler it serves exists.
+	var handler http.Handler
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+	s.URL = ts.URL
 	srv := server.New(server.Options{
 		Store:     st,
 		Auth:      auth,
 		Publisher: ps,
+		Atlassian: atlassianserver.New(atlassianserver.Options{
+			Store:     st,
+			BaseURL:   ts.URL,
+			Publisher: ps,
+		}),
 		Notify: notifyserver.New(notifyserver.Options{
 			Subscriber:  ps,
 			OrgResolver: resolver,
@@ -91,9 +106,7 @@ func New(t *testing.T, opts *Options) *Harness {
 		OrgResolver: resolver,
 		Wrap:        s.route,
 	})
-	ts := httptest.NewServer(srv.Handler())
-	t.Cleanup(ts.Close)
-	s.URL = ts.URL
+	handler = srv.Handler()
 	h := &Harness{Server: s, Org: s.createOrg(opts.Runner == nil)}
 	// Cleanups run in reverse: remove the mocks; fail the runs left open; stop
 	// the runner; destroy the sandboxes, killing their drivers, and remove the

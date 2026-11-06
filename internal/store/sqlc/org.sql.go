@@ -38,9 +38,17 @@ func (q *Queries) AddOrgMember(ctx context.Context, arg AddOrgMemberParams) erro
 }
 
 const archiveOrg = `-- name: ArchiveOrg :exec
-UPDATE orgs SET archived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1
+UPDATE orgs SET
+    archived = TRUE,
+    atlassian_webhook_secret = '',
+    github_installation_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
 `
 
+// Archives the org and disconnects its integrations: with no webhook secret the
+// Atlassian handler rejects the org's webhooks, and with no installation GitHub
+// events no longer resolve to it.
 func (q *Queries) ArchiveOrg(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, archiveOrg, id)
 	return err

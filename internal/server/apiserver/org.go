@@ -81,7 +81,47 @@ func (s *Server) DeleteOrg(ctx context.Context, req *gritzv1.DeleteOrgRequest) (
 	if user.DefaultOrgID == req.Id {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("cannot delete your default org"))
 	}
-	if err := s.store.ArchiveOrg(ctx, nil, req.Id); err != nil {
+	// Archiving the org closes its auth, so nothing could stop a task still
+	// running in it afterwards: refuse while any is, and otherwise archive its
+	// tasks (revoking their task tokens) and disable its schedules with it.
+	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.store.ArchiveOrg(ctx, tx, req.Id); err != nil {
+			return err
+		}
+		tasks, err := s.store.ListTasksForUpdate(ctx, tx, req.Id)
+		if err != nil {
+			return err
+		}
+		for _, task := range tasks {
+			from := task.Status
+			if !task.Archive() {
+				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("task %d is still active; stop it before deleting the org", task.ID))
+			}
+			if err := s.store.UpdateTask(ctx, tx, task); err != nil {
+				return err
+			}
+			if err := s.store.CreateEvent(ctx, tx, &model.Event{
+				TaskID: task.ID,
+				OrgID:  task.OrgID,
+				Payload: &model.LifecyclePayload{
+					Kind:       model.LifecycleKindArchived,
+					Actor:      model.UserActor(caller.AuditName()),
+					FromStatus: from.Label(),
+					ToStatus:   task.Status.Label(),
+				},
+			}); err != nil {
+				return err
+			}
+		}
+		if err := s.store.DisableSchedules(ctx, tx, req.Id); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "org archived", "id", req.Id, "owner", caller.ID)

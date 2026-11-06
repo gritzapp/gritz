@@ -160,6 +160,17 @@ func (q *Queries) DeleteSchedule(ctx context.Context, arg DeleteScheduleParams) 
 	return err
 }
 
+const disableSchedules = `-- name: DisableSchedules :exec
+UPDATE schedules
+SET enabled = FALSE, next_run_at = NULL, updated_at = (NOW() AT TIME ZONE 'UTC')
+WHERE org_id = $1
+`
+
+func (q *Queries) DisableSchedules(ctx context.Context, orgID int64) error {
+	_, err := q.db.ExecContext(ctx, disableSchedules, orgID)
+	return err
+}
+
 const getSchedule = `-- name: GetSchedule :one
 SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
 FROM schedules
