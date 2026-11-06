@@ -1,5 +1,33 @@
 # Changelog
 
+## [4.3.0](https://github.com/gritzapp/gritz/compare/v4.2.3...v4.3.0) (2026-11-06)
+
+
+### Features
+
+* **atlassian:** route Jira issue assignment events ([3859f3c](https://github.com/gritzapp/gritz/commit/3859f3cbe11a35477d398d9b472a7cd88a4cc7fa))
+
+
+### Bug Fixes
+
+* **apiauth:** reject token_type JWTs in VerifyAppToken ([1906617](https://github.com/gritzapp/gritz/commit/1906617250200abf55a74aa5b8a49bea9e7307bf))
+* **atlassian:** reject webhooks to archived orgs instead of clearing their secret ([59d7df6](https://github.com/gritzapp/gritz/commit/59d7df6900bc299399e6d8d3e6efaf76442c4483))
+* **auth:** reject API keys of archived orgs ([1985c6f](https://github.com/gritzapp/gritz/commit/1985c6f9bf8d08599d8eb318a93e21fb710f2741))
+* **oauthflow:** resolve the org on refresh token grant ([34ea186](https://github.com/gritzapp/gritz/commit/34ea186c91be15667677ae4cf1dc47a92d0f2670))
+* **org:** refuse DeleteOrg while the org has unarchived tasks ([2dd1740](https://github.com/gritzapp/gritz/commit/2dd174010dafb1569f6acda9e4aca2d21aedc323))
+* **org:** tear down an org's work when it is deleted ([af12946](https://github.com/gritzapp/gritz/commit/af12946a4ab7f914207dd35fdd4ed4fd92b5b1f5))
+
+
+### Miscellaneous
+
+* **atlassian:** return webhook actor meta from toInputEvents ([1acf115](https://github.com/gritzapp/gritz/commit/1acf115da5f9121331c55ca58d04f05d325fa9f4))
+* **e2e:** bind the harness server's URL with an unstarted test server ([d444cf4](https://github.com/gritzapp/gritz/commit/d444cf43eefe7b4ec7e9e07c470b5f529b6a27dc))
+* **e2e:** deliver Atlassian webhooks through an h.Atlassian handle ([ea2feeb](https://github.com/gritzapp/gritz/commit/ea2feeb5c6e5dd7472acbed8d8c0642cf4bb84f4))
+* **e2e:** replace h.Atlassian with an AtlassianWebhook wrapper ([e72c82e](https://github.com/gritzapp/gritz/commit/e72c82e4ed9f7c8abc14b79efb0abdb084f4d80f))
+* **e2e:** send a typed payload through AtlassianWebhook.Send ([cac677f](https://github.com/gritzapp/gritz/commit/cac677fcca043920005a3f63c8b887c5ca651d0f))
+* **e2e:** split DeleteOrg teardown test into one test per outcome ([9a6eeb2](https://github.com/gritzapp/gritz/commit/9a6eeb22fdf1b6ee2eff792eee28d82227f6ee87))
+* **org:** check for unarchived tasks with an EXISTS query ([3d3cd43](https://github.com/gritzapp/gritz/commit/3d3cd43af10ed7de861e848a5dfab8d3679b1dbc))
+
 ## [4.2.3](https://github.com/gritzapp/gritz/compare/v4.2.2...v4.2.3) (2026-11-05)
 
 
