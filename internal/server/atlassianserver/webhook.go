@@ -62,7 +62,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Parse and extract the events. No events means the webhook should be
 	// ignored.
-	inputs, err := toInputEvents(body)
+	inputs, meta, err := toInputEvents(body)
 	if err != nil {
 		slog.Error("failed to parse Atlassian webhook payload", "err", err)
 		http.Error(w, "invalid payload", http.StatusBadRequest)
@@ -73,11 +73,6 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "ignored")
 		return
 	}
-	// toInputEvents always sets Meta to an AtlassianMeta, and every event of a
-	// payload shares its actor, so this assertion is safe. It panics loudly if
-	// that invariant is ever broken.
-	meta := inputs[0].Meta.(AtlassianMeta)
-
 	// Look up the gritz user by Atlassian account ID. A linked actor routes to
 	// their member orgs as before; an unlinked actor keeps an empty UserID and
 	// routes only via Public rules on Orgs.
@@ -100,6 +95,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// this org can fire even when the actor is unlinked.
 		input.Orgs = []int64{orgID}
 		input.UserID = userID
+		input.Meta = meta
 
 		// Route the event to subscribed tasks
 		routed, err := h.Router.Route(r.Context(), input)
@@ -132,24 +128,26 @@ const (
 
 // toInputEvents extracts the routable events from a Jira webhook payload: one
 // per change it reports, as a single jira:issue_updated can both add labels and
-// assign the issue. It returns nil for payloads that should be ignored.
-func toInputEvents(body []byte) ([]eventrouter.InputEvent, error) {
+// assign the issue. Every event of a payload shares its actor, which is
+// returned once as meta for the caller to set on each event's Meta. It returns
+// no events for payloads that should be ignored.
+func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error) {
 	payload, err := atlassian.ParseWebhook(body)
 	if err != nil {
-		return nil, err
+		return nil, AtlassianMeta{}, err
 	}
 
 	switch payload.WebhookEvent {
 	case atlassian.WebhookEventCommentCreated:
 		if payload.Comment == nil || payload.Issue == nil {
-			return nil, nil
+			return nil, AtlassianMeta{}, nil
 		}
 		commentBody := strings.TrimSpace(payload.Comment.Body)
 
 		accountID := payload.Comment.Author.AccountID
 		displayName := payload.Comment.Author.DisplayName
 		if accountID == "" {
-			return nil, nil
+			return nil, AtlassianMeta{}, nil
 		}
 
 		// The expressive trigger URL is the comment itself, focused via the
@@ -157,7 +155,7 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, error) {
 		// derives the parent issue routing key from it via model.RoutingKey.
 		url := payload.Issue.CommentBrowseURL(payload.Comment.ID)
 		if url == "" {
-			return nil, nil
+			return nil, AtlassianMeta{}, nil
 		}
 
 		description := fmt.Sprintf("%s commented on %s", displayName, payload.Issue.Key)
@@ -172,25 +170,23 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, error) {
 				"mention": atlassian.Mentions(commentBody),
 				"user":    {accountID},
 			},
-			Meta: AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName},
-		}}, nil
+		}}, AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName}, nil
 
 	case atlassian.WebhookEventIssueUpdated:
 		if payload.Issue == nil || payload.User == nil {
-			return nil, nil
+			return nil, AtlassianMeta{}, nil
 		}
 
 		accountID := payload.User.AccountID
 		displayName := payload.User.DisplayName
 		if accountID == "" {
-			return nil, nil
+			return nil, AtlassianMeta{}, nil
 		}
 
 		url := payload.Issue.BrowseURL()
 		if url == "" {
-			return nil, nil
+			return nil, AtlassianMeta{}, nil
 		}
-		meta := AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName}
 
 		var events []eventrouter.InputEvent
 		// Emit a single event carrying all added labels in the "label" attr so
@@ -202,7 +198,6 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, error) {
 				Description: fmt.Sprintf("%s added label(s) %s to %s", displayName, strings.Join(quote(added), ", "), payload.Issue.Key),
 				Attrs:       eventrouter.Attrs{"label": added, "user": {accountID}},
 				URL:         url,
-				Meta:        meta,
 			})
 		}
 		// The "assignee" attr is the new assignee's account id, not their
@@ -214,13 +209,15 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, error) {
 				Description: fmt.Sprintf("%s assigned %s to %s", displayName, payload.Issue.Key, assignee.DisplayName),
 				Attrs:       eventrouter.Attrs{"assignee": {assignee.AccountID}, "user": {accountID}},
 				URL:         url,
-				Meta:        meta,
 			})
 		}
-		return events, nil
+		if len(events) == 0 {
+			return nil, AtlassianMeta{}, nil
+		}
+		return events, AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName}, nil
 	}
 
-	return nil, nil
+	return nil, AtlassianMeta{}, nil
 }
 
 // quote returns a copy of labels with each element wrapped in double quotes,
