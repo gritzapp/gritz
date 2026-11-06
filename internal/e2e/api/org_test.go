@@ -1,15 +1,12 @@
 package api_test
 
 import (
-	"bytes"
-	"io"
 	"net/http"
 	"testing"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/x/atlassian"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -150,17 +147,9 @@ func TestDeleteOrg_WithTasks(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 
 	// Act & Assert - a correctly signed Atlassian webhook is rejected.
-	body := []byte("{}")
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, webhook.WebhookUrl, bytes.NewReader(body))
-	assert.NilError(t, err)
-	req.Header.Set("X-Hub-Signature", atlassian.SignWebhook(body, webhook.Secret))
-	resp, err := http.DefaultClient.Do(req)
-	assert.NilError(t, err)
-	defer resp.Body.Close()
-	msg, err := io.ReadAll(resp.Body)
-	assert.NilError(t, err)
+	resp := h.Atlassian.SendWebhook(webhook, []byte("{}"))
 	assert.Equal(t, resp.StatusCode, http.StatusForbidden)
-	assert.Assert(t, cmp.Contains(string(msg), "webhook not configured"))
+	assert.Assert(t, cmp.Contains(resp.Body, "webhook not configured"))
 }
 
 func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
