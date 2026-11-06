@@ -20,6 +20,9 @@ FROM tasks
 WHERE archived = FALSE AND org_id = $1
 ORDER BY created_at DESC;
 
+-- name: HasUnarchivedTasks :one
+SELECT EXISTS (SELECT 1 FROM tasks WHERE org_id = $1 AND archived = FALSE);
+
 -- name: ListTasksPage :many
 SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
 FROM tasks

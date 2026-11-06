@@ -150,6 +150,17 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, arg GetTaskForUpdatePara
 	return i, err
 }
 
+const hasUnarchivedTasks = `-- name: HasUnarchivedTasks :one
+SELECT EXISTS (SELECT 1 FROM tasks WHERE org_id = $1 AND archived = FALSE)
+`
+
+func (q *Queries) HasUnarchivedTasks(ctx context.Context, orgID int64) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasUnarchivedTasks, orgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listTasks = `-- name: ListTasks :many
 SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
 FROM tasks

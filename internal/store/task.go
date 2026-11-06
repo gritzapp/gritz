@@ -67,6 +67,11 @@ func (s *Store) ListTasks(ctx context.Context, tx *sql.Tx, orgID int64) ([]*mode
 	return toModelTasks(rows)
 }
 
+// HasUnarchivedTasks reports whether the org has any unarchived task.
+func (s *Store) HasUnarchivedTasks(ctx context.Context, tx *sql.Tx, orgID int64) (bool, error) {
+	return s.q(tx).HasUnarchivedTasks(ctx, orgID)
+}
+
 // taskCursor is the keyset a task page token encodes. created_at is not
 // unique, so id is the tiebreaker. Archived binds the token to the filter it
 // was minted under so a cursor can't be silently replayed across filters; the
