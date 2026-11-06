@@ -20,6 +20,10 @@ type AppClaims struct {
 	OrgID  int64            `json:"org_id"`
 	Role   string           `json:"role,omitempty"`
 	Scopes authscope.Scopes `json:"scopes,omitempty"`
+	// TokenType is set by the other JWTs signed with the app key (OAuth auth
+	// codes and refresh tokens) and never by app JWTs; VerifyAppToken rejects
+	// any token carrying it.
+	TokenType string `json:"token_type,omitempty"`
 }
 
 // AppTokenTTL is the default time-to-live for app JWTs.
@@ -104,6 +108,9 @@ func VerifyAppToken(key ed25519.PrivateKey, tokenStr string) (*AppClaims, error)
 	claims, ok := token.Claims.(*AppClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token claims")
+	}
+	if claims.TokenType != "" {
+		return nil, fmt.Errorf("not an app token: token_type %q", claims.TokenType)
 	}
 	return claims, nil
 }
