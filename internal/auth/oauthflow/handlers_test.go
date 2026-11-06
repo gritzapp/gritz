@@ -10,16 +10,23 @@ import (
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/oauthflow"
+	"github.com/gritzapp/gritz/internal/server"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/store/teststore"
 	"golang.org/x/oauth2"
 	"gotest.tools/v3/assert"
 )
 
-func TestAuthorizationCodeFlow(t *testing.T) {
+// authorize runs the authorization code flow for the org's owner and returns
+// the oauth2 client config and the issued token.
+func authorize(t *testing.T, st *store.Store, org *teststore.Org) (*oauth2.Config, *oauth2.Token) {
+	t.Helper()
 	key, err := apiauth.CreateAppPrivateKey()
 	assert.NilError(t, err)
 	auth, err := oauthflow.New(oauthflow.Options{
-		AppKey:  key,
-		BaseURL: "http://localhost:8080",
+		AppKey:      key,
+		OrgResolver: server.NewStoreUserResolver(st),
+		BaseURL:     "http://localhost:8080",
 	})
 	assert.NilError(t, err)
 
@@ -28,7 +35,7 @@ func TestAuthorizationCodeFlow(t *testing.T) {
 	mux.HandleFunc("/oauth/authorize", auth.HandleAuthorize)
 	mux.HandleFunc("/oauth/token", auth.HandleToken)
 	ts := httptest.NewServer(mux)
-	defer ts.Close()
+	t.Cleanup(ts.Close)
 
 	// Register a client
 	regBody := `{"client_name":"test-client","redirect_uris":["http://localhost/callback"]}`
@@ -56,10 +63,10 @@ func TestAuthorizationCodeFlow(t *testing.T) {
 
 	// Create app JWT for authorization
 	user := &apiauth.UserInfo{
-		ID:    "test-user",
+		ID:    org.UserID,
 		Email: "test@example.com",
 		Name:  "Test User",
-		OrgID: 1,
+		OrgID: org.OrgID,
 		Type:  apiauth.AuthTypeApp,
 	}
 	claims := apiauth.NewAppClaims(user)
@@ -87,15 +94,61 @@ func TestAuthorizationCodeFlow(t *testing.T) {
 	assert.Equal(t, redirectURL.Query().Get("state"), "test-state")
 
 	// Exchange authorization code for tokens using oauth2 client
-	ctx := t.Context()
-	token, err := oauthCfg.Exchange(ctx, code, oauth2.VerifierOption(verifier))
+	token, err := oauthCfg.Exchange(t.Context(), code, oauth2.VerifierOption(verifier))
 	assert.NilError(t, err)
 	assert.Assert(t, token.AccessToken != "")
 	assert.Assert(t, token.RefreshToken != "")
+	return oauthCfg, token
+}
 
-	// Use oauth2 TokenSource to refresh the token
+// refresh exchanges the refresh token for a new token.
+func refresh(t *testing.T, oauthCfg *oauth2.Config, token *oauth2.Token) (*oauth2.Token, error) {
+	t.Helper()
 	expiredToken := &oauth2.Token{RefreshToken: token.RefreshToken}
-	newToken, err := oauthCfg.TokenSource(ctx, expiredToken).Token()
+	return oauthCfg.TokenSource(t.Context(), expiredToken).Token()
+}
+
+func TestAuthorizationCodeFlow(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	st := teststore.New(t)
+	org := teststore.CreateOrg(t, st, nil)
+	oauthCfg, token := authorize(t, st, org)
+
+	// Act
+	newToken, err := refresh(t, oauthCfg, token)
+
+	// Assert
 	assert.NilError(t, err)
 	assert.Assert(t, newToken.AccessToken != "")
+}
+
+func TestRefreshToken_ArchivedOrg(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	st := teststore.New(t)
+	org := teststore.CreateOrg(t, st, nil)
+	oauthCfg, token := authorize(t, st, org)
+	assert.NilError(t, st.ArchiveOrg(t.Context(), nil, org.OrgID))
+
+	// Act
+	_, err := refresh(t, oauthCfg, token)
+
+	// Assert
+	assert.ErrorContains(t, err, "invalid refresh_token")
+}
+
+func TestRefreshToken_RemovedMember(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	st := teststore.New(t)
+	org := teststore.CreateOrg(t, st, nil)
+	oauthCfg, token := authorize(t, st, org)
+	assert.NilError(t, st.RemoveOrgMember(t.Context(), nil, org.OrgID, org.UserID))
+
+	// Act
+	_, err := refresh(t, oauthCfg, token)
+
+	// Assert
+	assert.ErrorContains(t, err, "invalid refresh_token")
 }
