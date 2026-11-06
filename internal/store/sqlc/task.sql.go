@@ -237,52 +237,6 @@ func (q *Queries) ListTasksDueForArchive(ctx context.Context, limit int32) ([]Li
 	return items, nil
 }
 
-const listTasksForUpdate = `-- name: ListTasksForUpdate :many
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
-FROM tasks
-WHERE archived = FALSE AND org_id = $1
-ORDER BY id
-FOR UPDATE
-`
-
-func (q *Queries) ListTasksForUpdate(ctx context.Context, orgID int64) ([]Task, error) {
-	rows, err := q.db.QueryContext(ctx, listTasksForUpdate, orgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Task{}
-	for rows.Next() {
-		var i Task
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Runner,
-			&i.Workspace,
-			&i.Status,
-			&i.Command,
-			&i.Version,
-			&i.OrgID,
-			&i.Archived,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.AutoArchive,
-			&i.ShellSession,
-			&i.Namespace,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTasksPage = `-- name: ListTasksPage :many
 SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, namespace
 FROM tasks
