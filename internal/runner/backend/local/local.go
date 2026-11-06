@@ -234,7 +234,8 @@ func signalGroup(pid int, sig syscall.Signal) error {
 
 // startDriver starts the driver for the sandbox directory dir and writes its
 // pid file, and returns once the driver reads as up. A goroutine reaps it when
-// it exits and removes the pid file, if it still names it.
+// it exits. The pid file stays: it no longer names a live driver, and removing
+// it would race with a Boot that has since written its successor's.
 func (b *Backend) startDriver(ctx context.Context, dir string) error {
 	out, err := os.OpenFile(filepath.Join(dir, outPath), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
@@ -265,9 +266,6 @@ func (b *Backend) startDriver(ctx context.Context, dir string) error {
 		defer close(exited)
 		err := cmd.Wait()
 		b.log.Info("driver exited", "dir", dir, "pid", pid, "err", err)
-		if data, err := os.ReadFile(pidFile); err == nil && string(data) == strconv.Itoa(pid) {
-			_ = os.Remove(pidFile)
-		}
 	}()
 	// Start returns once the exec has closed the parent's pipe, which is
 	// before the kernel sets the new command line that alive reads.
