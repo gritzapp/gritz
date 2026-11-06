@@ -29,8 +29,8 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 
 - One harness per test (`e2e.New(t, opts)`), created inside that test, so tests
   can run in parallel.
-- Handles: `h.Server`, `h.Org` (the default org), and later `h.Backend` and
-  `h.Runner`. Handles hold `t`, and their methods fail the test with `t.Fatal`
+- Handles: `h.Server`, `h.Org` (the default org), `h.Atlassian` (plays Jira,
+  delivering webhooks), and later `h.Backend` and `h.Runner`. Handles hold `t`, and their methods fail the test with `t.Fatal`
   instead of returning errors.
 - The runner is opt-in, through `e2e.Options`. Without it `h.Backend` and
   `h.Runner` are nil, and a server-only test may act as the runner with

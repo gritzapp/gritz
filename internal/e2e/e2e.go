@@ -41,6 +41,8 @@ type Harness struct {
 	Server *Server
 	// Org is the default org, for tests that need only one.
 	Org *Org
+	// Atlassian plays Jira, delivering webhooks to the server.
+	Atlassian *Atlassian
 	// Backend is the local backend; nil unless Options.Runner.
 	Backend *Backend
 	// Runner is the runner serving Org; nil unless Options.Runner.
@@ -105,7 +107,7 @@ func New(t *testing.T, opts *Options) *Harness {
 	ts.Config.Handler = srv.Handler()
 	ts.Start()
 	s.URL = ts.URL
-	h := &Harness{Server: s, Org: s.createOrg(opts.Runner == nil)}
+	h := &Harness{Server: s, Org: s.createOrg(opts.Runner == nil), Atlassian: &Atlassian{t: t}}
 	// Cleanups run in reverse: remove the mocks; fail the runs left open; stop
 	// the runner; destroy the sandboxes, killing their drivers, and remove the
 	// root; close the agent's endpoint and the server.
