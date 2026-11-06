@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 
@@ -36,16 +37,20 @@ type WebhookResponse struct {
 	Body       string
 }
 
-// Send delivers payload to the webhook, as Jira does: posted to its URL and
-// signed with its secret.
-func (w *AtlassianWebhook) Send(payload []byte) *WebhookResponse {
+// Send delivers payload to the webhook, as Jira does: marshaled to JSON,
+// posted to its URL and signed with its secret.
+func (w *AtlassianWebhook) Send(payload *atlassian.WebhookPayload) *WebhookResponse {
 	t := w.org.server.t
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.Resp.WebhookUrl, bytes.NewReader(payload))
+	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	req.Header.Set("X-Hub-Signature", atlassian.SignWebhook(payload, w.Resp.Secret))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.Resp.WebhookUrl, bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	req.Header.Set("X-Hub-Signature", atlassian.SignWebhook(data, w.Resp.Secret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Send: %v", err)

@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/atlassian"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -176,7 +177,7 @@ func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	resp := webhook.Send([]byte("{}"))
+	resp := webhook.Send(&atlassian.WebhookPayload{})
 
 	// Assert
 	assert.Equal(t, resp.StatusCode, http.StatusForbidden)
