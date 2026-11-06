@@ -171,13 +171,12 @@ func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
 	// Arrange
 	h := e2e.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-webhook"})
-	webhook, err := created.Client.GenerateAtlassianWebhookSecret(t.Context(), &gritzv1.GenerateAtlassianWebhookSecretRequest{})
-	assert.NilError(t, err)
-	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	webhook := created.GenerateAtlassianWebhookSecret(&gritzv1.GenerateAtlassianWebhookSecretRequest{})
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 	assert.NilError(t, err)
 
 	// Act
-	resp := h.Atlassian.SendWebhook(webhook, []byte("{}"))
+	resp := webhook.Send([]byte("{}"))
 
 	// Assert
 	assert.Equal(t, resp.StatusCode, http.StatusForbidden)
