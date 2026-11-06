@@ -21,7 +21,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 	tests := []struct {
 		name     string
 		payload  atlassian.WebhookPayload
-		expected *eventrouter.InputEvent
+		expected []eventrouter.InputEvent
 	}{
 		{
 			name: "CommentCreated",
@@ -37,7 +37,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Self: "https://mycompany.atlassian.net/rest/api/2/issue/12345",
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "atlassian",
 				Type:        "comment_created",
 				Description: "Test User commented on PROJ-123",
@@ -48,7 +48,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					AuthorAccountID:   "abc123",
 					AuthorDisplayName: "Test User",
 				},
-			},
+			}},
 		},
 		{
 			name: "CommentWithMentions",
@@ -64,7 +64,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Self: "https://mycompany.atlassian.net/rest/api/2/issue/12345",
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "atlassian",
 				Type:        "comment_created",
 				Description: "Test User commented on PROJ-123",
@@ -78,7 +78,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					AuthorAccountID:   "abc123",
 					AuthorDisplayName: "Test User",
 				},
-			},
+			}},
 		},
 		{
 			name: "NoGritzPrefix",
@@ -93,7 +93,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Self: "https://mycompany.atlassian.net/rest/api/2/issue/12345",
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "atlassian",
 				Type:        "comment_created",
 				Description: "Test User commented on PROJ-123",
@@ -104,7 +104,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					AuthorAccountID:   "abc123",
 					AuthorDisplayName: "Test User",
 				},
-			},
+			}},
 		},
 		{
 			name: "NilComment",
@@ -166,7 +166,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Self: "https://mycompany.atlassian.net/rest/api/2/issue/1",
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "atlassian",
 				Type:        "comment_created",
 				Description: "Test User commented on PROJ-1",
@@ -177,7 +177,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					AuthorAccountID:   "abc123",
 					AuthorDisplayName: "Test User",
 				},
-			},
+			}},
 		},
 		{
 			name: "LabelAdded",
@@ -194,7 +194,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "atlassian",
 				Type:        "label_added",
 				Description: `Test User added label(s) "gritz" to PROJ-7`,
@@ -204,7 +204,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					AuthorAccountID:   "abc123",
 					AuthorDisplayName: "Test User",
 				},
-			},
+			}},
 		},
 		{
 			name: "MultipleLabelsAdded",
@@ -221,7 +221,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "atlassian",
 				Type:        "label_added",
 				Description: `Test User added label(s) "gritz", "urgent" to PROJ-8`,
@@ -231,7 +231,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					AuthorAccountID:   "abc123",
 					AuthorDisplayName: "Test User",
 				},
-			},
+			}},
 		},
 		{
 			name: "IssueUpdatedNoLabelChange",
@@ -268,6 +268,91 @@ func TestToAtlassianInputEvents(t *testing.T) {
 			expected: nil,
 		},
 		{
+			name: "IssueAssigned",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_updated",
+				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
+				Issue: &atlassian.Issue{
+					Key:  "PROJ-11",
+					Self: "https://mycompany.atlassian.net/rest/api/2/issue/11",
+				},
+				Changelog: &atlassian.Changelog{
+					Items: []atlassian.ChangelogItem{
+						{Field: "assignee", From: "old123", FromString: "Old User", To: "bot456", ToString: "Gritz Bot"},
+					},
+				},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "atlassian",
+				Type:        "issue_assigned",
+				Description: "Test User assigned PROJ-11 to Gritz Bot",
+				Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"abc123"}},
+				URL:         "https://mycompany.atlassian.net/browse/PROJ-11",
+				Meta: AtlassianMeta{
+					AuthorAccountID:   "abc123",
+					AuthorDisplayName: "Test User",
+				},
+			}},
+		},
+		{
+			name: "IssueUnassignedIgnored",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_updated",
+				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
+				Issue: &atlassian.Issue{
+					Key:  "PROJ-11",
+					Self: "https://mycompany.atlassian.net/rest/api/2/issue/11",
+				},
+				Changelog: &atlassian.Changelog{
+					Items: []atlassian.ChangelogItem{
+						{Field: "assignee", From: "bot456", FromString: "Gritz Bot"},
+					},
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "LabelAddedAndIssueAssigned",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_updated",
+				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
+				Issue: &atlassian.Issue{
+					Key:  "PROJ-12",
+					Self: "https://mycompany.atlassian.net/rest/api/2/issue/12",
+				},
+				Changelog: &atlassian.Changelog{
+					Items: []atlassian.ChangelogItem{
+						{Field: "assignee", To: "bot456", ToString: "Gritz Bot"},
+						{Field: "labels", FromString: "", ToString: "gritz"},
+					},
+				},
+			},
+			expected: []eventrouter.InputEvent{
+				{
+					Source:      "atlassian",
+					Type:        "label_added",
+					Description: `Test User added label(s) "gritz" to PROJ-12`,
+					Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"abc123"}},
+					URL:         "https://mycompany.atlassian.net/browse/PROJ-12",
+					Meta: AtlassianMeta{
+						AuthorAccountID:   "abc123",
+						AuthorDisplayName: "Test User",
+					},
+				},
+				{
+					Source:      "atlassian",
+					Type:        "issue_assigned",
+					Description: "Test User assigned PROJ-12 to Gritz Bot",
+					Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"abc123"}},
+					URL:         "https://mycompany.atlassian.net/browse/PROJ-12",
+					Meta: AtlassianMeta{
+						AuthorAccountID:   "abc123",
+						AuthorDisplayName: "Test User",
+					},
+				},
+			},
+		},
+		{
 			name: "LabelAddedNilUser",
 			payload: atlassian.WebhookPayload{
 				WebhookEvent: "jira:issue_updated",
@@ -289,7 +374,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body, err := json.Marshal(tt.payload)
 			assert.NilError(t, err)
-			got, err := toInputEvent(body)
+			got, err := toInputEvents(body)
 			assert.NilError(t, err)
 			assert.DeepEqual(t, got, tt.expected)
 		})
@@ -416,6 +501,77 @@ func TestHandleAtlassianWebhookRoutesLabelAdded(t *testing.T) {
 		Orgs:        []int64{1},
 		Meta:        AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: "Test User"},
 	}})
+}
+
+// A payload carrying both a label and an assignee change routes one event per
+// change, each resolved to the same linked actor.
+func TestHandleAtlassianWebhookRoutesEachChange(t *testing.T) {
+	secret := "test-webhook-secret"
+	accountID := "atlassian-abc123"
+	router := &RouterMock{
+		RouteFunc: func(ctx context.Context, input eventrouter.InputEvent) (int, error) {
+			return 1, nil
+		},
+	}
+	h := &WebhookHandler{
+		Router: router,
+		Store: &StoreMock{
+			GetOrgAtlassianWebhookSecretFunc: func(ctx context.Context, tx *sql.Tx, orgID int64) (string, error) {
+				return secret, nil
+			},
+			GetUserByAtlassianAccountIDFunc: func(ctx context.Context, tx *sql.Tx, id string) (*model.User, error) {
+				if id == accountID {
+					return &model.User{ID: "user-1"}, nil
+				}
+				return nil, sql.ErrNoRows
+			},
+		},
+	}
+
+	payload := atlassian.WebhookPayload{
+		WebhookEvent: "jira:issue_updated",
+		User:         &atlassian.User{AccountID: accountID, DisplayName: "Test User"},
+		Issue: &atlassian.Issue{
+			Key:  "PROJ-13",
+			Self: "https://mycompany.atlassian.net/rest/api/2/issue/13",
+		},
+		Changelog: &atlassian.Changelog{
+			Items: []atlassian.ChangelogItem{
+				{Field: "labels", FromString: "", ToString: "gritz"},
+				{Field: "assignee", To: "bot456", ToString: "Gritz Bot"},
+			},
+		},
+	}
+
+	req := makeAtlassianWebhookRequest(t, 1, payload, secret)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	assert.Equal(t, rec.Body.String(), "processed")
+
+	assert.DeepEqual(t, router.RoutedInputs(), []eventrouter.InputEvent{
+		{
+			Source:      "atlassian",
+			Type:        "label_added",
+			Description: `Test User added label(s) "gritz" to PROJ-13`,
+			Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"atlassian-abc123"}},
+			URL:         "https://mycompany.atlassian.net/browse/PROJ-13",
+			UserID:      "user-1",
+			Orgs:        []int64{1},
+			Meta:        AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: "Test User"},
+		},
+		{
+			Source:      "atlassian",
+			Type:        "issue_assigned",
+			Description: "Test User assigned PROJ-13 to Gritz Bot",
+			Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"atlassian-abc123"}},
+			URL:         "https://mycompany.atlassian.net/browse/PROJ-13",
+			UserID:      "user-1",
+			Orgs:        []int64{1},
+			Meta:        AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: "Test User"},
+		},
+	})
 }
 
 func TestHandleAtlassianWebhookIgnoredEventType(t *testing.T) {

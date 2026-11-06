@@ -60,35 +60,32 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse and extract the event. A nil input means the webhook should be
+	// Parse and extract the events. No events means the webhook should be
 	// ignored.
-	input, err := toInputEvent(body)
+	inputs, err := toInputEvents(body)
 	if err != nil {
 		slog.Error("failed to parse Atlassian webhook payload", "err", err)
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	if input == nil {
+	if len(inputs) == 0 {
 		slog.Debug("ignoring Atlassian webhook event")
 		fmt.Fprintf(w, "ignored")
 		return
 	}
-	// toInputEvent always sets Meta to an AtlassianMeta, so this assertion is
-	// safe. It panics loudly if that invariant is ever broken.
-	meta := input.Meta.(AtlassianMeta)
-
-	// The event belongs to the org addressed by the ?org= param, independent of
-	// the actor's membership. It gates non-member routing: a Public rule on this
-	// org can fire even when the actor is unlinked.
-	input.Orgs = []int64{orgID}
+	// toInputEvents always sets Meta to an AtlassianMeta, and every event of a
+	// payload shares its actor, so this assertion is safe. It panics loudly if
+	// that invariant is ever broken.
+	meta := inputs[0].Meta.(AtlassianMeta)
 
 	// Look up the gritz user by Atlassian account ID. A linked actor routes to
 	// their member orgs as before; an unlinked actor keeps an empty UserID and
-	// routes only via Public rules on input.Orgs.
+	// routes only via Public rules on Orgs.
+	var userID string
 	user, err := h.Store.GetUserByAtlassianAccountID(r.Context(), nil, meta.AuthorAccountID)
 	switch {
 	case err == nil:
-		input.UserID = user.ID
+		userID = user.ID
 	case errors.Is(err, sql.ErrNoRows):
 		slog.Info("no linked Atlassian account; routing via org", "atlassian_account_id", meta.AuthorAccountID, "org_id", orgID)
 	default:
@@ -97,14 +94,22 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Route the event to subscribed tasks
-	routed, err := h.Router.Route(r.Context(), *input)
-	if err != nil {
-		slog.Error("failed to route event", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+	for _, input := range inputs {
+		// The event belongs to the org addressed by the ?org= param, independent
+		// of the actor's membership. It gates non-member routing: a Public rule on
+		// this org can fire even when the actor is unlinked.
+		input.Orgs = []int64{orgID}
+		input.UserID = userID
+
+		// Route the event to subscribed tasks
+		routed, err := h.Router.Route(r.Context(), input)
+		if err != nil {
+			slog.Error("failed to route event", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		slog.Info("Atlassian webhook processed", "url", input.URL, "type", input.Type, "tasks_routed", routed)
 	}
-	slog.Info("Atlassian webhook processed", "url", input.URL, "type", input.Type, "tasks_routed", routed)
 
 	fmt.Fprintf(w, "processed")
 }
@@ -116,17 +121,19 @@ type AtlassianMeta struct {
 	AuthorDisplayName string
 }
 
-// Event-type strings set on eventrouter.InputEvent.Type by toInputEvent. They
+// Event-type strings set on eventrouter.InputEvent.Type by toInputEvents. They
 // form a contract between the extractor (producer) and any consumer that
 // dispatches on InputEvent.Type.
 const (
 	EventTypeCommentCreated = "comment_created"
 	EventTypeLabelAdded     = "label_added"
+	EventTypeIssueAssigned  = "issue_assigned"
 )
 
-// toInputEvent extracts a single routable event from a Jira webhook payload. It
-// returns nil for events that should be ignored.
-func toInputEvent(body []byte) (*eventrouter.InputEvent, error) {
+// toInputEvents extracts the routable events from a Jira webhook payload: one
+// per change it reports, as a single jira:issue_updated can both add labels and
+// assign the issue. It returns nil for payloads that should be ignored.
+func toInputEvents(body []byte) ([]eventrouter.InputEvent, error) {
 	payload, err := atlassian.ParseWebhook(body)
 	if err != nil {
 		return nil, err
@@ -155,7 +162,7 @@ func toInputEvent(body []byte) (*eventrouter.InputEvent, error) {
 
 		description := fmt.Sprintf("%s commented on %s", displayName, payload.Issue.Key)
 
-		return &eventrouter.InputEvent{
+		return []eventrouter.InputEvent{{
 			Source:      "atlassian",
 			Type:        EventTypeCommentCreated,
 			Description: description,
@@ -166,11 +173,10 @@ func toInputEvent(body []byte) (*eventrouter.InputEvent, error) {
 				"user":    {accountID},
 			},
 			Meta: AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName},
-		}, nil
+		}}, nil
 
 	case atlassian.WebhookEventIssueUpdated:
-		added := payload.AddedLabels()
-		if len(added) == 0 || payload.Issue == nil || payload.User == nil {
+		if payload.Issue == nil || payload.User == nil {
 			return nil, nil
 		}
 
@@ -184,17 +190,34 @@ func toInputEvent(body []byte) (*eventrouter.InputEvent, error) {
 		if url == "" {
 			return nil, nil
 		}
+		meta := AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName}
 
+		var events []eventrouter.InputEvent
 		// Emit a single event carrying all added labels in the "label" attr so
 		// routing rules can match a specific label via a label condition.
-		return &eventrouter.InputEvent{
-			Source:      "atlassian",
-			Type:        EventTypeLabelAdded,
-			Description: fmt.Sprintf("%s added label(s) %s to %s", displayName, strings.Join(quote(added), ", "), payload.Issue.Key),
-			Attrs:       eventrouter.Attrs{"label": added, "user": {accountID}},
-			URL:         url,
-			Meta:        AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName},
-		}, nil
+		if added := payload.AddedLabels(); len(added) > 0 {
+			events = append(events, eventrouter.InputEvent{
+				Source:      "atlassian",
+				Type:        EventTypeLabelAdded,
+				Description: fmt.Sprintf("%s added label(s) %s to %s", displayName, strings.Join(quote(added), ", "), payload.Issue.Key),
+				Attrs:       eventrouter.Attrs{"label": added, "user": {accountID}},
+				URL:         url,
+				Meta:        meta,
+			})
+		}
+		// The "assignee" attr is the new assignee's account id, not their
+		// display name, so rules match a stable identity.
+		if assignee := payload.NewAssignee(); assignee != nil {
+			events = append(events, eventrouter.InputEvent{
+				Source:      "atlassian",
+				Type:        EventTypeIssueAssigned,
+				Description: fmt.Sprintf("%s assigned %s to %s", displayName, payload.Issue.Key, assignee.DisplayName),
+				Attrs:       eventrouter.Attrs{"assignee": {assignee.AccountID}, "user": {accountID}},
+				URL:         url,
+				Meta:        meta,
+			})
+		}
+		return events, nil
 	}
 
 	return nil, nil

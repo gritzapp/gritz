@@ -46,4 +46,13 @@ func TestSchemaRegistration(t *testing.T) {
 	// label_added also registers.
 	_, ok = reg.EventTypeFor("atlassian", EventTypeLabelAdded)
 	assert.Assert(t, ok, "EventTypeFor(atlassian, %q) = _, false; want hit", EventTypeLabelAdded)
+
+	// issue_assigned matches on the new assignee's account id.
+	def, ok = reg.EventTypeFor("atlassian", EventTypeIssueAssigned)
+	assert.Assert(t, ok, "EventTypeFor(atlassian, %q) = _, false; want hit", EventTypeIssueAssigned)
+	var keys []string
+	for _, a := range def.Attrs {
+		keys = append(keys, a.Key)
+	}
+	assert.DeepEqual(t, keys, []string{"body", "url", "assignee", "user"})
 }
