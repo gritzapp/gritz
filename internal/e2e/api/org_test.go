@@ -100,53 +100,31 @@ func TestAddAndListOrgMembers(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 2))
 }
 
-func TestDeleteOrg_RefusedWhileTaskActive(t *testing.T) {
+func TestDeleteOrg_RefusedWhileTasksUnarchived(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - a stopped task, not yet archived.
 	h := e2e.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
 	task := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	created.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	created.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: "started", Version: 1},
+			{TaskId: task.ID, Event: "stopped", Version: 1},
+		},
 	})
 
-	// Act & Assert - refused while the task is running.
+	// Act & Assert - refused while the task is unarchived.
 	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
 
-	// Act & Assert - allowed once it has stopped.
-	created.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 1}},
-	})
+	// Act & Assert - allowed once it is archived.
+	created.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
-	assert.NilError(t, err)
-}
-
-func TestDeleteOrg_ArchivesTasks(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := e2e.New(t, nil)
-	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
-	task := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	token := created.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
-
-	// Act
-	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
-
-	// Assert - the org is gone and its task archived. The task is read from
-	// the store: the org is archived, so no RPC reaches it.
 	assert.NilError(t, err)
 	for _, o := range h.Org.ListOrgs(&gritzv1.ListOrgsRequest{}) {
 		assert.Assert(t, o.Id != created.ID)
 	}
-	got, err := h.Server.Store.GetTask(t.Context(), nil, task.ID, created.ID)
-	assert.NilError(t, err)
-	assert.Assert(t, got.Archived)
-
-	// Act & Assert - the task token is revoked.
-	_, err = token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
 func TestDeleteOrg_DisablesSchedules(t *testing.T) {
