@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -228,8 +229,17 @@ func (a *Auth) handleRefreshTokenGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Re-check the org on every refresh so a refresh token stops working once
+	// the org is archived or the user is removed from it.
+	orgID, err := a.orgResolver.ResolveOrg(r.Context(), claims.Subject, claims.OrgID)
+	if err != nil {
+		slog.Error("failed to resolve org", "err", err, "user_id", claims.Subject, "org_id", claims.OrgID)
+		http.Error(w, "invalid refresh_token", http.StatusBadRequest)
+		return
+	}
+
 	// Issue new tokens (rotation)
-	a.issueTokens(w, claims.Subject, claims.Email, claims.Name, claims.OrgID)
+	a.issueTokens(w, claims.Subject, claims.Email, claims.Name, orgID)
 }
 
 func (a *Auth) issueTokens(w http.ResponseWriter, subject, email, name string, orgID int64) {
