@@ -21,7 +21,7 @@ URL, source and `details`), not a paragraph describing it.
 Add one generic agent type, `gritzrpc`. The driver spawns a user-supplied
 process for each run and speaks **gritzrpc** to it: JSON-RPC 2.0 over the
 process's stdin and stdout. gritz sends one `run/start` request carrying the
-task and the typed events for this run. The agent may stream `log`
+task, its standing links (on the first run) and the typed events for this run. The agent may stream `log`
 notifications back while it works, and its response to `run/start` ends the
 run.
 
@@ -34,7 +34,7 @@ MCP client.
 ### Motivating example: a suspended Mastra workflow
 
 1. A task starts. gritz spawns `node dist/agent.js` and sends `run/start` with
-   `resume: false` and the task's instruction events.
+   `resume: false`, the task's instruction events and its standing links.
 2. The workflow opens a PR, calls `create_link` with `subscribe=true` through
    the `gritz` MCP server, then reaches a step that `suspend()`s until the PR is
    reviewed. The agent saves the Mastra snapshot (for example in LibSQL storage
@@ -67,10 +67,12 @@ MCP client.
   should then exit; if it is still running after `exitGrace` (5s), gritz sends
   SIGTERM to the process group.
 
-A stdout line that is not a JSON-RPC message is logged at `warn` level as
-`agent stdout`, with the line attached, and is skipped. It does not fail the
-run. Node libraries like to `console.log`, and one stray line should not kill
-an hour-long workflow (see Trade-offs).
+stdout is the protocol channel and nothing else. A stdout line that is not a
+valid JSON-RPC 2.0 message (not JSON, not an object, or `jsonrpc` not `"2.0"`)
+fails the run with `gritzrpc agent: invalid stdout line: <line>`, where the
+line is truncated to 256 bytes. gritz then stops the process the same way as on
+cancel (`run/cancel`, then SIGTERM and SIGKILL to the group). Agents log through
+stderr or the `log` notification (see Trade-offs).
 
 ### Methods
 
@@ -92,6 +94,10 @@ an hour-long workflow (see Trade-offs).
     {"id":"9120","taskId":"2283","wake":true,"createdAt":"2026-11-02T20:31:00Z",
      "external":{"description":"review comment","url":"https://github.com/…#discussion_r1",
                  "source":"github","details":{"path":"main.go","line":"12"},"data":"…"}}
+  ],
+  "links": [
+    {"id":"881","taskId":"2283","relevance":"PR","url":"https://github.com/gritzapp/gritz/pull/1950",
+     "title":"…","subscribe":true,"createdAt":"2026-11-02T19:58:00Z","routingKey":"…"}
   ],
   "mcpServers": {
     "gritz": {"type":"stdio","command":"<sandbox gritz binary>","args":["tool","agent-mcp","--server","…","--task","2283","…"]}
@@ -120,6 +126,12 @@ an hour-long workflow (see Trade-offs).
   see rendered into text. On the first run they are the task brief (the
   instructions plus external triggers from the head of the file). The list may
   be empty, for example on a restart with nothing new.
+- `links` are the task's standing links, the `gritzv1.TaskLink` values that
+  `runAgent` already loads as `promptLinks` for `agentprompt.Render`, encoded
+  with `protojson`. Like the first-run prompt's brief, they are sent only on the
+  first run (`resume: false`), so together with `events` they give the agent its
+  task without a `get_my_task` round trip. On later runs the field is omitted;
+  an agent that needs the current links calls `get_my_task`.
 - `cwd` is the expanded agent cwd, which is also the process's working
   directory. It is included so an agent need not trust `process.cwd()` after
   `chdir`.
@@ -182,8 +194,10 @@ event, is not routed to other tasks, and has no new `Event` payload arm.
 
 - A request *from* the agent (any message with an `id` and a `method`) gets a
   `-32601` method-not-found error response, because gritz exposes no methods.
-- An unknown notification, or a response whose `id` is not `1`, is logged at
-  `warn` level and skipped.
+- An unknown notification, or a response whose `id` is not `1`, is valid
+  JSON-RPC, so it is logged at `warn` level and skipped.
+- A stdout line that is not valid JSON-RPC fails the run with the truncated line
+  in the error (see Transport and framing).
 - If the agent exits without responding to `run/start`, the run fails with
   `gritzrpc agent exited without responding: <exit status>`.
 - If the agent responds and then exits non-zero, the response stands and the
@@ -227,12 +241,14 @@ error has `context.Canceled` in its chain, and the driver checks
 
 Writes to stdin (`run/start`, `run/cancel`) are serialised by a mutex. A write
 that fails because the agent already closed stdin is ignored, since exit
-handling reports the outcome.
+handling reports the outcome. `cancelGrace` is fixed at 10s and is not
+configurable.
 
 ### Typed events reach the agent: widen `Agent.Prompt`
 
-`runAgent` already holds the typed events (from `promptEvents`) and the task
-(from `Run`), and throws both away after rendering. We widen the interface so
+`runAgent` already holds the typed events (from `promptEvents`), the task
+(from `Run`) and, on the first run, the standing links (`promptLinks`), and
+throws them away after rendering. We widen the interface so
 every agent receives the whole run input:
 
 ```go
@@ -240,15 +256,16 @@ type Turn struct {
 	Prompt string           // rendered by agentprompt.Render
 	Resume bool             // cfg.Started
 	Task   *gritzv1.Task
-	Events []*gritzv1.Event // promptEvents' slice
+	Events []*gritzv1.Event   // promptEvents' slice
+	Links  []*gritzv1.TaskLink // promptLinks; nil unless first run
 }
 
 Prompt(ctx context.Context, turn Turn) error
 ```
 
 CLI agents read `turn.Prompt` and `turn.Resume`, and their behaviour does not
-change. `GritzRPCAgent` reads `Task`, `Events` and `Resume` and ignores
-`Prompt`. `runAgent` still renders the prompt for every type, because rendering
+change. `GritzRPCAgent` reads `Task`, `Events`, `Links` and `Resume` and
+ignores `Prompt`. `runAgent` still renders the prompt for every type, because rendering
 is cheap and the alternative is a type switch.
 
 We do not special-case the type in the driver (`if cfg.Type == TypeGritzRPC`)
@@ -339,13 +356,14 @@ type StartParams struct {
 	Cwd             string
 	Task            *gritzv1.Task
 	Events          []*gritzv1.Event
+	Links           []*gritzv1.TaskLink
 	McpServers      map[string]McpServer
 }
 
-// MarshalJSON encodes p with Task and Events in protojson.
+// MarshalJSON encodes p with Task, Events and Links in protojson.
 func (p StartParams) MarshalJSON() ([]byte, error)
 
-// UnmarshalJSON decodes p with Task and Events from protojson.
+// UnmarshalJSON decodes p with Task, Events and Links from protojson.
 func (p *StartParams) UnmarshalJSON(data []byte) error
 
 // McpServer is an MCP server config as sent in run/start.
@@ -378,6 +396,7 @@ type Turn struct {
 	Resume bool
 	Task   *gritzv1.Task
 	Events []*gritzv1.Event
+	Links  []*gritzv1.TaskLink
 }
 
 type Agent interface {
@@ -429,32 +448,35 @@ type GritzRPCConfig struct {
 
 **How it fits:** the runner's `Workspace.AgentConfig` copies `gritzrpc:` into
 `agent.Config`, which reaches the driver in the task config file. `runAgent`
-builds a `Turn` from the rendered prompt, `cfg.Started`, the task and
-`promptEvents`' slice, and `NewAgent` returns a `GritzRPCAgent`. Its `Prompt`
+builds a `Turn` from the rendered prompt, `cfg.Started`, the task,
+`promptEvents`' slice and `promptLinks`, and `NewAgent` returns a `GritzRPCAgent`. Its `Prompt`
 spawns the process, writes a `gritzrpc.StartParams` request, and turns `log`
-notifications into `DriverLog` lines until the `run/start` response or the
-process exit. The `gritzrpc` package holds only wire types, so a future Go SDK
+notifications into `DriverLog` lines until the `run/start` response, the
+process exit, or an invalid stdout line that fails the run. The `gritzrpc` package holds only wire types, so a future Go SDK
 and the test agent can share them without importing `agent`.
 
 ## Implementation Plan
 
-1. **Widen `Agent.Prompt` to `Turn`.** Delivers: the `Turn` struct and the new
-   `Prompt(ctx, Turn)` signature across Claude, Codex, Copilot, Cursor, Sloppy,
-   Dummy and Puppet, with `runAgent` building the `Turn`. Puppet gets a small
+1. **Widen `Agent.Prompt` to `Turn`.** Delivers: the `Turn` struct (`Prompt`,
+   `Resume`, `Task`, `Events`, `Links`) and the new `Prompt(ctx, Turn)`
+   signature across Claude, Codex, Copilot, Cursor, Sloppy, Dummy and Puppet,
+   with `runAgent` building the `Turn` from the task, events and `promptLinks`
+   it already loads. Puppet gets a small
    adapter in `agent/puppet.go`, since `puppet` cannot import `agent`. No
    behaviour change. Depends on: nothing. Verifiable by: the existing agent,
    driver and e2e tests pass unchanged.
 2. **`gritzrpc` wire package.** Delivers: `internal/runner/agent/gritzrpc` with
    the types above, its package doc as the protocol reference, and
    `StartParams` protojson encoding. Depends on: nothing. Verifiable by:
-   round-trip tests for `StartParams` (int64 ids as strings, oneof arms,
+   round-trip tests for `StartParams` (int64 ids as strings, oneof arms, links,
    single-line output) and `Message`.
 3. **`GritzRPCAgent`.** Delivers: `TypeGritzRPC`, `GritzRPCOptions`,
    `Options.GritzRPC`, `Config.GritzRPC`, the `NewAgent` case and the agent
    itself (spawn, framing, log mapping, stderr tee, cancel escalation).
    Depends on: (1), (2). Verifiable by: unit tests against a test agent (see
    Testing): success, error response, exit without response, a non-protocol
-   stdout line, an agent request answered with `-32601`, `log` lines in the
+   stdout line failing the run with the truncated line in the error, an unknown
+   notification skipped, an agent request answered with `-32601`, `log` lines in the
    `DriverLog`, `run/cancel` answered in time, and an ignored `run/cancel` that
    escalates to SIGTERM. In every cancel case `errors.Is(err,
    context.Canceled)` must hold.
@@ -462,7 +484,7 @@ and the test agent can share them without importing `agent`.
    `AgentConfig` copy and the type-specific `Agent.Validate` checks. Depends
    on: (3). Verifiable by: workspace config tests, and a driver test
    (`driver_test.go`, `setupDriver`) that runs a gritzrpc task end to end,
-   checks the typed events in `run/start`, and checks that a failing run leaves
+   checks the typed events and first-run links in `run/start`, and checks that a failing run leaves
    `PromptedEventID` unsaved so the next run redelivers the same event ids.
 
 ## Testing
@@ -478,7 +500,11 @@ at `os.Executable()` and selects a scenario through `Env`:
   the test can assert on what was sent.
 - `error`: responds with `{code: -32001, message: "boom"}`.
 - `exit`: exits 3 without responding.
-- `noise`: prints a non-JSON stdout line and sends a request, then responds.
+- `noise`: prints a non-JSON stdout line, then blocks. The run fails with the
+  truncated line in the error, and the process is stopped.
+- `extra`: sends an unknown notification, a response with an unexpected `id`
+  and a request, then responds `{}`. The run succeeds, and the request gets a
+  `-32601` error.
 - `cancel-ok`: blocks until `run/cancel`, then responds `{}`.
 - `cancel-ignore`: ignores `run/cancel` and blocks until SIGTERM.
 
@@ -528,11 +554,15 @@ for the CLI path, with a real process boundary. Cancel tests shorten
   `TaskStatus`, runner handling and UI. From gritz's point of view a suspended
   workflow is a finished run whose task will be woken by events, which is
   exactly what "completed" plus subscribed links already means.
-- **Lenient stdout.** Strictly failing the run on a non-protocol stdout line
-  would surface misbehaving agents faster, but in Node a single dependency
-  writing to stdout would kill long runs. Logging the line at `warn` keeps it
-  visible without making it fatal. A future SDK can redirect `console.log` to
-  stderr.
+- **Strict stdout.** stdout is the protocol channel, and agents log through
+  stderr or the `log` notification. Failing the run on a non-protocol line
+  surfaces a misbehaving agent on its first run, with the offending line in the
+  task timeline, instead of hiding corruption behind warnings: a stray write can
+  also interleave with a real message and garble it, and a lenient reader would
+  then silently lose a response. The cost is that in Node one dependency's
+  `console.log` fails the run, so the SDK redirects `console.log` to stderr.
+  Unknown notifications and unexpected response ids are still valid JSON-RPC
+  and are only logged, so the protocol can grow without breaking agents.
 - **Late success after cancel counts as cancelled.** This can redeliver
   events that the agent did handle, but at-least-once delivery with dedupe by
   event id is already the contract, and it keeps the cursor independent of
@@ -540,15 +570,9 @@ for the CLI path, with a real process boundary. Cancel tests shorten
 
 ## Future work
 
-- A TypeScript SDK (framing, typed `run/start`, `log` helper, stdout guard).
+- A TypeScript SDK (framing, typed `run/start`, `log` helper, and a stdout
+  guard that redirects `console.log` and other stray stdout writes to stderr,
+  since a non-protocol stdout line fails the run).
 - A Mastra adapter that maps `run/start` to `start`/`resume` and persists
   snapshots plus handled event ids.
 - Agent → gritz custom events, if logs and `report` turn out to be too little.
-
-## Open Questions
-
-- Should `run/start` carry the task's standing links on the first run, the
-  same links the first-run prompt renders? The agent can call `get_my_task`
-  for them, but the CLI agents get them without a round trip.
-- Is 10s the right `cancelGrace`, and should it be configurable per workspace
-  (`gritzrpc.cancel_grace`) for workflows whose checkpointing is slow?
