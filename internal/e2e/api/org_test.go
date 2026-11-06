@@ -99,55 +99,87 @@ func TestAddAndListOrgMembers(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 2))
 }
 
-func TestDeleteOrg_WithTasks(t *testing.T) {
+func TestDeleteOrg_RefusedWhileTaskActive(t *testing.T) {
 	t.Parallel()
-	// Arrange - a draft, a running task with a token, an enabled schedule and
-	// an Atlassian webhook.
+	// Arrange
 	h := e2e.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
-	draft := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	running := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	created.UpdateTask(&gritzv1.UpdateTaskRequest{Id: running.ID, Start: true})
+	task := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
+	created.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	created.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: running.ID, Event: "started", Version: 1}},
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "started", Version: 1}},
 	})
-	token := created.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: running.ID})
-	sched := created.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: true})
-	webhook, err := created.Client.GenerateAtlassianWebhookSecret(t.Context(), &gritzv1.GenerateAtlassianWebhookSecretRequest{})
-	assert.NilError(t, err)
 
-	// Act & Assert - refused while a task is running.
-	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	// Act & Assert - refused while the task is running.
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
 
 	// Act & Assert - allowed once it has stopped.
 	created.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: running.ID, Event: "stopped", Version: 1}},
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: "stopped", Version: 1}},
 	})
 	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	assert.NilError(t, err)
+}
+
+func TestDeleteOrg_ArchivesTasks(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
+	task := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
+	token := created.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
+
+	// Act
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+
+	// Assert - the org is gone and its task archived. The task is read from
+	// the store: the org is archived, so no RPC reaches it.
 	assert.NilError(t, err)
 	for _, o := range h.Org.ListOrgs(&gritzv1.ListOrgsRequest{}) {
 		assert.Assert(t, o.Id != created.ID)
 	}
+	got, err := h.Server.Store.GetTask(t.Context(), nil, task.ID, created.ID)
+	assert.NilError(t, err)
+	assert.Assert(t, got.Archived)
 
-	// Assert - the org's tasks are archived and its schedules disabled. Read
-	// from the store: the org is archived, so no RPC reaches it.
-	for _, id := range []int64{draft.ID, running.ID} {
-		task, err := h.Server.Store.GetTask(t.Context(), nil, id, created.ID)
-		assert.NilError(t, err)
-		assert.Assert(t, task.Archived, "task %d", id)
-	}
+	// Act & Assert - the task token is revoked.
+	_, err = token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
+	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+}
+
+func TestDeleteOrg_DisablesSchedules(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-schedules"})
+	sched := created.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: true})
+
+	// Act
+	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+
+	// Assert - read from the store: the org is archived, so no RPC reaches it.
+	assert.NilError(t, err)
 	got, err := h.Server.Store.GetSchedule(t.Context(), nil, sched.Id, created.ID)
 	assert.NilError(t, err)
 	assert.Assert(t, !got.Enabled)
 	assert.Assert(t, got.NextRunAt == nil)
+}
 
-	// Act & Assert - the task token is revoked.
-	_, err = token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: running.ID})
-	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-webhook"})
+	webhook, err := created.Client.GenerateAtlassianWebhookSecret(t.Context(), &gritzv1.GenerateAtlassianWebhookSecretRequest{})
+	assert.NilError(t, err)
+	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	assert.NilError(t, err)
 
-	// Act & Assert - a correctly signed Atlassian webhook is rejected.
+	// Act
 	resp := h.Atlassian.SendWebhook(webhook, []byte("{}"))
+
+	// Assert
 	assert.Equal(t, resp.StatusCode, http.StatusForbidden)
 	assert.Assert(t, cmp.Contains(resp.Body, "webhook not configured"))
 }
