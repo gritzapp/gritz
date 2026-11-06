@@ -1,10 +1,15 @@
 package api_test
 
 import (
+	"bytes"
+	"io"
+	"net/http"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/atlassian"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -99,19 +104,63 @@ func TestAddAndListOrgMembers(t *testing.T) {
 
 func TestDeleteOrg_WithTasks(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - a draft, a running task with a token, an enabled schedule and
+	// an Atlassian webhook.
 	h := e2e.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
-	created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
+	draft := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
+	running := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
+	created.UpdateTask(&gritzv1.UpdateTaskRequest{Id: running.ID, Start: true})
+	created.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: running.ID, Event: "started", Version: 1}},
+	})
+	token := created.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: running.ID})
+	sched := created.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: true})
+	webhook, err := created.Client.GenerateAtlassianWebhookSecret(t.Context(), &gritzv1.GenerateAtlassianWebhookSecretRequest{})
+	assert.NilError(t, err)
 
-	// Act
-	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	// Act & Assert - refused while a task is running.
+	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
 
-	// Assert
+	// Act & Assert - allowed once it has stopped.
+	created.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{{TaskId: running.ID, Event: "stopped", Version: 1}},
+	})
+	_, err = h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 	assert.NilError(t, err)
 	for _, o := range h.Org.ListOrgs(&gritzv1.ListOrgsRequest{}) {
 		assert.Assert(t, o.Id != created.ID)
 	}
+
+	// Assert - the org's tasks are archived and its schedules disabled. Read
+	// from the store: the org is archived, so no RPC reaches it.
+	for _, id := range []int64{draft.ID, running.ID} {
+		task, err := h.Server.Store.GetTask(t.Context(), nil, id, created.ID)
+		assert.NilError(t, err)
+		assert.Assert(t, task.Archived, "task %d", id)
+	}
+	got, err := h.Server.Store.GetSchedule(t.Context(), nil, sched.Id, created.ID)
+	assert.NilError(t, err)
+	assert.Assert(t, !got.Enabled)
+	assert.Assert(t, got.NextRunAt == nil)
+
+	// Act & Assert - the task token is revoked.
+	_, err = token.Client.GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: running.ID})
+	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+
+	// Act & Assert - a correctly signed Atlassian webhook is rejected.
+	body := []byte("{}")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, webhook.WebhookUrl, bytes.NewReader(body))
+	assert.NilError(t, err)
+	req.Header.Set("X-Hub-Signature", atlassian.SignWebhook(body, webhook.Secret))
+	resp, err := http.DefaultClient.Do(req)
+	assert.NilError(t, err)
+	defer resp.Body.Close()
+	msg, err := io.ReadAll(resp.Body)
+	assert.NilError(t, err)
+	assert.Equal(t, resp.StatusCode, http.StatusForbidden)
+	assert.Assert(t, cmp.Contains(string(msg), "webhook not configured"))
 }
 
 func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {

@@ -67,6 +67,15 @@ func (s *Store) ListTasks(ctx context.Context, tx *sql.Tx, orgID int64) ([]*mode
 	return toModelTasks(rows)
 }
 
+// ListTasksForUpdate returns the org's active tasks, locked until tx commits.
+func (s *Store) ListTasksForUpdate(ctx context.Context, tx *sql.Tx, orgID int64) ([]*model.Task, error) {
+	rows, err := s.q(tx).ListTasksForUpdate(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return toModelTasks(rows)
+}
+
 // taskCursor is the keyset a task page token encodes. created_at is not
 // unique, so id is the tiebreaker. Archived binds the token to the filter it
 // was minted under so a cursor can't be silently replayed across filters; the

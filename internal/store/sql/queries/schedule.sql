@@ -28,6 +28,11 @@ WHERE id = $14 AND org_id = $15;
 -- name: DeleteSchedule :exec
 DELETE FROM schedules WHERE id = $1 AND org_id = $2;
 
+-- name: DisableSchedules :exec
+UPDATE schedules
+SET enabled = FALSE, next_run_at = NULL, updated_at = (NOW() AT TIME ZONE 'UTC')
+WHERE org_id = $1;
+
 -- name: ClaimDueSchedules :many
 -- Lock and return up to $1 due, enabled schedules, skipping any row another server
 -- instance already holds. FOR UPDATE SKIP LOCKED makes the claim atomic across instances:
