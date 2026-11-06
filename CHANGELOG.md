@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.3.1](https://github.com/gritzapp/gritz/compare/v4.3.0...v4.3.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **runner:** stop the local driver's reaper removing its successor's pid file ([a777ec6](https://github.com/gritzapp/gritz/commit/a777ec6bedf77e66368470eb7fd41f1ac2a97503))
+
 ## [4.3.0](https://github.com/gritzapp/gritz/compare/v4.2.3...v4.3.0) (2026-11-06)
 
 
