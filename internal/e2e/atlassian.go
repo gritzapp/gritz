@@ -4,15 +4,30 @@ import (
 	"bytes"
 	"io"
 	"net/http"
-	"testing"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/atlassian"
 )
 
-// Atlassian plays Jira: it delivers webhooks to the server.
-type Atlassian struct {
-	t *testing.T
+// AtlassianWebhook is an org's Atlassian webhook, as Jira is configured with it.
+type AtlassianWebhook struct {
+	// Resp is the GenerateAtlassianWebhookSecret response the webhook was made
+	// from.
+	Resp *gritzv1.GenerateAtlassianWebhookSecretResponse
+
+	org *Org
+}
+
+// GenerateAtlassianWebhookSecret generates the org's Atlassian webhook secret,
+// as the settings page does.
+func (o *Org) GenerateAtlassianWebhookSecret(req *gritzv1.GenerateAtlassianWebhookSecretRequest) *AtlassianWebhook {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.GenerateAtlassianWebhookSecret(t.Context(), req)
+	if err != nil {
+		t.Fatalf("GenerateAtlassianWebhookSecret: %v", err)
+	}
+	return &AtlassianWebhook{Resp: resp, org: o}
 }
 
 // WebhookResponse is the server's reply to a webhook delivery.
@@ -21,24 +36,24 @@ type WebhookResponse struct {
 	Body       string
 }
 
-// SendWebhook delivers payload to an org's webhook, as Jira does: posted to
-// its URL and signed with its secret.
-func (a *Atlassian) SendWebhook(webhook *gritzv1.GenerateAtlassianWebhookSecretResponse, payload []byte) *WebhookResponse {
-	t := a.t
+// Send delivers payload to the webhook, as Jira does: posted to its URL and
+// signed with its secret.
+func (w *AtlassianWebhook) Send(payload []byte) *WebhookResponse {
+	t := w.org.server.t
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, webhook.WebhookUrl, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.Resp.WebhookUrl, bytes.NewReader(payload))
 	if err != nil {
-		t.Fatalf("SendWebhook: %v", err)
+		t.Fatalf("Send: %v", err)
 	}
-	req.Header.Set("X-Hub-Signature", atlassian.SignWebhook(payload, webhook.Secret))
+	req.Header.Set("X-Hub-Signature", atlassian.SignWebhook(payload, w.Resp.Secret))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("SendWebhook: %v", err)
+		t.Fatalf("Send: %v", err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("SendWebhook: %v", err)
+		t.Fatalf("Send: %v", err)
 	}
 	return &WebhookResponse{StatusCode: resp.StatusCode, Body: string(body)}
 }
