@@ -53,9 +53,8 @@ go build            # Build main binary only
 
 ## Events
 
-Agents can attach **links** to their tasks for external resources they create (PRs, Jira issues, etc.). Links created with `subscribe=true` act as subscriptions. When a new event occurs on the resource, the agent is automatically restarted to respond.
-
-![Events](images/events.svg)
+Links, subscriptions and how events wake tasks are covered in
+[Events and links](https://docs.gritz.dev/concepts/events-and-links/).
 
 ## Architecture
 
