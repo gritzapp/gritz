@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -9,6 +8,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/customserver"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -62,24 +62,37 @@ func TestPostCustomEvent(t *testing.T) {
 	})
 
 	// Assert
-	assert.Equal(t, resp.StatusCode, http.StatusOK, resp.Body)
-	var body struct {
-		Routed int `json:"routed"`
-	}
-	assert.NilError(t, json.Unmarshal([]byte(resp.Body), &body))
-	assert.Equal(t, body.Routed, 1)
-	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
-	assert.Equal(t, len(tasks), 1)
-	assert.Equal(t, tasks[0].Status, gritzv1.TaskStatus_PENDING)
-	events := h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})
-	assert.Equal(t, len(events), 1)
-	assert.Equal(t, events[0].TaskId, tasks[0].Id)
-	assert.DeepEqual(t, events[0].GetExternal(), &gritzv1.ExternalPayload{
-		Description: "Dynatrace Problem",
-		Url:         url,
-		Data:        "CPU saturation on host web-1",
-		Details:     map[string]string{"state": "OPEN"},
-		Source:      "custom",
-		Type:        "problem",
-	}, protocmp.Transform())
+	assert.DeepEqual(t,
+		resp,
+		&e2e.WebhookResponse{StatusCode: http.StatusOK, Body: "{\"routed\":1}\n"},
+	)
+	assert.DeepEqual(t,
+		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
+		[]*gritzv1.Task{{
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			Status:      gritzv1.TaskStatus_PENDING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Cancel: true},
+			AutoArchive: durationpb.New(0),
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "id", "created_at", "updated_at"),
+	)
+	assert.DeepEqual(t,
+		h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{}),
+		[]*gritzv1.Event{{
+			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+				Description: "Dynatrace Problem",
+				Url:         url,
+				Data:        "CPU saturation on host web-1",
+				Details:     map[string]string{"state": "OPEN"},
+				Source:      "custom",
+				Type:        "problem",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"),
+	)
 }
