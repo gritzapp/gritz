@@ -1,9 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import {
-  type EventTypeDef,
-  type RoutingRule,
-  RoutingRuleSchema,
-} from '@/gen/gritz/v1/gritz_pb'
+import { type EventTypeDef, type RoutingRule, RoutingRuleSchema } from '@/gen/gritz/v1/gritz_pb'
 import { durationFromHours, hoursFromDuration } from '@/lib/duration'
 
 // The condition operators the backend understands. Op semantics are literal
