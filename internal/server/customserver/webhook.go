@@ -14,7 +14,6 @@ import (
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
@@ -30,15 +29,16 @@ type Envelope struct {
 	Details map[string]string   `json:"details"`
 }
 
-// toInputEvent validates env against the org's custom types and builds the
+// toInputEvent validates env against the custom types in reg and builds the
 // event to route. The URL is used as sent: it is the subscription key, so
 // every event about the same resource must send the same one.
-func toInputEvent(env Envelope, types []model.EventTypeDef, orgID int64) (eventrouter.InputEvent, error) {
-	i := slices.IndexFunc(types, func(def model.EventTypeDef) bool { return def.Type == env.Type })
-	if i < 0 {
+func toInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (eventrouter.InputEvent, error) {
+	// The source is pinned to custom, so a type named like a built-in one
+	// can't resolve to the built-in schema.
+	def, ok := reg.EventTypeFor(eventrouter.SourceCustom, env.Type)
+	if !ok {
 		return eventrouter.InputEvent{}, fmt.Errorf("unknown event type %q", env.Type)
 	}
-	def := types[i]
 	if env.URL == "" {
 		return eventrouter.InputEvent{}, errors.New("url is required")
 	}
@@ -107,7 +107,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	input, err := toInputEvent(env, types, caller.OrgID)
+	reg := eventrouter.DefaultSchemaRegistry.With(types...)
+	input, err := toInputEvent(env, reg, caller.OrgID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
