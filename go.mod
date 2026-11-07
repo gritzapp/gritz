@@ -2,6 +2,13 @@ module github.com/gritzapp/gritz
 
 go 1.27.3
 
+// Keep ./... out of the pnpm projects' dependencies.
+ignore (
+	./diagrams/node_modules
+	./docs/node_modules
+	./webui/node_modules
+)
+
 require (
 	connectrpc.com/connect v1.20.0
 	connectrpc.com/otelconnect v0.9.0

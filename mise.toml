@@ -51,6 +51,10 @@ run = "cd webui && pnpm install --frozen-lockfile && pnpm dev"
 description = "Start the Motion Canvas editor for the flow diagrams in diagrams/"
 run = "cd diagrams && pnpm install --frozen-lockfile && pnpm start"
 
+[tasks.docs]
+description = "Start the docs dev server for docs/"
+run = "cd docs && pnpm install --frozen-lockfile && pnpm dev"
+
 [tasks.install]
 description = "Build and install gritz bin"
 run = [
