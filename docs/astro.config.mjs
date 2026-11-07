@@ -13,7 +13,8 @@ const base = process.env.DOCS_BASE;
 // Astro prefixes its own URLs with the base, but not root-relative links written
 // in Markdown, such as [envelope](/reference/custom-event-envelope/). In a
 // preview this prefixes them, ahead of the links validator, so they stay inside
-// the preview and are checked against its pages.
+// the preview and are checked against its pages. /diagrams/ is left alone: the
+// diagrams are a separate site at the root, and a preview links master's.
 const baseLinks = {
 	name: 'base-links',
 	hooks: {
@@ -25,7 +26,7 @@ const baseLinks = {
 					filter: ['a'],
 					visit(node, ctx) {
 						const href = node.properties.href;
-						if (typeof href === 'string' && /^\/(?!\/)/.test(href)) {
+						if (typeof href === 'string' && /^\/(?!\/|diagrams\/)/.test(href)) {
 							ctx.setProperty(node, 'href', base.replace(/\/$/, '') + href);
 						}
 					},
@@ -97,7 +98,9 @@ export default defineConfig({
 				Head: './src/components/Head.astro',
 			},
 			plugins: [
-				starlightLinksValidator(),
+				// /diagrams/ is a separate deploy, not a docs page, and a page may
+				// reference a diagram that hasn't merged yet.
+				starlightLinksValidator({ exclude: ['/diagrams/**'] }),
 				// llms-full.txt, llms-small.txt and the Users and Operators sets.
 				llmsTxt({
 					projectName: 'gritz',

@@ -1,0 +1,34 @@
+---
+// Embeds a diagram from the diagrams site, which plays it in its `?embed` mode,
+// with a caption linking to its own page, which is what a reader without JS
+// gets. Diagrams always come from the root /diagrams/, never the base: a docs
+// preview embeds master's diagrams. `slug` is the project's path under
+// diagrams/src/projects/, e.g. `create-task`.
+interface Props {
+	slug: string;
+}
+
+const { slug } = Astro.props;
+const href = `/diagrams/${slug}/`;
+---
+
+<figure class="diagram">
+	<iframe src={`${href}?embed`} title={`${slug} diagram`} loading="lazy"></iframe>
+	<figcaption><a href={href}>Open the {slug} diagram</a></figcaption>
+</figure>
+
+<style>
+	iframe {
+		display: block;
+		width: 100%;
+		/* The 16:9 player and its controls beneath it. */
+		aspect-ratio: 4 / 3;
+		border: 1px solid var(--sl-color-gray-5);
+		border-radius: 0.5rem;
+		background: #101216;
+	}
+	figcaption {
+		margin-top: 0.5rem;
+		font-size: var(--sl-text-sm);
+	}
+</style>

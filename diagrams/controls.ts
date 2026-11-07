@@ -18,6 +18,9 @@ interface PlayerElement extends HTMLElement {
 
 const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
 
+// Set by site.ts on a page opened with `?embed`, inside another page's iframe.
+const embedded = document.documentElement.classList.contains('embed');
+
 const style = `
   .mc-controls {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
@@ -41,6 +44,7 @@ const style = `
   .mc-scenes button { padding: 4px 8px; font-size: 13px; color: #8b93a1; }
   .mc-scenes button.mc-current { color: #e6e8eb; border-color: #5aa9e6; }
   .mc-hint { color: #8b93a1; font-size: 13px; margin-left: auto; }
+  .embed .mc-hint { display: none; }
 `;
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -276,8 +280,10 @@ for (const host of document.querySelectorAll<PlayerElement>('motion-canvas-playe
   // The player resolves `src` against its own module URL, so hand it an
   // absolute URL built from the page's location.
   host.setAttribute('src', new URL(host.dataset.src!, location.href).href);
+  // An embed waits for the reader to press play instead of animating in the
+  // middle of the page around it.
   ready(host).then(player => {
     mount(host, player);
-    host.setPlaying(true);
+    if (!embedded) host.setPlaying(true);
   });
 }
