@@ -21,21 +21,36 @@ Type-check with `cd diagrams && npx tsc --noEmit -p .`.
 
 ## Published site and PR previews
 
-Every project is published to GitHub Pages, served from the `gh-pages` branch
-(`https://gritzapp.github.io/gritz/diagrams/`), with an index page and one page per
-project that plays it with the `@motion-canvas/player` web component:
+The docs build in `docs/` builds this project too (`cd docs && pnpm build` runs
+`pnpm diagrams`, which builds into `docs/public/diagrams/`), so every project is
+published with the docs site at `https://docs.gritz.dev/diagrams/`: an index page
+and one page per project, `/diagrams/<slug>/`, that plays it with the
+`@motion-canvas/player` web component.
 
-- `.github/workflows/diagrams-pages.yml` deploys master to `/diagrams/` on
-  every push touching `diagrams/`.
-- `.github/workflows/diagrams-preview.yml` deploys a PR touching `diagrams/` to
-  `/diagrams/pr/<number>/`, keeps one PR comment with the link, and removes the preview
-  when the PR closes. PRs from forks get no preview.
+- `.github/workflows/docs-pages.yml` deploys master on every push touching
+  `docs/` or `diagrams/`.
+- `.github/workflows/docs-preview.yml` deploys a PR touching either to
+  `/pr/<number>/`, diagrams under `/pr/<number>/diagrams/`, keeps one PR comment
+  with the link, and removes the preview when the PR closes. PRs from forks get
+  no preview.
 
 When a proposal has a project, link its preview page (e.g.
-`https://gritzapp.github.io/gritz/diagrams/pr/<number>/proposals/<flow>/`) in the PR so
-reviewers can watch it. `site.ts` generates the pages during `pnpm build`
-(`cd diagrams && pnpm build`, output in `dist/`); every URL in it is relative
-so the same build works under `/diagrams/` and `/diagrams/pr/<n>/`.
+`https://docs.gritz.dev/pr/<number>/diagrams/proposals/<flow>/`) in the PR so
+reviewers can watch it. `site.ts` generates the pages during the Vite build
+(`cd diagrams && pnpm build` alone writes `dist/`); every URL in them is
+relative, so the same build works under the docs root and a preview's
+`/pr/<n>/`. It names each project's bundle `<slug>/project.js` and the controls
+`controls.js`, which is what the docs' `Diagram` component loads.
+
+### In a docs page
+
+`<Diagram slug="create-task" />` in an `.mdx` page under `docs/src/content/docs/`
+(`import Diagram from '<relative path>/components/Diagram.astro'`) plays the
+project inline, sized to the content column, with the controls below it and a
+link to its own page (the no-JS fallback). It doesn't autoplay, and its keys
+work only while the player or its controls have focus. The controls follow the
+docs' light/dark theme through `--mc-*` CSS properties; the canvas keeps the
+scene's own dark background. The build fails on a slug with no project.
 
 ### Pausing at each step
 
@@ -45,7 +60,8 @@ flow moves on:
 - **Published player.** `controls.ts` adds playback controls under the player
   (scrubber, frame stepping, speed, loop) and a **Pause at steps** mode, on by
   default: playback stops at the start of every step, on the previous step's
-  end state, and Space continues. `s` toggles the mode. Seeks, scrubbing and
+  end state, and Space continues. `s` toggles the mode. On a project's own page
+  (`data-page`) the player autoplays and the keys work page-wide. Seeks, scrubbing and
   the loop back to the start never pause.
 - **Editor.** Presentation mode stops at every step; Space or → advances one
   step (Enter is not bound). Normal editor playback plays straight through.

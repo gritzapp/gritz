@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview"
+    "dev": "pnpm run diagrams && astro dev",
+    "build": "pnpm run diagrams && astro build",
+    "preview": "astro preview",
+    "diagrams": "pnpm --dir ../diagrams install --frozen-lockfile && pnpm --dir ../diagrams run build --outDir ../docs/public/diagrams --emptyOutDir"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.42.10",

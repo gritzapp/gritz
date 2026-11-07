@@ -1,21 +1,22 @@
 name: Docs Pages
 
-# Publishes the Starlight docs site in docs/ to the root of the gh-pages
-# branch, served at docs.gritz.dev. The diagrams under /diagrams/ (see
-# diagrams-pages.yml) and the docs previews under /pr/ are left alone.
+# Publishes the Starlight docs site in docs/, with the Motion Canvas diagrams in
+# diagrams/ built into its /diagrams/, to the root of the gh-pages branch,
+# served at docs.gritz.dev. The docs previews under /pr/ are left alone.
 
 on:
   push:
     branches: [ master ]
     paths:
       - 'docs/**'
+      - 'diagrams/**'
       - '.github/workflows/docs-pages.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# Shared by every workflow that pushes to gh-pages.
+# Shared by the two workflows that push to gh-pages.
 concurrency:
   group: gh-pages
   cancel-in-progress: false
@@ -36,12 +37,15 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
-          cache-dependency-path: docs/pnpm-lock.yaml
+          cache-dependency-path: |
+            docs/pnpm-lock.yaml
+            diagrams/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
         working-directory: docs
 
+      # Also installs and builds diagrams/ into docs/public/diagrams/.
       - name: Build
         run: pnpm run build
         working-directory: docs
@@ -51,10 +55,8 @@ jobs:
         with:
           branch: gh-pages
           folder: docs/dist
-          # Cleans the whole branch root except the diagrams site and the docs
-          # previews. .nojekyll comes from docs/public/. GitHub manages the root
-          # CNAME from the Pages settings, and the action never deletes it.
-          clean-exclude: |
-            diagrams/
-            pr/
+          # Cleans the whole branch root except the docs previews. .nojekyll
+          # comes from docs/public/. GitHub manages the root CNAME from the Pages
+          # settings, and the action never deletes it.
+          clean-exclude: pr/
           commit-message: 'docs: publish docs for ${{ github.sha }}'

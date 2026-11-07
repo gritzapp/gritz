@@ -1,13 +1,13 @@
-// Turns `vite build` into a static site for GitHub Pages: an index listing
-// every project and a page per project that plays it with the
+// Turns `vite build` into a static site, built into the docs site's
+// public/diagrams/ (see docs/package.json) and served under its /diagrams/: an
+// index listing every project and a page per project that plays it with the
 // @motion-canvas/player web component and the playback controls in
-// controls.ts. Every URL is relative, so the same build works under
-// /diagrams/ and under a PR preview's /diagrams/pr/<n>/.
+// controls.ts. Every URL in the pages is relative, so the same build works
+// under the docs root and under a PR preview's /pr/<n>/.
 //
-// A project page with `?embed` is for an iframe, such as the docs' Diagram
-// component: the head script marks the page before it renders, so the "All
-// diagrams" link and the heading never show, and the player and its controls
-// fill the frame.
+// A project's bundle is always <slug>/project.js and the controls are always
+// controls.js, so the docs' Diagram component can play a project inline from
+// its slug alone.
 
 import path from 'path';
 import type {Plugin} from 'vite';
@@ -26,16 +26,7 @@ const style = `
   h1 { font-size: 24px; }
   h2 { font-size: 18px; color: #8b93a1; }
   motion-canvas-player { display: block; width: 100%; aspect-ratio: 16 / 9; }
-  .embed body {
-    display: flex; flex-direction: column;
-    height: 100vh; max-width: none; padding: 0 8px 8px; box-sizing: border-box;
-  }
-  .embed .chrome { display: none; }
-  .embed motion-canvas-player { flex: 1; min-height: 0; aspect-ratio: auto; }
 `;
-
-// Sets the embed class on <html> before the body renders; controls.ts reads it.
-const embed = `if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');`;
 
 const escape = (s: string) =>
   s.replace(
@@ -43,13 +34,13 @@ const escape = (s: string) =>
     c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]!,
   );
 
-const page = (title: string, body: string, head = '') => `<!doctype html>
+const page = (title: string, body: string) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(title)}</title>
-<style>${style}</style>${head}
+<style>${style}</style>
 </head>
 <body>
 ${body}
@@ -61,52 +52,52 @@ ${body}
 const relative = (from: string, to: string) =>
   path.posix.relative(path.posix.dirname(from), to) || '.';
 
-export function site(): Plugin {
-  let controlsRef: string;
+// The project file's path under src/projects without the extension, e.g.
+// `create-task` or `proposals/restart`, for a project entry's module ID.
+const slugOf = (id: string | null) =>
+  id?.endsWith('?project')
+    ? path.posix
+        .relative(path.posix.resolve(PROJECTS_DIR), id.split('?')[0])
+        .replace(/\.ts$/, '')
+    : undefined;
 
+export function site(): Plugin {
   return {
     name: 'gritz:site',
     apply: 'build',
-    config: () => ({base: './'}),
+    config: () => ({
+      base: './',
+      build: {
+        rollupOptions: {
+          output: {
+            entryFileNames: chunk => {
+              const slug = slugOf(chunk.facadeModuleId);
+              return slug ? `${slug}/project.js` : '[name]-[hash].js';
+            },
+          },
+        },
+      },
+    }),
     buildStart() {
-      controlsRef = this.emitFile({type: 'chunk', id: CONTROLS, name: 'controls'});
+      this.emitFile({type: 'chunk', id: CONTROLS, fileName: 'controls.js'});
     },
     generateBundle(_, bundle) {
-      // Serve files as-is; Jekyll would drop chunks whose names start with `_`.
-      this.emitFile({type: 'asset', fileName: '.nojekyll', source: ''});
-
-      const controls = this.getFileName(controlsRef);
-
-      // `slug` is the project file's path under src/projects without the
-      // extension, e.g. `create-task` or `proposals/restart`.
       const projects = Object.values(bundle)
-        .flatMap(chunk =>
-          chunk.type === 'chunk' &&
-          chunk.isEntry &&
-          chunk.facadeModuleId?.endsWith('?project')
-            ? [{chunk, file: chunk.facadeModuleId.split('?')[0]}]
-            : [],
-        )
-        .map(({chunk, file}) => ({
-          slug: path.posix
-            .relative(path.posix.resolve(PROJECTS_DIR), file)
-            .replace(/\.ts$/, ''),
-          src: chunk.fileName,
-        }))
+        .flatMap(chunk => {
+          const slug = chunk.type === 'chunk' && chunk.isEntry && slugOf(chunk.facadeModuleId);
+          return slug ? [{slug, src: chunk.fileName}] : [];
+        })
         .sort((a, b) => a.slug.localeCompare(b.slug));
 
       for (const {slug, src} of projects) {
         const fileName = `${slug}/index.html`;
-        // controls.ts turns data-src into the player's src.
-        const body = `<p class="chrome"><a href="${relative(fileName, 'index.html')}">All diagrams</a></p>
-<h1 class="chrome">${escape(slug)}</h1>
-<motion-canvas-player data-src="${relative(fileName, src)}"></motion-canvas-player>
-<script type="module" src="${relative(fileName, controls)}"></script>`;
-        this.emitFile({
-          type: 'asset',
-          fileName,
-          source: page(slug, body, `\n<script>${embed}</script>`),
-        });
+        // controls.ts turns data-src into the player's src; data-page makes the
+        // player autoplay and take the page's keys.
+        const body = `<p><a href="${relative(fileName, 'index.html')}">All diagrams</a></p>
+<h1>${escape(slug)}</h1>
+<motion-canvas-player data-src="${relative(fileName, src)}" data-page></motion-canvas-player>
+<script type="module" src="${relative(fileName, 'controls.js')}"></script>`;
+        this.emitFile({type: 'asset', fileName, source: page(slug, body)});
       }
 
       const groups = new Map<string, string[]>();

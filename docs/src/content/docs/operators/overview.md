@@ -64,7 +64,7 @@ matches the runner. Upgrade the server and the runners to the same release; see
 [Deployment](/operators/deployment/#upgrades).
 
 Animated walkthroughs of how these parts interact, such as creating a task, are
-on the [diagrams site](https://docs.gritz.dev/diagrams/).
+on the [diagrams site](/diagrams/).
 
 ## Data model
 
