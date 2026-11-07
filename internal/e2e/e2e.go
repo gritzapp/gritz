@@ -14,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/server"
 	"github.com/gritzapp/gritz/internal/server/atlassianserver"
+	"github.com/gritzapp/gritz/internal/server/customserver"
 	"github.com/gritzapp/gritz/internal/server/notifyserver"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -92,6 +93,10 @@ func New(t *testing.T, opts *Options) *Harness {
 		Atlassian: atlassianserver.New(atlassianserver.Options{
 			Store:     st,
 			BaseURL:   baseURL,
+			Publisher: ps,
+		}),
+		Custom: customserver.New(customserver.Options{
+			Store:     st,
 			Publisher: ps,
 		}),
 		Notify: notifyserver.New(notifyserver.Options{

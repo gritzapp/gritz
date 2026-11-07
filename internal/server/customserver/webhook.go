@@ -1,5 +1,3 @@
-// Package customserver accepts events of an org's custom event types and
-// routes them like the built-in GitHub and Atlassian events.
 package customserver
 
 import (
