@@ -30,10 +30,10 @@ type Envelope struct {
 	Details map[string]string   `json:"details"`
 }
 
-// ToInputEvent validates env against the org's custom types and builds the
+// toInputEvent validates env against the org's custom types and builds the
 // event to route. The URL is used as sent: it is the subscription key, so
 // every event about the same resource must send the same one.
-func ToInputEvent(env Envelope, types []model.EventTypeDef, orgID int64) (eventrouter.InputEvent, error) {
+func toInputEvent(env Envelope, types []model.EventTypeDef, orgID int64) (eventrouter.InputEvent, error) {
 	i := slices.IndexFunc(types, func(def model.EventTypeDef) bool { return def.Type == env.Type })
 	if i < 0 {
 		return eventrouter.InputEvent{}, fmt.Errorf("unknown event type %q", env.Type)
@@ -107,7 +107,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	input, err := ToInputEvent(env, types, caller.OrgID)
+	input, err := toInputEvent(env, types, caller.OrgID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
