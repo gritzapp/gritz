@@ -1,7 +1,6 @@
 package eventrouter
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -198,22 +197,7 @@ func TestSchemaRegistryWith(t *testing.T) {
 	assert.Assert(t, !ok, "reg.EventTypeFor(test, label) = _, true; want miss")
 }
 
-// testCustomProblem is a well-formed custom event type, the base each malformed
-// case in TestValidateCustomEventTypes derives from.
-var testCustomProblem = model.EventTypeDef{
-	Source: SourceCustom,
-	Type:   "problem",
-	Label:  "Custom: Problem",
-	Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
-}
-
 func TestValidateCustomEventTypes(t *testing.T) {
-	with := func(f func(def *model.EventTypeDef)) model.EventTypeDef {
-		def := testCustomProblem
-		def.Attrs = slices.Clone(def.Attrs)
-		f(&def)
-		return def
-	}
 	tests := []struct {
 		name    string
 		defs    []model.EventTypeDef
@@ -225,108 +209,229 @@ func TestValidateCustomEventTypes(t *testing.T) {
 		{
 			name: "valid types",
 			defs: []model.EventTypeDef{
-				testCustomProblem,
-				with(func(def *model.EventTypeDef) { def.Type = "deploy_finished_2" }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+				{
+					Source: SourceCustom,
+					Type:   "deploy_finished_2",
+					Label:  "Custom: Deploy Finished",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}},
+				},
 			},
 		},
 		{
 			name: "64-char type",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Type = "a" + strings.Repeat("b", 63) }),
+				{
+					Source: SourceCustom,
+					Type:   "a" + strings.Repeat("b", 63),
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
 			},
 		},
 		{
-			name:    "non-custom source",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Source = "github" })},
+			name: "non-custom source",
+			defs: []model.EventTypeDef{
+				{
+					Source: "github",
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `source must be "custom"`,
 		},
 		{
-			name:    "empty source",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Source = "" })},
+			name: "empty source",
+			defs: []model.EventTypeDef{
+				{
+					Source: "",
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `source must be "custom"`,
 		},
 		{
-			name:    "empty type",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "" })},
+			name: "empty type",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `type "" must match`,
 		},
 		{
-			name:    "uppercase type",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "Problem" })},
+			name: "uppercase type",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "Problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `type "Problem" must match`,
 		},
 		{
-			name:    "type starting with digit",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "1problem" })},
+			name: "type starting with digit",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "1problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `type "1problem" must match`,
 		},
 		{
-			name:    "type with hyphen",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "problem-opened" })},
+			name: "type with hyphen",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "problem-opened",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `type "problem-opened" must match`,
 		},
 		{
 			name: "65-char type",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Type = "a" + strings.Repeat("b", 64) }),
+				{
+					Source: SourceCustom,
+					Type:   "a" + strings.Repeat("b", 64),
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
 			},
 			wantErr: "must match",
 		},
 		{
-			name:    "duplicate type",
-			defs:    []model.EventTypeDef{testCustomProblem, testCustomProblem},
+			name: "duplicate type",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem Again",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: `duplicate type "problem"`,
 		},
 		{
-			name:    "empty label",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Label = "" })},
+			name: "empty label",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+			},
 			wantErr: "empty label",
 		},
 		{
 			name: "empty attr key",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Attrs = append(def.Attrs, model.AttrDef{}) }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {}},
+				},
 			},
 			wantErr: `attr key "" must match`,
 		},
 		{
 			name: "malformed attr key",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Attrs = append(def.Attrs, model.AttrDef{Key: "Host.Name"}) }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "Host.Name"}},
+				},
 			},
 			wantErr: `attr key "Host.Name" must match`,
 		},
 		{
 			name: "duplicate attr key",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Attrs = append(def.Attrs, model.AttrDef{Key: "severity"}) }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}, {Key: "severity"}},
+				},
 			},
 			wantErr: `duplicate attr key "severity"`,
 		},
 		{
 			name: "missing body attr",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Attrs = []model.AttrDef{{Key: "url"}, {Key: "severity"}} }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "url"}, {Key: "severity"}},
+				},
 			},
 			wantErr: `missing required attr "body"`,
 		},
 		{
 			name: "missing url attr",
 			defs: []model.EventTypeDef{
-				with(func(def *model.EventTypeDef) { def.Attrs = []model.AttrDef{{Key: "body"}, {Key: "severity"}} }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "severity"}},
+				},
 			},
 			wantErr: `missing required attr "url"`,
 		},
 		{
-			name:    "no attrs",
-			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Attrs = nil })},
+			name: "no attrs",
+			defs: []model.EventTypeDef{
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+				},
+			},
 			wantErr: `missing required attr "body"`,
 		},
 		{
 			name: "malformed type after a valid one",
 			defs: []model.EventTypeDef{
-				testCustomProblem,
-				with(func(def *model.EventTypeDef) { def.Type = "alert"; def.Label = "" }),
+				{
+					Source: SourceCustom,
+					Type:   "problem",
+					Label:  "Custom: Problem",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
+				{
+					Source: SourceCustom,
+					Type:   "alert",
+					Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+				},
 			},
 			wantErr: `event type "alert": empty label`,
 		},
@@ -346,7 +451,12 @@ func TestValidateCustomEventTypes(t *testing.T) {
 func TestSchemaRegistryValidateCustom(t *testing.T) {
 	builtin := NewSchemaRegistry()
 	builtin.MustRegister(testComment)
-	reg := builtin.With(testCustomProblem)
+	reg := builtin.With(model.EventTypeDef{
+		Source: SourceCustom,
+		Type:   "problem",
+		Label:  "Custom: Problem",
+		Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+	})
 
 	tests := []struct {
 		name    string
