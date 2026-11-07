@@ -26,7 +26,13 @@ type testDriver struct {
 	run func(ctx context.Context, stream *runStream) error
 }
 
+// Run reads the first request before handing the stream to run, as the real
+// driver server does. A handler that sent and returned without reading it
+// could reset the stream while the client's first Send was still writing.
 func (d *testDriver) Run(ctx context.Context, stream *runStream) error {
+	if _, err := stream.Receive(); err != nil {
+		return err
+	}
 	return d.run(ctx, stream)
 }
 
@@ -57,13 +63,20 @@ var (
 	}
 )
 
-// open opens a Run stream on client and sends its first message.
+// open opens a Run stream on client and sends its first message, a spec as
+// the runner sends to start a run. It must not be empty: connect writes an
+// empty message's 5-byte prefix and then a zero-length body, and that second
+// write blocks until the transport reads the pipe again. The driver has the
+// whole message after the prefix, so it can end the stream first and fail the
+// Send with io.EOF.
 func open(t *testing.T, client driverv1connect.DriverServiceClient) *connect.BidiStreamForClientSimple[driverv1.RunRequest, driverv1.RunResponse] {
 	t.Helper()
 	stream, err := client.Run(t.Context())
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = stream.CloseResponse() })
-	assert.NilError(t, stream.Send(&driverv1.RunRequest{}))
+	assert.NilError(t, stream.Send(&driverv1.RunRequest{
+		Msg: &driverv1.RunRequest_Spec{Spec: &driverv1.RunSpec{TaskId: 1}},
+	}))
 	return stream
 }
 
