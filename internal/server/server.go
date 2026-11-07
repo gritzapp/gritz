@@ -164,8 +164,11 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/atlassian/callback", alice.New(s.auth.RequireAuth()).ThenFunc(link.HandleCallback))
 		mux.Handle("/webhook/atlassian", s.atlassian.WebhookHandler())
 	}
-	// Custom events (Bearer auth only: no cookie session, no login redirect)
-	mux.Handle("POST /webhook/custom", alice.New(s.auth.RequireBearerAuth()).Then(s.custom.WebhookHandler()))
+	// Custom event routes (Bearer auth only: no cookie session, no login
+	// redirect; conditionally registered)
+	if s.custom != nil {
+		mux.Handle("POST /webhook/custom", alice.New(s.auth.RequireBearerAuth()).Then(s.custom.WebhookHandler()))
+	}
 	// OAuth 2.1 endpoints (public, conditionally registered)
 	if s.oauth != nil {
 		mux.HandleFunc("/.well-known/oauth-authorization-server", s.oauth.HandleMetadata)
