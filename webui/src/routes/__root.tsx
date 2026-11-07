@@ -27,6 +27,7 @@ import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgSSE } from '@/hooks/use-org-sse'
 import { ConnectionIndicator } from '@/components/connection-indicator'
 import { TaskSwitcher } from '@/components/task-switcher'
+import { ThemeToggle } from '@/components/theme-toggle'
 import {
   Select,
   SelectContent,
@@ -137,7 +138,7 @@ function RootComponent() {
         <nav className="shrink-0 border-b">
           <div className="px-4 py-3 flex flex-wrap items-center gap-3 md:gap-6">
             <Link to="/tasks/new" search={{ org: currentOrgId }} className="hidden md:block">
-              <img src={gritzIcon} alt="Gritz" className="h-8 w-8" />
+              <img src={gritzIcon} alt="Gritz" className="h-8 w-8 dark:invert" />
             </Link>
             <div className="flex gap-4">
               {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
@@ -174,6 +175,7 @@ function RootComponent() {
               <span className="hidden md:inline-flex">
                 <ConnectionIndicator />
               </span>
+              <ThemeToggle />
               <Link
                 to="/settings"
                 search={{ tab: 'account', org: currentOrgId }}

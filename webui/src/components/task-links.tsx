@@ -68,7 +68,10 @@ function SubscribedBadge() {
   return (
     <Tooltip>
       <TooltipTrigger className="cursor-default">
-        <Badge variant="outline" className="border-blue-200 bg-blue-100 text-blue-800 text-[10px]">
+        <Badge
+          variant="outline"
+          className="border-blue-200 bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900 text-[10px]"
+        >
           subscribed
         </Badge>
       </TooltipTrigger>

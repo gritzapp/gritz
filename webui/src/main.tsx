@@ -11,6 +11,7 @@ import { ShellSessions } from './lib/shell-sessions'
 import { TimelineFollowers } from './lib/timeline-follow'
 import { ServicesProvider } from './lib/services'
 import { createParseSearch, createStringifySearch } from './lib/search-serialization'
+import './lib/theme'
 import './index.css'
 
 const clientId = crypto.randomUUID()

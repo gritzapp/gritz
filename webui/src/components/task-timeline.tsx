@@ -94,7 +94,7 @@ function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' 
   )
   return (
     <Row>
-      <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20">
+      <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:border-amber-800/50 dark:bg-amber-950/20">
         <div className="flex items-center gap-2 px-4 py-2 text-xs">
           <span className="shrink-0 text-foreground">{src.icon}</span>
           <span className="font-medium text-foreground">Event</span>
@@ -104,7 +104,7 @@ function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' 
             <RelativeTime date={item.at} />
           </span>
         </div>
-        <div className="border-t border-amber-300/40 px-4 py-3">
+        <div className="border-t border-amber-300/40 dark:border-amber-800/40 px-4 py-3">
           <p className="text-sm font-medium text-foreground">{item.description}</p>
           {item.data && (
             <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{item.data}</p>
@@ -143,12 +143,18 @@ function EventDetails({ details }: { details: Record<string, string> }) {
 }
 
 const lifecycleConfig: Record<LifecycleCategory, { icon: React.ReactNode; tone: string }> = {
-  created: { icon: <Clock className="h-3.5 w-3.5" />, tone: 'text-amber-600' },
-  started: { icon: <Play className="h-3.5 w-3.5" />, tone: 'text-blue-600' },
-  restarted: { icon: <RotateCcw className="h-3.5 w-3.5" />, tone: 'text-pink-600' },
-  completed: { icon: <CheckCircle2 className="h-3.5 w-3.5" />, tone: 'text-green-600' },
-  failed: { icon: <XCircle className="h-3.5 w-3.5" />, tone: 'text-red-600' },
-  cancelled: { icon: <Ban className="h-3.5 w-3.5" />, tone: 'text-amber-600' },
+  created: { icon: <Clock className="h-3.5 w-3.5" />, tone: 'text-amber-600 dark:text-amber-400' },
+  started: { icon: <Play className="h-3.5 w-3.5" />, tone: 'text-blue-600 dark:text-blue-400' },
+  restarted: {
+    icon: <RotateCcw className="h-3.5 w-3.5" />,
+    tone: 'text-pink-600 dark:text-pink-400',
+  },
+  completed: {
+    icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+    tone: 'text-green-600 dark:text-green-400',
+  },
+  failed: { icon: <XCircle className="h-3.5 w-3.5" />, tone: 'text-red-600 dark:text-red-400' },
+  cancelled: { icon: <Ban className="h-3.5 w-3.5" />, tone: 'text-amber-600 dark:text-amber-400' },
   archived: { icon: <Archive className="h-3.5 w-3.5" />, tone: 'text-muted-foreground' },
   updated: { icon: <Info className="h-3.5 w-3.5" />, tone: 'text-muted-foreground' },
 }
@@ -188,7 +194,7 @@ function LinkRow({ item }: { item: Extract<TimelineItem, { kind: 'link' }> }) {
           {item.subscribed && (
             <Badge
               variant="outline"
-              className="border-blue-200 bg-blue-100 text-blue-800 text-[10px]"
+              className="border-blue-200 bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900 text-[10px]"
             >
               subscribed
             </Badge>
@@ -220,7 +226,7 @@ function ReportRow({ item }: { item: Extract<TimelineItem, { kind: 'report' }> }
     <Row>
       <div className="rounded-lg border bg-card shadow-sm">
         <div className="flex items-center gap-2 px-4 py-2 text-xs">
-          <Bot className="h-4 w-4 shrink-0 text-violet-700" />
+          <Bot className="h-4 w-4 shrink-0 text-violet-700 dark:text-violet-400" />
           <span className="font-medium text-foreground">Agent output</span>
           <span className="ml-auto text-muted-foreground">
             <RelativeTime date={item.at} />
@@ -240,7 +246,7 @@ function WakeBadge() {
   return (
     <Badge
       variant="outline"
-      className="gap-1 border-orange-200 bg-orange-100 text-orange-800 text-[10px]"
+      className="gap-1 border-orange-200 bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-900 text-[10px]"
     >
       <Zap className="h-3 w-3" />
       woke task
