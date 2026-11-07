@@ -6,6 +6,7 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -27,9 +28,19 @@ func TestCreateLink(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, resp.Link.TaskId, task.ID)
-	assert.Equal(t, resp.Link.Url, "https://github.com/example/repo/pull/123")
-	assert.Equal(t, resp.Link.Subscribe, true)
+	assert.DeepEqual(t,
+		resp.Link,
+		&gritzv1.TaskLink{
+			TaskId:     task.ID,
+			Relevance:  "Related PR",
+			Url:        "https://github.com/example/repo/pull/123",
+			Title:      "Fix bug",
+			Subscribe:  true,
+			RoutingKey: "https://github.com/example/repo/pull/123",
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
+	)
 }
 
 func TestCreateLink_AppendsLinkEvent(t *testing.T) {
@@ -54,15 +65,22 @@ func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 		TaskId: task.ID,
 		Types:  []string{model.EventTypeLink},
 	})
-	assert.Assert(t, cmp.Len(events, 1))
-	link := events[0].GetLink()
-	assert.Equal(t, link.LinkId, resp.Link.Id)
-	assert.Equal(t, link.Relevance, "Related PR")
-	assert.Equal(t, link.Url, "https://github.com/example/repo/pull/123")
-	assert.Equal(t, link.Title, "Fix bug")
-	assert.Equal(t, link.Subscribe, true)
 	// The link event is about-task, not to-agent, so it does not wake the task.
-	assert.Equal(t, events[0].Wake, false)
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: task.ID,
+			Payload: &gritzv1.Event_Link{Link: &gritzv1.LinkPayload{
+				LinkId:    resp.Link.Id,
+				Relevance: "Related PR",
+				Url:       "https://github.com/example/repo/pull/123",
+				Title:     "Fix bug",
+				Subscribe: true,
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestCreateLink_DerivesRoutingKey(t *testing.T) {
@@ -79,8 +97,16 @@ func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, resp.Link.Url, "https://github.com/example/repo/pull/123#issuecomment-9")
-	assert.Equal(t, resp.Link.RoutingKey, "https://github.com/example/repo/pull/123")
+	assert.DeepEqual(t,
+		resp.Link,
+		&gritzv1.TaskLink{
+			TaskId:     task.ID,
+			Url:        "https://github.com/example/repo/pull/123#issuecomment-9",
+			RoutingKey: "https://github.com/example/repo/pull/123",
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
+	)
 }
 
 func TestCreateLink_Permissions(t *testing.T) {
