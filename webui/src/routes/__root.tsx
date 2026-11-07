@@ -27,7 +27,7 @@ import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgSSE } from '@/hooks/use-org-sse'
 import { ConnectionIndicator } from '@/components/connection-indicator'
 import { TaskSwitcher } from '@/components/task-switcher'
-import { ThemeToggle } from '@/components/theme-toggle'
+import { ThemeToggle, useApplyTheme } from '@/components/theme-toggle'
 import {
   Select,
   SelectContent,
@@ -106,6 +106,7 @@ export const Route = createRootRouteWithContext<{
 
 function RootComponent() {
   useOrgSSE()
+  useApplyTheme()
   const { data: profileData } = useQuery(getProfile, {})
   const auth = useAuthTransport()
 

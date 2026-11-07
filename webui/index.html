@@ -6,11 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gritz</title>
     <script>
-      // Apply the theme before first paint; src/lib/theme.ts owns it after load.
+      // Apply the theme before first paint; useApplyTheme in
+      // src/components/theme-toggle.tsx owns it after load. usehooks-ts stores
+      // the preference JSON-encoded.
       ;(function () {
         var t = null
         try {
-          t = localStorage.getItem('gritz-theme')
+          t = JSON.parse(localStorage.getItem('gritz-theme'))
         } catch (e) {}
         var dark =
           t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)

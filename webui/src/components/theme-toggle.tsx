@@ -1,6 +1,6 @@
+import { useEffect } from 'react'
 import { Monitor, Moon, Sun } from 'lucide-react'
-import { useTheme } from '@/hooks/use-theme'
-import type { Theme } from '@/lib/theme'
+import { useTernaryDarkMode, type TernaryDarkMode } from 'usehooks-ts'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,14 +9,30 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+// The stored preference is light, dark, or system (follow the OS). index.html
+// reads the same key before first paint so a dark page never flashes light;
+// keep the two in sync. usehooks-ts stores the value JSON-encoded.
+const THEME_OPTIONS = { localStorageKey: 'gritz-theme' }
+
 const OPTIONS = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
   { value: 'system', label: 'System', icon: Monitor },
 ] as const
 
+// useApplyTheme applies the resolved theme as the `dark` class on <html>,
+// which the `dark:` variant and the token overrides in index.css key off.
+// Call it once, from the root layout.
+export function useApplyTheme() {
+  const { isDarkMode } = useTernaryDarkMode(THEME_OPTIONS)
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDarkMode)
+    document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light'
+  }, [isDarkMode])
+}
+
 export function ThemeToggle() {
-  const [theme, setTheme] = useTheme()
+  const { ternaryDarkMode, setTernaryDarkMode } = useTernaryDarkMode(THEME_OPTIONS)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -28,7 +44,10 @@ export function ThemeToggle() {
         <Moon className="hidden h-4 w-4 dark:block" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+        <DropdownMenuRadioGroup
+          value={ternaryDarkMode}
+          onValueChange={(v) => setTernaryDarkMode(v as TernaryDarkMode)}
+        >
           {OPTIONS.map(({ value, label, icon: Icon }) => (
             <DropdownMenuRadioItem key={value} value={value}>
               <Icon />
