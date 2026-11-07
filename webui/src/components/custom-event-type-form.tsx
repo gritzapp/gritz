@@ -57,95 +57,105 @@ export function CustomEventTypeForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="type">Type</Label>
-        <Input
-          id="type"
-          className="font-mono"
-          placeholder="deploy_failed"
-          value={values.type}
-          onChange={(e) => setValues({ ...values, type: e.target.value })}
-          readOnly={typeReadOnly}
-          disabled={typeReadOnly}
-          required
-        />
-        <p className="text-muted-foreground text-xs">
-          The <code>type</code> field of submitted events. Lowercase letters, digits and
-          underscores, starting with a letter.
-          {typeReadOnly && ' To rename a type, remove it and add a new one.'}
-        </p>
-      </div>
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="type">Type</Label>
+          <Input
+            id="type"
+            className="font-mono"
+            placeholder="deploy_failed"
+            value={values.type}
+            onChange={(e) => setValues({ ...values, type: e.target.value })}
+            readOnly={typeReadOnly}
+            disabled={typeReadOnly}
+            required
+          />
+          <p className="text-muted-foreground text-xs">
+            {typeReadOnly
+              ? 'The type can’t be renamed. Remove it and add a new one instead.'
+              : 'Sent as the event’s type. Lowercase letters, digits and underscores.'}
+          </p>
+        </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="label">Label</Label>
-        <Input
-          id="label"
-          placeholder="Deploy failed"
-          value={values.label}
-          onChange={(e) => setValues({ ...values, label: e.target.value })}
-          required
-        />
-        <p className="text-muted-foreground text-xs">
-          Shown in the routing rule editor's event type list.
-        </p>
+        <div className="space-y-2">
+          <Label htmlFor="label">Label</Label>
+          <Input
+            id="label"
+            placeholder="Deploy failed"
+            value={values.label}
+            onChange={(e) => setValues({ ...values, label: e.target.value })}
+            required
+          />
+          <p className="text-muted-foreground text-xs">
+            Shown in the routing rule editor and the event timeline.
+          </p>
+        </div>
       </div>
 
       <div className="space-y-3 rounded-md border p-4">
         <div className="space-y-1">
           <Label>Attributes</Label>
           <p className="text-muted-foreground text-xs">
-            The dimensions routing rules can condition on. <code>body</code> and <code>url</code>{' '}
-            are derived from every event and can't be removed, but their copy can be edited.
+            The values routing rules can match on. <code>body</code> and <code>url</code> come from
+            every event and are always present.
           </p>
         </div>
 
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-[9rem_1fr_1.5fr_1fr_2.25rem] md:items-center">
+          <div className="text-muted-foreground hidden text-xs font-medium md:contents">
+            <span>Key</span>
+            <span>Label</span>
+            <span>Help</span>
+            <span>Placeholder</span>
+            <span />
+          </div>
           {values.attrs.map((attr, index) => (
-            <div key={index} className="space-y-2 rounded-md border p-3">
-              <div className="flex flex-wrap items-start gap-2">
+            <div
+              key={index}
+              className="grid grid-cols-1 gap-2 border-t pt-2 first:border-t-0 md:contents"
+            >
+              {attr.pinned ? (
+                <code className="text-sm px-3">{attr.key}</code>
+              ) : (
                 <Input
-                  className="w-40 font-mono"
+                  className="font-mono"
                   placeholder="key"
                   value={attr.key}
                   onChange={(e) => setAttr(index, { key: e.target.value })}
-                  readOnly={attr.pinned}
-                  disabled={attr.pinned}
                   aria-label="Key"
                 />
-                <Input
-                  className="flex-1 min-w-40"
-                  placeholder="Label"
-                  value={attr.label}
-                  onChange={(e) => setAttr(index, { label: e.target.value })}
-                  aria-label="Label"
-                />
+              )}
+              <Input
+                placeholder="Label"
+                value={attr.label}
+                onChange={(e) => setAttr(index, { label: e.target.value })}
+                aria-label="Label"
+              />
+              <Input
+                placeholder="Help"
+                value={attr.help}
+                onChange={(e) => setAttr(index, { help: e.target.value })}
+                aria-label="Help"
+              />
+              <Input
+                placeholder="Placeholder"
+                value={attr.placeholder}
+                onChange={(e) => setAttr(index, { placeholder: e.target.value })}
+                aria-label="Placeholder"
+              />
+              {attr.pinned ? (
+                <span />
+              ) : (
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => removeAttr(index)}
-                  disabled={attr.pinned}
                   aria-label="Remove attribute"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  className="flex-1 min-w-40"
-                  placeholder="Help text"
-                  value={attr.help}
-                  onChange={(e) => setAttr(index, { help: e.target.value })}
-                  aria-label="Help"
-                />
-                <Input
-                  className="flex-1 min-w-40"
-                  placeholder="Placeholder"
-                  value={attr.placeholder}
-                  onChange={(e) => setAttr(index, { placeholder: e.target.value })}
-                  aria-label="Placeholder"
-                />
-              </div>
+              )}
             </div>
           ))}
         </div>
