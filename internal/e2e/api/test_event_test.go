@@ -9,6 +9,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -42,10 +43,15 @@ func TestTestEvent(t *testing.T) {
 	// Assert: the matched rule is reported straight through, and the dry run
 	// never fires.
 	assert.NilError(t, err)
-	assert.Assert(t, !resp.Fired)
-	assert.DeepEqual(t, resp.Matches, []*gritzv1.TestEventMatch{
-		{OrgId: h.Org.ID, RuleIndex: 0, WouldWake: true},
-	}, protocmp.Transform())
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.TestEventResponse{
+			Matches: []*gritzv1.TestEventMatch{
+				{OrgId: h.Org.ID, RuleIndex: 0, WouldWake: true},
+			},
+		},
+		protocmp.Transform(),
+	)
 
 	// Assert: the dry run persists nothing.
 	assert.Equal(t, len(h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true})), 0)
@@ -89,32 +95,61 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 		Fire:        true,
 	})
 
-	// Assert: the response reports the fire and the rows written: one created
-	// task, one external event.
 	assert.NilError(t, err)
-	assert.Assert(t, resp.Fired)
-	assert.Equal(t, len(resp.Matches), 1)
-	match := resp.Matches[0]
-	assert.Equal(t, match.OrgId, h.Org.ID)
-	assert.Equal(t, match.WouldCreate, true)
-	assert.Equal(t, len(match.CreatedTaskIds), 1)
-	assert.Equal(t, len(match.EventIds), 1)
 
 	// Assert: a real task exists.
-	task := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: match.CreatedTaskIds[0]})
-	assert.Equal(t, task.Status, gritzv1.TaskStatus_PENDING)
+	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
+	assert.DeepEqual(t,
+		tasks,
+		[]*gritzv1.Task{{
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			Status:      gritzv1.TaskStatus_PENDING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Cancel: true},
+			AutoArchive: durationpb.New(0),
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "id", "created_at", "updated_at"),
+	)
 
-	// Assert: the reported external event carries the composed Details on its
+	// Assert: the external event carries the composed Details on its
 	// ExternalPayload verbatim.
-	event := h.Org.GetEvent(&gritzv1.GetEventRequest{Id: match.EventIds[0]})
-	assert.DeepEqual(t, event.GetExternal(), &gritzv1.ExternalPayload{
-		Description: "alice commented",
-		Url:         url,
-		Data:        "gritz: do it",
-		Details:     details,
-		Source:      "github",
-		Type:        "issue_comment",
-	}, protocmp.Transform())
+	events := h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: tasks[0].Id,
+			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+				Description: "alice commented",
+				Url:         url,
+				Data:        "gritz: do it",
+				Details:     details,
+				Source:      "github",
+				Type:        "issue_comment",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
+
+	// Assert: the response reports the fire and the rows written: the created
+	// task and the external event.
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.TestEventResponse{
+			Matches: []*gritzv1.TestEventMatch{{
+				OrgId:          h.Org.ID,
+				RuleIndex:      0,
+				WouldCreate:    true,
+				CreatedTaskIds: []int64{tasks[0].Id},
+				EventIds:       []int64{events[0].Id},
+			}},
+			Fired: true,
+		},
+		protocmp.Transform(),
+	)
 }
 
 // TestTestEventFireWakesSubscribedTask fires a synthetic event that matches a
@@ -160,33 +195,61 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 		Fire:        true,
 	})
 
-	// Assert: the wake path attaches to the existing task: no task is created,
-	// one event is written.
 	assert.NilError(t, err)
-	assert.Assert(t, resp.Fired)
-	assert.Equal(t, len(resp.Matches), 1)
-	match := resp.Matches[0]
-	assert.Equal(t, match.WouldWake, true)
-	assert.Equal(t, match.WouldCreate, false)
-	assert.Equal(t, len(match.CreatedTaskIds), 0)
-	assert.Equal(t, len(match.EventIds), 1)
 
 	// Assert: no new task was created — the existing one is the only one, and
 	// it was restarted.
-	assert.Equal(t, len(h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true})), 1)
-	assert.Equal(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Status, gritzv1.TaskStatus_PENDING)
+	assert.DeepEqual(t,
+		h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true}),
+		[]*gritzv1.Task{{
+			Id:          task.ID,
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			Status:      gritzv1.TaskStatus_PENDING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     2,
+			Actions:     &gritzv1.TaskActions{Cancel: true},
+			AutoArchive: durationpb.New(0),
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 
 	// Assert: the attached event carries the composed Details.
-	event := h.Org.GetEvent(&gritzv1.GetEventRequest{Id: match.EventIds[0]})
-	assert.Equal(t, event.TaskId, task.ID)
-	assert.DeepEqual(t, event.GetExternal(), &gritzv1.ExternalPayload{
-		Description: "follow-up comment",
-		Url:         url,
-		Data:        "gritz: again",
-		Details:     details,
-		Source:      "github",
-		Type:        "issue_comment",
-	}, protocmp.Transform())
+	events := h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: task.ID,
+			Wake:   true,
+			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+				Description: "follow-up comment",
+				Url:         url,
+				Data:        "gritz: again",
+				Details:     details,
+				Source:      "github",
+				Type:        "issue_comment",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
+
+	// Assert: the wake path attaches to the existing task: no task is created,
+	// one event is written.
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.TestEventResponse{
+			Matches: []*gritzv1.TestEventMatch{{
+				OrgId:     h.Org.ID,
+				RuleIndex: 0,
+				WouldWake: true,
+				EventIds:  []int64{events[0].Id},
+			}},
+			Fired: true,
+		},
+		protocmp.Transform(),
+	)
 }
 
 // TestTestEventFireRequiresOrgWrite asserts fire mode is gated on OpOrgWrite: a

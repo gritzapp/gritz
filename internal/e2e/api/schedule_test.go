@@ -82,8 +82,20 @@ func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	// A disabled schedule stays out of the claim query: no next fire time.
-	assert.Assert(t, resp.Schedule.NextRunAt == nil)
-	assert.Assert(t, !resp.Schedule.Enabled)
+	assert.DeepEqual(t,
+		resp.Schedule,
+		&gritzv1.Schedule{
+			Id:          resp.Schedule.Id,
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			CronExpr:    "0 9 * * *",
+			Timezone:    "UTC",
+			AutoArchive: durationpb.New(0),
+			CreatedBy:   h.Org.Owner.UserID,
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
 }
 
 func TestCreateSchedule_DefaultTimezone(t *testing.T) {
@@ -255,8 +267,23 @@ func TestSetScheduleEnabled(t *testing.T) {
 		Enabled: true,
 	})
 	assert.NilError(t, err)
-	assert.Assert(t, enabled.Schedule.Enabled)
 	assert.Assert(t, enabled.Schedule.NextRunAt != nil)
+	assert.DeepEqual(t,
+		enabled.Schedule,
+		&gritzv1.Schedule{
+			Id:          sched.Id,
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			CronExpr:    "0 9 * * *",
+			Timezone:    "UTC",
+			Enabled:     true,
+			AutoArchive: durationpb.New(0),
+			NextRunAt:   enabled.Schedule.NextRunAt, // computed from now
+			CreatedBy:   h.Org.Owner.UserID,
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
 
 	// Act & Assert - disabling clears it so the claim query skips the row.
 	disabled, err := h.Org.Client.SetScheduleEnabled(t.Context(), &gritzv1.SetScheduleEnabledRequest{
@@ -264,8 +291,20 @@ func TestSetScheduleEnabled(t *testing.T) {
 		Enabled: false,
 	})
 	assert.NilError(t, err)
-	assert.Assert(t, !disabled.Schedule.Enabled)
-	assert.Assert(t, disabled.Schedule.NextRunAt == nil)
+	assert.DeepEqual(t,
+		disabled.Schedule,
+		&gritzv1.Schedule{
+			Id:          sched.Id,
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			CronExpr:    "0 9 * * *",
+			Timezone:    "UTC",
+			AutoArchive: durationpb.New(0),
+			CreatedBy:   h.Org.Owner.UserID,
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
 }
 
 func TestDeleteSchedule(t *testing.T) {
@@ -307,14 +346,34 @@ func TestUpdateSchedule(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, updated.Schedule.Name, "renamed")
-	assert.Equal(t, updated.Schedule.CronExpr, "30 2 * * *")
 	assert.Assert(t, updated.Schedule.NextRunAt != nil)
 	assert.Assert(t, !updated.Schedule.NextRunAt.AsTime().Equal(firstNext))
-	// Persisted.
-	got := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.Equal(t, got.Name, "renamed")
-	assert.Equal(t, got.CronExpr, "30 2 * * *")
+	assert.DeepEqual(t,
+		updated.Schedule,
+		&gritzv1.Schedule{
+			Id:          sched.Id,
+			Name:        "renamed",
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			CronExpr:    "30 2 * * *",
+			Timezone:    "UTC",
+			Enabled:     true,
+			AutoArchive: durationpb.New(0),
+			NextRunAt:   updated.Schedule.NextRunAt, // computed from now
+			CreatedBy:   h.Org.Owner.UserID,
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
+	// Persisted. created_at/updated_at are ignored: the update response carries
+	// the in-memory time at full precision, while the read-back is truncated to
+	// Postgres's microsecond resolution.
+	assert.DeepEqual(t,
+		h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}),
+		updated.Schedule,
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
 }
 
 func TestUpdateSchedule_InvalidCron(t *testing.T) {
@@ -361,23 +420,52 @@ func TestRunSchedule(t *testing.T) {
 	// An enabled schedule has a next_run_at; it never ran, so
 	// last_run_at/last_task_id are unset.
 	assert.Assert(t, before.NextRunAt != nil)
-	assert.Assert(t, before.LastRunAt == nil)
-	assert.Equal(t, before.LastTaskId, int64(0))
+	assert.DeepEqual(t,
+		before,
+		&gritzv1.Schedule{
+			Id:        before.Id,
+			Name:      "nightly",
+			Workspace: e2e.DefaultWorkspace,
+			Runner:    e2e.DefaultRunner,
+			Namespace: "reviewbot",
+			Instructions: []*gritzv1.Instruction{
+				{Text: "bump deps", Url: "https://example.com/deps"},
+				{Text: "groom changelog"},
+			},
+			CronExpr:    "0 9 * * *",
+			Timezone:    "UTC",
+			Enabled:     true,
+			AutoArchive: durationpb.New(0),
+			NextRunAt:   before.NextRunAt, // computed from now
+			CreatedBy:   h.Org.Owner.UserID,
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
 
 	// Act
 	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: before.Id})
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Assert(t, resp.Task != nil)
-	assert.Assert(t, resp.Task.Id != 0)
 	// Exactly one task was created for the org, and it is the one returned.
-	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
-	assert.Assert(t, cmp.Len(tasks, 1))
-	assert.Equal(t, tasks[0].Id, resp.Task.Id)
-	assert.Equal(t, tasks[0].Name, "nightly")
-	assert.Equal(t, tasks[0].Workspace, e2e.DefaultWorkspace)
-	assert.Equal(t, tasks[0].Runner, e2e.DefaultRunner)
+	assert.DeepEqual(t,
+		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
+		[]*gritzv1.Task{{
+			Id:          resp.Task.Id,
+			Name:        "nightly",
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			Namespace:   "reviewbot",
+			Status:      gritzv1.TaskStatus_PENDING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Cancel: true},
+			AutoArchive: durationpb.New(0),
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 	// The created event first (ScheduleActor) and the start command, then one
 	// wake instruction event per template instruction — identical to a scheduled
 	// fire. The server-assigned id, task_id and created_at are ignored.
@@ -441,11 +529,13 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, resp.Task != nil)
 	// Running it never re-enabled the row or gave it a next fire time.
-	after := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.Assert(t, !after.Enabled)
-	assert.Assert(t, after.NextRunAt == nil)
-	assert.Assert(t, after.LastRunAt == nil)
-	assert.Equal(t, after.LastTaskId, int64(0))
+	// created_at/updated_at are ignored, as in TestRunSchedule.
+	assert.DeepEqual(t,
+		h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}),
+		sched,
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+	)
 }
 
 // A manual run materializes a real task on the schedule's target, so it demands
