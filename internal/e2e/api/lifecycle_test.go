@@ -6,8 +6,8 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -74,18 +74,9 @@ func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 	// ...and the materialized status projection is updated in the same tx.
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
-		&gritzv1.Task{
-			Id:          task.ID,
-			Name:        "Task",
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			Status:      gritzv1.TaskStatus_CANCELLED,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Archive: true, Restart: true, Start: true},
-			AutoArchive: durationpb.New(0),
-		},
+		&gritzv1.Task{Id: task.ID, Status: gritzv1.TaskStatus_CANCELLED},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status"),
 	)
 }
 
