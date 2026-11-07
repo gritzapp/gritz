@@ -689,6 +689,7 @@ message GetOrgSettingsResponse {
   string github_app_url = 3;
   string mcp_url = 4;
   int64 github_installation_id = 5;
+  string custom_webhook_url = 6; // where to POST custom events, e.g. https://gritz.dev/webhook/custom
 }
 
 message GenerateAtlassianWebhookSecretRequest {}
@@ -788,7 +789,6 @@ message GetCustomEventTypesRequest {}
 
 message GetCustomEventTypesResponse {
   repeated EventTypeDef event_types = 1; // every source is "custom"
-  string webhook_url = 2;                // where to POST custom events, e.g. https://gritz.dev/webhook/custom
 }
 
 // SetCustomEventTypes replaces the org's custom event types. Rejected with

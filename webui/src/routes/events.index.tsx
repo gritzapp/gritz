@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@connectrpc/connect-query'
 import {
   getCustomEventTypes,
   getEventTypes,
+  getOrgSettings,
   getRoutingRules,
   listExternalEvents,
   setRoutingRules,
@@ -27,12 +28,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RelativeTime } from '@/components/relative-time'
 import { eventTypeLabel, OP_LABELS, type ConditionOp } from '@/lib/routing-rules'
 import { useSetCustomEventTypes } from '@/lib/custom-event-types'
-import { CopyButton } from '@/components/copy-button'
 import { CustomEventPayloadDialog } from '@/components/custom-event-payload-dialog'
 import { ChevronDown, ChevronUp, FlaskConical, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
@@ -365,7 +364,8 @@ function CustomSchemasTab() {
   const updateMutation = useSetCustomEventTypes()
 
   const eventTypes = data?.eventTypes ?? []
-  const webhookUrl = data?.webhookUrl ?? ''
+  const { data: settings } = useQuery(getOrgSettings, {})
+  const webhookUrl = settings?.customWebhookUrl ?? ''
 
   const handleDelete = async (type: string) => {
     const updated = eventTypes.filter((t) => t.type !== type)
@@ -380,16 +380,6 @@ function CustomSchemasTab() {
       {updateMutation.error && (
         <div className="text-destructive text-sm">{updateMutation.error.message}</div>
       )}
-      <div className="space-y-1">
-        <Label>Webhook URL</Label>
-        <div className="flex items-center gap-2">
-          <code className="text-sm bg-muted px-2 py-1 rounded flex-1 truncate">{webhookUrl}</code>
-          <CopyButton text={webhookUrl} label="Copy webhook URL" />
-        </div>
-        <p className="text-sm text-muted-foreground">
-          POST events here with an API key in the <code>Authorization: Bearer</code> header.
-        </p>
-      </div>
       {eventTypes.length === 0 ? (
         <div className="text-muted-foreground text-center py-8">
           No custom event types defined. Add one to route events your own systems submit.
