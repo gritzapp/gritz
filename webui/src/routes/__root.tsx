@@ -56,8 +56,8 @@ const ReactQueryDevtools = import.meta.env.DEV
     )
   : () => null
 
-// Top-level nav. Below md the labels collapse to icons so the bar fits on a
-// phone.
+// Top-level nav. Below lg the labels collapse to icons so the bar fits on one
+// row next to the org selector and the right-hand controls.
 const NAV_ITEMS = [
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/schedules', label: 'Schedules', icon: CalendarClock },
@@ -150,8 +150,8 @@ function RootComponent() {
                   title={label}
                   aria-label={label}
                 >
-                  <Icon className="h-5 w-5 md:hidden" />
-                  <span className="hidden md:inline">{label}</span>
+                  <Icon className="h-5 w-5 lg:hidden" />
+                  <span className="hidden lg:inline">{label}</span>
                 </Link>
               ))}
             </div>
@@ -192,7 +192,7 @@ function RootComponent() {
                 onClick={() => auth.clearToken()}
               >
                 <LogOut className="h-4 w-4" />
-                <span className="hidden md:inline">Logout</span>
+                <span className="hidden lg:inline">Logout</span>
               </a>
             </div>
             {orgs.length > 0 && (
