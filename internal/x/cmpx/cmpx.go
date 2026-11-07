@@ -20,13 +20,24 @@
 // Known limitation: OnlyFields does not replicate IgnoreFields's embedded-field
 // promotion semantics. Names promoted from embedded structs may not resolve;
 // it targets flat and explicitly-nested field paths.
+//
+// OnlyFields cannot be used on protobuf messages: after protocmp.Transform()
+// they are protocmp.Message maps rather than structs, so its root-struct check
+// never matches. OnlyProtoFields is the proto counterpart. protocmp has no
+// "compare only these fields" option either, so it inverts
+// protocmp.IgnoreFields via the message descriptor, scoped to one message type.
 package cmpx
 
 import (
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/testing/protocmp"
 )
 
 // OnlyFields is the inverse of cmpopts.IgnoreFields: it compares only the
@@ -82,4 +93,23 @@ func keptOrAncestor(path string, keep map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// OnlyProtoFields compares only the named fields of message m (proto field
+// names), ignoring every other field m declares. Use with protocmp.Transform().
+func OnlyProtoFields(m proto.Message, names ...protoreflect.Name) cmp.Option {
+	md := m.ProtoReflect().Descriptor()
+	fields := md.Fields()
+	for _, n := range names {
+		if fields.ByName(n) == nil {
+			panic(fmt.Sprintf("cmpx.OnlyProtoFields: %q is not a field of %s", n, md.FullName()))
+		}
+	}
+	var ignored []protoreflect.Name
+	for i := range fields.Len() {
+		if n := fields.Get(i).Name(); !slices.Contains(names, n) {
+			ignored = append(ignored, n)
+		}
+	}
+	return protocmp.IgnoreFields(m, ignored...)
 }

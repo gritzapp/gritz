@@ -277,7 +277,20 @@ assert.DeepEqual(t,
 )
 ```
 
-`protocmp.Transform()` is **required**, not optional: `assert.DeepEqual` runs go-cmp, and go-cmp refuses to touch the unexported internal state every proto embeds (`state`, `sizeCache`, `unknownFields`). Without the transform the assertion fails outright with `cannot handle unexported field at {*gritzv1.SubmitRunnerEventsRequest}.state`. The transform exposes the public fields (and applies proto equality semantics). Do **not** reach for `cmpx.OnlyFields` / `cmpopts.IgnoreFields` on a proto -- if a field is genuinely noise, drop it with `protocmp.IgnoreFields(&gritzv1.RunnerEvent{}, "field_name")` (proto snake_case names).
+`protocmp.Transform()` is **required**, not optional: `assert.DeepEqual` runs go-cmp, and go-cmp refuses to touch the unexported internal state every proto embeds (`state`, `sizeCache`, `unknownFields`). Without the transform the assertion fails outright with `cannot handle unexported field at {*gritzv1.SubmitRunnerEventsRequest}.state`. The transform exposes the public fields (and applies proto equality semantics).
+
+The default is still the whole-message compare: if a field is genuinely noise (a generated id, a timestamp), drop it with `protocmp.IgnoreFields(&gritzv1.RunnerEvent{}, "field_name")` (proto snake_case names) so the rest of the message is still checked. `cmpx.OnlyFields` and `cmpopts.IgnoreFields` don't work on a proto -- after the transform a message is a `protocmp.Message` map, not a struct.
+
+For a **deliberate projection** of a proto -- you keep a few fields of a big message you don't fully control -- use `cmpx.OnlyProtoFields`, the proto counterpart of `cmpx.OnlyFields`. It takes the message type and proto field names, ignores every other field that type declares, and panics if a name isn't a field of the message. It applies wherever that message type appears (top level, slice elements, nested fields), and like `OnlyFields` it adds no coverage -- so reach for it only when the projection documents intent:
+
+```go
+assert.DeepEqual(t,
+    tasks,
+    []*gritzv1.Task{{Id: 1, Name: "A"}, {Id: 2, Name: "B"}},
+    protocmp.Transform(),
+    cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name"),
+)
+```
 
 Whole-value `assert.DeepEqual` pays off for proto messages and **named** structs, where the expected literal is clean. It does **not** pay off for moq's anonymous per-call arg structs (per the note above) -- there the literal means re-spelling the unnamed type inline, which reads worse than asserting the fields individually (or projecting one field across the log with `testx.ExtractField`).
 
