@@ -1,6 +1,5 @@
 import { create } from '@bufbuild/protobuf'
 import {
-  type AttrDef,
   type EventTypeDef,
   type RoutingRule,
   RoutingRuleSchema,
@@ -32,56 +31,10 @@ export function findEventType(
   return eventTypes.find((t) => t.source === source && t.type === type)
 }
 
-// Friendly label for a stored (source, type) combo. Falls back to a "Legacy: …"
-// label for rules whose combo isn't in the registry (e.g. a wildcard rule or a
-// type emitted by a newer/older server) so the value is still readable.
+// Friendly label for a stored (source, type) combo.
 export function eventTypeLabel(eventTypes: EventTypeDef[], source: string, type: string): string {
-  const known = findEventType(eventTypes, source, type)
-  if (known) return known.label
-  return `Legacy: ${source || '(any)'} / ${type || '(any)'}`
+  return findEventType(eventTypes, source, type)?.label ?? `${source} / ${type}`
 }
-
-// Synthetic event-type definition for a stored (source, type) combo that isn't
-// in the registry, so legacy rules stay selectable. Returns null when the combo
-// is already a known event type. Its attrs are the well-known fallback set so
-// the condition editor can still edit the rule's existing conditions.
-export function legacyEventType(
-  eventTypes: EventTypeDef[],
-  source: string,
-  type: string,
-): EventTypeDef | null {
-  if (findEventType(eventTypes, source, type)) return null
-  return {
-    $typeName: 'gritz.v1.EventTypeDef',
-    source,
-    type,
-    label: eventTypeLabel(eventTypes, source, type),
-    attrs: FALLBACK_ATTRS,
-  }
-}
-
-// Fallback AttrDefs for legacy rules whose event type isn't in the registry, so
-// their conditions stay editable. Real event types carry their own richer copy
-// from the schema (see GetEventTypes); this is a minimal well-known set —
-// `body`/`url` are derived over every event, the rest are the per-type
-// dimensions the producers emit.
-const FALLBACK_ATTRS: AttrDef[] = (
-  [
-    ['body', 'Body'],
-    ['url', 'URL'],
-    ['mention', 'Mention'],
-    ['assignee', 'Assignee'],
-    ['label', 'Label'],
-    ['state', 'State'],
-    ['user', 'User'],
-  ] as const
-).map(([key, label]) => ({
-  $typeName: 'gritz.v1.AttrDef',
-  key,
-  label,
-  help: '',
-  placeholder: '',
-}))
 
 export interface ConditionDraft {
   attr: string

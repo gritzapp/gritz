@@ -20,7 +20,6 @@ import {
   eventTypeId,
   findEventType,
   isRoutingRuleFormValid,
-  legacyEventType,
   OP_LABELS,
   type ConditionDraft,
   type RoutingRuleFormValues,
@@ -50,26 +49,10 @@ export function RoutingRuleForm({
   const { data: eventTypesData, isLoading: eventTypesLoading } = useQuery(getEventTypes, {})
   const eventTypes = useMemo(() => eventTypesData?.eventTypes ?? [], [eventTypesData])
 
-  // For an existing rule whose (source, type) isn't in the registry (a legacy
-  // wildcard rule or a type from a different server), keep it selectable with a
-  // synthetic entry so the rule can still be viewed and saved.
-  const legacyOption = useMemo(
-    () => legacyEventType(eventTypes, initialValues.source, initialValues.type),
-    [eventTypes, initialValues.source, initialValues.type],
+  const selectedType = useMemo(
+    () => findEventType(eventTypes, values.source, values.type),
+    [eventTypes, values.source, values.type],
   )
-
-  const selectedType = useMemo(() => {
-    const known = findEventType(eventTypes, values.source, values.type)
-    if (known) return known
-    if (
-      legacyOption &&
-      legacyOption.source === values.source &&
-      legacyOption.type === values.type
-    ) {
-      return legacyOption
-    }
-    return undefined
-  }, [eventTypes, values.source, values.type, legacyOption])
 
   const selectedId = selectedType ? eventTypeId(selectedType.source, selectedType.type) : ''
   const availableAttrs = selectedType?.attrs ?? []
@@ -86,12 +69,7 @@ export function RoutingRuleForm({
   )
 
   const handleEventTypeChange = (id: string) => {
-    const known = eventTypes.find((t) => eventTypeId(t.source, t.type) === id)
-    const target =
-      known ??
-      (legacyOption && eventTypeId(legacyOption.source, legacyOption.type) === id
-        ? legacyOption
-        : undefined)
+    const target = eventTypes.find((t) => eventTypeId(t.source, t.type) === id)
     if (!target) return
     // Drop conditions whose attr the newly selected type can't emit, so the
     // rule can't carry a condition that would never match.
@@ -157,11 +135,6 @@ export function RoutingRuleForm({
                 </SelectItem>
               )
             })}
-            {legacyOption && (
-              <SelectItem value={eventTypeId(legacyOption.source, legacyOption.type)}>
-                {legacyOption.label}
-              </SelectItem>
-            )}
           </SelectContent>
         </Select>
         <p className="text-muted-foreground text-xs">
