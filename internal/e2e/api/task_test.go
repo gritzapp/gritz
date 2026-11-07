@@ -57,15 +57,29 @@ func TestGetTask(t *testing.T) {
 		TaskId: task.ID,
 		Types:  []string{model.EventTypeInstruction},
 	})
-	assert.Equal(t, len(events), 2)
-	assert.DeepEqual(t, events[0].GetInstruction(), &gritzv1.InstructionPayload{
-		Text: "Do something important",
-		Url:  "https://example.com/issue/1",
-	}, protocmp.Transform())
-	assert.DeepEqual(t, events[1].GetInstruction(), &gritzv1.InstructionPayload{
-		Text: "Do something else",
-		Url:  "https://example.com/issue/2",
-	}, protocmp.Transform())
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Wake:   true,
+				Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+					Text: "Do something important",
+					Url:  "https://example.com/issue/1",
+				}},
+			},
+			{
+				TaskId: task.ID,
+				Wake:   true,
+				Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+					Text: "Do something else",
+					Url:  "https://example.com/issue/2",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestGetTask_Permissions(t *testing.T) {
@@ -122,11 +136,19 @@ func TestCreateTask(t *testing.T) {
 		TaskId: resp.Task.Id,
 		Types:  []string{model.EventTypeInstruction},
 	})
-	assert.Equal(t, len(events), 1)
-	assert.DeepEqual(t, events[0].GetInstruction(), &gritzv1.InstructionPayload{
-		Text: "Do something",
-		Url:  "https://example.com/issue/1",
-	}, protocmp.Transform())
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: resp.Task.Id,
+			Wake:   true,
+			Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: "Do something",
+				Url:  "https://example.com/issue/1",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 // A draft task carries no command, so no runner picks it up, and the first
@@ -164,8 +186,19 @@ func TestCreateTask_Draft(t *testing.T) {
 	// empty, and there is no instruction and no command event: no runner ever
 	// acts on it, so nothing is launched.
 	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
-	assert.Equal(t, len(events), 1)
-	assert.Equal(t, events[0].GetLifecycle().Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: resp.Task.Id,
+			Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+				Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
+				Actor:    &gritzv1.Actor{Kind: "user", Name: h.Org.Owner.UserID},
+				ToStatus: "Draft",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 // The first instruction from the composer starts a draft task: it lands on
@@ -186,34 +219,58 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
-	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
 	// The draft was never provisioned (version 0), so its first run is run 1 —
 	// the same run number an ordinary create starts at.
-	assert.Equal(t, got.Version, int64(1))
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Name:        "Draft Task",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_PENDING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Cancel: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 	// The runner now has work for it: a start for run 1.
-	commands := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
-		TaskId: task.ID,
-		Types:  []string{model.EventTypeCommand},
-	})
-	assert.Equal(t, len(commands), 1)
-	assert.DeepEqual(t, commands[0].GetCommand(), &gritzv1.CommandPayload{
-		Command:   gritzv1.TaskCommand_START,
-		Version:   1,
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
-	}, protocmp.Transform())
+	assert.DeepEqual(t,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+			TaskId: task.ID,
+			Types:  []string{model.EventTypeCommand},
+		}),
+		[]*gritzv1.Event{{
+			TaskId: task.ID,
+			Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
+				Command:   gritzv1.TaskCommand_START,
+				Version:   1,
+				Runner:    e2e.DefaultRunner,
+				Workspace: e2e.DefaultWorkspace,
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 	// The instruction is in the stream and woke the task.
-	instructions := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
-		TaskId: task.ID,
-		Types:  []string{model.EventTypeInstruction},
-	})
-	assert.Equal(t, len(instructions), 1)
-	assert.DeepEqual(t, instructions[0].GetInstruction(), &gritzv1.InstructionPayload{
-		Text: "Do something",
-	}, protocmp.Transform())
-	assert.Assert(t, instructions[0].Wake, "the first instruction must wake the task")
+	assert.DeepEqual(t,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
+			TaskId: task.ID,
+			Types:  []string{model.EventTypeInstruction},
+		}),
+		[]*gritzv1.Event{{
+			TaskId: task.ID,
+			Wake:   true,
+			Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: "Do something",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestListTasks(t *testing.T) {
@@ -243,8 +300,20 @@ func TestListTasks_IncludeArchived(t *testing.T) {
 	// only.
 	def, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{})
 	assert.NilError(t, err)
-	assert.Equal(t, len(def.Tasks), 1)
-	assert.Assert(t, !def.Tasks[0].Archived)
+	assert.DeepEqual(t,
+		def.Tasks,
+		[]*gritzv1.Task{{
+			Name:        "active",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_DRAFT,
+			Command:     gritzv1.TaskCommand_NONE,
+			Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
+			AutoArchive: durationpb.New(0),
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "id", "created_at", "updated_at"),
+	)
 
 	// Act & Assert - Archived: false is likewise active-only.
 	off, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{Archived: false})
@@ -324,8 +393,21 @@ func TestListTasks_Pagination(t *testing.T) {
 	// next page.
 	page1, err := h.Org.Client.ListTasks(t.Context(), &gritzv1.ListTasksRequest{PageSize: 1})
 	assert.NilError(t, err)
-	assert.Equal(t, len(page1.Tasks), 1)
-	assert.Equal(t, page1.Tasks[0].Id, second.ID)
+	assert.DeepEqual(t,
+		page1.Tasks,
+		[]*gritzv1.Task{{
+			Id:          second.ID,
+			Name:        "task-2",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_DRAFT,
+			Command:     gritzv1.TaskCommand_NONE,
+			Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
+			AutoArchive: durationpb.New(0),
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 	assert.Assert(t, page1.NextPageToken != "")
 
 	// Act & Assert - passing that token back returns the next (older) task and
@@ -335,9 +417,23 @@ func TestListTasks_Pagination(t *testing.T) {
 		PageToken: page1.NextPageToken,
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, len(page2.Tasks), 1)
-	assert.Equal(t, page2.Tasks[0].Id, first.ID)
-	assert.Equal(t, page2.NextPageToken, "")
+	assert.DeepEqual(t,
+		page2,
+		&gritzv1.ListTasksResponse{
+			Tasks: []*gritzv1.Task{{
+				Id:          first.ID,
+				Name:        "task-1",
+				Runner:      e2e.DefaultRunner,
+				Workspace:   e2e.DefaultWorkspace,
+				Status:      gritzv1.TaskStatus_DRAFT,
+				Command:     gritzv1.TaskCommand_NONE,
+				Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
+				AutoArchive: durationpb.New(0),
+			}},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 }
 
 func TestCreateTask_Namespace(t *testing.T) {
@@ -569,7 +665,19 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	// Assert: unarchive clears auto_archive so the archiver doesn't immediately
 	// re-archive.
 	assert.NilError(t, err)
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Assert(t, !got.Archived, "task should be unarchived")
-	assert.Equal(t, got.AutoArchive.AsDuration(), time.Duration(0), "AutoArchive should reset to 0 (never) on unarchive")
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Name:        "Auto-archive task",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_DRAFT,
+			Command:     gritzv1.TaskCommand_NONE,
+			Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 }

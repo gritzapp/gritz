@@ -11,6 +11,8 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/x/testx"
+	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/poll"
@@ -52,10 +54,21 @@ func TestRunnerRestart_PendingWake(t *testing.T) {
 		AddInstructions: []*gritzv1.Instruction{{Text: "more"}},
 	})
 	// The wake landed on the open run.
-	got := task.Get()
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_RUNNING)
-	assert.Equal(t, got.Version, int64(1))
-	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
+	assert.DeepEqual(t,
+		task.Get(),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_RUNNING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Cancel: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 
 	h.Runner.Restart()
 	run1.Complete()
@@ -64,7 +77,7 @@ func TestRunnerRestart_PendingWake(t *testing.T) {
 	run2 := h.Agent.WaitRun(task.ID)
 	assert.Assert(t, cmp.Contains(run2.Prompt, "more"))
 	run2.Complete()
-	got = task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 2))
 }
