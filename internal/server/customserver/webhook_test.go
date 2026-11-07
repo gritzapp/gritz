@@ -16,28 +16,6 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// problemType is the custom event type the handler tests submit events of.
-var problemType = model.EventTypeDef{
-	Source: eventrouter.SourceCustom,
-	Type:   "problem",
-	Label:  "Dynatrace Problem",
-	Attrs: []model.AttrDef{
-		{Key: "body"},
-		{Key: "url"},
-		{Key: "severity"},
-		{Key: "tag"},
-	},
-}
-
-// newRequest returns a POST of body to the webhook, authenticated as caller.
-func newRequest(caller *apiauth.UserInfo, body string) *http.Request {
-	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(body))
-	return req.WithContext(apiauth.WithUser(req.Context(), caller))
-}
-
-// keyCaller is an API-key caller in org 7 holding every scope.
-var keyCaller = &apiauth.UserInfo{ID: "user-1", OrgID: 7, Type: apiauth.AuthTypeKey, Scopes: authscope.Admin()}
-
 func TestWebhookHandler(t *testing.T) {
 	// Arrange
 	router := &RouterMock{
@@ -47,17 +25,28 @@ func TestWebhookHandler(t *testing.T) {
 	}
 	store := &StoreMock{
 		GetOrgCustomEventTypesFunc: func(ctx context.Context, tx *sql.Tx, orgID int64) ([]model.EventTypeDef, error) {
-			return []model.EventTypeDef{problemType}, nil
+			return []model.EventTypeDef{{
+				Source: eventrouter.SourceCustom,
+				Type:   "problem",
+				Label:  "Dynatrace Problem",
+				Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}, {Key: "tag"}},
+			}}, nil
 		},
 	}
 	h := &WebhookHandler{Router: router, Store: store}
-	req := newRequest(keyCaller, `{
+	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(`{
 		"type": "problem",
 		"url": "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=-123_456V2",
 		"body": "CPU saturation on host web-1",
 		"attrs": {"severity": ["RESOURCE_CONTENTION"], "tag": ["team:payments", "env:prod"]},
 		"details": {"impact": "INFRASTRUCTURE", "state": "OPEN"}
-	}`)
+	}`))
+	req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
+		ID:     "user-1",
+		OrgID:  7,
+		Type:   apiauth.AuthTypeKey,
+		Scopes: authscope.Admin(),
+	}))
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -95,7 +84,8 @@ func TestWebhookHandler_MissingScope(t *testing.T) {
 		Type:   apiauth.AuthTypeKey,
 		Scopes: authscope.Scopes{authscope.New(authscope.OpOrgRead)},
 	}
-	req := newRequest(caller, `{}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(`{}`))
+	req = req.WithContext(apiauth.WithUser(req.Context(), caller))
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -180,11 +170,22 @@ func TestWebhookHandler_BadRequest(t *testing.T) {
 				Router: router,
 				Store: &StoreMock{
 					GetOrgCustomEventTypesFunc: func(ctx context.Context, tx *sql.Tx, orgID int64) ([]model.EventTypeDef, error) {
-						return []model.EventTypeDef{problemType}, nil
+						return []model.EventTypeDef{{
+							Source: eventrouter.SourceCustom,
+							Type:   "problem",
+							Label:  "Dynatrace Problem",
+							Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}, {Key: "tag"}},
+						}}, nil
 					},
 				},
 			}
-			req := newRequest(keyCaller, tt.body)
+			req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(tt.body))
+			req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
+				ID:     "user-1",
+				OrgID:  7,
+				Type:   apiauth.AuthTypeKey,
+				Scopes: authscope.Admin(),
+			}))
 			rec := httptest.NewRecorder()
 
 			// Act
