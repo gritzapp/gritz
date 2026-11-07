@@ -13,23 +13,23 @@ import (
 // stay self-contained rather than importing the producer packages that register
 // the real github/atlassian schemas.
 var (
-	testComment = EventTypeDef{
+	testComment = model.EventTypeDef{
 		Source: "test",
 		Type:   "comment",
 		Label:  "Test: Comment",
-		Attrs:  []AttrDef{{Key: "body"}, {Key: "url"}, {Key: "mention"}},
+		Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "mention"}},
 	}
-	testLabel = EventTypeDef{
+	testLabel = model.EventTypeDef{
 		Source: "test",
 		Type:   "label",
 		Label:  "Test: Label",
-		Attrs:  []AttrDef{{Key: "body"}, {Key: "url"}, {Key: "label"}},
+		Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "label"}},
 	}
-	testOpened = EventTypeDef{
+	testOpened = model.EventTypeDef{
 		Source: "test",
 		Type:   "opened",
 		Label:  "Test: Opened",
-		Attrs:  []AttrDef{{Key: "body"}, {Key: "url"}},
+		Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}},
 	}
 )
 
@@ -173,10 +173,25 @@ func TestSchemaRegistryMustRegisterDuplicatePanics(t *testing.T) {
 	reg.MustRegister(testComment)
 	// Re-registering the same (source, type) must panic.
 	assert.Assert(t, cmp.Panics(func() {
-		reg.MustRegister(EventTypeDef{
+		reg.MustRegister(model.EventTypeDef{
 			Source: "test",
 			Type:   "comment",
-			Attrs:  []AttrDef{{Key: "body"}},
+			Attrs:  []model.AttrDef{{Key: "body"}},
 		})
 	}))
+}
+
+func TestSchemaRegistryWith(t *testing.T) {
+	reg := NewSchemaRegistry()
+	reg.MustRegister(testComment)
+
+	combined := reg.With(testLabel, testOpened)
+	assert.DeepEqual(t, combined.EventTypes(), []model.EventTypeDef{testComment, testLabel, testOpened})
+	_, ok := combined.EventTypeFor("test", "label")
+	assert.Assert(t, ok, "combined.EventTypeFor(test, label) = _, false; want hit")
+
+	// r itself is left untouched.
+	assert.DeepEqual(t, reg.EventTypes(), []model.EventTypeDef{testComment})
+	_, ok = reg.EventTypeFor("test", "label")
+	assert.Assert(t, !ok, "reg.EventTypeFor(test, label) = _, true; want miss")
 }

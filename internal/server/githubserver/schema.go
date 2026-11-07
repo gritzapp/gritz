@@ -1,6 +1,7 @@
 package githubserver
 
 import (
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
@@ -19,11 +20,11 @@ func init() {
 // (e.g. eventrouter's Route tests) can populate an isolated registry with the
 // real producer schemas.
 func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypeIssueComment,
 		Label:  "GitHub: Issue/PR Comment",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Comment Body",
@@ -50,11 +51,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypePullRequestReviewComment,
 		Label:  "GitHub: PR Review Comment",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Review Comment Body",
@@ -81,11 +82,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypePullRequestReview,
 		Label:  "GitHub: PR Review",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Review Body",
@@ -112,11 +113,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypeIssueAssigned,
 		Label:  "GitHub: Issue Assigned",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Issue Body",
@@ -143,11 +144,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypePullRequestAssigned,
 		Label:  "GitHub: PR Assigned",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "PR Body",
@@ -174,11 +175,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypePullRequestOpened,
 		Label:  "GitHub: PR Opened",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "PR Description",
@@ -199,11 +200,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypePullRequestClosed,
 		Label:  "GitHub: PR Closed",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "PR Description",
@@ -230,11 +231,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "github",
 		Type:   EventTypeLabelAdded,
 		Label:  "GitHub: Label Added",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Issue/PR Body",

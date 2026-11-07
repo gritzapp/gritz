@@ -3,6 +3,7 @@ package githubserver
 import (
 	"testing"
 
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 	"gotest.tools/v3/assert"
 )
@@ -16,7 +17,7 @@ func TestSchemaRegistration(t *testing.T) {
 
 	// AttrDefs carry GitHub-flavoured display copy declared inline per event
 	// type, so the copy speaks to this specific event (a comment's body/URL).
-	assert.DeepEqual(t, def.Attrs, []eventrouter.AttrDef{
+	assert.DeepEqual(t, def.Attrs, []model.AttrDef{
 		{
 			Key:         "body",
 			Label:       "Comment Body",
