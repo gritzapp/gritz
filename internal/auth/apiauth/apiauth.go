@@ -306,11 +306,11 @@ func (a *Auth) RequireAuth() func(http.Handler) http.Handler {
 	}
 }
 
-// RequireBearer returns middleware that requires a valid Bearer token (an API
-// key or an app JWT). Unlike RequireAuth it never falls back to the cookie
+// RequireBearerAuth returns middleware that requires a valid Bearer token (an
+// API key or an app JWT). Unlike RequireAuth it never falls back to the cookie
 // session or the dev user, so a browser can't ride its session cross-site, and
 // a request without a valid token gets a 401 rather than a login redirect.
-func (a *Auth) RequireBearer() func(http.Handler) http.Handler {
+func (a *Auth) RequireBearerAuth() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, err := a.authenticate(r)

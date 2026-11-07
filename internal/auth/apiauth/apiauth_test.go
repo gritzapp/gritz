@@ -1,7 +1,6 @@
 package apiauth
 
 import (
-	"crypto/ed25519"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,21 +54,14 @@ func TestProfileName(t *testing.T) {
 	}
 }
 
-// newBearerAuth returns an Auth signing app tokens with key. It has a dev
-// user, so the RequireBearer tests also show it is never used.
-func newBearerAuth(t *testing.T, key ed25519.PrivateKey) *Auth {
-	t.Helper()
-	a, err := New(t.Context(), Config{AppKey: key, DevUser: &UserInfo{ID: "dev"}})
-	assert.NilError(t, err)
-	return a
-}
-
-func TestRequireBearer(t *testing.T) {
+func TestRequireBearerAuth(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	key, err := CreateAppPrivateKey()
 	assert.NilError(t, err)
-	a := newBearerAuth(t, key)
+	// The dev user is never used: RequireBearerAuth has no fallback.
+	a, err := New(t.Context(), Config{AppKey: key, DevUser: &UserInfo{ID: "dev"}})
+	assert.NilError(t, err)
 	token, err := SignAppToken(key, NewAppClaims(&UserInfo{ID: "user-1", OrgID: 7, Scopes: authscope.Admin()}))
 	assert.NilError(t, err)
 	var caller *UserInfo
@@ -81,7 +73,7 @@ func TestRequireBearer(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Act
-	a.RequireBearer()(next).ServeHTTP(rec, req)
+	a.RequireBearerAuth()(next).ServeHTTP(rec, req)
 
 	// Assert
 	assert.Equal(t, rec.Code, http.StatusOK)
@@ -90,12 +82,14 @@ func TestRequireBearer(t *testing.T) {
 	assert.Equal(t, caller.Type, AuthTypeApp)
 }
 
-func TestRequireBearer_NoToken(t *testing.T) {
+func TestRequireBearerAuth_NoToken(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	key, err := CreateAppPrivateKey()
 	assert.NilError(t, err)
-	a := newBearerAuth(t, key)
+	// The dev user is never used: RequireBearerAuth has no fallback.
+	a, err := New(t.Context(), Config{AppKey: key, DevUser: &UserInfo{ID: "dev"}})
+	assert.NilError(t, err)
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("next called without a token")
 	})
@@ -103,20 +97,22 @@ func TestRequireBearer_NoToken(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Act
-	a.RequireBearer()(next).ServeHTTP(rec, req)
+	a.RequireBearerAuth()(next).ServeHTTP(rec, req)
 
 	// Assert
 	assert.Equal(t, rec.Code, http.StatusUnauthorized)
 }
 
-func TestRequireBearer_InvalidToken(t *testing.T) {
+func TestRequireBearerAuth_InvalidToken(t *testing.T) {
 	t.Parallel()
 	// Arrange: a token signed with another key.
 	key, err := CreateAppPrivateKey()
 	assert.NilError(t, err)
 	other, err := CreateAppPrivateKey()
 	assert.NilError(t, err)
-	a := newBearerAuth(t, key)
+	// The dev user is never used: RequireBearerAuth has no fallback.
+	a, err := New(t.Context(), Config{AppKey: key, DevUser: &UserInfo{ID: "dev"}})
+	assert.NilError(t, err)
 	token, err := SignAppToken(other, NewAppClaims(&UserInfo{ID: "user-1", OrgID: 7}))
 	assert.NilError(t, err)
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +123,7 @@ func TestRequireBearer_InvalidToken(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Act
-	a.RequireBearer()(next).ServeHTTP(rec, req)
+	a.RequireBearerAuth()(next).ServeHTTP(rec, req)
 
 	// Assert
 	assert.Equal(t, rec.Code, http.StatusUnauthorized)
