@@ -1,0 +1,60 @@
+package e2e
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/server/customserver"
+)
+
+// CustomWebhook is an org's custom event webhook, as an external system is
+// configured with it: the webhook URL and an API key.
+type CustomWebhook struct {
+	// Resp is the GetCustomEventTypes response the webhook URL was read from.
+	Resp *gritzv1.GetCustomEventTypesResponse
+
+	org   *Org
+	token string
+}
+
+// CustomWebhook returns the org's custom event webhook authenticated with key,
+// reading its URL from GetCustomEventTypes as the custom schemas tab does.
+func (o *Org) CustomWebhook(key *Key) *CustomWebhook {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
+	if err != nil {
+		t.Fatalf("GetCustomEventTypes: %v", err)
+	}
+	return &CustomWebhook{Resp: resp, org: o, token: key.Resp.RawToken}
+}
+
+// Send submits env to the webhook, as an external system does: marshaled to
+// JSON and posted to its URL with the key as a bearer token. The harness
+// server has no BaseURL, so the webhook URL is only a path on it.
+func (w *CustomWebhook) Send(env customserver.Envelope) *WebhookResponse {
+	t := w.org.server.t
+	t.Helper()
+	data, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.org.server.URL+w.Resp.WebhookUrl, bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+w.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	return &WebhookResponse{StatusCode: resp.StatusCode, Body: string(body)}
+}
