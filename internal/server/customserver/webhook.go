@@ -3,6 +3,8 @@
 package customserver
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +29,22 @@ type Envelope struct {
 	URL     string              `json:"url"`
 	Attrs   map[string][]string `json:"attrs"`
 	Details map[string]string   `json:"details"`
+}
+
+// NewWebhookRequest returns a request submitting env to the custom event
+// webhook at url, authenticated with token (an API key) as a bearer token.
+func NewWebhookRequest(ctx context.Context, url, token string, env Envelope) (*http.Request, error) {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	return req, nil
 }
 
 // toInputEvent validates env against the custom types in reg and builds the
