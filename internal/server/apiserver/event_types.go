@@ -46,10 +46,7 @@ func (s *Server) GetCustomEventTypes(ctx context.Context, req *gritzv1.GetCustom
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return &gritzv1.GetCustomEventTypesResponse{
-		EventTypes: model.ProtoMap(defs),
-		WebhookUrl: s.baseURL + "/webhook/custom",
-	}, nil
+	return &gritzv1.GetCustomEventTypesResponse{EventTypes: model.ProtoMap(defs)}, nil
 }
 
 // SetCustomEventTypes replaces the caller's org's custom event types. Every

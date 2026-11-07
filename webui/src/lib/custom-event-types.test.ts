@@ -29,14 +29,18 @@ describe('examplePayload', () => {
 
 describe('exampleCurl', () => {
   it('posts the payload with escaped single quotes', () => {
-    const payload = { type: 'x', body: "it's", url: '', attrs: {}, details: {} }
+    const payload = { type: 'x', body: "it's", url: "don't", attrs: {}, details: {} }
     expect(exampleCurl('https://gritz.dev/webhook/custom', payload)).toBe(
-      [
-        'curl -X POST https://gritz.dev/webhook/custom \\',
-        "  -H 'Authorization: Bearer <api key>' \\",
-        "  -H 'Content-Type: application/json' \\",
-        `  -d '${JSON.stringify(payload, null, 2).replace("'", "'\\''")}'`,
-      ].join('\n'),
+      `curl -X POST https://gritz.dev/webhook/custom \\
+  -H 'Authorization: Bearer <api key>' \\
+  -H 'Content-Type: application/json' \\
+  -d '{
+  "type": "x",
+  "body": "it'\\''s",
+  "url": "don'\\''t",
+  "attrs": {},
+  "details": {}
+}'`,
     )
   })
 })

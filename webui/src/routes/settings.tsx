@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation } from '@connectrpc/connect-query'
 import {
   getProfile,
@@ -35,6 +35,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { RelativeTime } from '@/components/relative-time'
+import { CopyButton } from '@/components/copy-button'
 import { GithubIcon } from '@/components/github-icon'
 import { AtlassianIcon } from '@/components/atlassian-icon'
 import {
@@ -51,6 +52,7 @@ import {
   Trash2,
   Unlink,
   User,
+  Webhook,
 } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 
@@ -168,6 +170,7 @@ function AccountSettings() {
 }
 
 function OrgSettings() {
+  const orgId = useOrgId()
   const { data, isLoading, refetch } = useQuery(getOrgSettings, {})
   const generateMutation = useMutation(generateAtlassianWebhookSecret, {
     onSuccess: () => refetch(),
@@ -197,6 +200,35 @@ function OrgSettings() {
               <Cable className="h-5 w-5 text-muted-foreground" />
               <code className="text-sm bg-muted px-2 py-1 rounded">{data.mcpUrl}</code>
             </div>
+          ) : null}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Custom Events</CardTitle>
+          <CardDescription>
+            Your own systems can submit events of the org's custom event types to this webhook URL.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {isLoading ? (
+            <div className="text-muted-foreground">Loading...</div>
+          ) : data?.customWebhookUrl ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Webhook className="h-5 w-5 text-muted-foreground" />
+                <code className="text-sm bg-muted px-2 py-1 rounded">{data.customWebhookUrl}</code>
+                <CopyButton text={data.customWebhookUrl} label="Copy webhook URL" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Senders POST with <code>Authorization: Bearer &lt;api key&gt;</code>, using a key
+                from the{' '}
+                <Link to="/keys" search={{ org: orgId }} className="underline">
+                  Keys
+                </Link>{' '}
+                page.
+              </p>
+            </>
           ) : null}
         </CardContent>
       </Card>

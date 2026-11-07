@@ -213,6 +213,7 @@ func (s *Server) GetOrgSettings(ctx context.Context, req *gritzv1.GetOrgSettings
 	}
 	resp := &gritzv1.GetOrgSettingsResponse{
 		McpUrl:               s.baseURL + "/mcp",
+		CustomWebhookUrl:     s.baseURL + "/webhook/custom",
 		GithubInstallationId: org.GitHubInstallationID,
 	}
 	if s.atlassian != nil {

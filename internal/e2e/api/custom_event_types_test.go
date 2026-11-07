@@ -41,10 +41,9 @@ func TestSetAndGetCustomEventTypes(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	// The harness server runs without a BaseURL, so only the path shows.
 	assert.DeepEqual(t,
 		getResp,
-		&gritzv1.GetCustomEventTypesResponse{EventTypes: defs, WebhookUrl: "/webhook/custom"},
+		&gritzv1.GetCustomEventTypesResponse{EventTypes: defs},
 		protocmp.Transform(),
 	)
 }

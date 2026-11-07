@@ -94,7 +94,7 @@ export function isCustomEventTypeFormValid(values: CustomEventTypeFormValues): b
   return keys.every(isValidCustomName) && new Set(keys).size === keys.length
 }
 
-// The JSON body /webhook/custom accepts (customserver.webhookPayload).
+// The JSON body /webhook/custom accepts (customserver.Envelope).
 export interface CustomEventPayload {
   type: string
   body: string

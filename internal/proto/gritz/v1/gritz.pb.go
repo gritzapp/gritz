@@ -5621,6 +5621,7 @@ type GetOrgSettingsResponse struct {
 	GithubAppUrl           string                 `protobuf:"bytes,3,opt,name=github_app_url,json=githubAppUrl,proto3" json:"github_app_url,omitempty"`
 	McpUrl                 string                 `protobuf:"bytes,4,opt,name=mcp_url,json=mcpUrl,proto3" json:"mcp_url,omitempty"`
 	GithubInstallationId   int64                  `protobuf:"varint,5,opt,name=github_installation_id,json=githubInstallationId,proto3" json:"github_installation_id,omitempty"`
+	CustomWebhookUrl       string                 `protobuf:"bytes,6,opt,name=custom_webhook_url,json=customWebhookUrl,proto3" json:"custom_webhook_url,omitempty"` // where to POST custom events, e.g. https://gritz.dev/webhook/custom
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -5688,6 +5689,13 @@ func (x *GetOrgSettingsResponse) GetGithubInstallationId() int64 {
 		return x.GithubInstallationId
 	}
 	return 0
+}
+
+func (x *GetOrgSettingsResponse) GetCustomWebhookUrl() string {
+	if x != nil {
+		return x.CustomWebhookUrl
+	}
+	return ""
 }
 
 type GenerateAtlassianWebhookSecretRequest struct {
@@ -6449,7 +6457,6 @@ func (*GetCustomEventTypesRequest) Descriptor() ([]byte, []int) {
 type GetCustomEventTypesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EventTypes    []*EventTypeDef        `protobuf:"bytes,1,rep,name=event_types,json=eventTypes,proto3" json:"event_types,omitempty"` // every source is "custom"
-	WebhookUrl    string                 `protobuf:"bytes,2,opt,name=webhook_url,json=webhookUrl,proto3" json:"webhook_url,omitempty"` // where to POST custom events, e.g. https://gritz.dev/webhook/custom
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6489,13 +6496,6 @@ func (x *GetCustomEventTypesResponse) GetEventTypes() []*EventTypeDef {
 		return x.EventTypes
 	}
 	return nil
-}
-
-func (x *GetCustomEventTypesResponse) GetWebhookUrl() string {
-	if x != nil {
-		return x.WebhookUrl
-	}
-	return ""
 }
 
 // SetCustomEventTypes replaces the org's custom event types. Rejected with
@@ -8170,13 +8170,14 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x15ListOrgMembersRequest\"G\n" +
 	"\x16ListOrgMembersResponse\x12-\n" +
 	"\amembers\x18\x01 \x03(\v2\x13.gritz.v1.OrgMemberR\amembers\"\x17\n" +
-	"\x15GetOrgSettingsRequest\"\xfb\x01\n" +
+	"\x15GetOrgSettingsRequest\"\xa9\x02\n" +
 	"\x16GetOrgSettingsResponse\x128\n" +
 	"\x18atlassian_webhook_secret\x18\x01 \x01(\tR\x16atlassianWebhookSecret\x122\n" +
 	"\x15atlassian_webhook_url\x18\x02 \x01(\tR\x13atlassianWebhookUrl\x12$\n" +
 	"\x0egithub_app_url\x18\x03 \x01(\tR\fgithubAppUrl\x12\x17\n" +
 	"\amcp_url\x18\x04 \x01(\tR\x06mcpUrl\x124\n" +
-	"\x16github_installation_id\x18\x05 \x01(\x03R\x14githubInstallationId\"'\n" +
+	"\x16github_installation_id\x18\x05 \x01(\x03R\x14githubInstallationId\x12,\n" +
+	"\x12custom_webhook_url\x18\x06 \x01(\tR\x10customWebhookUrl\"'\n" +
 	"%GenerateAtlassianWebhookSecretRequest\"a\n" +
 	"&GenerateAtlassianWebhookSecretResponse\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x1f\n" +
@@ -8223,12 +8224,10 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x15GetEventTypesResponse\x127\n" +
 	"\vevent_types\x18\x01 \x03(\v2\x16.gritz.v1.EventTypeDefR\n" +
 	"eventTypes\"\x1c\n" +
-	"\x1aGetCustomEventTypesRequest\"w\n" +
+	"\x1aGetCustomEventTypesRequest\"V\n" +
 	"\x1bGetCustomEventTypesResponse\x127\n" +
 	"\vevent_types\x18\x01 \x03(\v2\x16.gritz.v1.EventTypeDefR\n" +
-	"eventTypes\x12\x1f\n" +
-	"\vwebhook_url\x18\x02 \x01(\tR\n" +
-	"webhookUrl\"U\n" +
+	"eventTypes\"U\n" +
 	"\x1aSetCustomEventTypesRequest\x127\n" +
 	"\vevent_types\x18\x01 \x03(\v2\x16.gritz.v1.EventTypeDefR\n" +
 	"eventTypes\"V\n" +

@@ -11,21 +11,21 @@ import (
 // CustomWebhook is an org's custom event webhook, as an external system is
 // configured with it: the webhook URL and an API key.
 type CustomWebhook struct {
-	// Resp is the GetCustomEventTypes response the webhook URL was read from.
-	Resp *gritzv1.GetCustomEventTypesResponse
+	// Resp is the GetOrgSettings response the webhook URL was read from.
+	Resp *gritzv1.GetOrgSettingsResponse
 
 	org   *Org
 	token string
 }
 
 // CustomWebhook returns the org's custom event webhook authenticated with key,
-// reading its URL from GetCustomEventTypes as the custom schemas tab does.
+// reading its URL from GetOrgSettings as the settings page does.
 func (o *Org) CustomWebhook(key *Key) *CustomWebhook {
 	t := o.server.t
 	t.Helper()
-	resp, err := o.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
+	resp, err := o.Client.GetOrgSettings(t.Context(), &gritzv1.GetOrgSettingsRequest{})
 	if err != nil {
-		t.Fatalf("GetCustomEventTypes: %v", err)
+		t.Fatalf("GetOrgSettings: %v", err)
 	}
 	return &CustomWebhook{Resp: resp, org: o, token: key.Resp.RawToken}
 }
@@ -36,7 +36,7 @@ func (o *Org) CustomWebhook(key *Key) *CustomWebhook {
 func (w *CustomWebhook) Send(env customserver.Envelope) *WebhookResponse {
 	t := w.org.server.t
 	t.Helper()
-	req, err := customserver.NewWebhookRequest(t.Context(), w.org.server.URL+w.Resp.WebhookUrl, w.token, env)
+	req, err := customserver.NewWebhookRequest(t.Context(), w.org.server.URL+w.Resp.CustomWebhookUrl, w.token, env)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
