@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@connectrpc/connect-query'
 import {
+  getCustomEventTypes,
   getEventTypes,
   getRoutingRules,
   listExternalEvents,
@@ -29,13 +30,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RelativeTime } from '@/components/relative-time'
 import { eventTypeLabel, OP_LABELS, type ConditionOp } from '@/lib/routing-rules'
+import { useSetCustomEventTypes } from '@/lib/custom-event-types'
 import { ChevronDown, ChevronUp, FlaskConical, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 
-type EventsTab = 'rules' | 'recent'
+type EventsTab = 'rules' | 'recent' | 'schemas'
 
 function toEventsTab(value: unknown): EventsTab | undefined {
-  if (value === 'rules' || value === 'recent') return value
+  if (value === 'rules' || value === 'recent' || value === 'schemas') return value
   return undefined
 }
 
@@ -79,6 +81,7 @@ function EventsPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="recent">Recent Events</TabsTrigger>
+            <TabsTrigger value="schemas">Custom Schemas</TabsTrigger>
           </TabsList>
           <div className="ml-auto flex items-center gap-2">
             {tab === 'rules' && (
@@ -96,6 +99,14 @@ function EventsPage() {
                   </Button>
                 </Link>
               </>
+            )}
+            {tab === 'schemas' && (
+              <Link to="/custom-event-types/new" search={{ org: orgId }}>
+                <Button>
+                  <Plus className="h-4 w-4" />
+                  Type
+                </Button>
+              </Link>
             )}
             {tab === 'recent' && (
               <div className="flex items-center gap-2">
@@ -120,6 +131,9 @@ function EventsPage() {
         </TabsContent>
         <TabsContent value="recent" className="pt-2">
           <RecentEventsTab limit={limit} />
+        </TabsContent>
+        <TabsContent value="schemas" className="pt-2">
+          <CustomSchemasTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -324,6 +338,89 @@ function RoutingRulesTab() {
                       size="sm"
                       onClick={() => handleDelete(index)}
                       disabled={updateMutation.isPending}
+                    >
+                      {updateMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  )
+}
+
+function CustomSchemasTab() {
+  const orgId = useOrgId()
+  const { data, isLoading, error } = useQuery(getCustomEventTypes, {})
+  const updateMutation = useSetCustomEventTypes()
+
+  const eventTypes = data?.eventTypes ?? []
+
+  const handleDelete = async (type: string) => {
+    const updated = eventTypes.filter((t) => t.type !== type)
+    await updateMutation.mutateAsync({ eventTypes: updated })
+  }
+
+  if (isLoading) return <div className="text-muted-foreground">Loading...</div>
+  if (error) return <div className="text-destructive">Error: {error.message}</div>
+
+  return (
+    <div className="space-y-4">
+      {updateMutation.error && (
+        <div className="text-destructive text-sm">{updateMutation.error.message}</div>
+      )}
+      {eventTypes.length === 0 ? (
+        <div className="text-muted-foreground text-center py-8">
+          No custom event types defined. Add one to route events your own systems submit.
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Label</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead className="hidden md:table-cell">Attributes</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {eventTypes.map((eventType) => (
+              <TableRow key={eventType.type}>
+                <TableCell className="font-medium whitespace-nowrap">{eventType.label}</TableCell>
+                <TableCell className="font-mono">{eventType.type}</TableCell>
+                <TableCell className="hidden md:table-cell">
+                  <div className="flex flex-wrap gap-1">
+                    {eventType.attrs.map((attr) => (
+                      <Badge key={attr.key} variant="outline" className="font-mono">
+                        {attr.key}
+                      </Badge>
+                    ))}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex justify-end gap-1">
+                    <Link
+                      to="/custom-event-types/$type"
+                      params={{ type: eventType.type }}
+                      search={{ org: orgId }}
+                    >
+                      <Button variant="outline" size="sm" disabled={updateMutation.isPending}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(eventType.type)}
+                      disabled={updateMutation.isPending}
+                      aria-label="Remove type"
                     >
                       {updateMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />

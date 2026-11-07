@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as CustomEventTypesTypeRouteImport } from './routes/custom-event-types.$type'
+import { Route as CustomEventTypesNewRouteImport } from './routes/custom-event-types.new'
 import { Route as EventsIndexRouteImport } from './routes/events.index'
 import { Route as EventsIdRouteImport } from './routes/events.$id'
 import { Route as GithubSetupRouteImport } from './routes/github.setup'
@@ -37,6 +39,16 @@ const IndexRoute = IndexRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomEventTypesTypeRoute = CustomEventTypesTypeRouteImport.update({
+  id: '/custom-event-types/$type',
+  path: '/custom-event-types/$type',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomEventTypesNewRoute = CustomEventTypesNewRouteImport.update({
+  id: '/custom-event-types/new',
+  path: '/custom-event-types/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EventsIndexRoute = EventsIndexRouteImport.update({
@@ -128,6 +140,8 @@ const SchedulesIdEditRoute = SchedulesIdEditRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/custom-event-types/$type': typeof CustomEventTypesTypeRoute
+  '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
@@ -149,6 +163,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/custom-event-types/$type': typeof CustomEventTypesTypeRoute
+  '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
@@ -171,6 +187,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/custom-event-types/$type': typeof CustomEventTypesTypeRoute
+  '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
@@ -194,6 +212,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/settings'
+    | '/custom-event-types/$type'
+    | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
     | '/keys/new'
@@ -215,6 +235,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/settings'
+    | '/custom-event-types/$type'
+    | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
     | '/keys/new'
@@ -236,6 +258,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/settings'
+    | '/custom-event-types/$type'
+    | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
     | '/keys/new'
@@ -258,6 +282,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
+  CustomEventTypesTypeRoute: typeof CustomEventTypesTypeRoute
+  CustomEventTypesNewRoute: typeof CustomEventTypesNewRoute
   EventsIdRoute: typeof EventsIdRoute
   GithubSetupRoute: typeof GithubSetupRoute
   KeysNewRoute: typeof KeysNewRoute
@@ -291,6 +317,20 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/custom-event-types/$type': {
+      id: '/custom-event-types/$type'
+      path: '/custom-event-types/$type'
+      fullPath: '/custom-event-types/$type'
+      preLoaderRoute: typeof CustomEventTypesTypeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/custom-event-types/new': {
+      id: '/custom-event-types/new'
+      path: '/custom-event-types/new'
+      fullPath: '/custom-event-types/new'
+      preLoaderRoute: typeof CustomEventTypesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/events/': {
@@ -418,6 +458,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
+  CustomEventTypesTypeRoute: CustomEventTypesTypeRoute,
+  CustomEventTypesNewRoute: CustomEventTypesNewRoute,
   EventsIdRoute: EventsIdRoute,
   GithubSetupRoute: GithubSetupRoute,
   KeysNewRoute: KeysNewRoute,
