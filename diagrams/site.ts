@@ -3,6 +3,11 @@
 // @motion-canvas/player web component and the playback controls in
 // controls.ts. Every URL is relative, so the same build works under
 // /diagrams/ and under a PR preview's /diagrams/pr/<n>/.
+//
+// A project page with `?embed` is for an iframe, such as the docs' Diagram
+// component: the head script marks the page before it renders, so the "All
+// diagrams" link and the heading never show, and the player and its controls
+// fill the frame.
 
 import path from 'path';
 import type {Plugin} from 'vite';
@@ -21,7 +26,16 @@ const style = `
   h1 { font-size: 24px; }
   h2 { font-size: 18px; color: #8b93a1; }
   motion-canvas-player { display: block; width: 100%; aspect-ratio: 16 / 9; }
+  .embed body {
+    display: flex; flex-direction: column;
+    height: 100vh; max-width: none; padding: 0 8px 8px; box-sizing: border-box;
+  }
+  .embed .chrome { display: none; }
+  .embed motion-canvas-player { flex: 1; min-height: 0; aspect-ratio: auto; }
 `;
+
+// Sets the embed class on <html> before the body renders; controls.ts reads it.
+const embed = `if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');`;
 
 const escape = (s: string) =>
   s.replace(
@@ -29,13 +43,13 @@ const escape = (s: string) =>
     c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]!,
   );
 
-const page = (title: string, body: string) => `<!doctype html>
+const page = (title: string, body: string, head = '') => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(title)}</title>
-<style>${style}</style>
+<style>${style}</style>${head}
 </head>
 <body>
 ${body}
@@ -84,11 +98,15 @@ export function site(): Plugin {
       for (const {slug, src} of projects) {
         const fileName = `${slug}/index.html`;
         // controls.ts turns data-src into the player's src.
-        const body = `<p><a href="${relative(fileName, 'index.html')}">All diagrams</a></p>
-<h1>${escape(slug)}</h1>
+        const body = `<p class="chrome"><a href="${relative(fileName, 'index.html')}">All diagrams</a></p>
+<h1 class="chrome">${escape(slug)}</h1>
 <motion-canvas-player data-src="${relative(fileName, src)}"></motion-canvas-player>
 <script type="module" src="${relative(fileName, controls)}"></script>`;
-        this.emitFile({type: 'asset', fileName, source: page(slug, body)});
+        this.emitFile({
+          type: 'asset',
+          fileName,
+          source: page(slug, body, `\n<script>${embed}</script>`),
+        });
       }
 
       const groups = new Map<string, string[]>();
