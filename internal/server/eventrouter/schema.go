@@ -11,14 +11,14 @@ import (
 // SourceCustom is the event source of org-defined custom event types.
 const SourceCustom = "custom"
 
-// customNameRe constrains custom event type names and attr keys to the
+// reCustomName constrains custom event type names and attr keys to the
 // style of the built-in names, e.g. "comment_created".
-var customNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+var reCustomName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 // ValidateCustomEventTypes checks an org's full list of custom event types,
 // returning an error naming the first offending def or attr. Every def must
-// have Source SourceCustom, a Type matching customNameRe that is unique
-// in defs, and a non-empty Label. Every attr Key must match customNameRe
+// have Source SourceCustom, a Type matching reCustomName that is unique
+// in defs, and a non-empty Label. Every attr Key must match reCustomName
 // and be unique within its def, and each def must declare the derived "body"
 // and "url" attrs (see InputEvent.Attr); they are never added on its behalf.
 func ValidateCustomEventTypes(defs []model.EventTypeDef) error {
@@ -27,8 +27,8 @@ func ValidateCustomEventTypes(defs []model.EventTypeDef) error {
 		if def.Source != SourceCustom {
 			return fmt.Errorf("event type %d: source must be %q, got %q", i+1, SourceCustom, def.Source)
 		}
-		if !customNameRe.MatchString(def.Type) {
-			return fmt.Errorf("event type %d: type %q must match %s", i+1, def.Type, customNameRe)
+		if !reCustomName.MatchString(def.Type) {
+			return fmt.Errorf("event type %d: type %q must match %s", i+1, def.Type, reCustomName)
 		}
 		if types[def.Type] {
 			return fmt.Errorf("event type %d: duplicate type %q", i+1, def.Type)
@@ -39,8 +39,8 @@ func ValidateCustomEventTypes(defs []model.EventTypeDef) error {
 		}
 		keys := map[string]bool{}
 		for _, attr := range def.Attrs {
-			if !customNameRe.MatchString(attr.Key) {
-				return fmt.Errorf("event type %q: attr key %q must match %s", def.Type, attr.Key, customNameRe)
+			if !reCustomName.MatchString(attr.Key) {
+				return fmt.Errorf("event type %q: attr key %q must match %s", def.Type, attr.Key, reCustomName)
 			}
 			if keys[attr.Key] {
 				return fmt.Errorf("event type %q: duplicate attr key %q", def.Type, attr.Key)
