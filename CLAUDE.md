@@ -144,6 +144,6 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
 
 The web interface is a React-based UI in `webui/` using TanStack Router, TanStack Query, and shadcn/ui components.
 
-**Always run `pnpm lint` in `webui/` before finishing any frontend change** — CI runs ESLint on every webui PR and will fail otherwise.
+**Always run `pnpm lint` in `webui/` before finishing any frontend change** — it runs ESLint and the Prettier check, as CI does on every webui PR. Run `pnpm format` to fix formatting.
 
 For detailed development guidelines, see the `webui` skill in `.claude/skills/webui/`.
