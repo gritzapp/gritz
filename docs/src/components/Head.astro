@@ -1,0 +1,12 @@
+---
+import Default from '@astrojs/starlight/components/Head.astro';
+
+// Points crawlers on the HTML page at its Markdown source, served by
+// src/pages/[...slug].md.ts. The root page's id is empty and its source is
+// index.md. The 404 page has no source.
+const { id } = Astro.locals.starlightRoute;
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+---
+
+<Default />
+{id !== '404' && <link rel="alternate" type="text/markdown" href={`${base}${id || 'index'}.md`} />}
