@@ -53,7 +53,7 @@ type.
 | Field | Type | Required | Validation |
 | --- | --- | --- | --- |
 | `type` | string | yes | Must name one of the organisation's custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
-| `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. It is used exactly as sent: see [`url`](#url). |
+| `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url). |
 | `body` | string | no | The event's text. Defaults to the empty string. |
 | `attrs` | object of string → array of strings | no | Every key must be an attribute the type declares, other than `body` and `url`. |
 | `details` | object of string → string | no | Not validated. |
@@ -67,8 +67,26 @@ becomes the event's description on the task's timeline.
 
 The resource the event is about, and the key that routes it: an event wakes the
 tasks subscribed to its `url`, and a task created by the event is subscribed to
-it. gritz doesn't normalise it, so events about the same resource must send the
-same URL byte for byte.
+it.
+
+gritz normalises GitHub and Jira issue URLs to one key per issue, as it does for
+their native events, so a custom event about a GitHub pull request or a Jira
+issue wakes the task subscribed to it:
+
+| `url` | Key |
+| --- | --- |
+| `https://github.com/{owner}/{repo}/issues/{n}` or `/pull/{n}`, with any further path segments, query or fragment | `https://github.com/{owner}/{repo}/issues/{n}` or `/pull/{n}` |
+| `https://api.github.com/repos/{owner}/{repo}/issues/{n}` or `/pulls/{n}`, with any further path segments, query or fragment | `https://github.com/{owner}/{repo}/issues/{n}` or `/pull/{n}` |
+| `https://{site}.atlassian.net/browse/{KEY}`, with any further path segments, query or fragment | `https://{site}.atlassian.net/browse/{KEY}` |
+| `https://{site}.atlassian.net/rest/api/{version}/issue/{KEY}`, with any further path segments, query or fragment | `https://{site}.atlassian.net/browse/{KEY}` |
+
+The host must match exactly (`github.com`, not `www.github.com`), and the key
+always uses `https`. A Jira REST URL with a numeric issue id instead of a key,
+and a GitHub API comment URL (`/repos/{owner}/{repo}/issues/comments/{id}`), are
+not normalised.
+
+Every other URL is used exactly as sent, so events about the same resource must
+send the same URL byte for byte.
 
 #### `body`
 

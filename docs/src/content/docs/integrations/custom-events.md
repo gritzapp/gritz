@@ -136,10 +136,15 @@ gritz decides which task an event belongs to by its `url`: an event wakes the
 tasks subscribed to that URL. A task is subscribed to the `url` of the event that
 created it, and to any link an agent creates with `subscribe=true`.
 
-gritz uses the URL exactly as sent, so every event about the same resource must
-send the same URL, byte for byte. A different query string, a trailing slash or
-a different host name is a different resource, and the event won't wake the task
-the first event created.
+For most URLs, gritz uses the URL exactly as sent, so every event about the same
+resource must send the same URL, byte for byte. A different query string, a
+trailing slash or a different host name is a different resource, and the event
+won't wake the task the first event created.
+
+GitHub and Jira URLs are the exception: gritz normalises them as it does for
+their native events, so a custom event about a GitHub pull request or a Jira
+issue wakes the task subscribed to it, whichever form of the URL each side used.
+The [envelope reference](/reference/custom-event-envelope/#url) lists the forms.
 
 Pick a URL that a person can open, such as the alert's page in the alerting
 system, and send exactly that string in every event about the alert.
