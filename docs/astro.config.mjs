@@ -2,7 +2,9 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import starlightLinksValidator from 'starlight-links-validator';
+import starlightLlmsTxt from 'starlight-llms-txt';
 import { existsSync } from 'node:fs';
+import { sections, sets } from './src/sections.mjs';
 
 // PR previews build with DOCS_BASE=/pr/<n>/. Astro writes absolute URLs, so a
 // preview needs its own base, and must not be indexed.
@@ -33,11 +35,40 @@ const baseLinks = {
 	},
 };
 
+// starlight-llms-txt, minus its llms.txt: that one lists only the documentation
+// sets, so src/pages/llms.txt.ts replaces it with one that also links every
+// page's Markdown. Astro rejects two routes for one URL, so the plugin's route is
+// dropped as the plugin injects it.
+const llmsTxt = (options) => {
+	const plugin = starlightLlmsTxt(options);
+	return {
+		...plugin,
+		hooks: {
+			setup: (params) =>
+				plugin.hooks.setup({
+					...params,
+					addIntegration: (integration) =>
+						params.addIntegration({
+							...integration,
+							hooks: {
+								'astro:config:setup': (setup) =>
+									integration.hooks['astro:config:setup']({
+										...setup,
+										injectRoute: (route) =>
+											route.pattern === '/llms.txt' || setup.injectRoute(route),
+									}),
+							},
+						}),
+				}),
+		},
+	};
+};
+
 // A sidebar group listing every page under one directory of src/content/docs/.
 // A page shows up in its group as soon as its file lands. Starlight renders a
 // group with no pages as an empty heading, so a group whose directory doesn't
 // exist yet is left out.
-const section = (label, directory) =>
+const section = ({ label, directory }) =>
 	existsSync(new URL(`./src/content/docs/${directory}`, import.meta.url))
 		? [{ label, items: [{ autogenerate: { directory } }] }]
 		: [];
@@ -59,13 +90,26 @@ export default defineConfig({
 			// One group per section.
 			sidebar: [
 				{ label: 'Start here', items: ['index'] },
-				...section('Concepts', 'concepts'),
-				...section('Using gritz', 'using'),
-				...section('Integrations', 'integrations'),
-				...section('Reference', 'reference'),
-				...section('Operators', 'operators'),
+				...sections.flatMap(section),
 			],
-			plugins: [starlightLinksValidator()],
+			components: {
+				// Links each page to its Markdown source.
+				Head: './src/components/Head.astro',
+			},
+			plugins: [
+				starlightLinksValidator(),
+				// llms-full.txt, llms-small.txt and the Users and Operators sets.
+				llmsTxt({
+					projectName: 'gritz',
+					// The plugin names a set's file after its label.
+					customSets: sets.map(({ label, description, paths }) => ({
+						label,
+						description,
+						paths,
+					})),
+					promote: ['index', 'concepts/**'],
+				}),
+			],
 		}),
 	],
 });
