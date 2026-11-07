@@ -1,8 +1,6 @@
 package e2e
 
 import (
-	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
 
@@ -38,15 +36,10 @@ func (o *Org) CustomWebhook(key *Key) *CustomWebhook {
 func (w *CustomWebhook) Send(env customserver.Envelope) *WebhookResponse {
 	t := w.org.server.t
 	t.Helper()
-	data, err := json.Marshal(env)
+	req, err := customserver.NewWebhookRequest(t.Context(), w.org.server.URL+w.Resp.WebhookUrl, w.token, env)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.org.server.URL+w.Resp.WebhookUrl, bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+w.token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Send: %v", err)

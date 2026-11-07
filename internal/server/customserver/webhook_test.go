@@ -34,13 +34,14 @@ func TestWebhookHandler(t *testing.T) {
 		},
 	}
 	h := &WebhookHandler{Router: router, Store: store}
-	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(`{
-		"type": "problem",
-		"url": "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=-123_456V2",
-		"body": "CPU saturation on host web-1",
-		"attrs": {"severity": ["RESOURCE_CONTENTION"], "tag": ["team:payments", "env:prod"]},
-		"details": {"impact": "INFRASTRUCTURE", "state": "OPEN"}
-	}`))
+	req, err := NewWebhookRequest(t.Context(), "/webhook/custom", "xat_test", Envelope{
+		Type:    "problem",
+		URL:     "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=-123_456V2",
+		Body:    "CPU saturation on host web-1",
+		Attrs:   map[string][]string{"severity": {"RESOURCE_CONTENTION"}, "tag": {"team:payments", "env:prod"}},
+		Details: map[string]string{"impact": "INFRASTRUCTURE", "state": "OPEN"},
+	})
+	assert.NilError(t, err)
 	req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
 		ID:     "user-1",
 		OrgID:  7,
@@ -78,14 +79,17 @@ func TestWebhookHandler(t *testing.T) {
 func TestWebhookHandler_MissingScope(t *testing.T) {
 	// Arrange
 	h := &WebhookHandler{}
-	caller := &apiauth.UserInfo{
+	req, err := NewWebhookRequest(t.Context(), "/webhook/custom", "xat_test", Envelope{
+		Type: "problem",
+		URL:  "https://example.com/p/1",
+	})
+	assert.NilError(t, err)
+	req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
 		ID:     "user-1",
 		OrgID:  7,
 		Type:   apiauth.AuthTypeKey,
 		Scopes: authscope.Scopes{authscope.New(authscope.OpOrgRead)},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(`{}`))
-	req = req.WithContext(apiauth.WithUser(req.Context(), caller))
+	}))
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -95,7 +99,7 @@ func TestWebhookHandler_MissingScope(t *testing.T) {
 	assert.Equal(t, rec.Code, http.StatusForbidden)
 }
 
-func TestWebhookHandler_BadRequest(t *testing.T) {
+func TestWebhookHandler_MalformedBody(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
@@ -111,54 +115,86 @@ func TestWebhookHandler_BadRequest(t *testing.T) {
 			body: `{"type": "problem", "url": "https://example.com/p/1", "description": "x"}`,
 			err:  `unknown field "description"`,
 		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			router := &RouterMock{}
+			h := &WebhookHandler{Router: router}
+			req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(tt.body))
+			req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
+				ID:     "user-1",
+				OrgID:  7,
+				Type:   apiauth.AuthTypeKey,
+				Scopes: authscope.Admin(),
+			}))
+			rec := httptest.NewRecorder()
+
+			// Act
+			h.ServeHTTP(rec, req)
+
+			// Assert
+			assert.Equal(t, rec.Code, http.StatusBadRequest)
+			assert.Assert(t, cmp.Contains(rec.Body.String(), tt.err))
+			assert.Equal(t, len(router.RouteCalls()), 0)
+		})
+	}
+}
+
+func TestWebhookHandler_InvalidEnvelope(t *testing.T) {
+	tests := []struct {
+		name string
+		env  Envelope
+		err  string
+	}{
 		{
 			name: "TooLarge",
-			body: `{"type": "problem", "url": "https://example.com/p/1", "body": "` + strings.Repeat("x", maxEnvelopeBytes) + `"}`,
+			env:  Envelope{Type: "problem", URL: "https://example.com/p/1", Body: strings.Repeat("x", maxEnvelopeBytes)},
 			err:  "request body too large",
 		},
 		{
 			name: "UnknownType",
-			body: `{"type": "deploy", "url": "https://example.com/p/1"}`,
+			env:  Envelope{Type: "deploy", URL: "https://example.com/p/1"},
 			err:  `unknown event type "deploy"`,
 		},
 		{
 			name: "EmptyURL",
-			body: `{"type": "problem"}`,
+			env:  Envelope{Type: "problem"},
 			err:  "url is required",
 		},
 		{
 			name: "RelativeURL",
-			body: `{"type": "problem", "url": "/p/1"}`,
+			env:  Envelope{Type: "problem", URL: "/p/1"},
 			err:  `url "/p/1" must be an absolute http or https URL`,
 		},
 		{
 			name: "NonHTTPURL",
-			body: `{"type": "problem", "url": "ftp://example.com/p/1"}`,
+			env:  Envelope{Type: "problem", URL: "ftp://example.com/p/1"},
 			err:  `url "ftp://example.com/p/1" must be an absolute http or https URL`,
 		},
 		{
 			name: "URLWithoutHost",
-			body: `{"type": "problem", "url": "https:p/1"}`,
+			env:  Envelope{Type: "problem", URL: "https:p/1"},
 			err:  `url "https:p/1" must be an absolute http or https URL`,
 		},
 		{
 			name: "UnparsableURL",
-			body: `{"type": "problem", "url": "https://exa mple.com/%zz"}`,
+			env:  Envelope{Type: "problem", URL: "https://exa mple.com/%zz"},
 			err:  `must be an absolute http or https URL`,
 		},
 		{
 			name: "BodyAttr",
-			body: `{"type": "problem", "url": "https://example.com/p/1", "attrs": {"body": ["x"]}}`,
+			env:  Envelope{Type: "problem", URL: "https://example.com/p/1", Attrs: map[string][]string{"body": {"x"}}},
 			err:  `attr "body" must be sent as the envelope's "body" field`,
 		},
 		{
 			name: "URLAttr",
-			body: `{"type": "problem", "url": "https://example.com/p/1", "attrs": {"url": ["https://example.com/p/2"]}}`,
+			env:  Envelope{Type: "problem", URL: "https://example.com/p/1", Attrs: map[string][]string{"url": {"https://example.com/p/2"}}},
 			err:  `attr "url" must be sent as the envelope's "url" field`,
 		},
 		{
 			name: "UndeclaredAttr",
-			body: `{"type": "problem", "url": "https://example.com/p/1", "attrs": {"severity": ["high"], "region": ["eu"]}}`,
+			env:  Envelope{Type: "problem", URL: "https://example.com/p/1", Attrs: map[string][]string{"severity": {"high"}, "region": {"eu"}}},
 			err:  `attr "region" not declared by event type "problem"`,
 		},
 	}
@@ -174,12 +210,13 @@ func TestWebhookHandler_BadRequest(t *testing.T) {
 							Source: eventrouter.SourceCustom,
 							Type:   "problem",
 							Label:  "Dynatrace Problem",
-							Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}, {Key: "tag"}},
+							Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
 						}}, nil
 					},
 				},
 			}
-			req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(tt.body))
+			req, err := NewWebhookRequest(t.Context(), "/webhook/custom", "xat_test", tt.env)
+			assert.NilError(t, err)
 			req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
 				ID:     "user-1",
 				OrgID:  7,
