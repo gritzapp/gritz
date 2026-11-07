@@ -15,12 +15,19 @@
   h1 { font-size: 24px; }
   h2 { font-size: 18px; color: #8b93a1; }
   motion-canvas-player { display: block; width: 100%; aspect-ratio: 16 / 9; }
+  .embed body {
+    display: flex; flex-direction: column;
+    height: 100vh; max-width: none; padding: 0 8px 8px; box-sizing: border-box;
+  }
+  .embed .chrome { display: none; }
+  .embed motion-canvas-player { flex: 1; min-height: 0; aspect-ratio: auto; }
 </style>
+<script>if (new URLSearchParams(location.search).has('embed')) document.documentElement.classList.add('embed');</script>
 </head>
 <body>
-<p><a href="../index.html">All diagrams</a></p>
-<h1>create-task</h1>
+<p class="chrome"><a href="../index.html">All diagrams</a></p>
+<h1 class="chrome">create-task</h1>
 <motion-canvas-player data-src="../src/projects/create-task-ChYZPro_.js"></motion-canvas-player>
-<script type="module" src="../controls-s7dpFzji.js"></script>
+<script type="module" src="../controls-BxvGz6Xv.js"></script>
 </body>
 </html>
