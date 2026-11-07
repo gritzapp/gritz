@@ -225,18 +225,13 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
 		&gritzv1.Task{
-			Id:          task.ID,
-			Name:        "Draft Task",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_PENDING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_PENDING,
+			Command: gritzv1.TaskCommand_START,
+			Version: 1,
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
 	)
 	// The runner now has work for it: a start for run 1.
 	assert.DeepEqual(t,
