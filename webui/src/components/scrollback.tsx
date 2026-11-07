@@ -100,7 +100,7 @@ export function Scrollback({
       {/* Top-edge scroll shadow: fades in once content is scrolled above the fold. */}
       <div
         className={cn(
-          'pointer-events-none absolute inset-x-0 top-0 z-10 h-4 bg-gradient-to-b from-black/10 to-transparent transition-opacity',
+          'pointer-events-none absolute inset-x-0 top-0 z-10 h-4 bg-gradient-to-b from-black/10 to-transparent dark:from-black/40 transition-opacity',
           scrolledFromTop ? 'opacity-100' : 'opacity-0',
         )}
       />

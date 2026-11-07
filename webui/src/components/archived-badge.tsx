@@ -6,7 +6,10 @@ export function ArchivedBadge({ task }: { task: Task }) {
     return null
   }
   return (
-    <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-200">
+    <Badge
+      variant="outline"
+      className="bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800/60 dark:text-gray-300 dark:border-gray-700"
+    >
       archived
     </Badge>
   )
