@@ -29,14 +29,10 @@ var problemType = model.EventTypeDef{
 	},
 }
 
-// newRequest returns a POST of body to the webhook, authenticated as caller
-// when it's non-nil.
+// newRequest returns a POST of body to the webhook, authenticated as caller.
 func newRequest(caller *apiauth.UserInfo, body string) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(body))
-	if caller != nil {
-		req = req.WithContext(apiauth.WithUser(req.Context(), caller))
-	}
-	return req
+	return req.WithContext(apiauth.WithUser(req.Context(), caller))
 }
 
 // keyCaller is an API-key caller in org 7 holding every scope.
@@ -88,34 +84,6 @@ func TestWebhookHandler(t *testing.T) {
 		},
 		Details: map[string]string{"impact": "INFRASTRUCTURE", "state": "OPEN"},
 	}})
-}
-
-func TestWebhookHandler_NoCaller(t *testing.T) {
-	// Arrange
-	h := &WebhookHandler{}
-	req := newRequest(nil, `{}`)
-	rec := httptest.NewRecorder()
-
-	// Act
-	h.ServeHTTP(rec, req)
-
-	// Assert
-	assert.Equal(t, rec.Code, http.StatusUnauthorized)
-}
-
-func TestWebhookHandler_CookieCaller(t *testing.T) {
-	// Arrange
-	h := &WebhookHandler{}
-	caller := &apiauth.UserInfo{ID: "user-1", OrgID: 7, Type: apiauth.AuthTypeCookie, Scopes: authscope.Admin()}
-	req := newRequest(caller, `{}`)
-	rec := httptest.NewRecorder()
-
-	// Act
-	h.ServeHTTP(rec, req)
-
-	// Assert
-	assert.Equal(t, rec.Code, http.StatusUnauthorized)
-	assert.Assert(t, cmp.Contains(rec.Body.String(), "an API key is required"))
 }
 
 func TestWebhookHandler_MissingScope(t *testing.T) {

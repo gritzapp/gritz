@@ -68,26 +68,18 @@ func toInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (e
 	}, nil
 }
 
-// WebhookHandler accepts custom events from API-key-authenticated callers.
+// WebhookHandler accepts custom events from Bearer-authenticated callers. It
+// must be mounted behind apiauth's RequireBearer.
 type WebhookHandler struct {
 	Router Router
 	Store  Store
 }
 
-// ServeHTTP authenticates, validates and routes one custom event. The event
+// ServeHTTP authorizes, validates and routes one custom event. The event
 // has no actor: it belongs to the caller's org and routes with an empty
 // UserID, so only the org's public rules can fire.
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	caller := apiauth.Caller(r.Context())
-	if caller == nil {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	// A browser session must not be able to submit events cross-site.
-	if caller.Type == apiauth.AuthTypeCookie {
-		http.Error(w, "an API key is required", http.StatusUnauthorized)
-		return
-	}
+	caller := apiauth.MustCaller(r.Context())
 	if !caller.Scopes.Allow(authscope.OpEventCreate) {
 		http.Error(w, "permission denied", http.StatusForbidden)
 		return
