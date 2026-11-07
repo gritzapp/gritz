@@ -69,7 +69,7 @@ func toInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (e
 }
 
 // WebhookHandler accepts custom events from Bearer-authenticated callers. It
-// must be mounted behind apiauth's RequireBearer.
+// must be mounted behind apiauth's RequireBearerAuth.
 type WebhookHandler struct {
 	Router Router
 	Store  Store
