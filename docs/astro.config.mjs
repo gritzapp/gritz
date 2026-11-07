@@ -8,6 +8,31 @@ import { existsSync } from 'node:fs';
 // preview needs its own base, and must not be indexed.
 const base = process.env.DOCS_BASE;
 
+// Astro prefixes its own URLs with the base, but not root-relative links written
+// in Markdown, such as [envelope](/reference/custom-event-envelope/). In a
+// preview this prefixes them, ahead of the links validator, so they stay inside
+// the preview and are checked against its pages.
+const baseLinks = {
+	name: 'base-links',
+	hooks: {
+		'astro:config:setup': ({ config }) => {
+			if (!base) return;
+			config.markdown.processor.options.hastPlugins.unshift({
+				name: 'base-links',
+				element: {
+					filter: ['a'],
+					visit(node, ctx) {
+						const href = node.properties.href;
+						if (typeof href === 'string' && /^\/(?!\/)/.test(href)) {
+							ctx.setProperty(node, 'href', base.replace(/\/$/, '') + href);
+						}
+					},
+				},
+			});
+		},
+	},
+};
+
 // A sidebar group listing every page under one directory of src/content/docs/.
 // A page shows up in its group as soon as its file lands. Starlight renders a
 // group with no pages as an empty heading, so a group whose directory doesn't
@@ -21,6 +46,7 @@ export default defineConfig({
 	site: 'https://docs.gritz.dev',
 	base: base ?? '/',
 	integrations: [
+		baseLinks,
 		starlight({
 			title: 'gritz',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/gritzapp/gritz' }],
