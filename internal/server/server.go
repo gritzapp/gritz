@@ -33,7 +33,7 @@ type Server struct {
 	auth      *apiauth.Auth
 	github    *githubserver.Server
 	atlassian *atlassianserver.Server
-	custom    *customserver.WebhookHandler
+	custom    *customserver.Server
 	baseURL   string
 	oauth     *oauthflow.Auth
 	cors      bool
@@ -48,6 +48,7 @@ type Options struct {
 	Auth          *apiauth.Auth
 	GitHub        *githubserver.Server
 	Atlassian     *atlassianserver.Server
+	Custom        *customserver.Server
 	BaseURL       string
 	EncryptionKey []byte
 	OAuth         *oauthflow.Auth
@@ -110,19 +111,13 @@ func New(opts Options) *Server {
 	if opts.Wrap != nil {
 		api = opts.Wrap(api)
 	}
-	// A custom source has no channel back to the sender, so its router has no
-	// OnRouteOutcome: the response's routed count is the sender's feedback.
-	custom := &customserver.WebhookHandler{
-		Router: &eventrouter.Router{Log: log, Store: opts.Store, Publisher: opts.Publisher},
-		Store:  opts.Store,
-	}
 	return &Server{
 		log:       log,
 		api:       api,
 		auth:      opts.Auth,
 		github:    opts.GitHub,
 		atlassian: opts.Atlassian,
-		custom:    custom,
+		custom:    opts.Custom,
 		baseURL:   opts.BaseURL,
 		oauth:     opts.OAuth,
 		cors:      opts.CORS,
@@ -170,7 +165,7 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle("/webhook/atlassian", s.atlassian.WebhookHandler())
 	}
 	// Custom events (Bearer auth only: no cookie session, no login redirect)
-	mux.Handle("POST /webhook/custom", alice.New(s.auth.RequireBearerAuth()).Then(s.custom))
+	mux.Handle("POST /webhook/custom", alice.New(s.auth.RequireBearerAuth()).Then(s.custom.WebhookHandler()))
 	// OAuth 2.1 endpoints (public, conditionally registered)
 	if s.oauth != nil {
 		mux.HandleFunc("/.well-known/oauth-authorization-server", s.oauth.HandleMetadata)

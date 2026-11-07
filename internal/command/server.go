@@ -19,6 +19,7 @@ import (
 	"github.com/gritzapp/gritz/internal/server"
 	"github.com/gritzapp/gritz/internal/server/archiver"
 	"github.com/gritzapp/gritz/internal/server/atlassianserver"
+	"github.com/gritzapp/gritz/internal/server/customserver"
 	"github.com/gritzapp/gritz/internal/server/githubserver"
 	"github.com/gritzapp/gritz/internal/server/notifyserver"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
@@ -275,6 +276,10 @@ var ServerCommand = &cli.Command{
 			Notify:        notify,
 			AppKey:        appKey,
 			OrgResolver:   resolver,
+			Custom: customserver.New(customserver.Options{
+				Store:     st,
+				Publisher: ps,
+			}),
 		}
 		if cmd.IsSet("github-client-id") {
 			gh, err := githubserver.New(githubserver.Options{
