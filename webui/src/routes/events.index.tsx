@@ -4,7 +4,6 @@ import { useMutation, useQuery } from '@connectrpc/connect-query'
 import {
   getCustomEventTypes,
   getEventTypes,
-  getOrgSettings,
   getRoutingRules,
   listExternalEvents,
   setRoutingRules,
@@ -32,7 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RelativeTime } from '@/components/relative-time'
 import { eventTypeLabel, OP_LABELS, type ConditionOp } from '@/lib/routing-rules'
 import { useSetCustomEventTypes } from '@/lib/custom-event-types'
-import { CustomEventPayloadDialog } from '@/components/custom-event-payload-dialog'
+import { CustomEventSchemaDialog } from '@/components/custom-event-schema-dialog'
 import { ChevronDown, ChevronUp, FlaskConical, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 
@@ -364,8 +363,6 @@ function CustomSchemasTab() {
   const updateMutation = useSetCustomEventTypes()
 
   const eventTypes = data?.eventTypes ?? []
-  const { data: settings } = useQuery(getOrgSettings, {})
-  const webhookUrl = settings?.customWebhookUrl ?? ''
 
   const handleDelete = async (type: string) => {
     const updated = eventTypes.filter((t) => t.type !== type)
@@ -410,7 +407,7 @@ function CustomSchemasTab() {
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
-                    <CustomEventPayloadDialog eventType={eventType} webhookUrl={webhookUrl} />
+                    <CustomEventSchemaDialog eventType={eventType} />
                     <Link
                       to="/custom-event-types/$type"
                       params={{ type: eventType.type }}
