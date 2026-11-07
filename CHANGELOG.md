@@ -1,5 +1,72 @@
 # Changelog
 
+## [4.4.0](https://github.com/gritzapp/gritz/compare/v4.3.0...v4.4.0) (2026-11-07)
+
+
+### Features
+
+* **apiauth:** require a bearer token on the custom event webhook ([47afc2a](https://github.com/gritzapp/gritz/commit/47afc2a3166c44261d621a8c4133cd318acfed7b))
+* **apiserver:** add custom event type RPCs ([1377cfb](https://github.com/gritzapp/gritz/commit/1377cfb409974b6153f71c250b97fdb409d3c754))
+* **apiserver:** validate routing rules against org custom event types ([9ea23e6](https://github.com/gritzapp/gritz/commit/9ea23e660a61713cee96ca33a1b8320ad5f88a73))
+* **cmpx:** add OnlyProtoFields ([5ae5a1b](https://github.com/gritzapp/gritz/commit/5ae5a1ba24852f29cb8778a8003b2ce7920aace1))
+* **customserver:** add custom event ingestion endpoint ([cfff179](https://github.com/gritzapp/gritz/commit/cfff179173359c9de17530a5b18aeb5373ddfb21))
+* **eventrouter:** validate custom event types ([c39a853](https://github.com/gritzapp/gritz/commit/c39a8534179ebc5dc1bdcedede7360029ac4b2da))
+* **store:** store org custom event types ([3e1e5e9](https://github.com/gritzapp/gritz/commit/3e1e5e9444350d45b821414426b7387f26ed97a0))
+* **webui:** add custom event schemas tab ([2447913](https://github.com/gritzapp/gritz/commit/24479136e718cec44eb39f4cc6c4ed2d92293c54))
+* **webui:** add dark mode with light/dark/system theme toggle ([e92948d](https://github.com/gritzapp/gritz/commit/e92948da4fb1acfbd253bfc62f0c32d376b5e9c3))
+* **webui:** describe custom event attrs by their help text ([bc88bf4](https://github.com/gritzapp/gritz/commit/bc88bf4f0f5614a75e23801b10c50495a26773eb))
+* **webui:** describe every field of the custom event JSON Schema ([4b11d96](https://github.com/gritzapp/gritz/commit/4b11d9624bc37a463f3fdc52d586be7711d2d413))
+* **webui:** drop the type value from its JSON Schema description ([1aedd32](https://github.com/gritzapp/gritz/commit/1aedd32f4cd3d54c0f9a43d3b1158ade61ad84dc))
+* **webui:** show a Dynatrace icon for Dynatrace links and events ([04e6d73](https://github.com/gritzapp/gritz/commit/04e6d7351d6d8570167006fc74d5c33e5337e42f))
+* **webui:** show a JSON Schema per custom event type ([5932ff7](https://github.com/gritzapp/gritz/commit/5932ff74372d79c0a467e2332fc4eb557fa66a32))
+* **webui:** show custom event webhook URL and example payload ([e7e487f](https://github.com/gritzapp/gritz/commit/e7e487fc052bd16e3cb8bb41738392f59600fb7f))
+
+
+### Bug Fixes
+
+* **runner:** stop the local driver's reaper removing its successor's pid file ([a777ec6](https://github.com/gritzapp/gritz/commit/a777ec6bedf77e66368470eb7fd41f1ac2a97503))
+* **webui:** collapse nav labels to icons below lg so the bar fits on one row ([8c52fe0](https://github.com/gritzapp/gritz/commit/8c52fe01b5f601e14938b35b74b1ad54ba48d05b))
+
+
+### Miscellaneous
+
+* **apiauth:** rename RequireBearer to RequireBearerAuth ([1ef2d93](https://github.com/gritzapp/gritz/commit/1ef2d93ae30ed1cf47fb3b184895f261f82b3215))
+* **api:** move the custom webhook URL to org settings ([51c5a85](https://github.com/gritzapp/gritz/commit/51c5a85301ec68faf6ea171c1f0846ad3744cf32))
+* **apiserver:** name GetEventTypes registry ([14bb0ea](https://github.com/gritzapp/gritz/commit/14bb0ea335a8d7e3d62a28e430935b43489d44a0))
+* **customserver:** add NewWebhookRequest for submitting envelopes ([52f5c74](https://github.com/gritzapp/gritz/commit/52f5c749067849567a5151dae4137a62d220d052))
+* **customserver:** inline webhook handler test fixtures ([ca9695f](https://github.com/gritzapp/gritz/commit/ca9695f984fb0978ef7bb7e94acb7b005bb50e9a))
+* **customserver:** look up custom types through the schema registry ([17e01d6](https://github.com/gritzapp/gritz/commit/17e01d648f146d4dc314d30e38dc9b20b70834af))
+* **customserver:** unexport toInputEvent ([79b911e](https://github.com/gritzapp/gritz/commit/79b911e61009983069d3edf873e81bc1d5ba0522))
+* **driverclient:** read the first request in stub Run handlers ([5fbe2d8](https://github.com/gritzapp/gritz/commit/5fbe2d8d6dc30fcf60d0ed5f5d632ba9e5ec0dbf))
+* **e2e:** assert custom event outcome with whole-value compares ([9d46862](https://github.com/gritzapp/gritz/commit/9d4686215049c81c73cb5517e95236cb39e13bcf))
+* **e2e:** compare whole events in event, lifecycle and link tests ([75718f6](https://github.com/gritzapp/gritz/commit/75718f6f54ae29aa22f20e52009b84eaf686666c))
+* **e2e:** compare whole runner events in TestListRunnerEvents ([f3d955b](https://github.com/gritzapp/gritz/commit/f3d955b22cb6d1af7eefe52c7aad5397ae7d24b8))
+* **e2e:** compare whole schedules and test-event responses ([21d17ad](https://github.com/gritzapp/gritz/commit/21d17adae721b2993848d781bbfc755a13df645d))
+* **e2e:** compare whole tasks in task, runner, shell and wake tests ([cf5f716](https://github.com/gritzapp/gritz/commit/cf5f716e10b5c83e95895c995efba7f8f58f7ab7))
+* **e2e:** compare whole values in log, org, key and token tests ([6adec7b](https://github.com/gritzapp/gritz/commit/6adec7b1227ee43b2b9e89cabf6c8699a08d67c8))
+* **e2e:** inline custom event type in-use arrange ([aafc112](https://github.com/gritzapp/gritz/commit/aafc112505a3c4a7ad37c5d193589c5329e6080d))
+* **e2e:** keep the id-assigned checks in TestCreateOrg and TestCreateKey ([28fc5e2](https://github.com/gritzapp/gritz/commit/28fc5e2be56caae1ccbdf0210ad32b974ca7b07a))
+* **e2e:** post custom events through a harness webhook helper ([1c860ea](https://github.com/gritzapp/gritz/commit/1c860ea528b995338afffca5ec413723239f826d))
+* **e2e:** project narrow task tests onto the fields they check ([1fc6c47](https://github.com/gritzapp/gritz/commit/1fc6c479ec27605fde8c31897a111386ca2a1fd8))
+* **e2e:** project schedule and task compares to the fields under test ([c6db0bd](https://github.com/gritzapp/gritz/commit/c6db0bdc42dcab755a35c407dd48bb910d99e2e2))
+* **e2e:** project task snapshots onto the state they drive ([751b53a](https://github.com/gritzapp/gritz/commit/751b53a89ea78629457d37aedca30698dba1346f))
+* **e2e:** project the cancelled task to id and status ([e8a064d](https://github.com/gritzapp/gritz/commit/e8a064d76ddbfac06a4745b7dda681507762fb94))
+* **e2e:** split custom event type in-use tests ([f8e5472](https://github.com/gritzapp/gritz/commit/f8e547215b30374cd7f58fe89f06d4e21d9fd6cf))
+* **eventrouter:** inline custom event type fixtures ([3e77a80](https://github.com/gritzapp/gritz/commit/3e77a8062bf2ad33cd9527c8a3a85380ad1059c9))
+* **eventrouter:** move event type schemas to model ([9eebb2f](https://github.com/gritzapp/gritz/commit/9eebb2f227e2ecd28aa871a630127d6b707d92bb))
+* **eventrouter:** rename customNamePattern to customNameRe ([55f121c](https://github.com/gritzapp/gritz/commit/55f121c31cce827b68b5350fb27e984f66bf66fa))
+* **eventrouter:** rename customNameRe to reCustomName ([c9e5af7](https://github.com/gritzapp/gritz/commit/c9e5af781ff4e3fb3068bb1936ab572b422d42d8))
+* move custom external events proposal to implemented ([b4ee32d](https://github.com/gritzapp/gritz/commit/b4ee32d02c4934d4677ea29acf65f084b86c298d))
+* **server:** inject customserver like the other integrations ([4d39bd3](https://github.com/gritzapp/gritz/commit/4d39bd39be98b82780ef210bbb8e28c207f198b4))
+* **server:** register the custom webhook only when configured ([9ac7327](https://github.com/gritzapp/gritz/commit/9ac7327644d0468a688eda32c3f6be7fd844e7f3))
+* **webui:** drop nested bordered boxes from the rule and event type forms ([ff013c8](https://github.com/gritzapp/gritz/commit/ff013c873fdb11f7fb247e44e31d4aaa06a6936a))
+* **webui:** format routing-rules.ts ([78f340a](https://github.com/gritzapp/gritz/commit/78f340affa37a83d6ae174d3b10835bd661d1d57))
+* **webui:** remove the legacy event type option from routing rules ([e541062](https://github.com/gritzapp/gritz/commit/e54106212a8a6ccc4d0441f65a6d28a17b83d229))
+* **webui:** rewrap external source comment ([08414a2](https://github.com/gritzapp/gritz/commit/08414a2c8c3bfbfb8e57656db81baab685e72012))
+* **webui:** run the Prettier check as part of pnpm lint ([edad768](https://github.com/gritzapp/gritz/commit/edad768ea1b543788e36c9745141c064f33ce0a1))
+* **webui:** use a grid for custom event type attributes ([082e8b7](https://github.com/gritzapp/gritz/commit/082e8b74444f37fbd8224252da9f49757c3503fa))
+* **webui:** use useTernaryDarkMode from usehooks-ts for the theme ([5b77cf5](https://github.com/gritzapp/gritz/commit/5b77cf5af751b0db62d241c076c3837652003243))
+
 ## [4.3.0](https://github.com/gritzapp/gritz/compare/v4.2.3...v4.3.0) (2026-11-06)
 
 
