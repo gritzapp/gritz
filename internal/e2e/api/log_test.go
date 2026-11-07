@@ -8,6 +8,7 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -55,16 +56,15 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Assert - the report is a from-agent report event.
-	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID})
-	var reports []*gritzv1.ReportPayload
-	for _, e := range events {
-		if r := e.GetReport(); r != nil {
-			assert.Equal(t, e.Wake, false)
-			reports = append(reports, r)
-		}
-	}
-	assert.Equal(t, len(reports), 1)
-	assert.Equal(t, reports[0].Content, "Opened PR #952")
+	assert.DeepEqual(t,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID, Types: []string{"report"}}),
+		[]*gritzv1.Event{{
+			TaskId:  task.ID,
+			Payload: &gritzv1.Event_Report{Report: &gritzv1.ReportPayload{Content: "Opened PR #952"}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestUploadLogs_Permissions(t *testing.T) {
@@ -113,16 +113,16 @@ func TestAppendLogChunk_RoundTrip(t *testing.T) {
 
 	// Assert - a user read returns the chunks oldest-first, so their data
 	// concatenates straight into transcript order.
-	chunks := h.Org.ListLogChunksByTask(&gritzv1.ListLogChunksByTaskRequest{TaskId: task.ID})
-	assert.Assert(t, cmp.Len(chunks, 3))
-	var transcript []byte
-	for _, c := range chunks {
-		assert.Equal(t, c.TaskId, task.ID)
-		assert.Equal(t, c.Version, int64(1))
-		assert.Assert(t, c.CreatedAt != nil)
-		transcript = append(transcript, c.Data...)
-	}
-	assert.DeepEqual(t, transcript, []byte("==== run version=1 ====\n\x00\xff\x80agent stopped\n"))
+	assert.DeepEqual(t,
+		h.Org.ListLogChunksByTask(&gritzv1.ListLogChunksByTaskRequest{TaskId: task.ID}),
+		[]*gritzv1.LogChunk{
+			{TaskId: task.ID, Version: 1, Data: []byte("==== run version=1 ====\n")},
+			{TaskId: task.ID, Version: 1, Data: []byte{0x00, 0xff, 0x80}},
+			{TaskId: task.ID, Version: 1, Data: []byte("agent stopped\n")},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.LogChunk{}, "id", "created_at"),
+	)
 }
 
 // A chunk must carry bytes and must not exceed the abuse ceiling; both are
@@ -240,8 +240,12 @@ func TestListLogChunksByTask_TaskToken(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(resp.Chunks, 1))
-	assert.DeepEqual(t, resp.Chunks[0].Data, []byte("hello\n"))
+	assert.DeepEqual(t,
+		resp.Chunks,
+		[]*gritzv1.LogChunk{{TaskId: task.ID, Version: 1, Data: []byte("hello\n")}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.LogChunk{}, "id", "created_at"),
+	)
 }
 
 // An empty token opens at the tail (the end of the log, what a post-mortem
@@ -325,8 +329,11 @@ func TestListLogChunksByTask_Follow(t *testing.T) {
 		PageToken: tail.NextPageToken,
 	})
 	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(poll.Chunks, 0))
-	assert.Equal(t, poll.More, false)
+	assert.DeepEqual(t,
+		poll,
+		&gritzv1.ListLogChunksByTaskResponse{NextPageToken: tail.NextPageToken},
+		protocmp.Transform(),
+	)
 
 	// Act - once the driver appends, the same token yields only the new bytes.
 	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
@@ -341,8 +348,12 @@ func TestListLogChunksByTask_Follow(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(poll.Chunks, 1))
-	assert.DeepEqual(t, poll.Chunks[0].Data, []byte("second\n"))
+	assert.DeepEqual(t,
+		poll.Chunks,
+		[]*gritzv1.LogChunk{{TaskId: task.ID, Version: 1, Data: []byte("second\n")}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.LogChunk{}, "id", "created_at"),
+	)
 }
 
 // A page size outside the store's bounds, or a token that did not come from the

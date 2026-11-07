@@ -8,6 +8,7 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/atlassian"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -24,8 +25,12 @@ func TestCreateOrg(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, resp.Org.Name, "my-org")
-	assert.Assert(t, resp.Org.Id != 0)
+	assert.DeepEqual(t,
+		resp.Org,
+		&gritzv1.Org{Name: "my-org", Owner: h.Org.Owner.UserID},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Org{}, "id", "created_at", "updated_at"),
+	)
 }
 
 func TestListOrgs(t *testing.T) {
@@ -158,8 +163,10 @@ func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
 	resp := webhook.Send(&atlassian.WebhookPayload{})
 
 	// Assert
-	assert.Equal(t, resp.StatusCode, http.StatusForbidden)
-	assert.Assert(t, cmp.Contains(resp.Body, "webhook not configured"))
+	assert.DeepEqual(t,
+		resp,
+		&e2e.WebhookResponse{StatusCode: http.StatusForbidden, Body: "webhook not configured\n"},
+	)
 }
 
 func TestDeleteOrg_RejectsKey(t *testing.T) {

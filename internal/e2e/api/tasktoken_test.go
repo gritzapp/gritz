@@ -5,6 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
@@ -37,12 +38,17 @@ func TestCreateTaskToken(t *testing.T) {
 	var claims apiauth.AppClaims
 	_, _, err = jwt.NewParser().ParseUnverified(resp.Token, &claims)
 	assert.NilError(t, err)
-	assert.Equal(t, claims.OrgID, h.Org.ID)
-	want := agentauth.Scopes(agentauth.ScopeOptions{
-		TaskID:       task.ID,
-		Capabilities: []string{agentauth.CapabilityGitHubToken},
-	})
-	assert.DeepEqual(t, claims.Scopes, want)
+	assert.DeepEqual(t,
+		claims,
+		apiauth.AppClaims{
+			OrgID: h.Org.ID,
+			Scopes: agentauth.Scopes(agentauth.ScopeOptions{
+				TaskID:       task.ID,
+				Capabilities: []string{agentauth.CapabilityGitHubToken},
+			}),
+		},
+		cmpopts.IgnoreFields(apiauth.AppClaims{}, "RegisteredClaims"),
+	)
 }
 
 func TestCreateTaskToken_InvalidCapability(t *testing.T) {
