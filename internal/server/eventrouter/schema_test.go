@@ -1,6 +1,8 @@
 package eventrouter
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/model"
@@ -194,4 +196,246 @@ func TestSchemaRegistryWith(t *testing.T) {
 	assert.DeepEqual(t, reg.EventTypes(), []model.EventTypeDef{testComment})
 	_, ok = reg.EventTypeFor("test", "label")
 	assert.Assert(t, !ok, "reg.EventTypeFor(test, label) = _, true; want miss")
+}
+
+// testCustomProblem is a well-formed custom event type, the base each malformed
+// case in TestValidateCustomEventTypes derives from.
+var testCustomProblem = model.EventTypeDef{
+	Source: SourceCustom,
+	Type:   "problem",
+	Label:  "Custom: Problem",
+	Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "severity"}},
+}
+
+func TestValidateCustomEventTypes(t *testing.T) {
+	with := func(f func(def *model.EventTypeDef)) model.EventTypeDef {
+		def := testCustomProblem
+		def.Attrs = slices.Clone(def.Attrs)
+		f(&def)
+		return def
+	}
+	tests := []struct {
+		name    string
+		defs    []model.EventTypeDef
+		wantErr string
+	}{
+		{
+			name: "empty list",
+		},
+		{
+			name: "valid types",
+			defs: []model.EventTypeDef{
+				testCustomProblem,
+				with(func(def *model.EventTypeDef) { def.Type = "deploy_finished_2" }),
+			},
+		},
+		{
+			name: "64-char type",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Type = "a" + strings.Repeat("b", 63) }),
+			},
+		},
+		{
+			name:    "non-custom source",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Source = "github" })},
+			wantErr: `source must be "custom"`,
+		},
+		{
+			name:    "empty source",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Source = "" })},
+			wantErr: `source must be "custom"`,
+		},
+		{
+			name:    "empty type",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "" })},
+			wantErr: `type "" must match`,
+		},
+		{
+			name:    "uppercase type",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "Problem" })},
+			wantErr: `type "Problem" must match`,
+		},
+		{
+			name:    "type starting with digit",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "1problem" })},
+			wantErr: `type "1problem" must match`,
+		},
+		{
+			name:    "type with hyphen",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Type = "problem-opened" })},
+			wantErr: `type "problem-opened" must match`,
+		},
+		{
+			name: "65-char type",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Type = "a" + strings.Repeat("b", 64) }),
+			},
+			wantErr: "must match",
+		},
+		{
+			name:    "duplicate type",
+			defs:    []model.EventTypeDef{testCustomProblem, testCustomProblem},
+			wantErr: `duplicate type "problem"`,
+		},
+		{
+			name:    "empty label",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Label = "" })},
+			wantErr: "empty label",
+		},
+		{
+			name: "empty attr key",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Attrs = append(def.Attrs, model.AttrDef{}) }),
+			},
+			wantErr: `attr key "" must match`,
+		},
+		{
+			name: "malformed attr key",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Attrs = append(def.Attrs, model.AttrDef{Key: "Host.Name"}) }),
+			},
+			wantErr: `attr key "Host.Name" must match`,
+		},
+		{
+			name: "duplicate attr key",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Attrs = append(def.Attrs, model.AttrDef{Key: "severity"}) }),
+			},
+			wantErr: `duplicate attr key "severity"`,
+		},
+		{
+			name: "missing body attr",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Attrs = []model.AttrDef{{Key: "url"}, {Key: "severity"}} }),
+			},
+			wantErr: `missing required attr "body"`,
+		},
+		{
+			name: "missing url attr",
+			defs: []model.EventTypeDef{
+				with(func(def *model.EventTypeDef) { def.Attrs = []model.AttrDef{{Key: "body"}, {Key: "severity"}} }),
+			},
+			wantErr: `missing required attr "url"`,
+		},
+		{
+			name:    "no attrs",
+			defs:    []model.EventTypeDef{with(func(def *model.EventTypeDef) { def.Attrs = nil })},
+			wantErr: `missing required attr "body"`,
+		},
+		{
+			name: "malformed type after a valid one",
+			defs: []model.EventTypeDef{
+				testCustomProblem,
+				with(func(def *model.EventTypeDef) { def.Type = "alert"; def.Label = "" }),
+			},
+			wantErr: `event type "alert": empty label`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCustomEventTypes(tt.defs)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+			} else {
+				assert.NilError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaRegistryValidateCustom(t *testing.T) {
+	builtin := NewSchemaRegistry()
+	builtin.MustRegister(testComment)
+	reg := builtin.With(testCustomProblem)
+
+	tests := []struct {
+		name    string
+		reg     *SchemaRegistry
+		rule    model.RoutingRule
+		wantErr string
+	}{
+		{
+			name: "public rule on custom type",
+			reg:  reg,
+			rule: model.RoutingRule{
+				Source:     SourceCustom,
+				Type:       "problem",
+				Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
+				Public:     true,
+			},
+		},
+		{
+			name: "derived body and url on custom type",
+			reg:  reg,
+			rule: model.RoutingRule{
+				Source: SourceCustom,
+				Type:   "problem",
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "contains", Value: "disk"},
+					{Attr: "url", Op: "prefix", Value: "https://dynatrace.example.com/"},
+				},
+				Public: true,
+			},
+		},
+		{
+			name: "member-only rule on custom type",
+			reg:  reg,
+			rule: model.RoutingRule{
+				Source:     SourceCustom,
+				Type:       "problem",
+				Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
+			},
+			wantErr: "custom event rules must be public",
+		},
+		{
+			name: "member-only rule on built-in type",
+			reg:  reg,
+			rule: model.RoutingRule{
+				Source:     "test",
+				Type:       "comment",
+				Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "alice"}},
+			},
+		},
+		{
+			name: "attr not declared by custom type",
+			reg:  reg,
+			rule: model.RoutingRule{
+				Source:     SourceCustom,
+				Type:       "problem",
+				Conditions: []model.Condition{{Attr: "host", Op: "equals", Value: "db1"}},
+				Public:     true,
+			},
+			wantErr: `attr "host" not valid for event type "custom"/"problem"`,
+		},
+		{
+			name: "unknown custom type",
+			reg:  reg,
+			rule: model.RoutingRule{
+				Source: SourceCustom,
+				Type:   "deploy",
+				Public: true,
+			},
+			wantErr: "unknown event type",
+		},
+		{
+			name: "custom type absent from the built-in registry",
+			reg:  builtin,
+			rule: model.RoutingRule{
+				Source: SourceCustom,
+				Type:   "problem",
+				Public: true,
+			},
+			wantErr: "unknown event type",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.reg.Validate(tt.rule)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+			} else {
+				assert.NilError(t, err)
+			}
+		})
+	}
 }
