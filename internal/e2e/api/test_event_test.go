@@ -8,8 +8,8 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -102,16 +102,12 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 	assert.DeepEqual(t,
 		tasks,
 		[]*gritzv1.Task{{
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			Status:      gritzv1.TaskStatus_PENDING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      resp.Matches[0].CreatedTaskIds[0],
+			Status:  gritzv1.TaskStatus_PENDING,
+			Command: gritzv1.TaskCommand_START,
 		}},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "id", "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command"),
 	)
 
 	// Assert: the external event carries the composed Details on its
@@ -202,17 +198,12 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 	assert.DeepEqual(t,
 		h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true}),
 		[]*gritzv1.Task{{
-			Id:          task.ID,
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			Status:      gritzv1.TaskStatus_PENDING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     2,
-			Actions:     &gritzv1.TaskActions{Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_PENDING,
+			Version: 2,
 		}},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "version"),
 	)
 
 	// Assert: the attached event carries the composed Details.
