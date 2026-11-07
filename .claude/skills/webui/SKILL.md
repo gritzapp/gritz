@@ -29,11 +29,12 @@ The v2 UI runs independently on the Vite dev server and can be developed increme
 
 ## Linting
 
-**Always run `pnpm lint` in `webui/` before finishing any task that touches frontend code.** CI runs ESLint on every webui PR and will fail otherwise. Fix all lint errors before opening a PR — do not push code with known lint failures.
+**Always run `pnpm lint` in `webui/` before finishing any task that touches frontend code.** It runs ESLint and the Prettier check (`prettier --check .`), exactly as CI does on every webui PR. Fix all lint errors before opening a PR — do not push code with known lint failures. `pnpm format` fixes formatting.
 
 ```bash
 cd webui
-pnpm lint
+pnpm lint    # ESLint + Prettier check
+pnpm format  # fix formatting
 ```
 
 ## Routing (TanStack Router)
