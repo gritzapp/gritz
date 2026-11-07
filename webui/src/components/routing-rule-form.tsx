@@ -169,7 +169,7 @@ export function RoutingRuleForm({
         </p>
       </div>
 
-      <div className="space-y-3 rounded-md border p-4">
+      <div className="space-y-3">
         <div className="space-y-1">
           <Label>Conditions</Label>
           <p className="text-muted-foreground text-xs">
@@ -191,7 +191,7 @@ export function RoutingRuleForm({
               const placeholder = selectedAttr?.placeholder ?? ''
               const help = selectedAttr?.help ?? ''
               return (
-                <div key={index} className="space-y-2 rounded-md border p-3">
+                <div key={index} className="space-y-1">
                   <div className="flex flex-wrap items-start gap-2">
                     <Select
                       value={condition.attr}
@@ -263,7 +263,7 @@ export function RoutingRuleForm({
         </Button>
       </div>
 
-      <div className="space-y-4 rounded-md border p-4">
+      <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <Label htmlFor="wakeup">Wake up linked tasks</Label>
@@ -280,7 +280,7 @@ export function RoutingRuleForm({
         </div>
       </div>
 
-      <div className="space-y-2 rounded-md border p-4">
+      <div className="space-y-2">
         <Label htmlFor="namespace">Namespace (optional)</Label>
         <Input
           id="namespace"
@@ -295,7 +295,7 @@ export function RoutingRuleForm({
         </p>
       </div>
 
-      <div className="space-y-4 rounded-md border p-4">
+      <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <Label htmlFor="public">Public</Label>
@@ -312,7 +312,7 @@ export function RoutingRuleForm({
         </div>
       </div>
 
-      <div className="space-y-4 rounded-md border p-4">
+      <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <Label htmlFor="create-task">Create a task</Label>
