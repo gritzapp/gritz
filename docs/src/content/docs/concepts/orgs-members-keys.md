@@ -39,7 +39,9 @@ The owner can't be removed.
 
 Membership also decides whose GitHub and Jira activity counts as the
 organisation's: a member-only routing rule acts on events from members who have
-linked their GitHub or Atlassian account under **Settings → Account**. See
+linked their [GitHub](/integrations/github/#link-your-github-account) or
+[Atlassian](/integrations/jira/#link-your-atlassian-account) account under
+**Settings → Account**. See
 [Public rules](/concepts/routing-rules/#public-rules).
 
 ### Deleting an organisation

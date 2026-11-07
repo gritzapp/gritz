@@ -118,7 +118,7 @@ Archiving a task makes its runner destroy the task's sandbox.
 | `/ui/` | The Web UI. `/` redirects here. |
 | `/healthz` | `200 ok` when the database answers, `503` otherwise. Unauthenticated, for load balancer checks. |
 | `/auth/` | Login, callback and logout. |
-| `/mcp` | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. |
+| `/mcp` | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. See [MCP](/integrations/mcp/). |
 | `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/oauth/register`, `/oauth/authorize`, `/oauth/token` | OAuth for MCP clients that connect to `/mcp`, with dynamic client registration. |
 | `/events` | The notification stream that runners and `gritz notify` hold open. |
 | `/webhook/github`, `/webhook/atlassian` | GitHub and Jira webhooks, when those integrations are enabled. |

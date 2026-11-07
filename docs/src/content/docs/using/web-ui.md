@@ -106,11 +106,14 @@ keys and creates and deletes them. See
 **Settings** has two tabs:
 
 - **Account**: the organisations you own, where you create new ones and delete
-  them, and your linked Atlassian and GitHub accounts. Linking them lets
+  them, and your linked [Atlassian](/integrations/jira/#link-your-atlassian-account)
+  and [GitHub](/integrations/github/#link-your-github-account) accounts. Linking them lets
   [routing rules](/concepts/routing-rules/#public-rules) recognise your comments
   as a member's.
 - **Organisation**: the URLs and settings that connect the organisation to
-  other systems: the MCP server URL for MCP clients, the custom events webhook
-  URL, the GitHub App installation, and the Atlassian webhook URL and secret.
+  other systems: the [MCP server URL](/integrations/mcp/) for MCP clients, the
+  [custom events](/integrations/custom-events/) webhook URL, the
+  [GitHub App installation](/integrations/github/#install-the-github-app), and
+  the [Atlassian webhook](/integrations/jira/#connect-jira) URL and secret.
 
 The server's version is at the bottom of the page.

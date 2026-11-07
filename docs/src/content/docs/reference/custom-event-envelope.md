@@ -1,6 +1,8 @@
 ---
 title: Custom event envelope
 description: The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
+sidebar:
+  order: 1
 ---
 
 The custom events webhook accepts one event per request. The
