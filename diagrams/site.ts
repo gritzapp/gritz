@@ -1,8 +1,8 @@
 // Turns `vite build` into a static site for GitHub Pages: an index listing
 // every project and a page per project that plays it with the
 // @motion-canvas/player web component and the playback controls in
-// controls.ts. Every URL is relative, so the same
-// build works at the site root and under a PR preview's /pr/<n>/.
+// controls.ts. Every URL is relative, so the same build works under
+// /diagrams/ and under a PR preview's /diagrams/pr/<n>/.
 
 import path from 'path';
 import type {Plugin} from 'vite';

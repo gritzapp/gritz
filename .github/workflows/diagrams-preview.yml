@@ -1,6 +1,6 @@
 name: Diagrams Preview
 
-# Publishes the Motion Canvas diagrams of a PR to gh-pages:/pr/<number>/,
+# Publishes the Motion Canvas diagrams of a PR to gh-pages:/diagrams/pr/<number>/,
 # keeps one PR comment pointing at it, and removes it when the PR closes.
 
 on:
@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PREVIEW_DIR: pr/${{ github.event.pull_request.number }}
+  PREVIEW_DIR: diagrams/pr/${{ github.event.pull_request.number }}
 
 jobs:
   preview:
