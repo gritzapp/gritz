@@ -22,9 +22,10 @@ them:
 - **Generator:** Starlight (Astro). Source is Markdown in `docs/`, built with pnpm
   like `webui/` and `diagrams/`.
 - **Hosting:** GitHub Pages from the existing `gh-pages` branch. Docs publish to
-  the root and `docs.gritz.dev` becomes the Pages custom domain. The Motion Canvas
-  diagrams move to `/diagrams/`, and their PR previews to `/diagrams/pr/<n>/`. Old
-  `gritzapp.github.io/gritz/<diagram>` URLs may break.
+  the root and `docs.gritz.dev` becomes the Pages custom domain. The docs build
+  also builds the Motion Canvas diagrams into `/diagrams/`, so a docs PR preview
+  carries its own diagrams. Old `gritzapp.github.io/gritz/<diagram>` URLs may
+  break.
 - **Audience:** users of a gritz deployment first, plus a separate operators
   section. Contributor docs stay in `CLAUDE.md`, skills and `proposals/`.
 - **Agent accessible:** `llms.txt` and `llms-full.txt`, raw Markdown for each page,
@@ -186,60 +187,50 @@ stay where they are, since they are for contributors.
 
 ### Hosting on `gh-pages`
 
-One branch is served by Pages, written by four workflows. Each writes only its own
-subtree:
+One branch is served by Pages, written by two workflows. The docs build also
+builds the Motion Canvas projects in `diagrams/`: `pnpm build` in `docs/` first
+runs `pnpm diagrams`, which installs `diagrams/` and runs its Vite build into
+`docs/public/diagrams/` (gitignored), and Astro then copies it to
+`dist/diagrams/` like any public file. So one build publishes both, and the
+diagrams sit under the same base as the pages that play them.
 
 | Workflow | Trigger | Writes | `clean-exclude` |
 |---|---|---|---|
-| `docs-pages.yml` (new) | push to master, `docs/**` | `/` | `diagrams/`, `pr/` |
-| `docs-preview.yml` (new) | PR, `docs/**` | `/pr/<n>/` | — |
-| `diagrams-pages.yml` | push to master, `diagrams/**` | `/diagrams/` | `pr/` (that is, `/diagrams/pr/`) |
-| `diagrams-preview.yml` | PR, `diagrams/**` | `/diagrams/pr/<n>/` | — |
+| `docs-pages.yml` | push to master, `docs/**`, `diagrams/**` | `/` | `pr/` |
+| `docs-preview.yml` | PR, `docs/**`, `diagrams/**` | `/pr/<n>/` | — |
 
-How the four avoid clobbering each other:
+How the two avoid clobbering each other:
 
-- All four keep `concurrency: group: gh-pages, cancel-in-progress: false`, so
-  pushes to the branch are serialized.
+- Both keep `concurrency: group: gh-pages, cancel-in-progress: false`, so
+  pushes to the branch are serialized. GitHub keeps only one pending run per
+  group and cancels it when another queues, which is why the diagrams don't
+  have workflows of their own: with four workflows, one merge touching both
+  trees queued several runs and a deploy was silently dropped.
 - `JamesIves/github-pages-deploy-action` only cleans inside its `target-folder`,
-  and `clean-exclude` is relative to that folder. The root docs deploy is the only
-  one that cleans `/`, and it excludes the other three subtrees. The diagrams
-  deploy cleans `/diagrams/` except `pr/`. A preview cleans only its own
-  `pr/<n>/`.
+  and `clean-exclude` is relative to that folder. The root deploy is the only
+  one that cleans `/`, and it excludes the previews. A preview cleans only its
+  own `pr/<n>/`.
 - `.nojekyll` comes from `docs/public/`, so every root deploy writes it again.
   GitHub manages the root `CNAME` (see Custom domain). The action never deletes
-  `CNAME` or `.nojekyll`, so previews strip both from their build: otherwise
-  their removal would leave them behind.
-- The diagrams change is just a `target-folder: diagrams` on `diagrams-pages.yml`,
-  and `PREVIEW_DIR: diagrams/pr/<n>` on `diagrams-preview.yml`. `site.ts` already
-  uses only relative URLs, so the same build works at both paths.
-- Both preview workflows build the PR comment URL from
-  `gh api repos/$GITHUB_REPOSITORY/pages --jq .html_url`. That returns
-  `https://docs.gritz.dev/` once the custom domain is set, so the comment step
-  doesn't change.
-
-`docs-preview.yml` is a copy of `diagrams-preview.yml` with these changes:
-
-- The build step sets `DOCS_BASE: /pr/${{ github.event.pull_request.number }}/`.
-- The sticky comment header is `docs-preview`, so a PR that touches both `docs/`
-  and `diagrams/` gets two separate comments.
+  `CNAME` or `.nojekyll`, so previews strip `.nojekyll` from their build:
+  otherwise their removal would leave it behind.
+- `docs-preview.yml` builds with `DOCS_BASE: /pr/<n>/`. Astro writes absolute
+  URLs, so a preview needs its own base; `diagrams/site.ts` writes only relative
+  URLs, so the diagrams work under any base unchanged. A preview shows the PR's
+  own diagrams, at `/pr/<n>/diagrams/`.
 - The build runs for fork PRs as well, as a check. Only the deploy, removal and
-  comment steps keep the same-repo condition. `diagrams-preview.yml` skips the whole
-  job for forks, but a broken docs link should fail a fork PR too.
+  comment steps keep the same-repo condition, since a broken docs link should
+  fail a fork PR too.
+- The preview comment URL comes from
+  `gh api repos/$GITHUB_REPOSITORY/pages --jq .html_url`, which returns
+  `https://docs.gritz.dev/` with the custom domain set.
 
-**Moving off the old layout.** The `gh-pages` root currently holds the diagrams
-site (`index.html`, `create-task/`, `proposals/`, chunks) and the diagram previews
-under `pr/<n>/`:
-
-- Once `diagrams-pages.yml` has moved, the old root files go stale. The first
-  `docs-pages.yml` deploy deletes them, because they aren't in `diagrams/` or
-  `pr/`.
-- Old diagram previews in `/pr/<n>/` would survive that deploy, since `pr/` is
-  excluded, and their PRs' close events now clean `diagrams/pr/<n>/` instead. So
-  the diagrams-move layer finishes with a one-time commit to `gh-pages` that removes
-  the root `pr/`. Open PRs get their preview back at the new path on their next
-  push.
-- The `motioncanvas` skill's URLs (`gritzapp.github.io/gritz/` and
-  `.../pr/<number>/proposals/<flow>/`) change to `/diagrams/...` in the same layer.
+**Moving off the old layout.** The diagrams used to have their own deploy to
+`/diagrams/` and previews under `/diagrams/pr/<n>/`, both excluded from the root
+deploy's clean. The first root deploy after the merge replaces the `/diagrams/`
+subtree with the one from the docs build and deletes `/diagrams/pr/*`; an open
+PR touching `diagrams/` gets its preview back at `/pr/<n>/diagrams/` on its next
+push.
 
 **Custom domain.**
 
@@ -266,24 +257,27 @@ against subdomain takeover. It's recommended but not required; see Open Question
 
 ### Embedding diagrams
 
-Docs pages can show diagrams, with some limits. The diagrams are a separate Vite
-build with a JS player, deployed on its own, so the docs never bundle Motion
-Canvas.
+Docs pages can show diagrams. The diagrams are their own Vite project, built into
+the docs output (see Hosting), so the docs' Astro build never bundles Motion
+Canvas, but a page can play a diagram from the same build.
 
-- **Links (from the start).** A page links to `/diagrams/<slug>/`, which is an
-  ordinary Markdown link. It works without JS, in raw Markdown and in `llms.txt`.
-- **Embeds (later layer).** A `Diagram.astro` component renders
-  `<figure><iframe src="/diagrams/<slug>/?embed" loading="lazy"></iframe><figcaption><a href="/diagrams/<slug>/">…</a></figcaption></figure>`.
-  `site.ts` gets an `?embed` mode, read by `controls.ts`, that hides the
-  "All diagrams" link and the heading. Without JS, or in raw Markdown, the reader
-  still gets the caption link. Pages that embed a diagram are `.mdx`. Their raw
-  Markdown keeps the `<Diagram slug="create-task" />` line, which an agent can read
-  as a reference.
-- **Version skew.** The iframe points at the root `/diagrams/`, so a docs PR
-  preview embeds master's diagrams, and a docs page can reference a diagram that
-  hasn't merged yet. Rather than adding cross-deploy plumbing, the link validator
-  isn't run on `/diagrams/` paths, and reviewers check the embed after both have
-  merged.
+- **Links.** A page links to `/diagrams/<slug>/`, which is an ordinary Markdown
+  link. It works without JS, in raw Markdown and in `llms.txt`. `base-links`
+  prefixes it in a preview like any other root-relative link. The links
+  validator only knows the docs pages, so a link under `/diagrams/` is checked
+  against the files in `public/diagrams/` instead.
+- **Inline player.** `Diagram.astro` renders
+  `<figure><motion-canvas-player data-src="<base>diagrams/<slug>/project.js"></motion-canvas-player><figcaption><a href="<base>diagrams/<slug>/">…</a></figcaption></figure>`
+  and loads `<base>diagrams/controls.js`. `site.ts` gives every project bundle
+  the fixed name `<slug>/project.js` and the controls `controls.js`, so the
+  component needs only the slug, and it fails the build when the project
+  doesn't exist. The player fills the content column and waits for play; its
+  keys work while it or its controls have focus. The controls take their colors
+  from `--mc-*` properties, which the component maps to Starlight's, so they
+  follow the light/dark theme; the canvas is the scene's own and stays dark.
+  Without JS, or in raw Markdown, the reader gets the caption link. Pages that
+  embed a diagram are `.mdx`. Their raw Markdown keeps the
+  `<Diagram slug="create-task" />` line, which an agent can read as a reference.
 
 ### Agent access
 
@@ -510,7 +504,9 @@ section and the README edit.
     `controls.ts`, `Diagram.astro`, and one embed (for example `create-task` on
     `concepts/tasks`). Depends on: (4), (10). Verifiable by: the embedded diagram
     playing on the page, the caption link working without JS, and the raw `.md`
-    keeping the reference.
+    keeping the reference. Followed by #2074: the docs build builds the diagrams,
+    `Diagram.astro` plays them inline with the player instead of an iframe, and
+    the two diagrams workflows and the `?embed` mode are gone.
 13. **Web UI links** — Delivers: a "Docs" link in the Web UI navigation, and links
     to `integrations/custom-events` from the Custom Events card on Settings →
     Organisation and from the Custom Schemas tab. Depends on: (5). Verifiable by:
@@ -526,11 +522,9 @@ section and the README edit.
   site per repo is possible. Switching to `actions/deploy-pages` artifacts would
   mean every deploy rebuilds the whole site, including all live previews, from a
   single workflow. Keeping `gh-pages` with per-subtree `target-folder` and
-  `clean-exclude` lets each of the four workflows stay independent, and reuses the
-  pattern the diagrams already rely on.
+  `clean-exclude` keeps the root deploy and the previews independent.
 - **Docs previews at `/pr/<n>/`, not `/docs/pr/<n>/`.** Docs own the root, so their
-  previews sit next to it, the same way diagram previews sit inside `/diagrams/`.
-  Prefixing `/docs/` would just add path noise.
+  previews sit next to it. Prefixing `/docs/` would just add path noise.
 - **`DOCS_BASE` versus relative URLs.** Astro and Starlight write absolute,
   base-prefixed URLs. A build-time base is the supported way to serve under a
   subpath. Rewriting the output to relative URLs, as `diagrams/site.ts` does, would

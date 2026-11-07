@@ -1,30 +1,49 @@
 ---
-// Embeds a diagram from the diagrams site, which plays it in its `?embed` mode,
-// with a caption linking to its own page, which is what a reader without JS
-// gets. Diagrams always come from the root /diagrams/, never the base: a docs
-// preview embeds master's diagrams. `slug` is the project's path under
-// diagrams/src/projects/, e.g. `create-task`.
+// Plays a diagram inline with the @motion-canvas/player web component and the
+// controls from diagrams/controls.ts, with a caption linking to the diagram's
+// own page, which is all a reader without JS gets. `pnpm diagrams` builds the
+// projects in diagrams/ into public/diagrams/ before Astro starts, so the
+// diagrams come from the same build and the same base as the page. `slug` is
+// the project's path under diagrams/src/projects/, e.g. `create-task`.
+import { existsSync } from 'node:fs';
+
 interface Props {
 	slug: string;
 }
 
 const { slug } = Astro.props;
-const href = `/diagrams/${slug}/`;
+// Astro runs from docs/.
+if (!existsSync(`public/diagrams/${slug}/project.js`)) {
+	throw new Error(`Diagram: no project diagrams/src/projects/${slug}.ts`);
+}
+const diagrams = `${import.meta.env.BASE_URL.replace(/\/?$/, '/')}diagrams/`;
+const href = `${diagrams}${slug}/`;
 ---
 
-<figure class="diagram">
-	<iframe src={`${href}?embed`} title={`${slug} diagram`} loading="lazy"></iframe>
+<figure class="diagram not-content">
+	<motion-canvas-player data-src={`${href}project.js`}></motion-canvas-player>
 	<figcaption><a href={href}>Open the {slug} diagram</a></figcaption>
 </figure>
+<script is:inline type="module" src={`${diagrams}controls.js`}></script>
 
 <style>
-	iframe {
+	.diagram {
+		margin-top: 1.5rem;
+		/* Themes the controls; see diagrams/controls.ts. */
+		--mc-fg: var(--sl-color-white);
+		--mc-muted: var(--sl-color-gray-3);
+		--mc-bg: var(--sl-color-gray-6);
+		--mc-hover: var(--sl-color-gray-5);
+		--mc-border: var(--sl-color-gray-5);
+		--mc-accent: var(--sl-color-text-accent);
+	}
+	motion-canvas-player {
 		display: block;
 		width: 100%;
-		/* The 16:9 player and its controls beneath it. */
-		aspect-ratio: 4 / 3;
-		border: 1px solid var(--sl-color-gray-5);
+		aspect-ratio: 16 / 9;
 		border-radius: 0.5rem;
+		overflow: hidden;
+		/* The scenes' background, shown while the project loads. */
 		background: #101216;
 	}
 	figcaption {

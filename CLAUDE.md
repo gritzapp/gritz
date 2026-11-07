@@ -105,10 +105,12 @@ The user and operator docs live in `docs/` (Starlight) and are published to http
 
 ```bash
 mise run docs             # Dev server
-cd docs && pnpm build     # Build; starlight-links-validator fails on a broken link or anchor
+cd docs && pnpm build     # Build docs and diagrams; starlight-links-validator fails on a broken link or anchor
 ```
 
-`docs-preview.yml` builds every PR that touches `docs/` and comments a preview link.
+The docs build also builds the Motion Canvas diagrams in `diagrams/` (`pnpm diagrams`, into the gitignored `docs/public/diagrams/`), served at `/diagrams/` (index) and `/diagrams/<slug>/`. In an `.mdx` page, `<Diagram slug="create-task" />` (`docs/src/components/Diagram.astro`) plays one inline, with a link to its own page; the build fails if the project doesn't exist. Markdown links to `/diagrams/...` are checked against the built files.
+
+`docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link.
 
 **A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update.
 

@@ -1,7 +1,7 @@
 name: Docs Preview
 
-# Builds the Starlight docs site of a PR under /pr/<number>/, so a broken link
-# fails the check. For same-repo PRs it also publishes the build to
+# Builds the Starlight docs site of a PR, with its diagrams, under
+# /pr/<number>/, so a broken link fails the check. For same-repo PRs it also publishes the build to
 # gh-pages:/pr/<number>/, keeps one PR comment pointing at it, and removes it
 # when the PR closes.
 
@@ -10,6 +10,7 @@ on:
     types: [ opened, reopened, synchronize, closed ]
     paths:
       - 'docs/**'
+      - 'diagrams/**'
       - '.github/workflows/docs-preview.yml'
 
 permissions:
@@ -17,7 +18,7 @@ permissions:
   pages: read
   pull-requests: write
 
-# Shared by every workflow that pushes to gh-pages.
+# Shared by the two workflows that push to gh-pages.
 concurrency:
   group: gh-pages
   cancel-in-progress: false
@@ -48,13 +49,16 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
-          cache-dependency-path: docs/pnpm-lock.yaml
+          cache-dependency-path: |
+            docs/pnpm-lock.yaml
+            diagrams/pnpm-lock.yaml
 
       - name: Install dependencies
         if: github.event.action != 'closed'
         run: pnpm install --frozen-lockfile
         working-directory: docs
 
+      # Also installs and builds diagrams/ into docs/public/diagrams/.
       - name: Build
         if: github.event.action != 'closed'
         run: pnpm run build
