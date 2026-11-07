@@ -7,8 +7,8 @@ Issue: https://github.com/gritzapp/gritz/issues/2034
 gritz has no user documentation. What exists is spread across `README.md` (runner
 quick start, secrets, debugging, events), `CLAUDE.md`, skills, the
 `gritzapp/workspaces` repo and implemented proposals. Proposals describe designs
-for contributors, not how to use a feature. A user who wants to route Dynatrace
-problems into gritz has to read `proposals/implemented/custom-external-events.md`
+for contributors, not how to use a feature. A user who wants to route alerts from
+their monitoring system into gritz has to read `proposals/implemented/custom-external-events.md`
 and `internal/server/customserver/webhook.go` to find the envelope format and the
 rule that custom rules must be public.
 
@@ -30,7 +30,7 @@ them:
 - **Agent accessible:** `llms.txt` and `llms-full.txt`, raw Markdown for each page,
   and static HTML that needs no JS. Serving the docs through the gritz MCP server
   is a later layer.
-- **First content:** custom events, and a Dynatrace problem-notification guide.
+- **First content:** custom events.
 
 ## Design
 
@@ -56,7 +56,6 @@ docs/
       index.md
       concepts/...
       integrations/...
-      guides/...
       reference/...
       operators/...
     pages/
@@ -137,9 +136,6 @@ Sections are listed in sidebar order. The slug is the file path under
 - `mcp` — connecting Claude Code, Cursor or any MCP client to `/mcp` (OAuth), or to
   `gritz mcp` (stdio). Covers the tools (`list_workspaces`, `create_task`,
   `get_task`, `list_tasks`, `update_task`, `archive_task`) and channels.
-
-**Guides** (`guides/`)
-- `dynatrace` ★ — Dynatrace problem notifications to gritz tasks (see below).
 
 **Reference** (`reference/`)
 - `custom-event-envelope` ★ — the `POST /webhook/custom` request and response:
@@ -297,8 +293,8 @@ Canvas.
   `# ${entry.data.title}\n\n${entry.body}` with `Content-Type: text/markdown`.
   Pages pick the type up from the `.md` extension.
   - The URL rule: take the page URL, drop the trailing slash, and append `.md`. For
-    example, `https://docs.gritz.dev/guides/dynatrace/` →
-    `https://docs.gritz.dev/guides/dynatrace.md`. The root page is `/index.md`.
+    example, `https://docs.gritz.dev/integrations/custom-events/` →
+    `https://docs.gritz.dev/integrations/custom-events.md`. The root page is `/index.md`.
   - A Starlight `Head` override adds
     `<link rel="alternate" type="text/markdown" href="….md">` to each page, so a
     crawler on the HTML page can find the source.
@@ -313,7 +309,7 @@ Canvas.
   - `promote: ['index', 'concepts/**']`, so `llms-full.txt` starts with the mental
     model.
 
-  What to check when adopting it (layer 6): `llms.txt` should link each page's
+  What to check when adopting it (layer 7): `llms.txt` should link each page's
   `.md` URL as well as the sets. If the plugin's `llms.txt` lists only the sets, we
   turn its `llms.txt` off and write `src/pages/llms.txt.ts`, about 40 lines over
   the same collection, in the llmstxt.org format. Each section heading gets a list
@@ -370,20 +366,49 @@ func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, op
 `docs.Lookup` and never touch the `GritzServiceHandler`. Before that layer, nothing
 on the Go side changes.
 
-### First content: custom events and Dynatrace
+### First content: custom events
+
+The first pages are `integrations/custom-events` and
+`reference/custom-event-envelope`. Both stay generic: the running example is an
+alerting system posting an `alert` type, not any particular vendor. Examples use
+`https://gritz.dev/...` URLs, which is the deployment users read about; a
+self-hosted deployment finds its own URL in the same place in its Web UI.
 
 **`integrations/custom-events`** shows how to get events from any system into
 gritz:
 
 1. Define a type on Events → Custom Schemas. It has a `type` name matching
    `^[a-z][a-z0-9_]{0,63}$`, a label, and attrs that must include `body` and `url`.
+   The example is `alert`, with the attrs `body`, `url`, `severity` and `service`.
 2. Create an API key (`/ui/keys/new`). The webhook takes it as `Authorization:
-   Bearer xat_…`. The page shows the org's webhook URL
-   (`GetOrgSettingsResponse.custom_webhook_url`), which is `<base>/webhook/custom`.
+   Bearer xat_…`. The webhook URL is on Settings → Organisation, in the Custom
+   Events card (`GetOrgSettingsResponse.custom_webhook_url`). For gritz.dev it is
+   `https://gritz.dev/webhook/custom`.
 3. `POST` the envelope (`type`, `body`, `url`, `attrs`, `details`; unknown fields are
-   rejected) and read `{"routed": n}` from the response.
-4. Add a **public** rule for the type. Custom events have no actor, so a
-   member-only rule is rejected when saved.
+   rejected) and read `{"routed": n}` from the response:
+
+   ```bash
+   curl https://gritz.dev/webhook/custom \
+     -H "Authorization: Bearer $GRITZ_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "type": "alert",
+       "url": "https://alerts.example.com/alerts/4211",
+       "body": "checkout-api error rate above 5% for 10 minutes",
+       "attrs": {"severity": ["critical"], "service": ["checkout-api"]},
+       "details": {"runbook": "https://wiki.example.com/runbooks/checkout-api"}
+     }'
+   ```
+
+   The key is referenced by variable, so the command can be shared or logged
+   without the value.
+4. Add a **public** rule for the type: `custom/alert`, `severity equals critical`,
+   wake + create in a workspace and runner, with a prompt such as "Investigate this
+   alert and report the likely cause." Custom events have no actor, so a
+   member-only rule is rejected when saved. Rules are checked in order and the
+   first match wins, so a second, condition-free wake-only rule lets follow-up
+   events (for example a "resolved" post) reach the task without creating tasks
+   for alerts gritz never saw fire.
 5. `url` is the subscription key. Every event about the same resource must send
    the same URL, byte for byte, or it won't wake the task the first event created.
 
@@ -395,56 +420,8 @@ The page ends with a troubleshooting table taken from `webhook.go`'s errors:
 - 403 a token without the `event:create` scope (for example a task token)
 - `routed: 0`: no matching public rule, or no subscribed link and no create action
 
-**`guides/dynatrace`** connects Dynatrace problem notifications to gritz tasks:
-
-1. **Custom type** `problem`, with these attrs: `body` ("Problem details"), `url`
-   ("Problem URL"), `state` (`OPEN` / `RESOLVED`), `severity`, `impact`.
-2. **API key** for Dynatrace, created on its own so it can be revoked separately.
-3. **Routing rules.** Two rules, in this order, because the first match wins:
-   - `custom/problem`, `state equals OPEN`, public, wake + create in workspace W
-     on runner R, with a prompt such as "Investigate this Dynatrace problem and
-     report the likely root cause."
-   - `custom/problem` with no conditions, public, wake only. With this rule, a
-     `RESOLVED` notification wakes the task the `OPEN` one created, but never
-     creates a task for a problem gritz didn't see open.
-4. **Dynatrace setup.** Settings → Integration → Problem notifications → Add
-   notification → **Custom integration**. Set the webhook URL to
-   `https://gritz.dev/webhook/custom` and add the custom headers `Authorization:
-   Bearer xat_…` and `Content-Type: application/json`. Use this payload:
-
-   ```json
-   {
-     "type": "problem",
-     "url": "{ProblemURL}",
-     "body": "{ProblemTitle}\n\n{ProblemDetailsText}",
-     "attrs": {
-       "state": ["{State}"],
-       "severity": ["{ProblemSeverity}"],
-       "impact": ["{ProblemImpact}"]
-     },
-     "details": {
-       "problem_id": "{ProblemID}",
-       "impacted_entities": "{ImpactedEntityNames}",
-       "tags": "{Tags}"
-     }
-   }
-   ```
-
-   Then use "Send test notification", and check the event on the gritz Events page
-   with the routing test-event form.
-5. **Known risk: escaping.** Dynatrace may not JSON-escape placeholder values when
-   it substitutes them. A problem title or details text containing `"`, `\` or a
-   newline would then produce invalid JSON, and gritz rejects the request with
-   `400 invalid envelope`. The notification fails in Dynatrace's log and no task
-   is created. The guide says this up front. It also suggests a fallback payload
-   that uses only enum- or ID-like placeholders (`{ProblemURL}`, `{ProblemID}`,
-   `{State}`, `{ProblemSeverity}`, `{ProblemImpact}`), puts `{ProblemID}` in
-   `body`, and leaves the agent to fetch the details through the Dynatrace API or
-   MCP. Before the guide merges, its author confirms the behaviour against a real
-   tenant with a title containing quotes, and writes down the result. If escaping
-   turns out to be broken, a server-side fix (accepting `{ProblemDetailsJSON}` as a
-   raw JSON `details` value, for example) is its own proposal. It isn't part of
-   this one.
+**`reference/custom-event-envelope`** is the precise contract: each envelope
+field and its type, the 1 MiB limit, the response body, and every status code.
 
 ### Keeping docs in sync with code
 
@@ -493,54 +470,53 @@ section and the README edit.
    serving the index; `https://docs.gritz.dev/diagrams/` still serving diagrams;
    the old root diagram files gone from `gh-pages`; a later diagrams deploy leaving
    the docs alone, and the other way round.
-5. **Docs PR previews** — Delivers: `docs-preview.yml` (build for every PR,
+5. **Custom events docs** — Delivers: `integrations/custom-events` and
+   `reference/custom-event-envelope`. Depends on: (4). Verifiable by: the pages
+   live on `docs.gritz.dev`; following them from scratch against gritz.dev, from
+   type to key to rule to `curl`, and getting `{"routed":1}` and a new task, then
+   a second post waking it.
+6. **Docs PR previews** — Delivers: `docs-preview.yml` (build for every PR,
    deploy/remove/comment for same-repo PRs, `DOCS_BASE=/pr/<n>/`, `noindex`).
    Depends on: (4). Verifiable by: a PR touching `docs/` getting a `docs-preview`
    comment linking a working `/pr/<n>/`, with its CSS and links resolving under the
    base, removed when the PR closes; a broken link failing the check.
-6. **Agent access** — Delivers: the `[...slug].md.ts` endpoint, the
+7. **Agent access** — Delivers: the `[...slug].md.ts` endpoint, the
    `rel="alternate"` head link, `starlight-llms-txt` with the Users/Operators sets,
    and a custom `llms.txt` endpoint only if the plugin's lacks per-page links.
-   Depends on: (2) (it can merge before or after (4)/(5)). Verifiable by:
-   `curl https://docs.gritz.dev/index.md`, `/llms.txt` and `/llms-full.txt`
-   returning Markdown; `curl` of a page's HTML containing its full text.
-7. **Custom events docs** — Delivers: `integrations/custom-events` and
-   `reference/custom-event-envelope`. Depends on: (2); reviewed through (5).
-   Verifiable by: following the page from scratch against gritz.dev, from type to
-   key to rule to `curl`, and getting `{"routed":1}` and a new task.
-8. **Dynatrace guide** — Delivers: `guides/dynatrace`, including the escaping risk,
-   the fallback payload, and the tested result. Depends on: (7). Verifiable by: a
-   Dynatrace test notification creating a task, and a `RESOLVED` notification
-   waking it.
-9. **Docs-in-sync rule** — Delivers: the `## Docs` section in `CLAUDE.md`, and the
-   `README.md` intro gaining the docs link. Depends on: (4). Verifiable by: review
-   only.
-10. **Operators section + README trim** — Delivers: `operators/*` (overview,
-    server, runner, backends, `workspaces-yaml`, secrets, deployment, debugging),
-    with the README's Quick Start, Workspace Examples, Secrets, Docker Compose
-    Runner and Debugging sections moved there and replaced by links. Depends on:
-    (9). Verifiable by: the README containing only what the table above keeps; the
-    links validator passing.
-11. **Concepts + using gritz** — Delivers: `getting-started`, `concepts/*` (with
-    `## Events` moved out of the README), `using/*`. Depends on: (9). Verifiable
+   Depends on: (4). Verifiable by: `curl
+   https://docs.gritz.dev/integrations/custom-events.md`, `/llms.txt` and
+   `/llms-full.txt` returning Markdown; `curl` of a page's HTML containing its full
+   text.
+8. **Docs-in-sync rule** — Delivers: the `## Docs` section in `CLAUDE.md`, and the
+   `README.md` intro gaining the docs link. Depends on: (6), whose build check and
+   previews the rule points reviewers at. Verifiable by: review only.
+9. **Operators section + README trim** — Delivers: `operators/*` (overview,
+   server, runner, backends, `workspaces-yaml`, secrets, deployment, debugging),
+   with the README's Quick Start, Workspace Examples, Secrets, Docker Compose
+   Runner and Debugging sections moved there and replaced by links. Depends on:
+   (8). Verifiable by: the README containing only what the table above keeps; the
+   links validator passing.
+10. **Concepts + using gritz** — Delivers: `getting-started`, `concepts/*` (with
+    `## Events` moved out of the README), `using/*`. Depends on: (8). Verifiable
     by: preview review; a new user creating and following up a task using only
     these pages.
-12. **Integrations + reference** — Delivers: `integrations/github`,
+11. **Integrations + reference** — Delivers: `integrations/github`,
     `integrations/jira`, `integrations/mcp`, `reference/event-types`,
-    `reference/cli`. Depends on: (11). Verifiable by: preview review; connecting
+    `reference/cli`. Depends on: (10). Verifiable by: preview review; connecting
     Claude Code to `/mcp` by following the page.
-13. **Diagram embeds** — Delivers: the `?embed` mode in `diagrams/site.ts` and
+12. **Diagram embeds** — Delivers: the `?embed` mode in `diagrams/site.ts` and
     `controls.ts`, `Diagram.astro`, and one embed (for example `create-task` on
-    `concepts/tasks`). Depends on: (4), (11). Verifiable by: the embedded diagram
+    `concepts/tasks`). Depends on: (4), (10). Verifiable by: the embedded diagram
     playing on the page, the caption link working without JS, and the raw `.md`
     keeping the reference.
-14. **Web UI links** — Delivers: a "Docs" link in the Web UI navigation, and a
-    link from the Custom Schemas tab to `integrations/custom-events`. Depends on:
-    (7). Verifiable by: `pnpm lint`; clicking through.
-15. **Docs over MCP** — Delivers: the `docs` Go package (embed and frontmatter
-    parsing), and `list_docs`/`read_doc` in `mcpserver.AddTools`. Depends on: (6).
+13. **Web UI links** — Delivers: a "Docs" link in the Web UI navigation, and links
+    to `integrations/custom-events` from the Custom Events card on Settings →
+    Organisation and from the Custom Schemas tab. Depends on: (5). Verifiable by:
+    `pnpm lint`; clicking through.
+14. **Docs over MCP** — Delivers: the `docs` Go package (embed and frontmatter
+    parsing), and `list_docs`/`read_doc` in `mcpserver.AddTools`. Depends on: (7).
     Verifiable by: unit tests over `docs.Pages`/`Lookup`; calling `read_doc` with
-    `guides/dynatrace` through `gritz mcp`.
+    `integrations/custom-events` through `gritz mcp`.
 
 ## Trade-offs
 
@@ -580,16 +556,9 @@ section and the README edit.
   `gritzapp/infra`, next to the dokku host. Should we also verify `gritz.dev` for
   the `gritzapp` org (TXT record) to rule out subdomain takeover? That's a second
   record, but also outside the repo.
-- **Dynatrace escaping.** Does Dynatrace JSON-escape text placeholders in custom
-  integration payloads? Layer 8 answers this against a real tenant. If the answer
-  is no, is the ID-only fallback payload good enough, or do we want a server-side
-  change (a raw-JSON `details` value, or a Dynatrace-specific endpoint)?
 - **Generated reference pages.** Should `reference/cli` (from the urfave/cli tree)
   and `reference/event-types` (from `DefaultSchemaRegistry`) be generated by a
   `go generate` step that writes Markdown into `docs/`, with CI checking that it's
   current? Then they can't drift.
-- **Hosted versus self-hosted deployments.** Pages like the Dynatrace guide use
-  `https://gritz.dev/...`. Should they write `<your gritz URL>` and point to the
-  URL the Custom Schemas tab shows, since self-hosted deployments differ?
 - **Search for agents.** Is `list_docs` plus `read_doc` enough over MCP, or do
   agents need a `search_docs` (over the embedded text) from the start?
