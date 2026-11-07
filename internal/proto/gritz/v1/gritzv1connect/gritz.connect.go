@@ -144,6 +144,12 @@ const (
 	// GritzServiceGetEventTypesProcedure is the fully-qualified name of the GritzService's
 	// GetEventTypes RPC.
 	GritzServiceGetEventTypesProcedure = "/gritz.v1.GritzService/GetEventTypes"
+	// GritzServiceGetCustomEventTypesProcedure is the fully-qualified name of the GritzService's
+	// GetCustomEventTypes RPC.
+	GritzServiceGetCustomEventTypesProcedure = "/gritz.v1.GritzService/GetCustomEventTypes"
+	// GritzServiceSetCustomEventTypesProcedure is the fully-qualified name of the GritzService's
+	// SetCustomEventTypes RPC.
+	GritzServiceSetCustomEventTypesProcedure = "/gritz.v1.GritzService/SetCustomEventTypes"
 	// GritzServiceTestEventProcedure is the fully-qualified name of the GritzService's TestEvent RPC.
 	GritzServiceTestEventProcedure = "/gritz.v1.GritzService/TestEvent"
 	// GritzServiceCreateGitHubTokenProcedure is the fully-qualified name of the GritzService's
@@ -220,6 +226,8 @@ type GritzServiceClient interface {
 	GetRoutingRules(context.Context, *v1.GetRoutingRulesRequest) (*v1.GetRoutingRulesResponse, error)
 	SetRoutingRules(context.Context, *v1.SetRoutingRulesRequest) (*v1.SetRoutingRulesResponse, error)
 	GetEventTypes(context.Context, *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error)
+	GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error)
+	SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error)
 	TestEvent(context.Context, *v1.TestEventRequest) (*v1.TestEventResponse, error)
 	CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error)
 	CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error)
@@ -500,6 +508,18 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(gritzServiceMethods.ByName("GetEventTypes")),
 			connect.WithClientOptions(opts...),
 		),
+		getCustomEventTypes: connect.NewClient[v1.GetCustomEventTypesRequest, v1.GetCustomEventTypesResponse](
+			httpClient,
+			baseURL+GritzServiceGetCustomEventTypesProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("GetCustomEventTypes")),
+			connect.WithClientOptions(opts...),
+		),
+		setCustomEventTypes: connect.NewClient[v1.SetCustomEventTypesRequest, v1.SetCustomEventTypesResponse](
+			httpClient,
+			baseURL+GritzServiceSetCustomEventTypesProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("SetCustomEventTypes")),
+			connect.WithClientOptions(opts...),
+		),
 		testEvent: connect.NewClient[v1.TestEventRequest, v1.TestEventResponse](
 			httpClient,
 			baseURL+GritzServiceTestEventProcedure,
@@ -602,6 +622,8 @@ type gritzServiceClient struct {
 	getRoutingRules                *connect.Client[v1.GetRoutingRulesRequest, v1.GetRoutingRulesResponse]
 	setRoutingRules                *connect.Client[v1.SetRoutingRulesRequest, v1.SetRoutingRulesResponse]
 	getEventTypes                  *connect.Client[v1.GetEventTypesRequest, v1.GetEventTypesResponse]
+	getCustomEventTypes            *connect.Client[v1.GetCustomEventTypesRequest, v1.GetCustomEventTypesResponse]
+	setCustomEventTypes            *connect.Client[v1.SetCustomEventTypesRequest, v1.SetCustomEventTypesResponse]
 	testEvent                      *connect.Client[v1.TestEventRequest, v1.TestEventResponse]
 	createGitHubToken              *connect.Client[v1.CreateGitHubTokenRequest, v1.CreateGitHubTokenResponse]
 	createSchedule                 *connect.Client[v1.CreateScheduleRequest, v1.CreateScheduleResponse]
@@ -1000,6 +1022,24 @@ func (c *gritzServiceClient) GetEventTypes(ctx context.Context, req *v1.GetEvent
 	return nil, err
 }
 
+// GetCustomEventTypes calls gritz.v1.GritzService.GetCustomEventTypes.
+func (c *gritzServiceClient) GetCustomEventTypes(ctx context.Context, req *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error) {
+	response, err := c.getCustomEventTypes.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// SetCustomEventTypes calls gritz.v1.GritzService.SetCustomEventTypes.
+func (c *gritzServiceClient) SetCustomEventTypes(ctx context.Context, req *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error) {
+	response, err := c.setCustomEventTypes.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // TestEvent calls gritz.v1.GritzService.TestEvent.
 func (c *gritzServiceClient) TestEvent(ctx context.Context, req *v1.TestEventRequest) (*v1.TestEventResponse, error) {
 	response, err := c.testEvent.CallUnary(ctx, connect.NewRequest(req))
@@ -1129,6 +1169,8 @@ type GritzServiceHandler interface {
 	GetRoutingRules(context.Context, *v1.GetRoutingRulesRequest) (*v1.GetRoutingRulesResponse, error)
 	SetRoutingRules(context.Context, *v1.SetRoutingRulesRequest) (*v1.SetRoutingRulesResponse, error)
 	GetEventTypes(context.Context, *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error)
+	GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error)
+	SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error)
 	TestEvent(context.Context, *v1.TestEventRequest) (*v1.TestEventResponse, error)
 	CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error)
 	CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error)
@@ -1405,6 +1447,18 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(gritzServiceMethods.ByName("GetEventTypes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gritzServiceGetCustomEventTypesHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceGetCustomEventTypesProcedure,
+		svc.GetCustomEventTypes,
+		connect.WithSchema(gritzServiceMethods.ByName("GetCustomEventTypes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceSetCustomEventTypesHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceSetCustomEventTypesProcedure,
+		svc.SetCustomEventTypes,
+		connect.WithSchema(gritzServiceMethods.ByName("SetCustomEventTypes")),
+		connect.WithHandlerOptions(opts...),
+	)
 	gritzServiceTestEventHandler := connect.NewUnaryHandlerSimple(
 		GritzServiceTestEventProcedure,
 		svc.TestEvent,
@@ -1547,6 +1601,10 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceSetRoutingRulesHandler.ServeHTTP(w, r)
 		case GritzServiceGetEventTypesProcedure:
 			gritzServiceGetEventTypesHandler.ServeHTTP(w, r)
+		case GritzServiceGetCustomEventTypesProcedure:
+			gritzServiceGetCustomEventTypesHandler.ServeHTTP(w, r)
+		case GritzServiceSetCustomEventTypesProcedure:
+			gritzServiceSetCustomEventTypesHandler.ServeHTTP(w, r)
 		case GritzServiceTestEventProcedure:
 			gritzServiceTestEventHandler.ServeHTTP(w, r)
 		case GritzServiceCreateGitHubTokenProcedure:
@@ -1744,6 +1802,14 @@ func (UnimplementedGritzServiceHandler) SetRoutingRules(context.Context, *v1.Set
 
 func (UnimplementedGritzServiceHandler) GetEventTypes(context.Context, *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetEventTypes is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetCustomEventTypes is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.SetCustomEventTypes is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) TestEvent(context.Context, *v1.TestEventRequest) (*v1.TestEventResponse, error) {

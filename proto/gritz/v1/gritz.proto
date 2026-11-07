@@ -54,6 +54,8 @@ service GritzService {
   rpc GetRoutingRules(GetRoutingRulesRequest) returns (GetRoutingRulesResponse);
   rpc SetRoutingRules(SetRoutingRulesRequest) returns (SetRoutingRulesResponse);
   rpc GetEventTypes(GetEventTypesRequest) returns (GetEventTypesResponse);
+  rpc GetCustomEventTypes(GetCustomEventTypesRequest) returns (GetCustomEventTypesResponse);
+  rpc SetCustomEventTypes(SetCustomEventTypesRequest) returns (SetCustomEventTypesResponse);
   rpc TestEvent(TestEventRequest) returns (TestEventResponse);
   rpc CreateGitHubToken(CreateGitHubTokenRequest) returns (CreateGitHubTokenResponse);
   rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
@@ -779,6 +781,24 @@ message EventTypeDef {
 message GetEventTypesRequest {}
 
 message GetEventTypesResponse {
+  repeated EventTypeDef event_types = 1;
+}
+
+message GetCustomEventTypesRequest {}
+
+message GetCustomEventTypesResponse {
+  repeated EventTypeDef event_types = 1; // every source is "custom"
+  string webhook_url = 2;                // where to POST custom events, e.g. https://gritz.dev/webhook/custom
+}
+
+// SetCustomEventTypes replaces the org's custom event types. Rejected with
+// InvalidArgument if a schema is malformed, and FailedPrecondition if an
+// existing routing rule would no longer validate against the new set.
+message SetCustomEventTypesRequest {
+  repeated EventTypeDef event_types = 1;
+}
+
+message SetCustomEventTypesResponse {
   repeated EventTypeDef event_types = 1;
 }
 

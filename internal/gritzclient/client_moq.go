@@ -70,6 +70,9 @@ var _ Client = &ClientMock{}
 //			GenerateAtlassianWebhookSecretFunc: func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error) {
 //				panic("mock out the GenerateAtlassianWebhookSecret method")
 //			},
+//			GetCustomEventTypesFunc: func(contextMoqParam context.Context, getCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest) (*gritzv1.GetCustomEventTypesResponse, error) {
+//				panic("mock out the GetCustomEventTypes method")
+//			},
 //			GetEventFunc: func(contextMoqParam context.Context, getEventRequest *gritzv1.GetEventRequest) (*gritzv1.GetEventResponse, error) {
 //				panic("mock out the GetEvent method")
 //			},
@@ -144,6 +147,9 @@ var _ Client = &ClientMock{}
 //			},
 //			RunScheduleFunc: func(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error) {
 //				panic("mock out the RunSchedule method")
+//			},
+//			SetCustomEventTypesFunc: func(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
+//				panic("mock out the SetCustomEventTypes method")
 //			},
 //			SetRoutingRulesFunc: func(contextMoqParam context.Context, setRoutingRulesRequest *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error) {
 //				panic("mock out the SetRoutingRules method")
@@ -233,6 +239,9 @@ type ClientMock struct {
 	// GenerateAtlassianWebhookSecretFunc mocks the GenerateAtlassianWebhookSecret method.
 	GenerateAtlassianWebhookSecretFunc func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error)
 
+	// GetCustomEventTypesFunc mocks the GetCustomEventTypes method.
+	GetCustomEventTypesFunc func(contextMoqParam context.Context, getCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest) (*gritzv1.GetCustomEventTypesResponse, error)
+
 	// GetEventFunc mocks the GetEvent method.
 	GetEventFunc func(contextMoqParam context.Context, getEventRequest *gritzv1.GetEventRequest) (*gritzv1.GetEventResponse, error)
 
@@ -307,6 +316,9 @@ type ClientMock struct {
 
 	// RunScheduleFunc mocks the RunSchedule method.
 	RunScheduleFunc func(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error)
+
+	// SetCustomEventTypesFunc mocks the SetCustomEventTypes method.
+	SetCustomEventTypesFunc func(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error)
 
 	// SetRoutingRulesFunc mocks the SetRoutingRules method.
 	SetRoutingRulesFunc func(contextMoqParam context.Context, setRoutingRulesRequest *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error)
@@ -458,6 +470,13 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// GenerateAtlassianWebhookSecretRequest is the generateAtlassianWebhookSecretRequest argument value.
 			GenerateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest
+		}
+		// GetCustomEventTypes holds details about calls to the GetCustomEventTypes method.
+		GetCustomEventTypes []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// GetCustomEventTypesRequest is the getCustomEventTypesRequest argument value.
+			GetCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest
 		}
 		// GetEvent holds details about calls to the GetEvent method.
 		GetEvent []struct {
@@ -634,6 +653,13 @@ type ClientMock struct {
 			// RunScheduleRequest is the runScheduleRequest argument value.
 			RunScheduleRequest *gritzv1.RunScheduleRequest
 		}
+		// SetCustomEventTypes holds details about calls to the SetCustomEventTypes method.
+		SetCustomEventTypes []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// SetCustomEventTypesRequest is the setCustomEventTypesRequest argument value.
+			SetCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest
+		}
 		// SetRoutingRules holds details about calls to the SetRoutingRules method.
 		SetRoutingRules []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -722,6 +748,7 @@ type ClientMock struct {
 	lockDeleteOrg                      sync.RWMutex
 	lockDeleteSchedule                 sync.RWMutex
 	lockGenerateAtlassianWebhookSecret sync.RWMutex
+	lockGetCustomEventTypes            sync.RWMutex
 	lockGetEvent                       sync.RWMutex
 	lockGetEventTypes                  sync.RWMutex
 	lockGetOrgSettings                 sync.RWMutex
@@ -747,6 +774,7 @@ type ClientMock struct {
 	lockRemoveOrgMember                sync.RWMutex
 	lockRestartTask                    sync.RWMutex
 	lockRunSchedule                    sync.RWMutex
+	lockSetCustomEventTypes            sync.RWMutex
 	lockSetRoutingRules                sync.RWMutex
 	lockSetScheduleEnabled             sync.RWMutex
 	lockSubmitRunnerEvents             sync.RWMutex
@@ -1368,6 +1396,42 @@ func (mock *ClientMock) GenerateAtlassianWebhookSecretCalls() []struct {
 	mock.lockGenerateAtlassianWebhookSecret.RLock()
 	calls = mock.calls.GenerateAtlassianWebhookSecret
 	mock.lockGenerateAtlassianWebhookSecret.RUnlock()
+	return calls
+}
+
+// GetCustomEventTypes calls GetCustomEventTypesFunc.
+func (mock *ClientMock) GetCustomEventTypes(contextMoqParam context.Context, getCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest) (*gritzv1.GetCustomEventTypesResponse, error) {
+	if mock.GetCustomEventTypesFunc == nil {
+		panic("ClientMock.GetCustomEventTypesFunc: method is nil but Client.GetCustomEventTypes was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam            context.Context
+		GetCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest
+	}{
+		ContextMoqParam:            contextMoqParam,
+		GetCustomEventTypesRequest: getCustomEventTypesRequest,
+	}
+	mock.lockGetCustomEventTypes.Lock()
+	mock.calls.GetCustomEventTypes = append(mock.calls.GetCustomEventTypes, callInfo)
+	mock.lockGetCustomEventTypes.Unlock()
+	return mock.GetCustomEventTypesFunc(contextMoqParam, getCustomEventTypesRequest)
+}
+
+// GetCustomEventTypesCalls gets all the calls that were made to GetCustomEventTypes.
+// Check the length with:
+//
+//	len(mockedClient.GetCustomEventTypesCalls())
+func (mock *ClientMock) GetCustomEventTypesCalls() []struct {
+	ContextMoqParam            context.Context
+	GetCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest
+} {
+	var calls []struct {
+		ContextMoqParam            context.Context
+		GetCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest
+	}
+	mock.lockGetCustomEventTypes.RLock()
+	calls = mock.calls.GetCustomEventTypes
+	mock.lockGetCustomEventTypes.RUnlock()
 	return calls
 }
 
@@ -2268,6 +2332,42 @@ func (mock *ClientMock) RunScheduleCalls() []struct {
 	mock.lockRunSchedule.RLock()
 	calls = mock.calls.RunSchedule
 	mock.lockRunSchedule.RUnlock()
+	return calls
+}
+
+// SetCustomEventTypes calls SetCustomEventTypesFunc.
+func (mock *ClientMock) SetCustomEventTypes(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
+	if mock.SetCustomEventTypesFunc == nil {
+		panic("ClientMock.SetCustomEventTypesFunc: method is nil but Client.SetCustomEventTypes was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam            context.Context
+		SetCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest
+	}{
+		ContextMoqParam:            contextMoqParam,
+		SetCustomEventTypesRequest: setCustomEventTypesRequest,
+	}
+	mock.lockSetCustomEventTypes.Lock()
+	mock.calls.SetCustomEventTypes = append(mock.calls.SetCustomEventTypes, callInfo)
+	mock.lockSetCustomEventTypes.Unlock()
+	return mock.SetCustomEventTypesFunc(contextMoqParam, setCustomEventTypesRequest)
+}
+
+// SetCustomEventTypesCalls gets all the calls that were made to SetCustomEventTypes.
+// Check the length with:
+//
+//	len(mockedClient.SetCustomEventTypesCalls())
+func (mock *ClientMock) SetCustomEventTypesCalls() []struct {
+	ContextMoqParam            context.Context
+	SetCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest
+} {
+	var calls []struct {
+		ContextMoqParam            context.Context
+		SetCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest
+	}
+	mock.lockSetCustomEventTypes.RLock()
+	calls = mock.calls.SetCustomEventTypes
+	mock.lockSetCustomEventTypes.RUnlock()
 	return calls
 }
 
