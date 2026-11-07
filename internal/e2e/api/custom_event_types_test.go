@@ -5,7 +5,6 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
-	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -90,20 +89,20 @@ func TestSetCustomEventTypes_RejectsDeletingTypeInUse(t *testing.T) {
 		EventTypes: []*gritzv1.EventTypeDef{problem},
 	})
 	assert.NilError(t, err)
-	// SetRoutingRules doesn't accept custom types yet, so the rule using one
-	// is written to the store directly.
-	err = h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
-		{
-			Source:     "github",
-			Type:       "issue_comment",
-			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "bot:"}},
-		},
-		{
-			Source:     "custom",
-			Type:       "problem",
-			Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
-			Wakeup:     true,
-			Public:     true,
+	_, err = h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
+		Rules: []*gritzv1.RoutingRule{
+			{
+				Source:     "github",
+				Type:       "issue_comment",
+				Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "bot:"}},
+			},
+			{
+				Source:     "custom",
+				Type:       "problem",
+				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
+				Wakeup:     true,
+				Public:     true,
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -137,20 +136,20 @@ func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
 		EventTypes: []*gritzv1.EventTypeDef{problem},
 	})
 	assert.NilError(t, err)
-	// SetRoutingRules doesn't accept custom types yet, so the rule using one
-	// is written to the store directly.
-	err = h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
-		{
-			Source:     "github",
-			Type:       "issue_comment",
-			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "bot:"}},
-		},
-		{
-			Source:     "custom",
-			Type:       "problem",
-			Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
-			Wakeup:     true,
-			Public:     true,
+	_, err = h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
+		Rules: []*gritzv1.RoutingRule{
+			{
+				Source:     "github",
+				Type:       "issue_comment",
+				Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "bot:"}},
+			},
+			{
+				Source:     "custom",
+				Type:       "problem",
+				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
+				Wakeup:     true,
+				Public:     true,
+			},
 		},
 	})
 	assert.NilError(t, err)

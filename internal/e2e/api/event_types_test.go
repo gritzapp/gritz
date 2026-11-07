@@ -73,3 +73,42 @@ func TestGetEventTypes(t *testing.T) {
 	_, ok = byKey["atlassian:comment_created"]
 	assert.Assert(t, ok, "expected atlassian/comment_created to be registered")
 }
+
+func TestGetEventTypes_IncludesOrgCustomTypes(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+	problem := &gritzv1.EventTypeDef{
+		Source: "custom",
+		Type:   "problem",
+		Label:  "Monitoring: Problem",
+		Attrs: []*gritzv1.AttrDef{
+			{Key: "body", Label: "Description"},
+			{Key: "url", Label: "Problem URL"},
+			{Key: "severity", Label: "Severity", Help: "e.g. critical", Placeholder: "critical"},
+		},
+	}
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{problem},
+	})
+	assert.NilError(t, err)
+
+	// Act
+	resp, err := h.Org.Client.GetEventTypes(t.Context(), &gritzv1.GetEventTypesRequest{})
+
+	// Assert: the custom type follows the built-in ones.
+	assert.NilError(t, err)
+	assert.Assert(t, len(resp.EventTypes) > 1)
+	assert.DeepEqual(t, resp.EventTypes[len(resp.EventTypes)-1], problem, protocmp.Transform())
+
+	// Act
+	otherResp, err := other.Client.GetEventTypes(t.Context(), &gritzv1.GetEventTypesRequest{})
+
+	// Assert: another org doesn't see it.
+	assert.NilError(t, err)
+	assert.Equal(t, len(otherResp.EventTypes), len(resp.EventTypes)-1)
+	for _, et := range otherResp.EventTypes {
+		assert.Assert(t, et.Source != "custom", "unexpected custom type %s", et.Type)
+	}
+}
