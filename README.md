@@ -2,6 +2,8 @@
 
 Runs coding agents (Claude Code, Codex, Cursor, GitHub Copilot) inside remote sandboxes.
 
+Documentation: https://docs.gritz.dev
+
 ## Features
 
 - **Self-hosted runners** - Run agents on your own infrastructure inside Docker containers

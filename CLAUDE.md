@@ -99,6 +99,31 @@ gritz github     # GitHub integration
 
 Service definitions in `proto/gritz/v1/gritz.proto`; generated code is written to `internal/proto/` (checked in) by `mise run generate`.
 
+## Docs
+
+The user and operator docs live in `docs/` (Starlight) and are published to https://docs.gritz.dev. Pages are Markdown in `docs/src/content/docs/`; the file path is the URL. Every page has a `title` and a `description` in its frontmatter. Write plain `.md`; use `.mdx` only when a page needs a component.
+
+```bash
+mise run docs             # Dev server
+cd docs && pnpm build     # Build; starlight-links-validator fails on a broken link or anchor
+```
+
+`docs-preview.yml` builds every PR that touches `docs/` and comments a preview link.
+
+**A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update.
+
+| Code | Docs |
+| --- | --- |
+| `internal/server/customserver`, custom event types | `integrations/custom-events`, `reference/custom-event-envelope` |
+| `internal/server/eventrouter` (routing rules, built-in event types) | `concepts/routing-rules`, `reference/event-types` |
+| `internal/server/githubserver`, `internal/server/atlassianserver` | `integrations/github`, `integrations/jira` |
+| `internal/server/mcpserver`, `gritz mcp` | `integrations/mcp` |
+| Agent MCP tools (`internal/runner/agentmcp`) | `using/agent-tools` |
+| CLI commands and flags (`internal/command/`) | `reference/cli`, `using/cli` |
+| `workspaces.yaml`, the runner, backends, `secrets:` | `operators/*` |
+
+Config examples in the docs follow the `secrets:` rule above: credentials go under `secrets:` and are referenced by variable (`${GH_TOKEN}`), never inline.
+
 ## Invariants
 
 Constrain usage; don't support every call order. When a method is only valid in some states (for example after `Boot`, or while no run is claimed), assert the precondition with a panic that names the broken invariant, rather than adding branches, error returns or fallback behaviour for call orders that no production caller makes. Narrower contracts give simpler implementations.
