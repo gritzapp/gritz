@@ -13,7 +13,25 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 
 ## Start here
 
+- [Getting started](https://docs.gritz.dev/getting-started.md): Sign in to gritz, pick an organisation, create a task in the Web UI, watch it run, send a follow-up instruction and archive it.
 - [What is gritz?](https://docs.gritz.dev/index.md): gritz runs coding agents such as Claude Code and Codex in sandboxes, driven by tasks and events.
+
+## Concepts
+
+- [Events and links](https://docs.gritz.dev/concepts/events-and-links.md): How tasks link to pull requests, issues and other resources, how a subscribed link lets an event on that resource wake the task, and where events show up.
+- [Namespaces](https://docs.gritz.dev/concepts/namespaces.md): How a task's namespace scopes which routing rules see its subscriptions, so separate workflows on the same resource don't wake or suppress each other's tasks.
+- [Organisations, members and API keys](https://docs.gritz.dev/concepts/orgs-members-keys.md): How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
+- [Routing rules](https://docs.gritz.dev/concepts/routing-rules.md): How an organisation's routing rules match events by type and conditions, why the first match wins, waking versus creating tasks, public rules, and testing rules with a test event.
+- [Runners](https://docs.gritz.dev/concepts/runners.md): Where a task runs, how runners connect to an organisation, choosing a runner for a task, and what happens when a runner is offline.
+- [Schedules](https://docs.gritz.dev/concepts/schedules.md): Create tasks on a cron schedule, in a timezone, and run a schedule's task on demand with run now.
+- [Tasks](https://docs.gritz.dev/concepts/tasks.md): What a task is, how instructions and events start its runs, the task statuses, restarting and cancelling, archiving and auto-archive, and the task log.
+- [Workspaces](https://docs.gritz.dev/concepts/workspaces.md): What a workspace gives a task (the image, repositories, agent and tools), how to pick one, and who defines them.
+
+## Using gritz
+
+- [Agent tools](https://docs.gritz.dev/using/agent-tools.md): The gritz tools every agent gets (get_my_task, update_my_task, create_link, report and get_github_token), what gritz tells agents to do with them, and how to write instructions that use them.
+- [CLI](https://docs.gritz.dev/using/cli.md): Use the gritz CLI to create, list and update tasks, read a task's log, open a shell in its sandbox and get desktop notifications, and configure its server and API key.
+- [Web UI](https://docs.gritz.dev/using/web-ui.md): A tour of the gritz Web UI, the task list and task page, schedules, events and routing rules, workspaces, members, keys and settings.
 
 ## Integrations
 
