@@ -55,6 +55,12 @@ jobs:
         run: pnpm run build
         working-directory: diagrams
 
+      # .nojekyll only matters at the gh-pages root. The deploy action never
+      # deletes it, so a preview carrying it could not be removed.
+      - name: Drop root-only files
+        if: github.event.action != 'closed'
+        run: rm -f diagrams/dist/.nojekyll
+
       - name: Deploy preview
         if: github.event.action != 'closed'
         uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
