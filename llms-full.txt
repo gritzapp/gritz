@@ -360,8 +360,6 @@ Agents don’t stop by themselves to ask for input. A task that needs an answer 
 
 The diagram follows a task on a Docker runner from its creation to the end of its first run: the runner picks it up and starts its sandbox, and the driver there runs the agent and reports the run’s status to the server.
 
-[create-task diagram](/diagrams/create-task/?embed)
-
 [Open the create-task diagram](/diagrams/create-task/)
 
 ## Statuses
@@ -1390,7 +1388,7 @@ Two consequences for networking:
 
 The server, runner and driver ship together, as one `gritz` binary and one release. The runner puts its own binary into each sandbox, so the driver always matches the runner. Upgrade the server and the runners to the same release; see [Deployment](/operators/deployment/#upgrades).
 
-Animated walkthroughs of how these parts interact, such as creating a task, are on the [diagrams site](https://docs.gritz.dev/diagrams/).
+Animated walkthroughs of how these parts interact, such as creating a task, are on the [diagrams site](/diagrams/).
 
 ## Data model
 
