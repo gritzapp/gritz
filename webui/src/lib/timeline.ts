@@ -80,13 +80,33 @@ export type TimelineItem =
       subscribed?: boolean
     }
 
+// Hostname suffixes of Dynatrace SaaS and Managed environments. Self-hosted
+// Managed instances on custom domains can't be recognized and stay 'other'.
+const dynatraceHostSuffixes = [
+  '.live.dynatrace.com',
+  '.apps.dynatrace.com',
+  '.dynatracelabs.com',
+  '.dynatrace-managed.com',
+]
+
 // Infer the external service from a URL, returning a source string keyed the
-// same way as the persisted ExternalPayload.source. Used only for links, which
-// carry no source field (LinkPayload has none).
+// same way as the persisted ExternalPayload.source. Used for links, which carry
+// no source field (LinkPayload has none), and for custom external events, whose
+// persisted source is always "custom".
 export function sourceFromUrl(url: string): string {
   if (/github\.com/i.test(url)) return 'github'
   if (/atlassian\.net|jira/i.test(url)) return 'jira'
+  if (dynatraceHostSuffixes.some((suffix) => hostname(url).endsWith(suffix))) return 'dynatrace'
   return 'other'
+}
+
+// hostname returns the URL's lowercased hostname, or '' if it doesn't parse.
+function hostname(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
 }
 
 // lifecycleSummary turns a lifecycle event into a readable activity line, e.g.
@@ -188,7 +208,8 @@ export function eventsToTimeline(events: Event[]): TimelineItem[] {
           kind: 'external',
           id,
           at,
-          // Use the persisted source directly — no URL fallback. Empty (for
+          // Keep the persisted source as is; ExternalRow styles "custom" events by
+          // their URL instead. Empty (for
           // pre-existing events) maps to the generic "External" style.
           source: v.source,
           description: v.description,
