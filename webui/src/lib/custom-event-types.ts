@@ -6,7 +6,7 @@ import {
   getEventTypes,
   setCustomEventTypes,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import { type EventTypeDef, EventTypeDefSchema } from '@/gen/gritz/v1/gritz_pb'
+import { type AttrDef, type EventTypeDef, EventTypeDefSchema } from '@/gen/gritz/v1/gritz_pb'
 
 // The source of every org-defined event type (eventrouter.SourceCustom).
 export const CUSTOM_SOURCE = 'custom'
@@ -99,27 +99,49 @@ export function isCustomEventTypeFormValid(values: CustomEventTypeFormValues): b
 // url is required, and attrs may only carry def's attrs other than body and
 // url, which are sent as the envelope's own fields.
 export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
+  const describe = (a: AttrDef) => (a.help ? `${a.label}: ${a.help}` : a.label)
+  const pinned = (key: string, type: Record<string, unknown>) => {
+    // The server rejects custom types that don't declare body and url.
+    const a = def.attrs.find((a) => a.key === key)
+    if (!a) throw new Error(`custom event type ${def.type} declares no ${key} attr`)
+    return {
+      ...type,
+      description: describe(a),
+      ...(a.placeholder && { examples: [a.placeholder] }),
+    }
+  }
   const attrs: Record<string, unknown> = {}
   for (const a of def.attrs) {
     if (PINNED_ATTR_KEYS.includes(a.key)) continue
     attrs[a.key] = {
       type: 'array',
       items: { type: 'string' },
-      description: a.help ? `${a.label}: ${a.help}` : a.label,
+      description: describe(a),
+      ...(a.placeholder && { examples: [[a.placeholder]] }),
     }
   }
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     title: def.label,
+    description: def.label,
     type: 'object',
     additionalProperties: false,
     required: ['type', 'url'],
     properties: {
-      type: { const: def.type },
-      url: { type: 'string', format: 'uri' },
-      body: { type: 'string' },
-      attrs: { type: 'object', additionalProperties: false, properties: attrs },
-      details: { type: 'object', additionalProperties: { type: 'string' } },
+      type: { const: def.type, description: `The event type; always \`${def.type}\`.` },
+      url: pinned('url', { type: 'string', format: 'uri' }),
+      body: pinned('body', { type: 'string' }),
+      attrs: {
+        type: 'object',
+        additionalProperties: false,
+        properties: attrs,
+        description: 'Values routing rules can match on. Each value is a list of strings.',
+      },
+      details: {
+        type: 'object',
+        additionalProperties: { type: 'string' },
+        description: 'Extra key/value context shown with the event; not matched by rules.',
+      },
     },
   }
 }

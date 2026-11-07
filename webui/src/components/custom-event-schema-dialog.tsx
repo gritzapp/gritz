@@ -9,7 +9,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { CopyButton } from '@/components/copy-button'
 import { jsonSchema } from '@/lib/custom-event-types'
 
 // Shows the JSON Schema of the envelope the custom event webhook accepts for
@@ -31,9 +30,6 @@ export function CustomEventSchemaDialog({ eventType }: { eventType: EventTypeDef
             The JSON body the custom events webhook accepts for this type.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end">
-          <CopyButton text={schema} label="Copy JSON Schema" />
-        </div>
         <pre className="text-sm bg-muted px-3 py-2 rounded overflow-auto max-h-96 min-w-0">
           {schema}
         </pre>
