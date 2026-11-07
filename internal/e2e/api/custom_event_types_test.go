@@ -76,50 +76,6 @@ func TestSetCustomEventTypes_RejectsDeletingTypeInUse(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	problem := createCustomTypeInUse(t, h)
-
-	// Act
-	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-	assert.ErrorContains(t, err, `routing rule 2: unknown event type: source="custom" type="problem"`)
-	resp, err := h.Org.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, resp.EventTypes, []*gritzv1.EventTypeDef{problem}, protocmp.Transform())
-}
-
-func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := e2e.New(t, nil)
-	problem := createCustomTypeInUse(t, h)
-
-	// Act: drop the "severity" attr the rule's condition uses.
-	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
-		EventTypes: []*gritzv1.EventTypeDef{
-			{
-				Source: "custom",
-				Type:   "problem",
-				Label:  "Problem",
-				Attrs:  []*gritzv1.AttrDef{{Key: "body"}, {Key: "url"}},
-			},
-		},
-	})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-	assert.ErrorContains(t, err, `routing rule 2: attr "severity" not valid for event type "custom"/"problem"`)
-	resp, err := h.Org.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
-	assert.NilError(t, err)
-	assert.DeepEqual(t, resp.EventTypes, []*gritzv1.EventTypeDef{problem}, protocmp.Transform())
-}
-
-// createCustomTypeInUse saves the custom type "problem" for h's org, and a
-// routing rule (the org's second) whose condition uses its "severity" attr.
-// It returns the saved type.
-func createCustomTypeInUse(t *testing.T, h *e2e.Harness) *gritzv1.EventTypeDef {
-	t.Helper()
 	problem := &gritzv1.EventTypeDef{
 		Source: "custom",
 		Type:   "problem",
@@ -151,5 +107,70 @@ func createCustomTypeInUse(t *testing.T, h *e2e.Harness) *gritzv1.EventTypeDef {
 		},
 	})
 	assert.NilError(t, err)
-	return problem
+
+	// Act
+	_, err = h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.ErrorContains(t, err, `routing rule 2: unknown event type: source="custom" type="problem"`)
+	resp, err := h.Org.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, resp.EventTypes, []*gritzv1.EventTypeDef{problem}, protocmp.Transform())
+}
+
+func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	problem := &gritzv1.EventTypeDef{
+		Source: "custom",
+		Type:   "problem",
+		Label:  "Problem",
+		Attrs: []*gritzv1.AttrDef{
+			{Key: "body"},
+			{Key: "url"},
+			{Key: "severity"},
+		},
+	}
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{problem},
+	})
+	assert.NilError(t, err)
+	// SetRoutingRules doesn't accept custom types yet, so the rule using one
+	// is written to the store directly.
+	err = h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
+		{
+			Source:     "github",
+			Type:       "issue_comment",
+			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "bot:"}},
+		},
+		{
+			Source:     "custom",
+			Type:       "problem",
+			Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
+			Wakeup:     true,
+			Public:     true,
+		},
+	})
+	assert.NilError(t, err)
+
+	// Act: drop the "severity" attr the rule's condition uses.
+	_, err = h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Problem",
+				Attrs:  []*gritzv1.AttrDef{{Key: "body"}, {Key: "url"}},
+			},
+		},
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.ErrorContains(t, err, `routing rule 2: attr "severity" not valid for event type "custom"/"problem"`)
+	resp, err := h.Org.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, resp.EventTypes, []*gritzv1.EventTypeDef{problem}, protocmp.Transform())
 }
