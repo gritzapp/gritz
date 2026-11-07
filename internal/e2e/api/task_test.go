@@ -8,6 +8,7 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
@@ -292,7 +293,7 @@ func TestListTasks_IncludeArchived(t *testing.T) {
 	t.Parallel()
 	// Arrange: one active task and one archived task in the same org.
 	h := e2e.New(t, nil)
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active", Draft: true})
+	active := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active", Draft: true})
 	archived := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived.ID})
 
@@ -302,17 +303,9 @@ func TestListTasks_IncludeArchived(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		def.Tasks,
-		[]*gritzv1.Task{{
-			Name:        "active",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_DRAFT,
-			Command:     gritzv1.TaskCommand_NONE,
-			Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
-			AutoArchive: durationpb.New(0),
-		}},
+		[]*gritzv1.Task{{Id: active.ID, Name: "active"}},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "id", "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "archived"),
 	)
 
 	// Act & Assert - Archived: false is likewise active-only.
@@ -395,18 +388,9 @@ func TestListTasks_Pagination(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		page1.Tasks,
-		[]*gritzv1.Task{{
-			Id:          second.ID,
-			Name:        "task-2",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_DRAFT,
-			Command:     gritzv1.TaskCommand_NONE,
-			Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
-			AutoArchive: durationpb.New(0),
-		}},
+		[]*gritzv1.Task{{Id: second.ID, Name: "task-2"}},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name"),
 	)
 	assert.Assert(t, page1.NextPageToken != "")
 
@@ -420,19 +404,10 @@ func TestListTasks_Pagination(t *testing.T) {
 	assert.DeepEqual(t,
 		page2,
 		&gritzv1.ListTasksResponse{
-			Tasks: []*gritzv1.Task{{
-				Id:          first.ID,
-				Name:        "task-1",
-				Runner:      e2e.DefaultRunner,
-				Workspace:   e2e.DefaultWorkspace,
-				Status:      gritzv1.TaskStatus_DRAFT,
-				Command:     gritzv1.TaskCommand_NONE,
-				Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
-				AutoArchive: durationpb.New(0),
-			}},
+			Tasks: []*gritzv1.Task{{Id: first.ID, Name: "task-1"}},
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name"),
 	)
 }
 
@@ -663,21 +638,16 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	_, err := h.Org.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID})
 
 	// Assert: unarchive clears auto_archive so the archiver doesn't immediately
-	// re-archive.
+	// re-archive. The task is no longer archived, and auto_archive resets to 0
+	// (never) rather than keeping the hour it was created with.
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
 		&gritzv1.Task{
 			Id:          task.ID,
-			Name:        "Auto-archive task",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_DRAFT,
-			Command:     gritzv1.TaskCommand_NONE,
-			Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
 			AutoArchive: durationpb.New(0),
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "archived", "auto_archive"),
 	)
 }
