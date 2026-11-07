@@ -22,3 +22,14 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 ## Reference
 
 - [Custom event envelope](https://docs.gritz.dev/reference/custom-event-envelope.md): The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
+
+## Operators
+
+- [Backends](https://docs.gritz.dev/operators/backends.md): The sandbox backends a runner can use, Docker and AWS Lambda MicroVMs, how each runs a task, and when to use which.
+- [Debugging](https://docs.gritz.dev/operators/debugging.md): Read a task's driver log, log raw agent output with verbose, open a shell in a task's sandbox, and find and clean up task containers.
+- [Deployment](https://docs.gritz.dev/operators/deployment.md): The published gritz server and runner images, running a runner as a Docker Compose service, and upgrading a deployment.
+- [Operators overview](https://docs.gritz.dev/operators/overview.md): The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, and what each needs to reach.
+- [Runner](https://docs.gritz.dev/operators/runner.md): Run gritz runner on your own machine or server, with an API key, a workspaces.yaml and the driver binaries it copies into sandboxes.
+- [Secrets](https://docs.gritz.dev/operators/secrets.md): Declare credentials in a workspace's secrets map so gritz masks them in the task log it ships to the server, and what is masked where.
+- [Server](https://docs.gritz.dev/operators/server.md): Run gritz server with PostgreSQL, single sign-on, the GitHub App and Atlassian integrations, and the endpoints it serves.
+- [workspaces.yaml](https://docs.gritz.dev/operators/workspaces-yaml.md): Reference for the runner's workspace config, the container, setup commands, agent, MCP servers, capabilities and secrets of each workspace, and ${env:} and ${sh:} expansion.
