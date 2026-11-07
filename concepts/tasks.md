@@ -38,6 +38,12 @@ from you completes, and the agent says what it needs in its report or on the
 pull request or issue it is working on. Your next instruction, or a reply on a
 resource the task is subscribed to, starts the next run.
 
+The diagram follows a task on a Docker runner from its creation to the end of
+its first run: the runner picks it up and starts its sandbox, and the driver
+there runs the agent and reports the run's status to the server.
+
+<Diagram slug="create-task" />
+
 ## Statuses
 
 | Status | |
