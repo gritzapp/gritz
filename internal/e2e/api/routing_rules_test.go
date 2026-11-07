@@ -170,3 +170,104 @@ func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 	// Assert: the rejected writes never persisted anything.
 	assert.Equal(t, len(h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{})), 0)
 }
+
+func TestSetRoutingRules_CustomTypeRequiresDefinition(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	rules := []*gritzv1.RoutingRule{
+		{
+			Source: "github",
+			Type:   "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "body", Op: "prefix", Value: "bot:"},
+			},
+		},
+		{
+			Source: "custom",
+			Type:   "problem",
+			Conditions: []*gritzv1.RuleCondition{
+				{Attr: "severity", Op: "equals", Value: "critical"},
+			},
+			Wakeup: true,
+			Public: true,
+		},
+	}
+
+	// Act: the org hasn't defined custom/problem yet.
+	_, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
+		Rules: rules,
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.ErrorContains(t, err, `routing rule 2: unknown event type: source="custom" type="problem"`)
+	assert.Equal(t, len(h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{})), 0)
+
+	// Arrange
+	_, err = h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Problem",
+				Attrs: []*gritzv1.AttrDef{
+					{Key: "body"},
+					{Key: "url"},
+					{Key: "severity"},
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	// Act
+	setResp, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
+		Rules: rules,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, setResp.Rules, rules, protocmp.Transform())
+	assert.DeepEqual(t, h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{}), rules, protocmp.Transform())
+}
+
+func TestSetRoutingRules_RejectsNonPublicCustom(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Problem",
+				Attrs: []*gritzv1.AttrDef{
+					{Key: "body"},
+					{Key: "url"},
+					{Key: "severity"},
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	// Act
+	_, err = h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
+		Rules: []*gritzv1.RoutingRule{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Conditions: []*gritzv1.RuleCondition{
+					{Attr: "severity", Op: "equals", Value: "critical"},
+				},
+				Wakeup: true,
+			},
+		},
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.ErrorContains(t, err, "routing rule 1: custom event rules must be public")
+	assert.Equal(t, len(h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{})), 0)
+}

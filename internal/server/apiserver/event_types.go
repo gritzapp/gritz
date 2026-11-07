@@ -15,18 +15,22 @@ import (
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
-// GetEventTypes returns the eventrouter event-type registry so clients (the
-// routing-rule editor UI) can discover the valid (source, type) event kinds and
-// the attributes a rule may condition on for each. The registry is global —
-// populated by the producer packages' init (githubserver, atlassianserver) — so
-// the response is not org-scoped.
+// GetEventTypes returns the event types the caller's org can route on, so
+// clients (the routing-rule editor UI) can discover the valid (source, type)
+// event kinds and the attributes a rule may condition on for each: the global
+// registry populated by the producer packages' init (githubserver,
+// atlassianserver) plus the org's custom event types.
 func (s *Server) GetEventTypes(ctx context.Context, req *gritzv1.GetEventTypesRequest) (*gritzv1.GetEventTypesResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	if !caller.Scopes.Allow(authscope.OpOrgRead) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read org"))
 	}
+	custom, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return &gritzv1.GetEventTypesResponse{
-		EventTypes: model.ProtoMap(eventrouter.DefaultSchemaRegistry.EventTypes()),
+		EventTypes: model.ProtoMap(eventrouter.DefaultSchemaRegistry.With(custom...).EventTypes()),
 	}, nil
 }
 
