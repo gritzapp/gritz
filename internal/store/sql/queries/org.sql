@@ -115,3 +115,16 @@ WHERE o.id = ANY(sqlc.arg(org_ids)::BIGINT[])
       WHERE m.org_id = o.id AND m.user_id = sqlc.arg(user_id)
   );
 
+
+-- name: GetOrgCustomEventTypes :one
+SELECT custom_event_types FROM orgs WHERE id = $1;
+
+-- name: SetOrgCustomEventTypes :exec
+UPDATE orgs SET
+    custom_event_types = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1;
+
+-- name: LockOrg :exec
+-- Serializes writes that check routing rules against custom event types.
+SELECT id FROM orgs WHERE id = $1 FOR UPDATE;

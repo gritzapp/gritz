@@ -228,6 +228,38 @@ func (s *Store) SetOrgRoutingRules(ctx context.Context, tx *sql.Tx, orgID int64,
 	})
 }
 
+// LockOrg takes a row lock on the org until tx ends. It serializes the writes
+// that check routing rules against custom event types.
+func (s *Store) LockOrg(ctx context.Context, tx *sql.Tx, orgID int64) error {
+	if tx == nil {
+		panic("store: LockOrg requires a transaction")
+	}
+	return s.q(tx).LockOrg(ctx, orgID)
+}
+
+func (s *Store) GetOrgCustomEventTypes(ctx context.Context, tx *sql.Tx, orgID int64) ([]model.EventTypeDef, error) {
+	data, err := s.q(tx).GetOrgCustomEventTypes(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var defs []model.EventTypeDef
+	if err := json.Unmarshal(data, &defs); err != nil {
+		return nil, err
+	}
+	return defs, nil
+}
+
+func (s *Store) SetOrgCustomEventTypes(ctx context.Context, tx *sql.Tx, orgID int64, defs []model.EventTypeDef) error {
+	data, err := json.Marshal(defs)
+	if err != nil {
+		return err
+	}
+	return s.q(tx).SetOrgCustomEventTypes(ctx, sqlc.SetOrgCustomEventTypesParams{
+		ID:               orgID,
+		CustomEventTypes: data,
+	})
+}
+
 func (s *Store) GetRoutingRulesByOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int64) (map[int64][]model.RoutingRule, error) {
 	rows, err := s.q(tx).GetRoutingRulesByOrgs(ctx, orgIDs)
 	if err != nil {

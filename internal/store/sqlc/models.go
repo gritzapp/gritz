@@ -50,6 +50,7 @@ type Org struct {
 	CreatedAt              time.Time       `json:"created_at"`
 	UpdatedAt              time.Time       `json:"updated_at"`
 	GithubInstallationID   sql.NullInt64   `json:"github_installation_id"`
+	CustomEventTypes       json.RawMessage `json:"custom_event_types"`
 }
 
 type OrgMember struct {
