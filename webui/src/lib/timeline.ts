@@ -209,8 +209,8 @@ export function eventsToTimeline(events: Event[]): TimelineItem[] {
           id,
           at,
           // Keep the persisted source as is; ExternalRow styles "custom" events by
-          // their URL instead. Empty (for
-          // pre-existing events) maps to the generic "External" style.
+          // their URL instead. Empty (for pre-existing events) maps to the
+          // generic "External" style.
           source: v.source,
           description: v.description,
           data: v.data || undefined,
