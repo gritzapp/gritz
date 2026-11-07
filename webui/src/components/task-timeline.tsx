@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RelativeTime } from '@/components/relative-time'
 import { externalSourceStyle } from '@/components/external-source'
+import { sourceFromUrl } from '@/lib/timeline'
 import type { TimelineItem, LifecycleCategory } from '@/lib/timeline'
 
 // ----- top-level component ---------------------------------------------------
@@ -86,7 +87,11 @@ function InstructionRow({ item }: { item: Extract<TimelineItem, { kind: 'instruc
 }
 
 function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' }> }) {
-  const src = externalSourceStyle(item.source)
+  // Custom events all persist source "custom", so their style comes from the
+  // URL they point at; unrecognized URLs keep the generic "External" style.
+  const src = externalSourceStyle(
+    item.source === 'custom' && item.url ? sourceFromUrl(item.url) : item.source,
+  )
   return (
     <Row>
       <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:bg-amber-950/20">
