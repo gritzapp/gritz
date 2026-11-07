@@ -94,37 +94,34 @@ export function isCustomEventTypeFormValid(values: CustomEventTypeFormValues): b
   return keys.every(isValidCustomName) && new Set(keys).size === keys.length
 }
 
-// The JSON body /webhook/custom accepts (customserver.Envelope).
-export interface CustomEventPayload {
-  type: string
-  body: string
-  url: string
-  attrs: Record<string, string[]>
-  details: Record<string, string>
-}
-
-// Builds an example payload for def: body and url carry their attrs'
-// placeholders, and every other declared attr gets its placeholder as the
-// single value. The sender swaps the placeholders for real values.
-export function examplePayload(def: EventTypeDef): CustomEventPayload {
-  const placeholder = (key: string) => def.attrs.find((a) => a.key === key)?.placeholder ?? ''
-  const attrs: Record<string, string[]> = {}
+// Returns a draft 2020-12 JSON Schema for the envelope /webhook/custom
+// accepts for def (customserver.Envelope), mirroring the server's validation:
+// url is required, and attrs may only carry def's attrs other than body and
+// url, which are sent as the envelope's own fields.
+export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
+  const attrs: Record<string, unknown> = {}
   for (const a of def.attrs) {
     if (PINNED_ATTR_KEYS.includes(a.key)) continue
-    attrs[a.key] = [a.placeholder]
+    attrs[a.key] = {
+      type: 'array',
+      items: { type: 'string' },
+      description: a.help ? `${a.label}: ${a.help}` : a.label,
+    }
   }
-  return { type: def.type, body: placeholder('body'), url: placeholder('url'), attrs, details: {} }
-}
-
-// Renders a curl command that POSTs payload to webhookUrl.
-export function exampleCurl(webhookUrl: string, payload: CustomEventPayload): string {
-  const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
-  return [
-    `curl -X POST ${webhookUrl}`,
-    `  -H 'Authorization: Bearer <api key>'`,
-    `  -H 'Content-Type: application/json'`,
-    `  -d ${quote(JSON.stringify(payload, null, 2))}`,
-  ].join(' \\\n')
+  return {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    title: def.label,
+    type: 'object',
+    additionalProperties: false,
+    required: ['type', 'url'],
+    properties: {
+      type: { const: def.type },
+      url: { type: 'string', format: 'uri' },
+      body: { type: 'string' },
+      attrs: { type: 'object', additionalProperties: false, properties: attrs },
+      details: { type: 'object', additionalProperties: { type: 'string' } },
+    },
+  }
 }
 
 // Mutation that replaces the org's whole custom type list. On success it
