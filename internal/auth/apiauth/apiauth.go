@@ -306,6 +306,27 @@ func (a *Auth) RequireAuth() func(http.Handler) http.Handler {
 	}
 }
 
+// RequireBearer returns middleware that requires a valid Bearer token (an API
+// key or an app JWT). Unlike RequireAuth it never falls back to the cookie
+// session or the dev user, so a browser can't ride its session cross-site, and
+// a request without a valid token gets a 401 rather than a login redirect.
+func (a *Auth) RequireBearer() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, err := a.authenticate(r)
+			if err != nil {
+				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+			if user == nil {
+				http.Error(w, "bearer token required", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), user)))
+		})
+	}
+}
+
 // CheckAuth returns middleware that checks for valid authentication and
 // populates context, but does not reject unauthenticated requests.
 func (a *Auth) CheckAuth() func(http.Handler) http.Handler {
