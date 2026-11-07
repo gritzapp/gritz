@@ -29,8 +29,9 @@ func (s *Server) GetEventTypes(ctx context.Context, req *gritzv1.GetEventTypesRe
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	reg := eventrouter.DefaultSchemaRegistry.With(custom...)
 	return &gritzv1.GetEventTypesResponse{
-		EventTypes: model.ProtoMap(eventrouter.DefaultSchemaRegistry.With(custom...).EventTypes()),
+		EventTypes: model.ProtoMap(reg.EventTypes()),
 	}, nil
 }
 
