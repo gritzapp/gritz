@@ -1,7 +1,8 @@
 # Routing rules
 
-Routing rules decide what an organisation does with incoming events: GitHub
-comments, Jira updates and [custom events](/integrations/custom-events/). Each
+Routing rules decide what an organisation does with incoming events:
+[GitHub](/integrations/github/) comments, [Jira](/integrations/jira/) updates
+and [custom events](/integrations/custom-events/). Each
 rule matches a kind of event and says what to do with it: wake the tasks
 subscribed to the event's resource, create a new task, or both.
 
@@ -22,7 +23,9 @@ A rule matches an event by:
 - **Conditions**, each an attribute, an operator and a value. The attributes on
   offer depend on the event type. Every type has `body`, the event's text, and
   `url`, the resource it is about; built-in types add others, such as the users
-  mentioned in a comment, an issue's new label or its new assignee.
+  mentioned in a comment, an issue's new label or its new assignee. See
+  [Event types](/reference/event-types/) for every built-in type and its
+  attributes.
 
 | Operator | Holds when the attribute's value |
 | --- | --- |

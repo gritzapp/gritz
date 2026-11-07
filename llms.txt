@@ -36,17 +36,22 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 ## Integrations
 
 - [Custom events](https://docs.gritz.dev/integrations/custom-events.md): Send events from any system, such as an alerting tool or a deploy pipeline, to gritz so they create or wake up tasks.
+- [GitHub](https://docs.gritz.dev/integrations/github.md): Install the gritz GitHub App, link your GitHub account, and route pull request and issue events to tasks; the events gritz receives, the reactions it posts, and GitHub credentials for agents.
+- [Jira](https://docs.gritz.dev/integrations/jira.md): Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, labels and assignments to tasks.
+- [MCP](https://docs.gritz.dev/integrations/mcp.md): Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks; the tools it offers, and task notifications through Claude Code channels.
 
 ## Reference
 
+- [CLI](https://docs.gritz.dev/reference/cli.md): Every gritz subcommand and flag, with its environment variable and default.
 - [Custom event envelope](https://docs.gritz.dev/reference/custom-event-envelope.md): The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
+- [Event types](https://docs.gritz.dev/reference/event-types.md): Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes routing rule conditions can match.
 
 ## Operators
 
 - [Backends](https://docs.gritz.dev/operators/backends.md): The sandbox backends a runner can use, Docker and AWS Lambda MicroVMs, how each runs a task, and when to use which.
 - [Debugging](https://docs.gritz.dev/operators/debugging.md): Read a task's driver log, log raw agent output with verbose, open a shell in a task's sandbox, and find and clean up task containers.
 - [Deployment](https://docs.gritz.dev/operators/deployment.md): The published gritz server and runner images, running a runner as a Docker Compose service, and upgrading a deployment.
-- [Operators overview](https://docs.gritz.dev/operators/overview.md): The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, and what each needs to reach.
+- [Operators overview](https://docs.gritz.dev/operators/overview.md): The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, what each needs to reach, and the data model.
 - [Runner](https://docs.gritz.dev/operators/runner.md): Run gritz runner on your own machine or server, with an API key, a workspaces.yaml and the driver binaries it copies into sandboxes.
 - [Secrets](https://docs.gritz.dev/operators/secrets.md): Declare credentials in a workspace's secrets map so gritz masks them in the task log it ships to the server, and what is masked where.
 - [Server](https://docs.gritz.dev/operators/server.md): Run gritz server with PostgreSQL, single sign-on, the GitHub App and Atlassian integrations, and the endpoints it serves.

@@ -13,5 +13,5 @@ their work in one place.
   request or comments on an issue, it links the resource to its task, and a review
   comment on that pull request wakes the task up with the new event.
 
-Agents and users drive gritz the same way: from the Web UI, the `gritz` CLI, or
-any MCP client.
+Agents and users drive gritz the same way: from the Web UI, the
+[`gritz` CLI](/using/cli/), or [any MCP client](/integrations/mcp/).

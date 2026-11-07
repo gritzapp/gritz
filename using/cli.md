@@ -125,8 +125,10 @@ GRITZ_TOKEN=xat_... gritz notify
 ## Other commands
 
 - `gritz mcp` runs a local MCP server that lets Claude Code, Cursor and other
-  MCP clients create and manage tasks.
+  MCP clients create and manage tasks; see [MCP](/integrations/mcp/).
 - `gritz runner`, `gritz download`, `gritz workspaces` and `gritz containers`
   are for running a runner; see [Runner](/operators/runner/) and
   [Debugging](/operators/debugging/).
 - `gritz version` prints the CLI's version.
+
+[CLI reference](/reference/cli/) lists every command and flag.

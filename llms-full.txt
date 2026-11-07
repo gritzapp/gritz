@@ -10,7 +10,7 @@ gritz is an orchestrator for coding agents. It runs agents such as Claude Code, 
 * **Runners** start the sandboxes, on Docker or Lambda MicroVMs, and stream each agent’s log back to the gritz server, where the Web UI shows it live.
 * **Events** keep a task going after its first run. When an agent opens a pull request or comments on an issue, it links the resource to its task, and a review comment on that pull request wakes the task up with the new event.
 
-Agents and users drive gritz the same way: from the Web UI, the `gritz` CLI, or any MCP client.
+Agents and users drive gritz the same way: from the Web UI, the [`gritz` CLI](/using/cli/), or [any MCP client](/integrations/mcp/).
 
 # Events and links
 
@@ -52,7 +52,7 @@ Archived tasks aren’t subscribed to anything. An event about a URL whose only 
 
 [Section titled “How an event reaches a task”](#how-an-event-reaches-a-task)
 
-Events come from the GitHub and Jira integrations and from your own systems through [custom events](/integrations/custom-events/). For each event, gritz:
+Events come from the [GitHub](/integrations/github/) and [Jira](/integrations/jira/) integrations and from your own systems through [custom events](/integrations/custom-events/). For each event, gritz:
 
 1. **Finds a matching routing rule.** Each organisation’s [routing rules](/concepts/routing-rules/) decide what kinds of events it acts on. The first rule that matches wins; an event that matches no rule does nothing, even for subscribed tasks.
 2. **Looks for subscribed tasks** for the event’s URL, in the matched rule’s [namespace](/concepts/namespaces/).
@@ -130,7 +130,7 @@ Every member of an organisation can do everything in it: create, run and archive
 
 The owner adds members on the **Members** page, by the email address they sign in with. A person has to have signed in to gritz once before they can be added. The owner can’t be removed.
 
-Membership also decides whose GitHub and Jira activity counts as the organisation’s: a member-only routing rule acts on events from members who have linked their GitHub or Atlassian account under **Settings → Account**. See [Public rules](/concepts/routing-rules/#public-rules).
+Membership also decides whose GitHub and Jira activity counts as the organisation’s: a member-only routing rule acts on events from members who have linked their [GitHub](/integrations/github/#link-your-github-account) or [Atlassian](/integrations/jira/#link-your-atlassian-account) account under **Settings → Account**. See [Public rules](/concepts/routing-rules/#public-rules).
 
 ### Deleting an organisation
 
@@ -157,13 +157,13 @@ Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it fro
 
 Agents don’t use API keys. Each task gets a token of its own that can only read and update that task: fetch its instructions, rename it, add links and post reports, through the [agent tools](/using/agent-tools/). It can’t see or change other tasks. The token stops working when the task is archived.
 
-A workspace can give its tasks’ tokens one more permission: getting GitHub tokens through the organisation’s GitHub App (see [capabilities](/operators/workspaces-yaml/#capabilities)).
+A workspace can ask for one more permission for its tasks’ tokens, getting GitHub tokens through the organisation’s GitHub App, with the `github_token` [capability](/operators/workspaces-yaml/#capabilities). The server doesn’t issue these tokens yet, so agents get GitHub access from a token in their workspace’s `secrets:` instead, such as `GH_TOKEN`.
 
 # Routing rules
 
 > How an organisation's routing rules match events by type and conditions, why the first match wins, waking versus creating tasks, public rules, and testing rules with a test event.
 
-Routing rules decide what an organisation does with incoming events: GitHub comments, Jira updates and [custom events](/integrations/custom-events/). Each rule matches a kind of event and says what to do with it: wake the tasks subscribed to the event’s resource, create a new task, or both.
+Routing rules decide what an organisation does with incoming events: [GitHub](/integrations/github/) comments, [Jira](/integrations/jira/) updates and [custom events](/integrations/custom-events/). Each rule matches a kind of event and says what to do with it: wake the tasks subscribed to the event’s resource, create a new task, or both.
 
 An organisation with no rules acts on no events. Even a task with a [subscribed link](/concepts/events-and-links/#subscriptions) is only woken by an event that some rule matches.
 
@@ -176,7 +176,7 @@ Rules are on **Events → Routing Rules** in the [Web UI](/using/web-ui/#events)
 A rule matches an event by:
 
 * **Event type**: the event’s source and type, such as a GitHub pull request review comment, a Jira issue comment, or one of the organisation’s custom types.
-* **Conditions**, each an attribute, an operator and a value. The attributes on offer depend on the event type. Every type has `body`, the event’s text, and `url`, the resource it is about; built-in types add others, such as the users mentioned in a comment, an issue’s new label or its new assignee.
+* **Conditions**, each an attribute, an operator and a value. The attributes on offer depend on the event type. Every type has `body`, the event’s text, and `url`, the resource it is about; built-in types add others, such as the users mentioned in a comment, an issue’s new label or its new assignee. See [Event types](/reference/event-types/) for every built-in type and its attributes.
 
 | Operator   | Holds when the attribute’s value |
 | ---------- | -------------------------------- |
@@ -521,9 +521,9 @@ When you are done with the task, click **Archive** in the sidebar. The runner de
 [Section titled “Next steps”](#next-steps)
 
 * [Tasks](/concepts/tasks/) covers statuses, restarts, cancelling and auto-archive.
-* [Routing rules](/concepts/routing-rules/) create and wake tasks from GitHub, Jira and [custom events](/integrations/custom-events/).
+* [Routing rules](/concepts/routing-rules/) create and wake tasks from [GitHub](/integrations/github/), [Jira](/integrations/jira/) and [custom events](/integrations/custom-events/).
 * [Schedules](/concepts/schedules/) create tasks on a cron schedule.
-* [The CLI](/using/cli/) creates and follows tasks from a terminal.
+* [The CLI](/using/cli/) creates and follows tasks from a terminal, and [MCP](/integrations/mcp/) lets Claude Code or Cursor do it for you.
 
 # Custom events
 
@@ -652,6 +652,428 @@ Pick a URL that a person can open, such as the alert’s page in the alerting sy
 | `401`  | `invalid or expired token`                                | The key is wrong, deleted or expired.                                                                                                                                                       |
 | `403`  | `permission denied`                                       | The token can’t create events, for example a task’s own token. Use an API key.                                                                                                              |
 | `200`  | `{"routed": 0}`                                           | No public rule for the type matched the event, or a rule matched but no task is subscribed to the `url` and the rule doesn’t create tasks.                                                  |
+
+# GitHub
+
+> Install the gritz GitHub App, link your GitHub account, and route pull request and issue events to tasks; the events gritz receives, the reactions it posts, and GitHub credentials for agents.
+
+The GitHub integration turns activity on GitHub into [events](/concepts/events-and-links/): comments, reviews, assignments, labels, and pull requests being opened or closed. [Routing rules](/concepts/routing-rules/) then decide what each event does: wake the task that opened the pull request, create a new task for an issue, or nothing.
+
+It has two halves:
+
+* **The GitHub App**, installed on your repositories, is how GitHub sends gritz events. An organisation links the installation on **Settings → Organisation**.
+* **Your GitHub account**, linked on **Settings → Account**, tells gritz which events are yours, so your organisation’s member-only rules act on them.
+
+Both need the server’s GitHub App to be configured. On a server where it isn’t, **Settings → Organisation** has no **GitHub App** card; operators, see [GitHub App](/operators/server/#github-app).
+
+## Link your GitHub account
+
+[Section titled “Link your GitHub account”](#link-your-github-account)
+
+On **Settings → Account**, in the **GitHub Account** card, click **Link GitHub Account** and approve the request on GitHub. gritz only asks to read your profile; it records your GitHub user ID and username.
+
+Once linked, events you cause on GitHub, such as your comments, reviews and assignments, count as yours in every organisation you are a member of. **Unlink** removes the link; your events then count as an outsider’s.
+
+Link your account before installing the App: linking an installation checks your GitHub identity.
+
+## Install the GitHub App
+
+[Section titled “Install the GitHub App”](#install-the-github-app)
+
+On **Settings → Organisation**, the **GitHub App** card shows whether the organisation has an installation.
+
+**Install GitHub App** opens the App’s page on GitHub. Pick the account or organisation and the repositories it may see. When GitHub sends you back to gritz, the **Link GitHub App Installation** page shows who you are signed in as and the gritz organisation the installation will be linked to; **Approve** links it.
+
+If the App is already installed on your GitHub organisation, for example by a colleague for another gritz organisation, use **Link existing installation** instead and enter the installation’s ID. It is the number at the end of the installation’s settings URL on GitHub, `github.com/settings/installations/<id>` (for an organisation, `github.com/organizations/<org>/settings/installations/<id>`).
+
+gritz links an installation only if your linked GitHub account may use it:
+
+* for an installation on a GitHub organisation, you must be an active member of that organisation;
+* for an installation on a personal account, it must be your account.
+
+Several gritz organisations can link the same installation. Once linked, the card shows **Installed** and a **Manage** button that opens the installation’s settings on GitHub, where you change its repositories or uninstall it. Uninstalling the App on GitHub unlinks it from every gritz organisation.
+
+## Which events reach your organisation
+
+[Section titled “Which events reach your organisation”](#which-events-reach-your-organisation)
+
+GitHub sends gritz an event for every repository where the App is installed. gritz then works out which organisations it concerns:
+
+* **Your members’ events.** If the person who caused the event has linked their GitHub account, the event goes to every organisation they are a member of. It doesn’t matter which organisation linked the installation.
+* **Everyone’s events on your repositories.** An event from a repository whose installation your organisation linked also goes to your organisation, whoever caused it. Only [public rules](/concepts/routing-rules/#public-rules) act on events from people who aren’t members.
+
+Each organisation’s own rules then decide what to do with it, as described in [Routing rules](/concepts/routing-rules/). An organisation with no rule for a GitHub event type ignores it.
+
+## Events
+
+[Section titled “Events”](#events)
+
+gritz turns these GitHub webhook deliveries into events. The rule form’s **Event type** list names them as in the second column.
+
+| GitHub delivery                                                 | Event type                | Its URL                   |
+| --------------------------------------------------------------- | ------------------------- | ------------------------- |
+| A comment on an issue or pull request is created or edited      | GitHub: Issue/PR Comment  | the comment               |
+| An inline review comment on a pull request is created or edited | GitHub: PR Review Comment | the review comment        |
+| A pull request review is submitted with a summary               | GitHub: PR Review         | the review                |
+| An issue is assigned                                            | GitHub: Issue Assigned    | the issue                 |
+| A pull request is assigned                                      | GitHub: PR Assigned       | the pull request          |
+| A pull request is opened                                        | GitHub: PR Opened         | the pull request          |
+| A pull request is closed or merged                              | GitHub: PR Closed         | the pull request          |
+| A label is added to an issue or pull request                    | GitHub: Label Added       | the issue or pull request |
+
+Every other delivery is ignored. Editing a comment sends the event again, with the new text. A review submitted without a summary, such as a bare approval, is ignored, but its inline comments are still sent as review comments. GitHub sends one delivery per label, so adding two labels sends two events.
+
+A comment’s or review’s URL points at the comment itself, but gritz matches it to the issue or pull request it belongs to. So a task with a [subscribed link](/concepts/events-and-links/#subscriptions) to a pull request gets every comment, review and review comment on it.
+
+The attributes each type offers for conditions, such as `mention`, `user`, `label` or `state`, are listed in [Event types](/reference/event-types/#github).
+
+### What the agent sees
+
+[Section titled “What the agent sees”](#what-the-agent-sees)
+
+Each event on a task’s timeline has a description, such as `octocat commented on PR #42`, its URL, and its text: the comment, review or review comment body, or `merged` or `closed` for a closed pull request. A review comment also carries where it was left: the file, the line (or the range from `start_line`), the side of the diff, and the diff hunk it is anchored to. The agent gets all of it at the start of its next run, and through [`get_my_task`](/using/agent-tools/#get_my_task).
+
+## Reactions
+
+[Section titled “Reactions”](#reactions)
+
+When a GitHub event acts on your organisation, gritz reacts to what caused it, as the GitHub App:
+
+* 🚀 when a rule created a task for it;
+* 👀 when it woke one or more subscribed tasks.
+
+The reaction goes on the comment, the review, or the issue or pull request for the other event types. An event that matched a rule but neither created nor woke a task gets no reaction, and neither does one that matched no rule. Reactions need the organisation to have linked an installation.
+
+A reaction is the quickest way to tell that a comment such as `gritz: fix the failing test` was picked up.
+
+## Examples
+
+[Section titled “Examples”](#examples)
+
+Wake the task that opened a pull request whenever a member comments on it:
+
+* **Event type**: GitHub: Issue/PR Comment
+* **Wake up linked tasks**: on
+
+Add the same rule for GitHub: PR Review and GitHub: PR Review Comment to also pass on reviews.
+
+Start a task for every issue a member labels `gritz`, in one repository:
+
+* **Event type**: GitHub: Label Added
+* **Conditions**: `label equals gritz`, `url prefix https://github.com/example/app/`
+* **Create a task**: on, with a runner, a workspace and a prompt such as “Fix the issue and open a pull request.”
+* **Wake up linked tasks**: on, so labelling the issue again wakes the same task
+
+Let anyone, members or not, ask for a change on your repositories’ pull requests by starting a comment with `gritz:`:
+
+* **Event type**: GitHub: Issue/PR Comment
+* **Conditions**: `body prefix gritz:`
+* **Public**: on
+* **Wake up linked tasks**: on
+
+## GitHub credentials for agents
+
+[Section titled “GitHub credentials for agents”](#github-credentials-for-agents)
+
+The App’s installation is for events and reactions. What an agent can do on GitHub, such as cloning, pushing and opening pull requests, depends on the credentials its [workspace](/concepts/workspaces/) gives it. Operators put a token under the workspace’s `secrets:` and reference it by variable; see [`secrets`](/operators/secrets/).
+
+A workspace can also ask for GitHub App installation tokens with the `github_token` [capability](/operators/workspaces-yaml/#capabilities), which gives the agent the [`get_github_token`](/using/agent-tools/#get_github_token) tool. The server doesn’t issue these tokens yet: the request fails with `unimplemented`, and so do the `gritz tool git-credential` and `gritz tool github-mcp` helpers built on it. Use a token in the workspace’s secrets until it does.
+
+# Jira
+
+> Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, labels and assignments to tasks.
+
+The Jira integration turns activity on Jira Cloud issues into [events](/concepts/events-and-links/): new comments, added labels and new assignees. [Routing rules](/concepts/routing-rules/) then decide what each event does: wake the task working on the issue, create a new task for it, or nothing.
+
+It has two halves:
+
+* **A Jira webhook**, pointed at your organisation’s Atlassian webhook URL, is how Jira sends gritz events. It is set up once per gritz organisation.
+* **Your Atlassian account**, linked on **Settings → Account**, tells gritz which events are yours, so your organisation’s member-only rules act on them.
+
+The server must have the Atlassian integration configured; operators, see [Atlassian](/operators/server/#atlassian).
+
+## Link your Atlassian account
+
+[Section titled “Link your Atlassian account”](#link-your-atlassian-account)
+
+On **Settings → Account**, in the **Atlassian Account** card, click **Link Atlassian Account** and approve the request on Atlassian. gritz only asks to read your profile; it records your Atlassian account ID and name.
+
+Once linked, your comments, labels and assignments on Jira count as yours in every organisation you are a member of. **Unlink** removes the link.
+
+## Connect Jira
+
+[Section titled “Connect Jira”](#connect-jira)
+
+### 1. Generate the webhook secret
+
+[Section titled “1. Generate the webhook secret”](#1-generate-the-webhook-secret)
+
+On **Settings → Organisation**, the **Atlassian Webhook** card shows the organisation’s webhook URL:
+
+```plaintext
+https://gritz.dev/webhook/atlassian?org=<org-id>
+```
+
+Click **Generate Secret**. gritz rejects every Jira event for the organisation until it has a secret. **Regenerate Secret** replaces it; the old one stops working at once, so update the webhook in Jira straight after.
+
+### 2. Create the webhook in Jira
+
+[Section titled “2. Create the webhook in Jira”](#2-create-the-webhook-in-jira)
+
+As a Jira administrator, open **Settings → System → WebHooks** and create a webhook:
+
+* **URL**: the webhook URL from the card, including `?org=`.
+* **Secret**: the secret from the card.
+* **Events**: under **Comment**, **created**; under **Issue**, **updated**. Add a JQL filter if you only want some projects’ issues.
+
+Jira signs each delivery with the secret, and gritz checks the signature before it reads the event, so a delivery with a missing or wrong signature is refused with `403`.
+
+The URL names one gritz organisation. To send the same Jira site’s events to two organisations, create a webhook for each.
+
+## Which events reach your organisation
+
+[Section titled “Which events reach your organisation”](#which-events-reach-your-organisation)
+
+Every event sent to your organisation’s webhook belongs to your organisation, whoever caused it:
+
+* If the person who caused it has linked their Atlassian account and is a member, your organisation’s member-only rules can act on it. It also goes to the other organisations they are a member of.
+* Otherwise, only your [public rules](/concepts/routing-rules/#public-rules) act on it.
+
+## Events
+
+[Section titled “Events”](#events)
+
+| Jira webhook                       | Event type           | Its URL                                                    |
+| ---------------------------------- | -------------------- | ---------------------------------------------------------- |
+| Comment created                    | Jira: Issue Comment  | the comment, as `…/browse/PROJ-123?focusedCommentId=10001` |
+| Issue updated, with labels added   | Jira: Label Added    | the issue, as `…/browse/PROJ-123`                          |
+| Issue updated, with a new assignee | Jira: Issue Assigned | the issue                                                  |
+
+Other updates, such as a status change or an edited description, are ignored. One update can send two events: assigning an issue and adding a label in the same edit sends both. Adding several labels at once sends one Label Added event with all of them, and a `label` condition holds if any of them matches. Unassigning an issue sends nothing.
+
+A comment’s URL points at the comment, but gritz matches it to its issue. So a task with a [subscribed link](/concepts/events-and-links/#subscriptions) to `https://your-domain.atlassian.net/browse/PROJ-123` gets every comment on `PROJ-123`.
+
+Jira identifies people by account ID rather than by name, and so do the `user`, `mention` and `assignee` attributes. Enter the bare ID, such as `5b10ac8d82e05b22cc7d4ef5`, not the `[~accountid:…]` form Jira uses in comment text. The account ID is at the end of the URL of the person’s Jira profile. See [Event types](/reference/event-types/#jira) for every attribute.
+
+Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and, for comments, the comment’s text. gritz doesn’t post anything back to Jira.
+
+## Examples
+
+[Section titled “Examples”](#examples)
+
+Wake the task working on an issue whenever a member comments on it:
+
+* **Event type**: Jira: Issue Comment
+* **Wake up linked tasks**: on
+
+Start a task for every issue in one project that is labelled `gritz`:
+
+* **Event type**: Jira: Label Added
+* **Conditions**: `label equals gritz`, `url prefix https://your-domain.atlassian.net/browse/PROJ-`
+* **Create a task**: on, with a runner, a workspace and a prompt
+* **Wake up linked tasks**: on
+
+Start a task when an issue is assigned to a bot account, whoever assigns it:
+
+* **Event type**: Jira: Issue Assigned
+* **Conditions**: `assignee equals <the bot's account ID>`
+* **Create a task**: on
+* **Public**: on
+
+The agent needs its own Jira credentials, from its [workspace](/concepts/workspaces/), to read the issue or reply to it.
+
+# MCP
+
+> Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks; the tools it offers, and task notifications through Claude Code channels.
+
+gritz is an MCP server, so the agent you work with locally, such as Claude Code or Cursor, can hand work off to gritz: list the workspaces, create tasks, follow them up with instructions, read what they did, and archive them.
+
+There are two ways to connect:
+
+* **Over HTTP, to `/mcp` on the server.** Nothing to install; you sign in with your browser. Use this unless you need channels.
+* **Locally, with `gritz mcp`.** Your client runs the `gritz` binary, which talks to the server with an API key. It is also the only way to get [channels](#channels): task updates pushed into a Claude Code session.
+
+Both offer the same [tools](#tools), and act in one organisation.
+
+This page is about the tools *you* use to drive gritz. The tools gritz gives the agents running inside tasks are in [Agent tools](/using/agent-tools/).
+
+## Connect over HTTP
+
+[Section titled “Connect over HTTP”](#connect-over-http)
+
+The server’s MCP URL is on **Settings → Organisation**, in the **MCP Server** card: `https://gritz.dev/mcp` for gritz.dev. It uses the Streamable HTTP transport.
+
+### Claude Code
+
+[Section titled “Claude Code”](#claude-code)
+
+```bash
+claude mcp add --transport http gritz https://gritz.dev/mcp
+```
+
+Then run `/mcp` in Claude Code, pick `gritz` and authenticate.
+
+### Cursor
+
+[Section titled “Cursor”](#cursor)
+
+Add the server to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` in a project:
+
+```json
+{
+  "mcpServers": {
+    "gritz": {
+      "url": "https://gritz.dev/mcp"
+    }
+  }
+}
+```
+
+### Other clients
+
+[Section titled “Other clients”](#other-clients)
+
+Give the client the URL. gritz supports the MCP authorization flow: OAuth 2.1 with PKCE and dynamic client registration, so a client that supports it registers itself and needs no client ID.
+
+### Signing in
+
+[Section titled “Signing in”](#signing-in)
+
+When the client first connects, it opens gritz in your browser. Sign in if you aren’t already, check the organisation in the selector at the top, and click **Approve** on the **Authorize Application** page. The page shows the account and organisation the client will act as.
+
+The client then acts as you, in that organisation: it sees and changes what you can there. To use another organisation, switch to it in the Web UI, and sign the client in again.
+
+The client keeps its access by refreshing its token. It loses it if it isn’t used for 30 days, if you leave the organisation, or if the organisation is deleted; sign in again then.
+
+### With an API key
+
+[Section titled “With an API key”](#with-an-api-key)
+
+`/mcp` also accepts an [API key](/concepts/orgs-members-keys/#api-keys) as a bearer token, for clients that can’t do OAuth or that run unattended. Most clients take a header in their config, for example:
+
+```bash
+claude mcp add --transport http gritz https://gritz.dev/mcp \
+  --header "Authorization: Bearer ${GRITZ_API_KEY}"
+```
+
+The client then acts with the key: in the key’s organisation, and recorded under the key’s name.
+
+## Connect with `gritz mcp`
+
+[Section titled “Connect with gritz mcp”](#connect-with-gritz-mcp)
+
+`gritz mcp` is a local MCP server over stdio. Your client starts it, and it forwards each tool call to the server’s API with an API key. Install the [CLI](/using/cli/), create an API key on the **Keys** page, and add it to your client.
+
+For Claude Code:
+
+```bash
+claude mcp add gritz --env GRITZ_TOKEN=xat_... -- gritz mcp
+```
+
+Or in a project’s `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "gritz": {
+      "command": "gritz",
+      "args": ["mcp", "--channel"],
+      "env": { "GRITZ_TOKEN": "${GRITZ_TOKEN}" }
+    }
+  }
+}
+```
+
+`gritz mcp` takes the key from `--token` or `GRITZ_TOKEN`, not from the CLI’s `config.json`, and talks to `https://gritz.dev` unless `--server` says otherwise:
+
+| Flag             |                                                                                                                             |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `--token`        | The API key. Required; defaults to `GRITZ_TOKEN`.                                                                           |
+| `--server`, `-s` | The server URL. Defaults to `https://gritz.dev`. `GRITZ_SERVER` isn’t read.                                                 |
+| `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
+| `--channel`      | Push task updates into the Claude Code session. See [Channels](#channels).                                                  |
+
+## Tools
+
+[Section titled “Tools”](#tools)
+
+| Tool              |                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------------- |
+| `list_workspaces` | Lists the workspaces runners offer: each one’s name, description and runner ID.                     |
+| `create_task`     | Creates a task and starts it.                                                                       |
+| `list_tasks`      | Lists the organisation’s 50 newest unarchived tasks: ID, name, workspace, status and URL.           |
+| `get_task`        | Gets a task with its links and its full timeline: instructions, events, reports and status changes. |
+| `update_task`     | Adds an instruction to a task, and optionally starts it.                                            |
+| `archive_task`    | Archives a finished task.                                                                           |
+
+You don’t call these yourself: ask your agent, for example “Create a gritz task in the pets-workshop workspace to add a `--json` flag, then tell me when it has opened a pull request.” It calls `list_workspaces` to find the runner, then `create_task`.
+
+### `create_task`
+
+[Section titled “create_task”](#create_task)
+
+| Argument       |                                                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`    | The [workspace](/concepts/workspaces/). Required.                                                                                        |
+| `runner`       | The [runner](/concepts/runners/) that offers it. Required.                                                                               |
+| `instruction`  | The task’s instruction. Required.                                                                                                        |
+| `name`         | A name for the task. The task’s agent names it if this is empty.                                                                         |
+| `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
+
+It returns the task’s ID, name, workspace, status and URL.
+
+### `update_task`
+
+[Section titled “update_task”](#update_task)
+
+| Argument      |                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------ |
+| `id`          | The task ID. Required.                                                                     |
+| `instruction` | The instruction to add. Required.                                                          |
+| `url`         | A URL the instruction is about, such as an issue.                                          |
+| `start`       | Start the task. A running task isn’t interrupted: it runs again when its current run ends. |
+
+An instruction added without `start` waits until something else starts the task.
+
+### `get_task`, `list_tasks`, `archive_task`
+
+[Section titled “get_task, list_tasks, archive_task”](#get_task-list_tasks-archive_task)
+
+`get_task` and `archive_task` take the task’s `id`. `archive_task` only archives a task that has completed, failed or been cancelled; archiving destroys its sandbox. Cancelling and restarting tasks are done in the [Web UI](/using/web-ui/#the-task-page).
+
+## Channels
+
+[Section titled “Channels”](#channels)
+
+[Channels](https://code.claude.com/docs/en/channels) let an MCP server push messages into a running Claude Code session. With `--channel`, `gritz mcp` pushes the organisation’s task updates, so your Claude hears about a task finishing without polling:
+
+```plaintext
+Task 1234 created on my-runner/pets-workshop.
+Task 1234 woken by event 567: octocat commented on PR #42 (https://github.com/…)
+Task 1234 completed.
+```
+
+It sends a message when a task is created (by anyone, by a routing rule or by a schedule), when one is queued with new instructions, woken from a finished state by an event, given an event without being woken, completed, failed, cancelled, restarted or archived, and when a shell is opened in one. It leaves out the changes made through the same `gritz mcp` process, so your Claude isn’t told about the task it just created.
+
+Channels are a Claude Code research preview, and only work over stdio, so only with `gritz mcp`. gritz isn’t on the preview’s allowlist, so start Claude Code with:
+
+```bash
+claude --dangerously-load-development-channels server:gritz
+```
+
+### Muting tasks
+
+[Section titled “Muting tasks”](#muting-tasks)
+
+With `--channel`, three more tools let your Claude choose which tasks it hears about. Every task is on by default.
+
+| Tool             |                                                                                                                                                                 |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `channel_mute`   | Stops messages for the tasks in `task_ids`, or for every task with `all=true`.                                                                                  |
+| `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. |
+| `channel_muted`  | Shows which tasks are muted.                                                                                                                                    |
+
+Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/concepts/events-and-links/#subscriptions), which route external events into tasks.
 
 # Backends
 
@@ -918,7 +1340,7 @@ A sandbox keeps the driver it was created with: the Docker backend copies the bi
 
 # Operators overview
 
-> The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, and what each needs to reach.
+> The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, what each needs to reach, and the data model.
 
 A gritz deployment has one server and any number of runners. Each runner starts a sandbox per task, and a driver inside each sandbox runs the agent.
 
@@ -963,6 +1385,14 @@ Two consequences for networking:
 The server, runner and driver ship together, as one `gritz` binary and one release. The runner puts its own binary into each sandbox, so the driver always matches the runner. Upgrade the server and the runners to the same release; see [Deployment](/operators/deployment/#upgrades).
 
 Animated walkthroughs of how these parts interact, such as creating a task, are on the [diagrams site](https://docs.gritz.dev/diagrams/).
+
+## Data model
+
+[Section titled “Data model”](#data-model)
+
+The server keeps its state in PostgreSQL. Everything belongs to an **org** (`orgs`, with `users` joined through `org_members`). **Tasks** (`tasks`) carry the workspace and runner they run on, and their status. **Links** (`task_links`) attach external resources to a task, and a subscribed link routes **events** (`events`) to it. **Workspaces** (`workspaces`) are what runners register from their `workspaces.yaml`, and **API keys** (`keys`) authenticate runners and clients.
+
+![gritz database schema: orgs, users and org_members; tasks with their task_links and events; workspaces and keys, each belonging to an org; and pending_integrations.](/_astro/schema.eGrxmsRh_2uWsJT.svg)
 
 # Runner
 
@@ -1180,7 +1610,37 @@ API keys (`xat_…`), created by users on the **Keys** page, authenticate the CL
 
 [Section titled “GitHub App”](#github-app)
 
-The GitHub integration is enabled when `--github-client-id` is set. Create a GitHub App and give the server its credentials:
+The GitHub integration is enabled when `--github-client-id` is set. It needs a GitHub App: users install it on their repositories so GitHub sends gritz their events, and sign in with it to link their GitHub accounts. See [GitHub](/integrations/github/) for what users do with it.
+
+### Create the App
+
+[Section titled “Create the App”](#create-the-app)
+
+Create a GitHub App under your account’s or organisation’s **Settings → Developer settings → GitHub Apps**, with:
+
+* **Callback URL**: `<base-url>/github/callback`, where users land after linking their GitHub account. Leave **Request user authorization (OAuth) during installation** off.
+
+* **Setup URL**: `<base-url>/ui/github/setup`, where users land after installing the App, to link the installation to their gritz organisation. Turn on **Redirect on update** so changing an installation’s repositories lands there too.
+
+* **Webhook**: active, with the URL `<base-url>/webhook/github` and a secret, such as one from `openssl rand -hex 32`. gritz refuses deliveries whose signature doesn’t match it.
+
+* **Permissions**:
+
+  | Permission                 | Access         | Used for                                                                             |
+  | -------------------------- | -------------- | ------------------------------------------------------------------------------------ |
+  | Repository → Issues        | Read and write | Issue and issue comment events, and reacting to them.                                |
+  | Repository → Pull requests | Read and write | Pull request, review and review comment events, and reacting to them.                |
+  | Organization → Members     | Read           | Checking that a user linking an installation is a member of its GitHub organisation. |
+
+* **Subscribe to events**: **Issues**, **Issue comment**, **Pull request**, **Pull request review** and **Pull request review comment**. GitHub sends `installation` events to every App without a subscription; gritz uses them to unlink an installation when it is uninstalled.
+
+* **Where can this GitHub App be installed?**: **Any account**, unless only your own account or organisation will use it.
+
+Then generate a private key on the App’s page.
+
+### Configure the server
+
+[Section titled “Configure the server”](#configure-the-server)
 
 | Flag                      | Environment variable           |                                                           |
 | ------------------------- | ------------------------------ | --------------------------------------------------------- |
@@ -1191,7 +1651,9 @@ The GitHub integration is enabled when `--github-client-id` is set. Create a Git
 | `--github-webhook-secret` | `GRITZ_GITHUB_WEBHOOK_SECRET`  | The App’s webhook secret.                                 |
 | `--github-private-key`    | `GRITZ_GITHUB_APP_PRIVATE_KEY` | The App’s private key, as PEM content rather than a path. |
 
-In the App’s settings, set the callback URL to `<base-url>/github/callback` and the webhook URL to `<base-url>/webhook/github`.
+The App ID, client ID and slug are on the App’s page: the slug is the last part of its public URL, `https://github.com/apps/<slug>`. Without a slug, users have no **Install GitHub App** button and can only link an existing installation by its ID. The server checks the App ID and private key when it starts, and fails to start if either is invalid.
+
+The App reacts to events and checks memberships as itself. Agents don’t get access to GitHub through it yet; see [`capabilities`](/operators/workspaces-yaml/#capabilities).
 
 ## Atlassian
 
@@ -1223,18 +1685,18 @@ Auto-archive only happens when `--archive-poll` is set, for example to `1m`. Arc
 
 [Section titled “Endpoints”](#endpoints)
 
-| Path                                                                                                                                      |                                                                                                  |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `/ui/`                                                                                                                                    | The Web UI. `/` redirects here.                                                                  |
-| `/healthz`                                                                                                                                | `200 ok` when the database answers, `503` otherwise. Unauthenticated, for load balancer checks.  |
-| `/auth/`                                                                                                                                  | Login, callback and logout.                                                                      |
-| `/mcp`                                                                                                                                    | The user-facing MCP server, for Claude Code, Cursor and other MCP clients.                       |
-| `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/oauth/register`, `/oauth/authorize`, `/oauth/token` | OAuth for MCP clients that connect to `/mcp`, with dynamic client registration.                  |
-| `/events`                                                                                                                                 | The notification stream that runners and `gritz notify` hold open.                               |
-| `/webhook/github`, `/webhook/atlassian`                                                                                                   | GitHub and Jira webhooks, when those integrations are enabled.                                   |
-| `/webhook/custom`                                                                                                                         | Custom events, authenticated with an API key. See [Custom events](/integrations/custom-events/). |
-| `/github/login`, `/github/callback`, `/atlassian/login`, `/atlassian/callback`                                                            | Account linking.                                                                                 |
-| `/shell/driver`, `/shell/attach`                                                                                                          | WebSocket relay for `gritz shell`: the driver dials one leg, the operator’s terminal the other.  |
+| Path                                                                                                                                      |                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `/ui/`                                                                                                                                    | The Web UI. `/` redirects here.                                                                           |
+| `/healthz`                                                                                                                                | `200 ok` when the database answers, `503` otherwise. Unauthenticated, for load balancer checks.           |
+| `/auth/`                                                                                                                                  | Login, callback and logout.                                                                               |
+| `/mcp`                                                                                                                                    | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. See [MCP](/integrations/mcp/). |
+| `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/oauth/register`, `/oauth/authorize`, `/oauth/token` | OAuth for MCP clients that connect to `/mcp`, with dynamic client registration.                           |
+| `/events`                                                                                                                                 | The notification stream that runners and `gritz notify` hold open.                                        |
+| `/webhook/github`, `/webhook/atlassian`                                                                                                   | GitHub and Jira webhooks, when those integrations are enabled.                                            |
+| `/webhook/custom`                                                                                                                         | Custom events, authenticated with an API key. See [Custom events](/integrations/custom-events/).          |
+| `/github/login`, `/github/callback`, `/atlassian/login`, `/atlassian/callback`                                                            | Account linking.                                                                                          |
+| `/shell/driver`, `/shell/attach`                                                                                                          | WebSocket relay for `gritz shell`: the driver dials one leg, the operator’s terminal the other.           |
 
 The API itself is served over Connect RPC, under `/gritz.v1.GritzService/`.
 
@@ -1369,27 +1831,30 @@ The runner adds an MCP server named `gritz` to every agent, with the tools an ag
 
 [Section titled “capabilities”](#capabilities)
 
-Capabilities let a task’s token do more than read and update its own task. One exists today:
+Capabilities let a task’s token do more than read and update its own task. One exists:
 
-* `github_token`: the task can get GitHub App installation tokens for its organisation, through the server’s GitHub App. The agent gets a `get_github_token` tool, and two helpers in the `gritz` binary use the token: `gritz tool git-credential`, a git credential helper, and `gritz tool github-mcp`, which fronts GitHub’s MCP server with fresh tokens.
+* `github_token`: meant to let the task get GitHub App installation tokens for its organisation. The runner accepts it and the agent gets a [`get_github_token`](/using/agent-tools/#get_github_token) tool, but the server doesn’t issue these tokens yet: every request fails, and so do the `gritz tool git-credential` and `gritz tool github-mcp` helpers that use them.
+
+Give agents GitHub access with a token under `secrets:` instead, and reference it by variable:
 
 ```yaml
 workspaces:
   pets-workshop:
-    capabilities:
-      - github_token
+    secrets:
+      GH_TOKEN: ${env:GH_TOKEN}
     commands:
-      - git config --global credential.https://github.com.helper "!gritz tool git-credential"
+      - git config --global credential.https://github.com.helper '!f() { echo username=x-access-token; echo "password=${GH_TOKEN}"; }; f'
       - git clone https://github.com/example/pets-workshop.git
     agent:
       mcp_servers:
         github:
-          type: stdio
-          command: gritz
-          args: ["tool", "github-mcp"]
+          type: http
+          url: https://api.githubcopilot.com/mcp/
+          headers:
+            Authorization: Bearer ${env:GH_TOKEN}
 ```
 
-This needs the [GitHub App](/operators/server/#github-app) configured on the server and installed on the organisation’s repositories.
+The credential helper reads `GH_TOKEN` when git runs it, so the logged command carries only the name. The MCP header uses `${env:}` because header values reach the agent [as written](#mcp_servers).
 
 ## Variable expansion
 
@@ -1432,6 +1897,285 @@ gritz workspaces -c ~/.config/gritz/workspaces.yaml
 ```
 
 It checks the YAML, the agent’s MCP servers and the capabilities, but not the `container:` or `lambda_microvm:` section, which the backend checks when a run starts. The output is the config after expansion, so it contains your secrets’ values.
+
+# CLI
+
+> Every gritz subcommand and flag, with its environment variable and default.
+
+The `gritz` binary holds the CLI, the server, the runner and the tools that run inside sandboxes. This page lists every subcommand and flag; [Using the CLI](/using/cli/) shows how to use the everyday ones.
+
+```plaintext
+gritz [--help] [--version] <command> [flags] [args]
+```
+
+`--help` (`-h`) works on every command, and `--version` (`-v`) prints the version, as `gritz version` does. Where a flag has an environment variable, the flag wins when both are set.
+
+## Authentication
+
+[Section titled “Authentication”](#authentication)
+
+The commands that talk to a server get their API key in one of two ways:
+
+* `gritz task`, `gritz logs` and `gritz shell` read it from `config.json` in the config directory, as `{"token": "xat_..."}`. See [Configuration](/using/cli/#configuration).
+* `gritz mcp` and `gritz notify` take it from `--token` or `GRITZ_TOKEN`.
+* `gritz runner` reads `config.json` too, unless `--key` or `GRITZ_API_KEY` is set.
+
+The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the user config directory (`~/.config/gritz` on Linux). Every `--server` flag defaults to `https://gritz.dev`.
+
+## Tasks
+
+[Section titled “Tasks”](#tasks)
+
+### `gritz task create`
+
+[Section titled “gritz task create”](#gritz-task-create)
+
+Creates a task and starts it, then prints it as JSON.
+
+| Flag                  | Environment    | Default             |                                                                                                                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--runner`, `-r`      |                |                     | The runner to run on. Required.                                                                                                                  |
+| `--workspace`, `-w`   |                | `default`           | The workspace.                                                                                                                                   |
+| `--instruction`, `-i` |                |                     | An instruction. Repeat it for several.                                                                                                           |
+| `--name`, `-n`        |                |                     | The task’s name.                                                                                                                                 |
+| `--auto-archive`      |                | `0`                 | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
+| `--server`, `-s`      | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                                                                                  |
+
+### `gritz task list`
+
+[Section titled “gritz task list”](#gritz-task-list)
+
+Prints the organisation’s 50 newest unarchived tasks as JSON.
+
+| Flag             | Environment    | Default             |                 |
+| ---------------- | -------------- | ------------------- | --------------- |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+
+### `gritz task update <task-id>`
+
+[Section titled “gritz task update \<task-id>”](#gritz-task-update-task-id)
+
+Changes a task. It needs at least one of `--add-instruction`, `--start`, `--name` or `--auto-archive`.
+
+| Flag                      | Environment    | Default             |                                                                                            |
+| ------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------ |
+| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                 |
+| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends. |
+| `--name`, `-n`            |                |                     | Rename the task.                                                                           |
+| `--auto-archive`          |                | `0`                 | Set the auto-archive delay. Every update sets it, to never when the flag is left out.      |
+| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                            |
+
+### `gritz logs <task-id>`
+
+[Section titled “gritz logs \<task-id>”](#gritz-logs-task-id)
+
+Prints a task’s log.
+
+| Flag             | Environment    | Default             |                                             |
+| ---------------- | -------------- | ------------------- | ------------------------------------------- |
+| `--follow`, `-f` |                |                     | Keep printing new output.                   |
+| `--interval`     |                | `2s`                | How often `--follow` checks for new output. |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                             |
+
+### `gritz shell <task-id>`
+
+[Section titled “gritz shell \<task-id>”](#gritz-shell-task-id)
+
+Opens an interactive shell in a task’s sandbox, relayed through the server. See [A shell in the sandbox](/operators/debugging/#a-shell-in-the-sandbox).
+
+| Flag             | Environment    | Default             |                 |
+| ---------------- | -------------- | ------------------- | --------------- |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+
+## Clients
+
+[Section titled “Clients”](#clients)
+
+### `gritz mcp`
+
+[Section titled “gritz mcp”](#gritz-mcp)
+
+Runs a local MCP server over stdio, for Claude Code, Cursor and other MCP clients. See [MCP](/integrations/mcp/#connect-with-gritz-mcp).
+
+| Flag             | Environment   | Default             |                                                                                                                                                                            |
+| ---------------- | ------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--token`        | `GRITZ_TOKEN` |                     | The API key. Required.                                                                                                                                                     |
+| `--server`, `-s` |               | `https://gritz.dev` | The server URL.                                                                                                                                                            |
+| `--auto-archive` |               |                     | The auto-archive delay for tasks created without an `auto_archive` argument.                                                                                               |
+| `--channel`      |               | off                 | Push task updates into the Claude Code session as [channel](/integrations/mcp/#channels) messages, and add the `channel_mute`, `channel_unmute` and `channel_muted` tools. |
+
+### `gritz notify`
+
+[Section titled “gritz notify”](#gritz-notify)
+
+Shows a desktop notification each time one of the organisation’s tasks completes, fails or is cancelled, until stopped.
+
+| Flag             | Environment   | Default             |                           |
+| ---------------- | ------------- | ------------------- | ------------------------- |
+| `--token`        | `GRITZ_TOKEN` |                     | The API key. Required.    |
+| `--server`, `-s` |               | `https://gritz.dev` | The server URL.           |
+| `--title`        |               | `gritz`             | The notifications’ title. |
+
+## Server and runner
+
+[Section titled “Server and runner”](#server-and-runner)
+
+### `gritz server`
+
+[Section titled “gritz server”](#gritz-server)
+
+Runs the server. Its flags are described in [Server](/operators/server/).
+
+| Flag                        | Environment                     | Default                               |
+| --------------------------- | ------------------------------- | ------------------------------------- |
+| `--addr`, `-a`              |                                 | `:6464`                               |
+| `--db`, `-d`                | `GRITZ_DATABASE_URL`            |                                       |
+| `--base-url`                | `GRITZ_BASE_URL`                |                                       |
+| `--cors`                    | `GRITZ_CORS`                    | off                                   |
+| `--auth-domain`             | `GRITZ_AUTH_DOMAIN`             |                                       |
+| `--auth-client-id`          | `GRITZ_AUTH_CLIENT_ID`          |                                       |
+| `--auth-client-secret`      | `GRITZ_AUTH_CLIENT_SECRET`      |                                       |
+| `--auth-scopes`             | `GRITZ_AUTH_SCOPES`             | `openid,profile,email,offline_access` |
+| `--auth-skip-nonce-verify`  | `GRITZ_AUTH_SKIP_NONCE_VERIFY`  | off                                   |
+| `--auth-encryption-key`     | `GRITZ_AUTH_ENCRYPTION_KEY`     | generated at start                    |
+| `--auth-app-key`            | `GRITZ_AUTH_APP_KEY`            | generated at start                    |
+| `--no-auth`                 |                                 | off                                   |
+| `--github-app-id`           | `GRITZ_GITHUB_APP_ID`           |                                       |
+| `--github-app-slug`         | `GRITZ_GITHUB_APP_SLUG`         |                                       |
+| `--github-client-id`        | `GRITZ_GITHUB_CLIENT_ID`        |                                       |
+| `--github-client-secret`    | `GRITZ_GITHUB_CLIENT_SECRET`    |                                       |
+| `--github-webhook-secret`   | `GRITZ_GITHUB_WEBHOOK_SECRET`   |                                       |
+| `--github-private-key`      | `GRITZ_GITHUB_APP_PRIVATE_KEY`  |                                       |
+| `--atlassian-client-id`     | `GRITZ_ATLASSIAN_CLIENT_ID`     |                                       |
+| `--atlassian-client-secret` | `GRITZ_ATLASSIAN_CLIENT_SECRET` |                                       |
+| `--archive-poll`            | `GRITZ_ARCHIVE_POLL`            | `0` (off)                             |
+| `--archive-batch`           | `GRITZ_ARCHIVE_BATCH`           | `100`                                 |
+| `--schedule-poll`           | `GRITZ_SCHEDULE_POLL`           | `10s`                                 |
+| `--schedule-batch`          | `GRITZ_SCHEDULE_BATCH`          | `100`                                 |
+
+### `gritz runner`
+
+[Section titled “gritz runner”](#gritz-runner)
+
+Runs a runner. Its flags are described in [Runner](/operators/runner/#flags).
+
+| Flag                      | Environment                   | Default                                   |
+| ------------------------- | ----------------------------- | ----------------------------------------- |
+| `--server`, `-s`          | `GRITZ_SERVER`                | `https://gritz.dev`                       |
+| `--key`, `-k`             | `GRITZ_API_KEY`               | `config.json`                             |
+| `--workspaces`, `-w`      |                               | `workspaces.yaml` in the config directory |
+| `--id`                    | `GRITZ_RUNNER_ID`             | the hostname                              |
+| `--backend`               | `GRITZ_BACKEND`               | `docker`                                  |
+| `--concurrency`           |                               | `5`                                       |
+| `--state-db`              | `GRITZ_STATE_DB`              | `/var/lib/gritz/runner.db`                |
+| `--poll`                  |                               | `30s`                                     |
+| `--lambda-microvm-region` | `GRITZ_LAMBDA_MICROVM_REGION` | the AWS SDK’s region                      |
+| `--local-root`            | `GRITZ_LOCAL_ROOT`            |                                           |
+| `--debug`                 |                               | off                                       |
+
+`--backend` also accepts `local`, which runs agents directly on the runner’s host, without isolation, in sandboxes under `--local-root`. It is for tests and development.
+
+### `gritz download`
+
+[Section titled “gritz download”](#gritz-download)
+
+Downloads the prebuilt driver binaries a runner needs from the latest GitHub release. See [Driver binaries](/operators/runner/#driver-binaries).
+
+| Flag            | Default          |                                                   |
+| --------------- | ---------------- | ------------------------------------------------- |
+| `--github-repo` | `gritzapp/gritz` | The repository to download from, as `owner/repo`. |
+
+### `gritz workspaces`
+
+[Section titled “gritz workspaces”](#gritz-workspaces)
+
+Loads a workspace config, with its `${env:}` and `${sh:}` expansions, and prints the result, to check it before restarting a runner.
+
+| Flag             | Default           |                                                      |
+| ---------------- | ----------------- | ---------------------------------------------------- |
+| `--config`, `-c` | `workspaces.yaml` | The file to load, relative to the current directory. |
+
+### `gritz containers`
+
+[Section titled “gritz containers”](#gritz-containers)
+
+Lists the gritz containers on this host’s Docker, running or not.
+
+| Flag      |                                               |
+| --------- | --------------------------------------------- |
+| `--prune` | Remove every stopped gritz container instead. |
+
+### `gritz prune`
+
+[Section titled “gritz prune”](#gritz-prune)
+
+Removes the stopped gritz containers on this host’s Docker whose tasks are archived.
+
+| Flag             | Default             |                                     |
+| ---------------- | ------------------- | ----------------------------------- |
+| `--server`, `-s` | `https://gritz.dev` | The server to look the tasks up on. |
+
+### `gritz version`
+
+[Section titled “gritz version”](#gritz-version)
+
+Prints the version.
+
+## Inside the sandbox
+
+[Section titled “Inside the sandbox”](#inside-the-sandbox)
+
+These commands run inside a task’s sandbox. The runner and the workspace config start them; you don’t run them yourself.
+
+### `gritz driver`
+
+[Section titled “gritz driver”](#gritz-driver)
+
+The driver server, which the runner’s backend starts in each sandbox. It runs the setup commands and the agent, and ships the task’s log.
+
+| Flag                    | Default |                                                                                                                     |
+| ----------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--addr`                | `:8080` | The TCP address or `unix:///path` to serve on.                                                                      |
+| `--prefix`              | `/`     | A directory prepended to every path the driver uses in the sandbox.                                                 |
+| `--aws-lambda-hooks`    | off     | Also answer the Lambda MicroVM lifecycle hooks.                                                                     |
+| `--aws-lambda-validate` |         | An executable to run on the Lambda MicroVM image’s validate hook, to warm the snapshot. Needs `--aws-lambda-hooks`. |
+
+### `gritz tool agent-mcp`
+
+[Section titled “gritz tool agent-mcp”](#gritz-tool-agent-mcp)
+
+The MCP server behind the [agent tools](/using/agent-tools/). The runner adds it to every agent’s MCP config.
+
+| Flag                |                                                                                              |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `--task`, `-t`      | The task ID. Required.                                                                       |
+| `--runner`, `-r`    | The runner ID. Required.                                                                     |
+| `--workspace`, `-w` | The workspace. Required.                                                                     |
+| `--token`           | The task’s token. Required.                                                                  |
+| `--server`, `-s`    | The server URL. Defaults to `https://gritz.dev`.                                             |
+| `--capability`      | A [capability](/operators/workspaces-yaml/#capabilities) of the task. Repeat it for several. |
+
+### `gritz tool github-mcp`
+
+[Section titled “gritz tool github-mcp”](#gritz-tool-github-mcp)
+
+An MCP server over stdio that forwards to GitHub’s MCP server with GitHub App installation tokens, rotating them before they expire. For workspaces with the `github_token` capability; see [GitHub credentials for agents](/integrations/github/#github-credentials-for-agents).
+
+| Flag        | Environment    | Default                              |                                                                     |
+| ----------- | -------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| `--server`  | `GRITZ_SERVER` | `https://gritz.dev`                  | The server URL.                                                     |
+| `--token`   | `GRITZ_TOKEN`  |                                      | The task’s token.                                                   |
+| `--url`     |                | `https://api.githubcopilot.com/mcp/` | GitHub’s MCP endpoint.                                              |
+| `--min-ttl` |                | `5m`                                 | Rotate to a new token when the current one has less than this left. |
+
+### Hidden commands
+
+[Section titled “Hidden commands”](#hidden-commands)
+
+`gritz --help` doesn’t list these two:
+
+* `gritz tool git-credential`: a git credential helper that answers with GitHub App installation tokens, for workspaces with the `github_token` capability. It takes `--server` (`GRITZ_SERVER`) and `--token` (`GRITZ_TOKEN`). Configure it with `git config --global credential.https://github.com.helper "!gritz tool git-credential"`.
+* `gritz tool proxy --addr <addr>`: connects its stdin and stdout to a TCP address or `unix:///path`. The Docker backend uses it to reach the driver’s socket.
 
 # Custom event envelope
 
@@ -1561,6 +2305,191 @@ Errors are plain text.
 | `403`  | `permission denied`                                 | The token lacks the `event:create` scope.                                                                                           |
 | `500`  | `internal error`                                    | The server failed to load the custom types or to route the event.                                                                   |
 
+# Event types
+
+> Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes routing rule conditions can match.
+
+Every event has a source and a type, such as `github` and `issue_comment`. A [routing rule](/concepts/routing-rules/) matches one `(source, type)` pair, which the rule form’s **Event type** list shows by its label, such as **GitHub: Issue/PR Comment**. Its conditions then test the event’s attributes.
+
+This page lists the built-in types, from the [GitHub](/integrations/github/) and [Jira](/integrations/jira/) integrations. An organisation’s own types have the source `custom` and the attributes their schema defines; see [Custom events](/integrations/custom-events/).
+
+## Attributes
+
+[Section titled “Attributes”](#attributes)
+
+Every type has two attributes:
+
+* `body`: the event’s text, such as a comment. Its meaning depends on the type, and it is empty for types that have no text.
+* `url`: the URL of what the event is about, such as a comment or an issue.
+
+Each type adds others. An attribute can hold several values, such as every user mentioned in a comment, and a condition holds if any of them satisfies it. Conditions compare exactly and are case-sensitive; see [Matching](/concepts/routing-rules/#matching).
+
+The **Label** column is what the rule form shows for the attribute.
+
+## GitHub
+
+[Section titled “GitHub”](#github)
+
+Source `github`. GitHub usernames are given without the leading `@`.
+
+### `issue_comment`
+
+[Section titled “issue_comment”](#issue_comment)
+
+**GitHub: Issue/PR Comment.** A comment on an issue or a pull request is created or edited.
+
+| Attribute | Label        | Value                                                                                   |
+| --------- | ------------ | --------------------------------------------------------------------------------------- |
+| `body`    | Comment Body | The comment’s text.                                                                     |
+| `url`     | Issue/PR URL | The comment’s URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
+| `mention` | Mention      | Each username @-mentioned in the comment.                                               |
+| `user`    | User         | The username of the commenter.                                                          |
+
+### `pull_request_review_comment`
+
+[Section titled “pull_request_review_comment”](#pull_request_review_comment)
+
+**GitHub: PR Review Comment.** An inline review comment on a pull request is created or edited.
+
+| Attribute | Label               | Value                                                                                       |
+| --------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| `body`    | Review Comment Body | The review comment’s text.                                                                  |
+| `url`     | PR URL              | The review comment’s URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
+| `mention` | Mention             | Each username @-mentioned in the review comment.                                            |
+| `user`    | User                | The username of the reviewer.                                                               |
+
+The event also carries, for the agent but not for conditions, the file and line the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
+
+### `pull_request_review`
+
+[Section titled “pull_request_review”](#pull_request_review)
+
+**GitHub: PR Review.** A review with a summary is submitted on a pull request.
+
+| Attribute | Label       | Value                                                                                     |
+| --------- | ----------- | ----------------------------------------------------------------------------------------- |
+| `body`    | Review Body | The review’s summary.                                                                     |
+| `url`     | PR URL      | The review’s URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
+| `mention` | Mention     | Each username @-mentioned in the summary.                                                 |
+| `user`    | User        | The username of the reviewer.                                                             |
+
+### `issue_assigned`
+
+[Section titled “issue_assigned”](#issue_assigned)
+
+**GitHub: Issue Assigned.** An issue is assigned to someone.
+
+| Attribute  | Label      | Value                                                                |
+| ---------- | ---------- | -------------------------------------------------------------------- |
+| `body`     | Issue Body | Empty.                                                               |
+| `url`      | Issue URL  | The issue’s URL, such as `https://github.com/owner/repo/issues/123`. |
+| `assignee` | Assignee   | The username newly assigned.                                         |
+| `user`     | User       | The username of who assigned it.                                     |
+
+### `pull_request_assigned`
+
+[Section titled “pull_request_assigned”](#pull_request_assigned)
+
+**GitHub: PR Assigned.** A pull request is assigned to someone.
+
+| Attribute  | Label    | Value                                                                     |
+| ---------- | -------- | ------------------------------------------------------------------------- |
+| `body`     | PR Body  | Empty.                                                                    |
+| `url`      | PR URL   | The pull request’s URL, such as `https://github.com/owner/repo/pull/123`. |
+| `assignee` | Assignee | The username newly assigned.                                              |
+| `user`     | User     | The username of who assigned it.                                          |
+
+### `pull_request_opened`
+
+[Section titled “pull_request_opened”](#pull_request_opened)
+
+**GitHub: PR Opened.** A pull request is opened.
+
+| Attribute | Label          | Value                          |
+| --------- | -------------- | ------------------------------ |
+| `body`    | PR Description | Empty.                         |
+| `url`     | PR URL         | The pull request’s URL.        |
+| `user`    | User           | The username of who opened it. |
+
+### `pull_request_closed`
+
+[Section titled “pull_request_closed”](#pull_request_closed)
+
+**GitHub: PR Closed.** A pull request is closed, with or without merging.
+
+| Attribute | Label          | Value                                          |
+| --------- | -------------- | ---------------------------------------------- |
+| `body`    | PR Description | `merged` or `closed`, as `state`.              |
+| `url`     | PR URL         | The pull request’s URL.                        |
+| `state`   | State          | `merged` if it was merged, otherwise `closed`. |
+| `user`    | User           | The username of who closed or merged it.       |
+
+### `label_added`
+
+[Section titled “label_added”](#label_added)
+
+**GitHub: Label Added.** A label is added to an issue or a pull request. Adding several labels sends one event per label.
+
+| Attribute | Label         | Value                              |
+| --------- | ------------- | ---------------------------------- |
+| `body`    | Issue/PR Body | Empty.                             |
+| `url`     | Issue/PR URL  | The issue’s or pull request’s URL. |
+| `label`   | Label         | The label added.                   |
+| `user`    | User          | The username of who added it.      |
+
+## Jira
+
+[Section titled “Jira”](#jira)
+
+Source `atlassian`. People are identified by their Atlassian account ID, such as `5b10ac8d82e05b22cc7d4ef5`. Enter the bare ID, not the `[~accountid:…]` form Jira uses in comment text.
+
+### `comment_created`
+
+[Section titled “comment_created”](#comment_created)
+
+**Jira: Issue Comment.** A comment is added to an issue.
+
+| Attribute | Label        | Value                                                                                                  |
+| --------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `body`    | Comment Body | The comment’s text.                                                                                    |
+| `url`     | Issue URL    | The comment’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
+| `mention` | Mention      | The account ID of each person @-mentioned in the comment.                                              |
+| `user`    | User         | The account ID of the commenter.                                                                       |
+
+### `label_added`
+
+[Section titled “label_added”](#label_added-1)
+
+**Jira: Label Added.** One or more labels are added to an issue. Adding several at once sends one event with all of them.
+
+| Attribute | Label             | Value                                                                         |
+| --------- | ----------------- | ----------------------------------------------------------------------------- |
+| `body`    | Issue Description | Empty.                                                                        |
+| `url`     | Issue URL         | The issue’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123`. |
+| `label`   | Label             | Each label added.                                                             |
+| `user`    | User              | The account ID of who added them.                                             |
+
+### `issue_assigned`
+
+[Section titled “issue_assigned”](#issue_assigned-1)
+
+**Jira: Issue Assigned.** An issue is assigned to someone.
+
+| Attribute  | Label             | Value                               |
+| ---------- | ----------------- | ----------------------------------- |
+| `body`     | Issue Description | Empty.                              |
+| `url`      | Issue URL         | The issue’s URL.                    |
+| `assignee` | Assignee          | The account ID of the new assignee. |
+| `user`     | User              | The account ID of who assigned it.  |
+
+## URLs and subscriptions
+
+[Section titled “URLs and subscriptions”](#urls-and-subscriptions)
+
+The `url` attribute is the event’s own URL, as listed above, so a `url` condition sees the comment’s or review’s URL, with its fragment or query string. Use `prefix` to scope a rule to a repository or a project: `url prefix https://github.com/owner/repo/` or `url prefix https://your-domain.atlassian.net/browse/PROJ-`.
+
+To find subscribed tasks, gritz reduces the URL to the issue or pull request it belongs to, so an event about a comment reaches the tasks subscribed to its issue. See [Subscriptions](/concepts/events-and-links/#subscriptions).
+
 # Agent tools
 
 > The gritz tools every agent gets (get_my_task, update_my_task, create_link, report and get_github_token), what gritz tells agents to do with them, and how to write instructions that use them.
@@ -1623,7 +2552,9 @@ Posts `message` to the task’s timeline. This is how an agent tells you what it
 
 [Section titled “get_github_token”](#get_github_token)
 
-Returns a short-lived GitHub token for the organisation’s GitHub App installation. Only tasks whose workspace has the `github_token` [capability](/operators/workspaces-yaml/#capabilities) get this tool. It is meant for one-off commands that need a raw token: a workspace can set up git and the GitHub MCP server to get their tokens on their own, as the capabilities example shows.
+Meant to return a short-lived GitHub token for the organisation’s GitHub App installation. Only tasks whose workspace has the `github_token` [capability](/operators/workspaces-yaml/#capabilities) get this tool, and the server doesn’t issue these tokens yet, so the tool always fails.
+
+Agents get GitHub access today from their workspace instead: a token under `secrets:`, such as `GH_TOKEN`, which `gh`, git and the GitHub MCP server can use. See [`secrets`](/operators/secrets/).
 
 ## Writing instructions that use them
 
@@ -1761,9 +2692,11 @@ GRITZ_TOKEN=xat_... gritz notify
 
 [Section titled “Other commands”](#other-commands)
 
-* `gritz mcp` runs a local MCP server that lets Claude Code, Cursor and other MCP clients create and manage tasks.
+* `gritz mcp` runs a local MCP server that lets Claude Code, Cursor and other MCP clients create and manage tasks; see [MCP](/integrations/mcp/).
 * `gritz runner`, `gritz download`, `gritz workspaces` and `gritz containers` are for running a runner; see [Runner](/operators/runner/) and [Debugging](/operators/debugging/).
 * `gritz version` prints the CLI’s version.
+
+[CLI reference](/reference/cli/) lists every command and flag.
 
 # Web UI
 
@@ -1848,7 +2781,7 @@ A terminal in the task’s sandbox, for looking at what the agent left behind. I
 
 **Settings** has two tabs:
 
-* **Account**: the organisations you own, where you create new ones and delete them, and your linked Atlassian and GitHub accounts. Linking them lets [routing rules](/concepts/routing-rules/#public-rules) recognise your comments as a member’s.
-* **Organisation**: the URLs and settings that connect the organisation to other systems: the MCP server URL for MCP clients, the custom events webhook URL, the GitHub App installation, and the Atlassian webhook URL and secret.
+* **Account**: the organisations you own, where you create new ones and delete them, and your linked [Atlassian](/integrations/jira/#link-your-atlassian-account) and [GitHub](/integrations/github/#link-your-github-account) accounts. Linking them lets [routing rules](/concepts/routing-rules/#public-rules) recognise your comments as a member’s.
+* **Organisation**: the URLs and settings that connect the organisation to other systems: the [MCP server URL](/integrations/mcp/) for MCP clients, the [custom events](/integrations/custom-events/) webhook URL, the [GitHub App installation](/integrations/github/#install-the-github-app), and the [Atlassian webhook](/integrations/jira/#connect-jira) URL and secret.
 
 The server’s version is at the bottom of the page.

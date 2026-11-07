@@ -65,8 +65,44 @@ runners and webhook senders. They work the same with and without SSO.
 
 ## GitHub App
 
-The GitHub integration is enabled when `--github-client-id` is set. Create a
-GitHub App and give the server its credentials:
+The GitHub integration is enabled when `--github-client-id` is set. It needs a
+GitHub App: users install it on their repositories so GitHub sends gritz their
+events, and sign in with it to link their GitHub accounts. See
+[GitHub](/integrations/github/) for what users do with it.
+
+### Create the App
+
+Create a GitHub App under your account's or organisation's **Settings →
+Developer settings → GitHub Apps**, with:
+
+- **Callback URL**: `<base-url>/github/callback`, where users land after linking
+  their GitHub account. Leave **Request user authorization (OAuth) during
+  installation** off.
+- **Setup URL**: `<base-url>/ui/github/setup`, where users land after installing
+  the App, to link the installation to their gritz organisation. Turn on
+  **Redirect on update** so changing an installation's repositories lands there
+  too.
+- **Webhook**: active, with the URL `<base-url>/webhook/github` and a secret,
+  such as one from `openssl rand -hex 32`. gritz refuses deliveries whose
+  signature doesn't match it.
+- **Permissions**:
+
+  | Permission | Access | Used for |
+  | --- | --- | --- |
+  | Repository → Issues | Read and write | Issue and issue comment events, and reacting to them. |
+  | Repository → Pull requests | Read and write | Pull request, review and review comment events, and reacting to them. |
+  | Organization → Members | Read | Checking that a user linking an installation is a member of its GitHub organisation. |
+
+- **Subscribe to events**: **Issues**, **Issue comment**, **Pull request**,
+  **Pull request review** and **Pull request review comment**. GitHub sends
+  `installation` events to every App without a subscription; gritz uses them to
+  unlink an installation when it is uninstalled.
+- **Where can this GitHub App be installed?**: **Any account**, unless only your
+  own account or organisation will use it.
+
+Then generate a private key on the App's page.
+
+### Configure the server
 
 | Flag | Environment variable | |
 | --- | --- | --- |
@@ -77,8 +113,15 @@ GitHub App and give the server its credentials:
 | `--github-webhook-secret` | `GRITZ_GITHUB_WEBHOOK_SECRET` | The App's webhook secret. |
 | `--github-private-key` | `GRITZ_GITHUB_APP_PRIVATE_KEY` | The App's private key, as PEM content rather than a path. |
 
-In the App's settings, set the callback URL to `<base-url>/github/callback` and
-the webhook URL to `<base-url>/webhook/github`.
+The App ID, client ID and slug are on the App's page: the slug is the last part
+of its public URL, `https://github.com/apps/<slug>`. Without a slug, users have
+no **Install GitHub App** button and can only link an existing installation by
+its ID. The server checks the App ID and private key when it starts, and fails
+to start if either is invalid.
+
+The App reacts to events and checks memberships as itself. Agents don't get
+access to GitHub through it yet; see
+[`capabilities`](/operators/workspaces-yaml/#capabilities).
 
 ## Atlassian
 
@@ -113,7 +156,7 @@ Archiving a task makes its runner destroy the task's sandbox.
 | `/ui/` | The Web UI. `/` redirects here. |
 | `/healthz` | `200 ok` when the database answers, `503` otherwise. Unauthenticated, for load balancer checks. |
 | `/auth/` | Login, callback and logout. |
-| `/mcp` | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. |
+| `/mcp` | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. See [MCP](/integrations/mcp/). |
 | `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/oauth/register`, `/oauth/authorize`, `/oauth/token` | OAuth for MCP clients that connect to `/mcp`, with dynamic client registration. |
 | `/events` | The notification stream that runners and `gritz notify` hold open. |
 | `/webhook/github`, `/webhook/atlassian` | GitHub and Jira webhooks, when those integrations are enabled. |
