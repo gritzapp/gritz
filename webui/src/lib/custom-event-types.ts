@@ -99,16 +99,12 @@ export function isCustomEventTypeFormValid(values: CustomEventTypeFormValues): b
 // url is required, and attrs may only carry def's attrs other than body and
 // url, which are sent as the envelope's own fields.
 export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
-  const describe = (a: AttrDef) => (a.help ? `${a.label}: ${a.help}` : a.label)
+  const describe = (a: AttrDef) => a.help || a.label
   const pinned = (key: string, type: Record<string, unknown>) => {
     // The server rejects custom types that don't declare body and url.
     const a = def.attrs.find((a) => a.key === key)
     if (!a) throw new Error(`custom event type ${def.type} declares no ${key} attr`)
-    return {
-      ...type,
-      description: describe(a),
-      ...(a.placeholder && { examples: [a.placeholder] }),
-    }
+    return { ...type, description: describe(a) }
   }
   const attrs: Record<string, unknown> = {}
   for (const a of def.attrs) {
@@ -117,13 +113,11 @@ export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
       type: 'array',
       items: { type: 'string' },
       description: describe(a),
-      ...(a.placeholder && { examples: [[a.placeholder]] }),
     }
   }
   return {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     title: def.label,
-    description: def.label,
     type: 'object',
     additionalProperties: false,
     required: ['type', 'url'],

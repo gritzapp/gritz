@@ -4,7 +4,7 @@ import { EventTypeDefSchema } from '@/gen/gritz/v1/gritz_pb'
 import { CUSTOM_SOURCE, jsonSchema } from './custom-event-types'
 
 describe('jsonSchema', () => {
-  it('describes the envelope with one array property per non-pinned attr', () => {
+  it('describes each attr by its help, or its label when it has none', () => {
     const def = create(EventTypeDefSchema, {
       source: CUSTOM_SOURCE,
       type: 'alert',
@@ -29,7 +29,6 @@ describe('jsonSchema', () => {
     expect(jsonSchema(def)).toEqual({
       $schema: 'https://json-schema.org/draft/2020-12/schema',
       title: 'Alert',
-      description: 'Alert',
       type: 'object',
       additionalProperties: false,
       required: ['type', 'url'],
@@ -38,10 +37,9 @@ describe('jsonSchema', () => {
         url: {
           type: 'string',
           format: 'uri',
-          description: 'URL: Matched against the event URL.',
-          examples: ['https://'],
+          description: 'Matched against the event URL.',
         },
-        body: { type: 'string', description: 'Body: Matched against the event body.' },
+        body: { type: 'string', description: 'Matched against the event body.' },
         attrs: {
           type: 'object',
           additionalProperties: false,
@@ -50,8 +48,7 @@ describe('jsonSchema', () => {
             severity: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Severity: Problem severity.',
-              examples: [['{ProblemSeverity}']],
+              description: 'Problem severity.',
             },
             service: { type: 'array', items: { type: 'string' }, description: 'Service' },
           },
