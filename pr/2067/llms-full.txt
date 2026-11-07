@@ -157,7 +157,7 @@ Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it fro
 
 Agents don’t use API keys. Each task gets a token of its own that can only read and update that task: fetch its instructions, rename it, add links and post reports, through the [agent tools](/pr/2067/using/agent-tools/). It can’t see or change other tasks. The token stops working when the task is archived.
 
-A workspace can give its tasks’ tokens one more permission: getting GitHub tokens through the organisation’s GitHub App (see [capabilities](/pr/2067/operators/workspaces-yaml/#capabilities)).
+A workspace can ask for one more permission for its tasks’ tokens, getting GitHub tokens through the organisation’s GitHub App, with the `github_token` [capability](/pr/2067/operators/workspaces-yaml/#capabilities). The server doesn’t issue these tokens yet, so agents get GitHub access from a token in their workspace’s `secrets:` instead, such as `GH_TOKEN`.
 
 # Routing rules
 
@@ -1602,7 +1602,37 @@ API keys (`xat_…`), created by users on the **Keys** page, authenticate the CL
 
 [Section titled “GitHub App”](#github-app)
 
-The GitHub integration is enabled when `--github-client-id` is set. Create a GitHub App and give the server its credentials:
+The GitHub integration is enabled when `--github-client-id` is set. It needs a GitHub App: users install it on their repositories so GitHub sends gritz their events, and sign in with it to link their GitHub accounts. See [GitHub](/pr/2067/integrations/github/) for what users do with it.
+
+### Create the App
+
+[Section titled “Create the App”](#create-the-app)
+
+Create a GitHub App under your account’s or organisation’s **Settings → Developer settings → GitHub Apps**, with:
+
+* **Callback URL**: `<base-url>/github/callback`, where users land after linking their GitHub account. Leave **Request user authorization (OAuth) during installation** off.
+
+* **Setup URL**: `<base-url>/ui/github/setup`, where users land after installing the App, to link the installation to their gritz organisation. Turn on **Redirect on update** so changing an installation’s repositories lands there too.
+
+* **Webhook**: active, with the URL `<base-url>/webhook/github` and a secret, such as one from `openssl rand -hex 32`. gritz refuses deliveries whose signature doesn’t match it.
+
+* **Permissions**:
+
+  | Permission                 | Access         | Used for                                                                             |
+  | -------------------------- | -------------- | ------------------------------------------------------------------------------------ |
+  | Repository → Issues        | Read and write | Issue and issue comment events, and reacting to them.                                |
+  | Repository → Pull requests | Read and write | Pull request, review and review comment events, and reacting to them.                |
+  | Organization → Members     | Read           | Checking that a user linking an installation is a member of its GitHub organisation. |
+
+* **Subscribe to events**: **Issues**, **Issue comment**, **Pull request**, **Pull request review** and **Pull request review comment**. GitHub sends `installation` events to every App without a subscription; gritz uses them to unlink an installation when it is uninstalled.
+
+* **Where can this GitHub App be installed?**: **Any account**, unless only your own account or organisation will use it.
+
+Then generate a private key on the App’s page.
+
+### Configure the server
+
+[Section titled “Configure the server”](#configure-the-server)
 
 | Flag                      | Environment variable           |                                                           |
 | ------------------------- | ------------------------------ | --------------------------------------------------------- |
@@ -1613,7 +1643,9 @@ The GitHub integration is enabled when `--github-client-id` is set. Create a Git
 | `--github-webhook-secret` | `GRITZ_GITHUB_WEBHOOK_SECRET`  | The App’s webhook secret.                                 |
 | `--github-private-key`    | `GRITZ_GITHUB_APP_PRIVATE_KEY` | The App’s private key, as PEM content rather than a path. |
 
-In the App’s settings, set the callback URL to `<base-url>/github/callback` and the webhook URL to `<base-url>/webhook/github`.
+The App ID, client ID and slug are on the App’s page: the slug is the last part of its public URL, `https://github.com/apps/<slug>`. Without a slug, users have no **Install GitHub App** button and can only link an existing installation by its ID. The server checks the App ID and private key when it starts, and fails to start if either is invalid.
+
+The App reacts to events and checks memberships as itself. Agents don’t get access to GitHub through it yet; see [`capabilities`](/pr/2067/operators/workspaces-yaml/#capabilities).
 
 ## Atlassian
 
@@ -1791,27 +1823,30 @@ The runner adds an MCP server named `gritz` to every agent, with the tools an ag
 
 [Section titled “capabilities”](#capabilities)
 
-Capabilities let a task’s token do more than read and update its own task. One exists today:
+Capabilities let a task’s token do more than read and update its own task. One exists:
 
-* `github_token`: the task can get GitHub App installation tokens for its organisation, through the server’s GitHub App. The agent gets a `get_github_token` tool, and two helpers in the `gritz` binary use the token: `gritz tool git-credential`, a git credential helper, and `gritz tool github-mcp`, which fronts GitHub’s MCP server with fresh tokens.
+* `github_token`: meant to let the task get GitHub App installation tokens for its organisation. The runner accepts it and the agent gets a [`get_github_token`](/pr/2067/using/agent-tools/#get_github_token) tool, but the server doesn’t issue these tokens yet: every request fails, and so do the `gritz tool git-credential` and `gritz tool github-mcp` helpers that use them.
+
+Give agents GitHub access with a token under `secrets:` instead, and reference it by variable:
 
 ```yaml
 workspaces:
   pets-workshop:
-    capabilities:
-      - github_token
+    secrets:
+      GH_TOKEN: ${env:GH_TOKEN}
     commands:
-      - git config --global credential.https://github.com.helper "!gritz tool git-credential"
+      - git config --global credential.https://github.com.helper '!f() { echo username=x-access-token; echo "password=${GH_TOKEN}"; }; f'
       - git clone https://github.com/example/pets-workshop.git
     agent:
       mcp_servers:
         github:
-          type: stdio
-          command: gritz
-          args: ["tool", "github-mcp"]
+          type: http
+          url: https://api.githubcopilot.com/mcp/
+          headers:
+            Authorization: Bearer ${env:GH_TOKEN}
 ```
 
-This needs the [GitHub App](/pr/2067/operators/server/#github-app) configured on the server and installed on the organisation’s repositories.
+The credential helper reads `GH_TOKEN` when git runs it, so the logged command carries only the name. The MCP header uses `${env:}` because header values reach the agent [as written](#mcp_servers).
 
 ## Variable expansion
 
@@ -2509,7 +2544,9 @@ Posts `message` to the task’s timeline. This is how an agent tells you what it
 
 [Section titled “get_github_token”](#get_github_token)
 
-Returns a short-lived GitHub token for the organisation’s GitHub App installation. Only tasks whose workspace has the `github_token` [capability](/pr/2067/operators/workspaces-yaml/#capabilities) get this tool. It is meant for one-off commands that need a raw token: a workspace can set up git and the GitHub MCP server to get their tokens on their own, as the capabilities example shows.
+Meant to return a short-lived GitHub token for the organisation’s GitHub App installation. Only tasks whose workspace has the `github_token` [capability](/pr/2067/operators/workspaces-yaml/#capabilities) get this tool, and the server doesn’t issue these tokens yet, so the tool always fails.
+
+Agents get GitHub access today from their workspace instead: a token under `secrets:`, such as `GH_TOKEN`, which `gh`, git and the GitHub MCP server can use. See [`secrets`](/pr/2067/operators/secrets/).
 
 ## Writing instructions that use them
 

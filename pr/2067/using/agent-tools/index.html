@@ -137,12 +137,13 @@ or replies on its Jira issue. Which events wake it is up to the organisation’s
 did, what it found or what is blocking it: the agent’s own replies only appear
 in the task’s log.</p>
 <div class="sl-heading-wrapper level-h3"><h3 id="get_github_token"><code dir="auto">get_github_token</code></h3><a class="sl-anchor-link" href="#get_github_token"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “get_github_token”</span></a></div>
-<p>Returns a short-lived GitHub token for the organisation’s GitHub App
+<p>Meant to return a short-lived GitHub token for the organisation’s GitHub App
 installation. Only tasks whose workspace has the <code dir="auto">github_token</code>
-<a href="/pr/2067/operators/workspaces-yaml/#capabilities">capability</a> get this tool. It is
-meant for one-off commands that need a raw token: a workspace can set up git and
-the GitHub MCP server to get their tokens on their own, as the capabilities
-example shows.</p>
+<a href="/pr/2067/operators/workspaces-yaml/#capabilities">capability</a> get this tool, and the
+server doesn’t issue these tokens yet, so the tool always fails.</p>
+<p>Agents get GitHub access today from their workspace instead: a token under
+<code dir="auto">secrets:</code>, such as <code dir="auto">GH_TOKEN</code>, which <code dir="auto">gh</code>, git and the GitHub MCP server can
+use. See <a href="/pr/2067/operators/secrets/"><code dir="auto">secrets</code></a>.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="writing-instructions-that-use-them">Writing instructions that use them</h2><a class="sl-anchor-link" href="#writing-instructions-that-use-them"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Writing instructions that use them”</span></a></div>
 <p>The agent already uses these tools as above without being asked. Mention them
 when you want something specific:</p>

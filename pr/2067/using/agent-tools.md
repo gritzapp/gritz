@@ -62,12 +62,14 @@ in the task's log.
 
 ### `get_github_token`
 
-Returns a short-lived GitHub token for the organisation's GitHub App
+Meant to return a short-lived GitHub token for the organisation's GitHub App
 installation. Only tasks whose workspace has the `github_token`
-[capability](/operators/workspaces-yaml/#capabilities) get this tool. It is
-meant for one-off commands that need a raw token: a workspace can set up git and
-the GitHub MCP server to get their tokens on their own, as the capabilities
-example shows.
+[capability](/operators/workspaces-yaml/#capabilities) get this tool, and the
+server doesn't issue these tokens yet, so the tool always fails.
+
+Agents get GitHub access today from their workspace instead: a token under
+`secrets:`, such as `GH_TOKEN`, which `gh`, git and the GitHub MCP server can
+use. See [`secrets`](/operators/secrets/).
 
 ## Writing instructions that use them
 
