@@ -22,20 +22,20 @@ Type-check with `cd diagrams && npx tsc --noEmit -p .`.
 ## Published site and PR previews
 
 Every project is published to GitHub Pages, served from the `gh-pages` branch
-(`https://gritzapp.github.io/gritz/`), with an index page and one page per
+(`https://gritzapp.github.io/gritz/diagrams/`), with an index page and one page per
 project that plays it with the `@motion-canvas/player` web component:
 
-- `.github/workflows/diagrams-pages.yml` deploys master to the site root on
+- `.github/workflows/diagrams-pages.yml` deploys master to `/diagrams/` on
   every push touching `diagrams/`.
 - `.github/workflows/diagrams-preview.yml` deploys a PR touching `diagrams/` to
-  `/pr/<number>/`, keeps one PR comment with the link, and removes the preview
+  `/diagrams/pr/<number>/`, keeps one PR comment with the link, and removes the preview
   when the PR closes. PRs from forks get no preview.
 
 When a proposal has a project, link its preview page (e.g.
-`https://gritzapp.github.io/gritz/pr/<number>/proposals/<flow>/`) in the PR so
+`https://gritzapp.github.io/gritz/diagrams/pr/<number>/proposals/<flow>/`) in the PR so
 reviewers can watch it. `site.ts` generates the pages during `pnpm build`
 (`cd diagrams && pnpm build`, output in `dist/`); every URL in it is relative
-so the same build works at the root and under `/pr/<n>/`.
+so the same build works under `/diagrams/` and `/diagrams/pr/<n>/`.
 
 ### Pausing at each step
 

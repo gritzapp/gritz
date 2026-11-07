@@ -1,7 +1,7 @@
 name: Diagrams Pages
 
-# Publishes the Motion Canvas diagrams in diagrams/ to the root of the
-# gh-pages branch. PR previews under pr/ are left alone (see
+# Publishes the Motion Canvas diagrams in diagrams/ to /diagrams/ on the
+# gh-pages branch. PR previews under /diagrams/pr/ are left alone (see
 # diagrams-preview.yml).
 
 on:
@@ -51,5 +51,7 @@ jobs:
         with:
           branch: gh-pages
           folder: diagrams/dist
+          target-folder: diagrams
+          # Relative to target-folder, so this keeps /diagrams/pr/.
           clean-exclude: pr/
           commit-message: 'docs: publish diagrams for ${{ github.sha }}'
