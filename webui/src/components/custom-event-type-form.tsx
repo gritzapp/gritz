@@ -92,7 +92,7 @@ export function CustomEventTypeForm({
         </div>
       </div>
 
-      <div className="space-y-3 rounded-md border p-4">
+      <div className="space-y-3">
         <div className="space-y-1">
           <Label>Attributes</Label>
           <p className="text-muted-foreground text-xs">
