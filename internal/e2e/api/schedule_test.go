@@ -9,6 +9,7 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
@@ -84,17 +85,9 @@ func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 	// A disabled schedule stays out of the claim query: no next fire time.
 	assert.DeepEqual(t,
 		resp.Schedule,
-		&gritzv1.Schedule{
-			Id:          resp.Schedule.Id,
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			CronExpr:    "0 9 * * *",
-			Timezone:    "UTC",
-			AutoArchive: durationpb.New(0),
-			CreatedBy:   h.Org.Owner.UserID,
-		},
+		&gritzv1.Schedule{Id: resp.Schedule.Id},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "enabled", "next_run_at"),
 	)
 }
 
@@ -271,18 +264,12 @@ func TestSetScheduleEnabled(t *testing.T) {
 	assert.DeepEqual(t,
 		enabled.Schedule,
 		&gritzv1.Schedule{
-			Id:          sched.Id,
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			CronExpr:    "0 9 * * *",
-			Timezone:    "UTC",
-			Enabled:     true,
-			AutoArchive: durationpb.New(0),
-			NextRunAt:   enabled.Schedule.NextRunAt, // computed from now
-			CreatedBy:   h.Org.Owner.UserID,
+			Id:        sched.Id,
+			Enabled:   true,
+			NextRunAt: enabled.Schedule.NextRunAt, // computed from now
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "enabled", "next_run_at"),
 	)
 
 	// Act & Assert - disabling clears it so the claim query skips the row.
@@ -293,17 +280,9 @@ func TestSetScheduleEnabled(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		disabled.Schedule,
-		&gritzv1.Schedule{
-			Id:          sched.Id,
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			CronExpr:    "0 9 * * *",
-			Timezone:    "UTC",
-			AutoArchive: durationpb.New(0),
-			CreatedBy:   h.Org.Owner.UserID,
-		},
+		&gritzv1.Schedule{Id: sched.Id},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "enabled", "next_run_at"),
 	)
 }
 
@@ -424,23 +403,10 @@ func TestRunSchedule(t *testing.T) {
 		before,
 		&gritzv1.Schedule{
 			Id:        before.Id,
-			Name:      "nightly",
-			Workspace: e2e.DefaultWorkspace,
-			Runner:    e2e.DefaultRunner,
-			Namespace: "reviewbot",
-			Instructions: []*gritzv1.Instruction{
-				{Text: "bump deps", Url: "https://example.com/deps"},
-				{Text: "groom changelog"},
-			},
-			CronExpr:    "0 9 * * *",
-			Timezone:    "UTC",
-			Enabled:     true,
-			AutoArchive: durationpb.New(0),
-			NextRunAt:   before.NextRunAt, // computed from now
-			CreatedBy:   h.Org.Owner.UserID,
+			NextRunAt: before.NextRunAt, // computed from now
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "next_run_at", "last_run_at", "last_task_id"),
 	)
 
 	// Act
@@ -452,19 +418,14 @@ func TestRunSchedule(t *testing.T) {
 	assert.DeepEqual(t,
 		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
 		[]*gritzv1.Task{{
-			Id:          resp.Task.Id,
-			Name:        "nightly",
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
-			Namespace:   "reviewbot",
-			Status:      gritzv1.TaskStatus_PENDING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:        resp.Task.Id,
+			Name:      "nightly",
+			Workspace: e2e.DefaultWorkspace,
+			Runner:    e2e.DefaultRunner,
+			Namespace: "reviewbot",
 		}},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "namespace"),
 	)
 	// The created event first (ScheduleActor) and the start command, then one
 	// wake instruction event per template instruction — identical to a scheduled
