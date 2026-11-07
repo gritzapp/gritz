@@ -48,7 +48,6 @@ docs/
   astro.config.mjs        # site, base, sidebar, plugins
   tsconfig.json
   public/
-    CNAME                 # docs.gritz.dev
     .nojekyll             # Pages must not run Jekyll: it drops `_astro/`
   src/
     content.config.ts     # Starlight's docs collection
@@ -206,8 +205,10 @@ How the four avoid clobbering each other:
   one that cleans `/`, and it excludes the other three subtrees. The diagrams
   deploy cleans `/diagrams/` except `pr/`. A preview cleans only its own
   `pr/<n>/`.
-- `CNAME` and `.nojekyll` come from `docs/public/`, so every root deploy writes them
-  again. Nothing else writes them, so nothing can delete them.
+- `.nojekyll` comes from `docs/public/`, so every root deploy writes it again.
+  GitHub manages the root `CNAME` (see Custom domain). The action never deletes
+  `CNAME` or `.nojekyll`, so previews strip both from their build: otherwise
+  their removal would leave them behind.
 - The diagrams change is just a `target-folder: diagrams` on `diagrams-pages.yml`,
   and `PREVIEW_DIR: diagrams/pr/<n>` on `diagrams-preview.yml`. `site.ts` already
   uses only relative URLs, so the same build works at both paths.
@@ -242,8 +243,9 @@ under `pr/<n>/`:
 
 **Custom domain.**
 
-- `docs/public/CNAME` contains `docs.gritz.dev`. For a branch-based Pages source,
-  the CNAME file at the branch root sets the custom domain.
+- The custom domain `docs.gritz.dev` is set in the repo's Pages settings. For a
+  branch-based Pages source, GitHub commits the matching `CNAME` file to the
+  `gh-pages` root itself, so the repo doesn't ship one.
 - After that, `gritzapp.github.io/gritz/...` redirects to `docs.gritz.dev/...`. A
   redirected old diagram URL like `/create-task/` will 404. That breakage is
   accepted.
@@ -257,7 +259,7 @@ under `pr/<n>/`:
 docs.gritz.dev.  CNAME  gritzapp.github.io.
 ```
 
-It has to exist before the CNAME file is deployed. Otherwise Pages redirects the
+It has to exist before the custom domain is set. Otherwise Pages redirects the
 working `github.io` URL to a host that doesn't resolve, and certificate issuance
 stalls. Verifying `gritz.dev` for the `gritzapp` org (a TXT record) protects
 against subdomain takeover. It's recommended but not required; see Open Questions.
@@ -465,8 +467,8 @@ section and the README edit.
    `dig +short docs.gritz.dev` resolving to GitHub Pages.
 4. **Publish docs at the root with the custom domain** — Delivers:
    `docs-pages.yml` (root deploy, `clean-exclude: diagrams/` and `pr/`),
-   `public/CNAME`, `public/.nojekyll`, and HTTPS enforced after the certificate is
-   issued. Depends on: (1), (2), (3). Verifiable by: `https://docs.gritz.dev/`
+   `public/.nojekyll`, the custom domain set in Pages settings, and HTTPS enforced
+   after the certificate is issued. Depends on: (1), (2), (3). Verifiable by: `https://docs.gritz.dev/`
    serving the index; `https://docs.gritz.dev/diagrams/` still serving diagrams;
    the old root diagram files gone from `gh-pages`; a later diagrams deploy leaving
    the docs alone, and the other way round.
