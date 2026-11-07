@@ -51,7 +51,8 @@ subscriber is archived is treated as if nobody were subscribed.
 
 ## How an event reaches a task
 
-Events come from the GitHub and Jira integrations and from your own systems
+Events come from the [GitHub](/integrations/github/) and
+[Jira](/integrations/jira/) integrations and from your own systems
 through [custom events](/integrations/custom-events/). For each event, gritz:
 
 1. **Finds a matching routing rule.** Each organisation's

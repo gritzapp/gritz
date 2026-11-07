@@ -39,7 +39,9 @@ The owner can't be removed.
 
 Membership also decides whose GitHub and Jira activity counts as the
 organisation's: a member-only routing rule acts on events from members who have
-linked their GitHub or Atlassian account under **Settings → Account**. See
+linked their [GitHub](/integrations/github/#link-your-github-account) or
+[Atlassian](/integrations/jira/#link-your-atlassian-account) account under
+**Settings → Account**. See
 [Public rules](/concepts/routing-rules/#public-rules).
 
 ### Deleting an organisation
@@ -75,6 +77,8 @@ and update that task: fetch its instructions, rename it, add links and post
 reports, through the [agent tools](/using/agent-tools/). It can't see or change
 other tasks. The token stops working when the task is archived.
 
-A workspace can give its tasks' tokens one more permission: getting GitHub
-tokens through the organisation's GitHub App (see
-[capabilities](/operators/workspaces-yaml/#capabilities)).
+A workspace can ask for one more permission for its tasks' tokens, getting GitHub
+tokens through the organisation's GitHub App, with the `github_token`
+[capability](/operators/workspaces-yaml/#capabilities). The server doesn't issue
+these tokens yet, so agents get GitHub access from a token in their workspace's
+`secrets:` instead, such as `GH_TOKEN`.

@@ -1,6 +1,8 @@
 ---
 title: Custom events
 description: Send events from any system, such as an alerting tool or a deploy pipeline, to gritz so they create or wake up tasks.
+sidebar:
+  order: 3
 ---
 
 GitHub and Jira events reach gritz through their own integrations. Any other

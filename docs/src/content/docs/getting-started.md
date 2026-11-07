@@ -92,7 +92,9 @@ archived** to see it again. A task can only be archived once it has finished.
 
 - [Tasks](/concepts/tasks/) covers statuses, restarts, cancelling and
   auto-archive.
-- [Routing rules](/concepts/routing-rules/) create and wake tasks from GitHub,
-  Jira and [custom events](/integrations/custom-events/).
+- [Routing rules](/concepts/routing-rules/) create and wake tasks from
+  [GitHub](/integrations/github/), [Jira](/integrations/jira/) and
+  [custom events](/integrations/custom-events/).
 - [Schedules](/concepts/schedules/) create tasks on a cron schedule.
-- [The CLI](/using/cli/) creates and follows tasks from a terminal.
+- [The CLI](/using/cli/) creates and follows tasks from a terminal, and
+  [MCP](/integrations/mcp/) lets Claude Code or Cursor do it for you.
