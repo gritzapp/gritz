@@ -23,26 +23,9 @@ func (s *Server) GetEventTypes(ctx context.Context, req *gritzv1.GetEventTypesRe
 	if !caller.Scopes.Allow(authscope.OpOrgRead) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read org"))
 	}
-	defs := eventrouter.DefaultSchemaRegistry.EventTypes()
-	pb := make([]*gritzv1.EventTypeDef, len(defs))
-	for i, def := range defs {
-		attrs := make([]*gritzv1.AttrDef, len(def.Attrs))
-		for j, attr := range def.Attrs {
-			attrs[j] = &gritzv1.AttrDef{
-				Key:         attr.Key,
-				Label:       attr.Label,
-				Help:        attr.Help,
-				Placeholder: attr.Placeholder,
-			}
-		}
-		pb[i] = &gritzv1.EventTypeDef{
-			Source: def.Source,
-			Type:   def.Type,
-			Label:  def.Label,
-			Attrs:  attrs,
-		}
-	}
-	return &gritzv1.GetEventTypesResponse{EventTypes: pb}, nil
+	return &gritzv1.GetEventTypesResponse{
+		EventTypes: model.ProtoMap(eventrouter.DefaultSchemaRegistry.EventTypes()),
+	}, nil
 }
 
 // TestEvent feeds a hand-composed synthetic event into the real routing code

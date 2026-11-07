@@ -1,6 +1,7 @@
 package atlassianserver
 
 import (
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
@@ -18,11 +19,11 @@ func init() {
 // eventrouter's Route tests) can populate an isolated registry with the real
 // producer schemas.
 func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "atlassian",
 		Type:   EventTypeCommentCreated,
 		Label:  "Jira: Issue Comment",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Comment Body",
@@ -49,11 +50,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "atlassian",
 		Type:   EventTypeLabelAdded,
 		Label:  "Jira: Label Added",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Issue Description",
@@ -80,11 +81,11 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
-	reg.MustRegister(eventrouter.EventTypeDef{
+	reg.MustRegister(model.EventTypeDef{
 		Source: "atlassian",
 		Type:   EventTypeIssueAssigned,
 		Label:  "Jira: Issue Assigned",
-		Attrs: []eventrouter.AttrDef{
+		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
 				Label:       "Issue Description",

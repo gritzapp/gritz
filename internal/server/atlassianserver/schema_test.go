@@ -3,6 +3,7 @@ package atlassianserver
 import (
 	"testing"
 
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 	"gotest.tools/v3/assert"
 )
@@ -16,7 +17,7 @@ func TestSchemaRegistration(t *testing.T) {
 
 	// AttrDefs carry Jira-flavoured display copy declared inline per event type;
 	// the mention placeholder is an Atlassian account id, not a GitHub username.
-	assert.DeepEqual(t, def.Attrs, []eventrouter.AttrDef{
+	assert.DeepEqual(t, def.Attrs, []model.AttrDef{
 		{
 			Key:         "body",
 			Label:       "Comment Body",

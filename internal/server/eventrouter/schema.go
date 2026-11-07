@@ -7,35 +7,6 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 )
 
-// AttrDef is a self-describing attribute dimension a rule may condition on. Key
-// is the machine name conditions reference and that Validate/the matcher check
-// against; Label, Help, and Placeholder are display copy the routing-rule editor
-// renders straight from the schema (rather than hardcoding it per attr/source).
-type AttrDef struct {
-	Key         string // machine name, e.g. "body", "mention"
-	Label       string // human label for the attr dropdown, e.g. "Mention"
-	Help        string // one-line help shown under the condition row
-	Placeholder string // example value for the condition's value input
-}
-
-// EventTypeDef declares a (Source, Type) event kind and the complete set of
-// attribute dimensions a rule may condition on for that kind. Attrs is that full
-// set: it always includes the derived views "body" and "url" (see
-// InputEvent.Attr) plus the type's own emitted dimensions. Each AttrDef carries
-// its own display copy so clients render labels/help/placeholders from the
-// schema.
-type EventTypeDef struct {
-	Source string
-	Type   string
-	Label  string    // human label, e.g. "GitHub: Issue/PR Comment"
-	Attrs  []AttrDef // complete valid attr set, including derived body/url
-}
-
-// hasAttr reports whether def declares an attr with the given key.
-func (def EventTypeDef) hasAttr(key string) bool {
-	return slices.ContainsFunc(def.Attrs, func(a AttrDef) bool { return a.Key == key })
-}
-
 // SchemaRegistry holds the set of registered event-type schemas and the routing
 // state derived from them (the source:type index). It is populated by
 // MustRegister rather than a central table. Construct one with
@@ -45,24 +16,24 @@ type SchemaRegistry struct {
 	// machine-readable contract that the router, rule validation, and (later) the
 	// UI derive from, replacing hand-synced copies of the (source, type) pairs
 	// and their applicable attrs.
-	eventTypes []EventTypeDef
+	eventTypes []model.EventTypeDef
 
 	// eventTypeByKey indexes eventTypes by "source:type" for O(1) lookup.
-	eventTypeByKey map[string]EventTypeDef
+	eventTypeByKey map[string]model.EventTypeDef
 }
 
 // NewSchemaRegistry returns an empty registry ready for registration, with its
 // source:type index map initialized.
 func NewSchemaRegistry() *SchemaRegistry {
 	return &SchemaRegistry{
-		eventTypeByKey: map[string]EventTypeDef{},
+		eventTypeByKey: map[string]model.EventTypeDef{},
 	}
 }
 
 // MustRegister records def as the schema for its (Source, Type) event kind,
 // making it available to EventTypeFor and EventTypes. It panics if a def with
 // the same (Source, Type) is already registered.
-func (r *SchemaRegistry) MustRegister(def EventTypeDef) {
+func (r *SchemaRegistry) MustRegister(def model.EventTypeDef) {
 	key := def.Source + ":" + def.Type
 	if _, dup := r.eventTypeByKey[key]; dup {
 		panic(fmt.Sprintf("eventrouter: duplicate schema registration for source=%q type=%q", def.Source, def.Type))
@@ -73,15 +44,26 @@ func (r *SchemaRegistry) MustRegister(def EventTypeDef) {
 
 // EventTypeFor returns the registry entry for a (source, type) pair, and false
 // if none is registered.
-func (r *SchemaRegistry) EventTypeFor(source, typ string) (EventTypeDef, bool) {
+func (r *SchemaRegistry) EventTypeFor(source, typ string) (model.EventTypeDef, bool) {
 	def, ok := r.eventTypeByKey[source+":"+typ]
 	return def, ok
 }
 
 // EventTypes returns every registered schema in registration order. It backs
 // iteration over the registry and the GetEventTypes RPC.
-func (r *SchemaRegistry) EventTypes() []EventTypeDef {
+func (r *SchemaRegistry) EventTypes() []model.EventTypeDef {
 	return slices.Clone(r.eventTypes)
+}
+
+// With returns a new registry holding r's schemas followed by defs, leaving r
+// unchanged. It panics, like MustRegister, if a def duplicates a registered
+// (Source, Type) or another def.
+func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
+	reg := NewSchemaRegistry()
+	for _, def := range slices.Concat(r.eventTypes, defs) {
+		reg.MustRegister(def)
+	}
+	return reg
 }
 
 // Validate checks the rule against the event-type registry, returning a wrapped
@@ -108,16 +90,15 @@ func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
 		default:
 			return fmt.Errorf("unknown op %q on attr %q", cond.Op, cond.Attr)
 		}
-		if !def.hasAttr(cond.Attr) {
+		if !def.HasAttr(cond.Attr) {
 			return fmt.Errorf("attr %q not valid for event type %q/%q", cond.Attr, rule.Source, rule.Type)
 		}
 	}
 	return nil
 }
 
-// DefaultSchemaRegistry is the process-wide registry the producer packages
-// populate from their init functions (githubserver, atlassianserver) via their
-// RegisterSchemas helper. The apiserver GetEventTypes handler reads from it, and
-// the server startup wiring hands it to the store as the routing-rule
-// translator.
+// DefaultSchemaRegistry is the process-wide registry of built-in event types.
+// The producer packages (githubserver, atlassianserver) populate it from their
+// init functions via their RegisterSchemas helper. Handlers that validate rules
+// or list event types combine it with an org's custom types through With.
 var DefaultSchemaRegistry = NewSchemaRegistry()
