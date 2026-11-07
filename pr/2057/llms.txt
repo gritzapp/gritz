@@ -1,0 +1,24 @@
+# gritz
+
+> gritz runs coding agents such as Claude Code and Codex in parallel, each in its own sandbox, driven by tasks and events.
+
+Every page is also served as Markdown: take its URL, drop the trailing slash and append `.md`. The root page is `index.md`.
+
+## Documentation sets
+
+- [Complete documentation](https://docs.gritz.dev/pr/2057/llms-full.txt): every page, concatenated
+- [Abridged documentation](https://docs.gritz.dev/pr/2057/llms-small.txt): every page, with non-essential content removed
+- [Users](https://docs.gritz.dev/pr/2057/_llms-txt/users.txt): using gritz and its integrations
+- [Operators](https://docs.gritz.dev/pr/2057/_llms-txt/operators.txt): deploying and running gritz
+
+## Start here
+
+- [What is gritz?](https://docs.gritz.dev/pr/2057/index.md): gritz runs coding agents such as Claude Code and Codex in sandboxes, driven by tasks and events.
+
+## Integrations
+
+- [Custom events](https://docs.gritz.dev/pr/2057/integrations/custom-events.md): Send events from any system, such as an alerting tool or a deploy pipeline, to gritz so they create or wake up tasks.
+
+## Reference
+
+- [Custom event envelope](https://docs.gritz.dev/pr/2057/reference/custom-event-envelope.md): The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
