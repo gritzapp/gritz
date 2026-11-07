@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
 )
 
@@ -168,4 +170,113 @@ func TestOnlyFields_NonStructRoot(t *testing.T) {
 	t.Parallel()
 	got := cmp.Diff([]int{1, 2, 3}, []int{1, 9, 3}, cmpx.OnlyFields("Foo"))
 	assert.Assert(t, got != "", "non-struct root should compare normally")
+}
+
+func TestOnlyProtoFields(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		diff      string
+		wantEqual bool
+	}{
+		{
+			// Unselected fields differ: the comparison still passes.
+			name: "unselected fields ignored",
+			diff: cmp.Diff(
+				&gritzv1.Task{Id: 1, Name: "a", Workspace: "w", Version: 3},
+				&gritzv1.Task{Id: 1, Name: "b", Workspace: "x", Version: 4},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.Task{}, "id"),
+			),
+			wantEqual: true,
+		},
+		{
+			// The selected field differs: the comparison fails.
+			name: "selected field differs",
+			diff: cmp.Diff(
+				&gritzv1.Task{Id: 1, Name: "a"},
+				&gritzv1.Task{Id: 2, Name: "a"},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.Task{}, "id"),
+			),
+			wantEqual: false,
+		},
+		{
+			// A message-typed field that isn't selected is ignored wholesale.
+			name: "unselected message field ignored",
+			diff: cmp.Diff(
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Cancel: true}},
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Start: true}},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name"),
+			),
+			wantEqual: true,
+		},
+		{
+			// Each element of a slice of messages is projected.
+			name: "slice unselected fields ignored",
+			diff: cmp.Diff(
+				[]*gritzv1.Task{{Id: 1, Name: "a"}, {Id: 2, Name: "b"}},
+				[]*gritzv1.Task{{Id: 1, Name: "x"}, {Id: 2, Name: "y"}},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.Task{}, "id"),
+			),
+			wantEqual: true,
+		},
+		{
+			// A selected field differing in any element of the slice fails.
+			name: "slice selected field differs",
+			diff: cmp.Diff(
+				[]*gritzv1.Task{{Id: 1, Name: "a"}, {Id: 2, Name: "b"}},
+				[]*gritzv1.Task{{Id: 1, Name: "a"}, {Id: 3, Name: "b"}},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.Task{}, "id"),
+			),
+			wantEqual: false,
+		},
+		{
+			// Scoped to a nested message type: unselected TaskActions fields are
+			// ignored while the enclosing Task is compared whole.
+			name: "nested unselected fields ignored",
+			diff: cmp.Diff(
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Cancel: true, Start: true}},
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Cancel: true, Restart: true}},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.TaskActions{}, "cancel"),
+			),
+			wantEqual: true,
+		},
+		{
+			// The selected nested field differs: the comparison fails.
+			name: "nested selected field differs",
+			diff: cmp.Diff(
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Cancel: true}},
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Cancel: false}},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.TaskActions{}, "cancel"),
+			),
+			wantEqual: false,
+		},
+		{
+			// The projection only applies to the nested type: the enclosing
+			// Task's own fields are still compared.
+			name: "nested enclosing field differs",
+			diff: cmp.Diff(
+				&gritzv1.Task{Id: 1, Actions: &gritzv1.TaskActions{Cancel: true}},
+				&gritzv1.Task{Id: 2, Actions: &gritzv1.TaskActions{Cancel: true}},
+				protocmp.Transform(),
+				cmpx.OnlyProtoFields(&gritzv1.TaskActions{}, "cancel"),
+			),
+			wantEqual: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantEqual {
+				assert.Equal(t, tt.diff, "")
+			} else {
+				assert.Assert(t, tt.diff != "", "expected a non-empty diff")
+			}
+		})
+	}
 }
