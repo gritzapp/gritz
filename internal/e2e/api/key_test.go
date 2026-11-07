@@ -8,6 +8,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 )
 
@@ -23,8 +24,12 @@ func TestCreateKey(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, resp.Key.Name, "test-key")
-	assert.Assert(t, resp.Key.Id != "")
+	assert.DeepEqual(t,
+		resp.Key,
+		&gritzv1.Key{Name: "test-key"},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Key{}, "id", "created_at"),
+	)
 	assert.Assert(t, resp.RawToken != "")
 	assert.Assert(t, apiauth.IsKey(resp.RawToken))
 }

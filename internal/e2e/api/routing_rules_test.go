@@ -97,8 +97,6 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 	// Assert: set -> get preserves each rule's namespace.
 	assert.NilError(t, err)
 	assert.DeepEqual(t, getResp.Rules, rules, protocmp.Transform())
-	assert.Equal(t, getResp.Rules[0].Namespace, "reviewbot")
-	assert.Equal(t, getResp.Rules[1].Namespace, "")
 }
 
 func TestSetRoutingRules_OrgIsolation(t *testing.T) {
