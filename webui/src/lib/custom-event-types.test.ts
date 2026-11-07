@@ -33,7 +33,7 @@ describe('jsonSchema', () => {
       additionalProperties: false,
       required: ['type', 'url'],
       properties: {
-        type: { const: 'alert', description: 'The event type; always `alert`.' },
+        type: { const: 'alert', description: 'The event type.' },
         url: {
           type: 'string',
           format: 'uri',

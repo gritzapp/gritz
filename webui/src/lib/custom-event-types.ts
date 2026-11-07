@@ -122,7 +122,7 @@ export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
     additionalProperties: false,
     required: ['type', 'url'],
     properties: {
-      type: { const: def.type, description: `The event type; always \`${def.type}\`.` },
+      type: { const: def.type, description: 'The event type.' },
       url: pinned('url', { type: 'string', format: 'uri' }),
       body: pinned('body', { type: 'string' }),
       attrs: {
