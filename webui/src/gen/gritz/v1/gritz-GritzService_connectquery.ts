@@ -224,6 +224,16 @@ export const setRoutingRules = GritzService.method.setRoutingRules;
 export const getEventTypes = GritzService.method.getEventTypes;
 
 /**
+ * @generated from rpc gritz.v1.GritzService.GetCustomEventTypes
+ */
+export const getCustomEventTypes = GritzService.method.getCustomEventTypes;
+
+/**
+ * @generated from rpc gritz.v1.GritzService.SetCustomEventTypes
+ */
+export const setCustomEventTypes = GritzService.method.setCustomEventTypes;
+
+/**
  * @generated from rpc gritz.v1.GritzService.TestEvent
  */
 export const testEvent = GritzService.method.testEvent;

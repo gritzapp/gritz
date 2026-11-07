@@ -2,7 +2,9 @@ package apiserver
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 
 	"connectrpc.com/connect"
@@ -26,6 +28,67 @@ func (s *Server) GetEventTypes(ctx context.Context, req *gritzv1.GetEventTypesRe
 	return &gritzv1.GetEventTypesResponse{
 		EventTypes: model.ProtoMap(eventrouter.DefaultSchemaRegistry.EventTypes()),
 	}, nil
+}
+
+// GetCustomEventTypes returns the caller's org's custom event types and the
+// URL custom events are POSTed to.
+func (s *Server) GetCustomEventTypes(ctx context.Context, req *gritzv1.GetCustomEventTypesRequest) (*gritzv1.GetCustomEventTypesResponse, error) {
+	caller := apiauth.MustCaller(ctx)
+	if !caller.Scopes.Allow(authscope.OpOrgRead) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read org"))
+	}
+	defs, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &gritzv1.GetCustomEventTypesResponse{
+		EventTypes: model.ProtoMap(defs),
+		WebhookUrl: s.baseURL + "/webhook/custom",
+	}, nil
+}
+
+// SetCustomEventTypes replaces the caller's org's custom event types. Every
+// stored routing rule of the org is re-validated against the new set under the
+// org lock, so deleting a type or removing an attr that a rule still uses is
+// rejected rather than leaving a rule that can never match.
+func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
+	caller := apiauth.MustCaller(ctx)
+	if !caller.Scopes.Allow(authscope.OpOrgWrite) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write org"))
+	}
+	defs := make([]model.EventTypeDef, len(req.EventTypes))
+	for i, pb := range req.EventTypes {
+		defs[i] = model.EventTypeDefFromProto(pb)
+	}
+	if err := eventrouter.ValidateCustomEventTypes(defs); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.store.LockOrg(ctx, tx, caller.OrgID); err != nil {
+			return err
+		}
+		rules, err := s.store.GetOrgRoutingRules(ctx, tx, caller.OrgID)
+		if err != nil {
+			return err
+		}
+		reg := eventrouter.DefaultSchemaRegistry.With(defs...)
+		for i, rule := range rules {
+			if err := reg.Validate(rule); err != nil {
+				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("routing rule %d: %w", i+1, err))
+			}
+		}
+		if err := s.store.SetOrgCustomEventTypes(ctx, tx, caller.OrgID, defs); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &gritzv1.SetCustomEventTypesResponse{EventTypes: model.ProtoMap(defs)}, nil
 }
 
 // TestEvent feeds a hand-composed synthetic event into the real routing code
