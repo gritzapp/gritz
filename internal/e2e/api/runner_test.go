@@ -7,7 +7,6 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
@@ -151,7 +150,11 @@ func TestListRunnerEvents(t *testing.T) {
 
 	// Assert - every event of runner-1's task, and nothing of runner-2's.
 	assert.NilError(t, err)
-	assert.DeepEqual(t, testx.ExtractField(resp.Events, "Id"), testx.ExtractField(want, "Id"))
+	assert.DeepEqual(t,
+		resp.Events,
+		want,
+		protocmp.Transform(),
+	)
 	assert.Assert(t, resp.NextPageToken != "")
 }
 
