@@ -30,6 +30,7 @@ func TestCreateKey(t *testing.T) {
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Key{}, "id", "created_at"),
 	)
+	assert.Assert(t, resp.Key.Id != "")
 	assert.Assert(t, resp.RawToken != "")
 	assert.Assert(t, apiauth.IsKey(resp.RawToken))
 }

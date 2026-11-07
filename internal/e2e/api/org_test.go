@@ -31,6 +31,7 @@ func TestCreateOrg(t *testing.T) {
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Org{}, "id", "created_at", "updated_at"),
 	)
+	assert.Assert(t, resp.Org.Id != 0)
 }
 
 func TestListOrgs(t *testing.T) {
