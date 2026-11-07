@@ -293,3 +293,50 @@ func TestSetOrgRoutingRulesClearToEmpty(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(got), 0)
 }
+
+func TestGetOrgCustomEventTypesDefault(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+
+	// Act
+	defs, err := s.GetOrgCustomEventTypes(t.Context(), nil, org.OrgID)
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Equal(t, len(defs), 0)
+}
+
+func TestSetAndGetOrgCustomEventTypes(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	defs := []model.EventTypeDef{
+		{
+			Source: "custom",
+			Type:   "problem",
+			Label:  "Problem",
+			Attrs: []model.AttrDef{
+				{Key: "body"},
+				{Key: "url"},
+				{Key: "severity", Label: "Severity", Help: "How bad it is", Placeholder: "critical"},
+			},
+		},
+		{
+			Source: "custom",
+			Type:   "deploy",
+			Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}},
+		},
+	}
+	err := s.SetOrgCustomEventTypes(t.Context(), nil, org.OrgID, defs)
+	assert.NilError(t, err)
+
+	// Act
+	got, err := s.GetOrgCustomEventTypes(t.Context(), nil, org.OrgID)
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got, defs)
+}

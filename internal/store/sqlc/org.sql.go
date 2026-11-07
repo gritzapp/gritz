@@ -136,6 +136,17 @@ func (q *Queries) GetOrgAtlassianWebhookSecret(ctx context.Context, id int64) (s
 	return atlassian_webhook_secret, err
 }
 
+const getOrgCustomEventTypes = `-- name: GetOrgCustomEventTypes :one
+SELECT custom_event_types FROM orgs WHERE id = $1
+`
+
+func (q *Queries) GetOrgCustomEventTypes(ctx context.Context, id int64) (json.RawMessage, error) {
+	row := q.db.QueryRowContext(ctx, getOrgCustomEventTypes, id)
+	var custom_event_types json.RawMessage
+	err := row.Scan(&custom_event_types)
+	return custom_event_types, err
+}
+
 const getOrgRoutingRules = `-- name: GetOrgRoutingRules :one
 SELECT routing_rules FROM orgs WHERE id = $1
 `
@@ -418,6 +429,16 @@ func (q *Queries) ListRoutingRulesForEvent(ctx context.Context, arg ListRoutingR
 	return items, nil
 }
 
+const lockOrg = `-- name: LockOrg :exec
+SELECT id FROM orgs WHERE id = $1 FOR UPDATE
+`
+
+// Serializes writes that check routing rules against custom event types.
+func (q *Queries) LockOrg(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, lockOrg, id)
+	return err
+}
+
 const removeOrgMember = `-- name: RemoveOrgMember :exec
 DELETE FROM org_members
 WHERE org_id = $1 AND user_id = $2
@@ -444,6 +465,23 @@ type SetOrgAtlassianWebhookSecretParams struct {
 
 func (q *Queries) SetOrgAtlassianWebhookSecret(ctx context.Context, arg SetOrgAtlassianWebhookSecretParams) error {
 	_, err := q.db.ExecContext(ctx, setOrgAtlassianWebhookSecret, arg.ID, arg.AtlassianWebhookSecret)
+	return err
+}
+
+const setOrgCustomEventTypes = `-- name: SetOrgCustomEventTypes :exec
+UPDATE orgs SET
+    custom_event_types = $2,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+`
+
+type SetOrgCustomEventTypesParams struct {
+	ID               int64           `json:"id"`
+	CustomEventTypes json.RawMessage `json:"custom_event_types"`
+}
+
+func (q *Queries) SetOrgCustomEventTypes(ctx context.Context, arg SetOrgCustomEventTypesParams) error {
+	_, err := q.db.ExecContext(ctx, setOrgCustomEventTypes, arg.ID, arg.CustomEventTypes)
 	return err
 }
 

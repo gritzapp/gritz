@@ -127,7 +127,8 @@ CREATE TABLE public.orgs (
     routing_rules jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    github_installation_id bigint
+    github_installation_id bigint,
+    custom_event_types jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -797,4 +798,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260718000001'),
     ('20260718000002'),
     ('20260906000001'),
-    ('20261101000001');
+    ('20261101000001'),
+    ('20261107000001');
