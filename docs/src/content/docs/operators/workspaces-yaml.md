@@ -141,32 +141,37 @@ agent uses to work with its task (see the
 ## `capabilities`
 
 Capabilities let a task's token do more than read and update its own task. One
-exists today:
+exists:
 
-- `github_token`: the task can get GitHub App installation tokens for its
-  organisation, through the server's GitHub App. The agent gets a
-  `get_github_token` tool, and two helpers in the `gritz` binary use the token:
-  `gritz tool git-credential`, a git credential helper, and
-  `gritz tool github-mcp`, which fronts GitHub's MCP server with fresh tokens.
+- `github_token`: meant to let the task get GitHub App installation tokens for
+  its organisation. The runner accepts it and the agent gets a
+  [`get_github_token`](/using/agent-tools/#get_github_token) tool, but the
+  server doesn't issue these tokens yet: every request fails, and so do the
+  `gritz tool git-credential` and `gritz tool github-mcp` helpers that use them.
+
+Give agents GitHub access with a token under `secrets:` instead, and reference
+it by variable:
 
 ```yaml
 workspaces:
   pets-workshop:
-    capabilities:
-      - github_token
+    secrets:
+      GH_TOKEN: ${env:GH_TOKEN}
     commands:
-      - git config --global credential.https://github.com.helper "!gritz tool git-credential"
+      - git config --global credential.https://github.com.helper '!f() { echo username=x-access-token; echo "password=${GH_TOKEN}"; }; f'
       - git clone https://github.com/example/pets-workshop.git
     agent:
       mcp_servers:
         github:
-          type: stdio
-          command: gritz
-          args: ["tool", "github-mcp"]
+          type: http
+          url: https://api.githubcopilot.com/mcp/
+          headers:
+            Authorization: Bearer ${env:GH_TOKEN}
 ```
 
-This needs the [GitHub App](/operators/server/#github-app) configured on the
-server and installed on the organisation's repositories.
+The credential helper reads `GH_TOKEN` when git runs it, so the logged command
+carries only the name. The MCP header uses `${env:}` because header values reach
+the agent [as written](#mcp_servers).
 
 ## Variable expansion
 
