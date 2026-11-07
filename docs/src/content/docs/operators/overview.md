@@ -1,6 +1,6 @@
 ---
 title: Operators overview
-description: The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, and what each needs to reach.
+description: The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, what each needs to reach, and the data model.
 sidebar:
   label: Overview
   order: 1
@@ -65,3 +65,15 @@ matches the runner. Upgrade the server and the runners to the same release; see
 
 Animated walkthroughs of how these parts interact, such as creating a task, are
 on the [diagrams site](https://docs.gritz.dev/diagrams/).
+
+## Data model
+
+The server keeps its state in PostgreSQL. Everything belongs to an **org**
+(`orgs`, with `users` joined through `org_members`). **Tasks** (`tasks`) carry the
+workspace and runner they run on, and their status. **Links** (`task_links`)
+attach external resources to a task, and a subscribed link routes **events**
+(`events`) to it. **Workspaces** (`workspaces`) are what runners register from
+their `workspaces.yaml`, and **API keys** (`keys`) authenticate runners and
+clients.
+
+![gritz database schema: orgs, users and org_members; tasks with their task_links and events; workspaces and keys, each belonging to an org; and pending_integrations.](../../../assets/schema.svg)

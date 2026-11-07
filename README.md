@@ -14,34 +14,16 @@ Documentation: https://docs.gritz.dev
 
 ![Web UI](images/webui.png)
 
-## Running a runner
-
-Runners run tasks on your own infrastructure. To set one up, follow
-[Runner](https://docs.gritz.dev/operators/runner/) in the operator docs, which
-also cover [`workspaces.yaml`](https://docs.gritz.dev/operators/workspaces-yaml/),
-[secrets](https://docs.gritz.dev/operators/secrets/),
-[deployment](https://docs.gritz.dev/operators/deployment/) and
-[debugging](https://docs.gritz.dev/operators/debugging/).
-
 ## Local Development
 
 ```bash
-# Start server and postgres locally
-docker compose up -d
-
-# Run the FE
-cd webui
-pnpm install
-pnpm run dev
+mise run dev
 ```
 
-The local server runs with `--no-auth`, but the runner still requires an API key.
-Create one in the local Web UI at http://localhost:5173/ui/keys/new, then start the runner:
-
-```bash
-gritz runner --server http://localhost:6464 -key <api-key>
-```
-
+Builds the Web UI and a Linux `gritz` binary, then starts PostgreSQL, a
+`--no-auth` server and a runner with the `dummy` workspace from
+`dev/workspaces.yml` in Docker (`docker-compose.dev.yml`, which reads a `.env`
+file at the repo root). The Web UI is at http://localhost:6464/ui.
 
 ### Build
 
@@ -50,17 +32,3 @@ mise run build      # Build main + prebuilt binaries (linux amd64/arm64)
 mise run generate   # Generate protobuf code
 go build            # Build main binary only
 ```
-
-## Events
-
-Links, subscriptions and how events wake tasks are covered in
-[Events and links](https://docs.gritz.dev/concepts/events-and-links/).
-
-## Architecture
-
-![Architecture](images/architecture.svg)
-
-
-## Schema
-
-![Schema](images/schema.svg)
