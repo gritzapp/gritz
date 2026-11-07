@@ -1,0 +1,59 @@
+name: Docs Pages
+
+# Publishes the Starlight docs site in docs/ to the root of the gh-pages
+# branch, served at docs.gritz.dev. The diagrams under /diagrams/ (see
+# diagrams-pages.yml) and the docs previews under /pr/ are left alone.
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Shared by every workflow that pushes to gh-pages.
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.28.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: docs/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: docs
+
+      - name: Build
+        run: pnpm run build
+        working-directory: docs
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
+        with:
+          branch: gh-pages
+          folder: docs/dist
+          # Cleans the whole branch root except the diagrams site and the docs
+          # previews. CNAME and .nojekyll come from docs/public/.
+          clean-exclude: |
+            diagrams/
+            pr/
+          commit-message: 'docs: publish docs for ${{ github.sha }}'
