@@ -62,11 +62,11 @@ jobs:
         env:
           DOCS_BASE: /${{ env.PREVIEW_DIR }}/
 
-      # CNAME and .nojekyll only matter at the gh-pages root. The deploy action
-      # never deletes them, so a preview carrying them could not be removed.
+      # .nojekyll only matters at the gh-pages root. The deploy action never
+      # deletes it, so a preview carrying it could not be removed.
       - name: Drop root-only files
         if: github.event.action != 'closed'
-        run: rm -f docs/dist/CNAME docs/dist/.nojekyll
+        run: rm -f docs/dist/.nojekyll
 
       - name: Deploy preview
         if: github.event.action != 'closed' && env.SAME_REPO == 'true'

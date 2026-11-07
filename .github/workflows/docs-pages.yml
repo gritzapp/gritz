@@ -52,7 +52,8 @@ jobs:
           branch: gh-pages
           folder: docs/dist
           # Cleans the whole branch root except the diagrams site and the docs
-          # previews. CNAME and .nojekyll come from docs/public/.
+          # previews. .nojekyll comes from docs/public/. GitHub manages the root
+          # CNAME from the Pages settings, and the action never deletes it.
           clean-exclude: |
             diagrams/
             pr/
