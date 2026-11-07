@@ -6,6 +6,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -31,10 +33,23 @@ func TestOpenShell(t *testing.T) {
 	// preserved disk.
 	assert.NilError(t, err)
 	assert.Assert(t, resp.SessionId != "")
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, got.ShellSession, resp.SessionId)
-	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:           task.ID,
+			Name:         "Task",
+			Runner:       e2e.DefaultRunner,
+			Workspace:    e2e.DefaultWorkspace,
+			Status:       gritzv1.TaskStatus_PENDING,
+			Command:      gritzv1.TaskCommand_START,
+			Version:      2,
+			Actions:      &gritzv1.TaskActions{Cancel: true},
+			AutoArchive:  durationpb.New(0),
+			ShellSession: resp.SessionId,
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 }
 
 func TestOpenShell_RejectsPending(t *testing.T) {

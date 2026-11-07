@@ -8,8 +8,9 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
+	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 func TestSubmitRunnerEvents(t *testing.T) {
@@ -18,10 +19,22 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	h := e2e.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Test Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_PENDING)
-	assert.Equal(t, got.Command, gritzv1.TaskCommand_START)
-	assert.Equal(t, got.Version, int64(1))
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Name:        "Test Task",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_PENDING,
+			Command:     gritzv1.TaskCommand_START,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Cancel: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 
 	// Act - the run starts.
 	_, err := h.Org.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
@@ -32,9 +45,22 @@ func TestSubmitRunnerEvents(t *testing.T) {
 
 	// Assert - the task is running and its command is cleared.
 	assert.NilError(t, err)
-	got = h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_RUNNING)
-	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Name:        "Test Task",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_RUNNING,
+			Command:     gritzv1.TaskCommand_NONE,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Cancel: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 
 	// Act - the run exits on its own; version 0 skips the version check.
 	_, err = h.Org.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
@@ -45,8 +71,22 @@ func TestSubmitRunnerEvents(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	got = h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_COMPLETED)
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Name:        "Test Task",
+			Runner:      e2e.DefaultRunner,
+			Workspace:   e2e.DefaultWorkspace,
+			Status:      gritzv1.TaskStatus_COMPLETED,
+			Command:     gritzv1.TaskCommand_NONE,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Archive: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 }
 
 func TestSubmitRunnerEvents_Permissions(t *testing.T) {
@@ -132,8 +172,11 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 
 	// Assert - nothing new, and the request's token comes back unchanged.
 	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(resp.Events, 0))
-	assert.Equal(t, resp.NextPageToken, token)
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.ListRunnerEventsResponse{NextPageToken: token},
+		protocmp.Transform(),
+	)
 }
 
 func TestListRunnerEvents_Permissions(t *testing.T) {
