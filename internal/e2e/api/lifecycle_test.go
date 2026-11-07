@@ -6,8 +6,9 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
@@ -28,13 +29,20 @@ func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
 		TaskId: resp.Task.Id,
 		Types:  []string{model.EventTypeLifecycle},
 	})
-	assert.Assert(t, cmp.Len(events, 1))
-	created := events[0].GetLifecycle()
-	assert.Equal(t, created.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED)
-	assert.Equal(t, created.Actor.Kind, "user")
 	// A freshly created task has no prior status; it lands in PENDING.
-	assert.Equal(t, created.FromStatus, "")
-	assert.Equal(t, created.ToStatus, "Pending")
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: resp.Task.Id,
+			Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+				Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
+				Actor:    &gritzv1.Actor{Kind: "user", Name: h.Org.Owner.UserID},
+				ToStatus: "Pending",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
@@ -53,13 +61,32 @@ func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 		TaskId: task.ID,
 		Types:  []string{model.EventTypeLifecycle},
 	})
-	last := events[len(events)-1].GetLifecycle()
-	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_CANCELLED)
-	assert.Equal(t, last.FromStatus, "Pending")
-	assert.Equal(t, last.ToStatus, "Cancelled")
+	assert.DeepEqual(t,
+		events[len(events)-1].GetLifecycle(),
+		&gritzv1.LifecyclePayload{
+			Kind:       gritzv1.LifecycleKind_LIFECYCLE_KIND_CANCELLED,
+			Actor:      &gritzv1.Actor{Kind: "user", Name: h.Org.Owner.UserID},
+			FromStatus: "Pending",
+			ToStatus:   "Cancelled",
+		},
+		protocmp.Transform(),
+	)
 	// ...and the materialized status projection is updated in the same tx.
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID})
-	assert.Equal(t, got.Status, gritzv1.TaskStatus_CANCELLED)
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{
+			Id:          task.ID,
+			Name:        "Task",
+			Workspace:   e2e.DefaultWorkspace,
+			Runner:      e2e.DefaultRunner,
+			Status:      gritzv1.TaskStatus_CANCELLED,
+			Version:     1,
+			Actions:     &gritzv1.TaskActions{Archive: true, Restart: true, Start: true},
+			AutoArchive: durationpb.New(0),
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+	)
 }
 
 func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
@@ -128,11 +155,16 @@ func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 		TaskId: task.ID,
 		Types:  []string{model.EventTypeLifecycle},
 	})
-	last := events[len(events)-1].GetLifecycle()
-	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED)
-	assert.Equal(t, last.Actor.Kind, "runner")
-	assert.Equal(t, last.FromStatus, "Pending")
-	assert.Equal(t, last.ToStatus, "Running")
+	assert.DeepEqual(t,
+		events[len(events)-1].GetLifecycle(),
+		&gritzv1.LifecyclePayload{
+			Kind:       gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED,
+			Actor:      &gritzv1.Actor{Kind: "runner"},
+			FromStatus: "Pending",
+			ToStatus:   "Running",
+		},
+		protocmp.Transform(),
+	)
 
 	// Act - failed: RUNNING -> FAILED, with the producer's reason threaded into
 	// message.
@@ -151,10 +183,17 @@ func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 		TaskId: task.ID,
 		Types:  []string{model.EventTypeLifecycle},
 	})
-	last = events[len(events)-1].GetLifecycle()
-	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
-	assert.Equal(t, last.Message, "setup command 0 failed: exit status 1")
-	assert.Equal(t, last.ToStatus, "Failed")
+	assert.DeepEqual(t,
+		events[len(events)-1].GetLifecycle(),
+		&gritzv1.LifecyclePayload{
+			Kind:       gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED,
+			Actor:      &gritzv1.Actor{Kind: "runner"},
+			FromStatus: "Running",
+			ToStatus:   "Failed",
+			Message:    "setup command 0 failed: exit status 1",
+		},
+		protocmp.Transform(),
+	)
 }
 
 // TestLifecycle_RunnerFailedFallsBackWhenNoReason verifies that a "failed" event
@@ -181,7 +220,15 @@ func TestLifecycle_RunnerFailedFallsBackWhenNoReason(t *testing.T) {
 		TaskId: task.ID,
 		Types:  []string{model.EventTypeLifecycle},
 	})
-	last := events[len(events)-1].GetLifecycle()
-	assert.Equal(t, last.Kind, gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
-	assert.Equal(t, last.Message, "container failed")
+	assert.DeepEqual(t,
+		events[len(events)-1].GetLifecycle(),
+		&gritzv1.LifecyclePayload{
+			Kind:       gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED,
+			Actor:      &gritzv1.Actor{Kind: "runner"},
+			FromStatus: "Running",
+			ToStatus:   "Failed",
+			Message:    "container failed",
+		},
+		protocmp.Transform(),
+	)
 }

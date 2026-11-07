@@ -108,9 +108,31 @@ func TestListEvents(t *testing.T) {
 
 	// Assert - events are ordered newest first.
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Events), 2)
-	assert.Equal(t, resp.Events[0].GetExternal().Description, "Event 2")
-	assert.Equal(t, resp.Events[1].GetExternal().Description, "Event 1")
+	assert.DeepEqual(t,
+		resp.Events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "Event 2",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "Event 1",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestListEvents_ExternalOnly(t *testing.T) {
@@ -141,8 +163,22 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 	// Assert - the org feed returns only the external event; instruction and link
 	// events do not leak into it.
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Events), 1)
-	assert.Equal(t, resp.Events[0].GetExternal().Description, "PR comment")
+	assert.DeepEqual(t,
+		resp.Events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "PR comment",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestListEventsWithLimit(t *testing.T) {
@@ -172,9 +208,31 @@ func TestListEventsWithLimit(t *testing.T) {
 
 	// Assert - events are ordered newest first.
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Events), 2)
-	assert.Equal(t, resp.Events[0].GetExternal().Description, "Event 5")
-	assert.Equal(t, resp.Events[1].GetExternal().Description, "Event 4")
+	assert.DeepEqual(t,
+		resp.Events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "Event 5",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "Event 4",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestListEvents_Permissions(t *testing.T) {
@@ -450,16 +508,19 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 	assert.Assert(t, newest.NextPageToken != "")
 
 	// Act & Assert - follow the tail with nothing newer yet → an empty page
-	// whose token echoes the resume cursor so polling continues.
+	// whose token echoes the resume cursor so polling continues, and More is
+	// false: the tail is reached despite the live token.
 	poll, err := h.Org.Client.ListEventsByTask(t.Context(), &gritzv1.ListEventsByTaskRequest{
 		TaskId:    task.ID,
 		PageSize:  100,
 		PageToken: newest.NextPageToken,
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, len(poll.Events), 0)
-	assert.Assert(t, poll.NextPageToken != "")
-	assert.Assert(t, !poll.More) // tail reached: no further page despite the live token
+	assert.DeepEqual(t,
+		poll,
+		&gritzv1.ListEventsByTaskResponse{NextPageToken: newest.NextPageToken},
+		protocmp.Transform(),
+	)
 
 	// Act & Assert - append a new event, then follow again → it appears at the
 	// tail.
@@ -471,8 +532,22 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 		PageToken: poll.NextPageToken,
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, len(poll2.Events), 1)
-	assert.Equal(t, poll2.Events[0].GetExternal().Description, "Event 2")
+	assert.DeepEqual(t,
+		poll2.Events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "Event 2",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestListEventsByTask_TypesFilter(t *testing.T) {
@@ -514,8 +589,22 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 		Types:    []string{model.EventTypeExternal},
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Events), 1)
-	assert.Equal(t, resp.Events[0].GetExternal().Description, "PR comment")
+	assert.DeepEqual(t,
+		resp.Events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "PR comment",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 
 	// Act & Assert - multiple types widen the filter but still exclude the
 	// lifecycle and link events.
@@ -525,9 +614,29 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 		Types:    []string{model.EventTypeInstruction, model.EventTypeExternal},
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, len(resp.Events), 2)
-	assert.Equal(t, resp.Events[0].GetInstruction().Text, "do the thing")
-	assert.Equal(t, resp.Events[1].GetExternal().Description, "PR comment")
+	assert.DeepEqual(t,
+		resp.Events,
+		[]*gritzv1.Event{
+			{
+				TaskId: task.ID,
+				Wake:   true,
+				Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+					Text: "do the thing",
+				}},
+			},
+			{
+				TaskId: task.ID,
+				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+					Description: "PR comment",
+					Url:         url,
+					Source:      "github",
+					Type:        "issue_comment",
+				}},
+			},
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
 }
 
 func TestListEventsByTask_InvalidArgs(t *testing.T) {
