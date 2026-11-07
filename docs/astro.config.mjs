@@ -89,7 +89,7 @@ export default defineConfig({
 				: [],
 			// One group per section.
 			sidebar: [
-				{ label: 'Start here', items: ['index'] },
+				{ label: 'Start here', items: ['index', 'getting-started'] },
 				...sections.flatMap(section),
 			],
 			components: {
