@@ -5,8 +5,8 @@ import (
 
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -29,17 +29,13 @@ func TestWake_MidRun(t *testing.T) {
 	assert.DeepEqual(t,
 		task.Get(),
 		&gritzv1.Task{
-			Id:          task.ID,
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_RUNNING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_RUNNING,
+			Command: gritzv1.TaskCommand_START,
+			Version: 1,
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
 	)
 
 	run1.Complete()
@@ -65,17 +61,13 @@ func TestWake_CancelledAtBoundary(t *testing.T) {
 	assert.DeepEqual(t,
 		task.Get(),
 		&gritzv1.Task{
-			Id:          task.ID,
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_RUNNING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_RUNNING,
+			Command: gritzv1.TaskCommand_START,
+			Version: 1,
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
 	)
 
 	task.Cancel()

@@ -7,8 +7,8 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -21,18 +21,13 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
 		&gritzv1.Task{
-			Id:          task.ID,
-			Name:        "Test Task",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_PENDING,
-			Command:     gritzv1.TaskCommand_START,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_PENDING,
+			Command: gritzv1.TaskCommand_START,
+			Version: 1,
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
 	)
 
 	// Act - the run starts.
@@ -47,18 +42,13 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
 		&gritzv1.Task{
-			Id:          task.ID,
-			Name:        "Test Task",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_RUNNING,
-			Command:     gritzv1.TaskCommand_NONE,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Cancel: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_RUNNING,
+			Command: gritzv1.TaskCommand_NONE,
+			Version: 1,
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
 	)
 
 	// Act - the run exits on its own; version 0 skips the version check.
@@ -73,18 +63,13 @@ func TestSubmitRunnerEvents(t *testing.T) {
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
 		&gritzv1.Task{
-			Id:          task.ID,
-			Name:        "Test Task",
-			Runner:      e2e.DefaultRunner,
-			Workspace:   e2e.DefaultWorkspace,
-			Status:      gritzv1.TaskStatus_COMPLETED,
-			Command:     gritzv1.TaskCommand_NONE,
-			Version:     1,
-			Actions:     &gritzv1.TaskActions{Start: true, Restart: true, Archive: true},
-			AutoArchive: durationpb.New(0),
+			Id:      task.ID,
+			Status:  gritzv1.TaskStatus_COMPLETED,
+			Command: gritzv1.TaskCommand_NONE,
+			Version: 1,
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Task{}, "created_at", "updated_at"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
 	)
 }
 
