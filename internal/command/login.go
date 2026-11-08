@@ -42,13 +42,13 @@ var LoginCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		m, err := configfile.Load(configfile.LoadOptions{Dir: wd})
+		merged, err := configfile.Load(configfile.LoadOptions{Dir: wd})
 		if err != nil {
 			return err
 		}
 		entry := configfile.Entry{
 			Key:    cmd.String("key"),
-			Server: cmp.Or(cmd.String("server"), m.Server, configfile.DefaultServer),
+			Server: cmp.Or(cmd.String("server"), merged.Server, configfile.DefaultServer),
 		}
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL: entry.Server,
