@@ -251,7 +251,9 @@ func TestSlug(t *testing.T) {
 		{"acme", "acme"},
 		{"  Acme -- Labs, Inc.  ", "acme-labs-inc"},
 		{"Org 42", "org-42"},
-		{"Ilia Choly's Org", "ilia-choly-s-org"},
+		{"Ilia Choly's Org", "ilia-cholys-org"},
+		{"Ilia Choly\u2019s Org", "ilia-cholys-org"},
+		{"'Quoted'", "quoted"},
 		{"!!!", ""},
 		{"", ""},
 	}

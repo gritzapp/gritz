@@ -172,19 +172,23 @@ func formatNames(names []string) string {
 }
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
-// It lowercases the name, replaces each run of non-alphanumeric characters
-// with a single '-', and trims leading and trailing '-'.
+// It lowercases the name, drops apostrophes, replaces each run of other
+// non-alphanumeric characters with a single '-', and trims leading and
+// trailing '-'.
 func Slug(orgName string) string {
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(orgName) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+		switch {
+		case r == '\'' || r == '\u2019':
+			// Drop apostrophes so "Ilia Choly's Org" slugs to ilia-cholys-org.
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
 			if dash && b.Len() > 0 {
 				b.WriteByte('-')
 			}
 			dash = false
 			b.WriteRune(r)
-		} else {
+		default:
 			dash = true
 		}
 	}

@@ -183,9 +183,10 @@ alike. `GetProfile` is unchanged.
    `gritzclient.DefaultURL`). A failure means the key is invalid; report it and
    write nothing.
 2. The org id and name are `resp.org.id` and `resp.org.name`.
-3. The entry name is `--name`, else a slug of the org name: lowercase, each run
-   of non-alphanumeric characters becomes a single `-`, and leading and trailing
-   `-` are trimmed (`Acme Labs` → `acme-labs`). An empty slug is an error asking
+3. The entry name is `--name`, else a slug of the org name: lowercase, apostrophes
+   dropped, each run of other non-alphanumeric characters becomes a single `-`,
+   and leading and trailing `-` are trimmed (`Acme Labs` → `acme-labs`,
+   `Ilia Choly's Org` → `ilia-cholys-org`). An empty slug is an error asking
    for `--name`.
 4. Load `$CONFIG_DIR/.gritz.yml` alone, not the merged view. If it has an entry with
    that name:
