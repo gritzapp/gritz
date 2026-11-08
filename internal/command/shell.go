@@ -40,7 +40,7 @@ var ShellCommand = &cli.Command{
 
 		// Ask the server to open a shell session for the task. The org is derived
 		// from the key server-side; the operator leg is Bearer-only.
-		ts := gritzclient.StaticToken(cfg.Key)
+		ts := cfg.TokenSource(ctx)
 		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
 		resp, err := client.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: taskID})
 		if err != nil {

@@ -1,0 +1,8 @@
+org: acme
+orgs:
+  acme:
+    id: 12
+    refresh_token: old
+  ci:
+    id: 12
+    key: k1

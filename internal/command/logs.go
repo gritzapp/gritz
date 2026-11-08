@@ -52,7 +52,7 @@ var LogsCommand = &cli.Command{
 		}
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
-			TokenSource: gritzclient.StaticToken(cfg.Key),
+			TokenSource: cfg.TokenSource(ctx),
 		})
 		tasklog := gritzclient.OpenTaskLog(client, taskID, logPageSize)
 		for chunk, err := range tasklog.History(ctx) {

@@ -151,3 +151,68 @@ func TestLogin_ExistingFileMode(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
 }
+
+// Regenerate the goldens with: go test ./internal/configfile/ -run TestRotate -update
+func TestRotate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		entryName string
+		oldToken  string
+		golden    string // empty means the file is unchanged
+	}{
+		{name: "old token matches", entryName: "acme", oldToken: "old", golden: "rotate-replaces.golden"},
+		{name: "token changed", entryName: "acme", oldToken: "other"},
+		{name: "entry gone", entryName: "labs", oldToken: "old"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			input, err := os.ReadFile(filepath.Join("testdata", "rotate.yml"))
+			assert.NilError(t, err)
+			path := filepath.Join(t.TempDir(), Name)
+			assert.NilError(t, os.WriteFile(path, input, 0o600))
+
+			// Act
+			err = Rotate(path, tt.entryName, tt.oldToken, "new")
+
+			// Assert
+			assert.NilError(t, err)
+			got, err := os.ReadFile(path)
+			assert.NilError(t, err)
+			if tt.golden == "" {
+				assert.Equal(t, string(got), string(input))
+				return
+			}
+			golden.Assert(t, string(got), tt.golden)
+		})
+	}
+}
+
+func TestRotate_FileGone(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), Name)
+
+	err := Rotate(path, "acme", "old", "new")
+
+	assert.NilError(t, err)
+	_, err = os.Stat(path)
+	assert.Assert(t, os.IsNotExist(err))
+}
+
+func TestRotate_KeepsMode(t *testing.T) {
+	t.Parallel()
+	input, err := os.ReadFile(filepath.Join("testdata", "rotate.yml"))
+	assert.NilError(t, err)
+	path := filepath.Join(t.TempDir(), Name)
+	assert.NilError(t, os.WriteFile(path, input, 0o640))
+	assert.NilError(t, os.Chmod(path, 0o640)) // in case the umask narrowed it
+
+	err = Rotate(path, "acme", "old", "new")
+
+	assert.NilError(t, err)
+	info, err := os.Stat(path)
+	assert.NilError(t, err)
+	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
+}
