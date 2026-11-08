@@ -996,7 +996,7 @@ Or in a project’s `.mcp.json`:
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `--org`          | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`.                            |
 | `--key`, `-k`    | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`.                                                   |
-| `--server`, `-s` | The server URL. Defaults to `GRITZ_SERVER`, otherwise the organisation’s `server`, otherwise `https://gritz.dev`.                   |
+| `--server`, `-s` | The server URL to use with `--key`, which it requires. Defaults to `GRITZ_SERVER`, otherwise `https://gritz.dev`.                   |
 | `--auto-archive` | The [auto-archive](/pr/2124/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
 | `--channel`      | Push task updates into the Claude Code session. See [Channels](#channels).                                                          |
 
@@ -1285,7 +1285,7 @@ For each task the runner:
 
 The `container:` section maps onto the container’s settings: `image`, `user`, `working_dir`, `environment`, `volumes`, `networks`, `network_mode`, `group_add`, `runtime` and `privileged`. See [`workspaces.yaml`](/pr/2124/operators/workspaces-yaml/#container).
 
-The driver inside the container connects to the server at the runner’s `--server` URL. When that is `localhost`, as in local development, the container can’t reach it on the default bridge network: use `network_mode: host` on Linux, or a URL such as `http://host.docker.internal:6464`.
+The driver inside the container connects to the server at the runner’s server URL. When that is `localhost`, as in local development, the container can’t reach it on the default bridge network: use `network_mode: host` on Linux, or a URL such as `http://host.docker.internal:6464`.
 
 ## Lambda MicroVMs
 
@@ -1549,7 +1549,7 @@ A gritz deployment has one server and any number of runners. Each runner starts 
 Two consequences for networking:
 
 * The server never connects to a runner, so a runner can sit behind NAT or a firewall as long as it can reach the server.
-* Sandboxes connect to the server themselves, at the URL the runner was given with `--server`. That URL has to resolve and be reachable from inside the sandbox, not just from the runner’s host.
+* Sandboxes connect to the server themselves, at the runner’s server URL: its organisation’s `server`, or `--server` with `--key`. That URL has to resolve and be reachable from inside the sandbox, not just from the runner’s host.
 
 ## Versions
 
@@ -1621,19 +1621,19 @@ These steps run a runner against gritz.dev on a machine with Docker.
 
 [Section titled “Flags”](#flags)
 
-| Flag                      | Environment variable          | Default                                                    |                                                                                                  |
-| ------------------------- | ----------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `--server`, `-s`          | `GRITZ_SERVER`                | the organisation’s `server`, otherwise `https://gritz.dev` | The server URL. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
-| `--key`, `-k`             | `GRITZ_API_KEY`               |                                                            | The API key. Set, the runner reads no `.gritz.yml` files and ignores `--org`.                    |
-| `--org`                   | `GRITZ_ORG`                   | the `org` in the `.gritz.yml` files                        | The organisation to run tasks for, by its name in the `.gritz.yml` files.                        |
-| `--workspaces`, `-w`      |                               | `~/.config/gritz/workspaces.yaml`                          | The [workspace config](/pr/2124/operators/workspaces-yaml/).                                     |
-| `--id`                    | `GRITZ_RUNNER_ID`             | the hostname                                               | The runner’s ID, which users pick when they create a task. Letters and digits, no spaces.        |
-| `--backend`               | `GRITZ_BACKEND`               | `docker`                                                   | The [sandbox backend](/pr/2124/operators/backends/): `docker` or `lambda-microvm`.               |
-| `--concurrency`           |                               | `5`                                                        | The most task runs at once; further runs wait for a slot. `0` means no limit.                    |
-| `--state-db`              | `GRITZ_STATE_DB`              | `/var/lib/gritz/runner.db`                                 | The runner’s SQLite state.                                                                       |
-| `--poll`                  |                               | `30s`                                                      | How often to poll the server when the notification stream is down.                               |
-| `--lambda-microvm-region` | `GRITZ_LAMBDA_MICROVM_REGION` | the AWS SDK’s region                                       | The AWS region for the `lambda-microvm` backend.                                                 |
-| `--debug`                 |                               | off                                                        | Debug logging.                                                                                   |
+| Flag                      | Environment variable          | Default                             |                                                                                                                                                                                               |
+| ------------------------- | ----------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--server`, `-s`          | `GRITZ_SERVER`                | `https://gritz.dev`                 | The server URL to use with `--key`, which it requires; without `--key`, the organisation’s `server` is used. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
+| `--key`, `-k`             | `GRITZ_API_KEY`               |                                     | The API key. Set, the runner reads no `.gritz.yml` files and ignores `--org`.                                                                                                                 |
+| `--org`                   | `GRITZ_ORG`                   | the `org` in the `.gritz.yml` files | The organisation to run tasks for, by its name in the `.gritz.yml` files.                                                                                                                     |
+| `--workspaces`, `-w`      |                               | `~/.config/gritz/workspaces.yaml`   | The [workspace config](/pr/2124/operators/workspaces-yaml/).                                                                                                                                  |
+| `--id`                    | `GRITZ_RUNNER_ID`             | the hostname                        | The runner’s ID, which users pick when they create a task. Letters and digits, no spaces.                                                                                                     |
+| `--backend`               | `GRITZ_BACKEND`               | `docker`                            | The [sandbox backend](/pr/2124/operators/backends/): `docker` or `lambda-microvm`.                                                                                                            |
+| `--concurrency`           |                               | `5`                                 | The most task runs at once; further runs wait for a slot. `0` means no limit.                                                                                                                 |
+| `--state-db`              | `GRITZ_STATE_DB`              | `/var/lib/gritz/runner.db`          | The runner’s SQLite state.                                                                                                                                                                    |
+| `--poll`                  |                               | `30s`                               | How often to poll the server when the notification stream is down.                                                                                                                            |
+| `--lambda-microvm-region` | `GRITZ_LAMBDA_MICROVM_REGION` | the AWS SDK’s region                | The AWS region for the `lambda-microvm` backend.                                                                                                                                              |
+| `--debug`                 |                               | off                                 | Debug logging.                                                                                                                                                                                |
 
 ### The config directory
 
@@ -2200,7 +2200,7 @@ The browser login only works where the browser runs on the same machine as `logi
 
 `Entry.TokenSource(ctx)` returns:
 
-* for a `key` entry (and for `--key`): `oauth2.StaticTokenSource` of the key.
+* for a `key` entry (and for `--key`): `gritzclient.StaticToken` of the key.
 * for a `refresh_token` entry: `oauth2.ReuseTokenSource(nil, src)`, where `src` is a `refreshSource` holding the entry’s server, name, path and current refresh token. `ReuseTokenSource` caches the access token and calls `src.Token()` only when it has expired (with `oauth2`’s 10-second early expiry), serialised by its own mutex, so one process never refreshes twice concurrently.
 
 `refreshSource.Token()`:
@@ -2243,7 +2243,7 @@ Each user-facing command already calls `configfile.Resolve`. It now builds its c
 | `runner`                          | `runner.ServeOptions.TokenSource` replaces `Token`; the client and the notification client share it.                                          |
 | `login`                           | unchanged on the `--key` path; uses the exchanged access token for `GetCaller`                                                                |
 
-`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` gain a `TokenSource` field beside `Token`; `Token` stays as the shorthand for a static token, used by `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key. Setting both panics.
+`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` replace `Token` with a `TokenSource` field; a nil source means no authentication. `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key, pass `gritzclient.StaticToken` of it.
 
 A refresh failure surfaces from `AuthTransport.RoundTrip` as the request’s error. One-shot commands exit with the “run `gritz login`” message; `runner`, `mcp` and `notify` log it on every attempt, the same as any other server outage, until restarted after a new `login`.
 
@@ -2344,15 +2344,17 @@ package gritzclient // github.com/gritzapp/gritz/internal/gritzclient
 
 type Options struct {
   // ...
-  // TokenSource supplies the bearer token per request; set instead of Token.
-  TokenSource oauth2.TokenSource // new
+  // TokenSource supplies the bearer token per request.
+  // If nil, no authentication is performed.
+  TokenSource oauth2.TokenSource // changed: was Token string
 }
 
 
 type NotificationClientOptions struct {
   // ...
-  // TokenSource supplies the bearer token per connection; set instead of Token.
-  TokenSource oauth2.TokenSource // new
+  // TokenSource supplies the bearer token per connection.
+  // If nil, no authentication is performed.
+  TokenSource oauth2.TokenSource // changed: was Token string
 }
 
 
@@ -2362,6 +2364,10 @@ type AuthTransport struct {
   Source    oauth2.TokenSource // changed: was Token string
   ClientID  string
 }
+
+
+// StaticToken returns a TokenSource that always returns token.
+func StaticToken(token string) oauth2.TokenSource // new
 ```
 
 ```go
@@ -2392,7 +2398,7 @@ type ServeOptions struct {
 [Section titled “Implementation Plan”](#implementation-plan)
 
 1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
-2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions` (panicking if both are set), `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing a static source of `cfg.Key`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
+2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields replacing `Token` on `gritzclient.Options` and `NotificationClientOptions`, `gritzclient.StaticToken`, `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing `StaticToken(cfg.Key)`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`, `Rotate`, `Entry.TokenSource` with write-back and the re-login error; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither) and `Rotate` (replaces when old matches, no-op when changed or gone, keeps mode); a test against an `oauthflow` `httptest` server that a source refreshes once per access token expiry, writes back only when `iat` is over 24h old, and maps an expired refresh token to the re-login error.
 4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `github.com/cli/browser` as a direct dependency, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
 5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
@@ -3065,7 +3071,7 @@ The startup selection is unchanged: `--key`, `--org` and their env vars resolve 
 
 * **`--org` / `GRITZ_ORG`** picks the startup current org; otherwise it’s the merged `org`, and with neither the command fails as now. `switch_org` can then move to any entry `list_orgs` shows.
 * **`allowed`** limits `list_orgs` and `switch_org` exactly as it limits `--org`. A repo whose `.gritz.yml` pins `allowed: [acme]` gets a session that can’t leave `acme`.
-* **`--key` / `GRITZ_API_KEY`**, with `--server` / `GRITZ_SERVER`, is a single raw key with no entries: `list_orgs` and `switch_org` aren’t registered, as the channel tools aren’t without `--channel`. The session behaves as today, apart from the per-org mute-set refactor being invisible with one org.
+* **`--key` / `GRITZ_API_KEY`** (with `--server`, which only applies to `--key`) is a single raw key with no entries: `list_orgs` and `switch_org` aren’t registered, as the channel tools aren’t without `--channel`. The session behaves as today, apart from the per-org mute-set refactor being invisible with one org.
 
 ### Instructions
 
@@ -3101,7 +3107,7 @@ type Selector struct { // new
 
 
 // NewSelector loads and validates the merged files from the working directory.
-// It returns nil when --key is set.
+// It returns nil when --key is set, and fails when --server is set without it.
 func NewSelector(cmd *cli.Command) (*Selector, error) // new
 
 
@@ -3114,7 +3120,7 @@ func (s *Selector) Select(org string) (string, *Entry, error) // new
 func (s *Selector) Names() []string // new
 
 
-// Resolve applies --key and --server, or NewSelector and Select(--org).
+// Resolve returns the --key entry, or NewSelector and Select(--org).
 func Resolve(cmd *cli.Command) (*Entry, error) // changed: built on Selector, same behaviour
 ```
 
@@ -3199,7 +3205,7 @@ func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification)
 
 [Section titled “Implementation Plan”](#implementation-plan)
 
-Depends on [CLI OAuth login](/pr/2124/proposals/draft/cli-oauth-login/), being implemented: slices 3 and 4 need `Entry.TokenSource` and the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions`. Also builds on [#2139](https://github.com/gritzapp/gritz/pull/2139), in progress, which makes `--server` require `--key` and bypass `.gritz.yml`; slice 1 rebases onto it.
+Depends on [CLI OAuth login](/pr/2124/proposals/draft/cli-oauth-login/), being implemented: slices 3 and 4 need `Entry.TokenSource` and the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions`.
 
 1. **`configfile.Selector`** — Delivers: `Selector`, `NewSelector`, `Select`, `Names`; `Resolve` rebuilt on them. Nothing else changes. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; table tests for `Select` (merged `org`, `allowed`, missing entry, the entry’s own `server`, `DefaultServer` for an entry without one) and `Names` (filters by `allowed`, sorted).
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
@@ -16440,7 +16446,7 @@ Every user-facing command selects one entry at startup:
 
 6. The entry supplies the org id, the key and the server.
 
-**Server URL.** `--server` > `GRITZ_SERVER` > the selected entry’s `server` > `gritzclient.DefaultURL`. Every user-facing command gets the `GRITZ_SERVER` env source; `mcp` and `notify` lack it today. The shared `--server` flag has no default value, so it never overrides an entry’s `server`. `Resolve` always sets `Server`, to `configfile.DefaultServer` (the same URL as `gritzclient.DefaultURL`) when nothing else does, so commands pass `BaseURL: cfg.Server` as is.
+**Server URL.** The selected entry’s `server` > `gritzclient.DefaultURL`. `--server` / `GRITZ_SERVER` never overrides an entry’s `server`: every entry `gritz login` writes carries its own, and an override could send the entry’s key to a server the user typed or inherited from the environment. `--server` without `--key` fails with `--server requires --key: entries in .gritz.yml carry their own server`. Either the files decide entry, key and server, or explicit credentials do. Every user-facing command gets the `GRITZ_SERVER` env source; `mcp` and `notify` lack it today. `Resolve` always sets `Server`, to `configfile.DefaultServer` (the same URL as `gritzclient.DefaultURL`) when nothing else does, so commands pass `BaseURL: cfg.Server` as is.
 
 **Explicit key.** `--key` / `GRITZ_API_KEY` supplies a raw key directly. The key determines the org server-side, and the server is `--server` > `GRITZ_SERVER` > `gritzclient.DefaultURL`. `--org` / `GRITZ_ORG` and every `.gritz.yml` file are ignored. This is the path for CI and for runners deployed with an injected key.
 
@@ -16497,11 +16503,11 @@ There’s no `logout` and no `org` subcommand. Removing an entry, switching the 
 
 Each user-facing command gets the same three flags, defined once by `configfile.Flags()` and appended to each command’s `Flags`:
 
-| Flag             | Env             | Notes                                            |
-| ---------------- | --------------- | ------------------------------------------------ |
-| `--org`          | `GRITZ_ORG`     | new; an entry name                               |
-| `--key`, `-k`    | `GRITZ_API_KEY` | replaces `mcp`/`notify` `--token`/`GRITZ_TOKEN`  |
-| `--server`, `-s` | `GRITZ_SERVER`  | unchanged, plus the env source on `mcp`/`notify` |
+| Flag             | Env             | Notes                                                   |
+| ---------------- | --------------- | ------------------------------------------------------- |
+| `--org`          | `GRITZ_ORG`     | new; an entry name                                      |
+| `--key`, `-k`    | `GRITZ_API_KEY` | replaces `mcp`/`notify` `--token`/`GRITZ_TOKEN`         |
+| `--server`, `-s` | `GRITZ_SERVER`  | requires `--key`; plus the env source on `mcp`/`notify` |
 
 Each command’s action replaces its `configfile.Load` + `cfg.Token == ""` block (or `cmd.String("token")`) with one `configfile.Resolve(cmd)` call, which runs the selection above and returns the entry to use. The command builds its client options inline from it, `gritzclient.Options{BaseURL: e.Server, Token: e.Key, ...}`, and the same way for `NotificationClientOptions` and `shell.Attach`:
 
@@ -16630,7 +16636,7 @@ func (m *Merged) Lookup(org string) (*Entry, error) // new
 
 
 // Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
-// GRITZ_SERVER) shared by user-facing commands. --server has no default value.
+// GRITZ_SERVER) shared by user-facing commands. --server requires --key.
 func Flags() []cli.Flag // new
 
 
@@ -16641,8 +16647,9 @@ const DefaultServer = "https://gritz.dev" // new
 
 // Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
 // files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server. Server is always set: DefaultServer when
-// neither --server nor the entry sets it.
+// the entry has only Key and Server, and Server is --server, else
+// DefaultServer. --server requires --key. Without --key, Server is the
+// entry's server, else DefaultServer.
 func Resolve(cmd *cli.Command) (*Entry, error) // new
 
 
@@ -31567,9 +31574,9 @@ gritz [--help] [--version] <command> [flags] [args]
 | ---------------- | --------------- | --------------------------------------------------------------------------------------- |
 | `--org`          | `GRITZ_ORG`     | The organisation’s name in the `.gritz.yml` files. Defaults to their `org`.             |
 | `--key`, `-k`    | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`.                        |
-| `--server`, `-s` | `GRITZ_SERVER`  | The server URL. Defaults to the organisation’s `server`, otherwise `https://gritz.dev`. |
+| `--server`, `-s` | `GRITZ_SERVER`  | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
 
-Without `--key`, a command merges `.gritz.yml` in the config directory with every `.gritz.yml` from the working directory up to `/`, the nearest winning, and uses the organisation it selects. See [Configuration](/pr/2124/using/cli/#configuration).
+Without `--key`, a command merges `.gritz.yml` in the config directory with every `.gritz.yml` from the working directory up to `/`, the nearest winning, and uses the organisation it selects, on that organisation’s `server`, otherwise `https://gritz.dev`. See [Configuration](/pr/2124/using/cli/#configuration).
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the user config directory (`~/.config/gritz` on Linux).
 
@@ -32267,13 +32274,13 @@ allowed: [acme-labs]
 
 [Section titled “Server”](#server)
 
-Every command talks to the organisation’s `server`, or to `https://gritz.dev` if it has none, unless `--server` (`-s`) or the `GRITZ_SERVER` environment variable names another server:
+Every command talks to the organisation’s `server`, or to `https://gritz.dev` if it has none. `gritz login` saves the server you give it with `--server` (`-s`) or the `GRITZ_SERVER` environment variable:
 
 ```bash
 gritz login --key xat_... --server https://gritz.example.com
 ```
 
-`gritz login` saves the server with the organisation. Without `--server`, it uses the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev`, so a repository can name the server its organisation lives on:
+Without `--server`, it uses the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev`, so a repository can name the server its organisation lives on:
 
 ```yaml
 server: https://gritz.example.com
@@ -32285,7 +32292,7 @@ The top-level `server` is read only by `gritz login`.
 
 [Section titled “Key without a config file”](#key-without-a-config-file)
 
-`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key directly, for CI and other places with no config file. The command then reads no `.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or `https://gritz.dev`:
+`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key directly, for CI and other places with no config file. The command then reads no `.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER` need a key this way, since an organisation in a `.gritz.yml` carries its own server:
 
 ```bash
 GRITZ_API_KEY=xat_... gritz task list

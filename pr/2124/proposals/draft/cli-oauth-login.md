@@ -168,7 +168,7 @@ pasted-redirect or device flow. Elsewhere:
 
 `Entry.TokenSource(ctx)` returns:
 
-- for a `key` entry (and for `--key`): `oauth2.StaticTokenSource` of the key.
+- for a `key` entry (and for `--key`): `gritzclient.StaticToken` of the key.
 - for a `refresh_token` entry: `oauth2.ReuseTokenSource(nil, src)`, where `src`
   is a `refreshSource` holding the entry's server, name, path and current refresh
   token. `ReuseTokenSource` caches the access token and calls `src.Token()` only
@@ -235,10 +235,10 @@ clients from `cfg.TokenSource(ctx)` instead of `cfg.Key`:
 | `login` | unchanged on the `--key` path; uses the exchanged access token for `GetCaller` |
 
 `gritzclient.AuthTransport` gets its token from a `TokenSource` on every
-request. `gritzclient.Options` and `NotificationClientOptions` gain a
-`TokenSource` field beside `Token`; `Token` stays as the shorthand for a static
-token, used by `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e,
-which all hold a task JWT or key. Setting both panics.
+request. `gritzclient.Options` and `NotificationClientOptions` replace `Token`
+with a `TokenSource` field; a nil source means no authentication.
+`agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold
+a task JWT or key, pass `gritzclient.StaticToken` of it.
 
 A refresh failure surfaces from `AuthTransport.RoundTrip` as the request's
 error. One-shot commands exit with the "run `gritz login`" message;
@@ -335,14 +335,16 @@ package gritzclient // github.com/gritzapp/gritz/internal/gritzclient
 
 type Options struct {
 	// ...
-	// TokenSource supplies the bearer token per request; set instead of Token.
-	TokenSource oauth2.TokenSource // new
+	// TokenSource supplies the bearer token per request.
+	// If nil, no authentication is performed.
+	TokenSource oauth2.TokenSource // changed: was Token string
 }
 
 type NotificationClientOptions struct {
 	// ...
-	// TokenSource supplies the bearer token per connection; set instead of Token.
-	TokenSource oauth2.TokenSource // new
+	// TokenSource supplies the bearer token per connection.
+	// If nil, no authentication is performed.
+	TokenSource oauth2.TokenSource // changed: was Token string
 }
 
 // AuthTransport injects a Bearer token from Source into requests.
@@ -351,6 +353,9 @@ type AuthTransport struct {
 	Source    oauth2.TokenSource // changed: was Token string
 	ClientID  string
 }
+
+// StaticToken returns a TokenSource that always returns token.
+func StaticToken(token string) oauth2.TokenSource // new
 ```
 
 ```go
@@ -391,10 +396,10 @@ then `GetCaller` with the returned access token, then `configfile.Login` with
    `/auth/token?org_id=` request; connecting an MCP client to a second org by
    hand.
 2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the
-   `TokenSource` fields on `gritzclient.Options` and
-   `NotificationClientOptions` (panicking if both are set), `shell.AttachOptions`
+   `TokenSource` fields replacing `Token` on `gritzclient.Options` and
+   `NotificationClientOptions`, `gritzclient.StaticToken`, `shell.AttachOptions`
    and `runner.ServeOptions` taking a source; every caller updated, the
-   user-facing commands passing a static source of `cfg.Key`. No behaviour
+   user-facing commands passing `StaticToken(cfg.Key)`. No behaviour
    change. Depends on: nothing. Verifiable by: unit test that `AuthTransport`
    asks the source on each request and returns its error; existing e2e tests
    pass.
