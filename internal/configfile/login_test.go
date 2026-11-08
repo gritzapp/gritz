@@ -14,7 +14,7 @@ func TestLogin(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		file      string // initial contents; empty means no file
+		input     string // starting file in testdata; empty means no file
 		entryName string
 		entry     Entry
 		golden    string
@@ -33,56 +33,43 @@ func TestLogin(t *testing.T) {
 			golden:    "login-server-is-written.golden",
 		},
 		{
-			name: "new entry keeps default and allowed",
-			file: `default: acme
-allowed: [acme, labs]
-orgs:
-  acme: {id: 12, key: k1}
-`,
+			name:      "new entry keeps default and allowed",
+			input:     "login-new-entry-keeps-default-and-allowed.yml",
 			entryName: "labs",
 			entry:     Entry{ID: 31, Key: "k2"},
 			golden:    "login-new-entry-keeps-default-and-allowed.golden",
 		},
 		{
-			name: "same id and server replaces key",
-			file: `default: acme
-orgs:
-  local: {id: 1, key: old, server: "http://localhost:8080"}
-`,
+			name:      "same id and server replaces key",
+			input:     "login-same-id-and-server-replaces-key.yml",
 			entryName: "local",
 			entry:     Entry{ID: 1, Key: "new", Server: "http://localhost:8080"},
 			golden:    "login-same-id-and-server-replaces-key.golden",
 		},
 		{
-			name: "default set when absent",
-			file: `orgs:
-  acme: {id: 12, key: k1}
-`,
+			name:      "default set when absent",
+			input:     "login-default-set-when-absent.yml",
 			entryName: "labs",
 			entry:     Entry{ID: 31, Key: "k2"},
 			golden:    "login-default-set-when-absent.golden",
 		},
 		{
-			name: "different id",
-			file: `orgs:
-  acme: {id: 31, key: k1}
-`,
+			name:      "different id",
+			input:     "login-different-id.yml",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2"},
 			err:       `entry name in use: entry "acme" is org 31 on the default server; pass --name to add org 12 under another name`,
 		},
 		{
-			name: "different server",
-			file: `orgs:
-  acme: {id: 12, key: k1}
-`,
+			name:      "different server",
+			input:     "login-different-server.yml",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2", Server: "http://localhost:8080"},
 			err:       `entry name in use: entry "acme" is org 12 on the default server; pass --name to add org 12 under another name`,
 		},
 		{
 			name:      "unknown field",
-			file:      "defualt: acme\n",
+			input:     "login-unknown-field.yml",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k1"},
 			err:       "field defualt not found in type",
@@ -93,9 +80,13 @@ orgs:
 			t.Parallel()
 			// Arrange
 			path := filepath.Join(t.TempDir(), "gritz", Name)
-			if tt.file != "" {
+			var input []byte
+			if tt.input != "" {
+				var err error
+				input, err = os.ReadFile(filepath.Join("testdata", tt.input))
+				assert.NilError(t, err)
 				assert.NilError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-				assert.NilError(t, os.WriteFile(path, []byte(tt.file), 0o644))
+				assert.NilError(t, os.WriteFile(path, input, 0o644))
 			}
 
 			// Act
@@ -105,7 +96,7 @@ orgs:
 			if tt.err != "" {
 				assert.ErrorContains(t, err, tt.err)
 				got, _ := os.ReadFile(path)
-				assert.Equal(t, string(got), tt.file, "file changed on error")
+				assert.Equal(t, string(got), string(input), "file changed on error")
 				return
 			}
 			assert.NilError(t, err)
@@ -118,10 +109,12 @@ orgs:
 
 func TestLogin_NameTaken(t *testing.T) {
 	t.Parallel()
+	input, err := os.ReadFile(filepath.Join("testdata", "login-different-id.yml"))
+	assert.NilError(t, err)
 	path := filepath.Join(t.TempDir(), Name)
-	assert.NilError(t, os.WriteFile(path, []byte("orgs:\n  acme: {id: 31, key: k1}\n"), 0o600))
+	assert.NilError(t, os.WriteFile(path, input, 0o600))
 
-	err := Login(path, "acme", Entry{ID: 12, Key: "k2"})
+	err = Login(path, "acme", Entry{ID: 12, Key: "k2"})
 
 	assert.ErrorIs(t, err, ErrNameTaken)
 }
