@@ -5,8 +5,9 @@ import {Colors} from '../theme';
 import {Scaffold, linker, scaffold} from './common';
 
 // DockerLayout is the gritz layout for the Docker backend: client, server,
-// postgres, and a runner host with one task container. Flows start from it,
-// set the initial state they need, and script the messages.
+// postgres, and a runner host with its runner.db and one task container,
+// where the driver server runs the agent. Flows start from it, set the
+// initial state they need, and script the messages.
 export interface DockerLayout extends Scaffold {
   client: Service;
 
@@ -20,12 +21,13 @@ export interface DockerLayout extends Scaffold {
 
   host: Panel;
   runner: Service;
-  memory: StateTable;
-  outbox: StateTable;
-  taskstate: StateTable;
+  slots: StateTable;
+  runnerdb: StateTable;
 
   container: Panel;
   driver: Service;
+  agent: Service;
+  files: StateTable;
   config: StateTable;
 
   links: {
@@ -35,7 +37,10 @@ export interface DockerLayout extends Scaffold {
     pubsubRunner: Link;
     runnerApi: Link;
     runnerContainer: Link;
+    runnerDriver: Link;
     driverApi: Link;
+    driverAgent: Link;
+    agentApi: Link;
   };
 }
 
@@ -50,11 +55,12 @@ export function dockerLayout(view: View2D, title: string): DockerLayout {
   const events = createRef<StateTable>();
   const host = createRef<Panel>();
   const runner = createRef<Service>();
-  const memory = createRef<StateTable>();
-  const outbox = createRef<StateTable>();
-  const taskstate = createRef<StateTable>();
+  const slots = createRef<StateTable>();
+  const runnerdb = createRef<StateTable>();
   const container = createRef<Panel>();
   const driver = createRef<Service>();
+  const agent = createRef<Service>();
+  const files = createRef<StateTable>();
   const config = createRef<StateTable>();
 
   view.add(
@@ -63,26 +69,26 @@ export function dockerLayout(view: View2D, title: string): DockerLayout {
         ref={postgres}
         title={'Postgres'}
         accent={Colors.store}
-        x={-640}
-        y={-140}
-        width={500}
-        height={560}
+        x={-680}
+        y={-170}
+        width={440}
+        height={540}
       >
         <StateTable
           ref={tasks}
           title={'tasks'}
           accent={Colors.store}
           placeholder={'(no row)'}
-          width={440}
-          y={-220}
+          width={390}
+          y={-210}
           offset={[0, -1]}
         />
         <StateTable
           ref={events}
           title={'task_events'}
           accent={Colors.store}
-          width={440}
-          y={30}
+          width={390}
+          y={10}
           offset={[0, -1]}
         />
       </Panel>
@@ -92,7 +98,7 @@ export function dockerLayout(view: View2D, title: string): DockerLayout {
         name={'Client'}
         role={'web UI / CLI / MCP'}
         accent={Colors.client}
-        x={-640}
+        x={-680}
         y={300}
       />
 
@@ -100,24 +106,24 @@ export function dockerLayout(view: View2D, title: string): DockerLayout {
         ref={server}
         title={'gritz server'}
         accent={Colors.server}
-        x={-110}
-        y={-60}
-        width={330}
-        height={620}
+        x={-170}
+        y={-80}
+        width={300}
+        height={640}
       >
         <Service
           ref={pubsub}
           name={'PubSub'}
-          role={'notifyserver'}
+          role={'notifyserver · SSE'}
           accent={Colors.server}
-          y={-150}
+          y={-160}
         />
         <Service
           ref={api}
           name={'API'}
           role={'apiserver · Connect RPC'}
           accent={Colors.server}
-          y={170}
+          y={150}
         />
       </Panel>
 
@@ -125,66 +131,81 @@ export function dockerLayout(view: View2D, title: string): DockerLayout {
         ref={host}
         title={'runner host'}
         accent={Colors.runner}
-        x={560}
+        x={530}
         y={-10}
-        width={740}
-        height={820}
+        width={800}
+        height={860}
       >
         <Service
           ref={runner}
           name={'Runner'}
-          role={'gritz runner'}
+          role={'TaskManager · TaskRunner'}
           activity={'idle'}
           accent={Colors.runner}
-          x={-190}
-          y={-250}
+          width={300}
+          x={-200}
+          y={-320}
         />
         <StateTable
-          ref={memory}
-          title={'memory'}
+          ref={slots}
+          title={'slots'}
           accent={Colors.runner}
-          x={180}
-          y={-350}
+          width={340}
+          x={190}
+          y={-390}
           offset={[0, -1]}
         />
         <StateTable
-          ref={outbox}
-          title={'outbox/'}
+          ref={runnerdb}
+          title={'runner.db'}
           accent={Colors.runner}
-          x={180}
-          y={-245}
-          offset={[0, -1]}
-        />
-        <StateTable
-          ref={taskstate}
-          title={'taskstate/'}
-          accent={Colors.runner}
-          x={180}
-          y={-140}
+          width={340}
+          x={190}
+          y={-290}
           offset={[0, -1]}
         />
         <Panel
           ref={container}
           title={'container'}
           accent={Colors.driver}
-          y={230}
-          width={680}
-          height={320}
+          y={215}
+          width={740}
+          height={390}
         >
           <Service
             ref={driver}
             name={'Driver'}
-            role={'gritz driver'}
+            role={'gritz driver · driver.sock'}
             accent={Colors.driver}
-            x={-165}
-            y={20}
+            width={300}
+            x={-200}
+            y={-55}
+          />
+          <Service
+            ref={agent}
+            name={'Agent'}
+            role={'claude · codex · …'}
+            accent={Colors.driver}
+            width={300}
+            x={-200}
+            y={105}
+          />
+          <StateTable
+            ref={files}
+            title={'/gritz/'}
+            accent={Colors.driver}
+            width={330}
+            x={175}
+            y={-150}
+            offset={[0, -1]}
           />
           <StateTable
             ref={config}
-            title={'/tmp/gritz/<id>.json'}
+            title={'/tmp/gritz/42.json'}
             accent={Colors.driver}
-            x={165}
-            y={-110}
+            width={330}
+            x={175}
+            y={20}
             offset={[0, -1]}
           />
         </Panel>
@@ -205,20 +226,24 @@ export function dockerLayout(view: View2D, title: string): DockerLayout {
     events: events(),
     host: host(),
     runner: runner(),
-    memory: memory(),
-    outbox: outbox(),
-    taskstate: taskstate(),
+    slots: slots(),
+    runnerdb: runnerdb(),
     container: container(),
     driver: driver(),
+    agent: agent(),
+    files: files(),
     config: config(),
     links: {
       clientApi: link(client(), api(), 'Connect RPC'),
       apiPostgres: link(api(), postgres(), 'SQL'),
       apiPubsub: link(api(), pubsub(), 'publish'),
       pubsubRunner: link(pubsub(), runner(), 'SSE'),
-      runnerApi: link(runner(), api(), 'Connect RPC'),
-      runnerContainer: link(runner(), container(), 'docker'),
-      driverApi: link(driver(), api(), 'Connect RPC'),
+      runnerApi: link(runner(), api(), 'Connect RPC · runner key'),
+      runnerContainer: link(runner(), container(), 'docker API', 0.4),
+      runnerDriver: link(runner(), driver(), 'driver.v1 Run · exec', 0.75),
+      driverApi: link(driver(), api(), 'Connect RPC · task token'),
+      driverAgent: link(driver(), agent(), 'exec'),
+      agentApi: link(agent(), api(), 'gritz MCP · task token', 0.4),
     },
   };
 }
