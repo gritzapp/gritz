@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
@@ -22,13 +23,13 @@ import (
 var NotifyCommand = &cli.Command{
 	Name:  "notify",
 	Usage: "Subscribe to server notifications and emit system notifications",
-	Flags: append([]cli.Flag{
+	Flags: slices.Concat([]cli.Flag{
 		&cli.StringFlag{
 			Name:  "title",
 			Usage: "Title shown on each system notification",
 			Value: "gritz",
 		},
-	}, configfile.Flags()...),
+	}, configfile.Flags()),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		e, err := configfile.Resolve(cmd)
 		if err != nil {

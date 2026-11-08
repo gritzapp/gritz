@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/gritzapp/gritz/internal/configfile"
@@ -29,7 +30,7 @@ import (
 var McpCommand = &cli.Command{
 	Name:  "mcp",
 	Usage: "Run a stdio MCP server for managing tasks",
-	Flags: append([]cli.Flag{
+	Flags: slices.Concat([]cli.Flag{
 		&cli.BoolFlag{
 			Name:  "channel",
 			Usage: "Enable experimental claude/channel support",
@@ -38,7 +39,7 @@ var McpCommand = &cli.Command{
 			Name:  "auto-archive",
 			Usage: "Default auto-archive delay for tasks created via create_task when the call omits auto_archive. 0 = never, negative = archive immediately on terminal status, positive = delay (e.g. 1h, 24h). The per-call auto_archive param overrides this.",
 		},
-	}, configfile.Flags()...),
+	}, configfile.Flags()),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		e, err := configfile.Resolve(cmd)
 		if err != nil {

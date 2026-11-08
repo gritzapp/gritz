@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -41,7 +42,7 @@ func defaultRunnerID() string {
 var RunnerCommand = &cli.Command{
 	Name:  "runner",
 	Usage: "Start the runner (monitors tasks, manages containers)",
-	Flags: append([]cli.Flag{
+	Flags: slices.Concat([]cli.Flag{
 		&cli.StringFlag{
 			Name:    "workspaces",
 			Aliases: []string{"w"},
@@ -91,7 +92,7 @@ var RunnerCommand = &cli.Command{
 			Usage: "Enable debug logging",
 			Value: false,
 		},
-	}, configfile.Flags()...),
+	}, configfile.Flags()),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		configPath := cmd.String("workspaces")
 		pollInterval := cmd.Duration("poll")

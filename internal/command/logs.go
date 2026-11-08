@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
@@ -25,7 +26,7 @@ var LogsCommand = &cli.Command{
 	Name:      "logs",
 	Usage:     "Display the driver log for a task",
 	ArgsUsage: "<task-id>",
-	Flags: append([]cli.Flag{
+	Flags: slices.Concat([]cli.Flag{
 		&cli.BoolFlag{
 			Name:    "follow",
 			Aliases: []string{"f"},
@@ -36,7 +37,7 @@ var LogsCommand = &cli.Command{
 			Usage: "Poll interval when following",
 			Value: 2 * time.Second,
 		},
-	}, configfile.Flags()...),
+	}, configfile.Flags()),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.NArg() < 1 {
 			return cli.Exit("task ID required", 1)
