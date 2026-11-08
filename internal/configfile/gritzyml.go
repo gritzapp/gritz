@@ -128,6 +128,11 @@ func (m *Merged) merge(path string, f *FileV2) {
 	}
 }
 
+// IsAllowed reports whether org may be selected: Allowed is unset or lists it.
+func (m *Merged) IsAllowed(org string) bool {
+	return m.Allowed == nil || slices.Contains(m.Allowed, org)
+}
+
 // Selection is the entry a command will use.
 type Selection struct {
 	// Name is the entry name.
@@ -139,7 +144,7 @@ type Selection struct {
 // Select picks the entry named org, or m.Default when org is empty, enforcing
 // m.Allowed and returning errors that name the file responsible.
 func (m *Merged) Select(org string) (*Selection, error) {
-	if m.Default != "" && m.Allowed != nil && !slices.Contains(m.Allowed, m.Default) {
+	if m.Default != "" && !m.IsAllowed(m.Default) {
 		return nil, fmt.Errorf("default %q (from %s) is not in allowed %s (from %s)",
 			m.Default, m.DefaultFrom, m.Allowed, m.AllowedFrom)
 	}
@@ -147,7 +152,7 @@ func (m *Merged) Select(org string) (*Selection, error) {
 	if name == "" {
 		return nil, errors.New("no org selected: pass --org or set default in a .gritz.yml file")
 	}
-	if m.Allowed != nil && !slices.Contains(m.Allowed, name) {
+	if !m.IsAllowed(name) {
 		return nil, fmt.Errorf("org %q is not allowed here: allowed is %s (from %s)",
 			name, m.Allowed, m.AllowedFrom)
 	}

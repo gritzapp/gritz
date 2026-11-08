@@ -129,6 +129,29 @@ func TestLoadV2_UnknownField(t *testing.T) {
 	assert.ErrorContains(t, err, filepath.Join(dir, Name)+": ")
 }
 
+func TestIsAllowed(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		allowed []string
+		org     string
+		want    bool
+	}{
+		{"unset", nil, "acme", true},
+		{"listed", []string{"acme", "local"}, "local", true},
+		{"not listed", []string{"acme"}, "local", false},
+		{"empty", []string{}, "acme", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := Merged{Allowed: tt.allowed}
+
+			assert.Equal(t, m.IsAllowed(tt.org), tt.want)
+		})
+	}
+}
+
 func TestSelect(t *testing.T) {
 	t.Parallel()
 	acme := Entry{ID: 12, Key: "k1"}
