@@ -270,10 +270,14 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
 }
 
-// setProblemEventType declares the custom "problem" event type with a
-// severity attr.
-func setProblemEventType(t *testing.T, h *e2e.Harness) {
-	t.Helper()
+// TestTestEventFireCustomRoutesWithoutActor fires a custom test event and
+// asserts it routes like one posted to the webhook: with no actor, so a
+// member-only rule is skipped and the public rule after it creates the task,
+// and with the type's label as its description.
+func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -289,21 +293,10 @@ func setProblemEventType(t *testing.T, h *e2e.Harness) {
 		},
 	})
 	assert.NilError(t, err)
-}
-
-// TestTestEventFireCustomRoutesWithoutActor fires a custom test event and
-// asserts it routes like one posted to the webhook: with no actor, so a
-// member-only rule is skipped and the public rule after it creates the task,
-// and with the type's label as its description.
-func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := e2e.New(t, nil)
-	setProblemEventType(t, h)
 	create := &model.CreateTaskAction{Workspace: e2e.DefaultWorkspace, Runner: e2e.DefaultRunner}
 	// SetRoutingRules rejects a member-only custom rule, so it is stored
 	// directly: the test needs one to show the caller's membership is ignored.
-	err := h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
+	err = h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
 		{Source: "custom", Type: "problem", Create: create},
 		{Source: "custom", Type: "problem", Create: create, Public: true},
 	})
@@ -366,7 +359,21 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	setProblemEventType(t, h)
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Dynatrace Problem",
+				Attrs: []*gritzv1.AttrDef{
+					{Key: "body"},
+					{Key: "url"},
+					{Key: "severity"},
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
 			{
@@ -405,7 +412,21 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 func TestTestEventCustomInvalid(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, nil)
-	setProblemEventType(t, h)
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Dynatrace Problem",
+				Attrs: []*gritzv1.AttrDef{
+					{Key: "body"},
+					{Key: "url"},
+					{Key: "severity"},
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
 	values := func(v ...string) *gritzv1.AttrValues { return &gritzv1.AttrValues{Values: v} }
 	tests := []struct {
 		name  string
