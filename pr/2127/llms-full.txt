@@ -242,7 +242,7 @@ Make a rule public to let people outside the organisation, such as outside contr
 * **Dry run** shows which rule would match the event and whether that rule would wake tasks or create one. It changes nothing. It reports the rule’s settings only: it doesn’t check whether a task is subscribed to the URL.
 * **Fire** routes the event for real, as if it had arrived from its source: it wakes or creates tasks and stores the event on them. It doesn’t post anything back to GitHub or Jira.
 
-Both run the event only for the organisation you are in. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2127/integrations/custom-events/) is checked and routed like one posted to the webhook: it is rejected where the webhook would reject it, it has no actor, so only public rules match it, and without a description it gets its type’s label.
+Both run the event only for the organisation you are in, and both reject an event that doesn’t fit its type: the URL must be an absolute `http` or `https` URL, and every attribute must be one the type declares. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2127/integrations/custom-events/) is routed like one posted to the webhook: it has no actor, so only public rules match it, and without a description it gets its type’s label.
 
 # Runners
 
@@ -30691,10 +30691,11 @@ message SetCustomEventTypesResponse {
 
 
 // TestEventRequest composes an event and routes it through the org's routing
-// rules, as a dry run or for real. An event of a built-in source routes as the
-// caller. A custom event is validated and routed like one posted to the custom
-// event webhook: it fails with `invalid_argument` where the webhook would
-// reject it, and it has no actor, so only public rules match it.
+// rules, as a dry run or for real. Every event is validated against its type:
+// it fails with `invalid_argument` for an unknown source or type, a missing or
+// non-absolute http(s) url, or an attr the type doesn't declare. An event of a
+// built-in source routes as the caller. A custom event routes like one posted
+// to the custom event webhook: it has no actor, so only public rules match it.
 message TestEventRequest {
   string source = 1;                // The event type's source, such as "github".
   string type = 2;                  // The event type, such as "issue_comment".
