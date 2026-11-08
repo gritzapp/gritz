@@ -41,8 +41,7 @@ var TaskUpdateCommand = &cli.Command{
 		},
 		&cli.DurationFlag{
 			Name:  "auto-archive",
-			Value: 0,
-			Usage: "Set the auto-archive timeout. 0 = never (default); negative = archive immediately; positive = delay.",
+			Usage: "Set the auto-archive timeout. 0 = never; negative = archive immediately; positive = delay. Unchanged when omitted.",
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -76,14 +75,17 @@ var TaskUpdateCommand = &cli.Command{
 		if cfg.Token == "" {
 			return fmt.Errorf("not authenticated, run setup first")
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: cfg.Token})
-		if _, err := client.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
+		req := &gritzv1.UpdateTaskRequest{
 			Id:              taskID,
 			Name:            name,
 			Start:           start,
 			AddInstructions: instructions,
-			AutoArchive:     durationpb.New(cmd.Duration("auto-archive")),
-		}); err != nil {
+		}
+		if cmd.IsSet("auto-archive") {
+			req.AutoArchive = durationpb.New(cmd.Duration("auto-archive"))
+		}
+		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: cfg.Token})
+		if _, err := client.UpdateTask(ctx, req); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
 
