@@ -27,7 +27,7 @@ A rule matches an event by:
   types.
 - **Conditions**, each an attribute, an operator and a value. The attributes on
   offer depend on the event type. Every type has `body`, the event's text, and
-  `url`, the resource it is about; built-in types add others, such as the users
+  `url`, the event's own URL (a comment's URL rather than its issue's); built-in types add others, such as the users
   mentioned in a comment, an issue's new label or its new assignee. See
   [Event types](/reference/event-types/) for every built-in type and its
   attributes.

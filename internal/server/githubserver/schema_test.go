@@ -26,9 +26,9 @@ func TestSchemaRegistration(t *testing.T) {
 		},
 		{
 			Key:         "url",
-			Label:       "Issue/PR URL",
+			Label:       "Comment URL",
 			Placeholder: "https://github.com/owner/repo/",
-			Help:        "Matched against the commented issue or PR URL, e.g. to scope a rule to a single repo.",
+			Help:        "Matched against the comment's own URL (the issue or PR URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
 		},
 		{
 			Key:         "mention",

@@ -188,6 +188,7 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error)
 			return nil, AtlassianMeta{}, nil
 		}
 
+		description := strings.TrimSpace(payload.Issue.Fields.Description)
 		var events []eventrouter.InputEvent
 		// Emit a single event carrying all added labels in the "label" attr so
 		// routing rules can match a specific label via a label condition.
@@ -196,6 +197,7 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error)
 				Source:      "atlassian",
 				Type:        EventTypeLabelAdded,
 				Description: fmt.Sprintf("%s added label(s) %s to %s", displayName, strings.Join(quote(added), ", "), payload.Issue.Key),
+				Data:        description,
 				Attrs:       eventrouter.Attrs{"label": added, "user": {accountID}},
 				URL:         url,
 			})
@@ -207,6 +209,7 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error)
 				Source:      "atlassian",
 				Type:        EventTypeIssueAssigned,
 				Description: fmt.Sprintf("%s assigned %s to %s", displayName, payload.Issue.Key, assignee.DisplayName),
+				Data:        description,
 				Attrs:       eventrouter.Attrs{"assignee": {assignee.AccountID}, "user": {accountID}},
 				URL:         url,
 			})
