@@ -42,7 +42,7 @@ same code flow.
 | `--auth-client-secret` | `GRITZ_AUTH_CLIENT_SECRET` | The OIDC client secret. |
 | `--auth-scopes` | `GRITZ_AUTH_SCOPES` | Comma-separated scopes requested at login. Defaults to `openid,profile,email,offline_access`. |
 | `--auth-skip-nonce-verify` | `GRITZ_AUTH_SKIP_NONCE_VERIFY` | Skip the ID token nonce check, for providers that set a nonce gritz never sent. |
-| `--auth-encryption-key` | `GRITZ_AUTH_ENCRYPTION_KEY` | Hex-encoded 32-byte key that encrypts the session cookies. Required. |
+| `--auth-encryption-key` | `GRITZ_AUTH_ENCRYPTION_KEY` | Hex-encoded 32-byte key that encrypts the session cookies. Required unless `--no-auth` is set. |
 | `--auth-app-key` | `GRITZ_AUTH_APP_KEY` | Hex-encoded 32-byte Ed25519 seed that signs the tokens gritz issues itself: task tokens and MCP OAuth tokens. |
 | `--no-auth` | | Disable sign-in, for development only. |
 

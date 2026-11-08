@@ -1596,7 +1596,7 @@ Users sign in with OpenID Connect. The server is built against [ZITADEL](https:/
 | `--auth-client-secret`     | `GRITZ_AUTH_CLIENT_SECRET`     | The OIDC client secret.                                                                                       |
 | `--auth-scopes`            | `GRITZ_AUTH_SCOPES`            | Comma-separated scopes requested at login. Defaults to `openid,profile,email,offline_access`.                 |
 | `--auth-skip-nonce-verify` | `GRITZ_AUTH_SKIP_NONCE_VERIFY` | Skip the ID token nonce check, for providers that set a nonce gritz never sent.                               |
-| `--auth-encryption-key`    | `GRITZ_AUTH_ENCRYPTION_KEY`    | Hex-encoded 32-byte key that encrypts the session cookies. Required.                                          |
+| `--auth-encryption-key`    | `GRITZ_AUTH_ENCRYPTION_KEY`    | Hex-encoded 32-byte key that encrypts the session cookies. Required unless `--no-auth` is set.                |
 | `--auth-app-key`           | `GRITZ_AUTH_APP_KEY`           | Hex-encoded 32-byte Ed25519 seed that signs the tokens gritz issues itself: task tokens and MCP OAuth tokens. |
 | `--no-auth`                |                                | Disable sign-in, for development only.                                                                        |
 
@@ -2041,8 +2041,8 @@ Runs the server. Its flags are described in [Server](/operators/server/).
 | `--auth-client-secret`      | `GRITZ_AUTH_CLIENT_SECRET`      |                                       |
 | `--auth-scopes`             | `GRITZ_AUTH_SCOPES`             | `openid,profile,email,offline_access` |
 | `--auth-skip-nonce-verify`  | `GRITZ_AUTH_SKIP_NONCE_VERIFY`  | off                                   |
-| `--auth-encryption-key`     | `GRITZ_AUTH_ENCRYPTION_KEY`     | generated at start                    |
-| `--auth-app-key`            | `GRITZ_AUTH_APP_KEY`            | generated at start                    |
+| `--auth-encryption-key`     | `GRITZ_AUTH_ENCRYPTION_KEY`     | required unless `--no-auth`           |
+| `--auth-app-key`            | `GRITZ_AUTH_APP_KEY`            | generated at each start               |
 | `--no-auth`                 |                                 | off                                   |
 | `--github-app-id`           | `GRITZ_GITHUB_APP_ID`           |                                       |
 | `--github-app-slug`         | `GRITZ_GITHUB_APP_SLUG`         |                                       |
@@ -2108,16 +2108,6 @@ Lists the gritz containers on this host’s Docker, running or not.
 | Flag      |                                               |
 | --------- | --------------------------------------------- |
 | `--prune` | Remove every stopped gritz container instead. |
-
-### `gritz prune`
-
-[Section titled “gritz prune”](#gritz-prune)
-
-Removes the stopped gritz containers on this host’s Docker whose tasks are archived.
-
-| Flag             | Default             |                                     |
-| ---------------- | ------------------- | ----------------------------------- |
-| `--server`, `-s` | `https://gritz.dev` | The server to look the tasks up on. |
 
 ### `gritz version`
 
