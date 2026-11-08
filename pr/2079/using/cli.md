@@ -71,14 +71,10 @@ gritz task update 1234 --start -i "Also update the README."
 | `--add-instruction`, `-i` | Add an instruction. Repeat it for several. |
 | `--start`, `-r` | Start the task, as the Web UI does when you send an instruction. A running task isn't interrupted: it runs again when its current run ends. |
 | `--name`, `-n` | Rename the task. |
-| `--auto-archive` | Set the auto-archive delay. |
+| `--auto-archive` | Set the auto-archive delay. Left out, the task keeps the delay it has. |
 
 An instruction added without `--start` waits on the task until something else
 starts it, such as an event or a later `--start`.
-
-Every `gritz task update` also sets the task's auto-archive delay: to
-`--auto-archive` when it is given, and otherwise to never. Pass `--auto-archive`
-again to keep a delay the task already had.
 
 Cancelling, restarting and archiving tasks are done in the
 [Web UI](/using/web-ui/#the-task-page).

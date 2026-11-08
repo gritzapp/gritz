@@ -88,7 +88,7 @@ review comment, a Jira issue comment, or one of the organisation’s custom
 types.</li>
 <li><strong>Conditions</strong>, each an attribute, an operator and a value. The attributes on
 offer depend on the event type. Every type has <code dir="auto">body</code>, the event’s text, and
-<code dir="auto">url</code>, the resource it is about; built-in types add others, such as the users
+<code dir="auto">url</code>, the event’s own URL (a comment’s URL rather than its issue’s); built-in types add others, such as the users
 mentioned in a comment, an issue’s new label or its new assignee. See
 <a href="/pr/2079/reference/event-types/">Event types</a> for every built-in type and its
 attributes.</li>
@@ -147,8 +147,9 @@ already linked.</p>
 <p>A rule that creates tasks sets their:</p>
 <ul>
 <li><strong>Runner</strong> and <strong>Workspace</strong>.</li>
-<li><strong>Prompt</strong>: the created task’s instruction. Left blank, the instruction only
-says that a routing rule created the task for the event. The task’s first event
+<li><strong>Prompt</strong>: the created task’s instruction. Left blank, the instruction is a
+fixed one that only says a routing rule created the task in response to the
+event’s source and type. The task’s first event
 is the one that created it, so the agent gets the event’s text either way.</li>
 <li><strong>Auto-archive</strong>: the created task’s <a href="/pr/2079/concepts/tasks/#auto-archive">auto-archive</a>
 delay.</li>
