@@ -56,7 +56,7 @@ type.
 | Field | Type | Required | Validation |
 | --- | --- | --- | --- |
 | `type` | string | yes | Must name one of the organisation's custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
-| `description` | string | no | The event's description on the task's timeline. Defaults to the type's label. |
+| `description` | string | no | The event's description on the task's timeline. Defaults to `custom event`. |
 | `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url). |
 | `body` | string | no | The event's text. Defaults to the empty string. |
 | `attrs` | object of string → array of strings | no | Every key must be an attribute the type declares, other than `body` and `url`. |
@@ -64,9 +64,7 @@ type.
 
 #### `type`
 
-The custom type's name, which matches `^[a-z][a-z0-9_]{0,63}$`. The type's label
-becomes the event's description on the task's timeline when `description` is
-empty.
+The custom type's name, which matches `^[a-z][a-z0-9_]{0,63}$`.
 
 #### `url`
 

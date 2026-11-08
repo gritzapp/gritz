@@ -64,7 +64,7 @@ func TestWebhookHandler(t *testing.T) {
 	assert.DeepEqual(t, router.RoutedInputs(), []eventrouter.InputEvent{{
 		Source:      "custom",
 		Type:        "problem",
-		Description: "Dynatrace Problem",
+		Description: "custom event",
 		Data:        "CPU saturation on host web-1",
 		URL:         "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=-123_456V2",
 		Orgs:        []int64{7},

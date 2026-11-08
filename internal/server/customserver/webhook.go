@@ -88,12 +88,11 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Attrs:   env.Attrs,
 		Details: env.Details,
 	}
-	def, err := reg.ValidateEvent(input)
-	if err != nil {
+	if err := reg.ValidateEvent(input); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	input.Description = cmp.Or(env.Description, def.Label)
+	input.Description = cmp.Or(env.Description, "custom event")
 
 	routed, err := h.Router.Route(r.Context(), input)
 	if err != nil {

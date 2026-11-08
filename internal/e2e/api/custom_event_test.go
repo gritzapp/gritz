@@ -84,7 +84,7 @@ func TestPostCustomEvent(t *testing.T) {
 		h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{}),
 		[]*gritzv1.Event{{
 			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
-				Description: "Dynatrace Problem",
+				Description: "custom event",
 				Url:         url,
 				Data:        "CPU saturation on host web-1",
 				Details:     map[string]string{"state": "OPEN"},
@@ -97,8 +97,8 @@ func TestPostCustomEvent(t *testing.T) {
 	)
 }
 
-// TestPostCustomEventDescription asserts an envelope's description replaces
-// the type's label on the stored event.
+// TestPostCustomEventDescription asserts an envelope's description is stored
+// on the event in place of the default.
 func TestPostCustomEventDescription(t *testing.T) {
 	t.Parallel()
 	// Arrange
