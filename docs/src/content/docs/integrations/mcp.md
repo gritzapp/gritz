@@ -1,13 +1,15 @@
 ---
 title: MCP
-description: Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks; the tools it offers, and task notifications through Claude Code channels.
+description: Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks and administer the organisation; the tools it offers, and task notifications through Claude Code channels.
 sidebar:
   order: 4
 ---
 
 gritz is an MCP server, so the agent you work with locally, such as Claude Code
 or Cursor, can hand work off to gritz: list the workspaces, create tasks, follow
-them up with instructions, read what they did, and archive them.
+them up with instructions, read what they did, and archive them. It can also
+manage the organisation's events, custom event types, schedules and routing
+rules, and read its members, API keys and settings.
 
 There are two ways to connect:
 
