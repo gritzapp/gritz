@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
+	"github.com/gritzapp/gritz/internal/auth/oauthflow"
 	"github.com/gritzapp/gritz/internal/server"
 	"github.com/gritzapp/gritz/internal/server/atlassianserver"
 	"github.com/gritzapp/gritz/internal/server/customserver"
@@ -86,6 +87,14 @@ func New(t *testing.T, opts *Options) *Harness {
 	ts := httptest.NewUnstartedServer(nil)
 	t.Cleanup(ts.Close)
 	baseURL := "http://" + ts.Listener.Addr().String()
+	oauth, err := oauthflow.New(oauthflow.Options{
+		AppKey:      appKey,
+		OrgResolver: resolver,
+		BaseURL:     baseURL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := server.New(server.Options{
 		Store:     st,
 		Auth:      auth,
@@ -103,6 +112,7 @@ func New(t *testing.T, opts *Options) *Harness {
 			Subscriber:  ps,
 			OrgResolver: resolver,
 		}),
+		OAuth:       oauth,
 		AppKey:      appKey,
 		OrgResolver: resolver,
 		Wrap:        s.route,
