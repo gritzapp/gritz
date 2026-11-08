@@ -76,9 +76,18 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	reg := eventrouter.DefaultSchemaRegistry.With(types...)
 	// The source is pinned to custom, so a type named like a built-in one
-	// can't resolve to the built-in schema. The URL is used as sent: it is the
-	// subscription key, so every event about the same resource must send the
-	// same one.
+	// can't resolve to the built-in schema.
+	def, ok := reg.EventTypeFor(eventrouter.SourceCustom, env.Type)
+	if !ok {
+		http.Error(w, fmt.Sprintf("unknown event type %q", env.Type), http.StatusBadRequest)
+		return
+	}
+	if err := def.ValidateEvent(env.URL, env.Attrs); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// The URL is used as sent: it is the subscription key, so every event
+	// about the same resource must send the same one.
 	input := eventrouter.InputEvent{
 		Source:      eventrouter.SourceCustom,
 		Type:        env.Type,
@@ -88,10 +97,6 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Orgs:        []int64{caller.OrgID},
 		Attrs:       env.Attrs,
 		Details:     env.Details,
-	}
-	if err := reg.ValidateEvent(input); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
 	}
 
 	routed, err := h.Router.Route(r.Context(), input)

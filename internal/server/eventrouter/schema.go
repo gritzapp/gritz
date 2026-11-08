@@ -1,10 +1,7 @@
 package eventrouter
 
 import (
-	"errors"
 	"fmt"
-	"maps"
-	"net/url"
 	"regexp"
 	"slices"
 
@@ -149,35 +146,6 @@ func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
 		}
 		if !def.HasAttr(cond.Attr) {
 			return fmt.Errorf("attr %q not valid for event type %q/%q", cond.Attr, rule.Source, rule.Type)
-		}
-	}
-	return nil
-}
-
-// ValidateEvent checks e against its type's schema: the type must be registered
-// for e.Source, URL must be an absolute http or https URL, and every attr
-// must be declared by the type. "body" and "url" can't be attrs; they are
-// derived from Data and URL.
-func (r *SchemaRegistry) ValidateEvent(e InputEvent) error {
-	def, ok := r.EventTypeFor(e.Source, e.Type)
-	if !ok {
-		return fmt.Errorf("unknown event type %q", e.Type)
-	}
-	if e.URL == "" {
-		return errors.New("url is required")
-	}
-	u, err := url.Parse(e.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return fmt.Errorf("url %q must be an absolute http or https URL", e.URL)
-	}
-	for _, key := range slices.Sorted(maps.Keys(e.Attrs)) {
-		// InputEvent.Attr derives these from Data and URL, so a value sent
-		// here would be silently ignored.
-		if key == "body" || key == "url" {
-			return fmt.Errorf("attr %q must be sent as the envelope's %q field", key, key)
-		}
-		if !def.HasAttr(key) {
-			return fmt.Errorf("attr %q not declared by event type %q", key, def.Type)
 		}
 	}
 	return nil

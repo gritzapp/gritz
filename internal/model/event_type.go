@@ -1,6 +1,10 @@
 package model
 
 import (
+	"errors"
+	"fmt"
+	"maps"
+	"net/url"
 	"slices"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -29,6 +33,30 @@ type EventTypeDef struct {
 	Type   string    `json:"type"`
 	Label  string    `json:"label,omitempty"` // human label, e.g. "GitHub: Issue/PR Comment"
 	Attrs  []AttrDef `json:"attrs,omitempty"` // complete valid attr set, including derived body/url
+}
+
+// ValidateEvent checks an event of this type: url must be an absolute http or
+// https URL, and every attr must be declared by the type. "body" and "url"
+// can't be attrs; they are derived from the event's data and URL.
+func (def EventTypeDef) ValidateEvent(rawURL string, attrs map[string][]string) error {
+	if rawURL == "" {
+		return errors.New("url is required")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("url %q must be an absolute http or https URL", rawURL)
+	}
+	for _, key := range slices.Sorted(maps.Keys(attrs)) {
+		// The event's data and URL provide these, so a value sent here would
+		// be silently ignored.
+		if key == "body" || key == "url" {
+			return fmt.Errorf("attr %q must be sent as the envelope's %q field", key, key)
+		}
+		if !def.HasAttr(key) {
+			return fmt.Errorf("attr %q not declared by event type %q", key, def.Type)
+		}
+	}
+	return nil
 }
 
 // HasAttr reports whether def declares an attr with the given key.
