@@ -31,16 +31,16 @@ authenticate as that org), so the CLI is logged in to one org at a time:
 
 ### Overview
 
-- One file format, `.gritz`, used at every level. It names orgs, holds their
+- One file format, `.gritz.yml`, used at every level. It names orgs, holds their
   keys and servers, and picks a default.
-- Every user-facing command merges the `.gritz` files from the working
-  directory up to `/`, on top of `$CONFIG_DIR/.gritz`, then selects one org
+- Every user-facing command merges the `.gritz.yml` files from the working
+  directory up to `/`, on top of `$CONFIG_DIR/.gritz.yml`, then selects one org
   entry. The entry supplies the server, org id and key.
 - `--key` / `GRITZ_API_KEY` bypasses all of that, for CI and deployed runners.
-- One new command, `gritz login`, writes an entry into `$CONFIG_DIR/.gritz`.
+- One new command, `gritz login`, writes an entry into `$CONFIG_DIR/.gritz.yml`.
   Everything else is done by editing the files by hand.
 
-### The `.gritz` format
+### The `.gritz.yml` format
 
 YAML, parsed with the `gopkg.in/yaml.v3` dependency that `workspaces.yaml`
 already uses. Every field is optional:
@@ -77,15 +77,15 @@ an existing entry, and so commands can build web UI links (`?org=12`). Because
 names never reach the server, there's no need for a unique server-side slug.
 
 Keys are read as is: there is no file-permission check. `login` creates
-`$CONFIG_DIR/.gritz` with mode `0600`.
+`$CONFIG_DIR/.gritz.yml` with mode `0600`.
 
 ### Discovery and merge
 
 Starting at the working directory, walk up one directory at a time to `/`,
-collecting every `<dir>/.gritz` that exists. The walk does not stop at a git
-root. `$CONFIG_DIR/.gritz` is always merged as the base layer, beneath
+collecting every `<dir>/.gritz.yml` that exists. The walk does not stop at a git
+root. `$CONFIG_DIR/.gritz.yml` is always merged as the base layer, beneath
 everything the walk found. `$CONFIG_DIR` is `configfile.Dir()`, unchanged:
-`GRITZ_CONFIG_DIR`, else `os.UserConfigDir()/gritz`. A `.gritz` path that exists
+`GRITZ_CONFIG_DIR`, else `os.UserConfigDir()/gritz`. A `.gritz.yml` path that exists
 but isn't a regular file is an error.
 
 Layers merge from the base up, so nearer files win:
@@ -100,13 +100,13 @@ for error messages.
 
 The intended layering:
 
-- `$CONFIG_DIR/.gritz` holds the user's entries and keys, written by `login`.
-- A `.gritz` checked into a repo sets `default`, and optionally `allowed`, using
+- `$CONFIG_DIR/.gritz.yml` holds the user's entries and keys, written by `login`.
+- A `.gritz.yml` checked into a repo sets `default`, and optionally `allowed`, using
   names the team agrees on. It holds no keys.
-- A `.gritz` in an uncommitted parent directory (`~/work/acme/.gritz`) can pin
+- A `.gritz.yml` in an uncommitted parent directory (`~/work/acme/.gritz.yml`) can pin
   everything below it, including several repos.
 
-Nothing stops a committed `.gritz` from holding `orgs` with keys; that's the
+Nothing stops a committed `.gritz.yml` from holding `orgs` with keys; that's the
 same risk as committing any other file containing a secret.
 
 ### Selection
@@ -119,21 +119,21 @@ Every user-facing command selects one entry at startup:
    an error, whether or not it's the entry being selected:
 
    ```
-   error: default "acme" (from /home/me/src/labs/.gritz) is not in allowed [labs] (from /home/me/src/labs/.gritz)
+   error: default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/labs/.gritz.yml)
    ```
 
 3. The selected name is `--org` / `GRITZ_ORG` if set, else the merged `default`.
    With neither:
 
    ```
-   error: no org selected: pass --org or set default in a .gritz file
+   error: no org selected: pass --org or set default in a .gritz.yml file
    ```
 
 4. If `allowed` is set and doesn't contain the name, fail, naming the file that
    set `allowed`:
 
    ```
-   error: org "local" is not allowed here: allowed is [acme] (from /home/me/src/acme/.gritz)
+   error: org "local" is not allowed here: allowed is [acme] (from /home/me/src/acme/.gritz.yml)
    ```
 
 5. If no merged entry has the name, fail, pointing at `login`:
@@ -151,7 +151,7 @@ source; `mcp` and `notify` lack it today.
 
 **Explicit key.** `--key` / `GRITZ_API_KEY` supplies a raw key directly. The key
 determines the org server-side, and the server is `--server` > `GRITZ_SERVER` >
-`gritzclient.DefaultURL`. `--org` / `GRITZ_ORG` and every `.gritz` file are
+`gritzclient.DefaultURL`. `--org` / `GRITZ_ORG` and every `.gritz.yml` file are
 ignored. This is the path for CI and for runners deployed with an injected key.
 
 ### API change: report the caller's org
@@ -187,7 +187,7 @@ name comes from the matching entry in `orgs`, which `GetProfile` already returns
    of non-alphanumeric characters becomes a single `-`, and leading and trailing
    `-` are trimmed (`Acme Labs` → `acme-labs`). An empty slug is an error asking
    for `--name`.
-4. Load `$CONFIG_DIR/.gritz` alone, not the merged view. If it has an entry with
+4. Load `$CONFIG_DIR/.gritz.yml` alone, not the merged view. If it has an entry with
    that name:
    - for the same id and server, replace its key;
    - for a different id or server, fail: `entry "acme" is org 31 on https://gritz.dev; pass --name to add org 12 under another name`.
@@ -204,7 +204,7 @@ here reads the same `GRITZ_API_KEY` env source as every other command, so
 `allowed`.
 
 There's no `logout` and no `org` subcommand. Removing an entry, switching the
-default or restricting `allowed` is an edit to a `.gritz` file.
+default or restricting `allowed` is an edit to a `.gritz.yml` file.
 
 **Existing commands**
 
@@ -231,12 +231,12 @@ selection above and returns `gritzclient.Options`:
 - `notify`: same change as `mcp`. Running one `notify` per org with `--org` is
   how to watch several orgs.
 - `runner`: `configfile.Load(&Overrides{Token: ...})` is replaced by the same
-  selection, so a runner on a laptop uses an entry from `.gritz`. Deployed
+  selection, so a runner on a laptop uses an entry from `.gritz.yml`. Deployed
   runners keep using `GRITZ_API_KEY`.
 
 **Not changed:** `gritz tool agent-mcp`, the GitHub MCP proxy and the git
 credential helper run inside the sandbox with the task JWT on
-`--token`/`GRITZ_TOKEN`. They never read `.gritz`, and they keep their flags.
+`--token`/`GRITZ_TOKEN`. They never read `.gritz.yml`, and they keep their flags.
 `server`, `driver`, `containers`, `workspaces`, `download` and `version` don't
 authenticate as a user.
 
@@ -264,9 +264,9 @@ package configfile // github.com/gritzapp/gritz/internal/configfile
 func Dir() (string, error) // unchanged
 
 // Name is the file name used at every level.
-const Name = ".gritz" // new
+const Name = ".gritz.yml" // new
 
-// Entry is one named org in a .gritz file.
+// Entry is one named org in a .gritz.yml file.
 type Entry struct { // new
 	// ID is the org id.
 	ID int64 `yaml:"id"`
@@ -276,7 +276,7 @@ type Entry struct { // new
 	Server string `yaml:"server,omitempty"`
 }
 
-// File is the contents of one .gritz file.
+// File is the contents of one .gritz.yml file.
 type File struct { // replaced: was {Token}
 	// Default is the entry name selected when none is given.
 	Default string `yaml:"default,omitempty"`
@@ -286,10 +286,10 @@ type File struct { // replaced: was {Token}
 	Orgs map[string]Entry `yaml:"orgs,omitempty"`
 }
 
-// Read parses the .gritz file at path, rejecting unknown fields.
+// Read parses the .gritz.yml file at path, rejecting unknown fields.
 func Read(path string) (*File, error) // new
 
-// Merged is the result of merging .gritz files, nearest winning.
+// Merged is the result of merging .gritz.yml files, nearest winning.
 type Merged struct { // new
 	Default     string
 	DefaultFrom string // path of the file that set Default
@@ -299,10 +299,10 @@ type Merged struct { // new
 	OrgsFrom    map[string]string // entry name -> path of the file that set it
 }
 
-// Load merges $CONFIG_DIR/.gritz and every .gritz from dir up to /.
+// Load merges $CONFIG_DIR/.gritz.yml and every .gritz.yml from dir up to /.
 func Load(dir string) (*Merged, error) // replaced: was Load(*Overrides) (*File, error)
 
-// Login writes entry under name into $CONFIG_DIR/.gritz, replacing the key of
+// Login writes entry under name into $CONFIG_DIR/.gritz.yml, replacing the key of
 // an existing entry with the same id and server, and failing with ErrNameTaken
 // if name belongs to a different org or server. The caller validates the key.
 func Login(name string, entry Entry) error // new
@@ -361,7 +361,7 @@ command's action calls it. `LoginCommand` calls `GetProfile`,
    regenerated code, `apiserver.GetProfile`). Depends on: nothing.
    Verifiable by: an apiserver test where a key-authenticated `GetProfile`
    returns the key's org.
-2. **`.gritz` load, merge and select** — Delivers: `configfile.Entry`, the new
+2. **`.gritz.yml` load, merge and select** — Delivers: `configfile.Entry`, the new
    `File` shape under a temporary name beside the old one, `Read`, `Load`
    under a temporary name, `Slug`, and `orgselect`. Nothing calls them yet.
    Depends on: nothing. Verifiable by: unit tests over temp dirs: the walk
@@ -382,7 +382,7 @@ command's action calls it. `LoginCommand` calls `GetProfile`,
    `integrations/mcp`, `operators/runner`). Depends on: (2), (3).
    Verifiable by: an e2e test that logs in to two orgs and runs
    `gritz task list` from a directory whose
-   `.gritz` sets `default` to org A while the base default is org B, and sees
+   `.gritz.yml` sets `default` to org A while the base default is org B, and sees
    only org A's tasks; and one where `--org` names an entry outside `allowed`
    and fails.
 
@@ -396,8 +396,8 @@ command's action calls it. `LoginCommand` calls `GetProfile`,
   key in a committed file.
 - **Walk to `/` vs. stop at the git root.** Stopping at `.git` scopes a file to
   its repo, but it rules out a parent directory pinning several checkouts
-  (`~/work/acme/.gritz`). Because files merge rather than the nearest one
-  winning outright, a stray parent `.gritz` can only supply defaults that
+  (`~/work/acme/.gritz.yml`). Because files merge rather than the nearest one
+  winning outright, a stray parent `.gritz.yml` can only supply defaults that
   nearer files override, and `allowed` lets a repo refuse entries it doesn't
   expect.
 - **Whole-entry vs. field-wise merge of `orgs`.** Field-wise merging would let
@@ -415,7 +415,7 @@ command's action calls it. `LoginCommand` calls `GetProfile`,
   whole workflow. No permission check is enforced; `login` creates the file
   `0600`.
 - **YAML vs. JSON vs. TOML.** YAML is already a dependency, used for
-  `workspaces.yaml`, and allows comments in a committed `.gritz`. JSON doesn't
+  `workspaces.yaml`, and allows comments in a committed `.gritz.yml`. JSON doesn't
   allow comments, and TOML would add a dependency.
 - **One `login` command vs. a full `logout`/`org` command set.** Commands to
   list, remove and switch entries would each be a thin wrapper over an edit to
@@ -432,4 +432,4 @@ command's action calls it. `LoginCommand` calls `GetProfile`,
 1. **First-login default.** `login` never sets `default`, so after the first
    login every command fails with "no org selected" until the user adds
    `default:` by hand or passes `--org`. Should `login` set `default` in
-   `$CONFIG_DIR/.gritz` when that file has none?
+   `$CONFIG_DIR/.gritz.yml` when that file has none?
