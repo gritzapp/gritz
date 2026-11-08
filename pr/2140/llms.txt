@@ -1,0 +1,59 @@
+# gritz
+
+> gritz runs coding agents such as Claude Code and Codex in parallel, each in its own sandbox, driven by tasks and events.
+
+Every page is also served as Markdown: take its URL, drop the trailing slash and append `.md`. The root page is `index.md`.
+
+## Documentation sets
+
+- [Complete documentation](https://docs.gritz.dev/pr/2140/llms-full.txt): every page, concatenated
+- [Abridged documentation](https://docs.gritz.dev/pr/2140/llms-small.txt): every page, with non-essential content removed
+- [Users](https://docs.gritz.dev/pr/2140/_llms-txt/users.txt): using gritz and its integrations
+- [Operators](https://docs.gritz.dev/pr/2140/_llms-txt/operators.txt): deploying and running gritz
+
+## Start here
+
+- [Getting started](https://docs.gritz.dev/pr/2140/getting-started.md): Sign in to gritz, pick an organisation, create a task in the Web UI, watch it run, send a follow-up instruction and archive it.
+- [What is gritz?](https://docs.gritz.dev/pr/2140/index.md): gritz runs coding agents such as Claude Code and Codex in sandboxes, driven by tasks and events.
+
+## Concepts
+
+- [Events and links](https://docs.gritz.dev/pr/2140/concepts/events-and-links.md): How tasks link to pull requests, issues and other resources, how a subscribed link lets an event on that resource wake the task, and where events show up.
+- [Namespaces](https://docs.gritz.dev/pr/2140/concepts/namespaces.md): How a task's namespace scopes which routing rules see its subscriptions, so separate workflows on the same resource don't wake or suppress each other's tasks.
+- [Organisations, members and API keys](https://docs.gritz.dev/pr/2140/concepts/orgs-members-keys.md): How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
+- [Routing rules](https://docs.gritz.dev/pr/2140/concepts/routing-rules.md): How an organisation's routing rules match events by type and conditions, why the first match wins, waking versus creating tasks, public rules, and testing rules with a test event.
+- [Runners](https://docs.gritz.dev/pr/2140/concepts/runners.md): Where a task runs, how runners connect to an organisation, choosing a runner for a task, and what happens when a runner is offline.
+- [Schedules](https://docs.gritz.dev/pr/2140/concepts/schedules.md): Create tasks on a cron schedule, in a timezone, and run a schedule's task on demand with run now.
+- [Tasks](https://docs.gritz.dev/pr/2140/concepts/tasks.md): What a task is, how instructions and events start its runs, the task statuses, restarting and cancelling, archiving and auto-archive, and the task log.
+- [Workspaces](https://docs.gritz.dev/pr/2140/concepts/workspaces.md): What a workspace gives a task (the image, repositories, agent and tools), how to pick one, and who defines them.
+
+## Using gritz
+
+- [Agent tools](https://docs.gritz.dev/pr/2140/using/agent-tools.md): The gritz tools every agent gets (get_my_task, update_my_task, create_link, report and get_github_token), what gritz tells agents to do with them, and how to write instructions that use them.
+- [CLI](https://docs.gritz.dev/pr/2140/using/cli.md): Use the gritz CLI to create, list and update tasks, read a task's log, open a shell in its sandbox and get desktop notifications, and log in to one or more organisations.
+- [Web UI](https://docs.gritz.dev/pr/2140/using/web-ui.md): A tour of the gritz Web UI, the task list and task page, schedules, events and routing rules, workspaces, members, keys and settings.
+
+## Integrations
+
+- [Custom events](https://docs.gritz.dev/pr/2140/integrations/custom-events.md): Send events from any system, such as an alerting tool or a deploy pipeline, to gritz so they create or wake up tasks.
+- [GitHub](https://docs.gritz.dev/pr/2140/integrations/github.md): Install the gritz GitHub App, link your GitHub account, and route pull request and issue events to tasks; the events gritz receives, the reactions it posts, and GitHub credentials for agents.
+- [Jira](https://docs.gritz.dev/pr/2140/integrations/jira.md): Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, labels and assignments to tasks.
+- [MCP](https://docs.gritz.dev/pr/2140/integrations/mcp.md): Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks and administer the organisation; the tools it offers, and task notifications through Claude Code channels.
+
+## Reference
+
+- [API](https://docs.gritz.dev/pr/2140/reference/api.md): Call the gritz Connect API directly, with its endpoint, protocols and authentication, and the full service definition.
+- [CLI](https://docs.gritz.dev/pr/2140/reference/cli.md): Every gritz subcommand and flag, with its environment variable and default.
+- [Custom event envelope](https://docs.gritz.dev/pr/2140/reference/custom-event-envelope.md): The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
+- [Event types](https://docs.gritz.dev/pr/2140/reference/event-types.md): Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes routing rule conditions can match.
+
+## Operators
+
+- [Backends](https://docs.gritz.dev/pr/2140/operators/backends.md): The sandbox backends a runner can use, Docker and AWS Lambda MicroVMs, how each runs a task, and when to use which.
+- [Debugging](https://docs.gritz.dev/pr/2140/operators/debugging.md): Read a task's driver log, log raw agent output with verbose, open a shell in a task's sandbox, and find and clean up task containers.
+- [Deployment](https://docs.gritz.dev/pr/2140/operators/deployment.md): The published gritz server and runner images, running a runner as a Docker Compose service, and upgrading a deployment.
+- [Operators overview](https://docs.gritz.dev/pr/2140/operators/overview.md): The parts of a gritz deployment (server, runner, driver and sandbox), who talks to whom, what each needs to reach, and the data model.
+- [Runner](https://docs.gritz.dev/pr/2140/operators/runner.md): Run gritz runner on your own machine or server, with an API key, a workspaces.yaml and the driver binaries it copies into sandboxes.
+- [Secrets](https://docs.gritz.dev/pr/2140/operators/secrets.md): Declare credentials in a workspace's secrets map so gritz masks them in the task log it ships to the server, and what is masked where.
+- [Server](https://docs.gritz.dev/pr/2140/operators/server.md): Run gritz server with PostgreSQL, single sign-on, the GitHub App and Atlassian integrations, and the endpoints it serves.
+- [workspaces.yaml](https://docs.gritz.dev/pr/2140/operators/workspaces-yaml.md): Reference for the runner's workspace config, the container, setup commands, agent, MCP servers, capabilities and secrets of each workspace, and ${env:} and ${sh:} expansion.
