@@ -132,9 +132,10 @@ func TestLogin_Mode(t *testing.T) {
 	assert.NilError(t, err)
 
 	// A new file is private; an existing one keeps its mode.
-	for path, want := range map[string]os.FileMode{created: 0o600, existing: 0o640} {
-		info, err := os.Stat(path)
-		assert.NilError(t, err)
-		assert.Equal(t, info.Mode().Perm(), want, path)
-	}
+	info, err := os.Stat(created)
+	assert.NilError(t, err)
+	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o600))
+	info, err = os.Stat(existing)
+	assert.NilError(t, err)
+	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
 }
