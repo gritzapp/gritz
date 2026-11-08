@@ -445,6 +445,1774 @@ Workspaces aren’t created in the Web UI. The operator of each runner defines i
 
 A change to a workspace applies to tasks created after the runner restarts with it; existing tasks keep the setup they started with. See [Changing a workspace](/operators/workspaces-yaml/#changing-a-workspace).
 
+# LifecycleKind
+
+> LifecycleKind is what happened in a lifecycle event.
+
+LifecycleKind is what happened in a lifecycle event.
+
+## Values
+
+[Section titled “Values”](#values)
+
+| Name                             | Number | Description |
+| -------------------------------- | ------ | ----------- |
+| `LIFECYCLE_KIND_UNSPECIFIED`     | 0      |             |
+| `LIFECYCLE_KIND_CREATED`         | 1      |             |
+| `LIFECYCLE_KIND_UPDATED`         | 2      |             |
+| `LIFECYCLE_KIND_CANCELLED`       | 3      |             |
+| `LIFECYCLE_KIND_RESTARTED`       | 4      |             |
+| `LIFECYCLE_KIND_ARCHIVED`        | 5      |             |
+| `LIFECYCLE_KIND_UNARCHIVED`      | 6      |             |
+| `LIFECYCLE_KIND_AUTO_ARCHIVED`   | 7      |             |
+| `LIFECYCLE_KIND_SANDBOX_STARTED` | 8      |             |
+| `LIFECYCLE_KIND_SANDBOX_EXITED`  | 9      |             |
+| `LIFECYCLE_KIND_SANDBOX_FAILED`  | 10     |             |
+
+# TaskCommand
+
+> The `TaskCommand` enum of the gritz API.
+
+## Values
+
+[Section titled “Values”](#values)
+
+| Name      | Number | Description |
+| --------- | ------ | ----------- |
+| `NONE`    | 0      |             |
+| `RESTART` | 1      |             |
+| `STOP`    | 2      |             |
+| `START`   | 3      |             |
+
+# TaskStatus
+
+> The `TaskStatus` enum of the gritz API.
+
+## Values
+
+[Section titled “Values”](#values)
+
+| Name          | Number | Description |
+| ------------- | ------ | ----------- |
+| `UNSPECIFIED` | 0      |             |
+| `PENDING`     | 1      |             |
+| `RUNNING`     | 2      |             |
+| `RESTARTING`  | 3      |             |
+| `CANCELLING`  | 4      |             |
+| `COMPLETED`   | 5      |             |
+| `FAILED`      | 6      |             |
+| `CANCELLED`   | 7      |             |
+| `DRAFT`       | 8      |             |
+
+# Actor
+
+> Actor identifies who caused a lifecycle event.
+
+Actor identifies who caused a lifecycle event.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type     | Description                                        |
+| ------ | -------- | -------------------------------------------------- |
+| `kind` | `string` | One of “user”, “runner” or “router”.               |
+| `name` | `string` | The user’s name for a user actor; empty otherwise. |
+
+# AddOrgMemberRequest
+
+> The `AddOrgMemberRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type     | Description |
+| ------- | -------- | ----------- |
+| `email` | `string` |             |
+
+# AddOrgMemberResponse
+
+> The `AddOrgMemberResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field    | Type                                  | Description |
+| -------- | ------------------------------------- | ----------- |
+| `member` | [OrgMember](/api/messages/orgmember/) |             |
+
+# AppendLogChunkRequest
+
+> The `AppendLogChunkRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type    | Description                                                                 |
+| --------- | ------- | --------------------------------------------------------------------------- |
+| `task_id` | `int64` |                                                                             |
+| `version` | `int64` | The run these bytes belong to.                                              |
+| `data`    | `bytes` | The bytes to append to the task’s log. Must be non-empty and at most 1 MiB. |
+
+# AppendLogChunkResponse
+
+> The `AppendLogChunkResponse` message of the gritz API.
+
+This message has no fields.
+
+# ArchiveTaskRequest
+
+> The `ArchiveTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# ArchiveTaskResponse
+
+> The `ArchiveTaskResponse` message of the gritz API.
+
+This message has no fields.
+
+# AtlassianAccount
+
+> The `AtlassianAccount` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field                  | Type                                                                                            | Description |
+| ---------------------- | ----------------------------------------------------------------------------------------------- | ----------- |
+| `atlassian_account_id` | `string`                                                                                        |             |
+| `atlassian_username`   | `string`                                                                                        |             |
+| `created_at`           | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# AttrDef
+
+> AttrDef is an event attribute a routing rule can have a condition on.
+
+AttrDef is an event attribute a routing rule can have a condition on.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type     | Description                                                       |
+| ------------- | -------- | ----------------------------------------------------------------- |
+| `key`         | `string` | The name a RuleCondition’s attr refers to.                        |
+| `label`       | `string` | The attribute’s name in the routing-rule editor.                  |
+| `help`        | `string` | Help text for the attribute in the routing-rule editor.           |
+| `placeholder` | `string` | Placeholder for the attribute’s value in the routing-rule editor. |
+
+# CancelTaskRequest
+
+> The `CancelTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# CancelTaskResponse
+
+> The `CancelTaskResponse` message of the gritz API.
+
+This message has no fields.
+
+# ClearWorkspacesRequest
+
+> The `ClearWorkspacesRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type     | Description                                     |
+| ----------- | -------- | ----------------------------------------------- |
+| `runner_id` | `string` | Optional: clear only workspaces for this runner |
+
+# ClearWorkspacesResponse
+
+> The `ClearWorkspacesResponse` message of the gritz API.
+
+This message has no fields.
+
+# CommandPayload
+
+> CommandPayload records that the task's command, or the run it applies to, changed.
+
+CommandPayload records that the task’s command, or the run it applies to, changed. Runners follow these events to start, restart and stop tasks; timelines don’t show them.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type                                   | Description |
+| ----------- | -------------------------------------- | ----------- |
+| `command`   | [TaskCommand](/api/enums/taskcommand/) |             |
+| `version`   | `int64`                                |             |
+| `runner`    | `string`                               |             |
+| `workspace` | `string`                               |             |
+
+# CreateGitHubTokenRequest
+
+> The `CreateGitHubTokenRequest` message of the gritz API.
+
+This message has no fields.
+
+# CreateGitHubTokenResponse
+
+> The `CreateGitHubTokenResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description |
+| ------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| `token`      | `string`                                                                                        |             |
+| `expires_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# CreateKeyRequest
+
+> The `CreateKeyRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description |
+| ------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| `name`       | `string`                                                                                        |             |
+| `expires_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# CreateKeyResponse
+
+> The `CreateKeyResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type                      | Description |
+| ----------- | ------------------------- | ----------- |
+| `key`       | [Key](/api/messages/key/) |             |
+| `raw_token` | `string`                  |             |
+
+# CreateLinkRequest
+
+> The `CreateLinkRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type     | Description |
+| ----------- | -------- | ----------- |
+| `task_id`   | `int64`  |             |
+| `relevance` | `string` |             |
+| `url`       | `string` |             |
+| `title`     | `string` |             |
+| `subscribe` | `bool`   |             |
+
+# CreateLinkResponse
+
+> The `CreateLinkResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type                                | Description |
+| ------ | ----------------------------------- | ----------- |
+| `link` | [TaskLink](/api/messages/tasklink/) |             |
+
+# CreateOrgRequest
+
+> The `CreateOrgRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type     | Description |
+| ------ | -------- | ----------- |
+| `name` | `string` |             |
+
+# CreateOrgResponse
+
+> The `CreateOrgResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type                      | Description |
+| ----- | ------------------------- | ----------- |
+| `org` | [Org](/api/messages/org/) |             |
+
+# CreateScheduleRequest
+
+> The `CreateScheduleRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field          | Type                                                                                          | Description                                                                                                            |
+| -------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `name`         | `string`                                                                                      |                                                                                                                        |
+| `workspace`    | `string`                                                                                      |                                                                                                                        |
+| `runner`       | `string`                                                                                      |                                                                                                                        |
+| `namespace`    | `string`                                                                                      |                                                                                                                        |
+| `instructions` | repeated [Instruction](/api/messages/instruction/)                                            |                                                                                                                        |
+| `cron_expr`    | `string`                                                                                      |                                                                                                                        |
+| `timezone`     | `string`                                                                                      | IANA name; empty defaults to “UTC”.                                                                                    |
+| `enabled`      | `bool`                                                                                        | Whether the schedule runs. False (the default) creates a schedule that never runs until SetScheduleEnabled enables it. |
+| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) |                                                                                                                        |
+
+# CreateScheduleResponse
+
+> The `CreateScheduleResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field      | Type                                | Description |
+| ---------- | ----------------------------------- | ----------- |
+| `schedule` | [Schedule](/api/messages/schedule/) |             |
+
+# CreateTaskAction
+
+> The `CreateTaskAction` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field          | Type                                                                                          | Description                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `workspace`    | `string`                                                                                      |                                                                                |
+| `runner`       | `string`                                                                                      |                                                                                |
+| `prompt`       | `string`                                                                                      |                                                                                |
+| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | The auto-archive delay of the tasks the rule creates, as in Task.auto_archive. |
+
+# CreateTaskRequest
+
+> The `CreateTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field          | Type                                                                                          | Description                                                                                                                                                                                              |
+| -------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | `string`                                                                                      |                                                                                                                                                                                                          |
+| `workspace`    | `string`                                                                                      |                                                                                                                                                                                                          |
+| `instructions` | repeated [Instruction](/api/messages/instruction/)                                            |                                                                                                                                                                                                          |
+| `runner`       | `string`                                                                                      | Runner ID that should handle this task                                                                                                                                                                   |
+| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) |                                                                                                                                                                                                          |
+| `namespace`    | `string`                                                                                      | The task’s namespace; empty is the default namespace. See Task.namespace.                                                                                                                                |
+| `draft`        | `bool`                                                                                        | Create the task as a DRAFT: no runner picks it up until an UpdateTask with start set, such as the first instruction sent from the task page, starts it. False (the default) starts the task immediately. |
+
+# CreateTaskResponse
+
+> The `CreateTaskResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type                        | Description |
+| ------ | --------------------------- | ----------- |
+| `task` | [Task](/api/messages/task/) |             |
+
+# CreateTaskTokenRequest
+
+> The `CreateTaskTokenRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field          | Type              | Description                                                            |
+| -------------- | ----------------- | ---------------------------------------------------------------------- |
+| `task_id`      | `int64`           |                                                                        |
+| `capabilities` | `repeated string` | The workspace capabilities to grant the token, such as “github_token”. |
+
+# CreateTaskTokenResponse
+
+> The `CreateTaskTokenResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type     | Description |
+| ------- | -------- | ----------- |
+| `token` | `string` |             |
+
+# DeleteEventRequest
+
+> The `DeleteEventRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# DeleteEventResponse
+
+> The `DeleteEventResponse` message of the gritz API.
+
+This message has no fields.
+
+# DeleteKeyRequest
+
+> The `DeleteKeyRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type     | Description |
+| ----- | -------- | ----------- |
+| `id`  | `string` |             |
+
+# DeleteKeyResponse
+
+> The `DeleteKeyResponse` message of the gritz API.
+
+This message has no fields.
+
+# DeleteOrgRequest
+
+> The `DeleteOrgRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# DeleteOrgResponse
+
+> The `DeleteOrgResponse` message of the gritz API.
+
+This message has no fields.
+
+# DeleteScheduleRequest
+
+> The `DeleteScheduleRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# DeleteScheduleResponse
+
+> The `DeleteScheduleResponse` message of the gritz API.
+
+This message has no fields.
+
+# Event
+
+> The `Event` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                                                            | Description       |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------------- |
+| `id`          | `int64`                                                                                         |                   |
+| `task_id`     | `int64`                                                                                         |                   |
+| `wake`        | `bool`                                                                                          |                   |
+| `created_at`  | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                   |
+| `instruction` | [InstructionPayload](/api/messages/instructionpayload/)                                         | One of `payload`. |
+| `external`    | [ExternalPayload](/api/messages/externalpayload/)                                               | One of `payload`. |
+| `report`      | [ReportPayload](/api/messages/reportpayload/)                                                   | One of `payload`. |
+| `lifecycle`   | [LifecyclePayload](/api/messages/lifecyclepayload/)                                             | One of `payload`. |
+| `link`        | [LinkPayload](/api/messages/linkpayload/)                                                       | One of `payload`. |
+| `command`     | [CommandPayload](/api/messages/commandpayload/)                                                 | One of `payload`. |
+
+# EventTypeDef
+
+> EventTypeDef is an event type, identified by its source and type, and every attribute a routing rule can have a condition on for it.
+
+EventTypeDef is an event type, identified by its source and type, and every attribute a routing rule can have a condition on for it.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field    | Type                                       | Description |
+| -------- | ------------------------------------------ | ----------- |
+| `source` | `string`                                   |             |
+| `type`   | `string`                                   |             |
+| `label`  | `string`                                   |             |
+| `attrs`  | repeated [AttrDef](/api/messages/attrdef/) |             |
+
+# ExternalPayload
+
+> The `ExternalPayload` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                  | Description                                                                                                                                                                                                                                                                  |
+| ------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `description` | `string`              |                                                                                                                                                                                                                                                                              |
+| `url`         | `string`              |                                                                                                                                                                                                                                                                              |
+| `data`        | `string`              |                                                                                                                                                                                                                                                                              |
+| `details`     | `map<string, string>` | Extra context defined by the event’s source, shown to the agent by get_my_task and on the task’s timeline. GitHub review comments set `path`, `line`, `side` and `diff_hunk`; other sources set their own keys or none. These are not the attributes routing rules match on. |
+| `source`      | `string`              | Where the event came from, such as “github” or “jira”.                                                                                                                                                                                                                       |
+| `type`        | `string`              | The event’s type within its source, such as “issue_comment” or “pull_request_review”.                                                                                                                                                                                        |
+
+# GenerateAtlassianWebhookSecretRequest
+
+> The `GenerateAtlassianWebhookSecretRequest` message of the gritz API.
+
+This message has no fields.
+
+# GenerateAtlassianWebhookSecretResponse
+
+> The `GenerateAtlassianWebhookSecretResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type     | Description |
+| ------------- | -------- | ----------- |
+| `secret`      | `string` |             |
+| `webhook_url` | `string` |             |
+
+# GetCallerRequest
+
+> The `GetCallerRequest` message of the gritz API.
+
+This message has no fields.
+
+# GetCallerResponse
+
+> The `GetCallerResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type                      | Description                                  |
+| ----- | ------------------------- | -------------------------------------------- |
+| `org` | [Org](/api/messages/org/) | the org the request is authenticated against |
+
+# GetCustomEventTypesRequest
+
+> The `GetCustomEventTypesRequest` message of the gritz API.
+
+This message has no fields.
+
+# GetCustomEventTypesResponse
+
+> The `GetCustomEventTypesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                 | Description              |
+| ------------- | ---------------------------------------------------- | ------------------------ |
+| `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) | every source is “custom” |
+
+# GetEventRequest
+
+> The `GetEventRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# GetEventResponse
+
+> The `GetEventResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type                          | Description |
+| ------- | ----------------------------- | ----------- |
+| `event` | [Event](/api/messages/event/) |             |
+
+# GetEventTypesRequest
+
+> The `GetEventTypesRequest` message of the gritz API.
+
+This message has no fields.
+
+# GetEventTypesResponse
+
+> The `GetEventTypesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                 | Description |
+| ------------- | ---------------------------------------------------- | ----------- |
+| `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) |             |
+
+# GetOrgSettingsRequest
+
+> The `GetOrgSettingsRequest` message of the gritz API.
+
+This message has no fields.
+
+# GetOrgSettingsResponse
+
+> The `GetOrgSettingsResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field                      | Type     | Description                                                          |
+| -------------------------- | -------- | -------------------------------------------------------------------- |
+| `atlassian_webhook_secret` | `string` |                                                                      |
+| `atlassian_webhook_url`    | `string` |                                                                      |
+| `github_app_url`           | `string` |                                                                      |
+| `mcp_url`                  | `string` |                                                                      |
+| `github_installation_id`   | `int64`  |                                                                      |
+| `custom_webhook_url`       | `string` | where to POST custom events, e.g. <https://gritz.dev/webhook/custom> |
+
+# GetProfileRequest
+
+> The `GetProfileRequest` message of the gritz API.
+
+This message has no fields.
+
+# GetProfileResponse
+
+> The `GetProfileResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field               | Type                                                | Description |
+| ------------------- | --------------------------------------------------- | ----------- |
+| `profile`           | [Profile](/api/messages/profile/)                   |             |
+| `orgs`              | repeated [Org](/api/messages/org/)                  |             |
+| `default_org_id`    | `int64`                                             |             |
+| `github_account`    | [GitHubAccount](/api/messages/githubaccount/)       |             |
+| `atlassian_account` | [AtlassianAccount](/api/messages/atlassianaccount/) |             |
+
+# GetRoutingRulesRequest
+
+> The `GetRoutingRulesRequest` message of the gritz API.
+
+This message has no fields.
+
+# GetRoutingRulesResponse
+
+> The `GetRoutingRulesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type                                               | Description |
+| ------- | -------------------------------------------------- | ----------- |
+| `rules` | repeated [RoutingRule](/api/messages/routingrule/) |             |
+
+# GetScheduleRequest
+
+> The `GetScheduleRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# GetScheduleResponse
+
+> The `GetScheduleResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field      | Type                                | Description |
+| ---------- | ----------------------------------- | ----------- |
+| `schedule` | [Schedule](/api/messages/schedule/) |             |
+
+# GetTaskRequest
+
+> The `GetTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# GetTaskResponse
+
+> The `GetTaskResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type                        | Description |
+| ------ | --------------------------- | ----------- |
+| `task` | [Task](/api/messages/task/) |             |
+
+# GitHubAccount
+
+> The `GitHubAccount` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field             | Type                                                                                            | Description |
+| ----------------- | ----------------------------------------------------------------------------------------------- | ----------- |
+| `id`              | `int64`                                                                                         |             |
+| `github_user_id`  | `int64`                                                                                         |             |
+| `github_username` | `string`                                                                                        |             |
+| `created_at`      | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# Instruction
+
+> The `Instruction` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type     | Description |
+| ------ | -------- | ----------- |
+| `text` | `string` |             |
+| `url`  | `string` |             |
+
+# InstructionPayload
+
+> InstructionPayload is an instruction to the task's agent.
+
+InstructionPayload is an instruction to the task’s agent.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type     | Description |
+| ------ | -------- | ----------- |
+| `text` | `string` |             |
+| `url`  | `string` |             |
+
+# Key
+
+> The `Key` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description |
+| ------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| `id`         | `string`                                                                                        |             |
+| `name`       | `string`                                                                                        |             |
+| `expires_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# LifecyclePayload
+
+> LifecyclePayload records something that happened to the task, such as its creation, its cancellation or its sandbox exiting.
+
+LifecyclePayload records something that happened to the task, such as its creation, its cancellation or its sandbox exiting.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                       | Description                                                                                   |
+| ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `kind`        | [LifecycleKind](/api/enums/lifecyclekind/) |                                                                                               |
+| `actor`       | [Actor](/api/messages/actor/)              |                                                                                               |
+| `from_status` | `string`                                   |                                                                                               |
+| `to_status`   | `string`                                   |                                                                                               |
+| `message`     | `string`                                   | The failure detail for SANDBOX_FAILED; empty for other kinds.                                 |
+| `fields`      | `repeated string`                          | The task fields that changed, such as “name” or “status”, for UPDATED; empty for other kinds. |
+
+# LinkGitHubInstallationRequest
+
+> The `LinkGitHubInstallationRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field             | Type    | Description |
+| ----------------- | ------- | ----------- |
+| `installation_id` | `int64` |             |
+
+# LinkGitHubInstallationResponse
+
+> The `LinkGitHubInstallationResponse` message of the gritz API.
+
+This message has no fields.
+
+# LinkPayload
+
+> LinkPayload records a link the task created, such as a pull request or an issue.
+
+LinkPayload records a link the task created, such as a pull request or an issue.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type     | Description        |
+| ----------- | -------- | ------------------ |
+| `link_id`   | `int64`  | The TaskLink’s id. |
+| `relevance` | `string` |                    |
+| `url`       | `string` |                    |
+| `title`     | `string` |                    |
+| `subscribe` | `bool`   |                    |
+
+# ListEventsByTaskRequest
+
+> The `ListEventsByTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type              | Description                                                                                                                    |
+| ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `task_id`    | `int64`           |                                                                                                                                |
+| `page_size`  | `int32`           | Max events per page (default 50, max 200).                                                                                     |
+| `page_token` | `string`          | A previous response’s prev_page_token or next_page_token; empty for the newest page.                                           |
+| `types`      | `repeated string` | The event types to return, named after Event’s payload fields (such as “instruction” or “external”); empty returns every type. |
+
+# ListEventsByTaskResponse
+
+> The `ListEventsByTaskResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field             | Type                                   | Description                                                                                                                                                                                |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `events`          | repeated [Event](/api/messages/event/) | Oldest first.                                                                                                                                                                              |
+| `prev_page_token` | `string`                               | Token for the older page; empty at the first event.                                                                                                                                        |
+| `next_page_token` | `string`                               | Token for the newer page. Always set, so a client can keep polling it for new events.                                                                                                      |
+| `more`            | `bool`                                 | Whether another page exists in the direction just read: older for a request with a prev_page_token, newer otherwise. Stop when more is false rather than on a page shorter than page_size. |
+
+# ListExternalEventsRequest
+
+> The `ListExternalEventsRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type    | Description                                   |
+| ------- | ------- | --------------------------------------------- |
+| `limit` | `int32` | Max events to return (default: 100, max: 100) |
+
+# ListExternalEventsResponse
+
+> The `ListExternalEventsResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field    | Type                                   | Description |
+| -------- | -------------------------------------- | ----------- |
+| `events` | repeated [Event](/api/messages/event/) |             |
+
+# ListKeysRequest
+
+> The `ListKeysRequest` message of the gritz API.
+
+This message has no fields.
+
+# ListKeysResponse
+
+> The `ListKeysResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type                               | Description |
+| ------ | ---------------------------------- | ----------- |
+| `keys` | repeated [Key](/api/messages/key/) |             |
+
+# ListLinksRequest
+
+> The `ListLinksRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type    | Description |
+| --------- | ------- | ----------- |
+| `task_id` | `int64` |             |
+
+# ListLinksResponse
+
+> The `ListLinksResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type                                         | Description |
+| ------- | -------------------------------------------- | ----------- |
+| `links` | repeated [TaskLink](/api/messages/tasklink/) |             |
+
+# ListLogChunksByTaskRequest
+
+> The `ListLogChunksByTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type     | Description                                                                                                 |
+| ------------ | -------- | ----------------------------------------------------------------------------------------------------------- |
+| `task_id`    | `int64`  |                                                                                                             |
+| `page_size`  | `int32`  | Max chunks per page (default 50, max 200).                                                                  |
+| `page_token` | `string` | A previous response’s prev_page_token or next_page_token; empty for the newest page, at the end of the log. |
+
+# ListLogChunksByTaskResponse
+
+> The `ListLogChunksByTaskResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field             | Type                                         | Description                                                                                                                                                                                |
+| ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chunks`          | repeated [LogChunk](/api/messages/logchunk/) | Oldest first, so their data concatenates in log order.                                                                                                                                     |
+| `prev_page_token` | `string`                                     | Token for the older page; empty at the start of the log.                                                                                                                                   |
+| `next_page_token` | `string`                                     | Token for the newer page. Always set, so a client can keep polling it for new chunks.                                                                                                      |
+| `more`            | `bool`                                       | Whether another page exists in the direction just read: older for a request with a prev_page_token, newer otherwise. Stop when more is false rather than on a page shorter than page_size. |
+
+# ListOrgMembersRequest
+
+> The `ListOrgMembersRequest` message of the gritz API.
+
+This message has no fields.
+
+# ListOrgMembersResponse
+
+> The `ListOrgMembersResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type                                           | Description |
+| --------- | ---------------------------------------------- | ----------- |
+| `members` | repeated [OrgMember](/api/messages/orgmember/) |             |
+
+# ListOrgsRequest
+
+> The `ListOrgsRequest` message of the gritz API.
+
+This message has no fields.
+
+# ListOrgsResponse
+
+> The `ListOrgsResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type                               | Description |
+| ------ | ---------------------------------- | ----------- |
+| `orgs` | repeated [Org](/api/messages/org/) |             |
+
+# ListRunnerEventsRequest
+
+> The `ListRunnerEventsRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type     | Description                                                                              |
+| ------------ | -------- | ---------------------------------------------------------------------------------------- |
+| `runner`     | `string` | Runner ID (required)                                                                     |
+| `page_token` | `string` | Opaque; empty for the start of the log, otherwise a previous response’s next_page_token. |
+| `page_size`  | `int32`  | Max events to return; 0 for the server default                                           |
+
+# ListRunnerEventsResponse
+
+> The `ListRunnerEventsResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field             | Type                                   | Description                                                                                                         |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `events`          | repeated [Event](/api/messages/event/) |                                                                                                                     |
+| `next_page_token` | `string`                               | Resumes after the last event in this page; the request’s page_token when the page is empty. Pass it back unchanged. |
+| `more`            | `bool`                                 | Whether more events are available right now past this page.                                                         |
+
+# ListSchedulesRequest
+
+> The `ListSchedulesRequest` message of the gritz API.
+
+This message has no fields.
+
+# ListSchedulesResponse
+
+> The `ListSchedulesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type                                         | Description |
+| ----------- | -------------------------------------------- | ----------- |
+| `schedules` | repeated [Schedule](/api/messages/schedule/) |             |
+
+# ListTasksRequest
+
+> The `ListTasksRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type     | Description                                                             |
+| ------------ | -------- | ----------------------------------------------------------------------- |
+| `page_size`  | `int32`  | Max tasks to return (default: 50, max: 100)                             |
+| `page_token` | `string` | Opaque cursor from a previous next_page_token; empty for the first page |
+| `archived`   | `bool`   | Include archived tasks alongside active ones (default: false)           |
+
+# ListTasksResponse
+
+> The `ListTasksResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field             | Type                                 | Description                                                   |
+| ----------------- | ------------------------------------ | ------------------------------------------------------------- |
+| `tasks`           | repeated [Task](/api/messages/task/) |                                                               |
+| `next_page_token` | `string`                             | Token for the next page; empty when there are no more results |
+
+# ListWorkspacesRequest
+
+> The `ListWorkspacesRequest` message of the gritz API.
+
+This message has no fields.
+
+# ListWorkspacesResponse
+
+> The `ListWorkspacesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                               | Description |
+| ------------ | ------------------------------------------------------------------ | ----------- |
+| `workspaces` | repeated [RegisteredWorkspace](/api/messages/registeredworkspace/) |             |
+
+# LogChunk
+
+> LogChunk is a run of bytes from a task's log.
+
+LogChunk is a run of bytes from a task’s log. The log is the concatenation of its chunks’ data in id order.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `id`         | `int64`                                                                                         |                                                                                |
+| `task_id`    | `int64`                                                                                         |                                                                                |
+| `version`    | `int64`                                                                                         | The run (Task.version) the bytes belong to; 0 for output before the first run. |
+| `data`       | `bytes`                                                                                         | Raw log bytes, not split into lines.                                           |
+| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                                                                                |
+
+# LogEntry
+
+> The `LogEntry` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description |
+| ------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| `type`       | `string`                                                                                        |             |
+| `content`    | `string`                                                                                        |             |
+| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# McpServer
+
+> The `McpServer` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type                  | Description |
+| --------- | --------------------- | ----------- |
+| `name`    | `string`              |             |
+| `command` | `string`              |             |
+| `args`    | `repeated string`     |             |
+| `env`     | `map<string, string>` |             |
+
+# OpenShellRequest
+
+> The `OpenShellRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type    | Description |
+| --------- | ------- | ----------- |
+| `task_id` | `int64` |             |
+
+# OpenShellResponse
+
+> The `OpenShellResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type     | Description                                                                                                                                              |
+| ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session_id` | `string` | The shell session to attach to, at `GET /shell/{session_id}/attach`. The task’s sandbox restarts to serve it, and the task’s shell_session is set to it. |
+
+# Org
+
+> The `Org` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description |
+| ------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| `id`         | `int64`                                                                                         |             |
+| `name`       | `string`                                                                                        |             |
+| `owner`      | `string`                                                                                        |             |
+| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+| `updated_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# OrgMember
+
+> The `OrgMember` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                                                            | Description |
+| ------------ | ----------------------------------------------------------------------------------------------- | ----------- |
+| `org_id`     | `int64`                                                                                         |             |
+| `user_id`    | `string`                                                                                        |             |
+| `email`      | `string`                                                                                        |             |
+| `name`       | `string`                                                                                        |             |
+| `role`       | `string`                                                                                        |             |
+| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+
+# PingRequest
+
+> The `PingRequest` message of the gritz API.
+
+This message has no fields.
+
+# PingResponse
+
+> The `PingResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type     | Description |
+| --------- | -------- | ----------- |
+| `version` | `string` |             |
+
+# Profile
+
+> The `Profile` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type     | Description |
+| ------- | -------- | ----------- |
+| `id`    | `string` |             |
+| `email` | `string` |             |
+| `name`  | `string` |             |
+
+# RegisteredWorkspace
+
+> The `RegisteredWorkspace` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                                                            | Description |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------- |
+| `name`        | `string`                                                                                        |             |
+| `runner_id`   | `string`                                                                                        |             |
+| `updated_at`  | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |             |
+| `description` | `string`                                                                                        |             |
+
+# RegisterWorkspacesRequest
+
+> The `RegisterWorkspacesRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                               | Description |
+| ------------ | ------------------------------------------------------------------ | ----------- |
+| `runner_id`  | `string`                                                           |             |
+| `workspaces` | repeated [RegisteredWorkspace](/api/messages/registeredworkspace/) |             |
+
+# RegisterWorkspacesResponse
+
+> The `RegisterWorkspacesResponse` message of the gritz API.
+
+This message has no fields.
+
+# RemoveOrgMemberRequest
+
+> The `RemoveOrgMemberRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type     | Description |
+| --------- | -------- | ----------- |
+| `user_id` | `string` |             |
+
+# RemoveOrgMemberResponse
+
+> The `RemoveOrgMemberResponse` message of the gritz API.
+
+This message has no fields.
+
+# ReportPayload
+
+> ReportPayload is a message from the task's agent, written with its `report` tool.
+
+ReportPayload is a message from the task’s agent, written with its `report` tool.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type     | Description |
+| --------- | -------- | ----------- |
+| `content` | `string` |             |
+
+# RestartTaskRequest
+
+> The `RestartTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# RestartTaskResponse
+
+> The `RestartTaskResponse` message of the gritz API.
+
+This message has no fields.
+
+# RoutingRule
+
+> The `RoutingRule` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field        | Type                                                   | Description                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`     | `string`                                               |                                                                                                                                                                                              |
+| `type`       | `string`                                               |                                                                                                                                                                                              |
+| `create`     | [CreateTaskAction](/api/messages/createtaskaction/)    |                                                                                                                                                                                              |
+| `wakeup`     | `bool`                                                 | Whether a match starts the subscribed tasks again to handle the event. When false, the event is added to their timelines without starting them. Rules created in the web UI default to true. |
+| `conditions` | repeated [RuleCondition](/api/messages/rulecondition/) | Conditions the event must meet, all of them. Empty source and type match any; no conditions match every event of the selected type.                                                          |
+| `public`     | `bool`                                                 | Whether the rule also acts on events from people who aren’t members of the org. False (the default) acts only on members’ events.                                                            |
+| `namespace`  | `string`                                               | The rule’s namespace: a match looks for subscribed tasks only in it, and a task the rule creates is in it. Empty is the default namespace.                                                   |
+
+# RuleCondition
+
+> RuleCondition constrains one attribute of an event.
+
+RuleCondition constrains one attribute of an event. Comparisons are exact and case-sensitive.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type     | Description                              |
+| ------- | -------- | ---------------------------------------- |
+| `attr`  | `string` |                                          |
+| `op`    | `string` | One of “equals”, “prefix” or “contains”. |
+| `value` | `string` |                                          |
+
+# RunnerEvent
+
+> The `RunnerEvent` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type     | Description                                                                                                                               |
+| ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_id`   | `int64`  |                                                                                                                                           |
+| `event`     | `string` | “started”, “stopped” or “failed”.                                                                                                         |
+| `version`   | `int64`  | The run (Task.version) the event is about. An event for another run than the task’s current one is ignored; 0 applies to the current run. |
+| `reconcile` | `bool`   | Events with reconcile set are ignored.                                                                                                    |
+| `reason`    | `string` | Optional human-readable detail, such as why the run failed.                                                                               |
+
+# RunScheduleRequest
+
+> RunScheduleRequest creates a task from a schedule now, once, in addition to its regular runs.
+
+RunScheduleRequest creates a task from a schedule now, once, in addition to its regular runs. It leaves next_run_at, last_run_at and last_task_id unchanged, and works on a disabled schedule too, so a schedule can be tried out before it is enabled.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# RunScheduleResponse
+
+> The `RunScheduleResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field  | Type                        | Description               |
+| ------ | --------------------------- | ------------------------- |
+| `task` | [Task](/api/messages/task/) | The task the run created. |
+
+# Schedule
+
+> Schedule is a task template and a cron expression: the server creates a task from the template at each time the expression matches.
+
+Schedule is a task template and a cron expression: the server creates a task from the template at each time the expression matches. A schedule belongs to its org, not to the user who created it.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field          | Type                                                                                            | Description                            |
+| -------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `id`           | `int64`                                                                                         |                                        |
+| `name`         | `string`                                                                                        |                                        |
+| `workspace`    | `string`                                                                                        |                                        |
+| `runner`       | `string`                                                                                        |                                        |
+| `namespace`    | `string`                                                                                        |                                        |
+| `instructions` | repeated [Instruction](/api/messages/instruction/)                                              |                                        |
+| `cron_expr`    | `string`                                                                                        |                                        |
+| `timezone`     | `string`                                                                                        | IANA name; default “UTC”.              |
+| `enabled`      | `bool`                                                                                          |                                        |
+| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration)   |                                        |
+| `next_run_at`  | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | Unset when disabled.                   |
+| `last_run_at`  | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | Unset when it has never run.           |
+| `last_task_id` | `int64`                                                                                         | 0 when it has never run.               |
+| `created_by`   | `string`                                                                                        | Who created it; grants no permissions. |
+| `created_at`   | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                                        |
+| `updated_at`   | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                                        |
+
+# SetCustomEventTypesRequest
+
+> SetCustomEventTypesRequest replaces the org's custom event types.
+
+SetCustomEventTypesRequest replaces the org’s custom event types. It fails with `invalid_argument` if a type is malformed, and `failed_precondition` if an existing routing rule would no longer be valid with the new types.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                 | Description |
+| ------------- | ---------------------------------------------------- | ----------- |
+| `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) |             |
+
+# SetCustomEventTypesResponse
+
+> The `SetCustomEventTypesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                 | Description |
+| ------------- | ---------------------------------------------------- | ----------- |
+| `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) |             |
+
+# SetRoutingRulesRequest
+
+> The `SetRoutingRulesRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type                                               | Description |
+| ------- | -------------------------------------------------- | ----------- |
+| `rules` | repeated [RoutingRule](/api/messages/routingrule/) |             |
+
+# SetRoutingRulesResponse
+
+> The `SetRoutingRulesResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field   | Type                                               | Description |
+| ------- | -------------------------------------------------- | ----------- |
+| `rules` | repeated [RoutingRule](/api/messages/routingrule/) |             |
+
+# SetScheduleEnabledRequest
+
+> SetScheduleEnabledRequest enables or disables a schedule.
+
+SetScheduleEnabledRequest enables or disables a schedule. Enabling computes next_run_at from now; disabling clears it, and the schedule stops running.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type    | Description |
+| --------- | ------- | ----------- |
+| `id`      | `int64` |             |
+| `enabled` | `bool`  |             |
+
+# SetScheduleEnabledResponse
+
+> The `SetScheduleEnabledResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field      | Type                                | Description |
+| ---------- | ----------------------------------- | ----------- |
+| `schedule` | [Schedule](/api/messages/schedule/) |             |
+
+# SubmitRunnerEventsRequest
+
+> The `SubmitRunnerEventsRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field    | Type                                               | Description |
+| -------- | -------------------------------------------------- | ----------- |
+| `events` | repeated [RunnerEvent](/api/messages/runnerevent/) |             |
+
+# SubmitRunnerEventsResponse
+
+> The `SubmitRunnerEventsResponse` message of the gritz API.
+
+This message has no fields.
+
+# Task
+
+> The `Task` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field           | Type                                                                                            | Description                                                                                                                                                                                                                                                 |
+| --------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | `int64`                                                                                         |                                                                                                                                                                                                                                                             |
+| `name`          | `string`                                                                                        |                                                                                                                                                                                                                                                             |
+| `workspace`     | `string`                                                                                        |                                                                                                                                                                                                                                                             |
+| `runner`        | `string`                                                                                        | Runner ID that handles this task                                                                                                                                                                                                                            |
+| `status`        | [TaskStatus](/api/enums/taskstatus/)                                                            |                                                                                                                                                                                                                                                             |
+| `created_at`    | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                                                                                                                                                                                                                                                             |
+| `updated_at`    | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                                                                                                                                                                                                                                                             |
+| `command`       | [TaskCommand](/api/enums/taskcommand/)                                                          |                                                                                                                                                                                                                                                             |
+| `version`       | `int64`                                                                                         | The task’s current run: 0 before it first starts, then 1, and one more for each new run.                                                                                                                                                                    |
+| `actions`       | [TaskActions](/api/messages/taskactions/)                                                       |                                                                                                                                                                                                                                                             |
+| `archived`      | `bool`                                                                                          |                                                                                                                                                                                                                                                             |
+| `url`           | `string`                                                                                        |                                                                                                                                                                                                                                                             |
+| `auto_archive`  | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration)   | How long the task stays in a terminal status (COMPLETED, FAILED, CANCELLED) before it is archived. Zero or unset never archives it, a negative value archives it as soon as it reaches a terminal status, and a positive value archives it that long after. |
+| `shell_session` | `string`                                                                                        | The shell session the task’s sandbox serves instead of running the agent, set by OpenShell. Empty for an ordinary run.                                                                                                                                      |
+| `namespace`     | `string`                                                                                        | The task’s namespace: only routing rules in the same namespace see its subscriptions. Empty is the default namespace. Set at creation and can’t be changed.                                                                                                 |
+
+# TaskActions
+
+> The `TaskActions` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field       | Type   | Description |
+| ----------- | ------ | ----------- |
+| `archive`   | `bool` |             |
+| `cancel`    | `bool` |             |
+| `restart`   | `bool` |             |
+| `start`     | `bool` |             |
+| `unarchive` | `bool` |             |
+
+# TaskLink
+
+> The `TaskLink` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                                                                                            | Description                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `id`          | `int64`                                                                                         |                                                                                |
+| `task_id`     | `int64`                                                                                         |                                                                                |
+| `relevance`   | `string`                                                                                        |                                                                                |
+| `url`         | `string`                                                                                        |                                                                                |
+| `title`       | `string`                                                                                        |                                                                                |
+| `subscribe`   | `bool`                                                                                          |                                                                                |
+| `created_at`  | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) |                                                                                |
+| `routing_key` | `string`                                                                                        | The key events are matched against, derived from url by the server. Read-only. |
+
+# TestEventMatch
+
+> TestEventMatch is what a matching routing rule did, or would do.
+
+TestEventMatch is what a matching routing rule did, or would do.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field              | Type             | Description                                                            |
+| ------------------ | ---------------- | ---------------------------------------------------------------------- |
+| `org_id`           | `int64`          |                                                                        |
+| `rule_index`       | `int32`          | The index of the rule that matched, or -1 for a built-in default rule. |
+| `would_wake`       | `bool`           | The matched rule’s wakeup.                                             |
+| `would_create`     | `bool`           | Whether a task would be, or was, created.                              |
+| `created_task_ids` | `repeated int64` | The tasks created; set only when fired.                                |
+| `event_ids`        | `repeated int64` | The events added; set only when fired.                                 |
+
+# TestEventRequest
+
+> TestEventRequest composes an event and routes it through the org's routing rules, as a dry run or for real.
+
+TestEventRequest composes an event and routes it through the org’s routing rules, as a dry run or for real.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field         | Type                  | Description                                                                     |
+| ------------- | --------------------- | ------------------------------------------------------------------------------- |
+| `source`      | `string`              | The event type’s source, such as “github”.                                      |
+| `type`        | `string`              | The event type, such as “issue_comment”.                                        |
+| `attrs`       | `map<string, string>` | The event’s attribute values, keyed by AttrDef.key, including “body” and “url”. |
+| `description` | `string`              | Optional description shown on the task’s timeline.                              |
+| `fire`        | `bool`                | False (the default) for a dry run; true to act on the matches.                  |
+| `details`     | `map<string, string>` | Stored as the event’s ExternalPayload.details.                                  |
+
+# TestEventResponse
+
+> The `TestEventResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type                                                     | Description                            |
+| --------- | -------------------------------------------------------- | -------------------------------------- |
+| `matches` | repeated [TestEventMatch](/api/messages/testeventmatch/) | The match in the caller’s org, if any. |
+| `fired`   | `bool`                                                   | Whether the matches were acted on.     |
+
+# UnarchiveTaskRequest
+
+> The `UnarchiveTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field | Type    | Description |
+| ----- | ------- | ----------- |
+| `id`  | `int64` |             |
+
+# UnarchiveTaskResponse
+
+> The `UnarchiveTaskResponse` message of the gritz API.
+
+This message has no fields.
+
+# UnlinkAtlassianAccountRequest
+
+> The `UnlinkAtlassianAccountRequest` message of the gritz API.
+
+This message has no fields.
+
+# UnlinkAtlassianAccountResponse
+
+> The `UnlinkAtlassianAccountResponse` message of the gritz API.
+
+This message has no fields.
+
+# UnlinkGitHubAccountRequest
+
+> The `UnlinkGitHubAccountRequest` message of the gritz API.
+
+This message has no fields.
+
+# UnlinkGitHubAccountResponse
+
+> The `UnlinkGitHubAccountResponse` message of the gritz API.
+
+This message has no fields.
+
+# UpdateScheduleRequest
+
+> UpdateScheduleRequest replaces a schedule's template, cron expression and timezone.
+
+UpdateScheduleRequest replaces a schedule’s template, cron expression and timezone. Changing cron_expr or timezone recomputes next_run_at. Use SetScheduleEnabled to enable or disable it.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field          | Type                                                                                          | Description                         |
+| -------------- | --------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `id`           | `int64`                                                                                       |                                     |
+| `name`         | `string`                                                                                      |                                     |
+| `workspace`    | `string`                                                                                      |                                     |
+| `runner`       | `string`                                                                                      |                                     |
+| `namespace`    | `string`                                                                                      |                                     |
+| `instructions` | repeated [Instruction](/api/messages/instruction/)                                            |                                     |
+| `cron_expr`    | `string`                                                                                      |                                     |
+| `timezone`     | `string`                                                                                      | IANA name; empty defaults to “UTC”. |
+| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) |                                     |
+
+# UpdateScheduleResponse
+
+> The `UpdateScheduleResponse` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field      | Type                                | Description |
+| ---------- | ----------------------------------- | ----------- |
+| `schedule` | [Schedule](/api/messages/schedule/) |             |
+
+# UpdateTaskRequest
+
+> The `UpdateTaskRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field              | Type                                                                                          | Description                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `id`               | `int64`                                                                                       |                                                                                 |
+| `name`             | `string`                                                                                      |                                                                                 |
+| `add_instructions` | repeated [Instruction](/api/messages/instruction/)                                            |                                                                                 |
+| `start`            | `bool`                                                                                        | Start after current run finishes (non-interrupting)                             |
+| `auto_archive`     | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | The new auto-archive delay, as in Task.auto_archive. Unset leaves it unchanged. |
+
+# UpdateTaskResponse
+
+> The `UpdateTaskResponse` message of the gritz API.
+
+This message has no fields.
+
+# UploadLogsRequest
+
+> The `UploadLogsRequest` message of the gritz API.
+
+## Fields
+
+[Section titled “Fields”](#fields)
+
+| Field     | Type                                         | Description |
+| --------- | -------------------------------------------- | ----------- |
+| `task_id` | `int64`                                      |             |
+| `entries` | repeated [LogEntry](/api/messages/logentry/) |             |
+
+# UploadLogsResponse
+
+> The `UploadLogsResponse` message of the gritz API.
+
+This message has no fields.
+
 # Getting started
 
 > Sign in to gritz, pick an organisation, create a task in the Web UI, watch it run, send a follow-up instruction and archive it.
