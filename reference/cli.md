@@ -21,11 +21,12 @@ flag wins when both are set.
 | --- | --- | --- |
 | `--org` | `GRITZ_ORG` | The organisation's name in the `.gritz.yml` files. Defaults to their `org`. |
 | `--key`, `-k` | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`. |
-| `--server`, `-s` | `GRITZ_SERVER` | The server URL. Defaults to the organisation's `server`, otherwise `https://gritz.dev`. |
+| `--server`, `-s` | `GRITZ_SERVER` | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
 
 Without `--key`, a command merges `.gritz.yml` in the config directory with every
 `.gritz.yml` from the working directory up to `/`, the nearest winning, and uses
-the organisation it selects. See [Configuration](/using/cli/#configuration).
+the organisation it selects, on that organisation's `server`, otherwise
+`https://gritz.dev`. See [Configuration](/using/cli/#configuration).
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the
 user config directory (`~/.config/gritz` on Linux).
