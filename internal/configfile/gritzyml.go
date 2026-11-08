@@ -106,7 +106,7 @@ func LoadV2(opts LoadOptions) (*Merged, error) {
 	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
 	for d := opts.Dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
-			if err := m.mergeFile(p); err != nil {
+			if err := m.merge(p); err != nil {
 				return nil, err
 			}
 		}
@@ -114,15 +114,15 @@ func LoadV2(opts LoadOptions) (*Merged, error) {
 			break
 		}
 	}
-	if err := m.mergeFile(base); err != nil {
+	if err := m.merge(base); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// mergeFile reads the .gritz.yml file at path and merges it beneath m,
-// skipping it if it doesn't exist.
-func (m *Merged) mergeFile(path string) error {
+// merge reads the .gritz.yml file at path and layers it beneath m, filling
+// in only the values m doesn't have yet. A missing file is skipped.
+func (m *Merged) merge(path string) error {
 	f, err := Read(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -130,13 +130,6 @@ func (m *Merged) mergeFile(path string) error {
 	if err != nil {
 		return err
 	}
-	m.merge(path, f)
-	return nil
-}
-
-// merge layers f, read from path, beneath m: it only fills in values m
-// doesn't have yet.
-func (m *Merged) merge(path string, f *FileV2) {
 	if m.Default == "" && f.Default != "" {
 		m.Default, m.DefaultFrom = f.Default, path
 	}
@@ -148,6 +141,7 @@ func (m *Merged) merge(path string, f *FileV2) {
 			m.Orgs[name], m.OrgsFrom[name] = e, path
 		}
 	}
+	return nil
 }
 
 // IsAllowed reports whether org may be selected: Allowed is unset or lists it.
