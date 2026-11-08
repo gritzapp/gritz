@@ -59,6 +59,7 @@ func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, op
 
 	h.addTaskTools(server)
 	h.addEventTools(server)
+	h.addScheduleTools(server)
 }
 
 // Handler returns an http.Handler that serves the MCP Streamable HTTP
