@@ -49,13 +49,9 @@ func Login(path, name string, entry Entry) error {
 	})
 }
 
-// ErrSkipWrite, returned by an UpdateFile func, leaves the file unchanged;
-// UpdateFile then returns nil.
-var ErrSkipWrite = errors.New("skip write")
-
 // UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
-// to change it, and writes it back atomically, keeping its mode or creating it
-// 0600. f.Orgs is never nil when fn is called.
+// to change it, and writes it back atomically unless fn returns an error,
+// keeping its mode or creating it 0600. f.Orgs is never nil when fn is called.
 func UpdateFile(path string, fn func(f *File) error) error {
 	mode := fs.FileMode(0o600)
 	f, err := Read(path)
@@ -74,9 +70,7 @@ func UpdateFile(path string, fn func(f *File) error) error {
 	if f.Orgs == nil {
 		f.Orgs = map[string]Entry{}
 	}
-	if err := fn(f); errors.Is(err, ErrSkipWrite) {
-		return nil
-	} else if err != nil {
+	if err := fn(f); err != nil {
 		return err
 	}
 	data, err := yaml.Marshal(f)

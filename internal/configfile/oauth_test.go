@@ -11,18 +11,19 @@ import (
 	"gotest.tools/v3/golden"
 )
 
-// Regenerate the golden with: go test ./internal/configfile/ -run TestTokenSource_WriteBack -update
+// Regenerate the goldens with: go test ./internal/configfile/ -run TestTokenSource_WriteBack -update
 func TestTokenSource_WriteBack(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name         string
 		entryName    string
 		refreshToken string
-		golden       string // empty means the file is unchanged
+		golden       string
 	}{
-		{name: "stored token matches", entryName: "acme", refreshToken: "old", golden: "write-back.golden"},
-		{name: "token changed", entryName: "acme", refreshToken: "other"},
-		{name: "entry gone", entryName: "labs", refreshToken: "old"},
+		{name: "stored token", entryName: "acme", refreshToken: "old", golden: "write-back.golden"},
+		{name: "token changed", entryName: "acme", refreshToken: "other", golden: "write-back.golden"},
+		{name: "entry gone", entryName: "labs", refreshToken: "old", golden: "write-back-skipped.golden"},
+		{name: "entry has a key", entryName: "ci", refreshToken: "old", golden: "write-back-skipped.golden"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -47,10 +48,6 @@ func TestTokenSource_WriteBack(t *testing.T) {
 			assert.NilError(t, err)
 			got, err := os.ReadFile(path)
 			assert.NilError(t, err)
-			if tt.golden == "" {
-				assert.Equal(t, string(got), string(input))
-				return
-			}
 			golden.Assert(t, string(got), tt.golden)
 		})
 	}

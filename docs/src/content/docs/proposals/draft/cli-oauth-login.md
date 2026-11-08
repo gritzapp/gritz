@@ -203,10 +203,11 @@ in-memory token keeps working.
 The write goes through `configfile.UpdateFile`, which `Login` also uses: it
 re-reads the file at `path`, lets a callback edit it, and writes it back the
 same way (temp file + rename via `atomicio.WriteFile`, mode kept). The
-rotation callback replaces `orgs[name].refresh_token` only if it still equals
-the stored token, and otherwise returns `ErrSkipWrite`. If the entry is gone or holds a different
-token, it leaves the file as it is: another process already rotated it, or the
-user logged in again, and either result is at least as fresh.
+rotation callback replaces `orgs[name].refresh_token` with the process's token
+whatever the entry holds: old refresh tokens stay valid, so overwriting a token
+another process or a new `login` wrote loses nothing. It leaves the entry
+alone only if it is gone, so a deleted entry isn't recreated with just a
+refresh token, or if it now holds a key, so it never ends up with both.
 
 **Where.** The file the entry came from: `Lookup` now fills `Entry.Name` and
 `Entry.Path` (from `Merged.OrgsFrom`). `login` only ever writes
@@ -218,9 +219,8 @@ dropping comments.
 
 - All of them can refresh with the same stored token; the server accepts it each
   time.
-- At most one rotation per day crosses the 24-hour threshold in practice; if two
-  do at once, both read the same `old`, both write, and the later rename wins.
-  Either token is valid.
+- Each process writes back at most once a day; when two do around the same
+  time, the later rename wins. Every token written is valid.
 - The window that can lose an unrelated edit is a `login` or a hand edit to the
   same file landing between the write-back's read and its rename. It is the same
   read-modify-rename window `login` already has, and it is not worth a lock
@@ -302,13 +302,9 @@ func (e Entry) Validate() error // changed
 // back to Path.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
 
-// ErrSkipWrite, returned by an UpdateFile func, leaves the file unchanged;
-// UpdateFile then returns nil.
-var ErrSkipWrite = errors.New("skip write") // new
-
 // UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
-// to change it, and writes it back atomically, keeping its mode or creating it
-// 0600. f.Orgs is never nil when fn is called.
+// to change it, and writes it back atomically unless fn returns an error,
+// keeping its mode or creating it 0600. f.Orgs is never nil when fn is called.
 func UpdateFile(path string, fn func(f *File) error) error // new
 
 // Lookup returns the entry named org, or m.Org when org is empty,
@@ -451,8 +447,8 @@ then `GetCaller` with the returned access token, then `configfile.Login` with
    once per access token expiry, reports a rotated token only when the last
    reported one's `iat` is over 24h old, and maps an expired refresh token to
    `ErrLoginExpired` with the re-login hint; `configfile` tests that an entry
-   writes the reported token back only while the file still holds the stored
-   one.
+   writes the reported token back, but not into an entry that is gone or now
+   holds a key.
 4. **`gritz login` browser flow** — Delivers: `cliauth.Login`,
    `github.com/cli/browser` as a direct dependency, `--key`
    no longer required, the `org=` preselect, and `login`

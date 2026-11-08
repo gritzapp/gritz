@@ -12,28 +12,24 @@ import (
 // access tokens refreshed from RefreshToken, writing rotated refresh tokens
 // back to Path once the stored one is more than a day old.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource {
-	stored := e.RefreshToken
 	return cliauth.TokenSource(ctx, cliauth.TokenSourceOptions{
 		Server:       e.Server,
 		Key:          e.Key,
 		RefreshToken: e.RefreshToken,
 		OnRefreshToken: func(token string) {
-			// Leave the file alone if another process rotated the token
-			// or the user logged in again: either is at least as fresh.
+			// Any refresh token for the org is valid, so overwrite whatever
+			// the entry holds, but don't recreate a deleted entry or add a
+			// refresh token to one logged in again with a key.
 			err := UpdateFile(e.Path, func(f *File) error {
-				fe, ok := f.Orgs[e.Name]
-				if !ok || fe.RefreshToken != stored {
-					return ErrSkipWrite
+				if fe, ok := f.Orgs[e.Name]; ok && fe.RefreshToken != "" {
+					fe.RefreshToken = token
+					f.Orgs[e.Name] = fe
 				}
-				fe.RefreshToken = token
-				f.Orgs[e.Name] = fe
 				return nil
 			})
 			if err != nil {
 				slog.Warn("failed to write rotated refresh token", "path", e.Path, "org", e.Name, "err", err)
-				return
 			}
-			stored = token
 		},
 	})
 }
