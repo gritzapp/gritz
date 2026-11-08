@@ -68,7 +68,7 @@ slides the 30-day window, not a correctness requirement, so it needs no locking.
 ### The entry
 
 ```yaml
-default: acme
+org: acme
 orgs:
   acme:
     id: 12
@@ -134,7 +134,7 @@ loses `Required: true`; without it, `login` runs the browser flow:
 7. **Write** `{id, refresh_token, server}` with `configfile.Login`, unchanged:
    same name for the same id and server replaces the entry's credential (a `key`
    entry becomes a `refresh_token` entry and vice versa), a different org fails
-   with `ErrNameTaken`, and the first entry becomes `default`.
+   with `ErrNameTaken`, and the first entry becomes the file's `org`.
 8. Print `Logged in to Acme Labs (org 12) as "acme-labs"`.
 
 The client id is the constant `gritz-cli`. The server only checks that the token
@@ -275,7 +275,7 @@ type Entry struct {
 	Key string `yaml:"key,omitempty"` // changed: omitempty
 	// RefreshToken is an OAuth refresh token for the org.
 	RefreshToken string `yaml:"refresh_token,omitempty"` // new
-	// Server is the server URL; empty means the default server.
+	// Server is the server URL; empty means the file's top-level server, else the default server.
 	Server string `yaml:"server,omitempty"`
 	// Name is the entry's name; set by Lookup.
 	Name string `yaml:"-"` // new
@@ -303,7 +303,7 @@ func OAuthConfig(server, redirectURL string) *oauth2.Config // new
 // file at path with newToken, if it still holds oldToken.
 func Rotate(path, name, oldToken, newToken string) error // new
 
-// Lookup returns the entry named org, or m.Default when org is empty,
+// Lookup returns the entry named org, or m.Org when org is empty,
 // enforcing m.Allowed, with Name and Path set. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
 ```
