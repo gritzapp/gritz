@@ -148,9 +148,8 @@ Every user-facing command selects one entry at startup:
 source; `mcp` and `notify` lack it today. The shared `--server` flag has no
 default value, so it never overrides an entry's `server`. `Resolve` always
 sets `Server`, to `configfile.DefaultServer` (the same URL as
-`gritzclient.DefaultURL`) when nothing else does. `gritzclient` (`New`,
-`NewNotificationClient`) and `shell.Attach` also use `DefaultURL` for an empty
-URL, for callers like `login` that don't go through `Resolve`.
+`gritzclient.DefaultURL`) when nothing else does, so commands pass
+`BaseURL: cfg.Server` as is.
 
 **Explicit key.** `--key` / `GRITZ_API_KEY` supplies a raw key directly. The key
 determines the org server-side, and the server is `--server` > `GRITZ_SERVER` >
@@ -378,9 +377,8 @@ urfave/cli types, so they can be table-tested against a `Merged` value.
 `Resolve` is the only part that reads the command: it takes `--key` as is, or
 calls `Load` with the working directory, `Validate`, and `Lookup` with `--org`, then applies
 the server precedence and returns the `Entry`. `configfile` doesn't build
-client options and doesn't reference `gritzclient` at all; `gritzclient`
-applies `DefaultURL` to an empty `BaseURL`, and there's no other helper in
-`gritzclient`. Every user-facing command
+client options and doesn't reference `gritzclient` at all, and there's no
+helper in `gritzclient` either. Every user-facing command
 appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
 builds `gritzclient.Options` (and `NotificationClientOptions` or the
 `shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetCaller`,

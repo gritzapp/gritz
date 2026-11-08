@@ -217,9 +217,8 @@ set <code dir="auto">allowed</code>:</p>
 source; <code dir="auto">mcp</code> and <code dir="auto">notify</code> lack it today. The shared <code dir="auto">--server</code> flag has no
 default value, so it never overrides an entry’s <code dir="auto">server</code>. <code dir="auto">Resolve</code> always
 sets <code dir="auto">Server</code>, to <code dir="auto">configfile.DefaultServer</code> (the same URL as
-<code dir="auto">gritzclient.DefaultURL</code>) when nothing else does. <code dir="auto">gritzclient</code> (<code dir="auto">New</code>,
-<code dir="auto">NewNotificationClient</code>) and <code dir="auto">shell.Attach</code> also use <code dir="auto">DefaultURL</code> for an empty
-URL, for callers like <code dir="auto">login</code> that don’t go through <code dir="auto">Resolve</code>.</p>
+<code dir="auto">gritzclient.DefaultURL</code>) when nothing else does, so commands pass
+<code dir="auto">BaseURL: cfg.Server</code> as is.</p>
 <p><strong>Explicit key.</strong> <code dir="auto">--key</code> / <code dir="auto">GRITZ_API_KEY</code> supplies a raw key directly. The key
 determines the org server-side, and the server is <code dir="auto">--server</code> &gt; <code dir="auto">GRITZ_SERVER</code> &gt;
 <code dir="auto">gritzclient.DefaultURL</code>. <code dir="auto">--org</code> / <code dir="auto">GRITZ_ORG</code> and every <code dir="auto">.gritz.yml</code> file are
@@ -368,9 +367,8 @@ urfave/cli types, so they can be table-tested against a <code dir="auto">Merged<
 <code dir="auto">Resolve</code> is the only part that reads the command: it takes <code dir="auto">--key</code> as is, or
 calls <code dir="auto">Load</code> with the working directory, <code dir="auto">Validate</code>, and <code dir="auto">Lookup</code> with <code dir="auto">--org</code>, then applies
 the server precedence and returns the <code dir="auto">Entry</code>. <code dir="auto">configfile</code> doesn’t build
-client options and doesn’t reference <code dir="auto">gritzclient</code> at all; <code dir="auto">gritzclient</code>
-applies <code dir="auto">DefaultURL</code> to an empty <code dir="auto">BaseURL</code>, and there’s no other helper in
-<code dir="auto">gritzclient</code>. Every user-facing command
+client options and doesn’t reference <code dir="auto">gritzclient</code> at all, and there’s no
+helper in <code dir="auto">gritzclient</code> either. Every user-facing command
 appends <code dir="auto">configfile.Flags()...</code>, calls <code dir="auto">configfile.Resolve</code> in its action, and
 builds <code dir="auto">gritzclient.Options</code> (and <code dir="auto">NotificationClientOptions</code> or the
 <code dir="auto">shell.Attach</code> arguments) inline from the entry’s <code dir="auto">Server</code> and <code dir="auto">Key</code>. <code dir="auto">LoginCommand</code> calls <code dir="auto">GetCaller</code>,
