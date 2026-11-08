@@ -58,8 +58,8 @@ The `container:` section maps onto the container's settings: `image`, `user`,
 `group_add`, `runtime` and `privileged`. See
 [`workspaces.yaml`](/operators/workspaces-yaml/#container).
 
-The driver inside the container connects to the server at the runner's
-`--server` URL. When that is `localhost`, as in local development, the container
+The driver inside the container connects to the server at the runner's server
+URL. When that is `localhost`, as in local development, the container
 can't reach it on the default bridge network: use `network_mode: host` on Linux,
 or a URL such as `http://host.docker.internal:6464`.
 

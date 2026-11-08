@@ -122,7 +122,7 @@ the MCP config.
 | --- | --- |
 | `--org` | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`. |
 | `--key`, `-k` | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. |
-| `--server`, `-s` | The server URL. Defaults to `GRITZ_SERVER`, otherwise the organisation's `server`, otherwise `https://gritz.dev`. |
+| `--server`, `-s` | The server URL to use with `--key`, which it requires. Defaults to `GRITZ_SERVER`, otherwise `https://gritz.dev`. |
 | `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
 | `--channel` | Push task updates into the Claude Code session. See [Channels](#channels). |
 

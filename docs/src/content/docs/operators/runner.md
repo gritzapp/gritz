@@ -64,7 +64,7 @@ These steps run a runner against gritz.dev on a machine with Docker.
 
 | Flag | Environment variable | Default | |
 | --- | --- | --- | --- |
-| `--server`, `-s` | `GRITZ_SERVER` | the organisation's `server`, otherwise `https://gritz.dev` | The server URL. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL to use with `--key`, which it requires; without `--key`, the organisation's `server` is used. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
 | `--key`, `-k` | `GRITZ_API_KEY` | | The API key. Set, the runner reads no `.gritz.yml` files and ignores `--org`. |
 | `--org` | `GRITZ_ORG` | the `org` in the `.gritz.yml` files | The organisation to run tasks for, by its name in the `.gritz.yml` files. |
 | `--workspaces`, `-w` | | `~/.config/gritz/workspaces.yaml` | The [workspace config](/operators/workspaces-yaml/). |
