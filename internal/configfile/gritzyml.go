@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -101,30 +102,16 @@ func LoadV2(opts LoadOptions) (*Merged, error) {
 	paths = append(paths, base)
 	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
 	for _, p := range slices.Backward(paths) {
-		f, err := readIfExists(p)
+		f, err := Read(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
-		if f != nil {
-			m.merge(p, f)
-		}
+		m.merge(p, f)
 	}
 	return m, nil
-}
-
-// readIfExists reads the .gritz.yml file at path, returning nil if there is none.
-func readIfExists(path string) (*FileV2, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: not a regular file", path)
-	}
-	return Read(path)
 }
 
 // merge layers f, read from path, on top of m.

@@ -109,7 +109,7 @@ func TestLoadV2_NoFiles(t *testing.T) {
 	assert.DeepEqual(t, m, &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
 }
 
-func TestLoadV2_NotRegular(t *testing.T) {
+func TestLoadV2_Directory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, Name)
@@ -117,7 +117,7 @@ func TestLoadV2_NotRegular(t *testing.T) {
 
 	_, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
 
-	assert.ErrorContains(t, err, p+": not a regular file")
+	assert.ErrorContains(t, err, p+": is a directory")
 }
 
 func TestLoadV2_UnknownField(t *testing.T) {
