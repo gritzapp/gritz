@@ -14,9 +14,10 @@ source `custom` and the attributes their schema defines; see
 
 Every type has two attributes:
 
-- `body`: the event's text, such as a comment. Its meaning depends on the type,
-  and it is empty for types that have no text.
-- `url`: the URL of what the event is about, such as a comment or an issue.
+- `body`: the event's text. For a comment or a review it is that text; for the
+  other types it is the description of the issue or pull request.
+- `url`: the event's own URL. For a comment or a review it is the comment's or
+  review's URL; for the other types it is the issue's or pull request's URL.
 
 Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
@@ -37,7 +38,7 @@ or edited.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Comment Body | The comment's text. |
-| `url` | Issue/PR URL | The comment's URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
+| `url` | Comment URL | The comment's URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
 | `mention` | Mention | Each username @-mentioned in the comment. |
 | `user` | User | The username of the commenter. |
 
@@ -49,7 +50,7 @@ created or edited.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Review Comment Body | The review comment's text. |
-| `url` | PR URL | The review comment's URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
+| `url` | Review Comment URL | The review comment's URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
 | `mention` | Mention | Each username @-mentioned in the review comment. |
 | `user` | User | The username of the reviewer. |
 
@@ -63,7 +64,7 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Review Body | The review's summary. |
-| `url` | PR URL | The review's URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
+| `url` | Review URL | The review's URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
 | `mention` | Mention | Each username @-mentioned in the summary. |
 | `user` | User | The username of the reviewer. |
 
@@ -73,7 +74,7 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | Issue Body | Empty. |
+| `body` | Issue Body | The issue's description. |
 | `url` | Issue URL | The issue's URL, such as `https://github.com/owner/repo/issues/123`. |
 | `assignee` | Assignee | The username newly assigned. |
 | `user` | User | The username of who assigned it. |
@@ -84,7 +85,7 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | PR Body | Empty. |
+| `body` | PR Body | The pull request's description. |
 | `url` | PR URL | The pull request's URL, such as `https://github.com/owner/repo/pull/123`. |
 | `assignee` | Assignee | The username newly assigned. |
 | `user` | User | The username of who assigned it. |
@@ -95,7 +96,7 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | PR Description | Empty. |
+| `body` | PR Description | The pull request's description. |
 | `url` | PR URL | The pull request's URL. |
 | `user` | User | The username of who opened it. |
 
@@ -105,9 +106,9 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | PR Description | `merged` or `closed`, as `state`. |
+| `body` | PR Description | The pull request's description. |
 | `url` | PR URL | The pull request's URL. |
-| `state` | State | `merged` if it was merged, otherwise `closed`. |
+| `state` | Merged or Closed | `merged` if it was merged, otherwise `closed`. |
 | `user` | User | The username of who closed or merged it. |
 
 ### `label_added`
@@ -117,7 +118,7 @@ several labels sends one event per label.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | Issue/PR Body | Empty. |
+| `body` | Issue/PR Body | The issue's or pull request's description. |
 | `url` | Issue/PR URL | The issue's or pull request's URL. |
 | `label` | Label | The label added. |
 | `user` | User | The username of who added it. |
@@ -135,7 +136,7 @@ Jira uses in comment text.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Comment Body | The comment's text. |
-| `url` | Issue URL | The comment's URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
+| `url` | Comment URL | The comment's URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
 | `mention` | Mention | The account ID of each person @-mentioned in the comment. |
 | `user` | User | The account ID of the commenter. |
 
@@ -146,7 +147,7 @@ at once sends one event with all of them.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | Issue Description | Empty. |
+| `body` | Issue Description | The issue's description. |
 | `url` | Issue URL | The issue's URL, such as `https://your-domain.atlassian.net/browse/PROJ-123`. |
 | `label` | Label | Each label added. |
 | `user` | User | The account ID of who added them. |
@@ -157,7 +158,7 @@ at once sends one event with all of them.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | Issue Description | Empty. |
+| `body` | Issue Description | The issue's description. |
 | `url` | Issue URL | The issue's URL. |
 | `assignee` | Assignee | The account ID of the new assignee. |
 | `user` | User | The account ID of who assigned it. |

@@ -176,7 +176,7 @@ Rules are on **Events → Routing Rules** in the [Web UI](/pr/2083/using/web-ui/
 A rule matches an event by:
 
 * **Event type**: the event’s source and type, such as a GitHub pull request review comment, a Jira issue comment, or one of the organisation’s custom types.
-* **Conditions**, each an attribute, an operator and a value. The attributes on offer depend on the event type. Every type has `body`, the event’s text, and `url`, the resource it is about; built-in types add others, such as the users mentioned in a comment, an issue’s new label or its new assignee. See [Event types](/pr/2083/reference/event-types/) for every built-in type and its attributes.
+* **Conditions**, each an attribute, an operator and a value. The attributes on offer depend on the event type. Every type has `body`, the event’s text, and `url`, the event’s own URL (a comment’s URL rather than its issue’s); built-in types add others, such as the users mentioned in a comment, an issue’s new label or its new assignee. See [Event types](/pr/2083/reference/event-types/) for every built-in type and its attributes.
 
 | Operator   | Holds when the attribute’s value |
 | ---------- | -------------------------------- |
@@ -215,7 +215,7 @@ So a rule with both on starts one task per resource and keeps it up to date, and
 A rule that creates tasks sets their:
 
 * **Runner** and **Workspace**.
-* **Prompt**: the created task’s instruction. Left blank, the instruction only says that a routing rule created the task for the event. The task’s first event is the one that created it, so the agent gets the event’s text either way.
+* **Prompt**: the created task’s instruction. Left blank, the instruction is a fixed one that only says a routing rule created the task in response to the event’s source and type. The task’s first event is the one that created it, so the agent gets the event’s text either way.
 * **Auto-archive**: the created task’s [auto-archive](/pr/2083/concepts/tasks/#auto-archive) delay.
 * **Namespace**: the rule’s namespace.
 
@@ -735,7 +735,7 @@ The attributes each type offers for conditions, such as `mention`, `user`, `labe
 
 [Section titled “What the agent sees”](#what-the-agent-sees)
 
-Each event on a task’s timeline has a description, such as `octocat commented on PR #42`, its URL, and its text: the comment, review or review comment body, or `merged` or `closed` for a closed pull request. A review comment also carries where it was left: the file, the line (or the range from `start_line`), the side of the diff, and the diff hunk it is anchored to. The agent gets all of it at the start of its next run, and through [`get_my_task`](/pr/2083/using/agent-tools/#get_my_task).
+Each event on a task’s timeline has a description, such as `octocat commented on PR #42`, its URL, and its text: the comment, review or review comment body, or the issue’s or pull request’s description for the other types. A review comment also carries where it was left: the file, the line (or the range from `start_line`), the side of the diff, and the diff hunk it is anchored to. The agent gets all of it at the start of its next run, and through [`get_my_task`](/pr/2083/using/agent-tools/#get_my_task).
 
 ## Reactions
 
@@ -859,7 +859,7 @@ A comment’s URL points at the comment, but gritz matches it to its issue. So a
 
 Jira identifies people by account ID rather than by name, and so do the `user`, `mention` and `assignee` attributes. Enter the bare ID, such as `5b10ac8d82e05b22cc7d4ef5`, not the `[~accountid:…]` form Jira uses in comment text. The account ID is at the end of the URL of the person’s Jira profile. See [Event types](/pr/2083/reference/event-types/#jira) for every attribute.
 
-Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and, for comments, the comment’s text. gritz doesn’t post anything back to Jira.
+Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and its text: the comment’s text, or the issue’s description for label and assignment events. gritz doesn’t post anything back to Jira.
 
 ## Examples
 
@@ -938,15 +938,6 @@ Add the server to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` in a project:
 [Section titled “Other clients”](#other-clients)
 
 Give the client the URL. gritz supports the MCP authorization flow: OAuth 2.1 with PKCE and dynamic client registration, so a client that supports it registers itself and needs no client ID.
-
-A request to `/mcp` without a valid bearer token gets a `401` with a `WWW-Authenticate` challenge whose `resource_metadata` points at the server’s protected resource metadata:
-
-```http
-HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://gritz.dev/.well-known/oauth-protected-resource"
-```
-
-The client reads the authorization server from there, and starts the sign-in. An expired or invalid token gets the same challenge with `error="invalid_token"`. `/mcp` doesn’t accept the Web UI’s browser session.
 
 ### Signing in
 
@@ -1970,13 +1961,13 @@ Prints the organisation’s 50 newest unarchived tasks as JSON.
 
 Changes a task. It needs at least one of `--add-instruction`, `--start`, `--name` or `--auto-archive`.
 
-| Flag                      | Environment    | Default             |                                                                                            |
-| ------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------ |
-| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                 |
-| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends. |
-| `--name`, `-n`            |                |                     | Rename the task.                                                                           |
-| `--auto-archive`          |                | `0`                 | Set the auto-archive delay. Every update sets it, to never when the flag is left out.      |
-| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                            |
+| Flag                      | Environment    | Default             |                                                                                                                                                 |
+| ------------------------- | -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                                                                      |
+| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends.                                                      |
+| `--name`, `-n`            |                |                     | Rename the task.                                                                                                                                |
+| `--auto-archive`          |                |                     | Set the auto-archive delay. `0` is never; a negative value archives the task as soon as it finishes. Left out, the task keeps the delay it has. |
+| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                                                                                 |
 
 ### `gritz logs <task-id>`
 
@@ -2332,8 +2323,8 @@ This page lists the built-in types, from the [GitHub](/pr/2083/integrations/gith
 
 Every type has two attributes:
 
-* `body`: the event’s text, such as a comment. Its meaning depends on the type, and it is empty for types that have no text.
-* `url`: the URL of what the event is about, such as a comment or an issue.
+* `body`: the event’s text. For a comment or a review it is that text; for the other types it is the description of the issue or pull request.
+* `url`: the event’s own URL. For a comment or a review it is the comment’s or review’s URL; for the other types it is the issue’s or pull request’s URL.
 
 Each type adds others. An attribute can hold several values, such as every user mentioned in a comment, and a condition holds if any of them satisfies it. Conditions compare exactly and are case-sensitive; see [Matching](/pr/2083/concepts/routing-rules/#matching).
 
@@ -2354,7 +2345,7 @@ Source `github`. GitHub usernames are given without the leading `@`.
 | Attribute | Label        | Value                                                                                   |
 | --------- | ------------ | --------------------------------------------------------------------------------------- |
 | `body`    | Comment Body | The comment’s text.                                                                     |
-| `url`     | Issue/PR URL | The comment’s URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
+| `url`     | Comment URL  | The comment’s URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
 | `mention` | Mention      | Each username @-mentioned in the comment.                                               |
 | `user`    | User         | The username of the commenter.                                                          |
 
@@ -2367,7 +2358,7 @@ Source `github`. GitHub usernames are given without the leading `@`.
 | Attribute | Label               | Value                                                                                       |
 | --------- | ------------------- | ------------------------------------------------------------------------------------------- |
 | `body`    | Review Comment Body | The review comment’s text.                                                                  |
-| `url`     | PR URL              | The review comment’s URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
+| `url`     | Review Comment URL  | The review comment’s URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
 | `mention` | Mention             | Each username @-mentioned in the review comment.                                            |
 | `user`    | User                | The username of the reviewer.                                                               |
 
@@ -2382,7 +2373,7 @@ The event also carries, for the agent but not for conditions, the file and line 
 | Attribute | Label       | Value                                                                                     |
 | --------- | ----------- | ----------------------------------------------------------------------------------------- |
 | `body`    | Review Body | The review’s summary.                                                                     |
-| `url`     | PR URL      | The review’s URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
+| `url`     | Review URL  | The review’s URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
 | `mention` | Mention     | Each username @-mentioned in the summary.                                                 |
 | `user`    | User        | The username of the reviewer.                                                             |
 
@@ -2394,7 +2385,7 @@ The event also carries, for the agent but not for conditions, the file and line 
 
 | Attribute  | Label      | Value                                                                |
 | ---------- | ---------- | -------------------------------------------------------------------- |
-| `body`     | Issue Body | Empty.                                                               |
+| `body`     | Issue Body | The issue’s description.                                             |
 | `url`      | Issue URL  | The issue’s URL, such as `https://github.com/owner/repo/issues/123`. |
 | `assignee` | Assignee   | The username newly assigned.                                         |
 | `user`     | User       | The username of who assigned it.                                     |
@@ -2407,7 +2398,7 @@ The event also carries, for the agent but not for conditions, the file and line 
 
 | Attribute  | Label    | Value                                                                     |
 | ---------- | -------- | ------------------------------------------------------------------------- |
-| `body`     | PR Body  | Empty.                                                                    |
+| `body`     | PR Body  | The pull request’s description.                                           |
 | `url`      | PR URL   | The pull request’s URL, such as `https://github.com/owner/repo/pull/123`. |
 | `assignee` | Assignee | The username newly assigned.                                              |
 | `user`     | User     | The username of who assigned it.                                          |
@@ -2418,11 +2409,11 @@ The event also carries, for the agent but not for conditions, the file and line 
 
 **GitHub: PR Opened.** A pull request is opened.
 
-| Attribute | Label          | Value                          |
-| --------- | -------------- | ------------------------------ |
-| `body`    | PR Description | Empty.                         |
-| `url`     | PR URL         | The pull request’s URL.        |
-| `user`    | User           | The username of who opened it. |
+| Attribute | Label          | Value                           |
+| --------- | -------------- | ------------------------------- |
+| `body`    | PR Description | The pull request’s description. |
+| `url`     | PR URL         | The pull request’s URL.         |
+| `user`    | User           | The username of who opened it.  |
 
 ### `pull_request_closed`
 
@@ -2430,12 +2421,12 @@ The event also carries, for the agent but not for conditions, the file and line 
 
 **GitHub: PR Closed.** A pull request is closed, with or without merging.
 
-| Attribute | Label          | Value                                          |
-| --------- | -------------- | ---------------------------------------------- |
-| `body`    | PR Description | `merged` or `closed`, as `state`.              |
-| `url`     | PR URL         | The pull request’s URL.                        |
-| `state`   | State          | `merged` if it was merged, otherwise `closed`. |
-| `user`    | User           | The username of who closed or merged it.       |
+| Attribute | Label            | Value                                          |
+| --------- | ---------------- | ---------------------------------------------- |
+| `body`    | PR Description   | The pull request’s description.                |
+| `url`     | PR URL           | The pull request’s URL.                        |
+| `state`   | Merged or Closed | `merged` if it was merged, otherwise `closed`. |
+| `user`    | User             | The username of who closed or merged it.       |
 
 ### `label_added`
 
@@ -2443,12 +2434,12 @@ The event also carries, for the agent but not for conditions, the file and line 
 
 **GitHub: Label Added.** A label is added to an issue or a pull request. Adding several labels sends one event per label.
 
-| Attribute | Label         | Value                              |
-| --------- | ------------- | ---------------------------------- |
-| `body`    | Issue/PR Body | Empty.                             |
-| `url`     | Issue/PR URL  | The issue’s or pull request’s URL. |
-| `label`   | Label         | The label added.                   |
-| `user`    | User          | The username of who added it.      |
+| Attribute | Label         | Value                                      |
+| --------- | ------------- | ------------------------------------------ |
+| `body`    | Issue/PR Body | The issue’s or pull request’s description. |
+| `url`     | Issue/PR URL  | The issue’s or pull request’s URL.         |
+| `label`   | Label         | The label added.                           |
+| `user`    | User          | The username of who added it.              |
 
 ## Jira
 
@@ -2465,7 +2456,7 @@ Source `atlassian`. People are identified by their Atlassian account ID, such as
 | Attribute | Label        | Value                                                                                                  |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------ |
 | `body`    | Comment Body | The comment’s text.                                                                                    |
-| `url`     | Issue URL    | The comment’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
+| `url`     | Comment URL  | The comment’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
 | `mention` | Mention      | The account ID of each person @-mentioned in the comment.                                              |
 | `user`    | User         | The account ID of the commenter.                                                                       |
 
@@ -2477,7 +2468,7 @@ Source `atlassian`. People are identified by their Atlassian account ID, such as
 
 | Attribute | Label             | Value                                                                         |
 | --------- | ----------------- | ----------------------------------------------------------------------------- |
-| `body`    | Issue Description | Empty.                                                                        |
+| `body`    | Issue Description | The issue’s description.                                                      |
 | `url`     | Issue URL         | The issue’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123`. |
 | `label`   | Label             | Each label added.                                                             |
 | `user`    | User              | The account ID of who added them.                                             |
@@ -2490,7 +2481,7 @@ Source `atlassian`. People are identified by their Atlassian account ID, such as
 
 | Attribute  | Label             | Value                               |
 | ---------- | ----------------- | ----------------------------------- |
-| `body`     | Issue Description | Empty.                              |
+| `body`     | Issue Description | The issue’s description.            |
 | `url`      | Issue URL         | The issue’s URL.                    |
 | `assignee` | Assignee          | The account ID of the new assignee. |
 | `user`     | User              | The account ID of who assigned it.  |
@@ -2656,11 +2647,9 @@ gritz task update 1234 --start -i "Also update the README."
 | `--add-instruction`, `-i` | Add an instruction. Repeat it for several.                                                                                                  |
 | `--start`, `-r`           | Start the task, as the Web UI does when you send an instruction. A running task isn’t interrupted: it runs again when its current run ends. |
 | `--name`, `-n`            | Rename the task.                                                                                                                            |
-| `--auto-archive`          | Set the auto-archive delay.                                                                                                                 |
+| `--auto-archive`          | Set the auto-archive delay. Left out, the task keeps the delay it has.                                                                      |
 
 An instruction added without `--start` waits on the task until something else starts it, such as an event or a later `--start`.
-
-Every `gritz task update` also sets the task’s auto-archive delay: to `--auto-archive` when it is given, and otherwise to never. Pass `--auto-archive` again to keep a delay the task already had.
 
 Cancelling, restarting and archiving tasks are done in the [Web UI](/pr/2083/using/web-ui/#the-task-page).
 

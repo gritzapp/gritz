@@ -109,7 +109,8 @@ The attributes each type offers for conditions, such as `mention`, `user`,
 
 Each event on a task's timeline has a description, such as
 `octocat commented on PR #42`, its URL, and its text: the comment, review or
-review comment body, or `merged` or `closed` for a closed pull request. A review
+review comment body, or the issue's or pull request's description for the other
+types. A review
 comment also carries where it was left: the file, the line (or the range from
 `start_line`), the side of the diff, and the diff hunk it is anchored to. The
 agent gets all of it at the start of its next run, and through

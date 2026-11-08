@@ -22,7 +22,7 @@ A rule matches an event by:
   types.
 - **Conditions**, each an attribute, an operator and a value. The attributes on
   offer depend on the event type. Every type has `body`, the event's text, and
-  `url`, the resource it is about; built-in types add others, such as the users
+  `url`, the event's own URL (a comment's URL rather than its issue's); built-in types add others, such as the users
   mentioned in a comment, an issue's new label or its new assignee. See
   [Event types](/reference/event-types/) for every built-in type and its
   attributes.
@@ -73,8 +73,9 @@ already linked.
 A rule that creates tasks sets their:
 
 - **Runner** and **Workspace**.
-- **Prompt**: the created task's instruction. Left blank, the instruction only
-  says that a routing rule created the task for the event. The task's first event
+- **Prompt**: the created task's instruction. Left blank, the instruction is a
+  fixed one that only says a routing rule created the task in response to the
+  event's source and type. The task's first event
   is the one that created it, so the agent gets the event's text either way.
 - **Auto-archive**: the created task's [auto-archive](/concepts/tasks/#auto-archive)
   delay.
