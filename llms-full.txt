@@ -2857,20 +2857,21 @@ Every user-facing command selects one entry at startup:
 
 [Section titled “API change: report the caller’s org”](#api-change-report-the-callers-org)
 
-`login` has to learn which org a key belongs to. Nothing returns that today: `GetProfileResponse.default_org_id` is the user’s web-UI default, not the org the request authenticated as. Add it:
+`login` has to learn which org a key belongs to. Nothing returns that today: `GetProfileResponse.default_org_id` is the user’s web-UI default, not the org the request authenticated as, and `GetProfile` reads the caller’s user, which an API key doesn’t have. Add a dedicated RPC:
 
 ```proto
-message GetProfileResponse {
-  Profile profile = 1;
-  repeated Org orgs = 2;
-  int64 default_org_id = 3;
-  GitHubAccount github_account = 4;
-  AtlassianAccount atlassian_account = 5;
-  int64 org_id = 6; // new: the org this request is authenticated against (apiauth.UserInfo.OrgID)
+rpc GetCaller(GetCallerRequest) returns (GetCallerResponse);
+
+
+message GetCallerRequest {}
+
+
+message GetCallerResponse {
+  Org org = 1; // the org the request is authenticated against
 }
 ```
 
-`apiserver.GetProfile` sets it from `apiauth.MustCaller(ctx).OrgID`. The org’s name comes from the matching entry in `orgs`, which `GetProfile` already returns.
+`apiserver.GetCaller` loads the org from `apiauth.MustCaller(ctx).OrgID` with no user lookup, so it works for API keys, web UI sessions and MCP OAuth tokens alike. `GetProfile` is unchanged.
 
 ### CLI commands
 
@@ -2878,9 +2879,9 @@ message GetProfileResponse {
 
 **`gritz login --key <key> [--name <name>] [--server <url>]`**
 
-1. Call `GetProfile` with the key against `--server` (else `GRITZ_SERVER`, else `gritzclient.DefaultURL`). A failure means the key is invalid; report it and write nothing.
+1. Call `GetCaller` with the key against `--server` (else `GRITZ_SERVER`, else `gritzclient.DefaultURL`). A failure means the key is invalid; report it and write nothing.
 
-2. The org id is `resp.org_id`; the org name is the `name` of the entry in `resp.orgs` with that id.
+2. The org id and name are `resp.org.id` and `resp.org.name`.
 
 3. The entry name is `--name`, else a slug of the org name: lowercase, each run of non-alphanumeric characters becomes a single `-`, and leading and trailing `-` are trimmed (`Acme Labs` → `acme-labs`). An empty slug is an error asking for `--name`.
 
@@ -3042,13 +3043,13 @@ package command // github.com/gritzapp/gritz/internal/command
 var LoginCommand *cli.Command // new: gritz login
 ```
 
-**How it fits:** `configfile` owns everything about how a command finds its credentials: the file format, discovery, merging, selection, the shared flags, and the `login` write. `Merged.Select` holds the selection rules and takes no urfave/cli types, so it can be table-tested against a `Merged` value. `Resolve` is the only part that reads the command: it takes `--key` as is, or calls `Load` with the working directory and `Select` with `--org`, then applies the server precedence and returns the `Entry`. `configfile` doesn’t build client options; it references `gritzclient` only for the `DefaultURL` constant, and there’s no helper in `gritzclient` either. Every user-facing command appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and builds `gritzclient.Options` (and `NotificationClientOptions` or the `shell.Attach` arguments) inline from the entry’s `Server` and `Key`. `LoginCommand` calls `GetProfile`, `configfile.Slug` and `configfile.Login`.
+**How it fits:** `configfile` owns everything about how a command finds its credentials: the file format, discovery, merging, selection, the shared flags, and the `login` write. `Merged.Select` holds the selection rules and takes no urfave/cli types, so it can be table-tested against a `Merged` value. `Resolve` is the only part that reads the command: it takes `--key` as is, or calls `Load` with the working directory and `Select` with `--org`, then applies the server precedence and returns the `Entry`. `configfile` doesn’t build client options; it references `gritzclient` only for the `DefaultURL` constant, and there’s no helper in `gritzclient` either. Every user-facing command appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and builds `gritzclient.Options` (and `NotificationClientOptions` or the `shell.Attach` arguments) inline from the entry’s `Server` and `Key`. `LoginCommand` calls `GetCaller`, `configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
 
 [Section titled “Implementation Plan”](#implementation-plan)
 
-1. **Report the caller’s org** — Delivers: `GetProfileResponse.org_id` (proto, regenerated code, `apiserver.GetProfile`). Depends on: nothing. Verifiable by: an apiserver test where a key-authenticated `GetProfile` returns the key’s org.
+1. **Report the caller’s org** — Delivers: the `GetCaller` RPC (proto, regenerated code, `apiserver.GetCaller`). Depends on: nothing. Verifiable by: an e2e API test where `GetCaller` with a key in a non-default org returns that org.
 2. **`.gritz.yml` load, merge and select** — Delivers: `configfile.Entry`, the new `File` shape under a temporary name beside the old one, `Read`, `Load` under a temporary name, `Merged.Select` and `Selection`, and `Slug`. Nothing calls them yet. Depends on: nothing. Verifiable by: unit tests over temp dirs: the walk merges past a `.git` directory up to the temp root; the base layer is always merged; `default`/`allowed` come from the nearest file; entries replace whole by name; a `default` outside `allowed`, a disallowed `--org` and a missing entry each fail naming the right file (table tests on `Select` over `Merged` values); unknown fields fail.
 3. **`gritz login`** — Delivers: `configfile.Login`, `LoginCommand` and `main.go` registration. Depends on: (1), (2). Verifiable by: unit tests for `Slug` and for `Login` (new entry, key replaced for same id and server, `ErrNameTaken` otherwise, `default` set only when absent, comments preserved); an e2e test that creates a key, runs `gritz login --key`, and checks the written entry.
 4. **Wire existing commands and delete the old config** — Delivers: `configfile.Flags`/`configfile.Resolve`; `task`, `logs`, `shell`, `mcp`, `notify` and `runner` switched over; `mcp`/`notify` `--token` removed; the old `File`/`Load`/`Save`/`Overrides`/`Path` and `config.json` handling deleted and the step-2 names taken over; docs updated (`reference/cli`, `using/cli`, `integrations/mcp`, `operators/runner`). Depends on: (2), (3). Verifiable by: an e2e test that logs in to two orgs and runs `gritz task list` from a directory whose `.gritz.yml` sets `default` to org A while the base default is org B, and sees only org A’s tasks; and one where `--org` names an entry outside `allowed` and fails.
