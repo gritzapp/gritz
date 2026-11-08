@@ -129,8 +129,8 @@ Runs the server. Its flags are described in [Server](/operators/server/).
 | `--auth-client-secret` | `GRITZ_AUTH_CLIENT_SECRET` | |
 | `--auth-scopes` | `GRITZ_AUTH_SCOPES` | `openid,profile,email,offline_access` |
 | `--auth-skip-nonce-verify` | `GRITZ_AUTH_SKIP_NONCE_VERIFY` | off |
-| `--auth-encryption-key` | `GRITZ_AUTH_ENCRYPTION_KEY` | generated at start |
-| `--auth-app-key` | `GRITZ_AUTH_APP_KEY` | generated at start |
+| `--auth-encryption-key` | `GRITZ_AUTH_ENCRYPTION_KEY` | required unless `--no-auth` |
+| `--auth-app-key` | `GRITZ_AUTH_APP_KEY` | generated at each start |
 | `--no-auth` | | off |
 | `--github-app-id` | `GRITZ_GITHUB_APP_ID` | |
 | `--github-app-slug` | `GRITZ_GITHUB_APP_SLUG` | |

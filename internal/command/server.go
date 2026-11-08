@@ -78,12 +78,12 @@ var ServerCommand = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "auth-encryption-key",
-			Usage:   "Hex-encoded 32-byte key for session encryption (generated if not set)",
+			Usage:   "Hex-encoded 32-byte key that encrypts session cookies (required unless --no-auth)",
 			Sources: cli.EnvVars("GRITZ_AUTH_ENCRYPTION_KEY"),
 		},
 		&cli.StringFlag{
 			Name:    "auth-app-key",
-			Usage:   "Hex-encoded 32-byte Ed25519 seed for signing app JWTs (generated if not set)",
+			Usage:   "Hex-encoded 32-byte Ed25519 seed that signs task and MCP OAuth tokens (a new one is generated at each start if not set, which invalidates outstanding tokens on restart)",
 			Sources: cli.EnvVars("GRITZ_AUTH_APP_KEY"),
 		},
 		&cli.BoolFlag{
