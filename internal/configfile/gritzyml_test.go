@@ -23,7 +23,7 @@ func TestRead(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.DeepEqual(t, f, &YAMLFile{
+	assert.DeepEqual(t, f, &FileV2{
 		Default: "acme",
 		Allowed: []string{"acme", "local"},
 		Orgs: map[string]Entry{
@@ -37,7 +37,7 @@ func TestRead_Empty(t *testing.T) {
 	f, err := Read(filepath.Join("testdata", "empty", Name))
 
 	assert.NilError(t, err)
-	assert.DeepEqual(t, f, &YAMLFile{})
+	assert.DeepEqual(t, f, &FileV2{})
 }
 
 func TestRead_UnknownField(t *testing.T) {
@@ -50,7 +50,7 @@ func TestRead_UnknownField(t *testing.T) {
 	}
 }
 
-func TestLoadYAML(t *testing.T) {
+func TestLoadV2(t *testing.T) {
 	// Arrange - a base layer, a parent directory and a repo below it
 	root := copyTestdata(t, "tree")
 	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
@@ -63,7 +63,7 @@ func TestLoadYAML(t *testing.T) {
 	repoFile := filepath.Join(repo, Name)
 
 	// Act
-	m, err := LoadYAML(sub)
+	m, err := LoadV2(sub)
 
 	// Assert
 	assert.NilError(t, err)
@@ -85,12 +85,12 @@ func TestLoadYAML(t *testing.T) {
 	})
 }
 
-func TestLoadYAML_BaseOnly(t *testing.T) {
+func TestLoadV2_BaseOnly(t *testing.T) {
 	root := copyTestdata(t, "base-only")
 	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
 	base := filepath.Join(root, "config", Name)
 
-	m, err := LoadYAML(root)
+	m, err := LoadV2(root)
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{
@@ -101,31 +101,31 @@ func TestLoadYAML_BaseOnly(t *testing.T) {
 	})
 }
 
-func TestLoadYAML_NoFiles(t *testing.T) {
+func TestLoadV2_NoFiles(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
 
-	m, err := LoadYAML(root)
+	m, err := LoadV2(root)
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
 }
 
-func TestLoadYAML_NotRegular(t *testing.T) {
+func TestLoadV2_NotRegular(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
 	assert.NilError(t, os.Mkdir(filepath.Join(root, Name), 0o755))
 
-	_, err := LoadYAML(root)
+	_, err := LoadV2(root)
 
 	assert.ErrorContains(t, err, filepath.Join(root, Name)+": not a regular file")
 }
 
-func TestLoadYAML_UnknownField(t *testing.T) {
+func TestLoadV2_UnknownField(t *testing.T) {
 	root := copyTestdata(t, "unknown-field")
 	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
 
-	_, err := LoadYAML(root)
+	_, err := LoadV2(root)
 
 	assert.ErrorContains(t, err, filepath.Join(root, Name)+": ")
 }

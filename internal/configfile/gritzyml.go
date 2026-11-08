@@ -26,10 +26,10 @@ type Entry struct {
 	Server string `yaml:"server,omitempty"`
 }
 
-// YAMLFile is the contents of one .gritz.yml file.
+// FileV2 is the contents of one .gritz.yml file.
 //
 // TODO: rename to File once the config.json File is removed.
-type YAMLFile struct {
+type FileV2 struct {
 	// Default is the entry name selected when none is given.
 	Default string `yaml:"default,omitempty"`
 	// Allowed lists the entry names that may be selected; nil allows all.
@@ -39,12 +39,12 @@ type YAMLFile struct {
 }
 
 // Read parses the .gritz.yml file at path, rejecting unknown fields.
-func Read(path string) (*YAMLFile, error) {
+func Read(path string) (*FileV2, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var f YAMLFile
+	var f FileV2
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
@@ -63,10 +63,10 @@ type Merged struct {
 	OrgsFrom    map[string]string // entry name -> path of the file that set it
 }
 
-// LoadYAML merges $CONFIG_DIR/.gritz.yml and every .gritz.yml from dir up to /.
+// LoadV2 merges $CONFIG_DIR/.gritz.yml and every .gritz.yml from dir up to /.
 //
 // TODO: rename to Load once the config.json Load is removed.
-func LoadYAML(dir string) (*Merged, error) {
+func LoadV2(dir string) (*Merged, error) {
 	configDir, err := Dir()
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func LoadYAML(dir string) (*Merged, error) {
 }
 
 // readIfExists reads the .gritz.yml file at path, returning nil if there is none.
-func readIfExists(path string) (*YAMLFile, error) {
+func readIfExists(path string) (*FileV2, error) {
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -116,7 +116,7 @@ func readIfExists(path string) (*YAMLFile, error) {
 }
 
 // merge layers f, read from path, on top of m.
-func (m *Merged) merge(path string, f *YAMLFile) {
+func (m *Merged) merge(path string, f *FileV2) {
 	if f.Default != "" {
 		m.Default, m.DefaultFrom = f.Default, path
 	}
