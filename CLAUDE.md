@@ -99,12 +99,6 @@ gritz github     # GitHub integration
 
 Service definitions in `proto/gritz/v1/gritz.proto`; generated code is written to `internal/proto/` (checked in) by `mise run generate`.
 
-The same run writes the API reference pages, one per message and enum of `gritz.v1`, into `docs/src/content/docs/api/` (checked in, never edited by hand) with `protoc-gen-gritz-docs` (`cmd/protoc-gen-gritz-docs`, `internal/protodocs`). Comments on `gritz.v1` elements are published there, so they follow "What belongs in the docs" below:
-
-- A comment directly above an element, or trailing it on the same line, is its documentation, in Markdown. The first sentence becomes the page description.
-- Contributor notes (history, storage details, proposal paths) go in a detached comment: a comment separated from the element by a blank line, which the generator skips.
-- Field and enum value comments render in a table cell, so they must be inline Markdown: no lists, headings or code blocks. Generation fails on block syntax there.
-
 ## Docs
 
 The user and operator docs live in `docs/` (Starlight) and are published to https://docs.gritz.dev. Pages are Markdown in `docs/src/content/docs/`; the file path is the URL. Every page has a `title` and a `description` in its frontmatter. Write plain `.md`; use `.mdx` only when a page needs a component.
@@ -131,7 +125,7 @@ Design proposals are docs pages too, in `docs/src/content/docs/proposals/{draft,
 | Agent MCP tools (`internal/runner/agentmcp`) | `using/agent-tools` |
 | CLI commands and flags (`internal/command/`) | `reference/cli`, `using/cli` |
 | `workspaces.yaml`, the runner, backends, `secrets:` | `operators/*` |
-| `proto/gritz/v1/gritz.proto` | `api/*` (generated: edit the proto comments and run `mise run generate`) |
+| `proto/gritz/v1/gritz.proto`, the server's Connect endpoint and auth | `reference/api` (embeds the whole proto at docs build time, so its comments are published) |
 
 Config examples in the docs follow the `secrets:` rule above: credentials go under `secrets:` and are referenced by variable (`${GH_TOKEN}`), never inline.
 
