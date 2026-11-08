@@ -146,9 +146,11 @@ Every user-facing command selects one entry at startup:
 **Server URL.** `--server` > `GRITZ_SERVER` > the selected entry's `server` >
 `gritzclient.DefaultURL`. Every user-facing command gets the `GRITZ_SERVER` env
 source; `mcp` and `notify` lack it today. The shared `--server` flag has no
-default value, so it never overrides an entry's `server`. `Resolve` leaves
-`Server` empty when nothing sets it, and `gritzclient` (`New`,
-`NewNotificationClient`) and `shell.Attach` use `DefaultURL` for an empty URL.
+default value, so it never overrides an entry's `server`. `Resolve` always
+sets `Server`, to `configfile.DefaultServer` (the same URL as
+`gritzclient.DefaultURL`) when nothing else does. `gritzclient` (`New`,
+`NewNotificationClient`) and `shell.Attach` also use `DefaultURL` for an empty
+URL, for callers like `login` that don't go through `Resolve`.
 
 **Explicit key.** `--key` / `GRITZ_API_KEY` supplies a raw key directly. The key
 determines the org server-side, and the server is `--server` > `GRITZ_SERVER` >
@@ -241,9 +243,7 @@ for `NotificationClientOptions` and `shell.Attach`:
   how to watch several orgs.
 - `runner`: `configfile.Load(&Overrides{Token: ...})` is replaced by the same
   selection, so a runner on a laptop uses an entry from `.gritz.yml`. Deployed
-  runners keep using `GRITZ_API_KEY`. The runner hands its server URL to the
-  sandboxes as well as to its client, so it applies `gritzclient.DefaultURL`
-  to an empty `Server` itself.
+  runners keep using `GRITZ_API_KEY`.
 
 **Not changed:** `gritz tool agent-mcp`, the GitHub MCP proxy and the git
 credential helper run inside the sandbox with the task JWT on
@@ -347,10 +347,14 @@ func (m *Merged) Lookup(org string) (*Entry, error) // new
 // GRITZ_SERVER) shared by user-facing commands. --server has no default value.
 func Flags() []cli.Flag // new
 
+// DefaultServer is the server URL used when nothing sets one; it matches
+// gritzclient.DefaultURL.
+const DefaultServer = "https://gritz.dev" // new
+
 // Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
 // files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server. Server is empty when neither --server nor
-// the entry sets it.
+// the entry has only Key and Server. Server is always set: DefaultServer when
+// neither --server nor the entry sets it.
 func Resolve(cmd *cli.Command) (*Entry, error) // new
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
