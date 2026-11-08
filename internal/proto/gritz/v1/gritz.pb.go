@@ -768,6 +768,7 @@ type GetProfileResponse struct {
 	DefaultOrgId     int64                  `protobuf:"varint,3,opt,name=default_org_id,json=defaultOrgId,proto3" json:"default_org_id,omitempty"`
 	GithubAccount    *GitHubAccount         `protobuf:"bytes,4,opt,name=github_account,json=githubAccount,proto3" json:"github_account,omitempty"`
 	AtlassianAccount *AtlassianAccount      `protobuf:"bytes,5,opt,name=atlassian_account,json=atlassianAccount,proto3" json:"atlassian_account,omitempty"`
+	OrgId            int64                  `protobuf:"varint,6,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"` // The org this request is authenticated against
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -835,6 +836,13 @@ func (x *GetProfileResponse) GetAtlassianAccount() *AtlassianAccount {
 		return x.AtlassianAccount
 	}
 	return nil
+}
+
+func (x *GetProfileResponse) GetOrgId() int64 {
+	if x != nil {
+		return x.OrgId
+	}
+	return 0
 }
 
 type ListTasksRequest struct {
@@ -7877,13 +7885,14 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\"\x13\n" +
-	"\x11GetProfileRequest\"\x93\x02\n" +
+	"\x11GetProfileRequest\"\xaa\x02\n" +
 	"\x12GetProfileResponse\x12+\n" +
 	"\aprofile\x18\x01 \x01(\v2\x11.gritz.v1.ProfileR\aprofile\x12!\n" +
 	"\x04orgs\x18\x02 \x03(\v2\r.gritz.v1.OrgR\x04orgs\x12$\n" +
 	"\x0edefault_org_id\x18\x03 \x01(\x03R\fdefaultOrgId\x12>\n" +
 	"\x0egithub_account\x18\x04 \x01(\v2\x17.gritz.v1.GitHubAccountR\rgithubAccount\x12G\n" +
-	"\x11atlassian_account\x18\x05 \x01(\v2\x1a.gritz.v1.AtlassianAccountR\x10atlassianAccount\"j\n" +
+	"\x11atlassian_account\x18\x05 \x01(\v2\x1a.gritz.v1.AtlassianAccountR\x10atlassianAccount\x12\x15\n" +
+	"\x06org_id\x18\x06 \x01(\x03R\x05orgId\"j\n" +
 	"\x10ListTasksRequest\x12\x1b\n" +
 	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +

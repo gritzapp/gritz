@@ -160,6 +160,7 @@ message GetProfileResponse {
   int64 default_org_id = 3;
   GitHubAccount github_account = 4;
   AtlassianAccount atlassian_account = 5;
+  int64 org_id = 6; // The org this request is authenticated against
 }
 
 message ListTasksRequest {

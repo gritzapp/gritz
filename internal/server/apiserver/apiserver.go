@@ -109,6 +109,19 @@ func (s *Server) GetProfile(ctx context.Context, req *gritzv1.GetProfileRequest)
 	if u == nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("not authenticated"))
 	}
+	if u.Type == apiauth.AuthTypeKey {
+		// A key belongs to an org, not a user: its profile is the key's
+		// name and its only org is the one it authenticates against.
+		org, err := s.store.GetOrg(ctx, nil, u.OrgID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		return &gritzv1.GetProfileResponse{
+			Profile: &gritzv1.Profile{Name: u.Name},
+			Orgs:    []*gritzv1.Org{org.Proto()},
+			OrgId:   u.OrgID,
+		}, nil
+	}
 	orgs, err := s.store.ListOrgsByMember(ctx, nil, u.ID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -123,6 +136,7 @@ func (s *Server) GetProfile(ctx context.Context, req *gritzv1.GetProfileRequest)
 			Email: u.Email,
 			Name:  u.Name,
 		},
+		OrgId:            u.OrgID,
 		DefaultOrgId:     user.DefaultOrgID,
 		GithubAccount:    user.GitHubAccountProto(),
 		AtlassianAccount: user.AtlassianAccountProto(),
