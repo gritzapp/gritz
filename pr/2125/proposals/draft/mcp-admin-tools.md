@@ -31,11 +31,8 @@ here changes it.
 ## Design
 
 Add tools to `mcpserver.AddTools`, every one a thin proxy over a
-`GritzService` RPC. Almost every capability below already has an RPC, because
-the Web UI uses it. The one exception is sending a custom event, which today
-only arrives over HTTP at `/webhook/custom`; a new `SendCustomEvent` RPC
-covers it (see [API additions](#api-additions)). No store changes or
-migrations are needed.
+`GritzService` RPC. Every capability below already has an RPC, because the Web
+UI uses it, so no RPCs, store changes or migrations are needed.
 
 ### Principles
 
@@ -145,8 +142,7 @@ Details:
 | `list_events` | `ListExternalEvents` | `limit` |
 | `get_event` | `GetEvent` | `id` |
 | `delete_event` | `DeleteEvent` | `id` |
-| `test_event` | `TestEvent` | `source`, `type`, `attrs`, `description`, `details`, `fire` |
-| `send_custom_event` | `SendCustomEvent` (new) | `type`, `body`, `url`, `attrs`, `details` |
+| `test_event` | `TestEvent` | `source`, `type`, `body`, `url`, `attrs`, `description`, `details`, `fire` |
 
 - **`list_events`** returns a summary per event: `id`, `task_id`, `source`,
   `type`, `description`, `url`, `created_at` from `ExternalPayload`, not the
@@ -155,14 +151,11 @@ Details:
 - **`test_event`** is for testing routing. It takes any registered source and
   type, defaults to a dry run (`fire: false`), and returns
   `TestEventResponse.matches`: which rule matched and whether it would wake or
-  create. `fire: true` routes it for real, as the caller; the RPC already
-  requires `OpOrgWrite` for that.
-- **`send_custom_event`** sends a real custom event, exactly as a POST to
-  `/webhook/custom` does: the same envelope (`type`, `body`, `url`,
-  multi-valued `attrs`, `details`), the same validation, routed with no actor so
-  only public rules fire, under the same `OpEventCreate` scope. It returns the
-  number of tasks the event was routed to, like the webhook's `routed`. Invalid
-  envelopes come back as an error result carrying the validation message.
+  create. `fire: true` routes it for real; the RPC already requires
+  `OpOrgWrite` for that. The RPC validates the event against its type and
+  routes a custom event with no actor, exactly as `/webhook/custom` does, so
+  firing a custom event is how an agent sends one; an invalid event comes back
+  as an error result carrying the validation message.
 
 #### Event types
 
@@ -173,8 +166,8 @@ Details:
 | `delete_custom_event_type` | `GetCustomEventTypes`, `SetCustomEventTypes` | `type` |
 
 - **`list_event_types`** lists the built-in and custom types with their
-  attributes, which is what an agent needs to fill in `test_event` or
-  `send_custom_event` attrs, or to write a routing rule's conditions.
+  attributes, which is what an agent needs to fill in `test_event`'s attrs,
+  or to write a routing rule's conditions.
 - `SetCustomEventTypes` replaces the whole set. The two write tools read the
   current set, add, replace or remove the one entry by `type`, and write the set
   back, exactly as the Web UI's custom event type pages do. The RPC validates
@@ -275,65 +268,7 @@ func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, op
 call `AddTools`; the server passes the in-process `apiserver.Server`, `gritz mcp`
 the Connect client. Every handler calls `GritzServiceHandler` methods only.
 
-### API additions
-
-#### `SendCustomEvent`
-
-Custom events arrive over HTTP at `/webhook/custom`, not over Connect, so
-`gritz mcp` can't post one through its client. A new RPC accepts the same
-envelope:
-
-```proto
-service GritzService {
-  // SendCustomEvent routes one event of an org's custom event type, exactly as
-  // a POST to /webhook/custom does. It requires the event create scope.
-  rpc SendCustomEvent(SendCustomEventRequest) returns (SendCustomEventResponse);
-}
-
-message SendCustomEventRequest {
-  string type = 1;                          // the custom event type
-  string body = 2;                          // matchable as the "body" attr
-  string url = 3;                           // absolute http(s) URL; the subscription key
-  map<string, CustomEventAttr> attrs = 4;   // declared attrs only, not "body" or "url"
-  map<string, string> details = 5;          // persisted verbatim, never matched
-}
-
-// CustomEventAttr is one attribute's values; a proto map can't hold a
-// repeated value directly.
-message CustomEventAttr {
-  repeated string values = 1;
-}
-
-message SendCustomEventResponse {
-  int32 routed = 1; // number of tasks the event was routed to
-}
-```
-
-The webhook handler and the RPC share the validation and routing code in
-`customserver` rather than duplicating it. The body of
-`WebhookHandler.ServeHTTP` after authorization and decoding moves into one
-function:
-
-```go
-package customserver // github.com/gritzapp/gritz/internal/server/customserver
-
-// Send validates env against the org's custom event types and routes it with
-// no actor, so only the org's public rules can fire. It returns the number of
-// tasks routed to. A validation failure is an *EnvelopeError.
-func Send(ctx context.Context, store Store, router Router, orgID int64, env Envelope) (int, error)
-
-// EnvelopeError reports an envelope that failed validation: an unknown type,
-// a missing or non-http(s) url, or an undeclared attr.
-type EnvelopeError struct{ Err error }
-```
-
-`ServeHTTP` checks `OpEventCreate`, decodes the JSON, calls `Send`, and maps an
-`*EnvelopeError` to 400. `apiserver.SendCustomEvent` checks the same
-`OpEventCreate` scope, converts the request to an `Envelope`, calls `Send` with
-the server's router, and maps an `*EnvelopeError` to `InvalidArgument`. Neither
-caller validates on its own, so the two paths can't drift.
-
-#### Considered and left out
+### Considered and left out
 
 - **Per-type custom event type RPCs** (`PutCustomEventType`,
   `DeleteCustomEventType`). They would remove the lost-update window of
@@ -369,16 +304,13 @@ adds or changes, in the same PR.
    manual cancel and restart through `gritz mcp` against a local server.
 3. **Events and event types** — Delivers: `list_events`, `get_event`,
    `delete_event`, `list_event_types`, `put_custom_event_type`,
-   `delete_custom_event_type`, `test_event`; the `SendCustomEvent` RPC with
-   `customserver.Send` shared by the webhook handler; `send_custom_event`.
-   Updates `integrations/custom-events` to mention the RPC and the MCP tool.
-   Depends on: (1). Verifiable by: mock tests, including that `list_events`
-   omits `data`, that the written custom type set adds, replaces or removes
-   exactly one entry, and that a `FailedPrecondition` comes back as an error
-   result; the existing webhook tests passing against `Send`; `apiserver`
-   tests that `SendCustomEvent` rejects an unknown type, a relative `url` and
-   an undeclared attr with `InvalidArgument`, requires `OpEventCreate`, and
-   routes with no actor so a member rule doesn't fire.
+   `delete_custom_event_type`, `test_event`. Updates
+   `integrations/custom-events` to mention firing a custom event with
+   `test_event`. Depends on: (1). Verifiable by: mock tests, including that
+   `list_events` omits `data`, that the written custom type set adds, replaces
+   or removes exactly one entry, that `test_event` sends `body`, `url` and
+   multi-valued `attrs`, and that a `FailedPrecondition` or `InvalidArgument`
+   comes back as an error result.
 4. **Schedules** — Delivers: `list_schedules`, `get_schedule`,
    `create_schedule`, `update_schedule`, `set_schedule_enabled`,
    `run_schedule`, `delete_schedule`. Depends on: (1). Verifiable by: mock
@@ -409,12 +341,7 @@ Slices 2–5 depend only on (1) and can land in any order.
   them by. `DestructiveHint` and a description that says every rule is
   replaced make the client confirm, the RPC still validates every rule, and
   `get_routing_rules` plus `test_event` let the agent check its work.
-- **`send_custom_event` beside `test_event`.** `test_event` with `fire: true`
-  already routes a synthetic event, but as the caller, so member rules fire,
-  and with any source. `send_custom_event` is the webhook's behaviour: custom
-  types only, no actor, public rules only. An agent wiring up an integration
-  needs to see what the integration's events will really do.
-- **A flat tool set, not toolsets.** The MCP goes from 6 tools to 31, which costs
+- **A flat tool set, not toolsets.** The MCP goes from 6 tools to 30, which costs
   client context. Grouping tools behind a flag (`gritz mcp --tools task,event`)
   or MCP-level toolsets would trim it, but clients already let users disable
   individual tools, and the tool descriptions stay short. Revisit if it hurts.

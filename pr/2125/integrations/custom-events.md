@@ -66,6 +66,8 @@ The command reads the key from a variable, so it can be shared or logged without
 the key's value.
 
 - `type` names the custom type.
+- `description`, optional, is shown on the task's timeline. It defaults to the
+  type's label.
 - `url` identifies the resource the event is about; see
   [The URL is the subscription key](#the-url-is-the-subscription-key).
 - `body` is the event's text. The agent reads it, and rules can match on it.
@@ -88,12 +90,9 @@ woke:
 `{"routed": 0}` is still a success: the event was valid, but nothing acted on it
 (see [Troubleshooting](#troubleshooting)).
 
-The `send_custom_event` [MCP tool](/integrations/mcp/#send_custom_event) and the
-`SendCustomEvent` [API](/reference/api/) method send the same envelope, with the
-API key or sign-in they already use. They check it the same way: an invalid
-envelope fails with the messages listed under
-[Troubleshooting](#troubleshooting), as an error result or an
-`invalid_argument` error.
+The `test_event` [MCP tool](/integrations/mcp/#test_event) with `fire` set sends
+the same event with the sign-in or API key the MCP client already uses. It is
+checked the same way, and routes the same way.
 
 ## 4. Add a routing rule
 

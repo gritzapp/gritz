@@ -242,7 +242,7 @@ Make a rule public to let people outside the organisation, such as outside contr
 * **Dry run** shows which rule would match the event and whether that rule would wake tasks or create one. It changes nothing. It reports the rule’s settings only: it doesn’t check whether a task is subscribed to the URL.
 * **Fire** routes the event for real, as if it had arrived from its source: it wakes or creates tasks and stores the event on them. It doesn’t post anything back to GitHub or Jira.
 
-Both run the event as yours, so your organisation’s member-only rules can match it, and only for the organisation you are in.
+Both run the event only for the organisation you are in, and both reject an event that doesn’t fit its type: the URL must be an absolute `http` or `https` URL, and every attribute must be one the type declares. An event without a description gets its type’s label. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2125/integrations/custom-events/) is routed like one posted to the webhook: it has no actor, so only public rules match it.
 
 # Runners
 
@@ -585,6 +585,7 @@ curl https://gritz.dev/webhook/custom \
 The command reads the key from a variable, so it can be shared or logged without the key’s value.
 
 * `type` names the custom type.
+* `description`, optional, is shown on the task’s timeline. It defaults to the type’s label.
 * `url` identifies the resource the event is about; see [The URL is the subscription key](#the-url-is-the-subscription-key).
 * `body` is the event’s text. The agent reads it, and rules can match on it.
 * `attrs` holds the values of the type’s other attributes. Each value is a list of strings, even when there is only one.
@@ -600,7 +601,7 @@ A valid event gets a `200` response with the number of tasks it created or woke:
 
 `{"routed": 0}` is still a success: the event was valid, but nothing acted on it (see [Troubleshooting](#troubleshooting)).
 
-The `send_custom_event` [MCP tool](/pr/2125/integrations/mcp/#send_custom_event) and the `SendCustomEvent` [API](/pr/2125/reference/api/) method send the same envelope, with the API key or sign-in they already use. They check it the same way: an invalid envelope fails with the messages listed under [Troubleshooting](#troubleshooting), as an error result or an `invalid_argument` error.
+The `test_event` [MCP tool](/pr/2125/integrations/mcp/#test_event) with `fire` set sends the same event with the sign-in or API key the MCP client already uses. It is checked the same way, and routes the same way.
 
 ## 4. Add a routing rule
 
@@ -1022,8 +1023,7 @@ Or in a project’s `.mcp.json`:
 | `list_event_types`         | Lists the event types routing rules can match, with their attributes.                                                  |
 | `put_custom_event_type`    | Adds a custom event type, or replaces the one with the same name.                                                      |
 | `delete_custom_event_type` | Deletes a custom event type.                                                                                           |
-| `test_event`               | Tests the routing rules with a made-up event, or routes it for real.                                                   |
-| `send_custom_event`        | Sends a custom event, as the custom events webhook does.                                                               |
+| `test_event`               | Tests the routing rules with an event, or routes it for real.                                                          |
 
 You don’t call these yourself: ask your agent, for example “Create a gritz task in the pets-workshop workspace to add a `--json` flag, then tell me when it has opened a pull request.” It calls `list_workspaces` to find the runner, then `create_task`.
 
@@ -1123,7 +1123,7 @@ Use it to subscribe a task to something you made yourself, such as a pull reques
 
 [Section titled “list_event_types”](#list_event_types)
 
-Returns every [event type](/pr/2125/reference/event-types/), built-in and custom, with the attributes a routing rule can have conditions on. Those are the attributes `test_event` and `send_custom_event` take.
+Returns every [event type](/pr/2125/reference/event-types/), built-in and custom, with the attributes a routing rule can have conditions on. Those are the attributes `test_event` takes.
 
 ### `put_custom_event_type`
 
@@ -1147,22 +1147,18 @@ Takes the `type` to delete. It fails while a routing rule uses the type.
 
 [Section titled “test_event”](#test_event)
 
-| Argument      |                                                                            |
-| ------------- | -------------------------------------------------------------------------- |
-| `source`      | The event type’s source, such as `github`, `jira` or `custom`. Required.   |
-| `type`        | The event type, such as `issue_comment`. Required.                         |
-| `attrs`       | The event’s attribute values, one string each, including `body` and `url`. |
-| `description` | A description shown on the timeline of a task the event reaches.           |
-| `details`     | Extra key/value context shown with the event. Rules don’t match on it.     |
-| `fire`        | Act on the match: wake or create tasks. Without it, nothing changes.       |
+| Argument      |                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------- |
+| `source`      | The event type’s source, such as `github`, `jira` or `custom`. Required.                          |
+| `type`        | The event type, such as `issue_comment`. Required.                                                |
+| `url`         | The absolute `http` or `https` URL of the resource the event is about. Required.                  |
+| `body`        | The event’s text.                                                                                 |
+| `attrs`       | The values of the type’s other attributes, each a list of strings.                                |
+| `description` | A description shown on the timeline of a task the event reaches. It defaults to the type’s label. |
+| `details`     | Extra key/value context shown with the event. Rules don’t match on it.                            |
+| `fire`        | Act on the match: wake or create tasks. Without it, nothing changes.                              |
 
-It returns the rule that matched, if any, and whether it wakes linked tasks or creates one. The event has you as its actor, so rules that aren’t public can match it, unlike a real custom event.
-
-### `send_custom_event`
-
-[Section titled “send_custom_event”](#send_custom_event)
-
-Sends an event of one of the organisation’s custom types, exactly as a `POST` to the [custom events webhook](/pr/2125/integrations/custom-events/) does: it takes the same `type`, `body`, `url`, `attrs` and `details`, is checked the same way, and only public rules act on it. It returns `routed`, the number of tasks it created or woke.
+The event is checked against its type as the [custom events webhook](/pr/2125/integrations/custom-events/) checks an envelope. It returns the rule that matched, if any, and whether it wakes linked tasks or creates one. An event of a GitHub or Jira type has you as its actor. A custom event has none, so only public rules match it, as when it comes from the webhook: firing a custom event is how to send one.
 
 ## Channels
 
@@ -2580,7 +2576,7 @@ The in-sandbox agent MCP (`gritz tool agent-mcp`, [`internal/runner/agentmcp`](h
 
 [Section titled “Design”](#design)
 
-Add tools to `mcpserver.AddTools`, every one a thin proxy over a `GritzService` RPC. Almost every capability below already has an RPC, because the Web UI uses it. The one exception is sending a custom event, which today only arrives over HTTP at `/webhook/custom`; a new `SendCustomEvent` RPC covers it (see [API additions](#api-additions)). No store changes or migrations are needed.
+Add tools to `mcpserver.AddTools`, every one a thin proxy over a `GritzService` RPC. Every capability below already has an RPC, because the Web UI uses it, so no RPCs, store changes or migrations are needed.
 
 ### Principles
 
@@ -2655,17 +2651,15 @@ Details:
 
 [Section titled “Events”](#events)
 
-| Tool                | RPC                     | Arguments                                                   |
-| ------------------- | ----------------------- | ----------------------------------------------------------- |
-| `list_events`       | `ListExternalEvents`    | `limit`                                                     |
-| `get_event`         | `GetEvent`              | `id`                                                        |
-| `delete_event`      | `DeleteEvent`           | `id`                                                        |
-| `test_event`        | `TestEvent`             | `source`, `type`, `attrs`, `description`, `details`, `fire` |
-| `send_custom_event` | `SendCustomEvent` (new) | `type`, `body`, `url`, `attrs`, `details`                   |
+| Tool           | RPC                  | Arguments                                                                  |
+| -------------- | -------------------- | -------------------------------------------------------------------------- |
+| `list_events`  | `ListExternalEvents` | `limit`                                                                    |
+| `get_event`    | `GetEvent`           | `id`                                                                       |
+| `delete_event` | `DeleteEvent`        | `id`                                                                       |
+| `test_event`   | `TestEvent`          | `source`, `type`, `body`, `url`, `attrs`, `description`, `details`, `fire` |
 
 * **`list_events`** returns a summary per event: `id`, `task_id`, `source`, `type`, `description`, `url`, `created_at` from `ExternalPayload`, not the `data` blob. `get_event` returns the full event as protojson, like `get_task`’s timeline.
-* **`test_event`** is for testing routing. It takes any registered source and type, defaults to a dry run (`fire: false`), and returns `TestEventResponse.matches`: which rule matched and whether it would wake or create. `fire: true` routes it for real, as the caller; the RPC already requires `OpOrgWrite` for that.
-* **`send_custom_event`** sends a real custom event, exactly as a POST to `/webhook/custom` does: the same envelope (`type`, `body`, `url`, multi-valued `attrs`, `details`), the same validation, routed with no actor so only public rules fire, under the same `OpEventCreate` scope. It returns the number of tasks the event was routed to, like the webhook’s `routed`. Invalid envelopes come back as an error result carrying the validation message.
+* **`test_event`** is for testing routing. It takes any registered source and type, defaults to a dry run (`fire: false`), and returns `TestEventResponse.matches`: which rule matched and whether it would wake or create. `fire: true` routes it for real; the RPC already requires `OpOrgWrite` for that. The RPC validates the event against its type and routes a custom event with no actor, exactly as `/webhook/custom` does, so firing a custom event is how an agent sends one; an invalid event comes back as an error result carrying the validation message.
 
 #### Event types
 
@@ -2677,7 +2671,7 @@ Details:
 | `put_custom_event_type`    | `GetCustomEventTypes`, `SetCustomEventTypes` | `type`, `label`, `attrs` |
 | `delete_custom_event_type` | `GetCustomEventTypes`, `SetCustomEventTypes` | `type`                   |
 
-* **`list_event_types`** lists the built-in and custom types with their attributes, which is what an agent needs to fill in `test_event` or `send_custom_event` attrs, or to write a routing rule’s conditions.
+* **`list_event_types`** lists the built-in and custom types with their attributes, which is what an agent needs to fill in `test_event`’s attrs, or to write a routing rule’s conditions.
 * `SetCustomEventTypes` replaces the whole set. The two write tools read the current set, add, replace or remove the one entry by `type`, and write the set back, exactly as the Web UI’s custom event type pages do. The RPC validates the result: a malformed schema is `InvalidArgument`, and removing a type a routing rule still uses is `FailedPrecondition`, which the tool returns as an error result naming the problem. `source` is always `"custom"` and is not an argument.
 
 #### Schedules
@@ -2760,65 +2754,7 @@ func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, op
 
 **How it fits:** unchanged. The server’s `/mcp` handler and `gritz mcp` both call `AddTools`; the server passes the in-process `apiserver.Server`, `gritz mcp` the Connect client. Every handler calls `GritzServiceHandler` methods only.
 
-### API additions
-
-[Section titled “API additions”](#api-additions)
-
-#### `SendCustomEvent`
-
-[Section titled “SendCustomEvent”](#sendcustomevent)
-
-Custom events arrive over HTTP at `/webhook/custom`, not over Connect, so `gritz mcp` can’t post one through its client. A new RPC accepts the same envelope:
-
-```proto
-service GritzService {
-  // SendCustomEvent routes one event of an org's custom event type, exactly as
-  // a POST to /webhook/custom does. It requires the event create scope.
-  rpc SendCustomEvent(SendCustomEventRequest) returns (SendCustomEventResponse);
-}
-
-
-message SendCustomEventRequest {
-  string type = 1;                          // the custom event type
-  string body = 2;                          // matchable as the "body" attr
-  string url = 3;                           // absolute http(s) URL; the subscription key
-  map<string, CustomEventAttr> attrs = 4;   // declared attrs only, not "body" or "url"
-  map<string, string> details = 5;          // persisted verbatim, never matched
-}
-
-
-// CustomEventAttr is one attribute's values; a proto map can't hold a
-// repeated value directly.
-message CustomEventAttr {
-  repeated string values = 1;
-}
-
-
-message SendCustomEventResponse {
-  int32 routed = 1; // number of tasks the event was routed to
-}
-```
-
-The webhook handler and the RPC share the validation and routing code in `customserver` rather than duplicating it. The body of `WebhookHandler.ServeHTTP` after authorization and decoding moves into one function:
-
-```go
-package customserver // github.com/gritzapp/gritz/internal/server/customserver
-
-
-// Send validates env against the org's custom event types and routes it with
-// no actor, so only the org's public rules can fire. It returns the number of
-// tasks routed to. A validation failure is an *EnvelopeError.
-func Send(ctx context.Context, store Store, router Router, orgID int64, env Envelope) (int, error)
-
-
-// EnvelopeError reports an envelope that failed validation: an unknown type,
-// a missing or non-http(s) url, or an undeclared attr.
-type EnvelopeError struct{ Err error }
-```
-
-`ServeHTTP` checks `OpEventCreate`, decodes the JSON, calls `Send`, and maps an `*EnvelopeError` to 400. `apiserver.SendCustomEvent` checks the same `OpEventCreate` scope, converts the request to an `Envelope`, calls `Send` with the server’s router, and maps an `*EnvelopeError` to `InvalidArgument`. Neither caller validates on its own, so the two paths can’t drift.
-
-#### Considered and left out
+### Considered and left out
 
 [Section titled “Considered and left out”](#considered-and-left-out)
 
@@ -2835,7 +2771,7 @@ Each slice updates the **Tools** section of `integrations/mcp` for the tools it 
 
 1. **Split the package** — Delivers: `mcpserver.go` split into `task.go` with the existing handlers and the per-domain `register` structure; no behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass unchanged.
 2. **Task tools** — Delivers: `list_tasks` paging and `archived`, the wider task summary, `get_task`’s extra fields and `event_types` filter; `create_task` `draft` and `namespace`; `update_task` `name`, `auto_archive`, optional `instruction` and the nothing-to-do error; `cancel_task`, `restart_task`, `unarchive_task`; `get_task_log`; `create_link`. Depends on: (1). Verifiable by: mock tests on the requests each tool sends, including `next_page_token` in the `list_tasks` result, the `types` passed to `ListEventsByTask`, and `get_task_log` walking several `ListLogChunksByTask` pages backwards, stopping at `max_bytes` and returning the right `before`; a manual cancel and restart through `gritz mcp` against a local server.
-3. **Events and event types** — Delivers: `list_events`, `get_event`, `delete_event`, `list_event_types`, `put_custom_event_type`, `delete_custom_event_type`, `test_event`; the `SendCustomEvent` RPC with `customserver.Send` shared by the webhook handler; `send_custom_event`. Updates `integrations/custom-events` to mention the RPC and the MCP tool. Depends on: (1). Verifiable by: mock tests, including that `list_events` omits `data`, that the written custom type set adds, replaces or removes exactly one entry, and that a `FailedPrecondition` comes back as an error result; the existing webhook tests passing against `Send`; `apiserver` tests that `SendCustomEvent` rejects an unknown type, a relative `url` and an undeclared attr with `InvalidArgument`, requires `OpEventCreate`, and routes with no actor so a member rule doesn’t fire.
+3. **Events and event types** — Delivers: `list_events`, `get_event`, `delete_event`, `list_event_types`, `put_custom_event_type`, `delete_custom_event_type`, `test_event`. Updates `integrations/custom-events` to mention firing a custom event with `test_event`. Depends on: (1). Verifiable by: mock tests, including that `list_events` omits `data`, that the written custom type set adds, replaces or removes exactly one entry, that `test_event` sends `body`, `url` and multi-valued `attrs`, and that a `FailedPrecondition` or `InvalidArgument` comes back as an error result.
 4. **Schedules** — Delivers: `list_schedules`, `get_schedule`, `create_schedule`, `update_schedule`, `set_schedule_enabled`, `run_schedule`, `delete_schedule`. Depends on: (1). Verifiable by: mock tests, including that `update_schedule` with only `cron_expr` sends the loaded instructions back unchanged.
 5. **Org** — Delivers: `list_members`, `list_keys`, `get_org_settings`, `get_routing_rules`, `set_routing_rules`. Depends on: (1). Verifiable by: mock tests, including that `get_org_settings` drops the webhook secret, that `set_routing_rules` sends the list unchanged and carries `DestructiveHint`, and that an `InvalidArgument` comes back as an error result.
 6. **Instructions** — Delivers: the updated `mcpserver.Instructions` and the intro of `integrations/mcp` describing the wider tool set. Depends on: (2)–(5). Verifiable by: reading the page; `TestListTools` lists every tool.
@@ -2848,8 +2784,7 @@ Slices 2–5 depend only on (1) and can land in any order.
 
 * **Proxy tools over existing RPCs, not new MCP-specific endpoints.** Every capability already exists for the Web UI, with its authorization and validation. Proxying keeps `gritz mcp` and `/mcp` identical and keeps the MCP out of the permission model. The cost is a few read-modify-write tools where the RPC replaces a whole set.
 * **Routing rules are written whole.** `set_routing_rules` proxies `SetRoutingRules`, which replaces the org’s whole rule list; one bad call from an agent that drops rules can silently stop events from waking tasks. Per-rule add and remove would be safer, but rules have no IDs to address them by. `DestructiveHint` and a description that says every rule is replaced make the client confirm, the RPC still validates every rule, and `get_routing_rules` plus `test_event` let the agent check its work.
-* **`send_custom_event` beside `test_event`.** `test_event` with `fire: true` already routes a synthetic event, but as the caller, so member rules fire, and with any source. `send_custom_event` is the webhook’s behaviour: custom types only, no actor, public rules only. An agent wiring up an integration needs to see what the integration’s events will really do.
-* **A flat tool set, not toolsets.** The MCP goes from 6 tools to 31, which costs client context. Grouping tools behind a flag (`gritz mcp --tools task,event`) or MCP-level toolsets would trim it, but clients already let users disable individual tools, and the tool descriptions stay short. Revisit if it hurts.
+* **A flat tool set, not toolsets.** The MCP goes from 6 tools to 30, which costs client context. Grouping tools behind a flag (`gritz mcp --tools task,event`) or MCP-level toolsets would trim it, but clients already let users disable individual tools, and the tool descriptions stay short. Revisit if it hurts.
 * **`get_task_log` returns a byte tail, not parsed turns.** The transcript is the driver’s raw log in whatever format the agent CLI writes; parsing it per agent would couple the MCP to every agent integration. A byte budget keeps results bounded.
 * **One instruction per create.** `CreateTask` and `CreateSchedule` accept several instructions, but nothing in the Web UI makes more than one, and one string is easier for an agent to fill.
 
@@ -29846,9 +29781,6 @@ service GritzService {
   rpc GetCustomEventTypes(GetCustomEventTypesRequest) returns (GetCustomEventTypesResponse);
   rpc SetCustomEventTypes(SetCustomEventTypesRequest) returns (SetCustomEventTypesResponse);
   rpc TestEvent(TestEventRequest) returns (TestEventResponse);
-  // SendCustomEvent routes one event of an org's custom event type, exactly as
-  // a POST to /webhook/custom does. It requires the event create scope.
-  rpc SendCustomEvent(SendCustomEventRequest) returns (SendCustomEventResponse);
   // Called from a task's sandbox to get a GitHub token. The server doesn't
   // issue these tokens yet: every call fails with `unimplemented`.
   rpc CreateGitHubToken(CreateGitHubTokenRequest) returns (CreateGitHubTokenResponse);
@@ -30753,21 +30685,29 @@ message SetCustomEventTypesResponse {
 }
 
 
-// The handler wraps each attr value into the one-element slice eventrouter.Attrs
-// expects, and unpacks the "body" and "url" attrs into Data and URL.
-
-
 // TestEventRequest composes an event and routes it through the org's routing
-// rules, as a dry run or for real.
+// rules, as a dry run or for real. Every event is validated against its type:
+// it fails with `invalid_argument` for an unknown source or type, a missing or
+// non-absolute http(s) url, or an attr the type doesn't declare. An event of a
+// built-in source routes as the caller. A custom event routes like one posted
+// to the custom event webhook: it has no actor, so only public rules match it.
 message TestEventRequest {
   string source = 1;                // The event type's source, such as "github".
   string type = 2;                  // The event type, such as "issue_comment".
-  // The event's attribute values, keyed by AttrDef.key, including "body" and
-  // "url".
-  map<string, string> attrs = 3;
-  string description = 4;           // Optional description shown on the task's timeline.
+  // The event's attribute values, keyed by AttrDef.key. An attr may have
+  // several values. "body" and "url" are sent in their own fields, not here.
+  map<string, AttrValues> attrs = 3;
+  string description = 4;           // Optional description shown on the task's timeline; defaults to the event type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
+  string body = 7;                  // The event's text, matched by rules on the "body" attr.
+  string url = 8;                   // The event's resource URL, matched by rules on the "url" attr and by subscribed links.
+}
+
+
+// AttrValues is the values of one event attribute.
+message AttrValues {
+  repeated string values = 1;
 }
 
 
@@ -30785,30 +30725,6 @@ message TestEventMatch {
   bool would_create = 5;     // Whether a task would be, or was, created.
   repeated int64 created_task_ids = 6;   // The tasks created; set only when fired.
   repeated int64 event_ids = 7;          // The events added; set only when fired.
-}
-
-
-// SendCustomEventRequest is the custom event webhook's envelope. It fails with
-// `invalid_argument` if the type isn't one of the org's custom types, the url
-// isn't an absolute http or https URL, or an attr isn't declared by the type.
-message SendCustomEventRequest {
-  string type = 1;                         // The custom event type.
-  string body = 2;                         // The event's text, matchable as the "body" attr.
-  string url = 3;                          // The resource the event is about; the subscription key.
-  map<string, CustomEventAttr> attrs = 4;  // The type's declared attrs, not "body" or "url".
-  map<string, string> details = 5;         // Stored as the event's ExternalPayload.details; never matched.
-}
-
-
-// CustomEventAttr is one attribute's values; a proto map can't hold a repeated
-// value directly.
-message CustomEventAttr {
-  repeated string values = 1;
-}
-
-
-message SendCustomEventResponse {
-  int32 routed = 1;  // The number of tasks the event was routed to.
 }
 
 
@@ -31245,6 +31161,7 @@ A JSON object of at most 1 MiB:
 ```json
 {
   "type": "alert",
+  "description": "checkout-api error rate alert",
   "url": "https://alerts.example.com/alerts/4211",
   "body": "checkout-api error rate above 5% for 10 minutes",
   "attrs": {"severity": ["critical"], "service": ["checkout-api"]},
@@ -31252,21 +31169,22 @@ A JSON object of at most 1 MiB:
 }
 ```
 
-Fields other than the five below are rejected, as are fields of the wrong JSON type.
+Fields other than the six below are rejected, as are fields of the wrong JSON type.
 
-| Field     | Type                                | Required | Validation                                                                                                                                                                                 |
-| --------- | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `type`    | string                              | yes      | Must name one of the organisation’s custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
-| `url`     | string                              | yes      | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url).                                                          |
-| `body`    | string                              | no       | The event’s text. Defaults to the empty string.                                                                                                                                            |
-| `attrs`   | object of string → array of strings | no       | Every key must be an attribute the type declares, other than `body` and `url`.                                                                                                             |
-| `details` | object of string → string           | no       | Not validated.                                                                                                                                                                             |
+| Field         | Type                                | Required | Validation                                                                                                                                                                                 |
+| ------------- | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `type`        | string                              | yes      | Must name one of the organisation’s custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
+| `description` | string                              | no       | The event’s description on the task’s timeline. Defaults to the type’s label.                                                                                                              |
+| `url`         | string                              | yes      | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url).                                                          |
+| `body`        | string                              | no       | The event’s text. Defaults to the empty string.                                                                                                                                            |
+| `attrs`       | object of string → array of strings | no       | Every key must be an attribute the type declares, other than `body` and `url`.                                                                                                             |
+| `details`     | object of string → string           | no       | Not validated.                                                                                                                                                                             |
 
 #### `type`
 
 [Section titled “type”](#type)
 
-The custom type’s name, which matches `^[a-z][a-z0-9_]{0,63}$`. The type’s label becomes the event’s description on the task’s timeline.
+The custom type’s name, which matches `^[a-z][a-z0-9_]{0,63}$`. The type’s label becomes the event’s description on the task’s timeline when `description` is empty.
 
 #### `url`
 

@@ -140,8 +140,7 @@ the MCP config.
 | `list_event_types` | Lists the event types routing rules can match, with their attributes. |
 | `put_custom_event_type` | Adds a custom event type, or replaces the one with the same name. |
 | `delete_custom_event_type` | Deletes a custom event type. |
-| `test_event` | Tests the routing rules with a made-up event, or routes it for real. |
-| `send_custom_event` | Sends a custom event, as the custom events webhook does. |
+| `test_event` | Tests the routing rules with an event, or routes it for real. |
 
 You don't call these yourself: ask your agent, for example "Create a gritz task
 in the pets-workshop workspace to add a `--json` flag, then tell me when it has
@@ -243,7 +242,7 @@ of it. `delete_event` takes the `id` of the event to delete.
 
 Returns every [event type](/reference/event-types/), built-in and custom, with
 the attributes a routing rule can have conditions on. Those are the attributes
-`test_event` and `send_custom_event` take.
+`test_event` takes.
 
 ### `put_custom_event_type`
 
@@ -267,22 +266,19 @@ Takes the `type` to delete. It fails while a routing rule uses the type.
 | --- | --- |
 | `source` | The event type's source, such as `github`, `jira` or `custom`. Required. |
 | `type` | The event type, such as `issue_comment`. Required. |
-| `attrs` | The event's attribute values, one string each, including `body` and `url`. |
-| `description` | A description shown on the timeline of a task the event reaches. |
+| `url` | The absolute `http` or `https` URL of the resource the event is about. Required. |
+| `body` | The event's text. |
+| `attrs` | The values of the type's other attributes, each a list of strings. |
+| `description` | A description shown on the timeline of a task the event reaches. It defaults to the type's label. |
 | `details` | Extra key/value context shown with the event. Rules don't match on it. |
 | `fire` | Act on the match: wake or create tasks. Without it, nothing changes. |
 
-It returns the rule that matched, if any, and whether it wakes linked tasks or
-creates one. The event has you as its actor, so rules that aren't public can
-match it, unlike a real custom event.
-
-### `send_custom_event`
-
-Sends an event of one of the organisation's custom types, exactly as a `POST` to
-the [custom events webhook](/integrations/custom-events/) does: it takes the
-same `type`, `body`, `url`, `attrs` and `details`, is checked the same way, and
-only public rules act on it. It returns `routed`, the number of tasks it created
-or woke.
+The event is checked against its type as the
+[custom events webhook](/integrations/custom-events/) checks an envelope. It
+returns the rule that matched, if any, and whether it wakes linked tasks or
+creates one. An event of a GitHub or Jira type has you as its actor. A custom
+event has none, so only public rules match it, as when it comes from the
+webhook: firing a custom event is how to send one.
 
 ## Channels
 
