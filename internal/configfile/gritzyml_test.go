@@ -8,16 +8,17 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-// copyTestdata copies testdata/name into a temp dir and returns that dir, so
-// the .gritz.yml walk sees only the fixture's files.
-func copyTestdata(t *testing.T, name string) string {
+// testdata returns the absolute path of elem under testdata.
+func testdata(t *testing.T, elem ...string) string {
 	t.Helper()
-	dir := t.TempDir()
-	assert.NilError(t, os.CopyFS(dir, os.DirFS(filepath.Join("testdata", name))))
-	return dir
+	p, err := filepath.Abs(filepath.Join(append([]string{"testdata"}, elem...)...))
+	assert.NilError(t, err)
+	return p
 }
 
 func TestRead(t *testing.T) {
+	t.Parallel()
+
 	// Act
 	f, err := Read(filepath.Join("testdata", "read", Name))
 
@@ -34,6 +35,7 @@ func TestRead(t *testing.T) {
 }
 
 func TestRead_Empty(t *testing.T) {
+	t.Parallel()
 	f, err := Read(filepath.Join("testdata", "empty", Name))
 
 	assert.NilError(t, err)
@@ -41,8 +43,10 @@ func TestRead_Empty(t *testing.T) {
 }
 
 func TestRead_UnknownField(t *testing.T) {
+	t.Parallel()
 	for _, dir := range []string{"unknown-field", "unknown-entry-field"} {
 		t.Run(dir, func(t *testing.T) {
+			t.Parallel()
 			_, err := Read(filepath.Join("testdata", dir, Name))
 
 			assert.ErrorContains(t, err, "not found in type")
@@ -51,19 +55,18 @@ func TestRead_UnknownField(t *testing.T) {
 }
 
 func TestLoadV2(t *testing.T) {
+	t.Parallel()
 	// Arrange - a base layer, a parent directory and a repo below it
-	root := copyTestdata(t, "tree")
-	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
-	repo := filepath.Join(root, "work", "repo")
-	assert.NilError(t, os.Mkdir(filepath.Join(repo, ".git"), 0o755))
-	sub := filepath.Join(repo, "sub")
-	assert.NilError(t, os.Mkdir(sub, 0o755))
-	base := filepath.Join(root, "config", Name)
-	work := filepath.Join(root, "work", Name)
-	repoFile := filepath.Join(repo, Name)
+	base := testdata(t, "tree", "config", Name)
+	work := testdata(t, "tree", "work", Name)
+	repo := testdata(t, "tree", "work", "repo", Name)
 
 	// Act
-	m, err := LoadV2(sub)
+	m, err := LoadV2(LoadOptions{
+		Dir:  testdata(t, "tree", "work", "repo"),
+		Root: testdata(t, "tree"),
+		Base: base,
+	})
 
 	// Assert
 	assert.NilError(t, err)
@@ -71,7 +74,7 @@ func TestLoadV2(t *testing.T) {
 		Default:     "acme",
 		DefaultFrom: work,
 		Allowed:     []string{"acme"},
-		AllowedFrom: repoFile,
+		AllowedFrom: repo,
 		Orgs: map[string]Entry{
 			"personal": {ID: 1, Key: "kp"},
 			"acme":     {ID: 12, Key: "k-work"},
@@ -80,17 +83,20 @@ func TestLoadV2(t *testing.T) {
 		OrgsFrom: map[string]string{
 			"personal": base,
 			"acme":     work,
-			"local":    repoFile,
+			"local":    repo,
 		},
 	})
 }
 
 func TestLoadV2_BaseOnly(t *testing.T) {
-	root := copyTestdata(t, "base-only")
-	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
-	base := filepath.Join(root, "config", Name)
+	t.Parallel()
+	base := testdata(t, "base-only", "config", Name)
 
-	m, err := LoadV2(root)
+	m, err := LoadV2(LoadOptions{
+		Dir:  testdata(t, "base-only"),
+		Root: testdata(t, "base-only"),
+		Base: base,
+	})
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{
@@ -102,35 +108,37 @@ func TestLoadV2_BaseOnly(t *testing.T) {
 }
 
 func TestLoadV2_NoFiles(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
+	t.Parallel()
+	dir := testdata(t, "tree")
 
-	m, err := LoadV2(root)
+	m, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, Name)})
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
 }
 
 func TestLoadV2_NotRegular(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
-	assert.NilError(t, os.Mkdir(filepath.Join(root, Name), 0o755))
+	t.Parallel()
+	dir := t.TempDir()
+	p := filepath.Join(dir, Name)
+	assert.NilError(t, os.Mkdir(p, 0o755))
 
-	_, err := LoadV2(root)
+	_, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
 
-	assert.ErrorContains(t, err, filepath.Join(root, Name)+": not a regular file")
+	assert.ErrorContains(t, err, p+": not a regular file")
 }
 
 func TestLoadV2_UnknownField(t *testing.T) {
-	root := copyTestdata(t, "unknown-field")
-	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
+	t.Parallel()
+	dir := testdata(t, "unknown-field")
 
-	_, err := LoadV2(root)
+	_, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
 
-	assert.ErrorContains(t, err, filepath.Join(root, Name)+": ")
+	assert.ErrorContains(t, err, filepath.Join(dir, Name)+": ")
 }
 
 func TestSelect(t *testing.T) {
+	t.Parallel()
 	acme := Entry{ID: 12, Key: "k1"}
 	local := Entry{ID: 1, Key: "k2", Server: "http://localhost:8080"}
 	orgs := map[string]Entry{"acme": acme, "local": local}
@@ -228,6 +236,7 @@ func TestSelect(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := tt.merged.Select(tt.org)
 
 			if tt.err != "" {
@@ -241,6 +250,7 @@ func TestSelect(t *testing.T) {
 }
 
 func TestSlug(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want string
@@ -254,6 +264,7 @@ func TestSlug(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, Slug(tt.in), tt.want)
 		})
 	}

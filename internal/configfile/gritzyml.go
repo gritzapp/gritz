@@ -63,26 +63,49 @@ type Merged struct {
 	OrgsFrom    map[string]string // entry name -> path of the file that set it
 }
 
-// LoadV2 merges $CONFIG_DIR/.gritz.yml and every .gritz.yml from dir up to /.
+// LoadOptions configures LoadV2.
+type LoadOptions struct {
+	// Dir is where the walk starts.
+	Dir string
+	// Root is the last directory the walk visits; empty means /.
+	Root string
+	// Base is the base layer; empty means $CONFIG_DIR/.gritz.yml.
+	Base string
+}
+
+// LoadV2 merges the base layer and every .gritz.yml from opts.Dir up to opts.Root.
 //
 // TODO: rename to Load once the config.json Load is removed.
-func LoadV2(dir string) (*Merged, error) {
-	configDir, err := Dir()
+func LoadV2(opts LoadOptions) (*Merged, error) {
+	base := opts.Base
+	if base == "" {
+		configDir, err := Dir()
+		if err != nil {
+			return nil, err
+		}
+		base = filepath.Join(configDir, Name)
+	}
+	base, err := filepath.Abs(base)
 	if err != nil {
 		return nil, err
 	}
-	dir, err = filepath.Abs(dir)
+	dir, err := filepath.Abs(opts.Dir)
 	if err != nil {
 		return nil, err
 	}
-	base := filepath.Join(configDir, Name)
+	root := opts.Root
+	if root != "" {
+		if root, err = filepath.Abs(root); err != nil {
+			return nil, err
+		}
+	}
 	// Collected nearest first; merged in reverse, base first.
 	var paths []string
 	for d := dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
 			paths = append(paths, p)
 		}
-		if filepath.Dir(d) == d {
+		if d == root || filepath.Dir(d) == d {
 			break
 		}
 	}
