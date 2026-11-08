@@ -163,13 +163,6 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 			input.Description = req.Description
 		}
 	} else {
-		// InputEvent.Attr derives these from Data and URL, so a value sent
-		// as an attr would be silently ignored.
-		for _, key := range []string{"body", "url"} {
-			if _, ok := attrs[key]; ok {
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("attr %q must be sent as the request's %q field", key, key))
-			}
-		}
 		input = eventrouter.InputEvent{
 			Source:      req.Source,
 			Type:        req.Type,
