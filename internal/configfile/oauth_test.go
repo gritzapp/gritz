@@ -55,16 +55,3 @@ func TestTokenSource_WriteBack(t *testing.T) {
 		})
 	}
 }
-
-func TestTokenSource_LoginExpired(t *testing.T) {
-	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "invalid refresh_token", http.StatusBadRequest)
-	}))
-	t.Cleanup(srv.Close)
-	entry := &Entry{ID: 12, RefreshToken: "old", Server: srv.URL, Name: "acme", Path: filepath.Join(t.TempDir(), Name)}
-
-	_, err := entry.TokenSource(t.Context()).Token()
-
-	assert.Error(t, err, "org entry \"acme\": login expired or revoked: run `gritz login --name acme --server "+srv.URL+"`")
-}

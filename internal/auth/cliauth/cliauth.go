@@ -4,10 +4,12 @@ package cliauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	"golang.org/x/oauth2"
 )
 
@@ -18,7 +20,8 @@ const ClientID = "gritz-cli"
 // rotated one is reported.
 const reportAge = 24 * time.Hour
 
-// ErrLoginExpired is returned when the server rejects the refresh token.
+// ErrLoginExpired is returned, with a hint to run `gritz login`, when the
+// server rejects the refresh token.
 var ErrLoginExpired = errors.New("login expired or revoked")
 
 // Config returns the OAuth client config for the gritz server at server, with
@@ -82,7 +85,11 @@ func (s *refreshSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) && re.Response.StatusCode == http.StatusBadRequest {
-			return nil, ErrLoginExpired
+			login := "gritz login"
+			if s.opts.Server != gritzclient.DefaultURL {
+				login += " --server " + s.opts.Server
+			}
+			return nil, fmt.Errorf("%w: run `%s`", ErrLoginExpired, login)
 		}
 		return nil, err
 	}

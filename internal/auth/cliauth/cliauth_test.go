@@ -110,4 +110,5 @@ func TestTokenSource_LoginExpired(t *testing.T) {
 	_, err := TokenSource(t.Context(), TokenSourceOptions{Server: srv.URL, RefreshToken: rt}).Token()
 
 	assert.ErrorIs(t, err, ErrLoginExpired)
+	assert.Error(t, err, "login expired or revoked: run `gritz login --server "+srv.URL+"`")
 }
