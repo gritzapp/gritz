@@ -132,9 +132,42 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		return nil, connect.NewError(connect.CodeInternal, errors.New("event router not configured"))
 	}
 
-	input, err := s.testEventInput(ctx, caller, req)
-	if err != nil {
-		return nil, err
+	// Compose the synthetic InputEvent. Details pass through verbatim — the
+	// router does not interpret them and they never affect matching. Orgs is
+	// scoped to the caller's org; Meta stays nil (only OnRouteOutcome reads it,
+	// which the test path never invokes).
+	attrs := eventrouter.Attrs{}
+	for key, attr := range req.Attrs {
+		attrs[key] = attr.GetValues()
+	}
+	input := eventrouter.InputEvent{
+		Source:      req.Source,
+		Type:        req.Type,
+		Description: req.Description,
+		Data:        req.Body,
+		URL:         req.Url,
+		UserID:      caller.ID,
+		Orgs:        []int64{caller.OrgID},
+		Attrs:       attrs,
+		Details:     req.Details,
+	}
+	if req.Source == eventrouter.SourceCustom {
+		custom, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
+		input, err = customserver.ToInputEvent(customserver.Envelope{
+			Type:        req.Type,
+			Description: req.Description,
+			Body:        req.Body,
+			URL:         req.Url,
+			Attrs:       attrs,
+			Details:     req.Details,
+		}, reg, caller.OrgID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 	}
 
 	// Plan is the shared read-only matcher — running it (not a parallel simulator)
@@ -179,46 +212,4 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 	}
 
 	return resp, nil
-}
-
-// testEventInput composes TestEvent's synthetic InputEvent. Details pass
-// through verbatim — the router does not interpret them and they never affect
-// matching. Orgs is scoped to the caller's org; Meta stays nil (only
-// OnRouteOutcome reads it, which the test path never invokes).
-func (s *Server) testEventInput(ctx context.Context, caller *apiauth.UserInfo, req *gritzv1.TestEventRequest) (eventrouter.InputEvent, error) {
-	// Each attr is passed through with all its values.
-	attrs := eventrouter.Attrs{}
-	for key, attr := range req.Attrs {
-		attrs[key] = attr.GetValues()
-	}
-	if req.Source == eventrouter.SourceCustom {
-		custom, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
-		if err != nil {
-			return eventrouter.InputEvent{}, connect.NewError(connect.CodeInternal, err)
-		}
-		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
-		input, err := customserver.ToInputEvent(customserver.Envelope{
-			Type:        req.Type,
-			Description: req.Description,
-			Body:        req.Body,
-			URL:         req.Url,
-			Attrs:       attrs,
-			Details:     req.Details,
-		}, reg, caller.OrgID)
-		if err != nil {
-			return eventrouter.InputEvent{}, connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		return input, nil
-	}
-	return eventrouter.InputEvent{
-		Source:      req.Source,
-		Type:        req.Type,
-		Description: req.Description,
-		Data:        req.Body,
-		URL:         req.Url,
-		UserID:      caller.ID,
-		Orgs:        []int64{caller.OrgID},
-		Attrs:       attrs,
-		Details:     req.Details,
-	}, nil
 }
