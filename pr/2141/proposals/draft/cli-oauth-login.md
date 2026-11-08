@@ -201,7 +201,7 @@ The write goes through `configfile.UpdateFile`, which `Login` also uses: it
 re-reads the file at `path`, lets a callback edit it, and writes it back the
 same way (temp file + rename via `atomicio.WriteFile`, mode kept). The
 rotation callback replaces `orgs[name].refresh_token` only if it still equals
-the stored token. If the entry is gone or holds a different
+the stored token, and otherwise returns `ErrSkipWrite`. If the entry is gone or holds a different
 token, it leaves the file as it is: another process already rotated it, or the
 user logged in again, and either result is at least as fresh.
 
@@ -299,10 +299,14 @@ func (e Entry) Validate() error // changed
 // back to Path.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
 
+// ErrSkipWrite, returned by an UpdateFile func, leaves the file unchanged;
+// UpdateFile then returns nil.
+var ErrSkipWrite = errors.New("skip write") // new
+
 // UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
-// to change it, and writes it back atomically when fn returns true, keeping
-// its mode or creating it 0600. f.Orgs is never nil when fn is called.
-func UpdateFile(path string, fn func(f *File) (bool, error)) error // new
+// to change it, and writes it back atomically, keeping its mode or creating it
+// 0600. f.Orgs is never nil when fn is called.
+func UpdateFile(path string, fn func(f *File) error) error // new
 
 // Lookup returns the entry named org, or m.Org when org is empty,
 // enforcing m.Allowed, with Name and Path set. Call Validate first.

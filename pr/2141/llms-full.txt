@@ -2214,7 +2214,7 @@ The browser login only works where the browser runs on the same machine as `logi
 
 `Entry.TokenSource`’s `OnRefreshToken` **writes the new token back**. A write-back failure is logged with `slog.Warn` and otherwise ignored; the in-memory token keeps working.
 
-The write goes through `configfile.UpdateFile`, which `Login` also uses: it re-reads the file at `path`, lets a callback edit it, and writes it back the same way (temp file + rename via `atomicio.WriteFile`, mode kept). The rotation callback replaces `orgs[name].refresh_token` only if it still equals the stored token. If the entry is gone or holds a different token, it leaves the file as it is: another process already rotated it, or the user logged in again, and either result is at least as fresh.
+The write goes through `configfile.UpdateFile`, which `Login` also uses: it re-reads the file at `path`, lets a callback edit it, and writes it back the same way (temp file + rename via `atomicio.WriteFile`, mode kept). The rotation callback replaces `orgs[name].refresh_token` only if it still equals the stored token, and otherwise returns `ErrSkipWrite`. If the entry is gone or holds a different token, it leaves the file as it is: another process already rotated it, or the user logged in again, and either result is at least as fresh.
 
 **Where.** The file the entry came from: `Lookup` now fills `Entry.Name` and `Entry.Path` (from `Merged.OrgsFrom`). `login` only ever writes `$CONFIG_DIR/.gritz.yml`, but a refresh-token entry the user moved into another file keeps itself alive there too. Like `login`, the write-back re-marshals the file, dropping comments.
 
@@ -2293,10 +2293,15 @@ func (e Entry) Validate() error // changed
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
 
 
+// ErrSkipWrite, returned by an UpdateFile func, leaves the file unchanged;
+// UpdateFile then returns nil.
+var ErrSkipWrite = errors.New("skip write") // new
+
+
 // UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
-// to change it, and writes it back atomically when fn returns true, keeping
-// its mode or creating it 0600. f.Orgs is never nil when fn is called.
-func UpdateFile(path string, fn func(f *File) (bool, error)) error // new
+// to change it, and writes it back atomically, keeping its mode or creating it
+// 0600. f.Orgs is never nil when fn is called.
+func UpdateFile(path string, fn func(f *File) error) error // new
 
 
 // Lookup returns the entry named org, or m.Org when org is empty,
