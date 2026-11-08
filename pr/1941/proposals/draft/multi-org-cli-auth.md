@@ -205,8 +205,8 @@ default or restricting `allowed` is an edit to a `.gritz.yml` file.
 
 **Existing commands**
 
-Each user-facing command gets the same three flags, defined once in
-`internal/command` and appended to each command's `Flags`:
+Each user-facing command gets the same three flags, defined once by
+`configfile.Flags()` and appended to each command's `Flags`:
 
 | Flag | Env | Notes |
 |---|---|---|
@@ -215,7 +215,7 @@ Each user-facing command gets the same three flags, defined once in
 | `--server`, `-s` | `GRITZ_SERVER` | unchanged, plus the env source on `mcp`/`notify` |
 
 Each command's action replaces its `configfile.Load` + `cfg.Token == ""` block
-(or `cmd.String("token")`) with one `clientOptions(cmd)` call, which runs the
+(or `cmd.String("token")`) with one `configfile.ClientOptions(ctx, cmd)` call, which runs the
 selection above and returns `gritzclient.Options`:
 
 - `task list`, `task create`, `task update`, `logs`, `shell`: drop the
@@ -307,6 +307,26 @@ func Login(name string, entry Entry) error // new
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use") // new
 
+// Selection is the entry a command will use.
+type Selection struct { // new
+	// Name is the entry name.
+	Name string
+	// Entry is the selected entry.
+	Entry Entry
+}
+
+// Select picks the entry named org, or m.Default when org is empty, enforcing
+// m.Allowed and returning errors that name the file responsible.
+func (m *Merged) Select(org string) (*Selection, error) // new
+
+// Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
+// GRITZ_SERVER) shared by user-facing commands.
+func Flags() []cli.Flag // new
+
+// ClientOptions resolves cmd's flags and the merged .gritz.yml files from the
+// working directory into client options.
+func ClientOptions(ctx context.Context, cmd *cli.Command) (gritzclient.Options, error) // new
+
 // Slug turns an org name into an entry name, returning "" if nothing is left.
 func Slug(orgName string) string // new
 
@@ -316,40 +336,20 @@ func Save(f *File) error           // removed
 ```
 
 ```go
-package orgselect // github.com/gritzapp/gritz/internal/orgselect
-
-// Selection is the entry a command will use.
-type Selection struct {
-	// Name is the entry name.
-	Name string
-	// Entry is the selected entry.
-	Entry configfile.Entry
-}
-
-// Select picks the entry named org, or m.Default when org is empty, enforcing
-// m.Allowed and returning errors that name the file responsible.
-func Select(m *configfile.Merged, org string) (*Selection, error)
-```
-
-```go
 package command // github.com/gritzapp/gritz/internal/command
-
-// clientFlags returns the --org, --key and --server flags shared by user-facing commands.
-func clientFlags() []cli.Flag // new
-
-// clientOptions selects the server and key for cmd into client options.
-func clientOptions(ctx context.Context, cmd *cli.Command) (gritzclient.Options, error) // new
 
 var LoginCommand *cli.Command // new: gritz login
 ```
 
-**How it fits:** `configfile` owns the file format, discovery, merging and the
-`login` write, and nothing else. `orgselect` holds the selection rules, with no
-CLI dependency, so they can be table-tested against a `Merged` value.
-`command.clientOptions` takes `--key` as is, or calls `configfile.Load` with
-the working directory and `orgselect.Select` with `--org`, then applies the
-server precedence and returns `gritzclient.Options`. Every user-facing
-command's action calls it. `LoginCommand` calls `GetProfile`,
+**How it fits:** `configfile` owns everything about how a command finds its
+credentials: the file format, discovery, merging, selection, the shared flags,
+and the `login` write. `Merged.Select` holds the selection rules and takes no
+urfave/cli types, so it can be table-tested against a `Merged` value.
+`ClientOptions` is the only part that reads the command: it takes `--key` as
+is, or calls `Load` with the working directory and `Select` with `--org`, then
+applies the server precedence and returns `gritzclient.Options`. Every
+user-facing command appends `configfile.Flags()...` and calls
+`configfile.ClientOptions` in its action. `LoginCommand` calls `GetProfile`,
 `configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
@@ -360,19 +360,21 @@ command's action calls it. `LoginCommand` calls `GetProfile`,
    returns the key's org.
 2. **`.gritz.yml` load, merge and select** — Delivers: `configfile.Entry`, the new
    `File` shape under a temporary name beside the old one, `Read`, `Load`
-   under a temporary name, `Slug`, and `orgselect`. Nothing calls them yet.
+   under a temporary name, `Merged.Select` and `Selection`, and `Slug`.
+   Nothing calls them yet.
    Depends on: nothing. Verifiable by: unit tests over temp dirs: the walk
    merges past a `.git` directory up to the temp root; the base layer is always
    merged; `default`/`allowed` come from the nearest file; entries replace
    whole by name; a `default` outside `allowed`, a disallowed `--org` and a
-   missing entry each fail naming the right file; unknown fields fail.
+   missing entry each fail naming the right file (table tests on `Select`
+   over `Merged` values); unknown fields fail.
 3. **`gritz login`** — Delivers: `configfile.Login`, `LoginCommand` and
    `main.go` registration. Depends on: (1), (2). Verifiable by: unit tests for
    `Slug` and for `Login` (new entry, key replaced for same id and server,
    `ErrNameTaken` otherwise, comments preserved); an e2e test that creates a
    key, runs `gritz login --key`, and checks the written entry.
 4. **Wire existing commands and delete the old config** — Delivers:
-   `clientFlags`/`clientOptions`; `task`, `logs`, `shell`, `mcp`, `notify` and
+   `configfile.Flags`/`configfile.ClientOptions`; `task`, `logs`, `shell`, `mcp`, `notify` and
    `runner` switched over; `mcp`/`notify` `--token` removed; the old
    `File`/`Load`/`Save`/`Overrides`/`Path` and `config.json` handling deleted
    and the step-2 names taken over; docs updated (`reference/cli`, `using/cli`,
