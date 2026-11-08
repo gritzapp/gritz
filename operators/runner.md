@@ -15,15 +15,15 @@ These steps run a runner against gritz.dev on a machine with Docker.
 
 2. **Create an API key** on the **Keys** page
    (`https://gritz.dev/ui/keys/new`) and copy the `xat_…` token: it is shown only
-   once. Save it in `~/.config/gritz/config.json`:
+   once. Log in with it:
 
-   ```json
-   {
-     "token": "xat_..."
-   }
+   ```bash
+   gritz login --key xat_...
    ```
 
-   Or pass it with `--key` or `GRITZ_API_KEY`, which take priority over the file.
+   This saves the key in `~/.config/gritz/.gritz.yml`, as the CLI's
+   [configuration](/using/cli/#configuration) does. On a server, pass it with
+   `--key` or `GRITZ_API_KEY` instead.
 
 3. **Write a `workspaces.yaml`** in `~/.config/gritz/`. This one clones a sample
    repository and runs Claude Code on it with your Claude Code OAuth token:
@@ -59,8 +59,9 @@ These steps run a runner against gritz.dev on a machine with Docker.
 
 | Flag | Environment variable | Default | |
 | --- | --- | --- | --- |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
-| `--key`, `-k` | `GRITZ_API_KEY` | | The API key. Takes priority over `config.json`. |
+| `--server`, `-s` | `GRITZ_SERVER` | the organisation's `server`, otherwise `https://gritz.dev` | The server URL. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
+| `--key`, `-k` | `GRITZ_API_KEY` | | The API key. Set, the runner reads no `.gritz.yml` files and ignores `--org`. |
+| `--org` | `GRITZ_ORG` | the `default` in the `.gritz.yml` files | The organisation to run tasks for, by its name in the `.gritz.yml` files. |
 | `--workspaces`, `-w` | | `~/.config/gritz/workspaces.yaml` | The [workspace config](/operators/workspaces-yaml/). |
 | `--id` | `GRITZ_RUNNER_ID` | the hostname | The runner's ID, which users pick when they create a task. Letters and digits, no spaces. |
 | `--backend` | `GRITZ_BACKEND` | `docker` | The [sandbox backend](/operators/backends/): `docker` or `lambda-microvm`. |
@@ -72,7 +73,7 @@ These steps run a runner against gritz.dev on a machine with Docker.
 
 ### The config directory
 
-The API key file, the default `workspaces.yaml` and downloaded driver binaries
+`.gritz.yml`, the default `workspaces.yaml` and downloaded driver binaries
 live in the gritz config directory: `GRITZ_CONFIG_DIR` if set, otherwise `gritz`
 under the user config directory (`~/.config/gritz` on Linux,
 `~/Library/Application Support/gritz` on macOS).

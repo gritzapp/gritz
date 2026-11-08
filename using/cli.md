@@ -9,28 +9,83 @@ checkout, run `mise run install`.
 
 The CLI authenticates with an [API key](/concepts/orgs-members-keys/#api-keys),
 and acts in the organisation the key belongs to. Create one on the **Keys** page
-and save it in `config.json` in the gritz config directory:
+and log in with it:
 
-```json
-{
-  "token": "xat_..."
-}
+```bash
+gritz login --key xat_...
+```
+
+```
+Logged in to Acme Labs (org 12) as "acme-labs"
+```
+
+`gritz login` asks the server which organisation the key belongs to and saves the
+key under a name in `.gritz.yml` in the gritz config directory. The name is the
+organisation's name in lowercase with dashes, unless `--name` gives another, and
+the first organisation you log in to becomes the default. Log in once for each
+organisation you work in:
+
+```yaml
+default: acme-labs
+orgs:
+  acme-labs:
+    id: 12
+    key: xat_...
+  personal:
+    id: 3
+    key: xat_...
 ```
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under your
 user config directory: `~/.config/gritz` on Linux,
-`~/Library/Application Support/gritz` on macOS. A [runner](/operators/runner/)
-on the same machine reads the same file.
+`~/Library/Application Support/gritz` on macOS.
 
-Every command talks to `https://gritz.dev` unless `--server` (`-s`) or the
-`GRITZ_SERVER` environment variable names another server:
+### Choosing an organisation
+
+Every command acts in one organisation: the one `--org` (or `GRITZ_ORG`) names,
+otherwise the `default`.
 
 ```bash
-export GRITZ_SERVER=https://gritz.example.com
+gritz task list --org personal
 ```
 
-`gritz notify` and `gritz mcp` are different: they take the key from `--token` or
-`GRITZ_TOKEN` rather than `config.json`, and the server only from `--server`.
+A `.gritz.yml` file can also live in any directory, such as a repository or a
+folder of checkouts. A command reads every `.gritz.yml` from the directory it runs
+in up to `/`, on top of the one in the config directory, and the nearest file
+wins. Organisations of the same name replace each other whole. A repository can
+pick its organisation without holding a key:
+
+```yaml
+default: acme-labs
+allowed: [acme-labs]
+```
+
+`allowed` lists the organisations that can be used below the file; a command run
+there with any other `--org` fails, and so does every command if the `default`
+isn't allowed. Every field is optional, and an unknown field is an error.
+
+### Server
+
+Every command talks to `https://gritz.dev` unless the organisation has a
+`server`, or `--server` (`-s`) or the `GRITZ_SERVER` environment variable names
+another server:
+
+```bash
+gritz login --key xat_... --server https://gritz.example.com
+```
+
+`gritz login` with `--server` saves the server with the organisation.
+
+### Key without a config file
+
+`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key
+directly, for CI and other places with no config file. The command then reads no
+`.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or
+`https://gritz.dev`:
+
+```bash
+GRITZ_API_KEY=xat_... gritz task list
+```
 
 ## Tasks
 
@@ -112,8 +167,10 @@ Stays running and shows a desktop notification each time one of the
 organisation's tasks completes, fails or is cancelled.
 
 ```bash
-GRITZ_TOKEN=xat_... gritz notify
+gritz notify
 ```
+
+Run one `gritz notify --org <name>` for each organisation to watch several.
 
 `--title` sets the notifications' title, `gritz` by default. It uses
 `notify-send` on Linux and the system notifications on macOS and Windows.

@@ -30,7 +30,7 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 ## Using gritz
 
 - [Agent tools](https://docs.gritz.dev/using/agent-tools.md): The gritz tools every agent gets (get_my_task, update_my_task, create_link, report and get_github_token), what gritz tells agents to do with them, and how to write instructions that use them.
-- [CLI](https://docs.gritz.dev/using/cli.md): Use the gritz CLI to create, list and update tasks, read a task's log, open a shell in its sandbox and get desktop notifications, and configure its server and API key.
+- [CLI](https://docs.gritz.dev/using/cli.md): Use the gritz CLI to create, list and update tasks, read a task's log, open a shell in its sandbox and get desktop notifications, and log in to one or more organisations.
 - [Web UI](https://docs.gritz.dev/using/web-ui.md): A tour of the gritz Web UI, the task list and task page, schedules, events and routing rules, workspaces, members, keys and settings.
 
 ## Integrations
