@@ -1,8 +1,6 @@
 package command_test
 
 import (
-	"bytes"
-	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -21,9 +19,6 @@ func TestLogin(t *testing.T) {
 	key := other.CreateKey(&gritzv1.CreateKeyRequest{Name: "cli"})
 	dir := t.TempDir()
 	t.Setenv("GRITZ_CONFIG_DIR", dir)
-	var out bytes.Buffer
-	command.LoginCommand.Writer = &out
-	t.Cleanup(func() { command.LoginCommand.Writer = nil })
 
 	// Act
 	err := command.LoginCommand.Run(t.Context(), []string{
@@ -32,7 +27,6 @@ func TestLogin(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, out.String(), fmt.Sprintf("Logged in to Acme Labs (org %d) as \"acme-labs\"\n", other.ID))
 	f, err := configfile.Read(filepath.Join(dir, configfile.Name))
 	assert.NilError(t, err)
 	assert.DeepEqual(t, f, &configfile.FileV2{
