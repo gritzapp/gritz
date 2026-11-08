@@ -26,6 +26,8 @@ const SPEEDS = [0.25, 0.5, 1, 1.5, 2];
 
 const style = `
   motion-canvas-player:focus-visible { outline: 2px solid var(--mc-accent, #5aa9e6); outline-offset: 2px; }
+  /* The controls below replace the player's own play/pause overlay. */
+  motion-canvas-player::part(overlay) { display: none; }
   .mc-controls {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     margin-top: 8px; font: 14px/1 system-ui, sans-serif; color: var(--mc-fg, #e6e8eb);
