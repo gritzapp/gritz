@@ -141,7 +141,7 @@ type Selection struct {
 func (m *Merged) Select(org string) (*Selection, error) {
 	if m.Default != "" && m.Allowed != nil && !slices.Contains(m.Allowed, m.Default) {
 		return nil, fmt.Errorf("default %q (from %s) is not in allowed %s (from %s)",
-			m.Default, m.DefaultFrom, formatNames(m.Allowed), m.AllowedFrom)
+			m.Default, m.DefaultFrom, m.Allowed, m.AllowedFrom)
 	}
 	name := cmp.Or(org, m.Default)
 	if name == "" {
@@ -149,7 +149,7 @@ func (m *Merged) Select(org string) (*Selection, error) {
 	}
 	if m.Allowed != nil && !slices.Contains(m.Allowed, name) {
 		return nil, fmt.Errorf("org %q is not allowed here: allowed is %s (from %s)",
-			name, formatNames(m.Allowed), m.AllowedFrom)
+			name, m.Allowed, m.AllowedFrom)
 	}
 	e, ok := m.Orgs[name]
 	if !ok {
@@ -162,11 +162,6 @@ func (m *Merged) Select(org string) (*Selection, error) {
 		return nil, fmt.Errorf("org entry %q (from %s) has no key", name, m.OrgsFrom[name])
 	}
 	return &Selection{Name: name, Entry: e}, nil
-}
-
-// formatNames formats entry names as a YAML flow list: [a, b].
-func formatNames(names []string) string {
-	return "[" + strings.Join(names, ", ") + "]"
 }
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
