@@ -115,10 +115,11 @@ loses `Required: true`; without it, `login` runs the browser flow:
    existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add
    `org=<id>`, so re-logging in to an entry preselects its org (the web UI's
    root route already switches to `?org=`).
-3. **Print the authorize URL and open the browser** with the platform opener
-   (`xdg-open`, `open`, `rundll32 url.dll,FileProtocolHandler`). The URL is
-   always printed; if the opener fails, `login` carries on and the user opens
-   the printed URL on the same machine:
+3. **Print the authorize URL and open the browser** with
+   [`github.com/cli/browser`](https://github.com/cli/browser)'s
+   `browser.OpenURL` (already in `go.mod` as an indirect dependency; it becomes
+   direct). The URL is always printed; if opening fails, `login` carries on and
+   the user opens the printed URL on the same machine:
 
    ```
    Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
@@ -317,8 +318,8 @@ type Options struct {
 	Server string
 	// OrgID, when non-zero, preselects the org on the approval page.
 	OrgID int64
-	// OpenBrowser opens the authorize URL; Login ignores its error, having
-	// already printed the URL.
+	// OpenBrowser opens the authorize URL; gritz login sets it to
+	// browser.OpenURL. Login ignores its error, having already printed the URL.
 	OpenBrowser func(url string) error
 	// Prompt receives the authorize URL, always printed.
 	Prompt io.Writer
@@ -327,9 +328,6 @@ type Options struct {
 // Login runs the authorization code flow with PKCE over a loopback redirect
 // and returns the exchanged token.
 func Login(ctx context.Context, opts Options) (*oauth2.Token, error)
-
-// OpenBrowser opens url with the platform's default browser.
-func OpenBrowser(url string) error
 ```
 
 ```go
@@ -378,7 +376,8 @@ type ServeOptions struct {
 set; every command calls `TokenSource(ctx)` on it and hands the source to
 `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the
 source refreshes through `OAuthConfig` and calls `Rotate` on its own. `gritz
-login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`'s endpoints,
+login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`'s endpoints
+and `browser.OpenURL`,
 then `GetCaller` with the returned access token, then `configfile.Login` with
 `{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`;
 `configfile` knows nothing about browsers or listeners.
@@ -409,7 +408,8 @@ then `GetCaller` with the returned access token, then `configfile.Login` with
    against an `oauthflow` `httptest` server that a source refreshes once per
    access token expiry, writes back only when `iat` is over 24h old, and maps
    an expired refresh token to the re-login error.
-4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `--key`
+4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`,
+   `github.com/cli/browser` as a direct dependency, `--key`
    no longer required, the `org=` preselect, and `login`
    writing `refresh_token` entries. Depends on: (1), (3).
    Verifiable by: an `oauthlogin` unit test driving the flow end to end against

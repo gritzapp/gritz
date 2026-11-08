@@ -1024,6 +1024,13 @@ Or in a project’s `.mcp.json`:
 | `put_custom_event_type`    | Adds a custom event type, or replaces the one with the same name.                                                      |
 | `delete_custom_event_type` | Deletes a custom event type.                                                                                           |
 | `test_event`               | Tests the routing rules with an event, or routes it for real.                                                          |
+| `list_schedules`           | Lists the organisation’s schedules.                                                                                    |
+| `get_schedule`             | Gets a schedule, with its instructions and its next and last run.                                                      |
+| `create_schedule`          | Creates a schedule.                                                                                                    |
+| `update_schedule`          | Changes a schedule’s template, cron expression or timezone.                                                            |
+| `set_schedule_enabled`     | Enables or disables a schedule.                                                                                        |
+| `run_schedule`             | Creates a task from a schedule now.                                                                                    |
+| `delete_schedule`          | Deletes a schedule.                                                                                                    |
 
 You don’t call these yourself: ask your agent, for example “Create a gritz task in the pets-workshop workspace to add a `--json` flag, then tell me when it has opened a pull request.” It calls `list_workspaces` to find the runner, then `create_task`.
 
@@ -1159,6 +1166,36 @@ Takes the `type` to delete. It fails while a routing rule uses the type.
 | `fire`        | Act on the match: wake or create tasks. Without it, nothing changes.                              |
 
 The event is checked against its type as the [custom events webhook](/pr/2123/integrations/custom-events/) checks an envelope. It returns the rule that matched, if any, and whether it wakes linked tasks or creates one. An event of a GitHub or Jira type has you as its actor. A custom event has none, so only public rules match it, as when it comes from the webhook: firing a custom event is how to send one.
+
+### `create_schedule`
+
+[Section titled “create_schedule”](#create_schedule)
+
+| Argument       |                                                                                                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`    | The workspace of the tasks it creates. Required.                                                                                                |
+| `runner`       | The runner that offers it. Required.                                                                                                            |
+| `instruction`  | The instruction every task it creates starts with. Required.                                                                                    |
+| `cron_expr`    | When to create a task: a five-field [cron expression](/pr/2123/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. Required. |
+| `timezone`     | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Defaults to `UTC`.                                                    |
+| `name`         | The name of every task it creates.                                                                                                              |
+| `namespace`    | Its tasks’ namespace.                                                                                                                           |
+| `auto_archive` | Its tasks’ auto-archive delay, as in `create_task`.                                                                                             |
+| `enabled`      | Whether the schedule runs. Without it, the schedule is created disabled.                                                                        |
+
+It returns the [schedule](/pr/2123/concepts/schedules/). `list_schedules`, `get_schedule`, `update_schedule` and `set_schedule_enabled` return schedules in the same shape.
+
+### `update_schedule`
+
+[Section titled “update_schedule”](#update_schedule)
+
+Takes the schedule’s `id` and any of `create_schedule`’s arguments except `enabled`. The arguments left out keep their current values. `instruction` replaces every instruction of the schedule.
+
+### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
+
+[Section titled “set_schedule_enabled, run_schedule, delete_schedule”](#set_schedule_enabled-run_schedule-delete_schedule)
+
+Each takes the schedule’s `id`; `set_schedule_enabled` also takes `enabled`. `run_schedule` creates a task from the schedule now, even if it is disabled, without changing its next or last run, and returns the task. Deleting a schedule keeps the tasks it created.
 
 ## Channels
 
@@ -2111,7 +2148,7 @@ With `--key` (or `GRITZ_API_KEY`) set, `login` behaves exactly as today. `--key`
 
 2. **Build the authorize URL** with `oauth2.Config{ClientID: "gritz-cli", Endpoint: {AuthURL: <server>/ui/oauth/authorize, TokenURL: <server>/oauth/token}, RedirectURL: <redirect URI>}`, a random `state`, and `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`. If `--name` names an existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add `org=<id>`, so re-logging in to an entry preselects its org (the web UI’s root route already switches to `?org=`).
 
-3. **Print the authorize URL and open the browser** with the platform opener (`xdg-open`, `open`, `rundll32 url.dll,FileProtocolHandler`). The URL is always printed; if the opener fails, `login` carries on and the user opens the printed URL on the same machine:
+3. **Print the authorize URL and open the browser** with [`github.com/cli/browser`](https://github.com/cli/browser)’s `browser.OpenURL` (already in `go.mod` as an indirect dependency; it becomes direct). The URL is always printed; if opening fails, `login` carries on and the user opens the printed URL on the same machine:
 
    ```plaintext
    Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
@@ -2271,8 +2308,8 @@ type Options struct {
   Server string
   // OrgID, when non-zero, preselects the org on the approval page.
   OrgID int64
-  // OpenBrowser opens the authorize URL; Login ignores its error, having
-  // already printed the URL.
+  // OpenBrowser opens the authorize URL; gritz login sets it to
+  // browser.OpenURL. Login ignores its error, having already printed the URL.
   OpenBrowser func(url string) error
   // Prompt receives the authorize URL, always printed.
   Prompt io.Writer
@@ -2282,10 +2319,6 @@ type Options struct {
 // Login runs the authorization code flow with PKCE over a loopback redirect
 // and returns the exchanged token.
 func Login(ctx context.Context, opts Options) (*oauth2.Token, error)
-
-
-// OpenBrowser opens url with the platform's default browser.
-func OpenBrowser(url string) error
 ```
 
 ```go
@@ -2335,7 +2368,7 @@ type ServeOptions struct {
 }
 ```
 
-**How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path` set; every command calls `TokenSource(ctx)` on it and hands the source to `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the source refreshes through `OAuthConfig` and calls `Rotate` on its own. `gritz login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`’s endpoints, then `GetCaller` with the returned access token, then `configfile.Login` with `{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`; `configfile` knows nothing about browsers or listeners.
+**How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path` set; every command calls `TokenSource(ctx)` on it and hands the source to `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the source refreshes through `OAuthConfig` and calls `Rotate` on its own. `gritz login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`’s endpoints and `browser.OpenURL`, then `GetCaller` with the returned access token, then `configfile.Login` with `{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`; `configfile` knows nothing about browsers or listeners.
 
 ## Implementation Plan
 
@@ -2344,7 +2377,7 @@ type ServeOptions struct {
 1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
 2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions` (panicking if both are set), `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing a static source of `cfg.Key`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`, `Rotate`, `Entry.TokenSource` with write-back and the re-login error; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither) and `Rotate` (replaces when old matches, no-op when changed or gone, keeps mode); a test against an `oauthflow` `httptest` server that a source refreshes once per access token expiry, writes back only when `iat` is over 24h old, and maps an expired refresh token to the re-login error.
-4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
+4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `github.com/cli/browser` as a direct dependency, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
 5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
 
 Slices 1 and 2 are independent and can land in either order.
