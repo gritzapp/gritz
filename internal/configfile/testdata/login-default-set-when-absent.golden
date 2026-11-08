@@ -1,0 +1,8 @@
+default: labs
+orgs:
+    acme:
+        id: 12
+        key: k1
+    labs:
+        id: 31
+        key: k2

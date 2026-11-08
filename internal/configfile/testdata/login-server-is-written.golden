@@ -1,0 +1,6 @@
+default: local
+orgs:
+    local:
+        id: 1
+        key: k1
+        server: http://localhost:8080

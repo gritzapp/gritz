@@ -24,6 +24,7 @@ func main() {
 			command.WorkspacesCommand,
 			command.ShellCommand,
 			command.LogsCommand,
+			command.LoginCommand,
 			command.DownloadCommand,
 			command.VersionCommand,
 			command.McpCommand,

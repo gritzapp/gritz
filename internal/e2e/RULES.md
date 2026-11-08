@@ -9,6 +9,9 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 - API tests built on the harness live in `internal/e2e/api` (`package
   api_test`), one file per area: `task_test.go`, `taskscope_test.go`,
   `event_test.go`, ...
+- CLI command tests live in `internal/e2e/command` (`package command_test`),
+  one file per command: `login_test.go`, ... They run the `cli.Command`
+  in-process against the harness server.
 - Runner scenarios live in `internal/e2e/scenario` (`package scenario_test`),
   one file per area: `start_test.go`, `faults_test.go`, ... A new group of
   scenarios gets its own file.

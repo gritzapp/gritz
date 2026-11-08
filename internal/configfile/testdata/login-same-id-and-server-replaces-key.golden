@@ -1,0 +1,6 @@
+default: acme
+orgs:
+    local:
+        id: 1
+        key: new
+        server: http://localhost:8080
