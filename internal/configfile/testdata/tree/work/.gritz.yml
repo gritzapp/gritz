@@ -1,0 +1,4 @@
+default: acme
+allowed: [acme, local]
+orgs:
+  acme: {id: 12, key: k-work}

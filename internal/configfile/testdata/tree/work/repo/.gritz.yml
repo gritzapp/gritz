@@ -1,0 +1,3 @@
+allowed: [acme]
+orgs:
+  local: {id: 2, server: http://localhost:9090}

@@ -1,0 +1,5 @@
+default: personal
+orgs:
+  personal: {id: 1, key: kp}
+  acme: {id: 12, key: k-base}
+  local: {id: 1, key: kl, server: http://localhost:8080}

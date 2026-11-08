@@ -1,0 +1,10 @@
+default: acme
+allowed: [acme, local]
+orgs:
+  acme:
+    id: 12
+    key: k1
+  local:
+    id: 1
+    server: http://localhost:8080
+    key: k2

@@ -8,32 +8,18 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-// writeFile writes content to dir/.gritz.yml, creating dir.
-func writeFile(t *testing.T, dir, content string) string {
+// copyTestdata copies testdata/name into a temp dir and returns that dir, so
+// the .gritz.yml walk sees only the fixture's files.
+func copyTestdata(t *testing.T, name string) string {
 	t.Helper()
-	assert.NilError(t, os.MkdirAll(dir, 0o755))
-	p := filepath.Join(dir, Name)
-	assert.NilError(t, os.WriteFile(p, []byte(content), 0o600))
-	return p
+	dir := t.TempDir()
+	assert.NilError(t, os.CopyFS(dir, os.DirFS(filepath.Join("testdata", name))))
+	return dir
 }
 
 func TestRead(t *testing.T) {
-	// Arrange
-	p := writeFile(t, t.TempDir(), `
-default: acme
-allowed: [acme, local]
-orgs:
-  acme:
-    id: 12
-    key: k1
-  local:
-    id: 1
-    server: http://localhost:8080
-    key: k2
-`)
-
 	// Act
-	f, err := Read(p)
+	f, err := Read(filepath.Join("testdata", "read", Name))
 
 	// Assert
 	assert.NilError(t, err)
@@ -48,27 +34,16 @@ orgs:
 }
 
 func TestRead_Empty(t *testing.T) {
-	p := writeFile(t, t.TempDir(), "")
-
-	f, err := Read(p)
+	f, err := Read(filepath.Join("testdata", "empty", Name))
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, f, &YAMLFile{})
 }
 
 func TestRead_UnknownField(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-	}{
-		{"top level", "defualt: acme\n"},
-		{"entry", "orgs:\n  acme:\n    id: 12\n    token: k\n"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := writeFile(t, t.TempDir(), tt.content)
-
-			_, err := Read(p)
+	for _, dir := range []string{"unknown-field", "unknown-entry-field"} {
+		t.Run(dir, func(t *testing.T) {
+			_, err := Read(filepath.Join("testdata", dir, Name))
 
 			assert.ErrorContains(t, err, "not found in type")
 		})
@@ -77,31 +52,15 @@ func TestRead_UnknownField(t *testing.T) {
 
 func TestLoadYAML(t *testing.T) {
 	// Arrange - a base layer, a parent directory and a repo below it
-	root := t.TempDir()
-	configDir := filepath.Join(root, "config")
-	t.Setenv("GRITZ_CONFIG_DIR", configDir)
-	base := writeFile(t, configDir, `
-default: personal
-orgs:
-  personal: {id: 1, key: kp}
-  acme: {id: 12, key: k-base}
-  local: {id: 1, key: kl, server: http://localhost:8080}
-`)
-	work := writeFile(t, filepath.Join(root, "work"), `
-default: acme
-allowed: [acme, local]
-orgs:
-  acme: {id: 12, key: k-work}
-`)
+	root := copyTestdata(t, "tree")
+	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
 	repo := filepath.Join(root, "work", "repo")
-	assert.NilError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
-	repoFile := writeFile(t, repo, `
-allowed: [acme]
-orgs:
-  local: {id: 2, server: http://localhost:9090}
-`)
+	assert.NilError(t, os.Mkdir(filepath.Join(repo, ".git"), 0o755))
 	sub := filepath.Join(repo, "sub")
-	assert.NilError(t, os.MkdirAll(sub, 0o755))
+	assert.NilError(t, os.Mkdir(sub, 0o755))
+	base := filepath.Join(root, "config", Name)
+	work := filepath.Join(root, "work", Name)
+	repoFile := filepath.Join(repo, Name)
 
 	// Act
 	m, err := LoadYAML(sub)
@@ -127,14 +86,11 @@ orgs:
 }
 
 func TestLoadYAML_BaseOnly(t *testing.T) {
-	root := t.TempDir()
-	configDir := filepath.Join(root, "config")
-	t.Setenv("GRITZ_CONFIG_DIR", configDir)
-	base := writeFile(t, configDir, "default: acme\norgs:\n  acme: {id: 12, key: k}\n")
-	dir := filepath.Join(root, "elsewhere")
-	assert.NilError(t, os.MkdirAll(dir, 0o755))
+	root := copyTestdata(t, "base-only")
+	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
+	base := filepath.Join(root, "config", Name)
 
-	m, err := LoadYAML(dir)
+	m, err := LoadYAML(root)
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{
@@ -166,13 +122,12 @@ func TestLoadYAML_NotRegular(t *testing.T) {
 }
 
 func TestLoadYAML_UnknownField(t *testing.T) {
-	root := t.TempDir()
+	root := copyTestdata(t, "unknown-field")
 	t.Setenv("GRITZ_CONFIG_DIR", filepath.Join(root, "config"))
-	p := writeFile(t, root, "defualt: acme\n")
 
 	_, err := LoadYAML(root)
 
-	assert.ErrorContains(t, err, p+": ")
+	assert.ErrorContains(t, err, filepath.Join(root, Name)+": ")
 }
 
 func TestSelect(t *testing.T) {
