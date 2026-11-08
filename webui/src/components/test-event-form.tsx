@@ -6,7 +6,14 @@ import {
   getRoutingRules,
   testEvent,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import type { EventTypeDef, RoutingRule, TestEventResponse } from '@/gen/gritz/v1/gritz_pb'
+import { create } from '@bufbuild/protobuf'
+import {
+  AttrValuesSchema,
+  TestEventRequestSchema,
+  type EventTypeDef,
+  type RoutingRule,
+  type TestEventResponse,
+} from '@/gen/gritz/v1/gritz_pb'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -92,30 +99,27 @@ export function TestEventForm() {
   // Composes the request from the current form state. Only attrs the selected
   // type offers and details with a non-empty key are sent.
   const buildRequest = (fire: boolean) => {
-    // "body" and "url" have their own request fields; every other attr is
-    // sent as a single value.
-    let body = ''
-    let url = ''
-    const attrs: Record<string, { values: string[] }> = {}
+    const req = create(TestEventRequestSchema, { source, type, description, fire })
     for (const attr of availableAttrs) {
       const value = attrValues[attr.key]
       if (value === undefined || value === '') continue
+      // "body" and "url" have their own request fields; every other attr is
+      // sent as a single value.
       switch (attr.key) {
         case 'body':
-          body = value
+          req.body = value
           break
         case 'url':
-          url = value
+          req.url = value
           break
         default:
-          attrs[attr.key] = { values: [value] }
+          req.attrs[attr.key] = create(AttrValuesSchema, { values: [value] })
       }
     }
-    const detailMap: Record<string, string> = {}
     for (const row of details) {
-      if (row.key.trim() !== '') detailMap[row.key] = row.value
+      if (row.key.trim() !== '') req.details[row.key] = row.value
     }
-    return { source, type, body, url, attrs, details: detailMap, description, fire }
+    return req
   }
 
   const handleSubmit = (e: React.FormEvent) => {
