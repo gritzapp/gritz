@@ -23,13 +23,13 @@ import (
 var NotifyCommand = &cli.Command{
 	Name:  "notify",
 	Usage: "Subscribe to server notifications and emit system notifications",
-	Flags: slices.Concat([]cli.Flag{
+	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
 			Name:  "title",
 			Usage: "Title shown on each system notification",
 			Value: "gritz",
 		},
-	}, configfile.Flags()),
+	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		e, err := configfile.Resolve(cmd)
 		if err != nil {

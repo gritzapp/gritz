@@ -42,7 +42,7 @@ func defaultRunnerID() string {
 var RunnerCommand = &cli.Command{
 	Name:  "runner",
 	Usage: "Start the runner (monitors tasks, manages containers)",
-	Flags: slices.Concat([]cli.Flag{
+	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
 			Name:    "workspaces",
 			Aliases: []string{"w"},
@@ -92,7 +92,7 @@ var RunnerCommand = &cli.Command{
 			Usage: "Enable debug logging",
 			Value: false,
 		},
-	}, configfile.Flags()),
+	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		configPath := cmd.String("workspaces")
 		pollInterval := cmd.Duration("poll")

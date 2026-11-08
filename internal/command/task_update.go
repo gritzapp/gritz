@@ -17,7 +17,7 @@ var TaskUpdateCommand = &cli.Command{
 	Name:      "update",
 	Usage:     "Update a task",
 	ArgsUsage: "<task-id>",
-	Flags: slices.Concat([]cli.Flag{
+	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
 			Name:    "name",
 			Aliases: []string{"n"},
@@ -37,7 +37,7 @@ var TaskUpdateCommand = &cli.Command{
 			Name:  "auto-archive",
 			Usage: "Set the auto-archive timeout. 0 = never; negative = archive immediately; positive = delay. Unchanged when omitted.",
 		},
-	}, configfile.Flags()),
+	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		taskIDStr := cmd.Args().First()
 		if taskIDStr == "" {

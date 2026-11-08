@@ -17,7 +17,7 @@ import (
 var TaskCreateCommand = &cli.Command{
 	Name:  "create",
 	Usage: "Create a new task",
-	Flags: slices.Concat([]cli.Flag{
+	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
 			Name:    "name",
 			Aliases: []string{"n"},
@@ -44,7 +44,7 @@ var TaskCreateCommand = &cli.Command{
 			Name:  "auto-archive",
 			Usage: "Auto-archive the task this long after it reaches a terminal status. 0 = never (default), negative = archive immediately, positive = delay (e.g. 1h, 24h).",
 		},
-	}, configfile.Flags()),
+	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		e, err := configfile.Resolve(cmd)
 		if err != nil {
