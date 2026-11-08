@@ -218,8 +218,11 @@ Each user-facing command gets the same three flags, defined once by
 | `--server`, `-s` | `GRITZ_SERVER` | unchanged, plus the env source on `mcp`/`notify` |
 
 Each command's action replaces its `configfile.Load` + `cfg.Token == ""` block
-(or `cmd.String("token")`) with one `configfile.ClientOptions(ctx, cmd)` call, which runs the
-selection above and returns `gritzclient.Options`:
+(or `cmd.String("token")`) with one `configfile.Resolve(ctx, cmd)` call, which
+runs the selection above and returns the entry to use. The command builds its
+client options inline from it,
+`gritzclient.Options{BaseURL: e.Server, Token: e.Key, ...}`, and the same way
+for `NotificationClientOptions` and `shell.Attach`:
 
 - `task list`, `task create`, `task update`, `logs`, `shell`: drop the
   `configfile.Load(nil)` blocks. `shell` also passes the selected key to
@@ -326,9 +329,11 @@ func (m *Merged) Select(org string) (*Selection, error) // new
 // GRITZ_SERVER) shared by user-facing commands.
 func Flags() []cli.Flag // new
 
-// ClientOptions resolves cmd's flags and the merged .gritz.yml files from the
-// working directory into client options.
-func ClientOptions(ctx context.Context, cmd *cli.Command) (gritzclient.Options, error) // new
+// Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
+// files from the working directory, and returns the entry to use. Server is
+// always set (gritzclient.DefaultURL when no layer sets it). With --key, the
+// entry has only Key and Server.
+func Resolve(ctx context.Context, cmd *cli.Command) (*Entry, error) // new
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
 func Slug(orgName string) string // new
@@ -348,11 +353,14 @@ var LoginCommand *cli.Command // new: gritz login
 credentials: the file format, discovery, merging, selection, the shared flags,
 and the `login` write. `Merged.Select` holds the selection rules and takes no
 urfave/cli types, so it can be table-tested against a `Merged` value.
-`ClientOptions` is the only part that reads the command: it takes `--key` as
-is, or calls `Load` with the working directory and `Select` with `--org`, then
-applies the server precedence and returns `gritzclient.Options`. Every
-user-facing command appends `configfile.Flags()...` and calls
-`configfile.ClientOptions` in its action. `LoginCommand` calls `GetProfile`,
+`Resolve` is the only part that reads the command: it takes `--key` as is, or
+calls `Load` with the working directory and `Select` with `--org`, then applies
+the server precedence and returns the `Entry`. `configfile` doesn't build
+client options; it references `gritzclient` only for the `DefaultURL` constant,
+and there's no helper in `gritzclient` either. Every user-facing command
+appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
+builds `gritzclient.Options` (and `NotificationClientOptions` or the
+`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetProfile`,
 `configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
@@ -377,7 +385,7 @@ user-facing command appends `configfile.Flags()...` and calls
    `ErrNameTaken` otherwise, comments preserved); an e2e test that creates a
    key, runs `gritz login --key`, and checks the written entry.
 4. **Wire existing commands and delete the old config** — Delivers:
-   `configfile.Flags`/`configfile.ClientOptions`; `task`, `logs`, `shell`, `mcp`, `notify` and
+   `configfile.Flags`/`configfile.Resolve`; `task`, `logs`, `shell`, `mcp`, `notify` and
    `runner` switched over; `mcp`/`notify` `--token` removed; the old
    `File`/`Load`/`Save`/`Overrides`/`Path` and `config.json` handling deleted
    and the step-2 names taken over; docs updated (`reference/cli`, `using/cli`,
