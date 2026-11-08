@@ -80,19 +80,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// subscription key, so every event about the same resource must send the
 	// same one.
 	input := eventrouter.InputEvent{
-		Source:  eventrouter.SourceCustom,
-		Type:    env.Type,
-		Data:    env.Body,
-		URL:     env.URL,
-		Orgs:    []int64{caller.OrgID},
-		Attrs:   env.Attrs,
-		Details: env.Details,
+		Source:      eventrouter.SourceCustom,
+		Type:        env.Type,
+		Description: cmp.Or(env.Description, "custom event"),
+		Data:        env.Body,
+		URL:         env.URL,
+		Orgs:        []int64{caller.OrgID},
+		Attrs:       env.Attrs,
+		Details:     env.Details,
 	}
 	if err := reg.ValidateEvent(input); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	input.Description = cmp.Or(env.Description, "custom event")
 
 	routed, err := h.Router.Route(r.Context(), input)
 	if err != nil {
