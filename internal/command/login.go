@@ -64,7 +64,7 @@ var LoginCommand = &cli.Command{
 		if err := configfile.Login(filepath.Join(dir, configfile.Name), name, entry); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.Root().Writer, "Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)
+		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)
 		return nil
 	},
 }
