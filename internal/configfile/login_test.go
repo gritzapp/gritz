@@ -119,23 +119,28 @@ func TestLogin_NameTaken(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNameTaken)
 }
 
-func TestLogin_Mode(t *testing.T) {
+func TestLogin_NewFileMode(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	created := filepath.Join(dir, "created", Name)
-	existing := filepath.Join(dir, Name)
-	assert.NilError(t, os.WriteFile(existing, nil, 0o640))
+	path := filepath.Join(t.TempDir(), "gritz", Name)
 
-	err := Login(created, "acme", Entry{ID: 12, Key: "k1"})
-	assert.NilError(t, err)
-	err = Login(existing, "acme", Entry{ID: 12, Key: "k1"})
-	assert.NilError(t, err)
+	err := Login(path, "acme", Entry{ID: 12, Key: "k1"})
 
-	// A new file is private; an existing one keeps its mode.
-	info, err := os.Stat(created)
+	assert.NilError(t, err)
+	info, err := os.Stat(path)
 	assert.NilError(t, err)
 	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o600))
-	info, err = os.Stat(existing)
+}
+
+func TestLogin_ExistingFileMode(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), Name)
+	assert.NilError(t, os.WriteFile(path, nil, 0o640))
+	assert.NilError(t, os.Chmod(path, 0o640)) // in case the umask narrowed it
+
+	err := Login(path, "acme", Entry{ID: 12, Key: "k1"})
+
+	assert.NilError(t, err)
+	info, err := os.Stat(path)
 	assert.NilError(t, err)
 	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
 }
