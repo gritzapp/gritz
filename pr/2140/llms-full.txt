@@ -2200,7 +2200,7 @@ The browser login only works where the browser runs on the same machine as `logi
 
 `Entry.TokenSource(ctx)` returns:
 
-* for a `key` entry (and for `--key`): `oauth2.StaticTokenSource` of the key.
+* for a `key` entry (and for `--key`): `gritzclient.StaticToken` of the key.
 * for a `refresh_token` entry: `oauth2.ReuseTokenSource(nil, src)`, where `src` is a `refreshSource` holding the entry’s server, name, path and current refresh token. `ReuseTokenSource` caches the access token and calls `src.Token()` only when it has expired (with `oauth2`’s 10-second early expiry), serialised by its own mutex, so one process never refreshes twice concurrently.
 
 `refreshSource.Token()`:
@@ -2243,7 +2243,7 @@ Each user-facing command already calls `configfile.Resolve`. It now builds its c
 | `runner`                          | `runner.ServeOptions.TokenSource` replaces `Token`; the client and the notification client share it.                                          |
 | `login`                           | unchanged on the `--key` path; uses the exchanged access token for `GetCaller`                                                                |
 
-`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` gain a `TokenSource` field beside `Token`; `Token` stays as the shorthand for a static token, used by `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key. Setting both panics.
+`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` replace `Token` with a `TokenSource` field; a nil source means no authentication. `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key, pass `gritzclient.StaticToken` of it.
 
 A refresh failure surfaces from `AuthTransport.RoundTrip` as the request’s error. One-shot commands exit with the “run `gritz login`” message; `runner`, `mcp` and `notify` log it on every attempt, the same as any other server outage, until restarted after a new `login`.
 
@@ -2344,15 +2344,17 @@ package gritzclient // github.com/gritzapp/gritz/internal/gritzclient
 
 type Options struct {
   // ...
-  // TokenSource supplies the bearer token per request; set instead of Token.
-  TokenSource oauth2.TokenSource // new
+  // TokenSource supplies the bearer token per request.
+  // If nil, no authentication is performed.
+  TokenSource oauth2.TokenSource // changed: was Token string
 }
 
 
 type NotificationClientOptions struct {
   // ...
-  // TokenSource supplies the bearer token per connection; set instead of Token.
-  TokenSource oauth2.TokenSource // new
+  // TokenSource supplies the bearer token per connection.
+  // If nil, no authentication is performed.
+  TokenSource oauth2.TokenSource // changed: was Token string
 }
 
 
@@ -2362,6 +2364,10 @@ type AuthTransport struct {
   Source    oauth2.TokenSource // changed: was Token string
   ClientID  string
 }
+
+
+// StaticToken returns a TokenSource that always returns token.
+func StaticToken(token string) oauth2.TokenSource // new
 ```
 
 ```go
@@ -2392,7 +2398,7 @@ type ServeOptions struct {
 [Section titled “Implementation Plan”](#implementation-plan)
 
 1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
-2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions` (panicking if both are set), `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing a static source of `cfg.Key`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
+2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields replacing `Token` on `gritzclient.Options` and `NotificationClientOptions`, `gritzclient.StaticToken`, `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing `StaticToken(cfg.Key)`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`, `Rotate`, `Entry.TokenSource` with write-back and the re-login error; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither) and `Rotate` (replaces when old matches, no-op when changed or gone, keeps mode); a test against an `oauthflow` `httptest` server that a source refreshes once per access token expiry, writes back only when `iat` is over 24h old, and maps an expired refresh token to the re-login error.
 4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `github.com/cli/browser` as a direct dependency, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
 5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
