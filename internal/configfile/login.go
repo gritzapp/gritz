@@ -15,6 +15,21 @@ import (
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use")
 
+// LoginServer returns the server `gritz login` uses when --server isn't
+// given: the top-level server of the nearest .gritz.yml from the working
+// directory, else DefaultServer.
+func LoginServer() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	merged, err := Load(LoadOptions{Dir: cwd})
+	if err != nil {
+		return "", err
+	}
+	return cmp.Or(merged.Server, DefaultServer), nil
+}
+
 // Login writes entry under name into the .gritz.yml file at path, replacing
 // the key of an existing entry with the same id and server, and failing with
 // ErrNameTaken if name belongs to a different org or server. It sets org to
