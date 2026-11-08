@@ -112,7 +112,7 @@ The docs build also builds the Motion Canvas diagrams in `diagrams/` (`pnpm diag
 
 `docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link.
 
-**A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update.
+**A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR, if that page no longer describes it correctly.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update. See "What belongs in the docs" below before writing anything.
 
 | Code | Docs |
 | --- | --- |
@@ -125,6 +125,18 @@ The docs build also builds the Motion Canvas diagrams in `diagrams/` (`pnpm diag
 | `workspaces.yaml`, the runner, backends, `secrets:` | `operators/*` |
 
 Config examples in the docs follow the `secrets:` rule above: credentials go under `secrets:` and are referenced by variable (`${GH_TOKEN}`), never inline.
+
+### What belongs in the docs
+
+The docs are for people who use or operate gritz, not for people who work on it. They describe what gritz does now, in terms the reader acts on: commands, flags, config fields, UI, event attributes, observable behaviour.
+
+- **Most bug fixes need no docs change.** If a careful reader of the page as it stands would already expect the fixed behaviour, the page is correct and stays as it is. Update it only when it described the buggy behaviour, documented a workaround the fix removes, or the fix changes what the user sees or does.
+- **Don't document the absence of a bug.** No "X no longer resets Y", "X now correctly …", or "Note: X does not …" for a failure nobody would assume.
+- **No history.** No "previously", "now", "as of", "used to", or PR and issue numbers. The page reads as if it had always been this way.
+- **No implementation details.** No Go package, file, function, type, or RPC names, SQL tables, interceptors, or internal mechanisms, unless the reader configures or observes them directly. Explain behaviour, not how the code achieves it.
+- **Edit in place.** Correct the sentence that's wrong instead of appending a caveat beside it. A behaviour change should usually leave the page about the same length.
+
+Before touching a page, ask: would a user or operator reading the current page be misled? If not, leave it alone, and say in the PR description that no docs change was needed.
 
 ## Invariants
 
