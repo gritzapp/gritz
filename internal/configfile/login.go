@@ -39,20 +39,24 @@ func Login(path, name string, entry Entry) error {
 	if entry.Server == "" {
 		panic("configfile: Login without a server")
 	}
-	return UpdateFile(path, func(f *File) (bool, error) {
+	return UpdateFile(path, func(f *File) error {
 		if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || old.Server != entry.Server) {
-			return false, fmt.Errorf("%w: %q is org %d on %s; pass --name to use another name", ErrNameTaken, name, old.ID, old.Server)
+			return fmt.Errorf("%w: %q is org %d on %s; pass --name to use another name", ErrNameTaken, name, old.ID, old.Server)
 		}
 		f.Orgs[name] = entry
 		f.Org = cmp.Or(f.Org, name)
-		return true, nil
+		return nil
 	})
 }
 
+// ErrSkipWrite, returned by an UpdateFile func, leaves the file unchanged;
+// UpdateFile then returns nil.
+var ErrSkipWrite = errors.New("skip write")
+
 // UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
-// to change it, and writes it back atomically when fn returns true, keeping
-// its mode or creating it 0600. f.Orgs is never nil when fn is called.
-func UpdateFile(path string, fn func(f *File) (bool, error)) error {
+// to change it, and writes it back atomically, keeping its mode or creating it
+// 0600. f.Orgs is never nil when fn is called.
+func UpdateFile(path string, fn func(f *File) error) error {
 	mode := fs.FileMode(0o600)
 	f, err := Read(path)
 	switch {
@@ -70,7 +74,9 @@ func UpdateFile(path string, fn func(f *File) (bool, error)) error {
 	if f.Orgs == nil {
 		f.Orgs = map[string]Entry{}
 	}
-	if ok, err := fn(f); !ok || err != nil {
+	if err := fn(f); errors.Is(err, ErrSkipWrite) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 	data, err := yaml.Marshal(f)

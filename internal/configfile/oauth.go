@@ -20,20 +20,24 @@ func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource {
 		OnRefreshToken: func(token string) {
 			// Leave the file alone if another process rotated the token
 			// or the user logged in again: either is at least as fresh.
-			err := UpdateFile(e.Path, func(f *File) (bool, error) {
+			written := false
+			err := UpdateFile(e.Path, func(f *File) error {
 				fe, ok := f.Orgs[e.Name]
 				if !ok || fe.RefreshToken != stored {
-					return false, nil
+					return ErrSkipWrite
 				}
 				fe.RefreshToken = token
 				f.Orgs[e.Name] = fe
-				return true, nil
+				written = true
+				return nil
 			})
 			if err != nil {
 				slog.Warn("failed to write rotated refresh token", "path", e.Path, "org", e.Name, "err", err)
 				return
 			}
-			stored = token
+			if written {
+				stored = token
+			}
 		},
 	})
 }
