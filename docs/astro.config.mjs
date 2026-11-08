@@ -107,13 +107,6 @@ const diagramItems = (dir = '') => {
 	return [...links, ...groups];
 };
 
-// The API reference sidebar group's nested groups, one per kind of page that
-// protoc-gen-gritz-docs writes under src/content/docs/api/.
-const apiGroups = [
-	{ label: 'Messages', directory: 'messages', collapsed: true },
-	{ label: 'Enums', directory: 'enums' },
-];
-
 // The Proposals sidebar group's nested groups, one per status directory under
 // src/content/docs/proposals/.
 const proposalGroups = [
@@ -140,14 +133,6 @@ export default defineConfig({
 			sidebar: [
 				{ label: 'Start here', items: ['index', 'getting-started'] },
 				...sections.flatMap(section),
-				{
-					label: 'API reference',
-					items: apiGroups.map(({ label, directory, collapsed }) => ({
-						label,
-						collapsed,
-						items: [{ autogenerate: { directory: `api/${directory}` } }],
-					})),
-				},
 				{ label: 'Diagrams', items: diagramItems() },
 				{
 					label: 'Proposals',
@@ -167,7 +152,7 @@ export default defineConfig({
 			},
 			plugins: [
 				starlightLinksValidator({ exclude: isDiagramPage }),
-				// llms-full.txt, llms-small.txt and the Users, Operators and API sets.
+				// llms-full.txt, llms-small.txt and the Users and Operators sets.
 				llmsTxt({
 					projectName: 'gritz',
 					// The plugin names a set's file after its label.
