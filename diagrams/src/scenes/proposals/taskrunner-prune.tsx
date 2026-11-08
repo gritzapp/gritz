@@ -4,7 +4,7 @@ import {taskRunnerLayout} from '../../layouts/taskrunner';
 import {Colors} from '../../theme';
 
 // Pruning an archived task, traced from
-// docs/src/content/docs/proposals/draft/taskrunner-owns-sandbox.md (Retire and
+// docs/src/content/docs/proposals/implemented/taskrunner-owns-sandbox.md (Retire and
 // Prune, TaskManager.Run): Run prunes between Poll passes, the archived check
 // runs outside tr.mu, Retire destroys the parked sandbox, and the registry
 // drops the entry right away because no Poll handler holds the TaskRunner.

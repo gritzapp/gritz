@@ -109,7 +109,7 @@ Delete:
 - The `AuthType` field on `gritzclient.AuthTransport` (`internal/gritzclient/transport.go:14`) and the corresponding header set on `transport.go:20`.
 - The `AuthType` field on `gritzclient.Options` (`internal/gritzclient/client.go:39`) and its propagation in `New()` (`client.go:61`).
 - The `AuthType: "app"` literal in `internal/command/setup.go:87` is already removed in Phase 2.
-- The `X-Auth-Type: key` set in `n8n-node/nodes/Gritz/GritzExecutor.ts:27` (this is the in-repo n8n node; the published `n8n-nodes-gritz` package proposed in `proposals/draft/n8n-community-node.md` does not set this header in its sample code, so the proposal there is already consistent).
+- The `X-Auth-Type: key` set in `n8n-node/nodes/Gritz/GritzExecutor.ts:27` (this is the in-repo n8n node; the published `n8n-nodes-gritz` package proposed in `proposals/implemented/n8n-community-node.md` does not set this header in its sample code, so the proposal there is already consistent).
 - The `X-Auth-Type: app` set in `webui/src/lib/transport.ts:88`. The server detects app JWTs by shape, so the UI just drops this one header line and otherwise behaves identically.
 - All `switch r.Header.Get(AuthTypeHeader)` blocks in `RequireAuth`, `CheckAuth`, and `User`. Replace with a single helper, conceptually:
 

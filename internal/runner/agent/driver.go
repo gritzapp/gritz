@@ -197,7 +197,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// cursor is held on cfg but persisted only by the post-run Save below, so a
 	// run that fails before that Save leaves the stored cursor untouched and the
 	// next run reads from the same position (at-least-once). See
-	// docs/src/content/docs/proposals/draft/runner-event-replica.md.
+	// docs/src/content/docs/proposals/implemented/runner-event-replica.md.
 	events, last, err := d.promptEvents(cfg.PromptedEventID)
 	if err != nil {
 		return err

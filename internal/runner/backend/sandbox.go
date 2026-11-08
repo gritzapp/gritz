@@ -10,7 +10,7 @@ import (
 // Backend creates task sandboxes on a concrete runtime and reopens recorded
 // ones. It never speaks the driver protocol: the runner does, over the client
 // Sandbox.Dial returns. See
-// docs/src/content/docs/proposals/draft/driver-server.md, "Backend interface".
+// docs/src/content/docs/proposals/implemented/driver-server.md, "Backend interface".
 type Backend interface {
 	ValidateWorkspace(ws *workspace.Workspace) error
 

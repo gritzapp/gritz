@@ -70,7 +70,7 @@ LIMIT sqlc.arg(page_limit);
 -- oldest transaction still running, so every row below it has committed and
 -- no row can still commit behind the cursor. Rows from newer transactions are
 -- held back until everything older has finished. Covered by idx_events_xid_id.
--- See docs/src/content/docs/proposals/draft/runner-event-replica.md.
+-- See docs/src/content/docs/proposals/implemented/runner-event-replica.md.
 SELECT e.id, e.org_id, e.created_at, e.task_id, e.type, e.wake, e.payload, e.xid
 FROM events e
 JOIN tasks t ON t.id = e.task_id

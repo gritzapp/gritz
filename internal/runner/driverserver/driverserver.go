@@ -3,8 +3,8 @@
 // time, each built from its RunSpec: its own gritz client, log shipper, secret
 // mask and environment.
 //
-// See docs/src/content/docs/proposals/draft/driver-server.md and
-// docs/src/content/docs/proposals/draft/runner-event-replica.md. The Server is
+// See docs/src/content/docs/proposals/implemented/driver-server.md and
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md. The Server is
 // the transport: it stores every event the runner forwards on a Run stream in
 // the driver's event file (internal/runner/eventfile), and hands them to the
 // driver loop, which acts on the latest command among them through the

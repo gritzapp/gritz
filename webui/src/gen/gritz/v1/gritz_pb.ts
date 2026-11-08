@@ -1363,7 +1363,7 @@ export const LinkPayloadSchema: GenMessage<LinkPayload> = /*@__PURE__*/
  * carries every command the runner has to act on, including the withdrawal of
  * a start and the clear when a runner event consumes the command. Command
  * events are not history; timelines skip them (see
- * docs/src/content/docs/proposals/draft/runner-event-replica.md).
+ * docs/src/content/docs/proposals/implemented/runner-event-replica.md).
  *
  * @generated from message gritz.v1.CommandPayload
  */

@@ -2,7 +2,7 @@
 // runner's replica of its tasks' event logs: the replicated events, in the
 // order they arrived from the server, the replication cursor that follows them,
 // and a projection of each task's archive state (see
-// docs/src/content/docs/proposals/draft/runner-event-replica.md); the
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md); the
 // task→sandbox-handle records the runner adopts its sandboxes from on restart;
 // and the queue of runner events waiting to be submitted to the server.
 package runnerstore

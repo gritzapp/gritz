@@ -96,7 +96,7 @@ format, and not in code path.
 This proposal assumes #1406's event-native `GetTaskDetails`: a **thin task
 header** plus the **raw event stream** plus links, with the flattened
 `instructions` projection gone. The event-native MCP projection
-(`proposals/draft/event-native-mcp-tools.md`) already specifies a flat,
+(`proposals/implemented/event-native-mcp-tools.md`) already specifies a flat,
 `type`-tagged event object:
 
 ```jsonc

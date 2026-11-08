@@ -6,7 +6,7 @@ description: "The runner keeps the task-to-sandbox mapping only in local JSON fi
 Issue: https://github.com/icholy/gritz/issues/1160
 
 Reconsiders decision #1 of
-[`proposals/draft/shared-runner-taskstate.md`](/proposals/implemented/shared-runner-taskstate/)
+[`proposals/implemented/shared-runner-taskstate.md`](/proposals/implemented/shared-runner-taskstate/)
 ("runner-owned, not the server"). That proposal introduced the shared
 `internal/runner/taskstate` store and deliberately kept it on the runner's local
 disk. This proposal keeps the *store abstraction* and the runner's role as sole

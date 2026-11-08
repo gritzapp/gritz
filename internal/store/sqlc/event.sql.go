@@ -339,7 +339,7 @@ type ListRunnerEventsParams struct {
 // oldest transaction still running, so every row below it has committed and
 // no row can still commit behind the cursor. Rows from newer transactions are
 // held back until everything older has finished. Covered by idx_events_xid_id.
-// See docs/src/content/docs/proposals/draft/runner-event-replica.md.
+// See docs/src/content/docs/proposals/implemented/runner-event-replica.md.
 func (q *Queries) ListRunnerEvents(ctx context.Context, arg ListRunnerEventsParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listRunnerEvents,
 		arg.Runner,

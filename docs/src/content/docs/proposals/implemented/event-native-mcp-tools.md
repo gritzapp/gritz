@@ -8,7 +8,7 @@ Issue: https://github.com/icholy/gritz/issues/971
 ## Problem
 
 The unified task event stream (#947,
-`proposals/draft/unified-task-event-stream.md`) made a task one ordered stream
+`proposals/implemented/unified-task-event-stream.md`) made a task one ordered stream
 of typed events — `instruction`, `external`, `report`, `lifecycle`, `link` — in
 a single `events` table, and dropped the `logs` table. The MCP tool *writes* are
 already event-based: the agent's `report` tool appends a `report` event,
