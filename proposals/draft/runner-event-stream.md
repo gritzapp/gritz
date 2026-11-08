@@ -5,7 +5,7 @@ Issue: https://github.com/gritzapp/gritz/issues/1871
 ## Problem
 
 The runner replicates its tasks' event log into its SQLite database
-(`proposals/draft/runner-event-replica.md`). On `master`, `taskevents.Log.Run`
+(`proposals/implemented/runner-event-replica.md`). On `master`, `taskevents.Log.Run`
 does that by pulling:
 
 1. read the stored cursor (`runnerstore.EventReplicationCursor`);

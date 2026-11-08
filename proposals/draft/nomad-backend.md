@@ -15,8 +15,8 @@ machines from one runner.
 
 The other proposed backends don't fill this gap: Firecracker
 (proposals/draft/firecracker-backend.md) is still single-host, and the AWS
-options — Lambda MicroVMs (proposals/draft/lambda-microvm-backend.md) and
-AgentCore (proposals/draft/agent-core-backend.md) — scale out only on
+options — Lambda MicroVMs (proposals/implemented/lambda-microvm-backend.md) and
+AgentCore (proposals/rejected/agent-core-backend.md) — scale out only on
 AWS-managed infrastructure with their own image pipelines, IAM, and billing.
 
 Many teams already run a [HashiCorp Nomad](https://www.nomadproject.io/) cluster

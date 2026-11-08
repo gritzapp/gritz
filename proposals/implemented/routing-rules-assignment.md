@@ -6,7 +6,7 @@ Issue: https://github.com/icholy/gritz/issues/741
 
 Routing rules today only react to comment/review events — the `(source, type)` pairs the webhook handlers emit. `extractGitHubWebhookEvent` (`internal/server/webhookserver/github.go:145-205`) recognizes `IssueCommentEvent`, `PullRequestReviewCommentEvent`, and `PullRequestReviewEvent`; `extractAtlassianWebhookEvent` (`internal/server/webhookserver/atlassian.go:117-153`) recognizes `comment_created`. Everything else falls through to `return nil` and is dropped at `internal/server/webhookserver/github.go:44-48` / `internal/server/webhookserver/atlassian.go:70-74`.
 
-There is no way to trigger a rule when a ticket/issue is **assigned**. Assignment is a natural, intentful trigger — especially combined with the create-task work from `proposals/draft/routing-rules-create-tasks.md` (#717): "assign an issue to the bot → spin up a task for it" is a clean dispatch mechanism that's distinct from comment-mention triggers, and that doesn't require typing a magic body prefix.
+There is no way to trigger a rule when a ticket/issue is **assigned**. Assignment is a natural, intentful trigger — especially combined with the create-task work from `proposals/implemented/routing-rules-create-tasks.md` (#717): "assign an issue to the bot → spin up a task for it" is a clean dispatch mechanism that's distinct from comment-mention triggers, and that doesn't require typing a magic body prefix.
 
 This proposal extends the webhook extractors to recognize assignment events, adds an `Assignee` match dimension to `RoutingRule`, and shows how these compose with the create-rule work so an assignment can create a task whose subsequent comments wake it via the existing subscribed-link path.
 
@@ -18,7 +18,7 @@ This proposal extends the webhook extractors to recognize assignment events, add
 2. Extend `extractAtlassianWebhookEvent` to recognize `jira:issue_updated` payloads whose `changelog` records an assignee change, emitting an assignment type.
 3. Add a new `Assignee` field to `model.RoutingRule` (and its proto mirror) plus a parallel field on `eventrouter.InputEvent`. `MatchRule` gains an `assignee` gate, source-aware in the same way `matchMention` is today.
 4. The UI's `EVENT_TYPES` dropdown (`webui/src/lib/routing-rules.ts:11-36`) gains three new labels; the form gains an "Assigned to" field driven by the same source-aware copy as the existing mention field.
-5. Composition with `proposals/draft/routing-rules-create-tasks.md`: an assignment create-rule (`source: github`, `type: pull_request_assigned`, `assignee: icholy-bot`, `create: { workspace, runner, prompt }`) creates a task on the first assignment event, and subsequent comments on the same URL wake it via the existing `attach` path.
+5. Composition with `proposals/implemented/routing-rules-create-tasks.md`: an assignment create-rule (`source: github`, `type: pull_request_assigned`, `assignee: icholy-bot`, `create: { workspace, runner, prompt }`) creates a task on the first assignment event, and subsequent comments on the same URL wake it via the existing `attach` path.
 
 ### 1. New `(source, type)` pairs
 
@@ -269,13 +269,13 @@ The full chain:
 - **Assigner** = event actor = `Sender` (GitHub) / `payload.User` (Atlassian). Resolved to an gritz user at the handler level (`github.go:52`, `atlassian.go:77`). Same lookup, same `sql.ErrNoRows` drop, same audit posture.
 - **Assignee** = match target. Just an identifier string. Not resolved, not validated against the user table.
 
-Assignment introduces no new bypass. An unlinked user assigning issues cannot route events — they fail the `GetUserByGitHubUserID` / `GetUserByAtlassianAccountID` lookup exactly like an unlinked commenter does today. The "linked gritz user required" invariant from `proposals/draft/routing-rules-create-tasks.md` §1 carries over verbatim.
+Assignment introduces no new bypass. An unlinked user assigning issues cannot route events — they fail the `GetUserByGitHubUserID` / `GetUserByAtlassianAccountID` lookup exactly like an unlinked commenter does today. The "linked gritz user required" invariant from `proposals/implemented/routing-rules-create-tasks.md` §1 carries over verbatim.
 
 A subtle consequence worth naming: an assignment create-rule (§5) means **a linked user can assign-create a task targeting a different account** (the rule's `assignee` value). That's intentional and useful — "assign to the bot account" is the canonical use case — but it means the assignee value in the rule is a trust statement by whoever configured the rule. This is no different from a `mention` rule trusting that the configured username is the bot's.
 
 ### 5. Composition with create-task rules (#717)
 
-`proposals/draft/routing-rules-create-tasks.md` adds `Create *CreateTaskAction` to `RoutingRule` and reworks `Route` to (a) load member orgs' rules, (b) take the first matching rule per org, (c) if a subscribed link exists for the URL → wake, otherwise (d) if the matched rule has `Create` set → create-task-with-link in one tx.
+`proposals/implemented/routing-rules-create-tasks.md` adds `Create *CreateTaskAction` to `RoutingRule` and reworks `Route` to (a) load member orgs' rules, (b) take the first matching rule per org, (c) if a subscribed link exists for the URL → wake, otherwise (d) if the matched rule has `Create` set → create-task-with-link in one tx.
 
 Assignment rules plug in unmodified. A rule like:
 

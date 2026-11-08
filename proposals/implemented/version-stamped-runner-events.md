@@ -6,7 +6,7 @@ Issue: https://github.com/icholy/gritz/issues/1052
 
 `Task.Version` now has a normative meaning — it is the run counter, bumping
 exactly at run boundaries and never under a live run
-(`proposals/draft/task-run-versions.md`, landed in PR #1293). The guard in
+(`proposals/implemented/task-run-versions.md`, landed in PR #1293). The guard in
 `ApplyRunnerEvent` (`internal/model/task.go`) already treats a scoped version
 `N ≥ 1` as "applies only to run N" and `0` as the unscoped bypass:
 

@@ -4,7 +4,7 @@ Issue: https://github.com/icholy/gritz/issues/1145
 
 ## Problem
 
-The driver reverse shell (`proposals/draft/driver-reverse-shell.md`, issue #1110)
+The driver reverse shell (`proposals/implemented/driver-reverse-shell.md`, issue #1110)
 gives us a backend-agnostic interactive shell into a task's sandbox: `OpenShell`
 seeds a rendezvous session, the driver dials the `/shell/driver` leg, an operator
 dials `/shell/attach`, and the server bridges the two byte streams using the

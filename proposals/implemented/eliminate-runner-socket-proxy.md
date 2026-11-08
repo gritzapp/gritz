@@ -2,7 +2,7 @@
 
 Issue: https://github.com/icholy/gritz/issues/890
 
-Builds on: [`proposals/draft/scope-based-permissions.md`](/proposals/implemented/scope-based-permissions/)
+Builds on: [`proposals/implemented/scope-based-permissions.md`](/proposals/implemented/scope-based-permissions/)
 (the `authscope` engine and API-caller enforcement landed in #902/#905/#906).
 
 ## Problem

@@ -6,7 +6,7 @@ Issue: https://github.com/icholy/gritz/issues/739
 
 A user can be a member of an unbounded number of orgs. Several code paths fan out over `ListOrgsByMember(user.ID)` per inbound request or webhook event, so an unbounded membership count makes that fan-out a per-event cost.
 
-The driving concern is the routing rework in `#717` (see `proposals/draft/routing-rules-create-tasks.md`): `Router.Route` will call `ListRoutingRulesForUser` for every inbound webhook event and evaluate rules + lookup links per member org. A user in a pathological number of orgs makes each event proportionally more expensive.
+The driving concern is the routing rework in `#717` (see `proposals/implemented/routing-rules-create-tasks.md`): `Router.Route` will call `ListRoutingRulesForUser` for every inbound webhook event and evaluate rules + lookup links per member org. A user in a pathological number of orgs makes each event proportionally more expensive.
 
 It is also a general abuse guardrail. Today a single user can — via the public `CreateOrg` RPC — keep creating orgs unboundedly, each of which adds an `org_members` row keyed to them.
 

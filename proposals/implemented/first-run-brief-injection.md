@@ -6,7 +6,7 @@ Issue: https://github.com/icholy/gritz/issues/1398
 
 The wake path no longer depends on a tool call: the driver drains
 instruction + external **events** and injects them straight into the wake prompt
-(`proposals/draft/wake-prompt-event-injection.md`, shipped as #946 L1–L4, via
+(`proposals/implemented/wake-prompt-event-injection.md`, shipped as #946 L1–L4, via
 `internal/agent/agentprompt`). But the **first run** still opens with a bootstrap
 instruction that tells the agent to go fetch its own context:
 
