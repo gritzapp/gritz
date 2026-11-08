@@ -5958,7 +5958,9 @@ type CreateTaskAction struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Workspace string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	Runner    string                 `protobuf:"bytes,2,opt,name=runner,proto3" json:"runner,omitempty"`
-	Prompt    string                 `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	// The created task's first instruction. Empty uses a fixed preamble saying
+	// a routing rule created the task in response to a <source> <type> event.
+	Prompt string `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	// Auto-archive value applied to tasks created by this rule. See
 	// Task.auto_archive for the value semantics (zero/unset = never,
 	// negative = immediate, positive = delay).

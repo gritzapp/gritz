@@ -212,8 +212,8 @@ FROM tasks
 WHERE archived = FALSE
   AND auto_archive <> 0
   AND command = 0
-  -- completed, failed, cancelled, draft
-  AND status IN (5, 6, 7, 8)
+  -- completed, failed, cancelled
+  AND status IN (5, 6, 7)
   AND updated_at + (INTERVAL '1 microsecond' * auto_archive) < (NOW() AT TIME ZONE 'UTC')
 ORDER BY updated_at
 LIMIT $1

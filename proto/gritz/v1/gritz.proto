@@ -735,6 +735,8 @@ message RoutingRule {
 message CreateTaskAction {
   string workspace = 1;
   string runner = 2;
+  // The created task's first instruction. Empty uses a fixed preamble saying
+  // a routing rule created the task in response to a <source> <type> event.
   string prompt = 3;
   // Auto-archive value applied to tasks created by this rule. See
   // Task.auto_archive for the value semantics (zero/unset = never,

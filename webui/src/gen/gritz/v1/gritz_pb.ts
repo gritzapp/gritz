@@ -2647,6 +2647,9 @@ export type CreateTaskAction = Message<"gritz.v1.CreateTaskAction"> & {
   runner: string;
 
   /**
+   * The created task's first instruction. Empty uses a fixed preamble saying
+   * a routing rule created the task in response to a <source> <type> event.
+   *
    * @generated from field: string prompt = 3;
    */
   prompt: string;
