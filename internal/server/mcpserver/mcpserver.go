@@ -18,7 +18,9 @@ const Instructions = "gritz is an async agent orchestrator that runs AI coding a
 	"Use it to create and manage tasks that execute in isolated workspaces.\n" +
 	"Workspaces define the container image, volumes, environment variables, and MCP servers available to agents.\n" +
 	"Each task runs an AI coding agent with access to the codebase and configured tools.\n" +
-	"Agents attach links to their tasks for external resources they create, such as GitHub PRs or Jira issues."
+	"Agents attach links to their tasks for external resources they create, such as GitHub PRs or Jira issues.\n" +
+	"The server also administers the organisation's events, custom event types, schedules and routing rules, and reads its members, API keys and settings.\n" +
+	"To send a custom event, fire it with test_event."
 
 // Option configures the behaviour of the registered tools.
 type Option func(*handlers)
