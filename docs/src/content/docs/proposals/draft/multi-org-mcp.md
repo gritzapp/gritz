@@ -32,7 +32,7 @@ caller (an OAuth token or an API key) is already bound to one org.
 - Two new tools on `gritz mcp`, `list_orgs` and `switch_org`. They exist only
   when the session was started from `.gritz.yml` files, not with `--key`.
 - The session has one **current org**. Every other tool, the existing task
-  tools and the [MCP admin tools](/proposals/draft/mcp-admin-tools/) alike, acts
+  tools and the [MCP admin tools](/proposals/implemented/mcp-admin-tools/) alike, acts
   in it. `switch_org` replaces the current org's client with a new one.
 - With `--channel`, the session follows **every org it has used**: the startup
   org, plus each org it switches to. Each channel message carries the org's
@@ -52,8 +52,10 @@ that `allowed` permits, sorted by name. No arguments, `ReadOnlyHint`.
 }
 ```
 
-- `server` is the resolved server for the entry (see [Flags](#flags)), never
-  empty.
+- `server` is the server a switch to the entry uses: its own `server`, else
+  `https://gritz.dev`, never empty. The current entry shows the server the
+  session is actually using, which for the startup entry is the `--server`
+  override when one was given (see [Flags](#flags)).
 - Keys are never returned.
 - The list is the merged files as loaded at startup. An entry added with
   `gritz login` while the session runs shows up after a restart.
@@ -74,8 +76,10 @@ Makes the named entry the current org.
 
 1. Select the entry with `configfile.Selector.Select(name)`: the same rules
    as `--org` at startup, so a name outside `allowed` or with no entry fails
-   with the same error message.
-2. Build a `gritzclient` for it with the session's client id, and call
+   with the same error message. The entry keeps its own `server`;
+   `--server` never applies to a switch.
+2. Build a `gritzclient` for it from `entry.TokenSource(ctx)` (see
+   [Credentials](#credentials)) with the session's client id, and call
    `GetCaller`. A failure (bad or expired key, unreachable server) is an error
    result, and the current org is unchanged.
 3. If `GetCallerResponse.org.id` differs from the entry's `id`, fail without
@@ -91,7 +95,8 @@ Makes the named entry the current org.
 
 `org_name` is the server-side org name from `GetCaller`, so the agent can tell
 the user which org it is now in. Switching to the current org repeats the check
-and is otherwise a no-op.
+and is otherwise a no-op, except that switching to the startup entry's name
+after starting with `--server` moves the session to the entry's own server.
 
 ### How the tools pick up the current org
 
@@ -116,6 +121,19 @@ connection, so there's nothing worth caching or creating up front; switching
 back to an org builds a fresh one. One client id (`uuid.NewString()` at
 startup, as now) is shared by every client the session builds, so the
 notification streams filter out the session's own changes in every org.
+
+### Credentials
+
+Every client and `NotificationClient` the session builds gets its credentials
+from the entry's token source, `entry.TokenSource(ctx)`, as introduced by
+[CLI OAuth login](/proposals/draft/cli-oauth-login/), never from `entry.Key`.
+A `key` entry gives a static token, and a `refresh_token` entry exchanges and
+rotates its refresh token, so both kinds work for the startup org, for
+`switch_org` and for `Channel.Follow`. `--key` is a static token too.
+
+`ctx` is the process context, not the tool call's: the token source outlives
+the `switch_org` call that built it, and refreshes the access token on later
+calls and on each SSE reconnect.
 
 ### Channel notifications
 
@@ -170,14 +188,19 @@ The startup selection is unchanged: `--key`, `--org`, `--server` and their
 env vars resolve as in every other command.
 
 - **`--org` / `GRITZ_ORG`** picks the startup current org; otherwise it's the
-  merged `default`, and with neither the command fails as now. `switch_org`
+  merged `org`, and with neither the command fails as now. `switch_org`
   can then move to any entry `list_orgs` shows.
 - **`allowed`** limits `list_orgs` and `switch_org` exactly as it limits
   `--org`. A repo whose `.gritz.yml` pins `allowed: [acme]` gets a session
   that can't leave `acme`.
-- **`--server` / `GRITZ_SERVER`** overrides the server of every entry the
-  session switches to, as it does for the startup entry. Each entry's server
-  is otherwise its own `server`, else `https://gritz.dev`.
+- **`--server` / `GRITZ_SERVER`** overrides the server of the startup entry
+  only, as `Resolve` does for every other command. `switch_org` always uses
+  the entry's own `server`, else `https://gritz.dev` for a hand-written entry
+  without one. `gritz login` writes a `server` into every entry and entries
+  live on different servers, so applying the override to a switch would send
+  one server's credentials to another: `gritz mcp --server
+  http://localhost:8080` followed by `switch_org acme` must not send `acme`'s
+  gritz.dev credentials to localhost.
 - **`--key` / `GRITZ_API_KEY`** is a single raw key with no entries:
   `list_orgs` and `switch_org` aren't registered, as the channel tools aren't
   without `--channel`. The session behaves as today, apart from the per-org
@@ -197,7 +220,7 @@ When the org tools are registered, `gritz mcp` appends to
 
 ### Composing with the MCP admin tools
 
-The [MCP admin tools](/proposals/draft/mcp-admin-tools/) are registered by
+The [MCP admin tools](/proposals/implemented/mcp-admin-tools/) are registered by
 `mcpserver.AddTools`, so they get the `ServiceFunc` and the once-per-call rule
 with no extra work: `list_members`, `get_org_settings`, `set_routing_rules`,
 schedules and events all act in the current org. Two consequences:
@@ -213,26 +236,25 @@ schedules and events all act in the current org. Two consequences:
 ```go
 package configfile // github.com/gritzapp/gritz/internal/configfile
 
-// Selector selects entries from the merged .gritz.yml files, applying the
-// command's --server override.
+// Selector selects entries from the merged .gritz.yml files. It applies no
+// --server override: that is Resolve's, for the startup entry only.
 type Selector struct { // new
 	Merged *Merged
-	// Server is the --server / GRITZ_SERVER override; empty means none.
-	Server string
 }
 
-// NewSelector loads and validates the merged files from the working directory
-// and reads --server from cmd. It returns nil when --key is set.
+// NewSelector loads and validates the merged files from the working directory.
+// It returns nil when --key is set.
 func NewSelector(cmd *cli.Command) (*Selector, error) // new
 
-// Select returns the name and entry of org, or of the default when org is
-// empty, enforcing Allowed, with Server resolved.
+// Select returns the name and entry of org, or of the merged Org when org is
+// empty, enforcing Allowed. The entry's Server is its own, else DefaultServer.
 func (s *Selector) Select(org string) (string, *Entry, error) // new
 
 // Names returns the names Select accepts, sorted.
 func (s *Selector) Names() []string // new
 
-// Resolve applies --key, or NewSelector and Select(--org).
+// Resolve applies --key, or NewSelector and Select(--org), then the --server
+// override.
 func Resolve(cmd *cli.Command) (*Entry, error) // changed: built on Selector, same behaviour
 ```
 
@@ -264,8 +286,9 @@ const OrgsInstructions = "..." // new
 type Orgs struct{ ... } // new
 
 // NewOrgs starts the session in the entry named name, calling follow for it
-// and for every org switched to later.
-func NewOrgs(sel *configfile.Selector, name string, entry *configfile.Entry, clientID string, follow func(name string, entry *configfile.Entry)) *Orgs // new
+// and for every org switched to later. entry has --server applied; entries
+// switched to later don't. Clients are built from entry.TokenSource(ctx).
+func NewOrgs(ctx context.Context, sel *configfile.Selector, name string, entry *configfile.Entry, clientID string, follow func(name string, entry *configfile.Entry)) *Orgs // new
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
 func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
@@ -287,7 +310,8 @@ type OrgKey struct { // new
 func NewChannel(sender ChannelSender, clientID string, current func() OrgKey) *Channel // changed: takes clientID and current
 
 // Follow starts forwarding entry's notifications, labelled with name (none
-// when empty), unless its org is already followed. The stream runs until ctx ends.
+// when empty), unless its org is already followed. The NotificationClient is
+// built from entry.TokenSource(ctx). The stream runs until ctx ends.
 func (c *Channel) Follow(ctx context.Context, name string, entry *configfile.Entry) // new
 
 // Forward applies the summary gate and the org's mute set, then pushes the
@@ -296,23 +320,30 @@ func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification)
 ```
 
 **How it fits:** `gritz mcp` calls `configfile.NewSelector`. With `--key` (nil
-selector) it calls `Resolve`, builds one client, passes
+selector) it calls `Resolve`, builds one client from the entry's token source, passes
 `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls
-`ch.Follow(ctx, "", entry)`. Otherwise it calls `sel.Select(--org)`, builds
+`ch.Follow(ctx, "", entry)`. Otherwise it calls `sel.Select(--org)`, applies `--server` to that entry, builds
 `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without
 `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and
 appends `OrgsInstructions`. The `NotificationClient` setup moves from
 `mcp.go` into `Channel.Follow`. `Orgs.switch_org` calls `Selector.Select`,
-`gritzclient.New`, `GetCaller` and `follow`; `Channel`'s tools read
+`gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`,
+`GetCaller` and `follow`; `Channel`'s tools read
 `current()` to pick the mute set.
 
 ## Implementation Plan
 
+Depends on [CLI OAuth login](/proposals/draft/cli-oauth-login/), being
+implemented: slices 3 and 4 need `Entry.TokenSource` and the `TokenSource`
+fields on `gritzclient.Options` and `NotificationClientOptions`.
+
 1. **`configfile.Selector`** — Delivers: `Selector`, `NewSelector`, `Select`,
    `Names`; `Resolve` rebuilt on them. Nothing else changes. Depends on:
    nothing. Verifiable by: the existing `configfile` tests pass; table tests
-   for `Select` (default, `allowed`, missing entry, `--server` override) and
-   `Names` (filters by `allowed`, sorted).
+   for `Select` (merged `org`, `allowed`, missing entry, the entry's own
+   `server`, `DefaultServer` for an entry without one) and `Names` (filters by
+   `allowed`, sorted); a `Resolve` test that `--server` still overrides the
+   startup entry.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`,
    `AddTools` taking a `ServiceFunc`, every handler snapshotting the service
    once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on:
@@ -328,19 +359,21 @@ appends `OrgsInstructions`. The `NotificationClient` setup moves from
    `Forward` uses the delivering org's mute set, that the meta carries the name
    and is absent with an empty name, that a second `Follow` for the same
    `OrgKey` under another name starts no stream, and that the mute tools edit
-   the set `current` names.
+   the set `current` names. Depends on CLI OAuth's `TokenSource` options.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each
    switched-to org. Updates `integrations/mcp` (a section on orgs, the tool
    table, the `--key` note). Depends on: (1), (2), (3). Verifiable by:
    `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad
-   key leaves the current org, id mismatch fails, `allowed` enforced); an e2e
+   key leaves the current org, id mismatch fails, `allowed` enforced, a
+   startup `--server` override isn't applied to the switched-to entry, a
+   `refresh_token` entry authenticates); an e2e
    test that logs in to two orgs, starts `gritz mcp --channel` in-process,
    creates a task in org A, switches to org B and creates a task there; then
    `list_tasks` shows only org B's task, and cancelling the org A task from
    another client delivers its channel message with `org="a"`.
 
-Slices 1 and 2 are independent.
+Slices 1 and 2 are independent, and of CLI OAuth.
 
 ## Trade-offs
 
@@ -365,6 +398,10 @@ Slices 1 and 2 are independent.
 - **`GetCaller` on switch vs. trusting the entry.** One round trip per switch
   catches a dead key before the first real call fails, and an id mismatch
   before a write lands in the wrong org.
+- **`--server` for the startup entry only vs. for every switch.** Applying it
+  to switches would let one flag point a whole session at a dev server, but
+  entries carry their own `server` and credentials for it, so it would send
+  each entry's credentials to a server that didn't issue them.
 - **Snapshot of `.gritz.yml` at startup vs. reloading on each call.**
   Reloading would pick up `gritz login` without a restart, but would let the
   current entry's key or `allowed` change under a running session. Logins are
@@ -372,7 +409,7 @@ Slices 1 and 2 are independent.
 
 ## Open Questions
 
-- Should a session start with no current org when there's no `default` and no
+- Should a session start with no current org when there's no merged `org` and no
   `--org`, with only `list_orgs` and `switch_org` working until the first
   switch? This proposal keeps today's startup error.
 - Should tool results that change state carry an `org` field, so the
