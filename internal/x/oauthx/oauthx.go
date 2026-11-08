@@ -7,25 +7,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// ClientID is the OAuth client id the gritz CLI uses.
-const ClientID = "gritz-cli"
-
-// Config returns the OAuth client config for the gritz server at server,
-// with redirectURL as the redirect URI (empty for refresh only).
-func Config(server, redirectURL string) *oauth2.Config {
-	return &oauth2.Config{
-		ClientID: ClientID,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  server + "/ui/oauth/authorize",
-			TokenURL: server + "/oauth/token",
-			// The server reads client_id from the form; this also keeps a
-			// rejected request from being retried with the other style.
-			AuthStyle: oauth2.AuthStyleInParams,
-		},
-		RedirectURL: redirectURL,
-	}
-}
-
 // RefreshSourceOptions configures NewRefreshSource.
 type RefreshSourceOptions struct {
 	// Config is the OAuth client config whose token endpoint refreshes.
@@ -34,7 +15,7 @@ type RefreshSourceOptions struct {
 	RefreshToken string
 	// OnNewRefreshToken is called whenever a refresh returns a refresh token
 	// different from the one in use. Later refreshes use the new token.
-	// Calls are serialised.
+	// Calls are serialised. It is optional.
 	OnNewRefreshToken func(token string)
 }
 
@@ -59,7 +40,9 @@ func (s *refreshSource) Token() (*oauth2.Token, error) {
 	}
 	if tok.RefreshToken != s.token {
 		s.token = tok.RefreshToken
-		s.opts.OnNewRefreshToken(s.token)
+		if s.opts.OnNewRefreshToken != nil {
+			s.opts.OnNewRefreshToken(s.token)
+		}
 	}
 	return tok, nil
 }

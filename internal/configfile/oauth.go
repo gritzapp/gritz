@@ -13,6 +13,25 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// ClientID is the OAuth client id the CLI uses.
+const ClientID = "gritz-cli"
+
+// OAuthConfig returns the OAuth client config for server, with redirectURL as
+// the redirect URI (empty for refresh only).
+func OAuthConfig(server, redirectURL string) *oauth2.Config {
+	return &oauth2.Config{
+		ClientID: ClientID,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  server + "/ui/oauth/authorize",
+			TokenURL: server + "/oauth/token",
+			// The server reads client_id from the form; this also keeps a
+			// rejected request from being retried with the other style.
+			AuthStyle: oauth2.AuthStyleInParams,
+		},
+		RedirectURL: redirectURL,
+	}
+}
+
 // rotateAge is how old the stored refresh token must be before a new one
 // is written back.
 const rotateAge = 24 * time.Hour
@@ -26,7 +45,7 @@ func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource {
 	}
 	stored := e.RefreshToken
 	return &entrySource{entry: e, src: oauthx.NewRefreshSource(ctx, oauthx.RefreshSourceOptions{
-		Config:       oauthx.Config(e.Server, ""),
+		Config:       OAuthConfig(e.Server, ""),
 		RefreshToken: e.RefreshToken,
 		OnNewRefreshToken: func(token string) {
 			if !issuedBefore(stored, time.Now().Add(-rotateAge)) {
