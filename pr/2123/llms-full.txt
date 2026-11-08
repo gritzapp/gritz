@@ -2044,7 +2044,7 @@ Only the refresh token is stored. Persisting the 5-minute access token would sav
 [Section titled “gritz login”](#gritz-login)
 
 ```plaintext
-gritz login [--name <name>] [--server <url>] [--no-browser]
+gritz login [--name <name>] [--server <url>]
 gritz login --key <key> [--name <name>] [--server <url>]
 ```
 
@@ -2054,15 +2054,13 @@ With `--key` (or `GRITZ_API_KEY`) set, `login` behaves exactly as today. `--key`
 
 2. **Build the authorize URL** with `oauth2.Config{ClientID: "gritz-cli", Endpoint: {AuthURL: <server>/ui/oauth/authorize, TokenURL: <server>/oauth/token}, RedirectURL: <redirect URI>}`, a random `state`, and `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`. If `--name` names an existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add `org=<id>`, so re-logging in to an entry preselects its org (the web UI’s root route already switches to `?org=`).
 
-3. **Open the browser** with the platform opener (`xdg-open`, `open`, `rundll32 url.dll,FileProtocolHandler`) unless `--no-browser`, and always print:
+3. **Open the browser** with the platform opener (`xdg-open`, `open`, `rundll32 url.dll,FileProtocolHandler`), and print the URL in case it doesn’t open:
 
    ```plaintext
    Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
-   If the browser is on another machine, approve there, then paste the URL it
-   was redirected to (it starts with http://127.0.0.1:41234/callback) here.
    ```
 
-4. **Wait** for whichever comes first: a request to `/callback`, or a line on stdin that parses as a URL with the same path. Either way, check `state`; `error=access_denied` (the approval page’s Deny) fails with `login denied`. The local callback answers with a short “Logged in, you can close this tab” page. Give up after 10 minutes.
+4. **Wait** for a request to `/callback` and check its `state`; `error=access_denied` (the approval page’s Deny) fails with `login denied`. The callback answers with a short “Logged in, you can close this tab” page. Give up after 10 minutes.
 
 5. **Exchange** the code with `cfg.Exchange(ctx, code, oauth2.VerifierOption(v))`.
 
@@ -2075,18 +2073,6 @@ With `--key` (or `GRITZ_API_KEY`) set, `login` behaves exactly as today. `--key`
 The client id is the constant `gritz-cli`. The server only checks that the token request repeats it, so there’s nothing to register.
 
 **Which org.** The approval page decides: the token is minted for the org the user approves. Today the page shows the web UI’s current org and mints for it. It gets an org `<Select>` listing `GetProfile`’s orgs, defaulting to the current org (or the `?org=` preselected in step 2), and passes the selection to `auth.fetchToken(orgId)` on Approve. This also lets Claude.ai and other MCP clients be connected to a non-current org without switching the whole UI first. One login is one org; logging in to a second org is a second `gritz login`.
-
-### Headless machines
-
-[Section titled “Headless machines”](#headless-machines)
-
-The loopback redirect only reaches `login` when the browser runs on the same machine. Elsewhere:
-
-* **Paste the redirect.** Over SSH, run `gritz login --no-browser`, open the printed URL on the laptop and approve. The browser fails to load `http://127.0.0.1:<port>/callback?...` (nothing listens on the laptop), and the user pastes that URL from the address bar into the terminal (step 4). No port forwarding, no server state.
-* **Copy the entry.** A refresh token isn’t bound to a machine. Copying an entry between `.gritz.yml` files works; each copy then rotates on its own, and all of them stay valid because old refresh tokens are never invalidated.
-* **Use a key.** CI, containers and deployed runners keep `GRITZ_API_KEY`. A credential that dies after 30 idle days, and that rotates by rewriting a file, is the wrong fit for an image or a secret store.
-
-A device authorization grant (RFC 8628) was considered and rejected; see Trade-offs.
 
 ### Refresh and write-back
 
@@ -2219,12 +2205,10 @@ type Options struct {
   Server string
   // OrgID, when non-zero, preselects the org on the approval page.
   OrgID int64
-  // OpenBrowser opens the authorize URL; nil only prints it.
+  // OpenBrowser opens the authorize URL.
   OpenBrowser func(url string) error
-  // Prompt receives the instructions and the URL to print.
+  // Prompt receives the URL to print.
   Prompt io.Writer
-  // Paste is read line by line for a pasted redirect URL.
-  Paste io.Reader
 }
 
 
@@ -2293,8 +2277,8 @@ type ServeOptions struct {
 1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
 2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions` (panicking if both are set), `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing a static source of `cfg.Key`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`, `Rotate`, `Entry.TokenSource` with write-back and the re-login error; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither) and `Rotate` (replaces when old matches, no-op when changed or gone, keeps mode); a test against an `oauthflow` `httptest` server that a source refreshes once per access token expiry, writes back only when `iat` is over 24h old, and maps an expired refresh token to the re-login error.
-4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `--key` no longer required, `--no-browser`, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, plus one feeding the redirect URL through `Paste`; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
-5. **Docs** — Delivers: `using/cli` (browser login first, `--no-browser`, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
+4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
+5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
 
 Slices 1 and 2 are independent and can land in either order.
 
@@ -2305,9 +2289,8 @@ Slices 1 and 2 are independent and can land in either order.
 * **OAuth tokens in the entry vs. minting an API key with OAuth.** Minting a key (the issue’s first direction) keeps every command and the config format unchanged, but leaves the problems a key has: it never expires, it piles up one per machine in `/ui/keys`, it’s audited as “(API key)”, and a key needs a server-side `CreateKey` path for app-JWT callers. Storing the refresh token costs a token source and a write-back, both small because the server never invalidates an old refresh token.
 * **Writing back after 24 hours vs. on every refresh vs. never.** Never writing back means re-logging in every 30 days no matter how often the CLI is used. Writing on every refresh rewrites the file on every command and every 5 minutes from a runner, widening the window for clobbering a concurrent edit. A daily threshold slides the expiry for anyone who uses the CLI at least once a month, with one rewrite a day.
 * **No lock vs. a lock file.** A lock around `Rotate` and `Login` would close the read-modify-rename window. Because any of the refresh tokens involved is valid, the only thing a race can lose is a concurrent hand edit or `login` to the same file, which is rare enough not to justify a lock.
-* **Server-side changes: none vs. a CLI-specific refresh TTL or a device flow.** A device authorization grant (RFC 8628) would serve headless machines without pasting a URL, but needs server-side state for the device code, polling and a code-entry page; every other part of `oauthflow` is stateless. Pasting the redirect URL covers the same case with no server change. A longer refresh TTL for the CLI would add a client distinction the server doesn’t have; the daily write-back already makes 30 days an idle timeout.
+* **Server-side changes: none vs. a CLI-specific refresh TTL.** A longer refresh TTL for the CLI would add a client distinction the server doesn’t have; the daily write-back already makes 30 days an idle timeout.
 * **A fixed `gritz-cli` client id vs. dynamic registration.** `/oauth/register` returns a fresh UUID that nothing records, so registering buys nothing. A constant id also lets the approval page name the client later if wanted.
-* **Loopback listener plus paste vs. paste only.** Paste-only is one code path but makes every laptop login a copy-paste. The listener makes the common case one click, and paste is read concurrently, so neither mode needs choosing.
 * **Storing the refresh token only vs. also the access token.** Covered under The entry: one network round trip per command is cheaper than a second field that is almost always stale.
 * **One org per login vs. a token for several orgs.** App JWTs carry one `org_id`, and entries name one org, so one login per org fits both. A multi-org token would be a change to `apiauth` for a saving of one browser approval per extra org.
 
