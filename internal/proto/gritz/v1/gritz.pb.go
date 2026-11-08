@@ -6653,7 +6653,7 @@ type TestEventRequest struct {
 	// The event's attribute values, keyed by AttrDef.key. An attr may have
 	// several values. "body" and "url" are sent in their own fields, not here.
 	Attrs         map[string]*AttrValues `protobuf:"bytes,3,rep,name=attrs,proto3" json:"attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`                                                                   // Optional description shown on the task's timeline; a custom event defaults to "test event".
+	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`                                                                   // Optional description shown on the task's timeline; a custom event defaults to its type's label.
 	Fire          bool                   `protobuf:"varint,5,opt,name=fire,proto3" json:"fire,omitempty"`                                                                                // False (the default) for a dry run; true to act on the matches.
 	Details       map[string]string      `protobuf:"bytes,6,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Stored as the event's ExternalPayload.details.
 	Body          string                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`                                                                                 // The event's text, matched by rules on the "body" attr.

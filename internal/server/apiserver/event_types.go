@@ -166,8 +166,16 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		}
 		// A custom event has no actor, as from the webhook: only public rules
 		// match it.
-		input.UserID = ""
-		input.Description = cmp.Or(req.Description, "test event")
+		input = eventrouter.InputEvent{
+			Source:      eventrouter.SourceCustom,
+			Type:        req.Type,
+			Description: cmp.Or(req.Description, def.Label),
+			Data:        req.Body,
+			URL:         req.Url,
+			Orgs:        []int64{caller.OrgID},
+			Attrs:       attrs,
+			Details:     req.Details,
+		}
 	}
 
 	// Plan is the shared read-only matcher — running it (not a parallel simulator)

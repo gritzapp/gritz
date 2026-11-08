@@ -91,7 +91,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	input := eventrouter.InputEvent{
 		Source:      eventrouter.SourceCustom,
 		Type:        env.Type,
-		Description: cmp.Or(env.Description, "custom event"),
+		Description: cmp.Or(env.Description, def.Label),
 		Data:        env.Body,
 		URL:         env.URL,
 		Orgs:        []int64{caller.OrgID},

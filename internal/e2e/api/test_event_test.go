@@ -277,7 +277,7 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 // TestTestEventFireCustomRoutesWithoutActor fires a custom test event and
 // asserts it routes like one posted to the webhook: with no actor, so a
 // member-only rule is skipped and the public rule after it creates the task,
-// and with the default description.
+// and with the type's label as its description.
 func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -337,13 +337,13 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 		protocmp.Transform(),
 	)
 
-	// Assert: the event's description defaults to "test event".
+	// Assert: the event's description defaults to the type's label.
 	assert.DeepEqual(t,
 		events,
 		[]*gritzv1.Event{{
 			TaskId: tasks[0].Id,
 			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
-				Description: "test event",
+				Description: "Dynatrace Problem",
 				Url:         url,
 				Data:        "CPU saturation",
 				Source:      "custom",
