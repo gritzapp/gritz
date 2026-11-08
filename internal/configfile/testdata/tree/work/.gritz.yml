@@ -1,4 +1,5 @@
-default: acme
+org: acme
+server: https://work.example.com
 allowed: [acme, local]
 orgs:
   acme: {id: 12, key: k-work}

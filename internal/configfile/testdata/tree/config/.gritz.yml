@@ -1,4 +1,5 @@
-default: personal
+org: personal
+server: https://base.example.com
 orgs:
   personal: {id: 1, key: kp}
   acme: {id: 12, key: k-base}

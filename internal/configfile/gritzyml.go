@@ -42,8 +42,11 @@ func (e Entry) Validate() error {
 
 // File is the contents of one .gritz.yml file.
 type File struct {
-	// Default is the entry name selected when none is given.
-	Default string `yaml:"default,omitempty"`
+	// Org is the entry name selected when none is given.
+	Org string `yaml:"org,omitempty"`
+	// Server is the server `gritz login` uses when --server isn't given. It
+	// has no effect on reading entries.
+	Server string `yaml:"server,omitempty"`
 	// Allowed lists the entry names that may be selected; nil allows all.
 	Allowed []string `yaml:"allowed,omitempty"`
 	// Orgs maps local names to entries.
@@ -67,8 +70,9 @@ func Read(path string) (*File, error) {
 
 // Merged is the result of merging .gritz.yml files, nearest winning.
 type Merged struct {
-	Default     string
-	DefaultFrom string // path of the file that set Default
+	Org         string
+	OrgFrom     string // path of the file that set Org
+	Server      string // the nearest top-level server, used only by `gritz login`
 	Allowed     []string
 	AllowedFrom string // path of the file that set Allowed
 	Orgs        map[string]Entry
@@ -126,8 +130,11 @@ func (m *Merged) merge(path string) error {
 	if err != nil {
 		return err
 	}
-	if m.Default == "" && f.Default != "" {
-		m.Default, m.DefaultFrom = f.Default, path
+	if m.Org == "" && f.Org != "" {
+		m.Org, m.OrgFrom = f.Org, path
+	}
+	if m.Server == "" {
+		m.Server = f.Server
 	}
 	if m.Allowed == nil && f.Allowed != nil {
 		m.Allowed, m.AllowedFrom = f.Allowed, path
@@ -145,12 +152,12 @@ func (m *Merged) IsAllowed(org string) bool {
 	return m.Allowed == nil || slices.Contains(m.Allowed, org)
 }
 
-// Validate checks that Default is allowed and that every entry is complete,
+// Validate checks that Org is allowed and that every entry is complete,
 // returning errors that name the file responsible.
 func (m *Merged) Validate() error {
-	if m.Default != "" && !m.IsAllowed(m.Default) {
-		return fmt.Errorf("default %q (from %s) is not in allowed %s (from %s)",
-			m.Default, m.DefaultFrom, m.Allowed, m.AllowedFrom)
+	if m.Org != "" && !m.IsAllowed(m.Org) {
+		return fmt.Errorf("org %q (from %s) is not in allowed %s (from %s)",
+			m.Org, m.OrgFrom, m.Allowed, m.AllowedFrom)
 	}
 	for _, name := range slices.Sorted(maps.Keys(m.Orgs)) {
 		if err := m.Orgs[name].Validate(); err != nil {
@@ -160,12 +167,12 @@ func (m *Merged) Validate() error {
 	return nil
 }
 
-// Lookup returns the entry named org, or m.Default when org is empty,
+// Lookup returns the entry named org, or m.Org when org is empty,
 // enforcing m.Allowed. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) {
-	name := cmp.Or(org, m.Default)
+	name := cmp.Or(org, m.Org)
 	if name == "" {
-		return nil, errors.New("no org selected: pass --org or set default in a .gritz.yml file")
+		return nil, errors.New("no org selected: pass --org or set org in a .gritz.yml file")
 	}
 	if !m.IsAllowed(name) {
 		return nil, fmt.Errorf("org %q is not allowed here: allowed is %s (from %s)",

@@ -1,7 +1,4 @@
-default: acme
-allowed:
-    - acme
-    - labs
+org: labs
 orgs:
     acme:
         id: 12
@@ -9,3 +6,4 @@ orgs:
     labs:
         id: 31
         key: k2
+        server: https://gritz.dev

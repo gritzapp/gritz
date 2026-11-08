@@ -23,7 +23,7 @@ func TestLogin(t *testing.T) {
 		{
 			name:      "new file",
 			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "k1"},
+			entry:     Entry{ID: 12, Key: "k1", Server: DefaultServer},
 			golden:    "login-new-file.golden",
 		},
 		{
@@ -33,11 +33,11 @@ func TestLogin(t *testing.T) {
 			golden:    "login-server-is-written.golden",
 		},
 		{
-			name:      "new entry keeps default and allowed",
-			input:     "login-new-entry-keeps-default-and-allowed.yml",
+			name:      "new entry keeps org and allowed",
+			input:     "login-new-entry-keeps-org-and-allowed.yml",
 			entryName: "labs",
-			entry:     Entry{ID: 31, Key: "k2"},
-			golden:    "login-new-entry-keeps-default-and-allowed.golden",
+			entry:     Entry{ID: 31, Key: "k2", Server: DefaultServer},
+			golden:    "login-new-entry-keeps-org-and-allowed.golden",
 		},
 		{
 			name:      "same id and server replaces key",
@@ -47,32 +47,39 @@ func TestLogin(t *testing.T) {
 			golden:    "login-same-id-and-server-replaces-key.golden",
 		},
 		{
-			name:      "default set when absent",
-			input:     "login-default-set-when-absent.yml",
+			name:      "entry without server is the default server",
+			input:     "login-server-defaults-existing-entry.yml",
+			entryName: "acme",
+			entry:     Entry{ID: 12, Key: "new", Server: DefaultServer},
+			golden:    "login-server-defaults-existing-entry.golden",
+		},
+		{
+			name:      "org set when absent",
+			input:     "login-org-set-when-absent.yml",
 			entryName: "labs",
-			entry:     Entry{ID: 31, Key: "k2"},
-			golden:    "login-default-set-when-absent.golden",
+			entry:     Entry{ID: 31, Key: "k2", Server: DefaultServer},
+			golden:    "login-org-set-when-absent.golden",
 		},
 		{
 			name:      "different id",
 			input:     "login-different-id.yml",
 			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "k2"},
-			err:       `entry name in use: entry "acme" is org 31 on the default server; pass --name to add org 12 under another name`,
+			entry:     Entry{ID: 12, Key: "k2", Server: DefaultServer},
+			err:       `entry name in use: entry "acme" is org 31 on https://gritz.dev; pass --name to add org 12 under another name`,
 		},
 		{
 			name:      "different server",
 			input:     "login-different-server.yml",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2", Server: "http://localhost:8080"},
-			err:       `entry name in use: entry "acme" is org 12 on the default server; pass --name to add org 12 under another name`,
+			err:       `entry name in use: entry "acme" is org 12 on https://gritz.dev; pass --name to add org 12 under another name`,
 		},
 		{
 			name:      "unknown field",
 			input:     "login-unknown-field.yml",
 			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "k1"},
-			err:       "field defualt not found in type",
+			entry:     Entry{ID: 12, Key: "k1", Server: DefaultServer},
+			err:       "field default not found in type",
 		},
 	}
 	for _, tt := range tests {
@@ -114,7 +121,7 @@ func TestLogin_NameTaken(t *testing.T) {
 	path := filepath.Join(t.TempDir(), Name)
 	assert.NilError(t, os.WriteFile(path, input, 0o600))
 
-	err = Login(path, "acme", Entry{ID: 12, Key: "k2"})
+	err = Login(path, "acme", Entry{ID: 12, Key: "k2", Server: DefaultServer})
 
 	assert.ErrorIs(t, err, ErrNameTaken)
 }
@@ -123,7 +130,7 @@ func TestLogin_NewFileMode(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "gritz", Name)
 
-	err := Login(path, "acme", Entry{ID: 12, Key: "k1"})
+	err := Login(path, "acme", Entry{ID: 12, Key: "k1", Server: DefaultServer})
 
 	assert.NilError(t, err)
 	info, err := os.Stat(path)
@@ -137,7 +144,7 @@ func TestLogin_ExistingFileMode(t *testing.T) {
 	assert.NilError(t, os.WriteFile(path, nil, 0o640))
 	assert.NilError(t, os.Chmod(path, 0o640)) // in case the umask narrowed it
 
-	err := Login(path, "acme", Entry{ID: 12, Key: "k1"})
+	err := Login(path, "acme", Entry{ID: 12, Key: "k1", Server: DefaultServer})
 
 	assert.NilError(t, err)
 	info, err := os.Stat(path)

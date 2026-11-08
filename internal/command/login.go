@@ -1,7 +1,6 @@
 package command
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -32,14 +31,21 @@ var LoginCommand = &cli.Command{
 		&cli.StringFlag{
 			Name:    "server",
 			Aliases: []string{"s"},
-			Usage:   "server URL (default: " + gritzclient.DefaultURL + ")",
+			Usage:   "server URL (default: the top-level server of the nearest .gritz.yml, else " + configfile.DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
+		if entry.Server == "" {
+			server, err := configfile.LoginServer()
+			if err != nil {
+				return err
+			}
+			entry.Server = server
+		}
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL: cmp.Or(entry.Server, gritzclient.DefaultURL),
+			BaseURL: entry.Server,
 			Token:   entry.Key,
 		})
 		resp, err := client.GetCaller(ctx, &gritzv1.GetCallerRequest{})

@@ -1,5 +1,6 @@
-default: acme
+org: acme
 orgs:
     acme:
         id: 12
         key: k1
+        server: https://gritz.dev

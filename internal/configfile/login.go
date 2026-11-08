@@ -15,13 +15,32 @@ import (
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use")
 
+// LoginServer returns the server `gritz login` uses when --server isn't
+// given: the top-level server of the nearest .gritz.yml from the working
+// directory, else DefaultServer.
+func LoginServer() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	merged, err := Load(LoadOptions{Dir: cwd})
+	if err != nil {
+		return "", err
+	}
+	return cmp.Or(merged.Server, DefaultServer), nil
+}
+
 // Login writes entry under name into the .gritz.yml file at path, replacing
 // the key of an existing entry with the same id and server, and failing with
-// ErrNameTaken if name belongs to a different org or server. It sets default
-// to name when the file has none. The caller validates the key.
+// ErrNameTaken if name belongs to a different org or server. It sets org to
+// name when the file has none. The caller validates the key and sets
+// entry.Server.
 //
 // The file is replaced atomically, keeping its mode, or created 0600.
 func Login(path, name string, entry Entry) error {
+	if entry.Server == "" {
+		panic("configfile: Login without a server")
+	}
 	mode := fs.FileMode(0o600)
 	f, err := Read(path)
 	switch {
@@ -36,16 +55,16 @@ func Login(path, name string, entry Entry) error {
 		}
 		mode = info.Mode().Perm()
 	}
-	if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || old.Server != entry.Server) {
+	if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || cmp.Or(old.Server, DefaultServer) != entry.Server) {
 		return fmt.Errorf("%w: entry %q is org %d on %s; pass --name to add org %d under another name",
-			ErrNameTaken, name, old.ID, cmp.Or(old.Server, "the default server"), entry.ID)
+			ErrNameTaken, name, old.ID, cmp.Or(old.Server, DefaultServer), entry.ID)
 	}
 	if f.Orgs == nil {
 		f.Orgs = map[string]Entry{}
 	}
 	f.Orgs[name] = entry
-	if f.Default == "" {
-		f.Default = name
+	if f.Org == "" {
+		f.Org = name
 	}
 	data, err := yaml.Marshal(f)
 	if err != nil {

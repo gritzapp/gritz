@@ -1,4 +1,5 @@
-default: acme
+org: acme
+server: https://gritz.example.com
 allowed: [acme, local]
 orgs:
   acme:
