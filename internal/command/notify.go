@@ -11,6 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/notify"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/oauth2"
 )
 
 // NotifyCommand runs a long-lived daemon that subscribes to the server's
@@ -37,8 +38,8 @@ var NotifyCommand = &cli.Command{
 		}
 		title := cmd.String("title")
 		nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-			BaseURL: cfg.Server,
-			Token:   cfg.Key,
+			BaseURL:     cfg.Server,
+			TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key}),
 			Handler: func(n model.Notification) {
 				// Only surface terminal task transitions (completed,
 				// failed, cancelled) — these are the outcomes that need

@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/gritzapp/gritz/internal/shell/shellwire"
+	"golang.org/x/oauth2"
 	"golang.org/x/term"
 )
 
@@ -22,16 +23,16 @@ type WinSize struct {
 
 // AttachOptions configures Attach.
 type AttachOptions struct {
-	ServerURL string
-	Token     string
-	Session   string
+	ServerURL   string
+	TokenSource oauth2.TokenSource
+	Session     string
 }
 
 // Attach runs the operator side of a debug-shell session. It dials the server's
-// shell relay WebSocket at GET {ServerURL}/shell/attach?session={Session} authenticating
-// with Token as a Bearer header, negotiates the gritz-shell.v1 subprotocol, puts
-// the local terminal into raw mode, tracks its size (initial size plus SIGWINCH),
-// and pipes stdin/stdout through the WebSocket using the shellwire framing until
+// shell relay WebSocket at GET {ServerURL}/shell/attach?session={Session}
+// authenticating with a token from TokenSource as a Bearer header, negotiates
+// the gritz-shell.v1 subprotocol, puts the local terminal into raw mode, tracks
+// its size (initial size plus SIGWINCH), and pipes stdin/stdout through the WebSocket using the shellwire framing until
 // the shell exits. It returns the shell's exit code.
 //
 // It is the operator-side counterpart to Serve. internal/command/shell.go is a
@@ -42,9 +43,13 @@ func Attach(ctx context.Context, opts AttachOptions) (int, error) {
 	if err != nil {
 		return 1, err
 	}
+	tok, err := opts.TokenSource.Token()
+	if err != nil {
+		return 1, err
+	}
 	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
 		Subprotocols: []string{shellwire.Subprotocol},
-		HTTPHeader:   http.Header{"Authorization": {"Bearer " + opts.Token}},
+		HTTPHeader:   http.Header{"Authorization": {"Bearer " + tok.AccessToken}},
 	})
 	if err != nil {
 		return 1, fmt.Errorf("failed to attach to shell: %w", err)

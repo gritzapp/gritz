@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
+	"golang.org/x/oauth2"
+
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -24,9 +26,9 @@ type ServeOptions struct {
 	Client gritzclient.Client
 	// ServerURL is the server the runner and its sandboxes talk to.
 	ServerURL string
-	// Token is the runner's key, for the notification stream.
-	Token   string
-	Backend backend.Backend
+	// TokenSource supplies the runner's key, for the notification stream.
+	TokenSource oauth2.TokenSource
+	Backend     backend.Backend
 	// StateDB is the path of the runner's SQLite database (runner.db).
 	StateDB      string
 	Workspaces   *workspace.Config
@@ -138,11 +140,11 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	// fallback poll.
 	wg.Go(func() {
 		nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-			BaseURL: opts.ServerURL,
-			Runner:  opts.RunnerID,
-			Token:   opts.Token,
-			Log:     log,
-			Handler: func(model.Notification) { m.Wake() },
+			BaseURL:     opts.ServerURL,
+			Runner:      opts.RunnerID,
+			TokenSource: opts.TokenSource,
+			Log:         log,
+			Handler:     func(model.Notification) { m.Wake() },
 		})
 		if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("notification client stopped", "err", err)

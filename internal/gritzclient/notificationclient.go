@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/oauth2"
+
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/common"
 	"github.com/gritzapp/gritz/internal/x/sse"
@@ -44,6 +46,9 @@ type NotificationClientOptions struct {
 	// builds its own no-timeout http.Client internally (SSE connections
 	// are long-lived).
 	Token string
+	// TokenSource supplies the bearer token per connection; set instead of
+	// Token.
+	TokenSource oauth2.TokenSource
 	// ClientID, when non-empty, is the per-process id paired with the
 	// Connect client's X-Client-ID header. Notifications whose ClientID
 	// matches are dropped before the handler runs so a caller that
@@ -62,17 +67,19 @@ type NotificationClientOptions struct {
 
 // NewNotificationClient returns a new NotificationClient.
 func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
+	transport := http.DefaultTransport
+	if ts := tokenSource(opts.Token, opts.TokenSource); ts != nil {
+		transport = &AuthTransport{
+			Transport: transport,
+			Source:    ts,
+			ClientID:  opts.ClientID,
+		}
+	}
 	return &NotificationClient{
-		baseURL:  opts.BaseURL,
-		runner:   opts.Runner,
-		clientID: opts.ClientID,
-		http: &http.Client{
-			Transport: &AuthTransport{
-				Transport: http.DefaultTransport,
-				Token:     opts.Token,
-				ClientID:  opts.ClientID,
-			},
-		},
+		baseURL:   opts.BaseURL,
+		runner:    opts.Runner,
+		clientID:  opts.ClientID,
+		http:      &http.Client{Transport: transport},
 		log:       cmp.Or(opts.Log, slog.Default()),
 		reconnect: cmp.Or(opts.ReconnectInterval, DefaultSSEReconnectInterval),
 		handler:   opts.Handler,

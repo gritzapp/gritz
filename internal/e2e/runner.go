@@ -15,6 +15,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"golang.org/x/oauth2"
 	"gotest.tools/v3/poll"
 )
 
@@ -48,11 +49,11 @@ type Runner struct {
 func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions, log *slog.Logger) *Runner {
 	t.Helper()
 	r := &Runner{t: t, opts: runner.ServeOptions{
-		Client:    org.runner,
-		ServerURL: org.server.URL,
-		Token:     org.runnerKey,
-		Backend:   b,
-		StateDB:   filepath.Join(t.TempDir(), "runner.db"),
+		Client:      org.runner,
+		ServerURL:   org.server.URL,
+		TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: org.runnerKey}),
+		Backend:     b,
+		StateDB:     filepath.Join(t.TempDir(), "runner.db"),
 		Workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{
 			DefaultWorkspace: {
 				Agent: workspace.Agent{

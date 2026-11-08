@@ -15,6 +15,7 @@ import (
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/oauth2"
 )
 
 // McpCommand runs a local stdio MCP bridge that re-exposes the
@@ -52,10 +53,11 @@ var McpCommand = &cli.Command{
 		// would echo its own create_task/update_task changes back to the
 		// host Claude Code session as channel events (#718).
 		clientID := uuid.NewString()
+		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL:  cfg.Server,
-			Token:    cfg.Key,
-			ClientID: clientID,
+			BaseURL:     cfg.Server,
+			TokenSource: ts,
+			ClientID:    clientID,
 		})
 		var capabilities mcp.ServerCapabilities
 		if cmd.Bool("channel") {
@@ -92,10 +94,10 @@ var McpCommand = &cli.Command{
 		if ch != nil {
 			go func() {
 				nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-					BaseURL:  cfg.Server,
-					Token:    cfg.Key,
-					ClientID: clientID,
-					Handler:  func(n model.Notification) { ch.Forward(ctx, n) },
+					BaseURL:     cfg.Server,
+					TokenSource: ts,
+					ClientID:    clientID,
+					Handler:     func(n model.Notification) { ch.Forward(ctx, n) },
 				})
 				if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					slog.Warn("gritz channel: stream ended", "err", err)

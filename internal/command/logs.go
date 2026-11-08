@@ -11,6 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/oauth2"
 )
 
 // logPageSize bounds each ListLogChunksByTask page the log walk fetches. Chunks
@@ -50,7 +51,8 @@ var LogsCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
+		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
 		tasklog := gritzclient.OpenTaskLog(client, taskID, logPageSize)
 		for chunk, err := range tasklog.History(ctx) {
 			if err != nil {
