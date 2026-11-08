@@ -15,6 +15,11 @@ export const ping = GritzService.method.ping;
 export const getProfile = GritzService.method.getProfile;
 
 /**
+ * @generated from rpc gritz.v1.GritzService.GetCaller
+ */
+export const getCaller = GritzService.method.getCaller;
+
+/**
  * @generated from rpc gritz.v1.GritzService.ListTasks
  */
 export const listTasks = GritzService.method.listTasks;

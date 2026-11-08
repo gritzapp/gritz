@@ -33,6 +33,9 @@ func TestAllMethodsScopeChecked(t *testing.T) {
 		// GetProfile acts on the caller's own identity (the identity axis, not an
 		// intra-org capability); it is gated by RequireUserInterceptor, not scopes.
 		"GetProfile": "identity axis; gated by being an authenticated user, not scopes",
+		// GetCaller reports the org the caller authenticated against, which any
+		// authenticated caller already knows.
+		"GetCaller": "identity axis; reports the caller's own org",
 		// CreateGitHubToken is intentionally Unimplemented on the API server; only
 		// the runner proxy serves it (#806).
 		"CreateGitHubToken": "API server leaves it Unimplemented; served by the runner proxy",
