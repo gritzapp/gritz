@@ -384,11 +384,9 @@ Slices 1 and 2 are independent, and of CLI OAuth.
   Reloading would pick up `gritz login` without a restart, but would let the
   current entry's key or `allowed` change under a running session. Logins are
   rare; a restart is fine.
-
-## Open Questions
-
-- Should a session start with no current org when there's no merged `org` and no
-  `--org`, with only `list_orgs` and `switch_org` working until the first
-  switch? This proposal keeps today's startup error.
-- Should tool results that change state carry an `org` field, so the
-  transcript shows where each write went? Left out to keep results unchanged.
+- **Startup error vs. starting with no current org.** A session with no
+  merged `org` and no `--org` fails at startup, as today, rather than starting
+  with only `list_orgs` and `switch_org` working until the first switch.
+- **No `org` field on state-changing results.** Results stay unchanged;
+  `list_orgs`, the `switch_org` result and the `?org=` in task URLs show the
+  current org.
