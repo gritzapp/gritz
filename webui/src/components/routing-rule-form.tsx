@@ -357,7 +357,8 @@ export function RoutingRuleForm({
                 rows={4}
               />
               <p className="text-muted-foreground text-xs">
-                Leave blank to use the event body as the task's first instruction.
+                Leave blank to use a default instruction saying a routing rule created the task for
+                the event. The event itself is the task's first event either way.
               </p>
             </div>
 

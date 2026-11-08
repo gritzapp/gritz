@@ -81,11 +81,12 @@ export function toTaskTab(value: unknown): TaskTab {
 
 // autoArchiveDeadline returns the time at which the task is scheduled to be
 // auto-archived, or null when it isn't. The timer only runs once a task is in a
-// terminal state, so this requires the task to be archivable (terminal and not
-// yet archived), auto_archive to be positive, and updated_at (the terminal
-// timestamp) to be set.
+// terminal state, so this requires the task to be terminal and archivable (not
+// yet archived, no pending command), auto_archive to be positive, and
+// updated_at (the terminal timestamp) to be set. A draft is archivable by hand
+// but never auto-archived.
 export function autoArchiveDeadline(task: AutoArchiveTask): Date | null {
-  if (!canArchiveTask(task) || !task.autoArchive || !task.updatedAt) {
+  if (!isTerminalTask(task) || !canArchiveTask(task) || !task.autoArchive || !task.updatedAt) {
     return null
   }
   const afterMs = durationToMillis(task.autoArchive)

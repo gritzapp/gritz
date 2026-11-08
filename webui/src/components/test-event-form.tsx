@@ -333,24 +333,20 @@ function ResultsPanel({
           {matches.map((match, i) => {
             // The matched rule, looked up by the index the router reported, so
             // its event type + filters render right here in the result.
-            const rule = match.ruleIndex >= 0 ? rules[match.ruleIndex] : undefined
+            const rule = rules[match.ruleIndex]
             const filters = rule ? ruleMatchBadges(rule) : []
             return (
               <div key={i} className="space-y-2 rounded-md border p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  {match.ruleIndex >= 0 ? (
-                    <Link
-                      to="/routing/$index"
-                      params={{ index: String(match.ruleIndex) }}
-                      search={{ org: orgId }}
-                    >
-                      <Badge variant="outline" className="cursor-pointer hover:bg-accent">
-                        Rule #{match.ruleIndex + 1}
-                      </Badge>
-                    </Link>
-                  ) : (
-                    <Badge variant="outline">Default rule</Badge>
-                  )}
+                  <Link
+                    to="/routing/$index"
+                    params={{ index: String(match.ruleIndex) }}
+                    search={{ org: orgId }}
+                  >
+                    <Badge variant="outline" className="cursor-pointer hover:bg-accent">
+                      Rule #{match.ruleIndex + 1}
+                    </Badge>
+                  </Link>
                   {match.wouldWake && <Badge variant="secondary">would wake</Badge>}
                   {match.wouldCreate && <Badge variant="secondary">would create</Badge>}
                 </div>

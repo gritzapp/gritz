@@ -40,9 +40,10 @@ type Condition struct {
 }
 
 // CreateTaskAction configures a routing rule to create a new task on
-// matching events. Workspace and runner identify where the task runs;
-// the optional prompt is appended as a second instruction after the
-// boilerplate event preamble.
+// matching events. Workspace and runner identify where the task runs.
+// The optional prompt is the created task's first instruction; when it is
+// empty, the router uses a fixed preamble naming the event's source and type
+// instead.
 type CreateTaskAction struct {
 	Workspace string `json:"workspace"`
 	Runner    string `json:"runner"`
