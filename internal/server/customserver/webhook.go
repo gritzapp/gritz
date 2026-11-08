@@ -45,10 +45,11 @@ func NewWebhookRequest(ctx context.Context, url, token string, env Envelope) (*h
 	return req, nil
 }
 
-// toInputEvent validates env against the custom types in reg and builds the
-// event to route. The URL is used as sent: it is the subscription key, so
-// every event about the same resource must send the same one.
-func toInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (eventrouter.InputEvent, error) {
+// ToInputEvent validates env against the custom types in reg and builds the
+// event to route, with no actor and the type's label as its description. The
+// URL is used as sent: it is the subscription key, so every event about the
+// same resource must send the same one.
+func ToInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (eventrouter.InputEvent, error) {
 	// The source is pinned to custom, so a type named like a built-in one
 	// can't resolve to the built-in schema.
 	def, ok := reg.EventTypeFor(eventrouter.SourceCustom, env.Type)
@@ -116,7 +117,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reg := eventrouter.DefaultSchemaRegistry.With(types...)
-	input, err := toInputEvent(env, reg, caller.OrgID)
+	input, err := ToInputEvent(env, reg, caller.OrgID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

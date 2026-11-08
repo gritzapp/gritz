@@ -33,7 +33,7 @@ func TestGetEvent(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "Issue updated",
-		Attrs:       map[string]string{"url": url, "body": `{"status": "closed"}`},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}, "body": {Values: []string{`{"status": "closed"}`}}},
 		Fire:        true,
 	})
 	eventID := fired.Matches[0].EventIds[0]
@@ -72,7 +72,7 @@ func TestGetEvent_Permissions(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "Org A's event",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	})
 
@@ -98,7 +98,7 @@ func TestListEvents(t *testing.T) {
 			Source:      "github",
 			Type:        "issue_comment",
 			Description: description,
-			Attrs:       map[string]string{"url": url},
+			Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 			Fire:        true,
 		})
 	}
@@ -153,7 +153,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "PR comment",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	})
 
@@ -196,7 +196,7 @@ func TestListEventsWithLimit(t *testing.T) {
 			Source:      "github",
 			Type:        "issue_comment",
 			Description: fmt.Sprintf("Event %d", i+1),
-			Attrs:       map[string]string{"url": url},
+			Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 			Fire:        true,
 		})
 	}
@@ -255,7 +255,7 @@ func TestListEvents_Permissions(t *testing.T) {
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: description,
-				Attrs:       map[string]string{"url": url},
+				Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 				Fire:        true,
 			})
 		}
@@ -286,7 +286,7 @@ func TestDeleteEvent(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "Event to delete",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	})
 	eventID := fired.Matches[0].EventIds[0]
@@ -315,7 +315,7 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "Org A's event",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	})
 	eventID := fired.Matches[0].EventIds[0]
@@ -344,7 +344,7 @@ func TestListEventsByTask(t *testing.T) {
 			Source:      "github",
 			Type:        "issue_comment",
 			Description: description,
-			Attrs:       map[string]string{"url": url},
+			Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 			Fire:        true,
 		})
 	}
@@ -382,7 +382,7 @@ func TestListEventsByTask_Paged(t *testing.T) {
 			Source:      "github",
 			Type:        "issue_comment",
 			Description: fmt.Sprintf("Event %d", i+1),
-			Attrs:       map[string]string{"url": url},
+			Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 			Fire:        true,
 		})
 	}
@@ -443,7 +443,7 @@ func TestListEventsByTask_More(t *testing.T) {
 			Source:      "github",
 			Type:        "issue_comment",
 			Description: fmt.Sprintf("Event %d", i+1),
-			Attrs:       map[string]string{"url": url},
+			Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 			Fire:        true,
 		})
 	}
@@ -491,7 +491,7 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "Event 1",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	}
 	h.Org.TestEvent(fire)
@@ -569,7 +569,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "PR comment",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	})
 
@@ -675,7 +675,7 @@ func TestListEventsByTask_Permissions(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "Org A's event",
-		Attrs:       map[string]string{"url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"url": {Values: []string{url}}},
 		Fire:        true,
 	})
 

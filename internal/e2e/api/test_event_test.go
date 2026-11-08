@@ -37,7 +37,7 @@ func TestTestEvent(t *testing.T) {
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 		Source: "github",
 		Type:   "issue_comment",
-		Attrs:  map[string]string{"body": "gritz: do it", "url": "https://github.com/o/r/issues/1"},
+		Attrs:  map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: do it"}}, "url": {Values: []string{"https://github.com/o/r/issues/1"}}},
 	})
 
 	// Assert: the matched rule is reported straight through, and the dry run
@@ -90,7 +90,7 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "alice commented",
-		Attrs:       map[string]string{"body": "gritz: do it", "url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: do it"}}, "url": {Values: []string{url}}},
 		Details:     details,
 		Fire:        true,
 	})
@@ -186,7 +186,7 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "follow-up comment",
-		Attrs:       map[string]string{"body": "gritz: again", "url": url},
+		Attrs:       map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: again"}}, "url": {Values: []string{url}}},
 		Details:     details,
 		Fire:        true,
 	})
@@ -257,7 +257,7 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 	req := &gritzv1.TestEventRequest{
 		Source: "github",
 		Type:   "issue_comment",
-		Attrs:  map[string]string{"body": "gritz: go", "url": "https://github.com/o/r/issues/1"},
+		Attrs:  map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: go"}}, "url": {Values: []string{"https://github.com/o/r/issues/1"}}},
 	}
 
 	// Act & Assert - dry run is allowed.
@@ -268,4 +268,200 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 	req.Fire = true
 	_, err = key.Client.TestEvent(t.Context(), req)
 	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
+}
+
+// setProblemEventType declares the custom "problem" event type with a
+// severity attr.
+func setProblemEventType(t *testing.T, h *e2e.Harness) {
+	t.Helper()
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Dynatrace Problem",
+				Attrs: []*gritzv1.AttrDef{
+					{Key: "body"},
+					{Key: "url"},
+					{Key: "severity"},
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
+}
+
+// TestTestEventFireCustomRoutesWithoutActor fires a custom test event and
+// asserts it routes like one posted to the webhook: with no actor, so a
+// member-only rule is skipped and the public rule after it creates the task,
+// and with the type's label as its description.
+func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	setProblemEventType(t, h)
+	create := &model.CreateTaskAction{Workspace: e2e.DefaultWorkspace, Runner: e2e.DefaultRunner}
+	// SetRoutingRules rejects a member-only custom rule, so it is stored
+	// directly: the test needs one to show the caller's membership is ignored.
+	err := h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
+		{Source: "custom", Type: "problem", Create: create},
+		{Source: "custom", Type: "problem", Create: create, Public: true},
+	})
+	assert.NilError(t, err)
+	url := "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=1"
+
+	// Act
+	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
+		Source: "custom",
+		Type:   "problem",
+		Attrs: map[string]*gritzv1.AttrValues{
+			"body":     {Values: []string{"CPU saturation"}},
+			"url":      {Values: []string{url}},
+			"severity": {Values: []string{"critical"}},
+		},
+		Fire: true,
+	})
+
+	// Assert: the public rule matched, not the member-only one before it.
+	assert.NilError(t, err)
+	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
+	assert.Equal(t, len(tasks), 1)
+	events := h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.TestEventResponse{
+			Matches: []*gritzv1.TestEventMatch{{
+				OrgId:          h.Org.ID,
+				RuleIndex:      1,
+				WouldCreate:    true,
+				CreatedTaskIds: []int64{tasks[0].Id},
+				EventIds:       []int64{events[0].Id},
+			}},
+			Fired: true,
+		},
+		protocmp.Transform(),
+	)
+
+	// Assert: the event's description defaults to the type's label.
+	assert.DeepEqual(t,
+		events,
+		[]*gritzv1.Event{{
+			TaskId: tasks[0].Id,
+			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+				Description: "Dynatrace Problem",
+				Url:         url,
+				Data:        "CPU saturation",
+				Source:      "custom",
+				Type:        "problem",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
+	)
+}
+
+// TestTestEventCustomMultiValuedAttr asserts a rule condition matches a custom
+// event when any of a multi-valued attr's values satisfies it.
+func TestTestEventCustomMultiValuedAttr(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	setProblemEventType(t, h)
+	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
+		Rules: []*gritzv1.RoutingRule{
+			{
+				Source:     "custom",
+				Type:       "problem",
+				Wakeup:     true,
+				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
+				Public:     true,
+			},
+		},
+	})
+
+	// Act
+	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
+		Source: "custom",
+		Type:   "problem",
+		Attrs: map[string]*gritzv1.AttrValues{
+			"url":      {Values: []string{"https://example.com/problems/1"}},
+			"severity": {Values: []string{"warning", "critical"}},
+		},
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.TestEventResponse{
+			Matches: []*gritzv1.TestEventMatch{{OrgId: h.Org.ID, RuleIndex: 0, WouldWake: true}},
+		},
+		protocmp.Transform(),
+	)
+}
+
+// TestTestEventCustomInvalid asserts a custom test event is rejected wherever
+// the custom event webhook would reject it.
+func TestTestEventCustomInvalid(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, nil)
+	setProblemEventType(t, h)
+	values := func(v ...string) *gritzv1.AttrValues { return &gritzv1.AttrValues{Values: v} }
+	tests := []struct {
+		name  string
+		typ   string
+		attrs map[string]*gritzv1.AttrValues
+	}{
+		{
+			name:  "unknown type",
+			typ:   "incident",
+			attrs: map[string]*gritzv1.AttrValues{"url": values("https://example.com/1")},
+		},
+		{
+			name: "missing url",
+			typ:  "problem",
+		},
+		{
+			name:  "relative url",
+			typ:   "problem",
+			attrs: map[string]*gritzv1.AttrValues{"url": values("/problems/1")},
+		},
+		{
+			name:  "non-http url",
+			typ:   "problem",
+			attrs: map[string]*gritzv1.AttrValues{"url": values("ftp://example.com/1")},
+		},
+		{
+			name: "undeclared attr",
+			typ:  "problem",
+			attrs: map[string]*gritzv1.AttrValues{
+				"url":   values("https://example.com/1"),
+				"owner": values("alice"),
+			},
+		},
+		{
+			name: "two urls",
+			typ:  "problem",
+			attrs: map[string]*gritzv1.AttrValues{
+				"url": values("https://example.com/1", "https://example.com/2"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			_, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
+				Source: "custom",
+				Type:   tt.typ,
+				Attrs:  tt.attrs,
+				Fire:   true,
+			})
+
+			// Assert
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+		})
+	}
+
+	// Assert: nothing was persisted.
+	assert.Equal(t, len(h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})), 0)
 }

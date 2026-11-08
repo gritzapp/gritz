@@ -92,10 +92,10 @@ export function TestEventForm() {
   // Composes the request from the current form state. Only attrs the selected
   // type offers and details with a non-empty key are sent.
   const buildRequest = (fire: boolean) => {
-    const attrs: Record<string, string> = {}
+    const attrs: Record<string, { values: string[] }> = {}
     for (const attr of availableAttrs) {
       const value = attrValues[attr.key]
-      if (value !== undefined && value !== '') attrs[attr.key] = value
+      if (value !== undefined && value !== '') attrs[attr.key] = { values: [value] }
     }
     const detailMap: Record<string, string> = {}
     for (const row of details) {

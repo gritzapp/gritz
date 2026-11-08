@@ -117,5 +117,9 @@ an optional description, its attributes such as `body` and `url`, and details.
   wakes or creates tasks and stores the event on them. It doesn't post anything
   back to GitHub or Jira.
 
-Both run the event as yours, so your organisation's member-only rules can match
-it, and only for the organisation you are in.
+Both run the event only for the organisation you are in. A GitHub or Jira event
+runs as yours, so your organisation's member-only rules can match it. A
+[custom event](/integrations/custom-events/) is checked and routed like one
+posted to the webhook: it is rejected where the webhook would reject it, it has
+no actor, so only public rules match it, and without a description it gets its
+type's label.

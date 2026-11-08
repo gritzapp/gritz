@@ -12,6 +12,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/server/customserver"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
@@ -107,11 +108,14 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 //     other outbound side effects are deliberately not fired: the injected router
 //     carries no OnRouteOutcome (§5).
 //
-// The request is not validated against the schema registry: attrs pass through
-// as-is, and an unknown source/type/attr simply yields no match rather than an
-// error. For a dry run, task/link resolution is skipped — the report is derived
-// from the matched rule alone; firing resolves links so it can wake existing
-// subscribed tasks.
+// An event of a built-in source is not validated against the schema registry:
+// attrs pass through as-is, and an unknown type/attr simply yields no match
+// rather than an error. It routes as the caller. A custom event is validated
+// and composed by the custom webhook's own code, so it is rejected with
+// InvalidArgument wherever the webhook would reject it, and it routes with no
+// actor, so only public rules match it. For a dry run, task/link resolution is
+// skipped — the report is derived from the matched rule alone; firing resolves
+// links so it can wake existing subscribed tasks.
 func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (*gritzv1.TestEventResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// Fire mutates (wakes/creates tasks), so it needs OpOrgWrite — the same scope
@@ -128,29 +132,62 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		return nil, connect.NewError(connect.CodeInternal, errors.New("event router not configured"))
 	}
 
-	// Compose the synthetic InputEvent. The "body" and "url" attrs are the derived
-	// views over Data/URL (InputEvent.Attr); every other attr is wrapped into the
-	// one-element slice the matcher expects. Details pass through verbatim — the
-	// router does not interpret them and they never affect matching. Orgs is scoped
-	// to the caller's org; Meta stays nil (only OnRouteOutcome reads it, which the
-	// test path never invokes).
-	input := eventrouter.InputEvent{
-		Source:      req.Source,
-		Type:        req.Type,
-		Description: req.Description,
-		UserID:      caller.ID,
-		Orgs:        []int64{caller.OrgID},
-		Attrs:       eventrouter.Attrs{},
-		Details:     req.Details,
-	}
-	for key, value := range req.Attrs {
+	// The "body" and "url" attrs are the derived views over Data/URL
+	// (InputEvent.Attr), so each takes a single value; every other attr is
+	// passed through with all its values.
+	var body, url string
+	attrs := eventrouter.Attrs{}
+	for key, attr := range req.Attrs {
 		switch key {
-		case "body":
-			input.Data = value
-		case "url":
-			input.URL = value
+		case "body", "url":
+			if len(attr.GetValues()) != 1 {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("attr %q takes one value", key))
+			}
+			if key == "body" {
+				body = attr.Values[0]
+			} else {
+				url = attr.Values[0]
+			}
 		default:
-			input.Attrs[key] = []string{value}
+			attrs[key] = attr.GetValues()
+		}
+	}
+
+	// Compose the synthetic InputEvent. Details pass through verbatim — the
+	// router does not interpret them and they never affect matching. Orgs is
+	// scoped to the caller's org; Meta stays nil (only OnRouteOutcome reads it,
+	// which the test path never invokes).
+	var input eventrouter.InputEvent
+	if req.Source == eventrouter.SourceCustom {
+		custom, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
+		input, err = customserver.ToInputEvent(customserver.Envelope{
+			Type:    req.Type,
+			Body:    body,
+			URL:     url,
+			Attrs:   attrs,
+			Details: req.Details,
+		}, reg, caller.OrgID)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if req.Description != "" {
+			input.Description = req.Description
+		}
+	} else {
+		input = eventrouter.InputEvent{
+			Source:      req.Source,
+			Type:        req.Type,
+			Description: req.Description,
+			Data:        body,
+			URL:         url,
+			UserID:      caller.ID,
+			Orgs:        []int64{caller.OrgID},
+			Attrs:       attrs,
+			Details:     req.Details,
 		}
 	}
 
