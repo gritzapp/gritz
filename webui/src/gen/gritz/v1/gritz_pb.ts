@@ -2953,7 +2953,7 @@ export type TestEventRequest = Message<"gritz.v1.TestEventRequest"> & {
   attrs: { [key: string]: AttrValues };
 
   /**
-   * Optional description shown on the task's timeline; a custom event defaults to its type's label.
+   * Optional description shown on the task's timeline; defaults to the event type's label.
    *
    * @generated from field: string description = 4;
    */

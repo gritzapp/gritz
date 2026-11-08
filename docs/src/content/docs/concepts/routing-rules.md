@@ -119,8 +119,8 @@ an optional description, its attributes such as `body` and `url`, and details.
 
 Both run the event only for the organisation you are in, and both reject an
 event that doesn't fit its type: the URL must be an absolute `http` or `https`
-URL, and every attribute must be one the type declares. A GitHub or Jira event
-runs as yours, so your organisation's member-only rules can match it. A
+URL, and every attribute must be one the type declares. An event without a
+description gets its type's label. A GitHub or Jira event runs as yours, so
+your organisation's member-only rules can match it. A
 [custom event](/integrations/custom-events/) is routed like one posted to the
-webhook: it has no actor, so only public rules match it, and without a
-description it gets its type's label.
+webhook: it has no actor, so only public rules match it.

@@ -155,7 +155,7 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 	input := eventrouter.InputEvent{
 		Source:      req.Source,
 		Type:        req.Type,
-		Description: req.Description,
+		Description: cmp.Or(req.Description, def.Label),
 		Data:        req.Body,
 		URL:         req.Url,
 		UserID:      caller.ID,
@@ -164,18 +164,8 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		Details:     req.Details,
 	}
 	if req.Source == eventrouter.SourceCustom {
-		// A custom event has no actor, as from the webhook: only public rules
-		// match it.
-		input = eventrouter.InputEvent{
-			Source:      eventrouter.SourceCustom,
-			Type:        req.Type,
-			Description: cmp.Or(req.Description, def.Label),
-			Data:        req.Body,
-			URL:         req.Url,
-			Orgs:        []int64{caller.OrgID},
-			Attrs:       attrs,
-			Details:     req.Details,
-		}
+		// A custom event has no actor, as from the webhook: only public rules match it.
+		input.UserID = ""
 	}
 
 	// Plan is the shared read-only matcher — running it (not a parallel simulator)

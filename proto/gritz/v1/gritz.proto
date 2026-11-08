@@ -848,7 +848,7 @@ message TestEventRequest {
   // The event's attribute values, keyed by AttrDef.key. An attr may have
   // several values. "body" and "url" are sent in their own fields, not here.
   map<string, AttrValues> attrs = 3;
-  string description = 4;           // Optional description shown on the task's timeline; a custom event defaults to its type's label.
+  string description = 4;           // Optional description shown on the task's timeline; defaults to the event type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
   string body = 7;                  // The event's text, matched by rules on the "body" attr.
