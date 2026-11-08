@@ -19,14 +19,11 @@ flag wins when both are set.
 
 ## Authentication
 
-The commands that talk to a server get their API key in one of two ways:
-
-- `gritz task`, `gritz logs` and `gritz shell` read it from `config.json` in the
-  config directory, as `{"token": "xat_..."}`. See
-  [Configuration](/using/cli/#configuration).
-- `gritz mcp` and `gritz notify` take it from `--token` or `GRITZ_TOKEN`.
-- `gritz runner` reads `config.json` too, unless `--key` or `GRITZ_API_KEY` is
-  set.
+`gritz task`, `gritz logs`, `gritz shell`, `gritz mcp` and `gritz notify` take
+their API key from `--token` or `GRITZ_TOKEN` if set, and otherwise from
+`config.json` in the config directory, as `{"token": "xat_..."}`. See
+[Configuration](/using/cli/#configuration). `gritz runner` reads `config.json`
+too, unless `--key` or `GRITZ_API_KEY` is set.
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the
 user config directory (`~/.config/gritz` on Linux). Every `--server` flag
@@ -46,6 +43,7 @@ Creates a task and starts it, then prints it as JSON.
 | `--name`, `-n` | | | The task's name. |
 | `--auto-archive` | | `0` | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
 | `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 
 ### `gritz task list`
 
@@ -54,6 +52,7 @@ Prints the organisation's 50 newest unarchived tasks as JSON.
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
 | `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 
 ### `gritz task update <task-id>`
 
@@ -67,6 +66,7 @@ Changes a task. It needs at least one of `--add-instruction`, `--start`,
 | `--name`, `-n` | | | Rename the task. |
 | `--auto-archive` | | `0` | Set the auto-archive delay. Every update sets it, to never when the flag is left out. |
 | `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 
 ### `gritz logs <task-id>`
 
@@ -77,6 +77,7 @@ Prints a task's log.
 | `--follow`, `-f` | | | Keep printing new output. |
 | `--interval` | | `2s` | How often `--follow` checks for new output. |
 | `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 
 ### `gritz shell <task-id>`
 
@@ -86,6 +87,7 @@ Opens an interactive shell in a task's sandbox, relayed through the server. See
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
 | `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 
 ## Clients
 
@@ -96,8 +98,8 @@ clients. See [MCP](/integrations/mcp/#connect-with-gritz-mcp).
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--token` | `GRITZ_TOKEN` | | The API key. Required. |
-| `--server`, `-s` | | `https://gritz.dev` | The server URL. |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 | `--auto-archive` | | | The auto-archive delay for tasks created without an `auto_archive` argument. |
 | `--channel` | | off | Push task updates into the Claude Code session as [channel](/integrations/mcp/#channels) messages, and add the `channel_mute`, `channel_unmute` and `channel_muted` tools. |
 
@@ -108,8 +110,8 @@ completes, fails or is cancelled, until stopped.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--token` | `GRITZ_TOKEN` | | The API key. Required. |
-| `--server`, `-s` | | `https://gritz.dev` | The server URL. |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+| `--token` | `GRITZ_TOKEN` | `config.json` | The API key. |
 | `--title` | | `gritz` | The notifications' title. |
 
 ## Server and runner

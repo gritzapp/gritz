@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/urfave/cli/v3"
@@ -16,25 +15,14 @@ import (
 var TaskListCommand = &cli.Command{
 	Name:  "list",
 	Usage: "List tasks from the server",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-			Sources: cli.EnvVars("GRITZ_SERVER"),
-		},
-	},
+	Flags: clientFlags(),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		serverURL := cmd.String("server")
-		cfg, err := configfile.Load(nil)
+		token, err := clientToken(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return err
 		}
-		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first")
-		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: cfg.Token})
+		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: token})
 
 		resp, err := client.ListTasks(ctx, &gritzv1.ListTasksRequest{})
 		if err != nil {

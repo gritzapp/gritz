@@ -129,7 +129,11 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first or provide -key flag")
+			path, err := configfile.Path()
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf(`not authenticated: save an API key in %s as {"token": "xat_..."}, or pass --key or set GRITZ_API_KEY`, path)
 		}
 
 		workspaces, err := workspace.LoadConfig(configPath, nil)

@@ -89,16 +89,16 @@ under the key's name.
 
 `gritz mcp` is a local MCP server over stdio. Your client starts it, and it
 forwards each tool call to the server's API with an API key. Install the
-[CLI](/using/cli/), create an API key on the **Keys** page, and add it to your
-client.
-
-For Claude Code:
+[CLI](/using/cli/) and create an API key on the **Keys** page. `gritz mcp`
+uses the key in the CLI's `config.json` (see
+[Configuration](/using/cli/#configuration)), so with that saved, add it to
+Claude Code with:
 
 ```bash
-claude mcp add gritz --env GRITZ_TOKEN=xat_... -- gritz mcp
+claude mcp add gritz -- gritz mcp
 ```
 
-Or in a project's `.mcp.json`:
+Or pass the key in `GRITZ_TOKEN`, for example in a project's `.mcp.json`:
 
 ```json
 {
@@ -112,14 +112,14 @@ Or in a project's `.mcp.json`:
 }
 ```
 
-`gritz mcp` takes the key from `--token` or `GRITZ_TOKEN`, not from the CLI's
-`config.json`, and talks to `https://gritz.dev` unless `--server` says
-otherwise:
+`gritz mcp` takes the key from `--token` or `GRITZ_TOKEN`, and otherwise from
+the CLI's `config.json`. It talks to `https://gritz.dev` unless `--server` or
+`GRITZ_SERVER` says otherwise:
 
 | Flag | |
 | --- | --- |
-| `--token` | The API key. Required; defaults to `GRITZ_TOKEN`. |
-| `--server`, `-s` | The server URL. Defaults to `https://gritz.dev`. `GRITZ_SERVER` isn't read. |
+| `--token` | The API key. Defaults to `GRITZ_TOKEN`, then `config.json`. |
+| `--server`, `-s` | The server URL. Defaults to `GRITZ_SERVER`, then `https://gritz.dev`. |
 | `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
 | `--channel` | Push task updates into the Claude Code session. See [Channels](#channels). |
 

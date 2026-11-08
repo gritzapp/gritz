@@ -27,15 +27,16 @@ user config directory: `~/.config/gritz` on Linux,
 `~/Library/Application Support/gritz` on macOS. A [runner](/operators/runner/)
 on the same machine reads the same file.
 
+`--token` or the `GRITZ_TOKEN` environment variable sets the key instead, and
+takes priority over `config.json`. A command run without a key from any of
+these fails with `not authenticated`.
+
 Every command talks to `https://gritz.dev` unless `--server` (`-s`) or the
 `GRITZ_SERVER` environment variable names another server:
 
 ```bash
 export GRITZ_SERVER=https://gritz.example.com
 ```
-
-`gritz notify` and `gritz mcp` are different: they take the key from `--token` or
-`GRITZ_TOKEN` rather than `config.json`, and the server only from `--server`.
 
 ## Tasks
 
@@ -121,7 +122,7 @@ Stays running and shows a desktop notification each time one of the
 organisation's tasks completes, fails or is cancelled.
 
 ```bash
-GRITZ_TOKEN=xat_... gritz notify
+gritz notify
 ```
 
 `--title` sets the notifications' title, `gritz` by default. It uses

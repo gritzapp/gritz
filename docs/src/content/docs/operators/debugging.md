@@ -21,7 +21,8 @@ The Web UI shows the same log on the task's page. Declared
 [secrets](/operators/secrets/) are masked in it.
 
 `gritz logs` uses the API key in `config.json` (see
-[Runner](/operators/runner/#quick-start)) and talks to `https://gritz.dev` unless
+[Runner](/operators/runner/#quick-start)), or `--token` or `GRITZ_TOKEN` if set,
+and talks to `https://gritz.dev` unless
 `--server` or `GRITZ_SERVER` says otherwise. `--interval` sets how often `-f`
 polls, `2s` by default.
 
