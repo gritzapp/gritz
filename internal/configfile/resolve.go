@@ -1,10 +1,16 @@
 package configfile
 
 import (
+	"cmp"
 	"os"
 
 	"github.com/urfave/cli/v3"
 )
+
+// DefaultServer is the server URL used when neither --server nor the selected
+// entry sets one. It matches gritzclient.DefaultURL; configfile doesn't import
+// gritzclient.
+const DefaultServer = "https://gritz.dev"
 
 // Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
 // GRITZ_SERVER) shared by user-facing commands. Each call returns new flags, so
@@ -25,7 +31,7 @@ func Flags() []cli.Flag {
 		&cli.StringFlag{
 			Name:    "server",
 			Aliases: []string{"s"},
-			Usage:   "server URL (default: the org entry's server, else https://gritz.dev)",
+			Usage:   "server URL (default: the org entry's server, else " + DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
 	}
@@ -33,12 +39,12 @@ func Flags() []cli.Flag {
 
 // Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
 // files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server. Server is empty when neither --server nor
-// the entry sets it.
+// the entry has only Key and Server. Server is always set: DefaultServer when
+// neither --server nor the entry sets it.
 func Resolve(cmd *cli.Command) (*Entry, error) {
 	server := cmd.String("server")
 	if key := cmd.String("key"); key != "" {
-		return &Entry{Key: key, Server: server}, nil
+		return &Entry{Key: key, Server: cmp.Or(server, DefaultServer)}, nil
 	}
 	wd, err := os.Getwd()
 	if err != nil {
@@ -55,8 +61,6 @@ func Resolve(cmd *cli.Command) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if server != "" {
-		entry.Server = server
-	}
+	entry.Server = cmp.Or(server, entry.Server, DefaultServer)
 	return entry, nil
 }

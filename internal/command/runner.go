@@ -1,7 +1,6 @@
 package command
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -114,9 +113,7 @@ var RunnerCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		// The sandboxes are handed the URL too, so it is resolved here
-		// rather than left to the client's default.
-		serverAddr := cmp.Or(cfg.Server, gritzclient.DefaultURL)
+		serverAddr := cfg.Server
 
 		workspaces, err := workspace.LoadConfig(configPath, nil)
 		if err != nil {
