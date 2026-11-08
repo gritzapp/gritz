@@ -85,8 +85,7 @@ an alert fires, and gritz creates a task to investigate it.</p>
 letters, digits and underscores (<code dir="auto">^[a-z][a-z0-9_]{0,63}$</code>). It must be unique
 among your organisation’s custom types, and it can’t be renamed later: remove
 the type and add a new one instead.</li>
-<li><strong>Label</strong>: shown in the routing rule editor and on the task’s timeline, for
-example <code dir="auto">Alert</code>. It can’t be empty.</li>
+<li><strong>Label</strong>: shown in the routing rule editor, for example <code dir="auto">Alert</code>. It can’t be empty.</li>
 <li><strong>Attributes</strong>: the values routing rules can match on. Every type has <code dir="auto">body</code>
 and <code dir="auto">url</code>; the form adds both and doesn’t let you remove them. Add one row per
 extra attribute, with a key that follows the same rules as the type name. The
@@ -111,8 +110,8 @@ card. For gritz.dev it is <code dir="auto">https://gritz.dev/webhook/custom</cod
 the key’s value.</p>
 <ul>
 <li><code dir="auto">type</code> names the custom type.</li>
-<li><code dir="auto">description</code>, optional, is shown on the task’s timeline. It defaults to the
-type’s label.</li>
+<li><code dir="auto">description</code>, optional, is shown on the task’s timeline. It defaults to
+<code dir="auto">custom event</code>.</li>
 <li><code dir="auto">url</code> identifies the resource the event is about; see
 <a href="#the-url-is-the-subscription-key">The URL is the subscription key</a>.</li>
 <li><code dir="auto">body</code> is the event’s text. The agent reads it, and rules can match on it.</li>
