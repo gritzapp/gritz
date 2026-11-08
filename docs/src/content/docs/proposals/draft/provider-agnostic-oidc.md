@@ -9,7 +9,7 @@ Issue: https://github.com/icholy/gritz/issues/703
 
 `internal/auth/apiauth/apiauth.go` is built on `github.com/zitadel/zitadel-go/v3/pkg/authentication` — a vendor-named SDK that wires the OIDC code flow, the `/auth/login` `/auth/callback` `/auth/logout` handlers, and a cookie session store into one package. The protocol it speaks is standard OIDC (it talks to any compliant IdP), but the Go *bindings* we depend on are Zitadel-flavored: `zitadel.New(domain)` builds the issuer, the session cookie is named `zitadel.session`, the imports say `zitadel-go`.
 
-The just-merged Ory-network migration proposal ([`proposals/draft/ory-network-auth.md`](/proposals/draft/ory-network-auth/)) showed this concretely: switching IdPs from Zitadel Cloud to Ory Network does *not* require a new IdP-specific SDK — OIDC is a protocol. But to switch, we have to first replace the Zitadel-named bindings with a generic OIDC stack. Otherwise the next IdP switch (or environment-specific override — local Keycloak for dev, Ory for prod, Zitadel for a customer install) is another code change instead of a config change.
+The just-merged Ory-network migration proposal ([`proposals/rejected/ory-network-auth.md`](/proposals/rejected/ory-network-auth/)) showed this concretely: switching IdPs from Zitadel Cloud to Ory Network does *not* require a new IdP-specific SDK — OIDC is a protocol. But to switch, we have to first replace the Zitadel-named bindings with a generic OIDC stack. Otherwise the next IdP switch (or environment-specific override — local Keycloak for dev, Ory for prod, Zitadel for a customer install) is another code change instead of a config change.
 
 This proposal is the prerequisite work for that: drop the Zitadel-go and Zitadel-oidc dependencies in favor of a generic, standards-based OIDC client; reshape `apiauth.Config` so IdP choice is a deployment-time concern (an issuer URL); and write the small amount of glue (session cookie, middleware, three HTTP handlers) that the Zitadel-go wrapper currently provides.
 
@@ -123,7 +123,7 @@ API keys (`xat_*`) and app JWTs (`xa_…`) are entirely unaffected. They don't g
 
 **Adopt `coreos/go-oidc/v3` + `golang.org/x/oauth2`**, rename `apiauth.Config.Domain` → `IssuerURL` and the corresponding flag/env var, write the ~150 lines of session-cookie + handler code we currently get from zitadel-go, and remove both `github.com/zitadel/zitadel-go/v3` and `github.com/zitadel/oidc/v3` from `go.mod`.
 
-This unlocks the [Ory migration](/proposals/draft/ory-network-auth/) and any future IdP change as a *config-only* operation. Combined with the Ory swap, the two land as one PR pair (this one first, the Ory `GRITZ_AUTH_ISSUER_URL` cutover second) or as a single PR if they are scoped together — either way, the second never has to touch Go code.
+This unlocks the [Ory migration](/proposals/rejected/ory-network-auth/) and any future IdP change as a *config-only* operation. Combined with the Ory swap, the two land as one PR pair (this one first, the Ory `GRITZ_AUTH_ISSUER_URL` cutover second) or as a single PR if they are scoped together — either way, the second never has to touch Go code.
 
 ### Effort estimate
 
@@ -131,7 +131,7 @@ This unlocks the [Ory migration](/proposals/draft/ory-network-auth/) and any fut
 - **End-to-end verification:** ~½ day. Stand up a staging deploy against the current Zitadel issuer, click through login/logout/API-key/app-JWT, then repeat against an Ory developer project.
 - **Total:** ~1.5 days from branch to merged. The risk is bounded because the new code is a re-implementation of well-defined OIDC steps with a small public surface; the path to verify (login → callback → cookie → API call → logout) is the same path we exercise manually today.
 
-Combined with the [Ory migration](/proposals/draft/ory-network-auth/) on top, the user-visible result is: a single round of "log out and log in again on the next deploy," autofill starts working, and `GRITZ_AUTH_ISSUER_URL` becomes the only thing pointing at which IdP we use.
+Combined with the [Ory migration](/proposals/rejected/ory-network-auth/) on top, the user-visible result is: a single round of "log out and log in again on the next deploy," autofill starts working, and `GRITZ_AUTH_ISSUER_URL` becomes the only thing pointing at which IdP we use.
 
 ## Trade-offs
 
