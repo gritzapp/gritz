@@ -1,4 +1,5 @@
 version: v2
+clean: true
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: internal/proto
@@ -8,3 +9,7 @@ plugins:
     opt:
       - paths=source_relative
       - simple
+  - local: ["go", "run", "./cmd/protoc-gen-gritz-docs"]
+    out: docs/src/content/docs/api
+    strategy: all
+    opt: package=gritz.v1
