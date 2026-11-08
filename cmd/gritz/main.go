@@ -23,7 +23,6 @@ func main() {
 			command.ContainersCommand,
 			command.WorkspacesCommand,
 			command.ShellCommand,
-			command.PruneCommand,
 			command.LogsCommand,
 			command.DownloadCommand,
 			command.VersionCommand,

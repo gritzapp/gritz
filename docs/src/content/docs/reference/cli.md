@@ -193,15 +193,6 @@ Lists the gritz containers on this host's Docker, running or not.
 | --- | --- |
 | `--prune` | Remove every stopped gritz container instead. |
 
-### `gritz prune`
-
-Removes the stopped gritz containers on this host's Docker whose tasks are
-archived.
-
-| Flag | Default | |
-| --- | --- | --- |
-| `--server`, `-s` | `https://gritz.dev` | The server to look the tasks up on. |
-
 ### `gritz version`
 
 Prints the version.
