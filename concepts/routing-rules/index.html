@@ -147,8 +147,9 @@ already linked.</p>
 <p>A rule that creates tasks sets their:</p>
 <ul>
 <li><strong>Runner</strong> and <strong>Workspace</strong>.</li>
-<li><strong>Prompt</strong>: the created task’s instruction. Left blank, the instruction only
-says that a routing rule created the task for the event. The task’s first event
+<li><strong>Prompt</strong>: the created task’s instruction. Left blank, the instruction is a
+fixed one that only says a routing rule created the task in response to the
+event’s source and type. The task’s first event
 is the one that created it, so the agent gets the event’s text either way.</li>
 <li><strong>Auto-archive</strong>: the created task’s <a href="/concepts/tasks/#auto-archive">auto-archive</a>
 delay.</li>

@@ -215,7 +215,7 @@ So a rule with both on starts one task per resource and keeps it up to date, and
 A rule that creates tasks sets their:
 
 * **Runner** and **Workspace**.
-* **Prompt**: the created task’s instruction. Left blank, the instruction only says that a routing rule created the task for the event. The task’s first event is the one that created it, so the agent gets the event’s text either way.
+* **Prompt**: the created task’s instruction. Left blank, the instruction is a fixed one that only says a routing rule created the task in response to the event’s source and type. The task’s first event is the one that created it, so the agent gets the event’s text either way.
 * **Auto-archive**: the created task’s [auto-archive](/concepts/tasks/#auto-archive) delay.
 * **Namespace**: the rule’s namespace.
 
