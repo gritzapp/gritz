@@ -52,7 +52,7 @@ var TaskCreateCommand = &cli.Command{
 		}
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
-			TokenSource: gritzclient.StaticToken(cfg.Key),
+			TokenSource: cfg.TokenSource(ctx),
 		})
 
 		texts := cmd.StringSlice("instruction")

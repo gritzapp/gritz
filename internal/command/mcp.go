@@ -52,7 +52,7 @@ var McpCommand = &cli.Command{
 		// would echo its own create_task/update_task changes back to the
 		// host Claude Code session as channel events (#718).
 		clientID := uuid.NewString()
-		ts := gritzclient.StaticToken(cfg.Key)
+		ts := cfg.TokenSource(ctx)
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
 			TokenSource: ts,

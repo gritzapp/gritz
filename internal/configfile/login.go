@@ -31,16 +31,28 @@ func LoginServer() (string, error) {
 }
 
 // Login writes entry under name into the .gritz.yml file at path, replacing
-// the key of an existing entry with the same id and server, and failing with
+// the credential of an existing entry with the same id and server, and failing with
 // ErrNameTaken if name belongs to a different org or server. It sets org to
-// name when the file has none. The caller validates the key and sets
+// name when the file has none. The caller validates the credential and sets
 // entry.Server.
-//
-// The file is replaced atomically, keeping its mode, or created 0600.
 func Login(path, name string, entry Entry) error {
 	if entry.Server == "" {
 		panic("configfile: Login without a server")
 	}
+	return UpdateFile(path, func(f *File) error {
+		if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || old.Server != entry.Server) {
+			return fmt.Errorf("%w: %q is org %d on %s; pass --name to use another name", ErrNameTaken, name, old.ID, old.Server)
+		}
+		f.Orgs[name] = entry
+		f.Org = cmp.Or(f.Org, name)
+		return nil
+	})
+}
+
+// UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
+// to change it, and writes it back atomically unless fn returns an error,
+// keeping its mode or creating it 0600. f.Orgs is never nil when fn is called.
+func UpdateFile(path string, fn func(f *File) error) error {
 	mode := fs.FileMode(0o600)
 	f, err := Read(path)
 	switch {
@@ -55,16 +67,11 @@ func Login(path, name string, entry Entry) error {
 		}
 		mode = info.Mode().Perm()
 	}
-	if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || cmp.Or(old.Server, DefaultServer) != entry.Server) {
-		return fmt.Errorf("%w: entry %q is org %d on %s; pass --name to add org %d under another name",
-			ErrNameTaken, name, old.ID, cmp.Or(old.Server, DefaultServer), entry.ID)
-	}
 	if f.Orgs == nil {
 		f.Orgs = map[string]Entry{}
 	}
-	f.Orgs[name] = entry
-	if f.Org == "" {
-		f.Org = name
+	if err := fn(f); err != nil {
+		return err
 	}
 	data, err := yaml.Marshal(f)
 	if err != nil {

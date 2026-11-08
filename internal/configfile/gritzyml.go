@@ -24,18 +24,27 @@ type Entry struct {
 	// ID is the org id.
 	ID int64 `yaml:"id"`
 	// Key is an API key for the org.
-	Key string `yaml:"key"`
+	Key string `yaml:"key,omitempty"`
+	// RefreshToken is an OAuth refresh token for the org.
+	RefreshToken string `yaml:"refresh_token,omitempty"`
 	// Server is the server URL; empty means the default server.
 	Server string `yaml:"server,omitempty"`
+	// Name is the entry's name; set by Lookup.
+	Name string `yaml:"-"`
+	// Path is the file the entry came from; set by Lookup.
+	Path string `yaml:"-"`
 }
 
-// Validate checks that the entry has an id and a key.
+// Validate checks that the entry has an id and exactly one of a key and a
+// refresh token.
 func (e Entry) Validate() error {
-	if e.ID == 0 {
+	switch {
+	case e.ID == 0:
 		return errors.New("no id")
-	}
-	if e.Key == "" {
-		return errors.New("no key")
+	case e.Key == "" && e.RefreshToken == "":
+		return errors.New("no key or refresh_token")
+	case e.Key != "" && e.RefreshToken != "":
+		return errors.New("both key and refresh_token")
 	}
 	return nil
 }
@@ -168,7 +177,7 @@ func (m *Merged) Validate() error {
 }
 
 // Lookup returns the entry named org, or m.Org when org is empty,
-// enforcing m.Allowed. Call Validate first.
+// enforcing m.Allowed, with Name and Path set. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) {
 	name := cmp.Or(org, m.Org)
 	if name == "" {
@@ -182,6 +191,7 @@ func (m *Merged) Lookup(org string) (*Entry, error) {
 	if !ok {
 		return nil, fmt.Errorf("no org entry named %q: run `gritz login --key <key> --name %s`", name, name)
 	}
+	e.Name, e.Path = name, m.OrgsFrom[name]
 	return &e, nil
 }
 

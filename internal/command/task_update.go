@@ -76,7 +76,7 @@ var TaskUpdateCommand = &cli.Command{
 		}
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
-			TokenSource: gritzclient.StaticToken(cfg.Key),
+			TokenSource: cfg.TokenSource(ctx),
 		})
 		if _, err := client.UpdateTask(ctx, req); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)

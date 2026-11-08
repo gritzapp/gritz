@@ -24,7 +24,7 @@ var TaskListCommand = &cli.Command{
 		}
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
-			TokenSource: gritzclient.StaticToken(cfg.Key),
+			TokenSource: cfg.TokenSource(ctx),
 		})
 
 		resp, err := client.ListTasks(ctx, &gritzv1.ListTasksRequest{})

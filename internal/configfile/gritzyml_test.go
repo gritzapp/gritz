@@ -164,7 +164,9 @@ func TestEntryValidate(t *testing.T) {
 		{"complete", Entry{ID: 12, Key: "k"}, ""},
 		{"with server", Entry{ID: 12, Key: "k", Server: "http://localhost:8080"}, ""},
 		{"no id", Entry{Key: "k"}, "no id"},
-		{"no key", Entry{ID: 12}, "no key"},
+		{"refresh token", Entry{ID: 12, RefreshToken: "rt"}, ""},
+		{"neither", Entry{ID: 12}, "no key or refresh_token"},
+		{"both", Entry{ID: 12, Key: "k", RefreshToken: "rt"}, "both key and refresh_token"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,7 +227,7 @@ func TestValidate(t *testing.T) {
 				Orgs:     map[string]Entry{"acme": {ID: 12}},
 				OrgsFrom: map[string]string{"acme": "/repo/.gritz.yml"},
 			},
-			err: `org entry "acme" (from /repo/.gritz.yml): no key`,
+			err: `org entry "acme" (from /repo/.gritz.yml): no key or refresh_token`,
 		},
 	}
 	for _, tt := range tests {
@@ -245,10 +247,13 @@ func TestValidate(t *testing.T) {
 
 func TestLookup(t *testing.T) {
 	t.Parallel()
-	acme := Entry{ID: 12, Key: "k1"}
-	local := Entry{ID: 1, Key: "k2", Server: "http://localhost:8080"}
-	orgs := map[string]Entry{"acme": acme, "local": local}
-	from := map[string]string{"acme": "/cfg/.gritz.yml", "local": "/cfg/.gritz.yml"}
+	orgs := map[string]Entry{
+		"acme":  {ID: 12, Key: "k1"},
+		"local": {ID: 1, Key: "k2", Server: "http://localhost:8080"},
+	}
+	from := map[string]string{"acme": "/cfg/.gritz.yml", "local": "/repo/.gritz.yml"}
+	acme := Entry{ID: 12, Key: "k1", Name: "acme", Path: "/cfg/.gritz.yml"}
+	local := Entry{ID: 1, Key: "k2", Server: "http://localhost:8080", Name: "local", Path: "/repo/.gritz.yml"}
 	tests := []struct {
 		name   string
 		merged Merged
