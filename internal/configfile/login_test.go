@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/golden"
 )
 
+// Regenerate the goldens with: go test ./internal/configfile/ -run TestLogin -update
 func TestLogin(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -15,31 +17,20 @@ func TestLogin(t *testing.T) {
 		file      string // initial contents; empty means no file
 		entryName string
 		entry     Entry
-		want      string
+		golden    string
 		err       string
 	}{
 		{
 			name:      "new file",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k1"},
-			want: `default: acme
-orgs:
-    acme:
-        id: 12
-        key: k1
-`,
+			golden:    "login-new-file.golden",
 		},
 		{
 			name:      "server is written",
 			entryName: "local",
 			entry:     Entry{ID: 1, Key: "k1", Server: "http://localhost:8080"},
-			want: `default: local
-orgs:
-    local:
-        id: 1
-        key: k1
-        server: http://localhost:8080
-`,
+			golden:    "login-server-is-written.golden",
 		},
 		{
 			name: "new entry keeps default and allowed",
@@ -50,18 +41,7 @@ orgs:
 `,
 			entryName: "labs",
 			entry:     Entry{ID: 31, Key: "k2"},
-			want: `default: acme
-allowed:
-    - acme
-    - labs
-orgs:
-    acme:
-        id: 12
-        key: k1
-    labs:
-        id: 31
-        key: k2
-`,
+			golden:    "login-new-entry-keeps-default-and-allowed.golden",
 		},
 		{
 			name: "same id and server replaces key",
@@ -71,13 +51,7 @@ orgs:
 `,
 			entryName: "local",
 			entry:     Entry{ID: 1, Key: "new", Server: "http://localhost:8080"},
-			want: `default: acme
-orgs:
-    local:
-        id: 1
-        key: new
-        server: http://localhost:8080
-`,
+			golden:    "login-same-id-and-server-replaces-key.golden",
 		},
 		{
 			name: "default set when absent",
@@ -86,15 +60,7 @@ orgs:
 `,
 			entryName: "labs",
 			entry:     Entry{ID: 31, Key: "k2"},
-			want: `default: labs
-orgs:
-    acme:
-        id: 12
-        key: k1
-    labs:
-        id: 31
-        key: k2
-`,
+			golden:    "login-default-set-when-absent.golden",
 		},
 		{
 			name: "different id",
@@ -145,7 +111,7 @@ orgs:
 			assert.NilError(t, err)
 			got, err := os.ReadFile(path)
 			assert.NilError(t, err)
-			assert.Equal(t, string(got), tt.want)
+			golden.Assert(t, string(got), tt.golden)
 		})
 	}
 }
