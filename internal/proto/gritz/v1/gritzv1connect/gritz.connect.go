@@ -37,6 +37,8 @@ const (
 	GritzServicePingProcedure = "/gritz.v1.GritzService/Ping"
 	// GritzServiceGetProfileProcedure is the fully-qualified name of the GritzService's GetProfile RPC.
 	GritzServiceGetProfileProcedure = "/gritz.v1.GritzService/GetProfile"
+	// GritzServiceGetCallerProcedure is the fully-qualified name of the GritzService's GetCaller RPC.
+	GritzServiceGetCallerProcedure = "/gritz.v1.GritzService/GetCaller"
 	// GritzServiceListTasksProcedure is the fully-qualified name of the GritzService's ListTasks RPC.
 	GritzServiceListTasksProcedure = "/gritz.v1.GritzService/ListTasks"
 	// GritzServiceListRunnerEventsProcedure is the fully-qualified name of the GritzService's
@@ -182,6 +184,7 @@ const (
 type GritzServiceClient interface {
 	Ping(context.Context, *v1.PingRequest) (*v1.PingResponse, error)
 	GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error)
+	GetCaller(context.Context, *v1.GetCallerRequest) (*v1.GetCallerResponse, error)
 	ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error)
 	// ListRunnerEvents returns the events of the runner's tasks after the
 	// cursor, in log order, from transactions that can no longer commit behind
@@ -260,6 +263,12 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+GritzServiceGetProfileProcedure,
 			connect.WithSchema(gritzServiceMethods.ByName("GetProfile")),
+			connect.WithClientOptions(opts...),
+		),
+		getCaller: connect.NewClient[v1.GetCallerRequest, v1.GetCallerResponse](
+			httpClient,
+			baseURL+GritzServiceGetCallerProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("GetCaller")),
 			connect.WithClientOptions(opts...),
 		),
 		listTasks: connect.NewClient[v1.ListTasksRequest, v1.ListTasksResponse](
@@ -581,6 +590,7 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 type gritzServiceClient struct {
 	ping                           *connect.Client[v1.PingRequest, v1.PingResponse]
 	getProfile                     *connect.Client[v1.GetProfileRequest, v1.GetProfileResponse]
+	getCaller                      *connect.Client[v1.GetCallerRequest, v1.GetCallerResponse]
 	listTasks                      *connect.Client[v1.ListTasksRequest, v1.ListTasksResponse]
 	listRunnerEvents               *connect.Client[v1.ListRunnerEventsRequest, v1.ListRunnerEventsResponse]
 	createTask                     *connect.Client[v1.CreateTaskRequest, v1.CreateTaskResponse]
@@ -647,6 +657,15 @@ func (c *gritzServiceClient) Ping(ctx context.Context, req *v1.PingRequest) (*v1
 // GetProfile calls gritz.v1.GritzService.GetProfile.
 func (c *gritzServiceClient) GetProfile(ctx context.Context, req *v1.GetProfileRequest) (*v1.GetProfileResponse, error) {
 	response, err := c.getProfile.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// GetCaller calls gritz.v1.GritzService.GetCaller.
+func (c *gritzServiceClient) GetCaller(ctx context.Context, req *v1.GetCallerRequest) (*v1.GetCallerResponse, error) {
+	response, err := c.getCaller.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -1125,6 +1144,7 @@ func (c *gritzServiceClient) RunSchedule(ctx context.Context, req *v1.RunSchedul
 type GritzServiceHandler interface {
 	Ping(context.Context, *v1.PingRequest) (*v1.PingResponse, error)
 	GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error)
+	GetCaller(context.Context, *v1.GetCallerRequest) (*v1.GetCallerResponse, error)
 	ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error)
 	// ListRunnerEvents returns the events of the runner's tasks after the
 	// cursor, in log order, from transactions that can no longer commit behind
@@ -1199,6 +1219,12 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		GritzServiceGetProfileProcedure,
 		svc.GetProfile,
 		connect.WithSchema(gritzServiceMethods.ByName("GetProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceGetCallerHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceGetCallerProcedure,
+		svc.GetCaller,
+		connect.WithSchema(gritzServiceMethods.ByName("GetCaller")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gritzServiceListTasksHandler := connect.NewUnaryHandlerSimple(
@@ -1519,6 +1545,8 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServicePingHandler.ServeHTTP(w, r)
 		case GritzServiceGetProfileProcedure:
 			gritzServiceGetProfileHandler.ServeHTTP(w, r)
+		case GritzServiceGetCallerProcedure:
+			gritzServiceGetCallerHandler.ServeHTTP(w, r)
 		case GritzServiceListTasksProcedure:
 			gritzServiceListTasksHandler.ServeHTTP(w, r)
 		case GritzServiceListRunnerEventsProcedure:
@@ -1638,6 +1666,10 @@ func (UnimplementedGritzServiceHandler) Ping(context.Context, *v1.PingRequest) (
 
 func (UnimplementedGritzServiceHandler) GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetProfile is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) GetCaller(context.Context, *v1.GetCallerRequest) (*v1.GetCallerResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetCaller is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error) {

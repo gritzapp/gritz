@@ -70,6 +70,9 @@ var _ Client = &ClientMock{}
 //			GenerateAtlassianWebhookSecretFunc: func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error) {
 //				panic("mock out the GenerateAtlassianWebhookSecret method")
 //			},
+//			GetCallerFunc: func(contextMoqParam context.Context, getCallerRequest *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error) {
+//				panic("mock out the GetCaller method")
+//			},
 //			GetCustomEventTypesFunc: func(contextMoqParam context.Context, getCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest) (*gritzv1.GetCustomEventTypesResponse, error) {
 //				panic("mock out the GetCustomEventTypes method")
 //			},
@@ -238,6 +241,9 @@ type ClientMock struct {
 
 	// GenerateAtlassianWebhookSecretFunc mocks the GenerateAtlassianWebhookSecret method.
 	GenerateAtlassianWebhookSecretFunc func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error)
+
+	// GetCallerFunc mocks the GetCaller method.
+	GetCallerFunc func(contextMoqParam context.Context, getCallerRequest *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error)
 
 	// GetCustomEventTypesFunc mocks the GetCustomEventTypes method.
 	GetCustomEventTypesFunc func(contextMoqParam context.Context, getCustomEventTypesRequest *gritzv1.GetCustomEventTypesRequest) (*gritzv1.GetCustomEventTypesResponse, error)
@@ -470,6 +476,13 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// GenerateAtlassianWebhookSecretRequest is the generateAtlassianWebhookSecretRequest argument value.
 			GenerateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest
+		}
+		// GetCaller holds details about calls to the GetCaller method.
+		GetCaller []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// GetCallerRequest is the getCallerRequest argument value.
+			GetCallerRequest *gritzv1.GetCallerRequest
 		}
 		// GetCustomEventTypes holds details about calls to the GetCustomEventTypes method.
 		GetCustomEventTypes []struct {
@@ -748,6 +761,7 @@ type ClientMock struct {
 	lockDeleteOrg                      sync.RWMutex
 	lockDeleteSchedule                 sync.RWMutex
 	lockGenerateAtlassianWebhookSecret sync.RWMutex
+	lockGetCaller                      sync.RWMutex
 	lockGetCustomEventTypes            sync.RWMutex
 	lockGetEvent                       sync.RWMutex
 	lockGetEventTypes                  sync.RWMutex
@@ -1396,6 +1410,42 @@ func (mock *ClientMock) GenerateAtlassianWebhookSecretCalls() []struct {
 	mock.lockGenerateAtlassianWebhookSecret.RLock()
 	calls = mock.calls.GenerateAtlassianWebhookSecret
 	mock.lockGenerateAtlassianWebhookSecret.RUnlock()
+	return calls
+}
+
+// GetCaller calls GetCallerFunc.
+func (mock *ClientMock) GetCaller(contextMoqParam context.Context, getCallerRequest *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error) {
+	if mock.GetCallerFunc == nil {
+		panic("ClientMock.GetCallerFunc: method is nil but Client.GetCaller was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam  context.Context
+		GetCallerRequest *gritzv1.GetCallerRequest
+	}{
+		ContextMoqParam:  contextMoqParam,
+		GetCallerRequest: getCallerRequest,
+	}
+	mock.lockGetCaller.Lock()
+	mock.calls.GetCaller = append(mock.calls.GetCaller, callInfo)
+	mock.lockGetCaller.Unlock()
+	return mock.GetCallerFunc(contextMoqParam, getCallerRequest)
+}
+
+// GetCallerCalls gets all the calls that were made to GetCaller.
+// Check the length with:
+//
+//	len(mockedClient.GetCallerCalls())
+func (mock *ClientMock) GetCallerCalls() []struct {
+	ContextMoqParam  context.Context
+	GetCallerRequest *gritzv1.GetCallerRequest
+} {
+	var calls []struct {
+		ContextMoqParam  context.Context
+		GetCallerRequest *gritzv1.GetCallerRequest
+	}
+	mock.lockGetCaller.RLock()
+	calls = mock.calls.GetCaller
+	mock.lockGetCaller.RUnlock()
 	return calls
 }
 

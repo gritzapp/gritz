@@ -9,7 +9,7 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func TestGetProfile_Key(t *testing.T) {
+func TestGetCaller_Key(t *testing.T) {
 	t.Parallel()
 	// Arrange - a key in an org other than the owner's default
 	h := e2e.New(t, nil)
@@ -17,17 +17,13 @@ func TestGetProfile_Key(t *testing.T) {
 	key := other.CreateKey(&gritzv1.CreateKeyRequest{Name: "test-key"})
 
 	// Act
-	resp, err := key.Client.GetProfile(t.Context(), &gritzv1.GetProfileRequest{})
+	resp, err := key.Client.GetCaller(t.Context(), &gritzv1.GetCallerRequest{})
 
 	// Assert
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
-		resp,
-		&gritzv1.GetProfileResponse{
-			Profile: &gritzv1.Profile{Name: "test-key"},
-			Orgs:    []*gritzv1.Org{{Id: other.ID, Name: "other", Owner: h.Org.Owner.UserID}},
-			OrgId:   other.ID,
-		},
+		resp.Org,
+		&gritzv1.Org{Id: other.ID, Name: "other", Owner: h.Org.Owner.UserID},
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Org{}, "created_at", "updated_at"),
 	)

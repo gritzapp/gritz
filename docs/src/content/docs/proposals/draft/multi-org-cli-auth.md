@@ -158,31 +158,31 @@ ignored. This is the path for CI and for runners deployed with an injected key.
 
 `login` has to learn which org a key belongs to. Nothing returns that today:
 `GetProfileResponse.default_org_id` is the user's web-UI default, not the org
-the request authenticated as. Add it:
+the request authenticated as, and `GetProfile` reads the caller's user, which
+an API key doesn't have. Add a dedicated RPC:
 
 ```proto
-message GetProfileResponse {
-  Profile profile = 1;
-  repeated Org orgs = 2;
-  int64 default_org_id = 3;
-  GitHubAccount github_account = 4;
-  AtlassianAccount atlassian_account = 5;
-  int64 org_id = 6; // new: the org this request is authenticated against (apiauth.UserInfo.OrgID)
+rpc GetCaller(GetCallerRequest) returns (GetCallerResponse);
+
+message GetCallerRequest {}
+
+message GetCallerResponse {
+  Org org = 1; // the org the request is authenticated against
 }
 ```
 
-`apiserver.GetProfile` sets it from `apiauth.MustCaller(ctx).OrgID`. The org's
-name comes from the matching entry in `orgs`, which `GetProfile` already returns.
+`apiserver.GetCaller` loads the org from `apiauth.MustCaller(ctx).OrgID` with no
+user lookup, so it works for API keys, web UI sessions and MCP OAuth tokens
+alike. `GetProfile` is unchanged.
 
 ### CLI commands
 
 **`gritz login --key <key> [--name <name>] [--server <url>]`**
 
-1. Call `GetProfile` with the key against `--server` (else `GRITZ_SERVER`, else
+1. Call `GetCaller` with the key against `--server` (else `GRITZ_SERVER`, else
    `gritzclient.DefaultURL`). A failure means the key is invalid; report it and
    write nothing.
-2. The org id is `resp.org_id`; the org name is the `name` of the entry in
-   `resp.orgs` with that id.
+2. The org id and name are `resp.org.id` and `resp.org.name`.
 3. The entry name is `--name`, else a slug of the org name: lowercase, each run
    of non-alphanumeric characters becomes a single `-`, and leading and trailing
    `-` are trimmed (`Acme Labs` → `acme-labs`). An empty slug is an error asking
@@ -364,15 +364,15 @@ client options; it references `gritzclient` only for the `DefaultURL` constant,
 and there's no helper in `gritzclient` either. Every user-facing command
 appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
 builds `gritzclient.Options` (and `NotificationClientOptions` or the
-`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetProfile`,
+`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetCaller`,
 `configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
 
-1. **Report the caller's org** — Delivers: `GetProfileResponse.org_id` (proto,
-   regenerated code, `apiserver.GetProfile`). Depends on: nothing.
-   Verifiable by: an apiserver test where a key-authenticated `GetProfile`
-   returns the key's org.
+1. **Report the caller's org** — Delivers: the `GetCaller` RPC (proto,
+   regenerated code, `apiserver.GetCaller`). Depends on: nothing.
+   Verifiable by: an e2e API test where `GetCaller` with a key in a
+   non-default org returns that org.
 2. **`.gritz.yml` load, merge and select** — Delivers: `configfile.Entry`, the new
    `File` shape under a temporary name beside the old one, `Read`, `Load`
    under a temporary name, `Merged.Select` and `Selection`, and `Slug`.

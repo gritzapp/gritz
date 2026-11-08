@@ -104,23 +104,20 @@ func (s *Server) Ping(ctx context.Context, req *gritzv1.PingRequest) (*gritzv1.P
 	}, nil
 }
 
+// GetCaller returns the org the request is authenticated against. It reads no
+// user, so it serves every kind of caller, API keys included.
+func (s *Server) GetCaller(ctx context.Context, req *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error) {
+	org, err := s.store.GetOrg(ctx, nil, apiauth.MustCaller(ctx).OrgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return &gritzv1.GetCallerResponse{Org: org.Proto()}, nil
+}
+
 func (s *Server) GetProfile(ctx context.Context, req *gritzv1.GetProfileRequest) (*gritzv1.GetProfileResponse, error) {
 	u := apiauth.Caller(ctx)
 	if u == nil {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("not authenticated"))
-	}
-	if u.Type == apiauth.AuthTypeKey {
-		// A key belongs to an org, not a user: its profile is the key's
-		// name and its only org is the one it authenticates against.
-		org, err := s.store.GetOrg(ctx, nil, u.OrgID)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		return &gritzv1.GetProfileResponse{
-			Profile: &gritzv1.Profile{Name: u.Name},
-			Orgs:    []*gritzv1.Org{org.Proto()},
-			OrgId:   u.OrgID,
-		}, nil
 	}
 	orgs, err := s.store.ListOrgsByMember(ctx, nil, u.ID)
 	if err != nil {
@@ -136,7 +133,6 @@ func (s *Server) GetProfile(ctx context.Context, req *gritzv1.GetProfileRequest)
 			Email: u.Email,
 			Name:  u.Name,
 		},
-		OrgId:            u.OrgID,
 		DefaultOrgId:     user.DefaultOrgID,
 		GithubAccount:    user.GitHubAccountProto(),
 		AtlassianAccount: user.AtlassianAccountProto(),
