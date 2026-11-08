@@ -142,9 +142,7 @@ func (TaskCommand) EnumDescriptor() ([]byte, []int) {
 	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{1}
 }
 
-// LifecycleKind is the closed set of lifecycle transitions (the TaskChange set,
-// minus Woken — which splits into an external event plus the transition the
-// wake caused).
+// LifecycleKind is what happened in a lifecycle event.
 type LifecycleKind int32
 
 const (
@@ -436,27 +434,23 @@ type Task struct {
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	Command   TaskCommand            `protobuf:"varint,10,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
-	Version   int64                  `protobuf:"varint,11,opt,name=version,proto3" json:"version,omitempty"` // Incremented when command changes
-	Actions   *TaskActions           `protobuf:"bytes,12,opt,name=actions,proto3" json:"actions,omitempty"`
-	Archived  bool                   `protobuf:"varint,13,opt,name=archived,proto3" json:"archived,omitempty"`
-	Url       string                 `protobuf:"bytes,14,opt,name=url,proto3" json:"url,omitempty"`
-	// Auto-archive this task once it has been in a terminal status
-	// (COMPLETED, FAILED, CANCELLED) for this long.
-	//
-	//	zero (or unset): never auto-archive (default)
-	//	negative:        archive immediately on terminal status
-	//	positive:        archive that long after reaching terminal status
+	// The task's current run: 0 before it first starts, then 1, and one more for
+	// each new run.
+	Version  int64        `protobuf:"varint,11,opt,name=version,proto3" json:"version,omitempty"`
+	Actions  *TaskActions `protobuf:"bytes,12,opt,name=actions,proto3" json:"actions,omitempty"`
+	Archived bool         `protobuf:"varint,13,opt,name=archived,proto3" json:"archived,omitempty"`
+	Url      string       `protobuf:"bytes,14,opt,name=url,proto3" json:"url,omitempty"`
+	// How long the task stays in a terminal status (COMPLETED, FAILED,
+	// CANCELLED) before it is archived. Zero or unset never archives it, a
+	// negative value archives it as soon as it reaches a terminal status, and a
+	// positive value archives it that long after.
 	AutoArchive *durationpb.Duration `protobuf:"bytes,15,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
-	// Non-empty => this sandbox run is a reverse shell for this rendezvous
-	// session id (see
-	// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md). Empty
-	// => normal agent run. Persistent and server-owned; the runner never touches
-	// it.
+	// The shell session the task's sandbox serves instead of running the agent,
+	// set by OpenShell. Empty for an ordinary run.
 	ShellSession string `protobuf:"bytes,16,opt,name=shell_session,json=shellSession,proto3" json:"shell_session,omitempty"`
-	// Namespace partitions subscription matching in the event router. Empty is
-	// the default namespace — the behavior every existing task already has. Set
-	// at creation and read-only thereafter (see
-	// docs/src/content/docs/proposals/implemented/task-namespaces.md).
+	// The task's namespace: only routing rules in the same namespace see its
+	// subscriptions. Empty is the default namespace. Set at creation and can't be
+	// changed.
 	Namespace     string `protobuf:"bytes,17,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1161,13 +1155,11 @@ type CreateTaskRequest struct {
 	Instructions []*Instruction         `protobuf:"bytes,4,rep,name=instructions,proto3" json:"instructions,omitempty"`
 	Runner       string                 `protobuf:"bytes,5,opt,name=runner,proto3" json:"runner,omitempty"` // Runner ID that should handle this task
 	AutoArchive  *durationpb.Duration   `protobuf:"bytes,6,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
-	// Optional namespace for the created task. Empty (default) is the default
-	// namespace. See Task.namespace.
+	// The task's namespace; empty is the default namespace. See Task.namespace.
 	Namespace string `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// Create the task in TaskStatus.DRAFT: no command is set, so no runner picks
-	// it up and no sandbox is launched. The first UpdateTask with start (e.g. the
-	// first instruction from the task page composer) is what starts it. Defaults
-	// to false — an ordinary create, started immediately.
+	// Create the task as a DRAFT: no runner picks it up until an UpdateTask with
+	// start set, such as the first instruction sent from the task page, starts it.
+	// False (the default) starts the task immediately.
 	Draft         bool `protobuf:"varint,8,opt,name=draft,proto3" json:"draft,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1390,8 +1382,8 @@ type UpdateTaskRequest struct {
 	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	AddInstructions []*Instruction         `protobuf:"bytes,4,rep,name=add_instructions,json=addInstructions,proto3" json:"add_instructions,omitempty"`
 	Start           bool                   `protobuf:"varint,5,opt,name=start,proto3" json:"start,omitempty"` // Start after current run finishes (non-interrupting)
-	// Unset = leave alone. See Task.auto_archive for the value semantics
-	// (zero = never, negative = immediate, positive = delay).
+	// The new auto-archive delay, as in Task.auto_archive. Unset leaves it
+	// unchanged.
 	AutoArchive   *durationpb.Duration `protobuf:"bytes,6,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1864,9 +1856,9 @@ func (x *OpenShellRequest) GetTaskId() int64 {
 
 type OpenShellResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// session_id is the rendezvous id the operator connects to via
-	// GET /shell/{session_id}/attach. It is also written to the task's
-	// shell_session field so the re-spawned driver serves this session.
+	// The shell session to attach to, at `GET /shell/{session_id}/attach`. The
+	// task's sandbox restarts to serve it, and the task's shell_session is set to
+	// it.
 	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2057,16 +2049,14 @@ func (*UploadLogsResponse) Descriptor() ([]byte, []int) {
 	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{33}
 }
 
-// LogChunk is an opaque run of driver log bytes. A task's transcript is the
-// concatenation of its chunks' data in id order — which is write order, because
-// the driver ships with a single in-flight sender. See
-// docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
+// LogChunk is a run of bytes from a task's log. The log is the concatenation of
+// its chunks' data in id order.
 type LogChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	TaskId        int64                  `protobuf:"varint,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Version       int64                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"` // The run (task.version) the bytes belong to; 0 = pre-run preamble.
-	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`        // Raw log bytes, opaque to the server (not parsed into lines).
+	Version       int64                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"` // The run (Task.version) the bytes belong to; 0 for output before the first run.
+	Data          []byte                 `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`        // Raw log bytes, not split into lines.
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2138,10 +2128,11 @@ func (x *LogChunk) GetCreatedAt() *timestamppb.Timestamp {
 }
 
 type AppendLogChunkRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Version       int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"` // The run these bytes belong to.
-	Data          []byte                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`        // Exactly one chunk; the driver's FIFO sender makes call order write order.
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	TaskId  int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Version int64                  `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"` // The run these bytes belong to.
+	// The bytes to append to the task's log. Must be non-empty and at most 1 MiB.
+	Data          []byte `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2234,10 +2225,12 @@ func (*AppendLogChunkResponse) Descriptor() ([]byte, []int) {
 }
 
 type ListLogChunksByTaskRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // Max chunks per page (default 50, max 200).
-	PageToken     string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // Opaque bidirectional cursor (encodes a boundary id + direction).
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	TaskId   int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	PageSize int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"` // Max chunks per page (default 50, max 200).
+	// A previous response's prev_page_token or next_page_token; empty for the
+	// newest page, at the end of the log.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2294,13 +2287,16 @@ func (x *ListLogChunksByTaskRequest) GetPageToken() string {
 }
 
 type ListLogChunksByTaskResponse struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Chunks []*LogChunk            `protobuf:"bytes,1,rep,name=chunks,proto3" json:"chunks,omitempty"` // Always oldest-first (ascending id), so data concatenates into
-	// transcript order.
-	PrevPageToken string `protobuf:"bytes,2,opt,name=prev_page_token,json=prevPageToken,proto3" json:"prev_page_token,omitempty"` // Older page (scroll back); empty when history is exhausted.
-	NextPageToken string `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"` // Newer page (live-follow); ALWAYS populated so a client can keep
-	// polling the tail for appends.
-	More          bool `protobuf:"varint,4,opt,name=more,proto3" json:"more,omitempty"` // Whether another page exists beyond `chunks` in the direction just
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Chunks        []*LogChunk            `protobuf:"bytes,1,rep,name=chunks,proto3" json:"chunks,omitempty"`                                      // Oldest first, so their data concatenates in log order.
+	PrevPageToken string                 `protobuf:"bytes,2,opt,name=prev_page_token,json=prevPageToken,proto3" json:"prev_page_token,omitempty"` // Token for the older page; empty at the start of the log.
+	// Token for the newer page. Always set, so a client can keep polling it for
+	// new chunks.
+	NextPageToken string `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	// Whether another page exists in the direction just read: older for a
+	// request with a prev_page_token, newer otherwise. Stop when more is false
+	// rather than on a page shorter than page_size.
+	More          bool `protobuf:"varint,4,opt,name=more,proto3" json:"more,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2372,7 +2368,8 @@ type TaskLink struct {
 	Title     string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
 	Subscribe bool                   `protobuf:"varint,6,opt,name=subscribe,proto3" json:"subscribe,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// routing_key is a read-only routing key derived from url by the server.
+	// The key events are matched against, derived from url by the server.
+	// Read-only.
 	RoutingKey    string `protobuf:"bytes,8,opt,name=routing_key,json=routingKey,proto3" json:"routing_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2678,10 +2675,8 @@ type Event struct {
 	TaskId    int64                  `protobuf:"varint,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Wake      bool                   `protobuf:"varint,3,opt,name=wake,proto3" json:"wake,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// The set arm IS the event type — a typed union, not an opaque Struct. There
-	// is no separate `type` field on the wire; the db `type` column is
-	// materialized from the arm for indexed filtering (like `direction`). See
-	// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
+	// The event's type and content. The field that is set is the event's type;
+	// there is no separate type field.
 	//
 	// Types that are valid to be assigned to Payload:
 	//
@@ -2855,9 +2850,7 @@ func (*Event_Link) isEvent_Payload() {}
 
 func (*Event_Command) isEvent_Payload() {}
 
-// InstructionPayload is a to-agent instruction — the stream replacement for the
-// old tasks.instructions JSON column. Kept minimal (parity with the stored
-// instruction); no actor, consistent with the external-only trimming in #957.
+// InstructionPayload is an instruction to the task's agent.
 type InstructionPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
@@ -2915,19 +2908,15 @@ type ExternalPayload struct {
 	Description string                 `protobuf:"bytes,1,opt,name=description,proto3" json:"description,omitempty"`
 	Url         string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
 	Data        string                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
-	// details carries optional, source-defined key/value context for consumers
-	// (the agent via get_my_task, the web UI timeline). The payload does not
-	// interpret it: GitHub review comments populate path/line/side/diff_hunk; other
-	// sources may set their own keys or none. Distinct from the router's matchable
-	// Attrs, which are not persisted.
+	// Extra context defined by the event's source, shown to the agent by
+	// get_my_task and on the task's timeline. GitHub review comments set `path`,
+	// `line`, `side` and `diff_hunk`; other sources set their own keys or none.
+	// These are not the attributes routing rules match on.
 	Details map[string]string `protobuf:"bytes,4,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// source is the coarse origin of the event (e.g. "github", "jira"), copied
-	// from the router's InputEvent.Source. Persisting it lets consumers pick an
-	// icon/label without regexing the URL.
+	// Where the event came from, such as "github" or "jira".
 	Source string `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
-	// type is the fine-grained event type (e.g. "issue_comment",
-	// "pull_request_review"), copied from the router's InputEvent.Type. It
-	// distinguishes comment vs review vs assigned, which the URL cannot.
+	// The event's type within its source, such as "issue_comment" or
+	// "pull_request_review".
 	Type          string `protobuf:"bytes,6,opt,name=type,proto3" json:"type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3005,9 +2994,8 @@ func (x *ExternalPayload) GetType() string {
 	return ""
 }
 
-// ReportPayload is the body of a report event — a from-agent message written by
-// the agent's `report` tool. It is the stream replacement for the old logs rows
-// with type='llm'. Reports are not to-agent, so they never enter the brief.
+// ReportPayload is a message from the task's agent, written with its `report`
+// tool.
 type ReportPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Content       string                 `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
@@ -3052,13 +3040,11 @@ func (x *ReportPayload) GetContent() string {
 	return ""
 }
 
-// LinkPayload is the body of a link event — an about-task record of a link the
-// task created (a PR, issue, etc.). The link event is the timeline source of
-// truth; the task_links row it mirrors is the subscription/list projection.
-// link_id is the task_links row id.
+// LinkPayload records a link the task created, such as a pull request or an
+// issue.
 type LinkPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	LinkId        int64                  `protobuf:"varint,1,opt,name=link_id,json=linkId,proto3" json:"link_id,omitempty"`
+	LinkId        int64                  `protobuf:"varint,1,opt,name=link_id,json=linkId,proto3" json:"link_id,omitempty"` // The TaskLink's id.
 	Relevance     string                 `protobuf:"bytes,2,opt,name=relevance,proto3" json:"relevance,omitempty"`
 	Url           string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
 	Title         string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
@@ -3132,13 +3118,9 @@ func (x *LinkPayload) GetSubscribe() bool {
 	return false
 }
 
-// CommandPayload is the body of a command event: the task's command, or the
-// version it applies to, changed.
-// It is written in the same transaction as the tasks row, so the event log
-// carries every command the runner has to act on, including the withdrawal of
-// a start and the clear when a runner event consumes the command. Command
-// events are not history; timelines skip them (see
-// docs/src/content/docs/proposals/implemented/runner-event-replica.md).
+// CommandPayload records that the task's command, or the run it applies to,
+// changed. Runners follow these events to start, restart and stop tasks;
+// timelines don't show them.
 type CommandPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Command       TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
@@ -3207,25 +3189,18 @@ func (x *CommandPayload) GetWorkspace() string {
 	return ""
 }
 
-// LifecyclePayload is the body of a lifecycle event — an about-task record of a
-// transition that happened to the task (created, cancelled, sandbox exited, …).
-// It is the stream replacement for the old logs rows with type='audit'/'info'
-// and the type='error' container-failure rows. Lifecycle events sit beside the
-// existing status mutation in the same transaction; status stays a materialized
-// projection (see
-// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
-// "Status stays a projection"). `message` carries the failure detail for
-// SANDBOX_FAILED and is empty for kinds that don't need it. `fields` lists the
-// task fields that changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status")
-// and is empty for other kinds.
+// LifecyclePayload records something that happened to the task, such as its
+// creation, its cancellation or its sandbox exiting.
 type LifecyclePayload struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          LifecycleKind          `protobuf:"varint,1,opt,name=kind,proto3,enum=gritz.v1.LifecycleKind" json:"kind,omitempty"`
-	Actor         *Actor                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
-	FromStatus    string                 `protobuf:"bytes,3,opt,name=from_status,json=fromStatus,proto3" json:"from_status,omitempty"`
-	ToStatus      string                 `protobuf:"bytes,4,opt,name=to_status,json=toStatus,proto3" json:"to_status,omitempty"`
-	Message       string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
-	Fields        []string               `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Kind       LifecycleKind          `protobuf:"varint,1,opt,name=kind,proto3,enum=gritz.v1.LifecycleKind" json:"kind,omitempty"`
+	Actor      *Actor                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
+	FromStatus string                 `protobuf:"bytes,3,opt,name=from_status,json=fromStatus,proto3" json:"from_status,omitempty"`
+	ToStatus   string                 `protobuf:"bytes,4,opt,name=to_status,json=toStatus,proto3" json:"to_status,omitempty"`
+	Message    string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"` // The failure detail for SANDBOX_FAILED; empty for other kinds.
+	// The task fields that changed, such as "name" or "status", for UPDATED;
+	// empty for other kinds.
+	Fields        []string `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3302,13 +3277,11 @@ func (x *LifecyclePayload) GetFields() []string {
 	return nil
 }
 
-// Actor identifies who caused a lifecycle event. kind is one of user, runner,
-// or router; name is the human-readable name for user actors (empty for the
-// server-internal runner/router actors).
+// Actor identifies who caused a lifecycle event.
 type Actor struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"` // One of "user", "runner" or "router".
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"` // The user's name for a user actor; empty otherwise.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3614,12 +3587,15 @@ func (*DeleteEventResponse) Descriptor() ([]byte, []int) {
 }
 
 type ListEventsByTaskRequest struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	TaskId    int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	PageSize  int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // Max events per page (default 50, max 200).
-	PageToken string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // Opaque bidirectional cursor (encodes a boundary id + direction).
-	// Empty returns the newest page.
-	Types         []string `protobuf:"bytes,4,rep,name=types,proto3" json:"types,omitempty"` // Event-type filter (e.g. "instruction", "external"); empty = all types.
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	TaskId   int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	PageSize int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"` // Max events per page (default 50, max 200).
+	// A previous response's prev_page_token or next_page_token; empty for the
+	// newest page.
+	PageToken string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// The event types to return, named after Event's payload fields (such as
+	// "instruction" or "external"); empty returns every type.
+	Types         []string `protobuf:"bytes,4,rep,name=types,proto3" json:"types,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3684,11 +3660,15 @@ func (x *ListEventsByTaskRequest) GetTypes() []string {
 
 type ListEventsByTaskResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Events        []*Event               `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`                                      // Always oldest-first (ascending id), every page.
-	PrevPageToken string                 `protobuf:"bytes,2,opt,name=prev_page_token,json=prevPageToken,proto3" json:"prev_page_token,omitempty"` // Older page (scroll back); empty when history is exhausted.
-	NextPageToken string                 `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"` // Newer page (scroll forward / live-follow); ALWAYS populated so a
-	// client can keep polling the tail for appends.
-	More          bool `protobuf:"varint,4,opt,name=more,proto3" json:"more,omitempty"` // Whether another page exists beyond `events` in the direction just
+	Events        []*Event               `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`                                      // Oldest first.
+	PrevPageToken string                 `protobuf:"bytes,2,opt,name=prev_page_token,json=prevPageToken,proto3" json:"prev_page_token,omitempty"` // Token for the older page; empty at the first event.
+	// Token for the newer page. Always set, so a client can keep polling it for
+	// new events.
+	NextPageToken string `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	// Whether another page exists in the direction just read: older for a
+	// request with a prev_page_token, newer otherwise. Stop when more is false
+	// rather than on a page shorter than page_size.
+	More          bool `protobuf:"varint,4,opt,name=more,proto3" json:"more,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3752,12 +3732,14 @@ func (x *ListEventsByTaskResponse) GetMore() bool {
 }
 
 type RunnerEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	Event         string                 `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"`          // "started", "stopped", "failed"
-	Version       int64                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`     // Current version, or 0 for bypass
-	Reconcile     bool                   `protobuf:"varint,4,opt,name=reconcile,proto3" json:"reconcile,omitempty"` // True if from reconciliation, not real-time
-	Reason        string                 `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`        // Optional human-readable detail (failure reason, etc.)
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	TaskId int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	Event  string                 `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"` // "started", "stopped" or "failed".
+	// The run (Task.version) the event is about. An event for another run than
+	// the task's current one is ignored; 0 applies to the current run.
+	Version       int64  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	Reconcile     bool   `protobuf:"varint,4,opt,name=reconcile,proto3" json:"reconcile,omitempty"` // Events with reconcile set are ignored.
+	Reason        string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`        // Optional human-readable detail, such as why the run failed.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3910,8 +3892,7 @@ func (*SubmitRunnerEventsResponse) Descriptor() ([]byte, []int) {
 type CreateTaskTokenRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
-	// Workspace capability flags the runner enabled for this task
-	// (agentauth.CapabilityGitHubToken).
+	// The workspace capabilities to grant the token, such as "github_token".
 	Capabilities  []string `protobuf:"bytes,2,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5869,13 +5850,12 @@ func (x *GenerateAtlassianWebhookSecretResponse) GetWebhookUrl() string {
 	return ""
 }
 
-// RuleCondition constrains one attribute dimension of an event. Op is one of
-// "equals", "prefix", or "contains"; comparisons are literal (exact,
-// case-sensitive) string operations.
+// RuleCondition constrains one attribute of an event. Comparisons are exact and
+// case-sensitive.
 type RuleCondition struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Attr          string                 `protobuf:"bytes,1,opt,name=attr,proto3" json:"attr,omitempty"`
-	Op            string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"`
+	Op            string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"` // One of "equals", "prefix" or "contains".
 	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -5937,22 +5917,18 @@ type RoutingRule struct {
 	Source string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	Type   string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
 	Create *CreateTaskAction      `protobuf:"bytes,5,opt,name=create,proto3" json:"create,omitempty"`
-	// Controls whether a matched rule restarts (wakes) the linked task(s). When
-	// false, the rule attaches the event and notifies the task(s) but does NOT
-	// restart them. UI-created rules default to true.
+	// Whether a match starts the subscribed tasks again to handle the event.
+	// When false, the event is added to their timelines without starting them.
+	// Rules created in the web UI default to true.
 	Wakeup bool `protobuf:"varint,9,opt,name=wakeup,proto3" json:"wakeup,omitempty"`
-	// Attribute conditions the event must satisfy (ANDed together). Empty
-	// source/type are wildcards; an empty conditions list matches every event of
-	// the selected type.
+	// Conditions the event must meet, all of them. Empty source and type match
+	// any; no conditions match every event of the selected type.
 	Conditions []*RuleCondition `protobuf:"bytes,10,rep,name=conditions,proto3" json:"conditions,omitempty"`
-	// public lets this rule fire for actors who are not members of the org (and
-	// need not be oauth-linked). Defaults false — rules are member-only unless
-	// explicitly opted in.
+	// Whether the rule also acts on events from people who aren't members of the
+	// org. False (the default) acts only on members' events.
 	Public bool `protobuf:"varint,11,opt,name=public,proto3" json:"public,omitempty"`
-	// namespace partitions subscription matching. The router scopes this rule's
-	// wake-vs-create decision to subscribers whose task shares this namespace,
-	// and a created task is stamped with it. Empty (default) is the default
-	// namespace — the behavior every existing rule already has.
+	// The rule's namespace: a match looks for subscribed tasks only in it, and a
+	// task the rule creates is in it. Empty is the default namespace.
 	Namespace     string `protobuf:"bytes,12,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6042,9 +6018,8 @@ type CreateTaskAction struct {
 	Workspace string                 `protobuf:"bytes,1,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	Runner    string                 `protobuf:"bytes,2,opt,name=runner,proto3" json:"runner,omitempty"`
 	Prompt    string                 `protobuf:"bytes,3,opt,name=prompt,proto3" json:"prompt,omitempty"`
-	// Auto-archive value applied to tasks created by this rule. See
-	// Task.auto_archive for the value semantics (zero/unset = never,
-	// negative = immediate, positive = delay).
+	// The auto-archive delay of the tasks the rule creates, as in
+	// Task.auto_archive.
 	AutoArchive   *durationpb.Duration `protobuf:"bytes,4,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -6276,15 +6251,13 @@ func (x *SetRoutingRulesResponse) GetRules() []*RoutingRule {
 	return nil
 }
 
-// AttrDef is a self-describing attribute dimension a routing rule may condition
-// on. key is the machine name conditions reference; label, help, and placeholder
-// are display copy the routing-rule editor renders straight from the schema.
+// AttrDef is an event attribute a routing rule can have a condition on.
 type AttrDef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
-	Help          string                 `protobuf:"bytes,3,opt,name=help,proto3" json:"help,omitempty"`
-	Placeholder   string                 `protobuf:"bytes,4,opt,name=placeholder,proto3" json:"placeholder,omitempty"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`                 // The name a RuleCondition's attr refers to.
+	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`             // The attribute's name in the routing-rule editor.
+	Help          string                 `protobuf:"bytes,3,opt,name=help,proto3" json:"help,omitempty"`               // Help text for the attribute in the routing-rule editor.
+	Placeholder   string                 `protobuf:"bytes,4,opt,name=placeholder,proto3" json:"placeholder,omitempty"` // Placeholder for the attribute's value in the routing-rule editor.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6347,12 +6320,8 @@ func (x *AttrDef) GetPlaceholder() string {
 	return ""
 }
 
-// EventTypeDef describes a registered (source, type) event kind and the complete
-// set of attribute dimensions a routing rule may condition on for that kind. It
-// mirrors the eventrouter registry entry, exposing only the client-relevant
-// fields (the shipped default rules are intentionally omitted). Each AttrDef
-// carries its own display copy so clients render labels/help/placeholders from
-// the schema rather than hardcoding them.
+// EventTypeDef is an event type, identified by its source and type, and every
+// attribute a routing rule can have a condition on for it.
 type EventTypeDef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
@@ -6581,9 +6550,9 @@ func (x *GetCustomEventTypesResponse) GetEventTypes() []*EventTypeDef {
 	return nil
 }
 
-// SetCustomEventTypes replaces the org's custom event types. Rejected with
-// InvalidArgument if a schema is malformed, and FailedPrecondition if an
-// existing routing rule would no longer validate against the new set.
+// SetCustomEventTypesRequest replaces the org's custom event types. It fails
+// with `invalid_argument` if a type is malformed, and `failed_precondition` if
+// an existing routing rule would no longer be valid with the new types.
 type SetCustomEventTypesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EventTypes    []*EventTypeDef        `protobuf:"bytes,1,rep,name=event_types,json=eventTypes,proto3" json:"event_types,omitempty"`
@@ -6672,20 +6641,18 @@ func (x *SetCustomEventTypesResponse) GetEventTypes() []*EventTypeDef {
 	return nil
 }
 
-// TestEventRequest composes a synthetic event from the schema and feeds it into
-// the real routing code, scoped to the caller's org. Attribute values are keyed
-// by AttrDef.Key — the same keys GetEventTypes hands the form — and carry a
-// single value per attr (the handler wraps each into the one-element slice
-// eventrouter.Attrs expects). The derived "body" and "url" attrs travel as
-// ordinary attrs entries and are unpacked server-side into Data and URL.
+// TestEventRequest composes an event and routes it through the org's routing
+// rules, as a dry run or for real.
 type TestEventRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Source        string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`                                                                             // registered EventTypeDef.Source, e.g. "github"
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`                                                                                 // registered EventTypeDef.Type, e.g. "issue_comment"
-	Attrs         map[string]string      `protobuf:"bytes,3,rep,name=attrs,proto3" json:"attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`     // matchable values keyed by AttrDef.Key (incl. "body", "url")
-	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`                                                                   // optional human description for the event timeline
-	Fire          bool                   `protobuf:"varint,5,opt,name=fire,proto3" json:"fire,omitempty"`                                                                                // false = dry run (default); true = fire for real
-	Details       map[string]string      `protobuf:"bytes,6,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // source-defined context persisted verbatim (see §2a)
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Source string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"` // The event type's source, such as "github".
+	Type   string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`     // The event type, such as "issue_comment".
+	// The event's attribute values, keyed by AttrDef.key, including "body" and
+	// "url".
+	Attrs         map[string]string `protobuf:"bytes,3,rep,name=attrs,proto3" json:"attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Description   string            `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`                                                                   // Optional description shown on the task's timeline.
+	Fire          bool              `protobuf:"varint,5,opt,name=fire,proto3" json:"fire,omitempty"`                                                                                // False (the default) for a dry run; true to act on the matches.
+	Details       map[string]string `protobuf:"bytes,6,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Stored as the event's ExternalPayload.details.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6764,8 +6731,8 @@ func (x *TestEventRequest) GetDetails() map[string]string {
 
 type TestEventResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Matches       []*TestEventMatch      `protobuf:"bytes,1,rep,name=matches,proto3" json:"matches,omitempty"` // one per org that matched (0 or 1 for the test path)
-	Fired         bool                   `protobuf:"varint,2,opt,name=fired,proto3" json:"fired,omitempty"`    // whether side effects were applied
+	Matches       []*TestEventMatch      `protobuf:"bytes,1,rep,name=matches,proto3" json:"matches,omitempty"` // The match in the caller's org, if any.
+	Fired         bool                   `protobuf:"varint,2,opt,name=fired,proto3" json:"fired,omitempty"`    // Whether the matches were acted on.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6814,18 +6781,15 @@ func (x *TestEventResponse) GetFired() bool {
 	return false
 }
 
-// TestEventMatch is the per-org dry-run/fire report the handler builds from a
-// RouteMatch. rule_index comes from the match; the wake/create fields are
-// derived from the matched rule by the handler (they are not stored on
-// RouteMatch).
+// TestEventMatch is what a matching routing rule did, or would do.
 type TestEventMatch struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	OrgId          int64                  `protobuf:"varint,1,opt,name=org_id,json=orgId,proto3" json:"org_id,omitempty"`
-	RuleIndex      int32                  `protobuf:"varint,2,opt,name=rule_index,json=ruleIndex,proto3" json:"rule_index,omitempty"`                         // which configured rule matched (-1 = shipped default)
-	WouldWake      bool                   `protobuf:"varint,3,opt,name=would_wake,json=wouldWake,proto3" json:"would_wake,omitempty"`                         // matched rule's wakeup flag
-	WouldCreate    bool                   `protobuf:"varint,5,opt,name=would_create,json=wouldCreate,proto3" json:"would_create,omitempty"`                   // a task would be / was created
-	CreatedTaskIds []int64                `protobuf:"varint,6,rep,packed,name=created_task_ids,json=createdTaskIds,proto3" json:"created_task_ids,omitempty"` // populated only when fired && would_create
-	EventIds       []int64                `protobuf:"varint,7,rep,packed,name=event_ids,json=eventIds,proto3" json:"event_ids,omitempty"`                     // synthetic event rows written when fired
+	RuleIndex      int32                  `protobuf:"varint,2,opt,name=rule_index,json=ruleIndex,proto3" json:"rule_index,omitempty"`                         // The index of the rule that matched, or -1 for a built-in default rule.
+	WouldWake      bool                   `protobuf:"varint,3,opt,name=would_wake,json=wouldWake,proto3" json:"would_wake,omitempty"`                         // The matched rule's wakeup.
+	WouldCreate    bool                   `protobuf:"varint,5,opt,name=would_create,json=wouldCreate,proto3" json:"would_create,omitempty"`                   // Whether a task would be, or was, created.
+	CreatedTaskIds []int64                `protobuf:"varint,6,rep,packed,name=created_task_ids,json=createdTaskIds,proto3" json:"created_task_ids,omitempty"` // The tasks created; set only when fired.
+	EventIds       []int64                `protobuf:"varint,7,rep,packed,name=event_ids,json=eventIds,proto3" json:"event_ids,omitempty"`                     // The events added; set only when fired.
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -6990,11 +6954,9 @@ func (x *CreateGitHubTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
-// Schedule is a stored task template plus a cron spec. A server-side scheduler
-// worker materializes a real task run on each occurrence (see
-// docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
-// belongs to an org, not a user — created_by is attribution only and carries no
-// permission semantics.
+// Schedule is a task template and a cron expression: the server creates a task
+// from the template at each time the expression matches. A schedule belongs to
+// its org, not to the user who created it.
 type Schedule struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -7002,15 +6964,15 @@ type Schedule struct {
 	Workspace     string                 `protobuf:"bytes,3,opt,name=workspace,proto3" json:"workspace,omitempty"`
 	Runner        string                 `protobuf:"bytes,4,opt,name=runner,proto3" json:"runner,omitempty"`
 	Namespace     string                 `protobuf:"bytes,5,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Instructions  []*Instruction         `protobuf:"bytes,6,rep,name=instructions,proto3" json:"instructions,omitempty"` // reuses the existing Instruction message
+	Instructions  []*Instruction         `protobuf:"bytes,6,rep,name=instructions,proto3" json:"instructions,omitempty"`
 	CronExpr      string                 `protobuf:"bytes,7,opt,name=cron_expr,json=cronExpr,proto3" json:"cron_expr,omitempty"`
-	Timezone      string                 `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; default "UTC"
+	Timezone      string                 `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; default "UTC".
 	Enabled       bool                   `protobuf:"varint,9,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AutoArchive   *durationpb.Duration   `protobuf:"bytes,10,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
-	NextRunAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=next_run_at,json=nextRunAt,proto3" json:"next_run_at,omitempty"`     // unset when disabled/paused
-	LastRunAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=last_run_at,json=lastRunAt,proto3" json:"last_run_at,omitempty"`     // unset when never run
-	LastTaskId    int64                  `protobuf:"varint,13,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"` // 0 = never run
-	CreatedBy     string                 `protobuf:"bytes,14,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	NextRunAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=next_run_at,json=nextRunAt,proto3" json:"next_run_at,omitempty"`     // Unset when disabled.
+	LastRunAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=last_run_at,json=lastRunAt,proto3" json:"last_run_at,omitempty"`     // Unset when it has never run.
+	LastTaskId    int64                  `protobuf:"varint,13,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"` // 0 when it has never run.
+	CreatedBy     string                 `protobuf:"bytes,14,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`       // Who created it; grants no permissions.
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -7167,10 +7129,9 @@ type CreateScheduleRequest struct {
 	Namespace    string                 `protobuf:"bytes,4,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Instructions []*Instruction         `protobuf:"bytes,5,rep,name=instructions,proto3" json:"instructions,omitempty"`
 	CronExpr     string                 `protobuf:"bytes,6,opt,name=cron_expr,json=cronExpr,proto3" json:"cron_expr,omitempty"`
-	Timezone     string                 `protobuf:"bytes,7,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; empty defaults to "UTC"
-	// enabled must be set to true for the schedule to run — there is no implicit
-	// default. A create with enabled false/unset stores an inert schedule that
-	// never fires until it is turned on via SetScheduleEnabled.
+	Timezone     string                 `protobuf:"bytes,7,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; empty defaults to "UTC".
+	// Whether the schedule runs. False (the default) creates a schedule that
+	// never runs until SetScheduleEnabled enables it.
 	Enabled       bool                 `protobuf:"varint,8,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AutoArchive   *durationpb.Duration `protobuf:"bytes,9,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -7482,9 +7443,9 @@ func (x *ListSchedulesResponse) GetSchedules() []*Schedule {
 	return nil
 }
 
-// UpdateScheduleRequest mirrors CreateTask/UpdateTask: id plus the mutable
-// template + spec fields. Changing cron_expr or timezone recomputes next_run_at
-// server-side. Enable/disable is a separate concern — see SetScheduleEnabled.
+// UpdateScheduleRequest replaces a schedule's template, cron expression and
+// timezone. Changing cron_expr or timezone recomputes next_run_at. Use
+// SetScheduleEnabled to enable or disable it.
 type UpdateScheduleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -7494,7 +7455,7 @@ type UpdateScheduleRequest struct {
 	Namespace     string                 `protobuf:"bytes,5,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Instructions  []*Instruction         `protobuf:"bytes,6,rep,name=instructions,proto3" json:"instructions,omitempty"`
 	CronExpr      string                 `protobuf:"bytes,7,opt,name=cron_expr,json=cronExpr,proto3" json:"cron_expr,omitempty"`
-	Timezone      string                 `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; empty defaults to "UTC"
+	Timezone      string                 `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; empty defaults to "UTC".
 	AutoArchive   *durationpb.Duration   `protobuf:"bytes,9,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7717,8 +7678,8 @@ func (*DeleteScheduleResponse) Descriptor() ([]byte, []int) {
 	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{135}
 }
 
-// SetScheduleEnabledRequest toggles a schedule: enabling recomputes next_run_at
-// from now; disabling sets next_run_at = NULL so the claim query skips it.
+// SetScheduleEnabledRequest enables or disables a schedule. Enabling computes
+// next_run_at from now; disabling clears it, and the schedule stops running.
 type SetScheduleEnabledRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -7815,12 +7776,10 @@ func (x *SetScheduleEnabledResponse) GetSchedule() *Schedule {
 	return nil
 }
 
-// RunScheduleRequest fires a schedule immediately as a one-off, in addition to
-// its cron cadence. It records nothing on the schedule row — next_run_at,
-// last_run_at, and last_task_id are all left untouched; the row stays purely
-// about the cron cadence. Allowed on a disabled schedule — a disabled schedule
-// only means "don't fire automatically," and testing a not-yet-enabled schedule
-// is the primary use case.
+// RunScheduleRequest creates a task from a schedule now, once, in addition to
+// its regular runs. It leaves next_run_at, last_run_at and last_task_id
+// unchanged, and works on a disabled schedule too, so a schedule can be tried
+// out before it is enabled.
 type RunScheduleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -7867,7 +7826,7 @@ func (x *RunScheduleRequest) GetId() int64 {
 
 type RunScheduleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Task          *Task                  `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"` // the task the manual run created — for the UI to link to
+	Task          *Task                  `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"` // The task the run created.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

@@ -7,14 +7,17 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/gritzapp/gritz/internal/proto/gritz/v1;gritzv1";
 
+// GritzService is the gritz API. The web UI, the CLI and the `gritz mcp` server
+// call it for users; runners and the drivers inside task sandboxes call it to
+// run tasks.
 service GritzService {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
   rpc GetCaller(GetCallerRequest) returns (GetCallerResponse);
   rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
-  // ListRunnerEvents returns the events of the runner's tasks after the
-  // cursor, in log order, from transactions that can no longer commit behind
-  // it.
+  // Called by the runner to follow the events of its tasks. Returns the events
+  // after the cursor in log order, and only once no earlier event can still
+  // appear, so following the cursor never skips one.
   rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
@@ -24,7 +27,11 @@ service GritzService {
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
   rpc RestartTask(RestartTaskRequest) returns (RestartTaskResponse);
   rpc OpenShell(OpenShellRequest) returns (OpenShellResponse);
+  // Called by the agent's `report` tool in a task's sandbox. Each entry of type
+  // `llm` is added to the task as a report event; entries of other types are
+  // ignored.
   rpc UploadLogs(UploadLogsRequest) returns (UploadLogsResponse);
+  // Called by the driver in a task's sandbox to ship the task's log.
   rpc AppendLogChunk(AppendLogChunkRequest) returns (AppendLogChunkResponse);
   rpc ListLogChunksByTask(ListLogChunksByTaskRequest) returns (ListLogChunksByTaskResponse);
   rpc CreateLink(CreateLinkRequest) returns (CreateLinkResponse);
@@ -33,8 +40,15 @@ service GritzService {
   rpc GetEvent(GetEventRequest) returns (GetEventResponse);
   rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
   rpc ListEventsByTask(ListEventsByTaskRequest) returns (ListEventsByTaskResponse);
+  // Called by the runner, and by the driver in a task's sandbox, to report that
+  // a task's run started, stopped or failed.
   rpc SubmitRunnerEvents(SubmitRunnerEventsRequest) returns (SubmitRunnerEventsResponse);
+  // Called by the runner before it starts a task's sandbox, to get the token the
+  // sandbox calls the API with. The token can read and update only that task,
+  // plus the requested capabilities.
   rpc CreateTaskToken(CreateTaskTokenRequest) returns (CreateTaskTokenResponse);
+  // Called by the runner when it starts, to register the workspaces it serves.
+  // Replaces the workspaces registered before for the same runner.
   rpc RegisterWorkspaces(RegisterWorkspacesRequest) returns (RegisterWorkspacesResponse);
   rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
   rpc ClearWorkspaces(ClearWorkspacesRequest) returns (ClearWorkspacesResponse);
@@ -58,6 +72,8 @@ service GritzService {
   rpc GetCustomEventTypes(GetCustomEventTypesRequest) returns (GetCustomEventTypesResponse);
   rpc SetCustomEventTypes(SetCustomEventTypesRequest) returns (SetCustomEventTypesResponse);
   rpc TestEvent(TestEventRequest) returns (TestEventResponse);
+  // Called from a task's sandbox to get a GitHub token. The server doesn't
+  // issue these tokens yet: every call fails with `unimplemented`.
   rpc CreateGitHubToken(CreateGitHubTokenRequest) returns (CreateGitHubTokenResponse);
   rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
   rpc GetSchedule(GetScheduleRequest) returns (GetScheduleResponse);
@@ -117,26 +133,30 @@ message Task {
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   TaskCommand command = 10;
-  int64 version = 11;  // Incremented when command changes
+  // The task's current run: 0 before it first starts, then 1, and one more for
+  // each new run.
+  int64 version = 11;
   TaskActions actions = 12;
   bool archived = 13;
   string url = 14;
-  // Auto-archive this task once it has been in a terminal status
-  // (COMPLETED, FAILED, CANCELLED) for this long.
-  //   zero (or unset): never auto-archive (default)
-  //   negative:        archive immediately on terminal status
-  //   positive:        archive that long after reaching terminal status
+  // How long the task stays in a terminal status (COMPLETED, FAILED,
+  // CANCELLED) before it is archived. Zero or unset never archives it, a
+  // negative value archives it as soon as it reaches a terminal status, and a
+  // positive value archives it that long after.
   google.protobuf.Duration auto_archive = 15;
-  // Non-empty => this sandbox run is a reverse shell for this rendezvous
-  // session id (see
-  // docs/src/content/docs/proposals/implemented/driver-reverse-shell.md). Empty
-  // => normal agent run. Persistent and server-owned; the runner never touches
-  // it.
+
+  // See docs/src/content/docs/proposals/implemented/driver-reverse-shell.md.
+  // Persistent and server-owned; the runner never touches it.
+
+  // The shell session the task's sandbox serves instead of running the agent,
+  // set by OpenShell. Empty for an ordinary run.
   string shell_session = 16;
-  // Namespace partitions subscription matching in the event router. Empty is
-  // the default namespace — the behavior every existing task already has. Set
-  // at creation and read-only thereafter (see
-  // docs/src/content/docs/proposals/implemented/task-namespaces.md).
+
+  // See docs/src/content/docs/proposals/implemented/task-namespaces.md.
+
+  // The task's namespace: only routing rules in the same namespace see its
+  // subscriptions. Empty is the default namespace. Set at creation and can't be
+  // changed.
   string namespace = 17;
 }
 
@@ -204,13 +224,11 @@ message CreateTaskRequest {
   repeated Instruction instructions = 4;
   string runner = 5;  // Runner ID that should handle this task
   google.protobuf.Duration auto_archive = 6;
-  // Optional namespace for the created task. Empty (default) is the default
-  // namespace. See Task.namespace.
+  // The task's namespace; empty is the default namespace. See Task.namespace.
   string namespace = 7;
-  // Create the task in TaskStatus.DRAFT: no command is set, so no runner picks
-  // it up and no sandbox is launched. The first UpdateTask with start (e.g. the
-  // first instruction from the task page composer) is what starts it. Defaults
-  // to false — an ordinary create, started immediately.
+  // Create the task as a DRAFT: no runner picks it up until an UpdateTask with
+  // start set, such as the first instruction sent from the task page, starts it.
+  // False (the default) starts the task immediately.
   bool draft = 8;
 }
 
@@ -232,8 +250,8 @@ message UpdateTaskRequest {
   reserved 3;  // Previously: restart
   repeated Instruction add_instructions = 4;
   bool start = 5;    // Start after current run finishes (non-interrupting)
-  // Unset = leave alone. See Task.auto_archive for the value semantics
-  // (zero = never, negative = immediate, positive = delay).
+  // The new auto-archive delay, as in Task.auto_archive. Unset leaves it
+  // unchanged.
   google.protobuf.Duration auto_archive = 6;
 }
 
@@ -268,9 +286,9 @@ message OpenShellRequest {
 }
 
 message OpenShellResponse {
-  // session_id is the rendezvous id the operator connects to via
-  // GET /shell/{session_id}/attach. It is also written to the task's
-  // shell_session field so the re-spawned driver serves this session.
+  // The shell session to attach to, at `GET /shell/{session_id}/attach`. The
+  // task's sandbox restarts to serve it, and the task's shell_session is set to
+  // it.
   string session_id = 1;
 }
 
@@ -287,23 +305,25 @@ message UploadLogsRequest {
 
 message UploadLogsResponse {}
 
-// LogChunk is an opaque run of driver log bytes. A task's transcript is the
-// concatenation of its chunks' data in id order — which is write order, because
-// the driver ships with a single in-flight sender. See
-// docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
+// See docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
+// Id order is write order because the driver ships with a single in-flight
+// sender.
+
+// LogChunk is a run of bytes from a task's log. The log is the concatenation of
+// its chunks' data in id order.
 message LogChunk {
   int64 id = 1;
   int64 task_id = 2;
-  int64 version = 3;  // The run (task.version) the bytes belong to; 0 = pre-run preamble.
-  bytes data = 4;     // Raw log bytes, opaque to the server (not parsed into lines).
+  int64 version = 3;  // The run (Task.version) the bytes belong to; 0 for output before the first run.
+  bytes data = 4;     // Raw log bytes, not split into lines.
   google.protobuf.Timestamp created_at = 5;
 }
 
 message AppendLogChunkRequest {
   int64 task_id = 1;
   int64 version = 2;  // The run these bytes belong to.
-  bytes data = 3;     // Exactly one chunk; the driver's FIFO sender makes call order write order.
-                      // Must be non-empty and at most 1 MiB (an abuse cap — the driver cuts at 32 KiB).
+  // The bytes to append to the task's log. Must be non-empty and at most 1 MiB.
+  bytes data = 3;
 }
 
 message AppendLogChunkResponse {}
@@ -311,20 +331,21 @@ message AppendLogChunkResponse {}
 message ListLogChunksByTaskRequest {
   int64 task_id = 1;
   int32 page_size = 2;    // Max chunks per page (default 50, max 200).
-  string page_token = 3;  // Opaque bidirectional cursor (encodes a boundary id + direction).
-                          // Empty returns the newest page — the end of the log.
+  // A previous response's prev_page_token or next_page_token; empty for the
+  // newest page, at the end of the log.
+  string page_token = 3;
 }
 
 message ListLogChunksByTaskResponse {
-  repeated LogChunk chunks = 1;  // Always oldest-first (ascending id), so data concatenates into
-                                 // transcript order.
-  string prev_page_token = 2;    // Older page (scroll back); empty when history is exhausted.
-  string next_page_token = 3;    // Newer page (live-follow); ALWAYS populated so a client can keep
-                                 // polling the tail for appends.
-  bool more = 4;                 // Whether another page exists beyond `chunks` in the direction just
-                                 // walked (older for a prev_page_token request, newer for live-follow).
-                                 // Break on !more instead of the shorter-than-page_size heuristic,
-                                 // which misfires at an exact page_size boundary.
+  repeated LogChunk chunks = 1;  // Oldest first, so their data concatenates in log order.
+  string prev_page_token = 2;    // Token for the older page; empty at the start of the log.
+  // Token for the newer page. Always set, so a client can keep polling it for
+  // new chunks.
+  string next_page_token = 3;
+  // Whether another page exists in the direction just read: older for a
+  // request with a prev_page_token, newer otherwise. Stop when more is false
+  // rather than on a page shorter than page_size.
+  bool more = 4;
 }
 
 message TaskLink {
@@ -335,7 +356,8 @@ message TaskLink {
   string title = 5;
   bool subscribe = 6;
   google.protobuf.Timestamp created_at = 7;
-  // routing_key is a read-only routing key derived from url by the server.
+  // The key events are matched against, derived from url by the server.
+  // Read-only.
   string routing_key = 8;
 }
 
@@ -365,10 +387,13 @@ message Event {
   int64 task_id = 2;
   bool wake = 3;
   google.protobuf.Timestamp created_at = 4;
-  // The set arm IS the event type — a typed union, not an opaque Struct. There
-  // is no separate `type` field on the wire; the db `type` column is
-  // materialized from the arm for indexed filtering (like `direction`). See
+
+  // A typed union, not an opaque Struct. The db `type` column is materialized
+  // from the arm for indexed filtering (like `direction`). See
   // docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
+
+  // The event's type and content. The field that is set is the event's type;
+  // there is no separate type field.
   oneof payload {
     InstructionPayload instruction = 5;
     ExternalPayload external = 6;
@@ -379,9 +404,11 @@ message Event {
   }
 }
 
-// InstructionPayload is a to-agent instruction — the stream replacement for the
-// old tasks.instructions JSON column. Kept minimal (parity with the stored
-// instruction); no actor, consistent with the external-only trimming in #957.
+// The stream replacement for the old tasks.instructions JSON column. Kept
+// minimal (parity with the stored instruction); no actor, consistent with the
+// external-only trimming in #957.
+
+// InstructionPayload is an instruction to the task's agent.
 message InstructionPayload {
   string text = 1;
   string url = 2;
@@ -391,48 +418,51 @@ message ExternalPayload {
   string description = 1;
   string url = 2;
   string data = 3;
-  // details carries optional, source-defined key/value context for consumers
-  // (the agent via get_my_task, the web UI timeline). The payload does not
-  // interpret it: GitHub review comments populate path/line/side/diff_hunk; other
-  // sources may set their own keys or none. Distinct from the router's matchable
-  // Attrs, which are not persisted.
+
+  // Distinct from the router's matchable Attrs, which are not persisted.
+
+  // Extra context defined by the event's source, shown to the agent by
+  // get_my_task and on the task's timeline. GitHub review comments set `path`,
+  // `line`, `side` and `diff_hunk`; other sources set their own keys or none.
+  // These are not the attributes routing rules match on.
   map<string, string> details = 4;
-  // source is the coarse origin of the event (e.g. "github", "jira"), copied
-  // from the router's InputEvent.Source. Persisting it lets consumers pick an
-  // icon/label without regexing the URL.
+  // Where the event came from, such as "github" or "jira".
   string source = 5;
-  // type is the fine-grained event type (e.g. "issue_comment",
-  // "pull_request_review"), copied from the router's InputEvent.Type. It
-  // distinguishes comment vs review vs assigned, which the URL cannot.
+  // The event's type within its source, such as "issue_comment" or
+  // "pull_request_review".
   string type = 6;
 }
 
-// ReportPayload is the body of a report event — a from-agent message written by
-// the agent's `report` tool. It is the stream replacement for the old logs rows
-// with type='llm'. Reports are not to-agent, so they never enter the brief.
+// The stream replacement for the old logs rows with type='llm'. Reports are not
+// to-agent, so they never enter the brief.
+
+// ReportPayload is a message from the task's agent, written with its `report`
+// tool.
 message ReportPayload {
   string content = 1;
 }
 
-// LinkPayload is the body of a link event — an about-task record of a link the
-// task created (a PR, issue, etc.). The link event is the timeline source of
-// truth; the task_links row it mirrors is the subscription/list projection.
-// link_id is the task_links row id.
+// The link event is the timeline source of truth; the task_links row it mirrors
+// is the subscription/list projection.
+
+// LinkPayload records a link the task created, such as a pull request or an
+// issue.
 message LinkPayload {
-  int64 link_id = 1;
+  int64 link_id = 1;  // The TaskLink's id.
   string relevance = 2;
   string url = 3;
   string title = 4;
   bool subscribe = 5;
 }
 
-// CommandPayload is the body of a command event: the task's command, or the
-// version it applies to, changed.
 // It is written in the same transaction as the tasks row, so the event log
 // carries every command the runner has to act on, including the withdrawal of
-// a start and the clear when a runner event consumes the command. Command
-// events are not history; timelines skip them (see
-// docs/src/content/docs/proposals/implemented/runner-event-replica.md).
+// a start and the clear when a runner event consumes the command. See
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md.
+
+// CommandPayload records that the task's command, or the run it applies to,
+// changed. Runners follow these events to start, restart and stop tasks;
+// timelines don't show them.
 message CommandPayload {
   TaskCommand command = 1;
   int64 version = 2;
@@ -440,37 +470,36 @@ message CommandPayload {
   string workspace = 4;
 }
 
-// LifecyclePayload is the body of a lifecycle event — an about-task record of a
-// transition that happened to the task (created, cancelled, sandbox exited, …).
-// It is the stream replacement for the old logs rows with type='audit'/'info'
-// and the type='error' container-failure rows. Lifecycle events sit beside the
-// existing status mutation in the same transaction; status stays a materialized
+// The stream replacement for the old logs rows with type='audit'/'info' and the
+// type='error' container-failure rows. Lifecycle events sit beside the existing
+// status mutation in the same transaction; status stays a materialized
 // projection (see
 // docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
-// "Status stays a projection"). `message` carries the failure detail for
-// SANDBOX_FAILED and is empty for kinds that don't need it. `fields` lists the
-// task fields that changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status")
-// and is empty for other kinds.
+// "Status stays a projection").
+
+// LifecyclePayload records something that happened to the task, such as its
+// creation, its cancellation or its sandbox exiting.
 message LifecyclePayload {
   LifecycleKind kind = 1;
   Actor actor = 2;
   string from_status = 3;
   string to_status = 4;
-  string message = 5;
+  string message = 5;  // The failure detail for SANDBOX_FAILED; empty for other kinds.
+  // The task fields that changed, such as "name" or "status", for UPDATED;
+  // empty for other kinds.
   repeated string fields = 6;
 }
 
-// Actor identifies who caused a lifecycle event. kind is one of user, runner,
-// or router; name is the human-readable name for user actors (empty for the
-// server-internal runner/router actors).
+// Actor identifies who caused a lifecycle event.
 message Actor {
-  string kind = 1;
-  string name = 2;
+  string kind = 1;  // One of "user", "runner" or "router".
+  string name = 2;  // The user's name for a user actor; empty otherwise.
 }
 
-// LifecycleKind is the closed set of lifecycle transitions (the TaskChange set,
-// minus Woken — which splits into an external event plus the transition the
-// wake caused).
+// The TaskChange set, minus Woken, which splits into an external event plus the
+// transition the wake caused.
+
+// LifecycleKind is what happened in a lifecycle event.
 enum LifecycleKind {
   LIFECYCLE_KIND_UNSPECIFIED = 0;
   LIFECYCLE_KIND_CREATED = 1;
@@ -510,29 +539,34 @@ message DeleteEventResponse {}
 message ListEventsByTaskRequest {
   int64 task_id = 1;
   int32 page_size = 2;    // Max events per page (default 50, max 200).
-  string page_token = 3;  // Opaque bidirectional cursor (encodes a boundary id + direction).
-                          // Empty returns the newest page.
-  repeated string types = 4;  // Event-type filter (e.g. "instruction", "external"); empty = all types.
-                              // Values match the payload arm names / db `type` column.
+  // A previous response's prev_page_token or next_page_token; empty for the
+  // newest page.
+  string page_token = 3;
+  // The event types to return, named after Event's payload fields (such as
+  // "instruction" or "external"); empty returns every type.
+  repeated string types = 4;
 }
 
 message ListEventsByTaskResponse {
-  repeated Event events = 1;   // Always oldest-first (ascending id), every page.
-  string prev_page_token = 2;  // Older page (scroll back); empty when history is exhausted.
-  string next_page_token = 3;  // Newer page (scroll forward / live-follow); ALWAYS populated so a
-                               // client can keep polling the tail for appends.
-  bool more = 4;               // Whether another page exists beyond `events` in the direction just
-                               // walked (older for a prev_page_token request, newer for live-follow).
-                               // Break on !more instead of the shorter-than-page_size heuristic, which
-                               // misfires at an exact page_size boundary.
+  repeated Event events = 1;   // Oldest first.
+  string prev_page_token = 2;  // Token for the older page; empty at the first event.
+  // Token for the newer page. Always set, so a client can keep polling it for
+  // new events.
+  string next_page_token = 3;
+  // Whether another page exists in the direction just read: older for a
+  // request with a prev_page_token, newer otherwise. Stop when more is false
+  // rather than on a page shorter than page_size.
+  bool more = 4;
 }
 
 message RunnerEvent {
   int64 task_id = 1;
-  string event = 2;     // "started", "stopped", "failed"
-  int64 version = 3;    // Current version, or 0 for bypass
-  bool reconcile = 4;   // True if from reconciliation, not real-time
-  string reason = 5;    // Optional human-readable detail (failure reason, etc.)
+  string event = 2;     // "started", "stopped" or "failed".
+  // The run (Task.version) the event is about. An event for another run than
+  // the task's current one is ignored; 0 applies to the current run.
+  int64 version = 3;
+  bool reconcile = 4;   // Events with reconcile set are ignored.
+  string reason = 5;    // Optional human-readable detail, such as why the run failed.
 }
 
 message SubmitRunnerEventsRequest {
@@ -543,8 +577,7 @@ message SubmitRunnerEventsResponse {}
 
 message CreateTaskTokenRequest {
   int64 task_id = 1;
-  // Workspace capability flags the runner enabled for this task
-  // (agentauth.CapabilityGitHubToken).
+  // The workspace capabilities to grant the token, such as "github_token".
   repeated string capabilities = 2;
 }
 
@@ -709,12 +742,11 @@ message GenerateAtlassianWebhookSecretResponse {
   string webhook_url = 2;
 }
 
-// RuleCondition constrains one attribute dimension of an event. Op is one of
-// "equals", "prefix", or "contains"; comparisons are literal (exact,
-// case-sensitive) string operations.
+// RuleCondition constrains one attribute of an event. Comparisons are exact and
+// case-sensitive.
 message RuleCondition {
   string attr = 1;
-  string op = 2;
+  string op = 2;  // One of "equals", "prefix" or "contains".
   string value = 3;
 }
 
@@ -723,22 +755,18 @@ message RoutingRule {
   string source = 1;
   string type = 2;
   CreateTaskAction create = 5;
-  // Controls whether a matched rule restarts (wakes) the linked task(s). When
-  // false, the rule attaches the event and notifies the task(s) but does NOT
-  // restart them. UI-created rules default to true.
+  // Whether a match starts the subscribed tasks again to handle the event.
+  // When false, the event is added to their timelines without starting them.
+  // Rules created in the web UI default to true.
   bool wakeup = 9;
-  // Attribute conditions the event must satisfy (ANDed together). Empty
-  // source/type are wildcards; an empty conditions list matches every event of
-  // the selected type.
+  // Conditions the event must meet, all of them. Empty source and type match
+  // any; no conditions match every event of the selected type.
   repeated RuleCondition conditions = 10;
-  // public lets this rule fire for actors who are not members of the org (and
-  // need not be oauth-linked). Defaults false — rules are member-only unless
-  // explicitly opted in.
+  // Whether the rule also acts on events from people who aren't members of the
+  // org. False (the default) acts only on members' events.
   bool public = 11;
-  // namespace partitions subscription matching. The router scopes this rule's
-  // wake-vs-create decision to subscribers whose task shares this namespace,
-  // and a created task is stamped with it. Empty (default) is the default
-  // namespace — the behavior every existing rule already has.
+  // The rule's namespace: a match looks for subscribed tasks only in it, and a
+  // task the rule creates is in it. Empty is the default namespace.
   string namespace = 12;
 }
 
@@ -746,9 +774,8 @@ message CreateTaskAction {
   string workspace = 1;
   string runner = 2;
   string prompt = 3;
-  // Auto-archive value applied to tasks created by this rule. See
-  // Task.auto_archive for the value semantics (zero/unset = never,
-  // negative = immediate, positive = delay).
+  // The auto-archive delay of the tasks the rule creates, as in
+  // Task.auto_archive.
   google.protobuf.Duration auto_archive = 4;
 }
 
@@ -766,22 +793,19 @@ message SetRoutingRulesResponse {
   repeated RoutingRule rules = 1;
 }
 
-// AttrDef is a self-describing attribute dimension a routing rule may condition
-// on. key is the machine name conditions reference; label, help, and placeholder
-// are display copy the routing-rule editor renders straight from the schema.
+// AttrDef is an event attribute a routing rule can have a condition on.
 message AttrDef {
-  string key = 1;
-  string label = 2;
-  string help = 3;
-  string placeholder = 4;
+  string key = 1;  // The name a RuleCondition's attr refers to.
+  string label = 2;        // The attribute's name in the routing-rule editor.
+  string help = 3;         // Help text for the attribute in the routing-rule editor.
+  string placeholder = 4;  // Placeholder for the attribute's value in the routing-rule editor.
 }
 
-// EventTypeDef describes a registered (source, type) event kind and the complete
-// set of attribute dimensions a routing rule may condition on for that kind. It
-// mirrors the eventrouter registry entry, exposing only the client-relevant
-// fields (the shipped default rules are intentionally omitted). Each AttrDef
-// carries its own display copy so clients render labels/help/placeholders from
-// the schema rather than hardcoding them.
+// It mirrors the eventrouter registry entry, exposing only the client-relevant
+// fields (the shipped default rules are intentionally omitted).
+
+// EventTypeDef is an event type, identified by its source and type, and every
+// attribute a routing rule can have a condition on for it.
 message EventTypeDef {
   string source = 1;
   string type = 2;
@@ -801,9 +825,9 @@ message GetCustomEventTypesResponse {
   repeated EventTypeDef event_types = 1; // every source is "custom"
 }
 
-// SetCustomEventTypes replaces the org's custom event types. Rejected with
-// InvalidArgument if a schema is malformed, and FailedPrecondition if an
-// existing routing rule would no longer validate against the new set.
+// SetCustomEventTypesRequest replaces the org's custom event types. It fails
+// with `invalid_argument` if a type is malformed, and `failed_precondition` if
+// an existing routing rule would no longer be valid with the new types.
 message SetCustomEventTypesRequest {
   repeated EventTypeDef event_types = 1;
 }
@@ -812,37 +836,35 @@ message SetCustomEventTypesResponse {
   repeated EventTypeDef event_types = 1;
 }
 
-// TestEventRequest composes a synthetic event from the schema and feeds it into
-// the real routing code, scoped to the caller's org. Attribute values are keyed
-// by AttrDef.Key — the same keys GetEventTypes hands the form — and carry a
-// single value per attr (the handler wraps each into the one-element slice
-// eventrouter.Attrs expects). The derived "body" and "url" attrs travel as
-// ordinary attrs entries and are unpacked server-side into Data and URL.
+// The handler wraps each attr value into the one-element slice eventrouter.Attrs
+// expects, and unpacks the "body" and "url" attrs into Data and URL.
+
+// TestEventRequest composes an event and routes it through the org's routing
+// rules, as a dry run or for real.
 message TestEventRequest {
-  string source = 1;                // registered EventTypeDef.Source, e.g. "github"
-  string type = 2;                  // registered EventTypeDef.Type, e.g. "issue_comment"
-  map<string, string> attrs = 3;    // matchable values keyed by AttrDef.Key (incl. "body", "url")
-  string description = 4;           // optional human description for the event timeline
-  bool fire = 5;                    // false = dry run (default); true = fire for real
-  map<string, string> details = 6;  // source-defined context persisted verbatim (see §2a)
+  string source = 1;                // The event type's source, such as "github".
+  string type = 2;                  // The event type, such as "issue_comment".
+  // The event's attribute values, keyed by AttrDef.key, including "body" and
+  // "url".
+  map<string, string> attrs = 3;
+  string description = 4;           // Optional description shown on the task's timeline.
+  bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
+  map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
 }
 
 message TestEventResponse {
-  repeated TestEventMatch matches = 1; // one per org that matched (0 or 1 for the test path)
-  bool fired = 2;                      // whether side effects were applied
+  repeated TestEventMatch matches = 1;  // The match in the caller's org, if any.
+  bool fired = 2;                       // Whether the matches were acted on.
 }
 
-// TestEventMatch is the per-org dry-run/fire report the handler builds from a
-// RouteMatch. rule_index comes from the match; the wake/create fields are
-// derived from the matched rule by the handler (they are not stored on
-// RouteMatch).
+// TestEventMatch is what a matching routing rule did, or would do.
 message TestEventMatch {
   int64 org_id = 1;
-  int32 rule_index = 2;      // which configured rule matched (-1 = shipped default)
-  bool would_wake = 3;       // matched rule's wakeup flag
-  bool would_create = 5;     // a task would be / was created
-  repeated int64 created_task_ids = 6;   // populated only when fired && would_create
-  repeated int64 event_ids = 7;          // synthetic event rows written when fired
+  int32 rule_index = 2;      // The index of the rule that matched, or -1 for a built-in default rule.
+  bool would_wake = 3;       // The matched rule's wakeup.
+  bool would_create = 5;     // Whether a task would be, or was, created.
+  repeated int64 created_task_ids = 6;   // The tasks created; set only when fired.
+  repeated int64 event_ids = 7;          // The events added; set only when fired.
 }
 
 message CreateGitHubTokenRequest {}
@@ -852,26 +874,26 @@ message CreateGitHubTokenResponse {
   google.protobuf.Timestamp expires_at = 2;
 }
 
-// Schedule is a stored task template plus a cron spec. A server-side scheduler
-// worker materializes a real task run on each occurrence (see
-// docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
-// belongs to an org, not a user — created_by is attribution only and carries no
-// permission semantics.
+// See docs/src/content/docs/proposals/implemented/scheduled-tasks.md.
+
+// Schedule is a task template and a cron expression: the server creates a task
+// from the template at each time the expression matches. A schedule belongs to
+// its org, not to the user who created it.
 message Schedule {
   int64 id = 1;
   string name = 2;
   string workspace = 3;
   string runner = 4;
   string namespace = 5;
-  repeated Instruction instructions = 6;   // reuses the existing Instruction message
+  repeated Instruction instructions = 6;
   string cron_expr = 7;
-  string timezone = 8;                      // IANA name; default "UTC"
+  string timezone = 8;                      // IANA name; default "UTC".
   bool enabled = 9;
   google.protobuf.Duration auto_archive = 10;
-  google.protobuf.Timestamp next_run_at = 11;  // unset when disabled/paused
-  google.protobuf.Timestamp last_run_at = 12;  // unset when never run
-  int64 last_task_id = 13;                  // 0 = never run
-  string created_by = 14;
+  google.protobuf.Timestamp next_run_at = 11;  // Unset when disabled.
+  google.protobuf.Timestamp last_run_at = 12;  // Unset when it has never run.
+  int64 last_task_id = 13;                  // 0 when it has never run.
+  string created_by = 14;                   // Who created it; grants no permissions.
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
 }
@@ -883,10 +905,9 @@ message CreateScheduleRequest {
   string namespace = 4;
   repeated Instruction instructions = 5;
   string cron_expr = 6;
-  string timezone = 7;                      // IANA name; empty defaults to "UTC"
-  // enabled must be set to true for the schedule to run — there is no implicit
-  // default. A create with enabled false/unset stores an inert schedule that
-  // never fires until it is turned on via SetScheduleEnabled.
+  string timezone = 7;                      // IANA name; empty defaults to "UTC".
+  // Whether the schedule runs. False (the default) creates a schedule that
+  // never runs until SetScheduleEnabled enables it.
   bool enabled = 8;
   google.protobuf.Duration auto_archive = 9;
 }
@@ -909,9 +930,9 @@ message ListSchedulesResponse {
   repeated Schedule schedules = 1;
 }
 
-// UpdateScheduleRequest mirrors CreateTask/UpdateTask: id plus the mutable
-// template + spec fields. Changing cron_expr or timezone recomputes next_run_at
-// server-side. Enable/disable is a separate concern — see SetScheduleEnabled.
+// UpdateScheduleRequest replaces a schedule's template, cron expression and
+// timezone. Changing cron_expr or timezone recomputes next_run_at. Use
+// SetScheduleEnabled to enable or disable it.
 message UpdateScheduleRequest {
   int64 id = 1;
   string name = 2;
@@ -920,7 +941,7 @@ message UpdateScheduleRequest {
   string namespace = 5;
   repeated Instruction instructions = 6;
   string cron_expr = 7;
-  string timezone = 8;                      // IANA name; empty defaults to "UTC"
+  string timezone = 8;                      // IANA name; empty defaults to "UTC".
   google.protobuf.Duration auto_archive = 9;
 }
 
@@ -934,8 +955,8 @@ message DeleteScheduleRequest {
 
 message DeleteScheduleResponse {}
 
-// SetScheduleEnabledRequest toggles a schedule: enabling recomputes next_run_at
-// from now; disabling sets next_run_at = NULL so the claim query skips it.
+// SetScheduleEnabledRequest enables or disables a schedule. Enabling computes
+// next_run_at from now; disabling clears it, and the schedule stops running.
 message SetScheduleEnabledRequest {
   int64 id = 1;
   bool enabled = 2;
@@ -945,16 +966,14 @@ message SetScheduleEnabledResponse {
   Schedule schedule = 1;
 }
 
-// RunScheduleRequest fires a schedule immediately as a one-off, in addition to
-// its cron cadence. It records nothing on the schedule row — next_run_at,
-// last_run_at, and last_task_id are all left untouched; the row stays purely
-// about the cron cadence. Allowed on a disabled schedule — a disabled schedule
-// only means "don't fire automatically," and testing a not-yet-enabled schedule
-// is the primary use case.
+// RunScheduleRequest creates a task from a schedule now, once, in addition to
+// its regular runs. It leaves next_run_at, last_run_at and last_task_id
+// unchanged, and works on a disabled schedule too, so a schedule can be tried
+// out before it is enabled.
 message RunScheduleRequest {
   int64 id = 1;
 }
 
 message RunScheduleResponse {
-  Task task = 1;  // the task the manual run created — for the UI to link to
+  Task task = 1;  // The task the run created.
 }

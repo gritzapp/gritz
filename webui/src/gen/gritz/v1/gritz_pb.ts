@@ -150,7 +150,8 @@ export type Task = Message<"gritz.v1.Task"> & {
   command: TaskCommand;
 
   /**
-   * Incremented when command changes
+   * The task's current run: 0 before it first starts, then 1, and one more for
+   * each new run.
    *
    * @generated from field: int64 version = 11;
    */
@@ -172,32 +173,27 @@ export type Task = Message<"gritz.v1.Task"> & {
   url: string;
 
   /**
-   * Auto-archive this task once it has been in a terminal status
-   * (COMPLETED, FAILED, CANCELLED) for this long.
-   *   zero (or unset): never auto-archive (default)
-   *   negative:        archive immediately on terminal status
-   *   positive:        archive that long after reaching terminal status
+   * How long the task stays in a terminal status (COMPLETED, FAILED,
+   * CANCELLED) before it is archived. Zero or unset never archives it, a
+   * negative value archives it as soon as it reaches a terminal status, and a
+   * positive value archives it that long after.
    *
    * @generated from field: google.protobuf.Duration auto_archive = 15;
    */
   autoArchive?: Duration | undefined;
 
   /**
-   * Non-empty => this sandbox run is a reverse shell for this rendezvous
-   * session id (see
-   * docs/src/content/docs/proposals/implemented/driver-reverse-shell.md). Empty
-   * => normal agent run. Persistent and server-owned; the runner never touches
-   * it.
+   * The shell session the task's sandbox serves instead of running the agent,
+   * set by OpenShell. Empty for an ordinary run.
    *
    * @generated from field: string shell_session = 16;
    */
   shellSession: string;
 
   /**
-   * Namespace partitions subscription matching in the event router. Empty is
-   * the default namespace — the behavior every existing task already has. Set
-   * at creation and read-only thereafter (see
-   * docs/src/content/docs/proposals/implemented/task-namespaces.md).
+   * The task's namespace: only routing rules in the same namespace see its
+   * subscriptions. Empty is the default namespace. Set at creation and can't be
+   * changed.
    *
    * @generated from field: string namespace = 17;
    */
@@ -507,18 +503,16 @@ export type CreateTaskRequest = Message<"gritz.v1.CreateTaskRequest"> & {
   autoArchive?: Duration | undefined;
 
   /**
-   * Optional namespace for the created task. Empty (default) is the default
-   * namespace. See Task.namespace.
+   * The task's namespace; empty is the default namespace. See Task.namespace.
    *
    * @generated from field: string namespace = 7;
    */
   namespace: string;
 
   /**
-   * Create the task in TaskStatus.DRAFT: no command is set, so no runner picks
-   * it up and no sandbox is launched. The first UpdateTask with start (e.g. the
-   * first instruction from the task page composer) is what starts it. Defaults
-   * to false — an ordinary create, started immediately.
+   * Create the task as a DRAFT: no runner picks it up until an UpdateTask with
+   * start set, such as the first instruction sent from the task page, starts it.
+   * False (the default) starts the task immediately.
    *
    * @generated from field: bool draft = 8;
    */
@@ -610,8 +604,8 @@ export type UpdateTaskRequest = Message<"gritz.v1.UpdateTaskRequest"> & {
   start: boolean;
 
   /**
-   * Unset = leave alone. See Task.auto_archive for the value semantics
-   * (zero = never, negative = immediate, positive = delay).
+   * The new auto-archive delay, as in Task.auto_archive. Unset leaves it
+   * unchanged.
    *
    * @generated from field: google.protobuf.Duration auto_archive = 6;
    */
@@ -780,9 +774,9 @@ export const OpenShellRequestSchema: GenMessage<OpenShellRequest> = /*@__PURE__*
  */
 export type OpenShellResponse = Message<"gritz.v1.OpenShellResponse"> & {
   /**
-   * session_id is the rendezvous id the operator connects to via
-   * GET /shell/{session_id}/attach. It is also written to the task's
-   * shell_session field so the re-spawned driver serves this session.
+   * The shell session to attach to, at `GET /shell/{session_id}/attach`. The
+   * task's sandbox restarts to serve it, and the task's shell_session is set to
+   * it.
    *
    * @generated from field: string session_id = 1;
    */
@@ -859,10 +853,8 @@ export const UploadLogsResponseSchema: GenMessage<UploadLogsResponse> = /*@__PUR
   messageDesc(file_gritz_v1_gritz, 33);
 
 /**
- * LogChunk is an opaque run of driver log bytes. A task's transcript is the
- * concatenation of its chunks' data in id order — which is write order, because
- * the driver ships with a single in-flight sender. See
- * docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
+ * LogChunk is a run of bytes from a task's log. The log is the concatenation of
+ * its chunks' data in id order.
  *
  * @generated from message gritz.v1.LogChunk
  */
@@ -878,14 +870,14 @@ export type LogChunk = Message<"gritz.v1.LogChunk"> & {
   taskId: bigint;
 
   /**
-   * The run (task.version) the bytes belong to; 0 = pre-run preamble.
+   * The run (Task.version) the bytes belong to; 0 for output before the first run.
    *
    * @generated from field: int64 version = 3;
    */
   version: bigint;
 
   /**
-   * Raw log bytes, opaque to the server (not parsed into lines).
+   * Raw log bytes, not split into lines.
    *
    * @generated from field: bytes data = 4;
    */
@@ -921,7 +913,7 @@ export type AppendLogChunkRequest = Message<"gritz.v1.AppendLogChunkRequest"> & 
   version: bigint;
 
   /**
-   * Exactly one chunk; the driver's FIFO sender makes call order write order.
+   * The bytes to append to the task's log. Must be non-empty and at most 1 MiB.
    *
    * @generated from field: bytes data = 3;
    */
@@ -965,7 +957,8 @@ export type ListLogChunksByTaskRequest = Message<"gritz.v1.ListLogChunksByTaskRe
   pageSize: number;
 
   /**
-   * Opaque bidirectional cursor (encodes a boundary id + direction).
+   * A previous response's prev_page_token or next_page_token; empty for the
+   * newest page, at the end of the log.
    *
    * @generated from field: string page_token = 3;
    */
@@ -984,32 +977,31 @@ export const ListLogChunksByTaskRequestSchema: GenMessage<ListLogChunksByTaskReq
  */
 export type ListLogChunksByTaskResponse = Message<"gritz.v1.ListLogChunksByTaskResponse"> & {
   /**
-   * Always oldest-first (ascending id), so data concatenates into
+   * Oldest first, so their data concatenates in log order.
    *
    * @generated from field: repeated gritz.v1.LogChunk chunks = 1;
    */
   chunks: LogChunk[];
 
   /**
-   * transcript order.
-   *
-   * Older page (scroll back); empty when history is exhausted.
+   * Token for the older page; empty at the start of the log.
    *
    * @generated from field: string prev_page_token = 2;
    */
   prevPageToken: string;
 
   /**
-   * Newer page (live-follow); ALWAYS populated so a client can keep
+   * Token for the newer page. Always set, so a client can keep polling it for
+   * new chunks.
    *
    * @generated from field: string next_page_token = 3;
    */
   nextPageToken: string;
 
   /**
-   * polling the tail for appends.
-   *
-   * Whether another page exists beyond `chunks` in the direction just
+   * Whether another page exists in the direction just read: older for a
+   * request with a prev_page_token, newer otherwise. Stop when more is false
+   * rather than on a page shorter than page_size.
    *
    * @generated from field: bool more = 4;
    */
@@ -1063,7 +1055,8 @@ export type TaskLink = Message<"gritz.v1.TaskLink"> & {
   createdAt?: Timestamp | undefined;
 
   /**
-   * routing_key is a read-only routing key derived from url by the server.
+   * The key events are matched against, derived from url by the server.
+   * Read-only.
    *
    * @generated from field: string routing_key = 8;
    */
@@ -1190,10 +1183,8 @@ export type Event = Message<"gritz.v1.Event"> & {
   createdAt?: Timestamp | undefined;
 
   /**
-   * The set arm IS the event type — a typed union, not an opaque Struct. There
-   * is no separate `type` field on the wire; the db `type` column is
-   * materialized from the arm for indexed filtering (like `direction`). See
-   * docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
+   * The event's type and content. The field that is set is the event's type;
+   * there is no separate type field.
    *
    * @generated from oneof gritz.v1.Event.payload
    */
@@ -1244,9 +1235,7 @@ export const EventSchema: GenMessage<Event> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 44);
 
 /**
- * InstructionPayload is a to-agent instruction — the stream replacement for the
- * old tasks.instructions JSON column. Kept minimal (parity with the stored
- * instruction); no actor, consistent with the external-only trimming in #957.
+ * InstructionPayload is an instruction to the task's agent.
  *
  * @generated from message gritz.v1.InstructionPayload
  */
@@ -1289,29 +1278,25 @@ export type ExternalPayload = Message<"gritz.v1.ExternalPayload"> & {
   data: string;
 
   /**
-   * details carries optional, source-defined key/value context for consumers
-   * (the agent via get_my_task, the web UI timeline). The payload does not
-   * interpret it: GitHub review comments populate path/line/side/diff_hunk; other
-   * sources may set their own keys or none. Distinct from the router's matchable
-   * Attrs, which are not persisted.
+   * Extra context defined by the event's source, shown to the agent by
+   * get_my_task and on the task's timeline. GitHub review comments set `path`,
+   * `line`, `side` and `diff_hunk`; other sources set their own keys or none.
+   * These are not the attributes routing rules match on.
    *
    * @generated from field: map<string, string> details = 4;
    */
   details: { [key: string]: string };
 
   /**
-   * source is the coarse origin of the event (e.g. "github", "jira"), copied
-   * from the router's InputEvent.Source. Persisting it lets consumers pick an
-   * icon/label without regexing the URL.
+   * Where the event came from, such as "github" or "jira".
    *
    * @generated from field: string source = 5;
    */
   source: string;
 
   /**
-   * type is the fine-grained event type (e.g. "issue_comment",
-   * "pull_request_review"), copied from the router's InputEvent.Type. It
-   * distinguishes comment vs review vs assigned, which the URL cannot.
+   * The event's type within its source, such as "issue_comment" or
+   * "pull_request_review".
    *
    * @generated from field: string type = 6;
    */
@@ -1326,9 +1311,8 @@ export const ExternalPayloadSchema: GenMessage<ExternalPayload> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 46);
 
 /**
- * ReportPayload is the body of a report event — a from-agent message written by
- * the agent's `report` tool. It is the stream replacement for the old logs rows
- * with type='llm'. Reports are not to-agent, so they never enter the brief.
+ * ReportPayload is a message from the task's agent, written with its `report`
+ * tool.
  *
  * @generated from message gritz.v1.ReportPayload
  */
@@ -1347,15 +1331,15 @@ export const ReportPayloadSchema: GenMessage<ReportPayload> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 47);
 
 /**
- * LinkPayload is the body of a link event — an about-task record of a link the
- * task created (a PR, issue, etc.). The link event is the timeline source of
- * truth; the task_links row it mirrors is the subscription/list projection.
- * link_id is the task_links row id.
+ * LinkPayload records a link the task created, such as a pull request or an
+ * issue.
  *
  * @generated from message gritz.v1.LinkPayload
  */
 export type LinkPayload = Message<"gritz.v1.LinkPayload"> & {
   /**
+   * The TaskLink's id.
+   *
    * @generated from field: int64 link_id = 1;
    */
   linkId: bigint;
@@ -1389,13 +1373,9 @@ export const LinkPayloadSchema: GenMessage<LinkPayload> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 48);
 
 /**
- * CommandPayload is the body of a command event: the task's command, or the
- * version it applies to, changed.
- * It is written in the same transaction as the tasks row, so the event log
- * carries every command the runner has to act on, including the withdrawal of
- * a start and the clear when a runner event consumes the command. Command
- * events are not history; timelines skip them (see
- * docs/src/content/docs/proposals/implemented/runner-event-replica.md).
+ * CommandPayload records that the task's command, or the run it applies to,
+ * changed. Runners follow these events to start, restart and stop tasks;
+ * timelines don't show them.
  *
  * @generated from message gritz.v1.CommandPayload
  */
@@ -1429,17 +1409,8 @@ export const CommandPayloadSchema: GenMessage<CommandPayload> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 49);
 
 /**
- * LifecyclePayload is the body of a lifecycle event — an about-task record of a
- * transition that happened to the task (created, cancelled, sandbox exited, …).
- * It is the stream replacement for the old logs rows with type='audit'/'info'
- * and the type='error' container-failure rows. Lifecycle events sit beside the
- * existing status mutation in the same transaction; status stays a materialized
- * projection (see
- * docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
- * "Status stays a projection"). `message` carries the failure detail for
- * SANDBOX_FAILED and is empty for kinds that don't need it. `fields` lists the
- * task fields that changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status")
- * and is empty for other kinds.
+ * LifecyclePayload records something that happened to the task, such as its
+ * creation, its cancellation or its sandbox exiting.
  *
  * @generated from message gritz.v1.LifecyclePayload
  */
@@ -1465,11 +1436,16 @@ export type LifecyclePayload = Message<"gritz.v1.LifecyclePayload"> & {
   toStatus: string;
 
   /**
+   * The failure detail for SANDBOX_FAILED; empty for other kinds.
+   *
    * @generated from field: string message = 5;
    */
   message: string;
 
   /**
+   * The task fields that changed, such as "name" or "status", for UPDATED;
+   * empty for other kinds.
+   *
    * @generated from field: repeated string fields = 6;
    */
   fields: string[];
@@ -1483,19 +1459,21 @@ export const LifecyclePayloadSchema: GenMessage<LifecyclePayload> = /*@__PURE__*
   messageDesc(file_gritz_v1_gritz, 50);
 
 /**
- * Actor identifies who caused a lifecycle event. kind is one of user, runner,
- * or router; name is the human-readable name for user actors (empty for the
- * server-internal runner/router actors).
+ * Actor identifies who caused a lifecycle event.
  *
  * @generated from message gritz.v1.Actor
  */
 export type Actor = Message<"gritz.v1.Actor"> & {
   /**
+   * One of "user", "runner" or "router".
+   *
    * @generated from field: string kind = 1;
    */
   kind: string;
 
   /**
+   * The user's name for a user actor; empty otherwise.
+   *
    * @generated from field: string name = 2;
    */
   name: string;
@@ -1625,16 +1603,16 @@ export type ListEventsByTaskRequest = Message<"gritz.v1.ListEventsByTaskRequest"
   pageSize: number;
 
   /**
-   * Opaque bidirectional cursor (encodes a boundary id + direction).
+   * A previous response's prev_page_token or next_page_token; empty for the
+   * newest page.
    *
    * @generated from field: string page_token = 3;
    */
   pageToken: string;
 
   /**
-   * Empty returns the newest page.
-   *
-   * Event-type filter (e.g. "instruction", "external"); empty = all types.
+   * The event types to return, named after Event's payload fields (such as
+   * "instruction" or "external"); empty returns every type.
    *
    * @generated from field: repeated string types = 4;
    */
@@ -1653,30 +1631,31 @@ export const ListEventsByTaskRequestSchema: GenMessage<ListEventsByTaskRequest> 
  */
 export type ListEventsByTaskResponse = Message<"gritz.v1.ListEventsByTaskResponse"> & {
   /**
-   * Always oldest-first (ascending id), every page.
+   * Oldest first.
    *
    * @generated from field: repeated gritz.v1.Event events = 1;
    */
   events: Event[];
 
   /**
-   * Older page (scroll back); empty when history is exhausted.
+   * Token for the older page; empty at the first event.
    *
    * @generated from field: string prev_page_token = 2;
    */
   prevPageToken: string;
 
   /**
-   * Newer page (scroll forward / live-follow); ALWAYS populated so a
+   * Token for the newer page. Always set, so a client can keep polling it for
+   * new events.
    *
    * @generated from field: string next_page_token = 3;
    */
   nextPageToken: string;
 
   /**
-   * client can keep polling the tail for appends.
-   *
-   * Whether another page exists beyond `events` in the direction just
+   * Whether another page exists in the direction just read: older for a
+   * request with a prev_page_token, newer otherwise. Stop when more is false
+   * rather than on a page shorter than page_size.
    *
    * @generated from field: bool more = 4;
    */
@@ -1700,28 +1679,29 @@ export type RunnerEvent = Message<"gritz.v1.RunnerEvent"> & {
   taskId: bigint;
 
   /**
-   * "started", "stopped", "failed"
+   * "started", "stopped" or "failed".
    *
    * @generated from field: string event = 2;
    */
   event: string;
 
   /**
-   * Current version, or 0 for bypass
+   * The run (Task.version) the event is about. An event for another run than
+   * the task's current one is ignored; 0 applies to the current run.
    *
    * @generated from field: int64 version = 3;
    */
   version: bigint;
 
   /**
-   * True if from reconciliation, not real-time
+   * Events with reconcile set are ignored.
    *
    * @generated from field: bool reconcile = 4;
    */
   reconcile: boolean;
 
   /**
-   * Optional human-readable detail (failure reason, etc.)
+   * Optional human-readable detail, such as why the run failed.
    *
    * @generated from field: string reason = 5;
    */
@@ -1775,8 +1755,7 @@ export type CreateTaskTokenRequest = Message<"gritz.v1.CreateTaskTokenRequest"> 
   taskId: bigint;
 
   /**
-   * Workspace capability flags the runner enabled for this task
-   * (agentauth.CapabilityGitHubToken).
+   * The workspace capabilities to grant the token, such as "github_token".
    *
    * @generated from field: repeated string capabilities = 2;
    */
@@ -2573,9 +2552,8 @@ export const GenerateAtlassianWebhookSecretResponseSchema: GenMessage<GenerateAt
   messageDesc(file_gritz_v1_gritz, 104);
 
 /**
- * RuleCondition constrains one attribute dimension of an event. Op is one of
- * "equals", "prefix", or "contains"; comparisons are literal (exact,
- * case-sensitive) string operations.
+ * RuleCondition constrains one attribute of an event. Comparisons are exact and
+ * case-sensitive.
  *
  * @generated from message gritz.v1.RuleCondition
  */
@@ -2586,6 +2564,8 @@ export type RuleCondition = Message<"gritz.v1.RuleCondition"> & {
   attr: string;
 
   /**
+   * One of "equals", "prefix" or "contains".
+   *
    * @generated from field: string op = 2;
    */
   op: string;
@@ -2623,37 +2603,33 @@ export type RoutingRule = Message<"gritz.v1.RoutingRule"> & {
   create?: CreateTaskAction | undefined;
 
   /**
-   * Controls whether a matched rule restarts (wakes) the linked task(s). When
-   * false, the rule attaches the event and notifies the task(s) but does NOT
-   * restart them. UI-created rules default to true.
+   * Whether a match starts the subscribed tasks again to handle the event.
+   * When false, the event is added to their timelines without starting them.
+   * Rules created in the web UI default to true.
    *
    * @generated from field: bool wakeup = 9;
    */
   wakeup: boolean;
 
   /**
-   * Attribute conditions the event must satisfy (ANDed together). Empty
-   * source/type are wildcards; an empty conditions list matches every event of
-   * the selected type.
+   * Conditions the event must meet, all of them. Empty source and type match
+   * any; no conditions match every event of the selected type.
    *
    * @generated from field: repeated gritz.v1.RuleCondition conditions = 10;
    */
   conditions: RuleCondition[];
 
   /**
-   * public lets this rule fire for actors who are not members of the org (and
-   * need not be oauth-linked). Defaults false — rules are member-only unless
-   * explicitly opted in.
+   * Whether the rule also acts on events from people who aren't members of the
+   * org. False (the default) acts only on members' events.
    *
    * @generated from field: bool public = 11;
    */
   public: boolean;
 
   /**
-   * namespace partitions subscription matching. The router scopes this rule's
-   * wake-vs-create decision to subscribers whose task shares this namespace,
-   * and a created task is stamped with it. Empty (default) is the default
-   * namespace — the behavior every existing rule already has.
+   * The rule's namespace: a match looks for subscribed tasks only in it, and a
+   * task the rule creates is in it. Empty is the default namespace.
    *
    * @generated from field: string namespace = 12;
    */
@@ -2687,9 +2663,8 @@ export type CreateTaskAction = Message<"gritz.v1.CreateTaskAction"> & {
   prompt: string;
 
   /**
-   * Auto-archive value applied to tasks created by this rule. See
-   * Task.auto_archive for the value semantics (zero/unset = never,
-   * negative = immediate, positive = delay).
+   * The auto-archive delay of the tasks the rule creates, as in
+   * Task.auto_archive.
    *
    * @generated from field: google.protobuf.Duration auto_archive = 4;
    */
@@ -2768,29 +2743,35 @@ export const SetRoutingRulesResponseSchema: GenMessage<SetRoutingRulesResponse> 
   messageDesc(file_gritz_v1_gritz, 111);
 
 /**
- * AttrDef is a self-describing attribute dimension a routing rule may condition
- * on. key is the machine name conditions reference; label, help, and placeholder
- * are display copy the routing-rule editor renders straight from the schema.
+ * AttrDef is an event attribute a routing rule can have a condition on.
  *
  * @generated from message gritz.v1.AttrDef
  */
 export type AttrDef = Message<"gritz.v1.AttrDef"> & {
   /**
+   * The name a RuleCondition's attr refers to.
+   *
    * @generated from field: string key = 1;
    */
   key: string;
 
   /**
+   * The attribute's name in the routing-rule editor.
+   *
    * @generated from field: string label = 2;
    */
   label: string;
 
   /**
+   * Help text for the attribute in the routing-rule editor.
+   *
    * @generated from field: string help = 3;
    */
   help: string;
 
   /**
+   * Placeholder for the attribute's value in the routing-rule editor.
+   *
    * @generated from field: string placeholder = 4;
    */
   placeholder: string;
@@ -2804,12 +2785,8 @@ export const AttrDefSchema: GenMessage<AttrDef> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 112);
 
 /**
- * EventTypeDef describes a registered (source, type) event kind and the complete
- * set of attribute dimensions a routing rule may condition on for that kind. It
- * mirrors the eventrouter registry entry, exposing only the client-relevant
- * fields (the shipped default rules are intentionally omitted). Each AttrDef
- * carries its own display copy so clients render labels/help/placeholders from
- * the schema rather than hardcoding them.
+ * EventTypeDef is an event type, identified by its source and type, and every
+ * attribute a routing rule can have a condition on for it.
  *
  * @generated from message gritz.v1.EventTypeDef
  */
@@ -2905,9 +2882,9 @@ export const GetCustomEventTypesResponseSchema: GenMessage<GetCustomEventTypesRe
   messageDesc(file_gritz_v1_gritz, 117);
 
 /**
- * SetCustomEventTypes replaces the org's custom event types. Rejected with
- * InvalidArgument if a schema is malformed, and FailedPrecondition if an
- * existing routing rule would no longer validate against the new set.
+ * SetCustomEventTypesRequest replaces the org's custom event types. It fails
+ * with `invalid_argument` if a type is malformed, and `failed_precondition` if
+ * an existing routing rule would no longer be valid with the new types.
  *
  * @generated from message gritz.v1.SetCustomEventTypesRequest
  */
@@ -2943,53 +2920,50 @@ export const SetCustomEventTypesResponseSchema: GenMessage<SetCustomEventTypesRe
   messageDesc(file_gritz_v1_gritz, 119);
 
 /**
- * TestEventRequest composes a synthetic event from the schema and feeds it into
- * the real routing code, scoped to the caller's org. Attribute values are keyed
- * by AttrDef.Key — the same keys GetEventTypes hands the form — and carry a
- * single value per attr (the handler wraps each into the one-element slice
- * eventrouter.Attrs expects). The derived "body" and "url" attrs travel as
- * ordinary attrs entries and are unpacked server-side into Data and URL.
+ * TestEventRequest composes an event and routes it through the org's routing
+ * rules, as a dry run or for real.
  *
  * @generated from message gritz.v1.TestEventRequest
  */
 export type TestEventRequest = Message<"gritz.v1.TestEventRequest"> & {
   /**
-   * registered EventTypeDef.Source, e.g. "github"
+   * The event type's source, such as "github".
    *
    * @generated from field: string source = 1;
    */
   source: string;
 
   /**
-   * registered EventTypeDef.Type, e.g. "issue_comment"
+   * The event type, such as "issue_comment".
    *
    * @generated from field: string type = 2;
    */
   type: string;
 
   /**
-   * matchable values keyed by AttrDef.Key (incl. "body", "url")
+   * The event's attribute values, keyed by AttrDef.key, including "body" and
+   * "url".
    *
    * @generated from field: map<string, string> attrs = 3;
    */
   attrs: { [key: string]: string };
 
   /**
-   * optional human description for the event timeline
+   * Optional description shown on the task's timeline.
    *
    * @generated from field: string description = 4;
    */
   description: string;
 
   /**
-   * false = dry run (default); true = fire for real
+   * False (the default) for a dry run; true to act on the matches.
    *
    * @generated from field: bool fire = 5;
    */
   fire: boolean;
 
   /**
-   * source-defined context persisted verbatim (see §2a)
+   * Stored as the event's ExternalPayload.details.
    *
    * @generated from field: map<string, string> details = 6;
    */
@@ -3008,14 +2982,14 @@ export const TestEventRequestSchema: GenMessage<TestEventRequest> = /*@__PURE__*
  */
 export type TestEventResponse = Message<"gritz.v1.TestEventResponse"> & {
   /**
-   * one per org that matched (0 or 1 for the test path)
+   * The match in the caller's org, if any.
    *
    * @generated from field: repeated gritz.v1.TestEventMatch matches = 1;
    */
   matches: TestEventMatch[];
 
   /**
-   * whether side effects were applied
+   * Whether the matches were acted on.
    *
    * @generated from field: bool fired = 2;
    */
@@ -3030,10 +3004,7 @@ export const TestEventResponseSchema: GenMessage<TestEventResponse> = /*@__PURE_
   messageDesc(file_gritz_v1_gritz, 121);
 
 /**
- * TestEventMatch is the per-org dry-run/fire report the handler builds from a
- * RouteMatch. rule_index comes from the match; the wake/create fields are
- * derived from the matched rule by the handler (they are not stored on
- * RouteMatch).
+ * TestEventMatch is what a matching routing rule did, or would do.
  *
  * @generated from message gritz.v1.TestEventMatch
  */
@@ -3044,35 +3015,35 @@ export type TestEventMatch = Message<"gritz.v1.TestEventMatch"> & {
   orgId: bigint;
 
   /**
-   * which configured rule matched (-1 = shipped default)
+   * The index of the rule that matched, or -1 for a built-in default rule.
    *
    * @generated from field: int32 rule_index = 2;
    */
   ruleIndex: number;
 
   /**
-   * matched rule's wakeup flag
+   * The matched rule's wakeup.
    *
    * @generated from field: bool would_wake = 3;
    */
   wouldWake: boolean;
 
   /**
-   * a task would be / was created
+   * Whether a task would be, or was, created.
    *
    * @generated from field: bool would_create = 5;
    */
   wouldCreate: boolean;
 
   /**
-   * populated only when fired && would_create
+   * The tasks created; set only when fired.
    *
    * @generated from field: repeated int64 created_task_ids = 6;
    */
   createdTaskIds: bigint[];
 
   /**
-   * synthetic event rows written when fired
+   * The events added; set only when fired.
    *
    * @generated from field: repeated int64 event_ids = 7;
    */
@@ -3122,11 +3093,9 @@ export const CreateGitHubTokenResponseSchema: GenMessage<CreateGitHubTokenRespon
   messageDesc(file_gritz_v1_gritz, 124);
 
 /**
- * Schedule is a stored task template plus a cron spec. A server-side scheduler
- * worker materializes a real task run on each occurrence (see
- * docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
- * belongs to an org, not a user — created_by is attribution only and carries no
- * permission semantics.
+ * Schedule is a task template and a cron expression: the server creates a task
+ * from the template at each time the expression matches. A schedule belongs to
+ * its org, not to the user who created it.
  *
  * @generated from message gritz.v1.Schedule
  */
@@ -3157,8 +3126,6 @@ export type Schedule = Message<"gritz.v1.Schedule"> & {
   namespace: string;
 
   /**
-   * reuses the existing Instruction message
-   *
    * @generated from field: repeated gritz.v1.Instruction instructions = 6;
    */
   instructions: Instruction[];
@@ -3169,7 +3136,7 @@ export type Schedule = Message<"gritz.v1.Schedule"> & {
   cronExpr: string;
 
   /**
-   * IANA name; default "UTC"
+   * IANA name; default "UTC".
    *
    * @generated from field: string timezone = 8;
    */
@@ -3186,27 +3153,29 @@ export type Schedule = Message<"gritz.v1.Schedule"> & {
   autoArchive?: Duration | undefined;
 
   /**
-   * unset when disabled/paused
+   * Unset when disabled.
    *
    * @generated from field: google.protobuf.Timestamp next_run_at = 11;
    */
   nextRunAt?: Timestamp | undefined;
 
   /**
-   * unset when never run
+   * Unset when it has never run.
    *
    * @generated from field: google.protobuf.Timestamp last_run_at = 12;
    */
   lastRunAt?: Timestamp | undefined;
 
   /**
-   * 0 = never run
+   * 0 when it has never run.
    *
    * @generated from field: int64 last_task_id = 13;
    */
   lastTaskId: bigint;
 
   /**
+   * Who created it; grants no permissions.
+   *
    * @generated from field: string created_by = 14;
    */
   createdBy: string;
@@ -3264,16 +3233,15 @@ export type CreateScheduleRequest = Message<"gritz.v1.CreateScheduleRequest"> & 
   cronExpr: string;
 
   /**
-   * IANA name; empty defaults to "UTC"
+   * IANA name; empty defaults to "UTC".
    *
    * @generated from field: string timezone = 7;
    */
   timezone: string;
 
   /**
-   * enabled must be set to true for the schedule to run — there is no implicit
-   * default. A create with enabled false/unset stores an inert schedule that
-   * never fires until it is turned on via SetScheduleEnabled.
+   * Whether the schedule runs. False (the default) creates a schedule that
+   * never runs until SetScheduleEnabled enables it.
    *
    * @generated from field: bool enabled = 8;
    */
@@ -3374,9 +3342,9 @@ export const ListSchedulesResponseSchema: GenMessage<ListSchedulesResponse> = /*
   messageDesc(file_gritz_v1_gritz, 131);
 
 /**
- * UpdateScheduleRequest mirrors CreateTask/UpdateTask: id plus the mutable
- * template + spec fields. Changing cron_expr or timezone recomputes next_run_at
- * server-side. Enable/disable is a separate concern — see SetScheduleEnabled.
+ * UpdateScheduleRequest replaces a schedule's template, cron expression and
+ * timezone. Changing cron_expr or timezone recomputes next_run_at. Use
+ * SetScheduleEnabled to enable or disable it.
  *
  * @generated from message gritz.v1.UpdateScheduleRequest
  */
@@ -3417,7 +3385,7 @@ export type UpdateScheduleRequest = Message<"gritz.v1.UpdateScheduleRequest"> & 
   cronExpr: string;
 
   /**
-   * IANA name; empty defaults to "UTC"
+   * IANA name; empty defaults to "UTC".
    *
    * @generated from field: string timezone = 8;
    */
@@ -3484,8 +3452,8 @@ export const DeleteScheduleResponseSchema: GenMessage<DeleteScheduleResponse> = 
   messageDesc(file_gritz_v1_gritz, 135);
 
 /**
- * SetScheduleEnabledRequest toggles a schedule: enabling recomputes next_run_at
- * from now; disabling sets next_run_at = NULL so the claim query skips it.
+ * SetScheduleEnabledRequest enables or disables a schedule. Enabling computes
+ * next_run_at from now; disabling clears it, and the schedule stops running.
  *
  * @generated from message gritz.v1.SetScheduleEnabledRequest
  */
@@ -3526,12 +3494,10 @@ export const SetScheduleEnabledResponseSchema: GenMessage<SetScheduleEnabledResp
   messageDesc(file_gritz_v1_gritz, 137);
 
 /**
- * RunScheduleRequest fires a schedule immediately as a one-off, in addition to
- * its cron cadence. It records nothing on the schedule row — next_run_at,
- * last_run_at, and last_task_id are all left untouched; the row stays purely
- * about the cron cadence. Allowed on a disabled schedule — a disabled schedule
- * only means "don't fire automatically," and testing a not-yet-enabled schedule
- * is the primary use case.
+ * RunScheduleRequest creates a task from a schedule now, once, in addition to
+ * its regular runs. It leaves next_run_at, last_run_at and last_task_id
+ * unchanged, and works on a disabled schedule too, so a schedule can be tried
+ * out before it is enabled.
  *
  * @generated from message gritz.v1.RunScheduleRequest
  */
@@ -3554,7 +3520,7 @@ export const RunScheduleRequestSchema: GenMessage<RunScheduleRequest> = /*@__PUR
  */
 export type RunScheduleResponse = Message<"gritz.v1.RunScheduleResponse"> & {
   /**
-   * the task the manual run created — for the UI to link to
+   * The task the run created.
    *
    * @generated from field: gritz.v1.Task task = 1;
    */
@@ -3656,9 +3622,7 @@ export const TaskCommandSchema: GenEnum<TaskCommand> = /*@__PURE__*/
   enumDesc(file_gritz_v1_gritz, 1);
 
 /**
- * LifecycleKind is the closed set of lifecycle transitions (the TaskChange set,
- * minus Woken — which splits into an external event plus the transition the
- * wake caused).
+ * LifecycleKind is what happened in a lifecycle event.
  *
  * @generated from enum gritz.v1.LifecycleKind
  */
@@ -3726,6 +3690,10 @@ export const LifecycleKindSchema: GenEnum<LifecycleKind> = /*@__PURE__*/
   enumDesc(file_gritz_v1_gritz, 2);
 
 /**
+ * GritzService is the gritz API. The web UI, the CLI and the `gritz mcp` server
+ * call it for users; runners and the drivers inside task sandboxes call it to
+ * run tasks.
+ *
  * @generated from service gritz.v1.GritzService
  */
 export const GritzService: GenService<{
@@ -3762,9 +3730,9 @@ export const GritzService: GenService<{
     output: typeof ListTasksResponseSchema;
   },
   /**
-   * ListRunnerEvents returns the events of the runner's tasks after the
-   * cursor, in log order, from transactions that can no longer commit behind
-   * it.
+   * Called by the runner to follow the events of its tasks. Returns the events
+   * after the cursor in log order, and only once no earlier event can still
+   * appear, so following the cursor never skips one.
    *
    * @generated from rpc gritz.v1.GritzService.ListRunnerEvents
    */
@@ -3838,6 +3806,10 @@ export const GritzService: GenService<{
     output: typeof OpenShellResponseSchema;
   },
   /**
+   * Called by the agent's `report` tool in a task's sandbox. Each entry of type
+   * `llm` is added to the task as a report event; entries of other types are
+   * ignored.
+   *
    * @generated from rpc gritz.v1.GritzService.UploadLogs
    */
   uploadLogs: {
@@ -3846,6 +3818,8 @@ export const GritzService: GenService<{
     output: typeof UploadLogsResponseSchema;
   },
   /**
+   * Called by the driver in a task's sandbox to ship the task's log.
+   *
    * @generated from rpc gritz.v1.GritzService.AppendLogChunk
    */
   appendLogChunk: {
@@ -3910,6 +3884,9 @@ export const GritzService: GenService<{
     output: typeof ListEventsByTaskResponseSchema;
   },
   /**
+   * Called by the runner, and by the driver in a task's sandbox, to report that
+   * a task's run started, stopped or failed.
+   *
    * @generated from rpc gritz.v1.GritzService.SubmitRunnerEvents
    */
   submitRunnerEvents: {
@@ -3918,6 +3895,10 @@ export const GritzService: GenService<{
     output: typeof SubmitRunnerEventsResponseSchema;
   },
   /**
+   * Called by the runner before it starts a task's sandbox, to get the token the
+   * sandbox calls the API with. The token can read and update only that task,
+   * plus the requested capabilities.
+   *
    * @generated from rpc gritz.v1.GritzService.CreateTaskToken
    */
   createTaskToken: {
@@ -3926,6 +3907,9 @@ export const GritzService: GenService<{
     output: typeof CreateTaskTokenResponseSchema;
   },
   /**
+   * Called by the runner when it starts, to register the workspaces it serves.
+   * Replaces the workspaces registered before for the same runner.
+   *
    * @generated from rpc gritz.v1.GritzService.RegisterWorkspaces
    */
   registerWorkspaces: {
@@ -4110,6 +4094,9 @@ export const GritzService: GenService<{
     output: typeof TestEventResponseSchema;
   },
   /**
+   * Called from a task's sandbox to get a GitHub token. The server doesn't
+   * issue these tokens yet: every call fails with `unimplemented`.
+   *
    * @generated from rpc gritz.v1.GritzService.CreateGitHubToken
    */
   createGitHubToken: {
