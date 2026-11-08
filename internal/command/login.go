@@ -61,15 +61,10 @@ var LoginCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		setDefault, err := configfile.Login(filepath.Join(dir, configfile.Name), name, entry)
-		if err != nil {
+		if err := configfile.Login(filepath.Join(dir, configfile.Name), name, entry); err != nil {
 			return err
 		}
-		w := cmd.Root().Writer
-		fmt.Fprintf(w, "Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)
-		if setDefault {
-			fmt.Fprintf(w, "Default org set to %q\n", name)
-		}
+		fmt.Fprintf(cmd.Root().Writer, "Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)
 		return nil
 	},
 }

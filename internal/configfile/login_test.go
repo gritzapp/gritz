@@ -11,13 +11,12 @@ import (
 func TestLogin(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		file        string // initial contents; empty means no file
-		entryName   string
-		entry       Entry
-		want        string
-		wantDefault bool
-		err         string
+		name      string
+		file      string // initial contents; empty means no file
+		entryName string
+		entry     Entry
+		want      string
+		err       string
 	}{
 		{
 			name:      "new file",
@@ -29,7 +28,6 @@ orgs:
         id: 12
         key: k1
 `,
-			wantDefault: true,
 		},
 		{
 			name:      "server is written",
@@ -42,7 +40,6 @@ orgs:
         key: k1
         server: http://localhost:8080
 `,
-			wantDefault: true,
 		},
 		{
 			name: "new entry keeps default and allowed",
@@ -98,7 +95,6 @@ orgs:
         id: 31
         key: k2
 `,
-			wantDefault: true,
 		},
 		{
 			name: "different id",
@@ -137,7 +133,7 @@ orgs:
 			}
 
 			// Act
-			setDefault, err := Login(path, tt.entryName, tt.entry)
+			err := Login(path, tt.entryName, tt.entry)
 
 			// Assert
 			if tt.err != "" {
@@ -147,7 +143,6 @@ orgs:
 				return
 			}
 			assert.NilError(t, err)
-			assert.Equal(t, setDefault, tt.wantDefault)
 			got, err := os.ReadFile(path)
 			assert.NilError(t, err)
 			assert.Equal(t, string(got), tt.want)
@@ -160,7 +155,7 @@ func TestLogin_NameTaken(t *testing.T) {
 	path := filepath.Join(t.TempDir(), Name)
 	assert.NilError(t, os.WriteFile(path, []byte("orgs:\n  acme: {id: 31, key: k1}\n"), 0o600))
 
-	_, err := Login(path, "acme", Entry{ID: 12, Key: "k2"})
+	err := Login(path, "acme", Entry{ID: 12, Key: "k2"})
 
 	assert.ErrorIs(t, err, ErrNameTaken)
 }
@@ -172,9 +167,9 @@ func TestLogin_Mode(t *testing.T) {
 	existing := filepath.Join(dir, Name)
 	assert.NilError(t, os.WriteFile(existing, nil, 0o640))
 
-	_, err := Login(created, "acme", Entry{ID: 12, Key: "k1"})
+	err := Login(created, "acme", Entry{ID: 12, Key: "k1"})
 	assert.NilError(t, err)
-	_, err = Login(existing, "acme", Entry{ID: 12, Key: "k1"})
+	err = Login(existing, "acme", Entry{ID: 12, Key: "k1"})
 	assert.NilError(t, err)
 
 	// A new file is private; an existing one keeps its mode.

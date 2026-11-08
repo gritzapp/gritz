@@ -32,8 +32,7 @@ func TestLogin(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, out.String(), fmt.Sprintf(
-		"Logged in to Acme Labs (org %d) as \"acme-labs\"\nDefault org set to \"acme-labs\"\n", other.ID))
+	assert.Equal(t, out.String(), fmt.Sprintf("Logged in to Acme Labs (org %d) as \"acme-labs\"\n", other.ID))
 	f, err := configfile.Read(filepath.Join(dir, configfile.Name))
 	assert.NilError(t, err)
 	assert.DeepEqual(t, f, &configfile.FileV2{
