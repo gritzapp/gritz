@@ -71,6 +71,8 @@ The command reads the key from a variable, so it can be shared or logged without
 the key's value.
 
 - `type` names the custom type.
+- `description`, optional, is shown on the task's timeline. It defaults to the
+  type's label.
 - `url` identifies the resource the event is about; see
   [The URL is the subscription key](#the-url-is-the-subscription-key).
 - `body` is the event's text. The agent reads it, and rules can match on it.

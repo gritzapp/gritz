@@ -112,8 +112,8 @@ func TestWebhookHandler_MalformedBody(t *testing.T) {
 		},
 		{
 			name: "UnknownField",
-			body: `{"type": "problem", "url": "https://example.com/p/1", "description": "x"}`,
-			err:  `unknown field "description"`,
+			body: `{"type": "problem", "url": "https://example.com/p/1", "summary": "x"}`,
+			err:  `unknown field "summary"`,
 		},
 	}
 	for _, tt := range tests {

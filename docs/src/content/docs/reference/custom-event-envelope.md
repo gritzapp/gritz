@@ -42,6 +42,7 @@ A JSON object of at most 1 MiB:
 ```json
 {
   "type": "alert",
+  "description": "checkout-api error rate alert",
   "url": "https://alerts.example.com/alerts/4211",
   "body": "checkout-api error rate above 5% for 10 minutes",
   "attrs": {"severity": ["critical"], "service": ["checkout-api"]},
@@ -49,12 +50,13 @@ A JSON object of at most 1 MiB:
 }
 ```
 
-Fields other than the five below are rejected, as are fields of the wrong JSON
+Fields other than the six below are rejected, as are fields of the wrong JSON
 type.
 
 | Field | Type | Required | Validation |
 | --- | --- | --- | --- |
 | `type` | string | yes | Must name one of the organisation's custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
+| `description` | string | no | The event's description on the task's timeline. Defaults to the type's label. |
 | `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url). |
 | `body` | string | no | The event's text. Defaults to the empty string. |
 | `attrs` | object of string → array of strings | no | Every key must be an attribute the type declares, other than `body` and `url`. |
@@ -63,7 +65,8 @@ type.
 #### `type`
 
 The custom type's name, which matches `^[a-z][a-z0-9_]{0,63}$`. The type's label
-becomes the event's description on the task's timeline.
+becomes the event's description on the task's timeline when `description` is
+empty.
 
 #### `url`
 

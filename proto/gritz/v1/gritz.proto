@@ -836,20 +836,28 @@ message SetCustomEventTypesResponse {
   repeated EventTypeDef event_types = 1;
 }
 
-// The handler wraps each attr value into the one-element slice eventrouter.Attrs
-// expects, and unpacks the "body" and "url" attrs into Data and URL.
-
 // TestEventRequest composes an event and routes it through the org's routing
-// rules, as a dry run or for real.
+// rules, as a dry run or for real. Every event is validated against its type:
+// it fails with `invalid_argument` for an unknown source or type, a missing or
+// non-absolute http(s) url, or an attr the type doesn't declare. An event of a
+// built-in source routes as the caller. A custom event routes like one posted
+// to the custom event webhook: it has no actor, so only public rules match it.
 message TestEventRequest {
   string source = 1;                // The event type's source, such as "github".
   string type = 2;                  // The event type, such as "issue_comment".
-  // The event's attribute values, keyed by AttrDef.key, including "body" and
-  // "url".
-  map<string, string> attrs = 3;
-  string description = 4;           // Optional description shown on the task's timeline.
+  // The event's attribute values, keyed by AttrDef.key. An attr may have
+  // several values. "body" and "url" are sent in their own fields, not here.
+  map<string, AttrValues> attrs = 3;
+  string description = 4;           // Optional description shown on the task's timeline; defaults to the event type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
+  string body = 7;                  // The event's text, matched by rules on the "body" attr.
+  string url = 8;                   // The event's resource URL, matched by rules on the "url" attr and by subscribed links.
+}
+
+// AttrValues is the values of one event attribute.
+message AttrValues {
+  repeated string values = 1;
 }
 
 message TestEventResponse {
