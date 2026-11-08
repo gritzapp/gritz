@@ -327,6 +327,32 @@ func (a *Auth) RequireBearerAuth() func(http.Handler) http.Handler {
 	}
 }
 
+// RequireResourceAuth returns middleware for an OAuth 2.0 protected resource
+// such as /mcp. Like RequireBearerAuth it requires a valid Bearer token with no
+// cookie or dev user fallback, but its 401s carry a WWW-Authenticate challenge
+// whose resource_metadata parameter points at resourceMetadata, the absolute
+// URL of the protected resource metadata document (RFC 9728 section 5.1), so
+// clients discover the authorization server from the challenge.
+func (a *Auth) RequireResourceAuth(resourceMetadata string) func(http.Handler) http.Handler {
+	challenge := `Bearer resource_metadata="` + resourceMetadata + `"`
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, err := a.authenticate(r)
+			if err != nil {
+				w.Header().Set("WWW-Authenticate", challenge+`, error="invalid_token"`)
+				http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+			if user == nil {
+				w.Header().Set("WWW-Authenticate", challenge)
+				http.Error(w, "bearer token required", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), user)))
+		})
+	}
+}
+
 // CheckAuth returns middleware that checks for valid authentication and
 // populates context, but does not reject unauthenticated requests.
 func (a *Auth) CheckAuth() func(http.Handler) http.Handler {

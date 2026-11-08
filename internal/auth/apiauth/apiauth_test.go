@@ -128,3 +128,62 @@ func TestRequireBearerAuth_InvalidToken(t *testing.T) {
 	// Assert
 	assert.Equal(t, rec.Code, http.StatusUnauthorized)
 }
+
+func TestRequireResourceAuth(t *testing.T) {
+	t.Parallel()
+	const metadata = "https://gritz.example.com/.well-known/oauth-protected-resource"
+	key, err := CreateAppPrivateKey()
+	assert.NilError(t, err)
+	other, err := CreateAppPrivateKey()
+	assert.NilError(t, err)
+	valid, err := SignAppToken(key, NewAppClaims(&UserInfo{ID: "user-1", OrgID: 7}))
+	assert.NilError(t, err)
+	invalid, err := SignAppToken(other, NewAppClaims(&UserInfo{ID: "user-1", OrgID: 7}))
+	assert.NilError(t, err)
+	tests := []struct {
+		name          string
+		authorization string
+		wantCode      int
+		wantChallenge string
+	}{
+		{
+			name:          "no token",
+			wantCode:      http.StatusUnauthorized,
+			wantChallenge: `Bearer resource_metadata="` + metadata + `"`,
+		},
+		{
+			name:          "invalid token",
+			authorization: "Bearer " + invalid,
+			wantCode:      http.StatusUnauthorized,
+			wantChallenge: `Bearer resource_metadata="` + metadata + `", error="invalid_token"`,
+		},
+		{
+			name:          "valid token",
+			authorization: "Bearer " + valid,
+			wantCode:      http.StatusOK,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange: the dev user is never used, RequireResourceAuth has no fallback.
+			a, err := New(t.Context(), Config{AppKey: key, DevUser: &UserInfo{ID: "dev"}})
+			assert.NilError(t, err)
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, MustCaller(r.Context()).ID, "user-1")
+			})
+			req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			rec := httptest.NewRecorder()
+
+			// Act
+			a.RequireResourceAuth(metadata)(next).ServeHTTP(rec, req)
+
+			// Assert
+			assert.Equal(t, rec.Code, tt.wantCode)
+			assert.Equal(t, rec.Header().Get("WWW-Authenticate"), tt.wantChallenge)
+		})
+	}
+}
