@@ -46,11 +46,11 @@ var TaskCreateCommand = &cli.Command{
 		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		entry, err := configfile.Resolve(cmd)
+		cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: entry.Server, Token: entry.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
 
 		texts := cmd.StringSlice("instruction")
 		instructions := make([]*gritzv1.Instruction, len(texts))

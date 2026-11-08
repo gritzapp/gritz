@@ -46,11 +46,11 @@ var LogsCommand = &cli.Command{
 		if err != nil {
 			return cli.Exit("invalid task ID: "+cmd.Args().First(), 1)
 		}
-		entry, err := configfile.Resolve(cmd)
+		cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: entry.Server, Token: entry.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
 		tasklog := gritzclient.OpenTaskLog(client, taskID, logPageSize)
 		for chunk, err := range tasklog.History(ctx) {
 			if err != nil {

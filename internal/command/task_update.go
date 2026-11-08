@@ -61,7 +61,7 @@ var TaskUpdateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		entry, err := configfile.Resolve(cmd)
+		cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ var TaskUpdateCommand = &cli.Command{
 		if cmd.IsSet("auto-archive") {
 			req.AutoArchive = durationpb.New(cmd.Duration("auto-archive"))
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: entry.Server, Token: entry.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
 		if _, err := client.UpdateTask(ctx, req); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
