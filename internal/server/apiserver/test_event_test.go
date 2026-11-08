@@ -48,7 +48,8 @@ func TestTestEventFireSkipsOutboundSideEffects(t *testing.T) {
 	resp, err := srv.TestEvent(ctx, &gritzv1.TestEventRequest{
 		Source: "github",
 		Type:   "issue_comment",
-		Attrs:  map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: go"}}, "url": {Values: []string{"https://github.com/o/r/issues/1"}}},
+		Body:   "gritz: go",
+		Url:    "https://github.com/o/r/issues/1",
 		Fire:   true,
 	})
 	assert.NilError(t, err)

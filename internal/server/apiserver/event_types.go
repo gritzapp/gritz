@@ -132,25 +132,10 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		return nil, connect.NewError(connect.CodeInternal, errors.New("event router not configured"))
 	}
 
-	// The "body" and "url" attrs are the derived views over Data/URL
-	// (InputEvent.Attr), so each takes a single value; every other attr is
-	// passed through with all its values.
-	var body, url string
+	// Each attr is passed through with all its values.
 	attrs := eventrouter.Attrs{}
 	for key, attr := range req.Attrs {
-		switch key {
-		case "body", "url":
-			if len(attr.GetValues()) != 1 {
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("attr %q takes one value", key))
-			}
-			if key == "body" {
-				body = attr.Values[0]
-			} else {
-				url = attr.Values[0]
-			}
-		default:
-			attrs[key] = attr.GetValues()
-		}
+		attrs[key] = attr.GetValues()
 	}
 
 	// Compose the synthetic InputEvent. Details pass through verbatim — the
@@ -166,8 +151,8 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
 		input, err = customserver.ToInputEvent(customserver.Envelope{
 			Type:    req.Type,
-			Body:    body,
-			URL:     url,
+			Body:    req.Body,
+			URL:     req.Url,
 			Attrs:   attrs,
 			Details: req.Details,
 		}, reg, caller.OrgID)
@@ -178,12 +163,19 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 			input.Description = req.Description
 		}
 	} else {
+		// InputEvent.Attr derives these from Data and URL, so a value sent
+		// as an attr would be silently ignored.
+		for _, key := range []string{"body", "url"} {
+			if _, ok := attrs[key]; ok {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("attr %q must be sent as the request's %q field", key, key))
+			}
+		}
 		input = eventrouter.InputEvent{
 			Source:      req.Source,
 			Type:        req.Type,
 			Description: req.Description,
-			Data:        body,
-			URL:         url,
+			Data:        req.Body,
+			URL:         req.Url,
 			UserID:      caller.ID,
 			Orgs:        []int64{caller.OrgID},
 			Attrs:       attrs,

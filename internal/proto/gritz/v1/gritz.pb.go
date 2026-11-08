@@ -6650,12 +6650,14 @@ type TestEventRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Source string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"` // The event type's source, such as "github".
 	Type   string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`     // The event type, such as "issue_comment".
-	// The event's attribute values, keyed by AttrDef.key, including "body" and
-	// "url". An attr may have several values; "body" and "url" take one.
+	// The event's attribute values, keyed by AttrDef.key. An attr may have
+	// several values. "body" and "url" are sent in their own fields, not here.
 	Attrs         map[string]*AttrValues `protobuf:"bytes,3,rep,name=attrs,proto3" json:"attrs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Description   string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`                                                                   // Optional description shown on the task's timeline; a custom event defaults to its type's label.
 	Fire          bool                   `protobuf:"varint,5,opt,name=fire,proto3" json:"fire,omitempty"`                                                                                // False (the default) for a dry run; true to act on the matches.
 	Details       map[string]string      `protobuf:"bytes,6,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Stored as the event's ExternalPayload.details.
+	Body          string                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`                                                                                 // The event's text, matched by rules on the "body" attr.
+	Url           string                 `protobuf:"bytes,8,opt,name=url,proto3" json:"url,omitempty"`                                                                                   // The event's resource URL, matched by rules on the "url" attr and by subscribed links.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6730,6 +6732,20 @@ func (x *TestEventRequest) GetDetails() map[string]string {
 		return x.Details
 	}
 	return nil
+}
+
+func (x *TestEventRequest) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *TestEventRequest) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
 }
 
 // AttrValues is the values of one event attribute.
@@ -8327,14 +8343,16 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"eventTypes\"V\n" +
 	"\x1bSetCustomEventTypesResponse\x127\n" +
 	"\vevent_types\x18\x01 \x03(\v2\x16.gritz.v1.EventTypeDefR\n" +
-	"eventTypes\"\x80\x03\n" +
+	"eventTypes\"\xa6\x03\n" +
 	"\x10TestEventRequest\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12;\n" +
 	"\x05attrs\x18\x03 \x03(\v2%.gritz.v1.TestEventRequest.AttrsEntryR\x05attrs\x12 \n" +
 	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x12\n" +
 	"\x04fire\x18\x05 \x01(\bR\x04fire\x12A\n" +
-	"\adetails\x18\x06 \x03(\v2'.gritz.v1.TestEventRequest.DetailsEntryR\adetails\x1aN\n" +
+	"\adetails\x18\x06 \x03(\v2'.gritz.v1.TestEventRequest.DetailsEntryR\adetails\x12\x12\n" +
+	"\x04body\x18\a \x01(\tR\x04body\x12\x10\n" +
+	"\x03url\x18\b \x01(\tR\x03url\x1aN\n" +
 	"\n" +
 	"AttrsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12*\n" +

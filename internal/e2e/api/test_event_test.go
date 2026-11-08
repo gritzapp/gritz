@@ -37,7 +37,8 @@ func TestTestEvent(t *testing.T) {
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 		Source: "github",
 		Type:   "issue_comment",
-		Attrs:  map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: do it"}}, "url": {Values: []string{"https://github.com/o/r/issues/1"}}},
+		Body:   "gritz: do it",
+		Url:    "https://github.com/o/r/issues/1",
 	})
 
 	// Assert: the matched rule is reported straight through, and the dry run
@@ -90,7 +91,8 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "alice commented",
-		Attrs:       map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: do it"}}, "url": {Values: []string{url}}},
+		Body:        "gritz: do it",
+		Url:         url,
 		Details:     details,
 		Fire:        true,
 	})
@@ -186,7 +188,8 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 		Source:      "github",
 		Type:        "issue_comment",
 		Description: "follow-up comment",
-		Attrs:       map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: again"}}, "url": {Values: []string{url}}},
+		Body:        "gritz: again",
+		Url:         url,
 		Details:     details,
 		Fire:        true,
 	})
@@ -257,7 +260,8 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 	req := &gritzv1.TestEventRequest{
 		Source: "github",
 		Type:   "issue_comment",
-		Attrs:  map[string]*gritzv1.AttrValues{"body": {Values: []string{"gritz: go"}}, "url": {Values: []string{"https://github.com/o/r/issues/1"}}},
+		Body:   "gritz: go",
+		Url:    "https://github.com/o/r/issues/1",
 	}
 
 	// Act & Assert - dry run is allowed.
@@ -307,12 +311,10 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 		Source: "custom",
 		Type:   "problem",
-		Attrs: map[string]*gritzv1.AttrValues{
-			"body":     {Values: []string{"CPU saturation"}},
-			"url":      {Values: []string{url}},
-			"severity": {Values: []string{"critical"}},
-		},
-		Fire: true,
+		Body:   "CPU saturation",
+		Url:    url,
+		Attrs:  map[string]*gritzv1.AttrValues{"severity": {Values: []string{"critical"}}},
+		Fire:   true,
 	})
 
 	// Assert: the public rule matched, not the member-only one before it.
@@ -390,10 +392,8 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 		Source: "custom",
 		Type:   "problem",
-		Attrs: map[string]*gritzv1.AttrValues{
-			"url":      {Values: []string{"https://example.com/problems/1"}},
-			"severity": {Values: []string{"warning", "critical"}},
-		},
+		Url:    "https://example.com/problems/1",
+		Attrs:  map[string]*gritzv1.AttrValues{"severity": {Values: []string{"warning", "critical"}}},
 	})
 
 	// Assert
@@ -427,45 +427,42 @@ func TestTestEventCustomInvalid(t *testing.T) {
 		},
 	})
 	assert.NilError(t, err)
-	values := func(v ...string) *gritzv1.AttrValues { return &gritzv1.AttrValues{Values: v} }
 	tests := []struct {
 		name  string
 		typ   string
+		url   string
 		attrs map[string]*gritzv1.AttrValues
 	}{
 		{
-			name:  "unknown type",
-			typ:   "incident",
-			attrs: map[string]*gritzv1.AttrValues{"url": values("https://example.com/1")},
+			name: "unknown type",
+			typ:  "incident",
+			url:  "https://example.com/1",
 		},
 		{
 			name: "missing url",
 			typ:  "problem",
 		},
 		{
-			name:  "relative url",
-			typ:   "problem",
-			attrs: map[string]*gritzv1.AttrValues{"url": values("/problems/1")},
-		},
-		{
-			name:  "non-http url",
-			typ:   "problem",
-			attrs: map[string]*gritzv1.AttrValues{"url": values("ftp://example.com/1")},
-		},
-		{
-			name: "undeclared attr",
+			name: "relative url",
 			typ:  "problem",
-			attrs: map[string]*gritzv1.AttrValues{
-				"url":   values("https://example.com/1"),
-				"owner": values("alice"),
-			},
+			url:  "/problems/1",
 		},
 		{
-			name: "two urls",
+			name: "non-http url",
 			typ:  "problem",
-			attrs: map[string]*gritzv1.AttrValues{
-				"url": values("https://example.com/1", "https://example.com/2"),
-			},
+			url:  "ftp://example.com/1",
+		},
+		{
+			name:  "undeclared attr",
+			typ:   "problem",
+			url:   "https://example.com/1",
+			attrs: map[string]*gritzv1.AttrValues{"owner": {Values: []string{"alice"}}},
+		},
+		{
+			name:  "url sent as an attr",
+			typ:   "problem",
+			url:   "https://example.com/1",
+			attrs: map[string]*gritzv1.AttrValues{"url": {Values: []string{"https://example.com/1"}}},
 		},
 	}
 	for _, tt := range tests {
@@ -474,6 +471,7 @@ func TestTestEventCustomInvalid(t *testing.T) {
 			_, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 				Source: "custom",
 				Type:   tt.typ,
+				Url:    tt.url,
 				Attrs:  tt.attrs,
 				Fire:   true,
 			})

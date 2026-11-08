@@ -92,16 +92,23 @@ export function TestEventForm() {
   // Composes the request from the current form state. Only attrs the selected
   // type offers and details with a non-empty key are sent.
   const buildRequest = (fire: boolean) => {
+    // "body" and "url" have their own request fields; every other attr is
+    // sent as a single value.
+    let body = ''
+    let url = ''
     const attrs: Record<string, { values: string[] }> = {}
     for (const attr of availableAttrs) {
       const value = attrValues[attr.key]
-      if (value !== undefined && value !== '') attrs[attr.key] = { values: [value] }
+      if (value === undefined || value === '') continue
+      if (attr.key === 'body') body = value
+      else if (attr.key === 'url') url = value
+      else attrs[attr.key] = { values: [value] }
     }
     const detailMap: Record<string, string> = {}
     for (const row of details) {
       if (row.key.trim() !== '') detailMap[row.key] = row.value
     }
-    return { source, type, attrs, details: detailMap, description, fire }
+    return { source, type, body, url, attrs, details: detailMap, description, fire }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
