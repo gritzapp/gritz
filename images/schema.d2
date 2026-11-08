@@ -12,6 +12,8 @@ tasks: {
   version: BIGINT
   archived: BOOLEAN
   auto_archive: BIGINT
+  namespace: TEXT
+  shell_session: TEXT
   created_at: TIMESTAMP
   updated_at: TIMESTAMP
 }
@@ -36,7 +38,39 @@ events: {
   type: TEXT
   wake: BOOLEAN
   payload: JSONB
+  xid: XID8
   created_at: TIMESTAMP
+}
+
+log_chunks: {
+  shape: sql_table
+  id: BIGSERIAL {constraint: primary_key}
+  org_id: BIGINT {constraint: foreign_key}
+  task_id: BIGINT {constraint: foreign_key}
+  version: BIGINT
+  data: BYTEA
+  created_at: TIMESTAMP
+}
+
+schedules: {
+  shape: sql_table
+  id: BIGSERIAL {constraint: primary_key}
+  org_id: BIGINT {constraint: foreign_key}
+  created_by: TEXT {constraint: foreign_key}
+  name: TEXT
+  workspace: TEXT
+  runner: TEXT
+  namespace: TEXT
+  instructions: JSONB
+  auto_archive: BIGINT
+  cron_expr: TEXT
+  timezone: TEXT
+  enabled: BOOLEAN
+  next_run_at: TIMESTAMP
+  last_run_at: TIMESTAMP
+  last_task_id: BIGINT {constraint: foreign_key}
+  created_at: TIMESTAMP
+  updated_at: TIMESTAMP
 }
 
 workspaces: {
@@ -63,11 +97,11 @@ keys: {
 users: {
   shape: sql_table
   id: TEXT {constraint: primary_key}
-  email: TEXT
+  email: TEXT {constraint: unique}
   name: TEXT
-  github_user_id: BIGINT
+  github_user_id: BIGINT {constraint: unique}
   github_username: TEXT
-  atlassian_account_id: TEXT
+  atlassian_account_id: TEXT {constraint: unique}
   atlassian_username: TEXT
   created_at: TIMESTAMP
   updated_at: TIMESTAMP
@@ -77,10 +111,11 @@ users: {
 orgs: {
   shape: sql_table
   id: BIGSERIAL {constraint: primary_key}
-  name: TEXT {constraint: unique}
-  owner: TEXT
+  name: TEXT
+  owner: TEXT {constraint: foreign_key}
   atlassian_webhook_secret: TEXT
   routing_rules: JSONB
+  custom_event_types: JSONB
   github_installation_id: BIGINT
   created_at: TIMESTAMP
   updated_at: TIMESTAMP
@@ -89,17 +124,9 @@ orgs: {
 
 org_members: {
   shape: sql_table
-  org_id: BIGINT {constraint: foreign_key}
-  user_id: TEXT
+  org_id: BIGINT {constraint: [primary_key; foreign_key]}
+  user_id: TEXT {constraint: [primary_key; foreign_key]}
   role: TEXT
-  created_at: TIMESTAMP
-}
-
-pending_integrations: {
-  shape: sql_table
-  type: TEXT {constraint: primary_key}
-  external_id: TEXT {constraint: primary_key}
-  options: JSONB
   created_at: TIMESTAMP
 }
 
@@ -114,3 +141,8 @@ keys.org_id -> orgs.id
 org_members.user_id -> users.id
 orgs.owner -> users.id
 users.default_org_id -> orgs.id
+log_chunks.org_id -> orgs.id
+log_chunks.task_id -> tasks.id
+schedules.org_id -> orgs.id
+schedules.created_by -> users.id
+schedules.last_task_id -> tasks.id
