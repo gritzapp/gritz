@@ -116,5 +116,5 @@ Both run the event only for the organisation you are in. A GitHub or Jira event
 runs as yours, so your organisation's member-only rules can match it. A
 [custom event](/integrations/custom-events/) is checked and routed like one
 posted to the webhook: it is rejected where the webhook would reject it, it has
-no actor, so only public rules match it, and without a description it is shown
-as `test event`.
+no actor, so only public rules match it, and without a description it gets its
+type's label.

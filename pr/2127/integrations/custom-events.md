@@ -18,7 +18,8 @@ Open **Events → Custom Schemas** and add a type with **+ Type**:
   letters, digits and underscores (`^[a-z][a-z0-9_]{0,63}$`). It must be unique
   among your organisation's custom types, and it can't be renamed later: remove
   the type and add a new one instead.
-- **Label**: shown in the routing rule editor, for example `Alert`. It can't be empty.
+- **Label**: shown in the routing rule editor and on the task's timeline, for
+  example `Alert`. It can't be empty.
 - **Attributes**: the values routing rules can match on. Every type has `body`
   and `url`; the form adds both and doesn't let you remove them. Add one row per
   extra attribute, with a key that follows the same rules as the type name. The
@@ -65,8 +66,8 @@ The command reads the key from a variable, so it can be shared or logged without
 the key's value.
 
 - `type` names the custom type.
-- `description`, optional, is shown on the task's timeline. It defaults to
-  `custom event`.
+- `description`, optional, is shown on the task's timeline. It defaults to the
+  type's label.
 - `url` identifies the resource the event is about; see
   [The URL is the subscription key](#the-url-is-the-subscription-key).
 - `body` is the event's text. The agent reads it, and rules can match on it.

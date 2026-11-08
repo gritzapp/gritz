@@ -242,7 +242,7 @@ Make a rule public to let people outside the organisation, such as outside contr
 * **Dry run** shows which rule would match the event and whether that rule would wake tasks or create one. It changes nothing. It reports the rule’s settings only: it doesn’t check whether a task is subscribed to the URL.
 * **Fire** routes the event for real, as if it had arrived from its source: it wakes or creates tasks and stores the event on them. It doesn’t post anything back to GitHub or Jira.
 
-Both run the event only for the organisation you are in. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2127/integrations/custom-events/) is checked and routed like one posted to the webhook: it is rejected where the webhook would reject it, it has no actor, so only public rules match it, and without a description it is shown as `test event`.
+Both run the event only for the organisation you are in. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2127/integrations/custom-events/) is checked and routed like one posted to the webhook: it is rejected where the webhook would reject it, it has no actor, so only public rules match it, and without a description it gets its type’s label.
 
 # Runners
 
@@ -544,7 +544,7 @@ This page uses an alerting system as its example. It posts an `alert` event when
 Open **Events → Custom Schemas** and add a type with **+ Type**:
 
 * **Type**: the name senders put in the envelope’s `type` field, for example `alert`. It must start with a lowercase letter, followed by up to 63 lowercase letters, digits and underscores (`^[a-z][a-z0-9_]{0,63}$`). It must be unique among your organisation’s custom types, and it can’t be renamed later: remove the type and add a new one instead.
-* **Label**: shown in the routing rule editor, for example `Alert`. It can’t be empty.
+* **Label**: shown in the routing rule editor and on the task’s timeline, for example `Alert`. It can’t be empty.
 * **Attributes**: the values routing rules can match on. Every type has `body` and `url`; the form adds both and doesn’t let you remove them. Add one row per extra attribute, with a key that follows the same rules as the type name. The example declares `severity` and `service`. An attribute’s label, help and placeholder are only for display, in the rule editor and the JSON Schema.
 
 The **JSON Schema** button next to each type shows the request body the webhook accepts for it.
@@ -585,7 +585,7 @@ curl https://gritz.dev/webhook/custom \
 The command reads the key from a variable, so it can be shared or logged without the key’s value.
 
 * `type` names the custom type.
-* `description`, optional, is shown on the task’s timeline. It defaults to `custom event`.
+* `description`, optional, is shown on the task’s timeline. It defaults to the type’s label.
 * `url` identifies the resource the event is about; see [The URL is the subscription key](#the-url-is-the-subscription-key).
 * `body` is the event’s text. The agent reads it, and rules can match on it.
 * `attrs` holds the values of the type’s other attributes. Each value is a list of strings, even when there is only one.
@@ -30701,7 +30701,7 @@ message TestEventRequest {
   // The event's attribute values, keyed by AttrDef.key. An attr may have
   // several values. "body" and "url" are sent in their own fields, not here.
   map<string, AttrValues> attrs = 3;
-  string description = 4;           // Optional description shown on the task's timeline; a custom event defaults to "test event".
+  string description = 4;           // Optional description shown on the task's timeline; a custom event defaults to its type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
   string body = 7;                  // The event's text, matched by rules on the "body" attr.
@@ -31178,7 +31178,7 @@ Fields other than the six below are rejected, as are fields of the wrong JSON ty
 | Field         | Type                                | Required | Validation                                                                                                                                                                                 |
 | ------------- | ----------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `type`        | string                              | yes      | Must name one of the organisation’s custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
-| `description` | string                              | no       | The event’s description on the task’s timeline. Defaults to `custom event`.                                                                                                                |
+| `description` | string                              | no       | The event’s description on the task’s timeline. Defaults to the type’s label.                                                                                                              |
 | `url`         | string                              | yes      | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url).                                                          |
 | `body`        | string                              | no       | The event’s text. Defaults to the empty string.                                                                                                                                            |
 | `attrs`       | object of string → array of strings | no       | Every key must be an attribute the type declares, other than `body` and `url`.                                                                                                             |
@@ -31188,7 +31188,7 @@ Fields other than the six below are rejected, as are fields of the wrong JSON ty
 
 [Section titled “type”](#type)
 
-The custom type’s name, which matches `^[a-z][a-z0-9_]{0,63}$`.
+The custom type’s name, which matches `^[a-z][a-z0-9_]{0,63}$`. The type’s label becomes the event’s description on the task’s timeline when `description` is empty.
 
 #### `url`
 
