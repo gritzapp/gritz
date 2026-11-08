@@ -107,7 +107,8 @@ func (s *Server) Ping(ctx context.Context, req *gritzv1.PingRequest) (*gritzv1.P
 // GetCaller returns the org the request is authenticated against. It reads no
 // user, so it serves every kind of caller, API keys included.
 func (s *Server) GetCaller(ctx context.Context, req *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error) {
-	org, err := s.store.GetOrg(ctx, nil, apiauth.MustCaller(ctx).OrgID)
+	caller := apiauth.MustCaller(ctx)
+	org, err := s.store.GetOrg(ctx, nil, caller.OrgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
