@@ -84,8 +84,7 @@ source <code dir="auto">custom</code> and the attributes their schema defines; s
 <li><code dir="auto">body</code>: the event’s text. For a comment or a review it is that text; for the
 other types it is the description of the issue or pull request.</li>
 <li><code dir="auto">url</code>: the event’s own URL. For a comment or a review it is the comment’s or
-review’s URL, not the issue’s or pull request’s; for the other types it is
-the issue’s or pull request’s URL.</li>
+review’s URL; for the other types it is the issue’s or pull request’s URL.</li>
 </ul>
 <p>Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
@@ -114,7 +113,7 @@ or edited.</p>
 <tr>
 <td><code dir="auto">url</code></td>
 <td>Comment URL</td>
-<td>The comment’s own URL, not the issue’s or pull request’s, such as <code dir="auto">https://github.com/owner/repo/issues/123#issuecomment-456</code>.</td>
+<td>The comment’s URL, such as <code dir="auto">https://github.com/owner/repo/issues/123#issuecomment-456</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">mention</code></td>
@@ -148,7 +147,7 @@ created or edited.</p>
 <tr>
 <td><code dir="auto">url</code></td>
 <td>Review Comment URL</td>
-<td>The review comment’s own URL, not the pull request’s, such as <code dir="auto">https://github.com/owner/repo/pull/123#discussion_r456</code>.</td>
+<td>The review comment’s URL, such as <code dir="auto">https://github.com/owner/repo/pull/123#discussion_r456</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">mention</code></td>
@@ -183,7 +182,7 @@ the comment is on (<code dir="auto">path</code>, <code dir="auto">line</code>, <
 <tr>
 <td><code dir="auto">url</code></td>
 <td>Review URL</td>
-<td>The review’s own URL, not the pull request’s, such as <code dir="auto">https://github.com/owner/repo/pull/123#pullrequestreview-456</code>.</td>
+<td>The review’s URL, such as <code dir="auto">https://github.com/owner/repo/pull/123#pullrequestreview-456</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">mention</code></td>
@@ -381,7 +380,7 @@ Jira uses in comment text.</p>
 <tr>
 <td><code dir="auto">url</code></td>
 <td>Comment URL</td>
-<td>The comment’s own URL, not the issue’s, such as <code dir="auto">https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001</code>.</td>
+<td>The comment’s URL, such as <code dir="auto">https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">mention</code></td>

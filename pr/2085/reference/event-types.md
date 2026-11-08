@@ -17,8 +17,7 @@ Every type has two attributes:
 - `body`: the event's text. For a comment or a review it is that text; for the
   other types it is the description of the issue or pull request.
 - `url`: the event's own URL. For a comment or a review it is the comment's or
-  review's URL, not the issue's or pull request's; for the other types it is
-  the issue's or pull request's URL.
+  review's URL; for the other types it is the issue's or pull request's URL.
 
 Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
@@ -39,7 +38,7 @@ or edited.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Comment Body | The comment's text. |
-| `url` | Comment URL | The comment's own URL, not the issue's or pull request's, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
+| `url` | Comment URL | The comment's URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
 | `mention` | Mention | Each username @-mentioned in the comment. |
 | `user` | User | The username of the commenter. |
 
@@ -51,7 +50,7 @@ created or edited.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Review Comment Body | The review comment's text. |
-| `url` | Review Comment URL | The review comment's own URL, not the pull request's, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
+| `url` | Review Comment URL | The review comment's URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
 | `mention` | Mention | Each username @-mentioned in the review comment. |
 | `user` | User | The username of the reviewer. |
 
@@ -65,7 +64,7 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Review Body | The review's summary. |
-| `url` | Review URL | The review's own URL, not the pull request's, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
+| `url` | Review URL | The review's URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
 | `mention` | Mention | Each username @-mentioned in the summary. |
 | `user` | User | The username of the reviewer. |
 
@@ -137,7 +136,7 @@ Jira uses in comment text.
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Comment Body | The comment's text. |
-| `url` | Comment URL | The comment's own URL, not the issue's, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
+| `url` | Comment URL | The comment's URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
 | `mention` | Mention | The account ID of each person @-mentioned in the comment. |
 | `user` | User | The account ID of the commenter. |
 

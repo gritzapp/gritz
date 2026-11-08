@@ -215,7 +215,7 @@ So a rule with both on starts one task per resource and keeps it up to date, and
 A rule that creates tasks sets their:
 
 * **Runner** and **Workspace**.
-* **Prompt**: the created task’s instruction. Left blank, the instruction only says that a routing rule created the task for the event. The task’s first event is the one that created it, so the agent gets the event’s text either way.
+* **Prompt**: the created task’s instruction. Left blank, the instruction is a fixed one that only says a routing rule created the task in response to the event’s source and type. The task’s first event is the one that created it, so the agent gets the event’s text either way.
 * **Auto-archive**: the created task’s [auto-archive](/pr/2085/concepts/tasks/#auto-archive) delay.
 * **Namespace**: the rule’s namespace.
 
@@ -1961,13 +1961,13 @@ Prints the organisation’s 50 newest unarchived tasks as JSON.
 
 Changes a task. It needs at least one of `--add-instruction`, `--start`, `--name` or `--auto-archive`.
 
-| Flag                      | Environment    | Default             |                                                                                            |
-| ------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------ |
-| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                 |
-| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends. |
-| `--name`, `-n`            |                |                     | Rename the task.                                                                           |
-| `--auto-archive`          |                | `0`                 | Set the auto-archive delay. Every update sets it, to never when the flag is left out.      |
-| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                            |
+| Flag                      | Environment    | Default             |                                                                                                                                                 |
+| ------------------------- | -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                                                                      |
+| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends.                                                      |
+| `--name`, `-n`            |                |                     | Rename the task.                                                                                                                                |
+| `--auto-archive`          |                |                     | Set the auto-archive delay. `0` is never; a negative value archives the task as soon as it finishes. Left out, the task keeps the delay it has. |
+| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                                                                                 |
 
 ### `gritz logs <task-id>`
 
@@ -2324,7 +2324,7 @@ This page lists the built-in types, from the [GitHub](/pr/2085/integrations/gith
 Every type has two attributes:
 
 * `body`: the event’s text. For a comment or a review it is that text; for the other types it is the description of the issue or pull request.
-* `url`: the event’s own URL. For a comment or a review it is the comment’s or review’s URL, not the issue’s or pull request’s; for the other types it is the issue’s or pull request’s URL.
+* `url`: the event’s own URL. For a comment or a review it is the comment’s or review’s URL; for the other types it is the issue’s or pull request’s URL.
 
 Each type adds others. An attribute can hold several values, such as every user mentioned in a comment, and a condition holds if any of them satisfies it. Conditions compare exactly and are case-sensitive; see [Matching](/pr/2085/concepts/routing-rules/#matching).
 
@@ -2342,12 +2342,12 @@ Source `github`. GitHub usernames are given without the leading `@`.
 
 **GitHub: Issue/PR Comment.** A comment on an issue or a pull request is created or edited.
 
-| Attribute | Label        | Value                                                                                                                          |
-| --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `body`    | Comment Body | The comment’s text.                                                                                                            |
-| `url`     | Comment URL  | The comment’s own URL, not the issue’s or pull request’s, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
-| `mention` | Mention      | Each username @-mentioned in the comment.                                                                                      |
-| `user`    | User         | The username of the commenter.                                                                                                 |
+| Attribute | Label        | Value                                                                                   |
+| --------- | ------------ | --------------------------------------------------------------------------------------- |
+| `body`    | Comment Body | The comment’s text.                                                                     |
+| `url`     | Comment URL  | The comment’s URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
+| `mention` | Mention      | Each username @-mentioned in the comment.                                               |
+| `user`    | User         | The username of the commenter.                                                          |
 
 ### `pull_request_review_comment`
 
@@ -2355,12 +2355,12 @@ Source `github`. GitHub usernames are given without the leading `@`.
 
 **GitHub: PR Review Comment.** An inline review comment on a pull request is created or edited.
 
-| Attribute | Label               | Value                                                                                                                   |
-| --------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `body`    | Review Comment Body | The review comment’s text.                                                                                              |
-| `url`     | Review Comment URL  | The review comment’s own URL, not the pull request’s, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
-| `mention` | Mention             | Each username @-mentioned in the review comment.                                                                        |
-| `user`    | User                | The username of the reviewer.                                                                                           |
+| Attribute | Label               | Value                                                                                       |
+| --------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| `body`    | Review Comment Body | The review comment’s text.                                                                  |
+| `url`     | Review Comment URL  | The review comment’s URL, such as `https://github.com/owner/repo/pull/123#discussion_r456`. |
+| `mention` | Mention             | Each username @-mentioned in the review comment.                                            |
+| `user`    | User                | The username of the reviewer.                                                               |
 
 The event also carries, for the agent but not for conditions, the file and line the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 
@@ -2370,12 +2370,12 @@ The event also carries, for the agent but not for conditions, the file and line 
 
 **GitHub: PR Review.** A review with a summary is submitted on a pull request.
 
-| Attribute | Label       | Value                                                                                                                 |
-| --------- | ----------- | --------------------------------------------------------------------------------------------------------------------- |
-| `body`    | Review Body | The review’s summary.                                                                                                 |
-| `url`     | Review URL  | The review’s own URL, not the pull request’s, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
-| `mention` | Mention     | Each username @-mentioned in the summary.                                                                             |
-| `user`    | User        | The username of the reviewer.                                                                                         |
+| Attribute | Label       | Value                                                                                     |
+| --------- | ----------- | ----------------------------------------------------------------------------------------- |
+| `body`    | Review Body | The review’s summary.                                                                     |
+| `url`     | Review URL  | The review’s URL, such as `https://github.com/owner/repo/pull/123#pullrequestreview-456`. |
+| `mention` | Mention     | Each username @-mentioned in the summary.                                                 |
+| `user`    | User        | The username of the reviewer.                                                             |
 
 ### `issue_assigned`
 
@@ -2453,12 +2453,12 @@ Source `atlassian`. People are identified by their Atlassian account ID, such as
 
 **Jira: Issue Comment.** A comment is added to an issue.
 
-| Attribute | Label        | Value                                                                                                                       |
-| --------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `body`    | Comment Body | The comment’s text.                                                                                                         |
-| `url`     | Comment URL  | The comment’s own URL, not the issue’s, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
-| `mention` | Mention      | The account ID of each person @-mentioned in the comment.                                                                   |
-| `user`    | User         | The account ID of the commenter.                                                                                            |
+| Attribute | Label        | Value                                                                                                  |
+| --------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `body`    | Comment Body | The comment’s text.                                                                                    |
+| `url`     | Comment URL  | The comment’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
+| `mention` | Mention      | The account ID of each person @-mentioned in the comment.                                              |
+| `user`    | User         | The account ID of the commenter.                                                                       |
 
 ### `label_added`
 
@@ -2647,11 +2647,9 @@ gritz task update 1234 --start -i "Also update the README."
 | `--add-instruction`, `-i` | Add an instruction. Repeat it for several.                                                                                                  |
 | `--start`, `-r`           | Start the task, as the Web UI does when you send an instruction. A running task isn’t interrupted: it runs again when its current run ends. |
 | `--name`, `-n`            | Rename the task.                                                                                                                            |
-| `--auto-archive`          | Set the auto-archive delay.                                                                                                                 |
+| `--auto-archive`          | Set the auto-archive delay. Left out, the task keeps the delay it has.                                                                      |
 
 An instruction added without `--start` waits on the task until something else starts it, such as an event or a later `--start`.
-
-Every `gritz task update` also sets the task’s auto-archive delay: to `--auto-archive` when it is given, and otherwise to never. Pass `--auto-archive` again to keep a delay the task already had.
 
 Cancelling, restarting and archiving tasks are done in the [Web UI](/pr/2085/using/web-ui/#the-task-page).
 
