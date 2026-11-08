@@ -110,20 +110,20 @@ var RunnerCommand = &cli.Command{
 			log = slog.New(handler)
 		}
 
-		e, err := configfile.Resolve(cmd)
+		entry, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
 		// The sandboxes are handed the URL too, so it is resolved here
 		// rather than left to the client's default.
-		serverAddr := cmp.Or(e.Server, gritzclient.DefaultURL)
+		serverAddr := cmp.Or(entry.Server, gritzclient.DefaultURL)
 
 		workspaces, err := workspace.LoadConfig(configPath, nil)
 		if err != nil {
 			return fmt.Errorf("failed to load workspace config: %w", err)
 		}
 
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverAddr, Token: e.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: serverAddr, Token: entry.Key})
 
 		backendName := cmd.String("backend")
 		var be backend.Backend
@@ -180,7 +180,7 @@ var RunnerCommand = &cli.Command{
 		return runner.Serve(ctx, runner.ServeOptions{
 			Client:       client,
 			ServerURL:    serverAddr,
-			Token:        e.Key,
+			Token:        entry.Key,
 			Backend:      be,
 			StateDB:      cmd.String("state-db"),
 			Workspaces:   workspaces,

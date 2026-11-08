@@ -31,14 +31,14 @@ var NotifyCommand = &cli.Command{
 		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		e, err := configfile.Resolve(cmd)
+		entry, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
 		title := cmd.String("title")
 		nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-			BaseURL: e.Server,
-			Token:   e.Key,
+			BaseURL: entry.Server,
+			Token:   entry.Key,
 			Handler: func(n model.Notification) {
 				// Only surface terminal task transitions (completed,
 				// failed, cancelled) — these are the outcomes that need

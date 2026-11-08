@@ -18,11 +18,11 @@ var TaskListCommand = &cli.Command{
 	Usage: "List tasks from the server",
 	Flags: configfile.Flags(),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		e, err := configfile.Resolve(cmd)
+		entry, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: e.Server, Token: e.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: entry.Server, Token: entry.Key})
 
 		resp, err := client.ListTasks(ctx, &gritzv1.ListTasksRequest{})
 		if err != nil {

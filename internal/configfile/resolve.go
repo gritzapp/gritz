@@ -51,12 +51,12 @@ func Resolve(cmd *cli.Command) (*Entry, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	e, err := m.Lookup(cmd.String("org"))
+	entry, err := m.Lookup(cmd.String("org"))
 	if err != nil {
 		return nil, err
 	}
 	if server != "" {
-		e.Server = server
+		entry.Server = server
 	}
-	return e, nil
+	return entry, nil
 }

@@ -41,7 +41,7 @@ var McpCommand = &cli.Command{
 		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		e, err := configfile.Resolve(cmd)
+		entry, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
@@ -53,8 +53,8 @@ var McpCommand = &cli.Command{
 		// host Claude Code session as channel events (#718).
 		clientID := uuid.NewString()
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL:  e.Server,
-			Token:    e.Key,
+			BaseURL:  entry.Server,
+			Token:    entry.Key,
 			ClientID: clientID,
 		})
 		var capabilities mcp.ServerCapabilities
@@ -92,8 +92,8 @@ var McpCommand = &cli.Command{
 		if ch != nil {
 			go func() {
 				nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-					BaseURL:  e.Server,
-					Token:    e.Key,
+					BaseURL:  entry.Server,
+					Token:    entry.Key,
 					ClientID: clientID,
 					Handler:  func(n model.Notification) { ch.Forward(ctx, n) },
 				})

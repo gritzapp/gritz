@@ -33,14 +33,14 @@ var ShellCommand = &cli.Command{
 			return cli.Exit("invalid task ID: "+cmd.Args().First(), 1)
 		}
 
-		e, err := configfile.Resolve(cmd)
+		entry, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
 
 		// Ask the server to open a shell session for the task. The org is derived
 		// from the key server-side; the operator leg is Bearer-only.
-		client := gritzclient.New(gritzclient.Options{BaseURL: e.Server, Token: e.Key})
+		client := gritzclient.New(gritzclient.Options{BaseURL: entry.Server, Token: entry.Key})
 		resp, err := client.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: taskID})
 		if err != nil {
 			return fmt.Errorf("failed to open shell: %w", err)
@@ -51,8 +51,8 @@ var ShellCommand = &cli.Command{
 		}
 
 		code, err := shell.Attach(ctx, shell.AttachOptions{
-			ServerURL: e.Server,
-			Token:     e.Key,
+			ServerURL: entry.Server,
+			Token:     entry.Key,
 			Session:   session,
 		})
 		if err != nil {
