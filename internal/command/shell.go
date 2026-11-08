@@ -23,15 +23,7 @@ var ShellCommand = &cli.Command{
 	Name:      "shell",
 	Usage:     "Open an interactive shell in a task's sandbox",
 	ArgsUsage: "<task-id>",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-			Sources: cli.EnvVars("GRITZ_SERVER"),
-		},
-	},
+	Flags:     configfile.Flags(),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.NArg() < 1 {
 			return cli.Exit("task ID required", 1)
@@ -41,18 +33,14 @@ var ShellCommand = &cli.Command{
 			return cli.Exit("invalid task ID: "+cmd.Args().First(), 1)
 		}
 
-		serverURL := cmd.String("server")
-		cfg, err := configfile.Load(nil)
+		cfg, err := configfile.Resolve(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first")
+			return err
 		}
 
 		// Ask the server to open a shell session for the task. The org is derived
-		// from the token claims server-side; the operator leg is Bearer-only.
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: cfg.Token})
+		// from the key server-side; the operator leg is Bearer-only.
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
 		resp, err := client.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: taskID})
 		if err != nil {
 			return fmt.Errorf("failed to open shell: %w", err)
@@ -63,8 +51,8 @@ var ShellCommand = &cli.Command{
 		}
 
 		code, err := shell.Attach(ctx, shell.AttachOptions{
-			ServerURL: serverURL,
-			Token:     cfg.Token,
+			ServerURL: cfg.Server,
+			Token:     cfg.Key,
 			Session:   session,
 		})
 		if err != nil {

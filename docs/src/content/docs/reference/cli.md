@@ -19,24 +19,40 @@ flag wins when both are set.
 
 ## Authentication
 
-The commands that talk to a server get their API key in one of two ways:
+`gritz task`, `gritz logs`, `gritz shell`, `gritz mcp`, `gritz notify` and
+`gritz runner` take these flags, which pick the organisation, API key and server:
 
-- `gritz task`, `gritz logs` and `gritz shell` read it from `config.json` in the
-  config directory, as `{"token": "xat_..."}`. See
-  [Configuration](/using/cli/#configuration).
-- `gritz mcp` and `gritz notify` take it from `--token` or `GRITZ_TOKEN`.
-- `gritz runner` reads `config.json` too, unless `--key` or `GRITZ_API_KEY` is
-  set.
+| Flag | Environment | |
+| --- | --- | --- |
+| `--org` | `GRITZ_ORG` | The organisation's name in the `.gritz.yml` files. Defaults to their `default`. |
+| `--key`, `-k` | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`. |
+| `--server`, `-s` | `GRITZ_SERVER` | The server URL. Defaults to the organisation's `server`, otherwise `https://gritz.dev`. |
+
+Without `--key`, a command merges `.gritz.yml` in the config directory with every
+`.gritz.yml` from the working directory up to `/`, the nearest winning, and uses
+the organisation it selects. See [Configuration](/using/cli/#configuration).
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the
-user config directory (`~/.config/gritz` on Linux). Every `--server` flag
-defaults to `https://gritz.dev`.
+user config directory (`~/.config/gritz` on Linux).
+
+### `gritz login`
+
+Asks the server which organisation an API key belongs to, and saves the key
+under a name in `.gritz.yml` in the config directory. Logging in again with a new
+key for the same organisation and server replaces the key. If the file has no
+`default`, the name becomes it.
+
+| Flag | Environment | Default | |
+| --- | --- | --- | --- |
+| `--key`, `-k` | `GRITZ_API_KEY` | | The API key. Required. |
+| `--name` | | the organisation's name, in lowercase with dashes | The name to save it under. |
+| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL, saved with the organisation when given. |
 
 ## Tasks
 
 ### `gritz task create`
 
-Creates a task and starts it, then prints it as JSON.
+Creates a task and starts it, then prints it as JSON. It also takes the [authentication](#authentication) flags.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
@@ -45,20 +61,16 @@ Creates a task and starts it, then prints it as JSON.
 | `--instruction`, `-i` | | | An instruction. Repeat it for several. |
 | `--name`, `-n` | | | The task's name. |
 | `--auto-archive` | | `0` | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
 
 ### `gritz task list`
 
-Prints the organisation's 50 newest unarchived tasks as JSON.
-
-| Flag | Environment | Default | |
-| --- | --- | --- | --- |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+Prints the organisation's 50 newest unarchived tasks as JSON. It takes only the
+[authentication](#authentication) flags.
 
 ### `gritz task update <task-id>`
 
 Changes a task. It needs at least one of `--add-instruction`, `--start`,
-`--name` or `--auto-archive`.
+`--name` or `--auto-archive`. It also takes the [authentication](#authentication) flags.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
@@ -66,50 +78,41 @@ Changes a task. It needs at least one of `--add-instruction`, `--start`,
 | `--start`, `-r` | | | Start the task. A running task isn't interrupted: it runs again when its current run ends. |
 | `--name`, `-n` | | | Rename the task. |
 | `--auto-archive` | | | Set the auto-archive delay. `0` is never; a negative value archives the task as soon as it finishes. Left out, the task keeps the delay it has. |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
 
 ### `gritz logs <task-id>`
 
-Prints a task's log.
+Prints a task's log. It also takes the [authentication](#authentication) flags.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
 | `--follow`, `-f` | | | Keep printing new output. |
 | `--interval` | | `2s` | How often `--follow` checks for new output. |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
 
 ### `gritz shell <task-id>`
 
 Opens an interactive shell in a task's sandbox, relayed through the server. See
-[A shell in the sandbox](/operators/debugging/#a-shell-in-the-sandbox).
-
-| Flag | Environment | Default | |
-| --- | --- | --- | --- |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
+[A shell in the sandbox](/operators/debugging/#a-shell-in-the-sandbox). It takes
+only the [authentication](#authentication) flags.
 
 ## Clients
 
 ### `gritz mcp`
 
 Runs a local MCP server over stdio, for Claude Code, Cursor and other MCP
-clients. See [MCP](/integrations/mcp/#connect-with-gritz-mcp).
+clients. See [MCP](/integrations/mcp/#connect-with-gritz-mcp). It also takes the [authentication](#authentication) flags.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--token` | `GRITZ_TOKEN` | | The API key. Required. |
-| `--server`, `-s` | | `https://gritz.dev` | The server URL. |
 | `--auto-archive` | | | The auto-archive delay for tasks created without an `auto_archive` argument. |
 | `--channel` | | off | Push task updates into the Claude Code session as [channel](/integrations/mcp/#channels) messages, and add the `channel_mute`, `channel_unmute` and `channel_muted` tools. |
 
 ### `gritz notify`
 
 Shows a desktop notification each time one of the organisation's tasks
-completes, fails or is cancelled, until stopped.
+completes, fails or is cancelled, until stopped. It also takes the [authentication](#authentication) flags.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--token` | `GRITZ_TOKEN` | | The API key. Required. |
-| `--server`, `-s` | | `https://gritz.dev` | The server URL. |
 | `--title` | | `gritz` | The notifications' title. |
 
 ## Server and runner
@@ -148,11 +151,10 @@ Runs the server. Its flags are described in [Server](/operators/server/).
 ### `gritz runner`
 
 Runs a runner. Its flags are described in [Runner](/operators/runner/#flags).
+It also takes the [authentication](#authentication) flags.
 
 | Flag | Environment | Default |
 | --- | --- | --- |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` |
-| `--key`, `-k` | `GRITZ_API_KEY` | `config.json` |
 | `--workspaces`, `-w` | | `workspaces.yaml` in the config directory |
 | `--id` | `GRITZ_RUNNER_ID` | the hostname |
 | `--backend` | `GRITZ_BACKEND` | `docker` |

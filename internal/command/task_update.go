@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/gritzapp/gritz/internal/configfile"
@@ -16,14 +17,7 @@ var TaskUpdateCommand = &cli.Command{
 	Name:      "update",
 	Usage:     "Update a task",
 	ArgsUsage: "<task-id>",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-			Sources: cli.EnvVars("GRITZ_SERVER"),
-		},
+	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
 			Name:    "name",
 			Aliases: []string{"n"},
@@ -43,7 +37,7 @@ var TaskUpdateCommand = &cli.Command{
 			Name:  "auto-archive",
 			Usage: "Set the auto-archive timeout. 0 = never; negative = archive immediately; positive = delay. Unchanged when omitted.",
 		},
-	},
+	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		taskIDStr := cmd.Args().First()
 		if taskIDStr == "" {
@@ -67,13 +61,9 @@ var TaskUpdateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		serverURL := cmd.String("server")
-		cfg, err := configfile.Load(nil)
+		cfg, err := configfile.Resolve(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first")
+			return err
 		}
 		req := &gritzv1.UpdateTaskRequest{
 			Id:              taskID,
@@ -84,7 +74,7 @@ var TaskUpdateCommand = &cli.Command{
 		if cmd.IsSet("auto-archive") {
 			req.AutoArchive = durationpb.New(cmd.Duration("auto-archive"))
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: cfg.Token})
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
 		if _, err := client.UpdateTask(ctx, req); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}

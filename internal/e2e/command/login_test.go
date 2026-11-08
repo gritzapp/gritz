@@ -29,7 +29,7 @@ func TestLogin(t *testing.T) {
 	assert.NilError(t, err)
 	f, err := configfile.Read(filepath.Join(dir, configfile.Name))
 	assert.NilError(t, err)
-	assert.DeepEqual(t, f, &configfile.FileV2{
+	assert.DeepEqual(t, f, &configfile.File{
 		Default: "acme-labs",
 		Orgs: map[string]configfile.Entry{
 			"acme-labs": {ID: other.ID, Key: key.Resp.RawToken, Server: h.Server.URL},

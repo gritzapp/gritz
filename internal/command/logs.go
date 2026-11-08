@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
@@ -25,14 +26,7 @@ var LogsCommand = &cli.Command{
 	Name:      "logs",
 	Usage:     "Display the driver log for a task",
 	ArgsUsage: "<task-id>",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-			Sources: cli.EnvVars("GRITZ_SERVER"),
-		},
+	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.BoolFlag{
 			Name:    "follow",
 			Aliases: []string{"f"},
@@ -43,7 +37,7 @@ var LogsCommand = &cli.Command{
 			Usage: "Poll interval when following",
 			Value: 2 * time.Second,
 		},
-	},
+	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.NArg() < 1 {
 			return cli.Exit("task ID required", 1)
@@ -52,17 +46,11 @@ var LogsCommand = &cli.Command{
 		if err != nil {
 			return cli.Exit("invalid task ID: "+cmd.Args().First(), 1)
 		}
-		cfg, err := configfile.Load(nil)
+		cfg, err := configfile.Resolve(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return err
 		}
-		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first")
-		}
-		client := gritzclient.New(gritzclient.Options{
-			BaseURL: cmd.String("server"),
-			Token:   cfg.Token,
-		})
+		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
 		tasklog := gritzclient.OpenTaskLog(client, taskID, logPageSize)
 		for chunk, err := range tasklog.History(ctx) {
 			if err != nil {
