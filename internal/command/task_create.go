@@ -50,8 +50,10 @@ var TaskCreateCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		ts := gritzclient.StaticToken(cfg.Key)
-		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
+		client := gritzclient.New(gritzclient.Options{
+			BaseURL:     cfg.Server,
+			TokenSource: gritzclient.StaticToken(cfg.Key),
+		})
 
 		texts := cmd.StringSlice("instruction")
 		instructions := make([]*gritzv1.Instruction, len(texts))

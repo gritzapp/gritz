@@ -74,8 +74,10 @@ var TaskUpdateCommand = &cli.Command{
 		if cmd.IsSet("auto-archive") {
 			req.AutoArchive = durationpb.New(cmd.Duration("auto-archive"))
 		}
-		ts := gritzclient.StaticToken(cfg.Key)
-		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
+		client := gritzclient.New(gritzclient.Options{
+			BaseURL:     cfg.Server,
+			TokenSource: gritzclient.StaticToken(cfg.Key),
+		})
 		if _, err := client.UpdateTask(ctx, req); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)
 		}
