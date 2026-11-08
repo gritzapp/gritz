@@ -199,8 +199,7 @@ alike. `GetProfile` is unchanged.
 7. Write the file to a temp file in `$CONFIG_DIR` and rename it into place,
    keeping its mode, or creating it `0600` if it didn't exist. The file is
    re-marshalled, so comments and key order in it are not preserved.
-8. Print `Logged in to Acme Labs (org 12) as "acme-labs"` and, when step 6 set
-   it, `Default org set to "acme-labs"`.
+8. Print `Logged in to Acme Labs (org 12) as "acme-labs"`.
 
 The key is taken from `--key` only; there is no stdin or TTY prompt. `--key`
 here reads the same `GRITZ_API_KEY` env source as every other command, so
@@ -312,9 +311,8 @@ func Load(dir string) (*Merged, error) // replaced: was Load(*Overrides) (*File,
 // Login writes entry under name into the .gritz.yml file at path, replacing the
 // key of an existing entry with the same id and server, and failing with
 // ErrNameTaken if name belongs to a different org or server. It sets default to
-// name when the file has none, and reports whether it did. The caller validates
-// the key.
-func Login(path, name string, entry Entry) (setDefault bool, err error) // new
+// name when the file has none. The caller validates the key.
+func Login(path, name string, entry Entry) error // new
 
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use") // new
