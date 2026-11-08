@@ -25,9 +25,9 @@ export const getCaller = GritzService.method.getCaller;
 export const listTasks = GritzService.method.listTasks;
 
 /**
- * ListRunnerEvents returns the events of the runner's tasks after the
- * cursor, in log order, from transactions that can no longer commit behind
- * it.
+ * Called by the runner to follow the events of its tasks. Returns the events
+ * after the cursor in log order, and only once no earlier event can still
+ * appear, so following the cursor never skips one.
  *
  * @generated from rpc gritz.v1.GritzService.ListRunnerEvents
  */
@@ -74,11 +74,17 @@ export const restartTask = GritzService.method.restartTask;
 export const openShell = GritzService.method.openShell;
 
 /**
+ * Called by the agent's `report` tool in a task's sandbox. Each entry of type
+ * `llm` is added to the task as a report event; entries of other types are
+ * ignored.
+ *
  * @generated from rpc gritz.v1.GritzService.UploadLogs
  */
 export const uploadLogs = GritzService.method.uploadLogs;
 
 /**
+ * Called by the driver in a task's sandbox to ship the task's log.
+ *
  * @generated from rpc gritz.v1.GritzService.AppendLogChunk
  */
 export const appendLogChunk = GritzService.method.appendLogChunk;
@@ -119,16 +125,26 @@ export const deleteEvent = GritzService.method.deleteEvent;
 export const listEventsByTask = GritzService.method.listEventsByTask;
 
 /**
+ * Called by the runner, and by the driver in a task's sandbox, to report that
+ * a task's run started, stopped or failed.
+ *
  * @generated from rpc gritz.v1.GritzService.SubmitRunnerEvents
  */
 export const submitRunnerEvents = GritzService.method.submitRunnerEvents;
 
 /**
+ * Called by the runner before it starts a task's sandbox, to get the token the
+ * sandbox calls the API with. The token can read and update only that task,
+ * plus the requested capabilities.
+ *
  * @generated from rpc gritz.v1.GritzService.CreateTaskToken
  */
 export const createTaskToken = GritzService.method.createTaskToken;
 
 /**
+ * Called by the runner when it starts, to register the workspaces it serves.
+ * Replaces the workspaces registered before for the same runner.
+ *
  * @generated from rpc gritz.v1.GritzService.RegisterWorkspaces
  */
 export const registerWorkspaces = GritzService.method.registerWorkspaces;
@@ -244,6 +260,9 @@ export const setCustomEventTypes = GritzService.method.setCustomEventTypes;
 export const testEvent = GritzService.method.testEvent;
 
 /**
+ * Called from a task's sandbox to get a GitHub token. The server doesn't
+ * issue these tokens yet: every call fails with `unimplemented`.
+ *
  * @generated from rpc gritz.v1.GritzService.CreateGitHubToken
  */
 export const createGitHubToken = GritzService.method.createGitHubToken;

@@ -186,9 +186,9 @@ type GritzServiceClient interface {
 	GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error)
 	GetCaller(context.Context, *v1.GetCallerRequest) (*v1.GetCallerResponse, error)
 	ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error)
-	// ListRunnerEvents returns the events of the runner's tasks after the
-	// cursor, in log order, from transactions that can no longer commit behind
-	// it.
+	// Called by the runner to follow the events of its tasks. Returns the events
+	// after the cursor in log order, and only once no earlier event can still
+	// appear, so following the cursor never skips one.
 	ListRunnerEvents(context.Context, *v1.ListRunnerEventsRequest) (*v1.ListRunnerEventsResponse, error)
 	CreateTask(context.Context, *v1.CreateTaskRequest) (*v1.CreateTaskResponse, error)
 	GetTask(context.Context, *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
@@ -198,7 +198,11 @@ type GritzServiceClient interface {
 	CancelTask(context.Context, *v1.CancelTaskRequest) (*v1.CancelTaskResponse, error)
 	RestartTask(context.Context, *v1.RestartTaskRequest) (*v1.RestartTaskResponse, error)
 	OpenShell(context.Context, *v1.OpenShellRequest) (*v1.OpenShellResponse, error)
+	// Called by the agent's `report` tool in a task's sandbox. Each entry of type
+	// `llm` is added to the task as a report event; entries of other types are
+	// ignored.
 	UploadLogs(context.Context, *v1.UploadLogsRequest) (*v1.UploadLogsResponse, error)
+	// Called by the driver in a task's sandbox to ship the task's log.
 	AppendLogChunk(context.Context, *v1.AppendLogChunkRequest) (*v1.AppendLogChunkResponse, error)
 	ListLogChunksByTask(context.Context, *v1.ListLogChunksByTaskRequest) (*v1.ListLogChunksByTaskResponse, error)
 	CreateLink(context.Context, *v1.CreateLinkRequest) (*v1.CreateLinkResponse, error)
@@ -207,8 +211,15 @@ type GritzServiceClient interface {
 	GetEvent(context.Context, *v1.GetEventRequest) (*v1.GetEventResponse, error)
 	DeleteEvent(context.Context, *v1.DeleteEventRequest) (*v1.DeleteEventResponse, error)
 	ListEventsByTask(context.Context, *v1.ListEventsByTaskRequest) (*v1.ListEventsByTaskResponse, error)
+	// Called by the runner, and by the driver in a task's sandbox, to report that
+	// a task's run started, stopped or failed.
 	SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsRequest) (*v1.SubmitRunnerEventsResponse, error)
+	// Called by the runner before it starts a task's sandbox, to get the token the
+	// sandbox calls the API with. The token can read and update only that task,
+	// plus the requested capabilities.
 	CreateTaskToken(context.Context, *v1.CreateTaskTokenRequest) (*v1.CreateTaskTokenResponse, error)
+	// Called by the runner when it starts, to register the workspaces it serves.
+	// Replaces the workspaces registered before for the same runner.
 	RegisterWorkspaces(context.Context, *v1.RegisterWorkspacesRequest) (*v1.RegisterWorkspacesResponse, error)
 	ListWorkspaces(context.Context, *v1.ListWorkspacesRequest) (*v1.ListWorkspacesResponse, error)
 	ClearWorkspaces(context.Context, *v1.ClearWorkspacesRequest) (*v1.ClearWorkspacesResponse, error)
@@ -232,6 +243,8 @@ type GritzServiceClient interface {
 	GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error)
 	SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error)
 	TestEvent(context.Context, *v1.TestEventRequest) (*v1.TestEventResponse, error)
+	// Called from a task's sandbox to get a GitHub token. The server doesn't
+	// issue these tokens yet: every call fails with `unimplemented`.
 	CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error)
 	CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error)
 	GetSchedule(context.Context, *v1.GetScheduleRequest) (*v1.GetScheduleResponse, error)
@@ -1146,9 +1159,9 @@ type GritzServiceHandler interface {
 	GetProfile(context.Context, *v1.GetProfileRequest) (*v1.GetProfileResponse, error)
 	GetCaller(context.Context, *v1.GetCallerRequest) (*v1.GetCallerResponse, error)
 	ListTasks(context.Context, *v1.ListTasksRequest) (*v1.ListTasksResponse, error)
-	// ListRunnerEvents returns the events of the runner's tasks after the
-	// cursor, in log order, from transactions that can no longer commit behind
-	// it.
+	// Called by the runner to follow the events of its tasks. Returns the events
+	// after the cursor in log order, and only once no earlier event can still
+	// appear, so following the cursor never skips one.
 	ListRunnerEvents(context.Context, *v1.ListRunnerEventsRequest) (*v1.ListRunnerEventsResponse, error)
 	CreateTask(context.Context, *v1.CreateTaskRequest) (*v1.CreateTaskResponse, error)
 	GetTask(context.Context, *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
@@ -1158,7 +1171,11 @@ type GritzServiceHandler interface {
 	CancelTask(context.Context, *v1.CancelTaskRequest) (*v1.CancelTaskResponse, error)
 	RestartTask(context.Context, *v1.RestartTaskRequest) (*v1.RestartTaskResponse, error)
 	OpenShell(context.Context, *v1.OpenShellRequest) (*v1.OpenShellResponse, error)
+	// Called by the agent's `report` tool in a task's sandbox. Each entry of type
+	// `llm` is added to the task as a report event; entries of other types are
+	// ignored.
 	UploadLogs(context.Context, *v1.UploadLogsRequest) (*v1.UploadLogsResponse, error)
+	// Called by the driver in a task's sandbox to ship the task's log.
 	AppendLogChunk(context.Context, *v1.AppendLogChunkRequest) (*v1.AppendLogChunkResponse, error)
 	ListLogChunksByTask(context.Context, *v1.ListLogChunksByTaskRequest) (*v1.ListLogChunksByTaskResponse, error)
 	CreateLink(context.Context, *v1.CreateLinkRequest) (*v1.CreateLinkResponse, error)
@@ -1167,8 +1184,15 @@ type GritzServiceHandler interface {
 	GetEvent(context.Context, *v1.GetEventRequest) (*v1.GetEventResponse, error)
 	DeleteEvent(context.Context, *v1.DeleteEventRequest) (*v1.DeleteEventResponse, error)
 	ListEventsByTask(context.Context, *v1.ListEventsByTaskRequest) (*v1.ListEventsByTaskResponse, error)
+	// Called by the runner, and by the driver in a task's sandbox, to report that
+	// a task's run started, stopped or failed.
 	SubmitRunnerEvents(context.Context, *v1.SubmitRunnerEventsRequest) (*v1.SubmitRunnerEventsResponse, error)
+	// Called by the runner before it starts a task's sandbox, to get the token the
+	// sandbox calls the API with. The token can read and update only that task,
+	// plus the requested capabilities.
 	CreateTaskToken(context.Context, *v1.CreateTaskTokenRequest) (*v1.CreateTaskTokenResponse, error)
+	// Called by the runner when it starts, to register the workspaces it serves.
+	// Replaces the workspaces registered before for the same runner.
 	RegisterWorkspaces(context.Context, *v1.RegisterWorkspacesRequest) (*v1.RegisterWorkspacesResponse, error)
 	ListWorkspaces(context.Context, *v1.ListWorkspacesRequest) (*v1.ListWorkspacesResponse, error)
 	ClearWorkspaces(context.Context, *v1.ClearWorkspacesRequest) (*v1.ClearWorkspacesResponse, error)
@@ -1192,6 +1216,8 @@ type GritzServiceHandler interface {
 	GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error)
 	SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error)
 	TestEvent(context.Context, *v1.TestEventRequest) (*v1.TestEventResponse, error)
+	// Called from a task's sandbox to get a GitHub token. The server doesn't
+	// issue these tokens yet: every call fails with `unimplemented`.
 	CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error)
 	CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error)
 	GetSchedule(context.Context, *v1.GetScheduleRequest) (*v1.GetScheduleResponse, error)
