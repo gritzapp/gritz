@@ -22,7 +22,10 @@ var TaskListCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
+		client := gritzclient.New(gritzclient.Options{
+			BaseURL:     cfg.Server,
+			TokenSource: gritzclient.StaticToken(cfg.Key),
+		})
 
 		resp, err := client.ListTasks(ctx, &gritzv1.ListTasksRequest{})
 		if err != nil {

@@ -27,8 +27,8 @@ var GitCredentialCommand = &cli.Command{
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL: cmd.String("server"),
-			Token:   cmd.String("token"),
+			BaseURL:     cmd.String("server"),
+			TokenSource: gritzclient.StaticToken(cmd.String("token")),
 		})
 		return gitcredential.Run(ctx, cmd.Args().First(), cmd.Root().Reader, cmd.Root().Writer, client)
 	},

@@ -50,7 +50,10 @@ var LogsCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, Token: cfg.Key})
+		client := gritzclient.New(gritzclient.Options{
+			BaseURL:     cfg.Server,
+			TokenSource: gritzclient.StaticToken(cfg.Key),
+		})
 		tasklog := gritzclient.OpenTaskLog(client, taskID, logPageSize)
 		for chunk, err := range tasklog.History(ctx) {
 			if err != nil {

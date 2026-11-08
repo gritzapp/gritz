@@ -37,8 +37,8 @@ var NotifyCommand = &cli.Command{
 		}
 		title := cmd.String("title")
 		nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-			BaseURL: cfg.Server,
-			Token:   cfg.Key,
+			BaseURL:     cfg.Server,
+			TokenSource: gritzclient.StaticToken(cfg.Key),
 			Handler: func(n model.Notification) {
 				// Only surface terminal task transitions (completed,
 				// failed, cancelled) — these are the outcomes that need

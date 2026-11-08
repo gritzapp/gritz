@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/oauth2"
 
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 )
@@ -24,9 +25,9 @@ type Client = gritzv1connect.GritzServiceClient
 type Options struct {
 	// BaseURL is the server URL.
 	BaseURL string
-	// Token is the authentication token.
-	// If empty, no authentication is performed.
-	Token string
+	// TokenSource supplies the bearer token per request.
+	// If nil, no authentication is performed.
+	TokenSource oauth2.TokenSource
 	// Timeout is the timeout for RPC calls.
 	// Defaults to DefaultTimeout if zero.
 	Timeout time.Duration
@@ -44,10 +45,10 @@ type Options struct {
 // New returns a Connect client.
 func New(opts Options) Client {
 	transport := http.DefaultTransport
-	if opts.Token != "" {
+	if opts.TokenSource != nil {
 		transport = &AuthTransport{
 			Transport: transport,
-			Token:     opts.Token,
+			Source:    opts.TokenSource,
 			ClientID:  opts.ClientID,
 		}
 	}

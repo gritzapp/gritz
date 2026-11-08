@@ -120,7 +120,8 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to load workspace config: %w", err)
 		}
 
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverAddr, Token: cfg.Key})
+		ts := gritzclient.StaticToken(cfg.Key)
+		client := gritzclient.New(gritzclient.Options{BaseURL: serverAddr, TokenSource: ts})
 
 		backendName := cmd.String("backend")
 		var be backend.Backend
@@ -177,7 +178,7 @@ var RunnerCommand = &cli.Command{
 		return runner.Serve(ctx, runner.ServeOptions{
 			Client:       client,
 			ServerURL:    serverAddr,
-			Token:        cfg.Key,
+			TokenSource:  ts,
 			Backend:      be,
 			StateDB:      cmd.String("state-db"),
 			Workspaces:   workspaces,

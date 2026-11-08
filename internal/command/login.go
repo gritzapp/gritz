@@ -45,8 +45,8 @@ var LoginCommand = &cli.Command{
 			entry.Server = server
 		}
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL: entry.Server,
-			Token:   entry.Key,
+			BaseURL:     entry.Server,
+			TokenSource: gritzclient.StaticToken(entry.Key),
 		})
 		resp, err := client.GetCaller(ctx, &gritzv1.GetCallerRequest{})
 		if err != nil {

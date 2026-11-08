@@ -39,8 +39,8 @@ var GitHubMCPCommand = &cli.Command{
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		return githubmcp.New(githubmcp.Config{
 			Client: gritzclient.New(gritzclient.Options{
-				BaseURL: cmd.String("server"),
-				Token:   cmd.String("token"),
+				BaseURL:     cmd.String("server"),
+				TokenSource: gritzclient.StaticToken(cmd.String("token")),
 			}),
 			URL:    cmd.String("url"),
 			MinTTL: cmd.Duration("min-ttl"),
