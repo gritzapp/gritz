@@ -139,6 +139,13 @@ the MCP config.
 | `unarchive_task` | Unarchives a task. |
 | `get_task_log` | Reads the end of a task's agent transcript. |
 | `create_link` | Links a resource, such as a pull request, to a task. |
+| `list_events` | Lists the organisation's newest external events. |
+| `get_event` | Gets an event in full. |
+| `delete_event` | Deletes an event. |
+| `list_event_types` | Lists the event types routing rules can match, with their attributes. |
+| `put_custom_event_type` | Adds a custom event type, or replaces the one with the same name. |
+| `delete_custom_event_type` | Deletes a custom event type. |
+| `test_event` | Tests the routing rules with an event, or routes it for real. |
 
 You don't call these yourself: ask your agent, for example "Create a gritz task
 in the pets-workshop workspace to add a `--json` flag, then tell me when it has
@@ -227,6 +234,56 @@ task page's **Logs** tab, with [secrets](/operators/secrets/) masked; and
 
 Use it to subscribe a task to something you made yourself, such as a pull
 request you opened by hand.
+
+### `list_events`, `get_event`, `delete_event`
+
+`list_events` takes `limit`, at most and by default 100, and returns the newest
+[events](/concepts/events-and-links/) of the organisation: each one's ID, the
+task it reached, its source, type, description, URL and when it arrived. It
+leaves out the event's body; `get_event` takes the event's `id` and returns all
+of it. `delete_event` takes the `id` of the event to delete.
+
+### `list_event_types`
+
+Returns every [event type](/reference/event-types/), built-in and custom, with
+the attributes a routing rule can have conditions on. Those are the attributes
+`test_event` takes.
+
+### `put_custom_event_type`
+
+| Argument | |
+| --- | --- |
+| `type` | The type's name, which senders put in the event's `type`. Required. |
+| `label` | The type's name in the routing rule editor and on task timelines. Required. |
+| `attrs` | The attributes rules can match on, each with a `key` and an optional `label`, `help` and `placeholder`. It must include `body` and `url`. |
+
+It adds the type, or replaces the custom type of the same name, and returns
+every custom type. The rules for names are in
+[Custom events](/integrations/custom-events/#1-define-a-custom-event-type).
+
+### `delete_custom_event_type`
+
+Takes the `type` to delete. It fails while a routing rule uses the type.
+
+### `test_event`
+
+| Argument | |
+| --- | --- |
+| `source` | The event type's source, such as `github`, `jira` or `custom`. Required. |
+| `type` | The event type, such as `issue_comment`. Required. |
+| `url` | The absolute `http` or `https` URL of the resource the event is about. Required. |
+| `body` | The event's text. |
+| `attrs` | The values of the type's other attributes, each a list of strings. |
+| `description` | A description shown on the timeline of a task the event reaches. It defaults to the type's label. |
+| `details` | Extra key/value context shown with the event. Rules don't match on it. |
+| `fire` | Act on the match: wake or create tasks. Without it, nothing changes. |
+
+The event is checked against its type as the
+[custom events webhook](/integrations/custom-events/) checks an envelope. It
+returns the rule that matched, if any, and whether it wakes linked tasks or
+creates one. An event of a GitHub or Jira type has you as its actor. A custom
+event has none, so only public rules match it, as when it comes from the
+webhook: firing a custom event is how to send one.
 
 ## Channels
 

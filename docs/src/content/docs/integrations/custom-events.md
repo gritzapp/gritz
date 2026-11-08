@@ -95,6 +95,10 @@ woke:
 `{"routed": 0}` is still a success: the event was valid, but nothing acted on it
 (see [Troubleshooting](#troubleshooting)).
 
+The `test_event` [MCP tool](/integrations/mcp/#test_event) with `fire` set sends
+the same event with the sign-in or API key the MCP client already uses. It is
+checked the same way, and routes the same way.
+
 ## 4. Add a routing rule
 
 An event does nothing until a routing rule matches it. Open **Events → Routing
