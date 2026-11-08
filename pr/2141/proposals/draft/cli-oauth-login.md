@@ -169,32 +169,36 @@ pasted-redirect or device flow. Elsewhere:
 `Entry.TokenSource(ctx)` returns:
 
 - for a `key` entry (and for `--key`): `gritzclient.StaticToken` of the key.
-- for a `refresh_token` entry: `oauthx.NewRefreshSource` with
-  `configfile.OAuthConfig(server, "")`, wrapped to name the entry in its errors.
+- for a `refresh_token` entry: `cliauth.TokenSource`, wrapped to name the
+  entry in its errors.
 
-`oauthx.NewRefreshSource` is generic: it knows nothing about `.gritz.yml`. It
+`internal/auth/cliauth` is the gritz CLI's OAuth client. It knows nothing
+about `.gritz.yml`, but it knows the server: the `gritz-cli` client id, the
+endpoints, and that refresh tokens are JWTs with an `iat`. `cliauth.TokenSource`
 is an `oauth2.ReuseTokenSource` over a source that exchanges the refresh token
-in use at the token endpoint. `ReuseTokenSource` caches the access token and
-refreshes only when it has expired (with `oauth2`'s 10-second early expiry),
-serialised by its own mutex, so one process never refreshes twice
-concurrently. Whenever a refresh returns a different refresh token, the source
-uses it from then on and passes it to `OnNewRefreshToken`, if set.
-
-`configfile` supplies the policy:
+in use at `<server>/oauth/token`. `ReuseTokenSource` caches the access token
+and refreshes only when it has expired (with `oauth2`'s 10-second early
+expiry), serialised by its own mutex, so one process never refreshes twice
+concurrently. Each refresh:
 
 1. On a 400 from the token endpoint (`*oauth2.RetrieveError`, the server's
    `invalid refresh_token`: expired, signed by a rotated app key, user removed,
-   org archived), the wrapper returns:
+   org archived), returns `cliauth.ErrLoginExpired`, which the entry's wrapper
+   turns into:
 
    ```
    org entry "acme": login expired or revoked: run `gritz login --name acme`
    ```
 
    For `--server` entries the hint includes `--server`.
-2. `OnNewRefreshToken` tracks the token it last stored and **writes the new one
-   back** if the stored token's `iat` (read from the JWT payload without
-   verification) is more than 24 hours old. A write-back failure is logged with
-   `slog.Warn` and otherwise ignored; the in-memory token keeps working.
+2. On success, keeps the new refresh token in memory for the next refresh, and
+   passes it to `OnRefreshToken` if the token last reported (initially the
+   starting one) was issued more than 24 hours ago, read from its `iat` without
+   verification.
+
+`Entry.TokenSource`'s `OnRefreshToken` **writes the new token back**. A
+write-back failure is logged with `slog.Warn` and otherwise ignored; the
+in-memory token keeps working.
 
 The write goes through `configfile.UpdateEntry`, which `Login` also uses: it
 re-reads the file at `path`, lets a callback change the file and the entry,
@@ -298,13 +302,6 @@ func (e Entry) Validate() error // changed
 // back to Path.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
 
-// ClientID is the OAuth client id the CLI uses.
-const ClientID = "gritz-cli" // new
-
-// OAuthConfig returns the OAuth client config for server, with redirectURL as
-// the redirect URI (empty for refresh only).
-func OAuthConfig(server, redirectURL string) *oauth2.Config // new
-
 // UpdateEntry rereads the .gritz.yml file at path (empty if missing) and
 // calls fn with it and the entry named name (nil if absent). When fn returns
 // an entry, UpdateEntry stores it under name, along with fn's changes to the
@@ -318,30 +315,36 @@ func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
 ```
 
 ```go
-package oauthx // github.com/gritzapp/gritz/internal/x/oauthx — new
+package cliauth // github.com/gritzapp/gritz/internal/auth/cliauth — new
 
-// RefreshSourceOptions configures NewRefreshSource.
-type RefreshSourceOptions struct {
-	// Config is the OAuth client config whose token endpoint refreshes.
-	Config *oauth2.Config
+// ClientID is the OAuth client id the gritz CLI uses.
+const ClientID = "gritz-cli"
+
+// Config returns the OAuth client config for the gritz server at server, with
+// redirectURL as the redirect URI (empty for refresh only).
+func Config(server, redirectURL string) *oauth2.Config
+
+// ErrLoginExpired is returned when the server rejects the refresh token.
+var ErrLoginExpired = errors.New("login expired or revoked")
+
+// TokenSourceOptions configures TokenSource.
+type TokenSourceOptions struct {
+	// Server is the gritz server URL.
+	Server string
 	// RefreshToken is the refresh token to start from.
 	RefreshToken string
-	// OnNewRefreshToken is called whenever a refresh returns a refresh token
-	// different from the one in use. Later refreshes use the new token.
-	// Calls are serialised. It is optional.
-	OnNewRefreshToken func(token string)
+	// OnRefreshToken, if set, is called with a rotated refresh token once the
+	// one last reported (initially RefreshToken) is more than a day old, read
+	// from its iat. Calls are serialised.
+	OnRefreshToken func(token string)
 }
 
-// NewRefreshSource returns a TokenSource that exchanges the refresh token for
-// access tokens, caching each until it expires.
-func NewRefreshSource(ctx context.Context, opts RefreshSourceOptions) oauth2.TokenSource
-```
+// TokenSource returns a TokenSource that refreshes access tokens from
+// opts.RefreshToken, caching each until it expires.
+func TokenSource(ctx context.Context, opts TokenSourceOptions) oauth2.TokenSource
 
-```go
-package oauthlogin // github.com/gritzapp/gritz/internal/oauthlogin — new
-
-// Options configures Login.
-type Options struct {
+// LoginOptions configures Login.
+type LoginOptions struct {
 	// Server is the gritz server URL.
 	Server string
 	// OrgID, when non-zero, preselects the org on the approval page.
@@ -355,7 +358,7 @@ type Options struct {
 
 // Login runs the authorization code flow with PKCE over a loopback redirect
 // and returns the exchanged token.
-func Login(ctx context.Context, opts Options) (*oauth2.Token, error)
+func Login(ctx context.Context, opts LoginOptions) (*oauth2.Token, error)
 ```
 
 ```go
@@ -408,14 +411,12 @@ type ServeOptions struct {
 **How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path`
 set; every command calls `TokenSource(ctx)` on it and hands the source to
 `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the
-source is an `oauthx.NewRefreshSource` whose `OnNewRefreshToken` writes back
-through `UpdateEntry`. `gritz
-login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`'s endpoints
-and `browser.OpenURL`,
+source is a `cliauth.TokenSource` whose `OnRefreshToken` writes back through
+`UpdateEntry`. `gritz login` without `--key` calls `cliauth.Login` with
+`browser.OpenURL`,
 then `GetCaller` with the returned access token, then `configfile.Login` with
-`{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`;
-`configfile` knows nothing about browsers or listeners; `oauthx` knows nothing
-about entries.
+`{ID, RefreshToken, Server}`. `cliauth` knows nothing about `.gritz.yml`;
+`configfile` knows nothing about browsers, listeners or tokens' contents.
 
 ## Implementation Plan
 
@@ -434,22 +435,23 @@ about entries.
    asks the source on each request and returns its error; existing e2e tests
    pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new
-   `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`,
-   `UpdateEntry`, `internal/x/oauthx`,
+   `Validate`, `Lookup` setting `Name`/`Path`, `UpdateEntry`, `internal/auth/cliauth`
+   (`ClientID`, `Config`, `ErrLoginExpired`, `TokenSource`),
    `Entry.TokenSource` with write-back and the re-login error; the
    commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`.
    A hand-written entry works from here on. Depends on: (2).
    Verifiable by: unit tests for `Validate` (both, neither) and the rotation
-   write (replaces when old matches, no-op when changed or gone); an `oauthx`
-   test that the source refreshes once per access token expiry and reports each
-   new refresh token; a test against an `oauthflow` `httptest` server that an
-   entry writes back only when `iat` is over 24h old, and maps an expired
-   refresh token to the re-login error.
-4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`,
+   write (replaces when old matches, no-op when changed or gone); `cliauth`
+   tests against an `oauthflow` `httptest` server that the source refreshes
+   once per access token expiry, reports a rotated token only when the last
+   reported one's `iat` is over 24h old, and maps an expired refresh token to
+   `ErrLoginExpired`; `configfile` tests that an entry writes the reported
+   token back and turns `ErrLoginExpired` into the re-login error.
+4. **`gritz login` browser flow** — Delivers: `cliauth.Login`,
    `github.com/cli/browser` as a direct dependency, `--key`
    no longer required, the `org=` preselect, and `login`
    writing `refresh_token` entries. Depends on: (1), (3).
-   Verifiable by: an `oauthlogin` unit test driving the flow end to end against
+   Verifiable by: a `cliauth.Login` unit test driving the flow end to end against
    `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the
    way the page does and follows the redirect, and one whose `OpenBrowser`
    fails and the test follows the URL printed to `Prompt` instead; a state
