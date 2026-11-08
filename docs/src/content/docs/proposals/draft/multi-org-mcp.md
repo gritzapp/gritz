@@ -190,9 +190,8 @@ resolve as in every other command. Every entry, at startup and on
 - **`allowed`** limits `list_orgs` and `switch_org` exactly as it limits
   `--org`. A repo whose `.gritz.yml` pins `allowed: [acme]` gets a session
   that can't leave `acme`.
-- **`--key` / `GRITZ_API_KEY`**, with `--server` / `GRITZ_SERVER`, is a
-  single raw key with no entries:
-  `list_orgs` and `switch_org` aren't registered, as the channel tools aren't
+- **`--key` / `GRITZ_API_KEY`** (with `--server`, which only applies to
+  `--key`) is a single raw key with no entries: `list_orgs` and `switch_org` aren't registered, as the channel tools aren't
   without `--channel`. The session behaves as today, apart from the per-org
   mute-set refactor being invisible with one org.
 
@@ -232,7 +231,7 @@ type Selector struct { // new
 }
 
 // NewSelector loads and validates the merged files from the working directory.
-// It returns nil when --key is set.
+// It returns nil when --key is set, and fails when --server is set without it.
 func NewSelector(cmd *cli.Command) (*Selector, error) // new
 
 // Select returns the name and entry of org, or of the merged Org when org is
@@ -242,7 +241,7 @@ func (s *Selector) Select(org string) (string, *Entry, error) // new
 // Names returns the names Select accepts, sorted.
 func (s *Selector) Names() []string // new
 
-// Resolve applies --key and --server, or NewSelector and Select(--org).
+// Resolve returns the --key entry, or NewSelector and Select(--org).
 func Resolve(cmd *cli.Command) (*Entry, error) // changed: built on Selector, same behaviour
 ```
 
@@ -323,9 +322,7 @@ appends `OrgsInstructions`. The `NotificationClient` setup moves from
 
 Depends on [CLI OAuth login](/proposals/draft/cli-oauth-login/), being
 implemented: slices 3 and 4 need `Entry.TokenSource` and the `TokenSource`
-fields on `gritzclient.Options` and `NotificationClientOptions`. Also builds on
-[#2139](https://github.com/gritzapp/gritz/pull/2139), in progress, which makes
-`--server` require `--key` and bypass `.gritz.yml`; slice 1 rebases onto it.
+fields on `gritzclient.Options` and `NotificationClientOptions`.
 
 1. **`configfile.Selector`** — Delivers: `Selector`, `NewSelector`, `Select`,
    `Names`; `Resolve` rebuilt on them. Nothing else changes. Depends on:
