@@ -9,13 +9,15 @@ export const sections = [
 ];
 
 // The llms.txt documentation sets: an agent fetches only the half it needs. The
-// plugin serves set `slug` at /_llms-txt/<slug>.txt; paths match page ids.
+// plugin serves set `slug` at /_llms-txt/<slug>.txt; paths match page ids. A
+// page is in a set if any path matches it, so exclusions share one pattern.
+// Neither set has the proposals: they are design history, not documentation.
 export const sets = [
 	{
 		label: 'Users',
 		slug: 'users',
 		description: 'using gritz and its integrations',
-		paths: ['!operators/**'],
+		paths: ['!{operators,proposals}/**'],
 	},
 	{
 		label: 'Operators',

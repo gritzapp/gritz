@@ -10,12 +10,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// renderEvent renders a single event as a prose-framed markdown block. It
-// switches on the set payload arm and emits a header line (`### … — {time}`)
-// plus an arm-specific body/footer, per the mapping in
-// proposals/implemented/hybrid-prompt-rendering.md. It is the hybrid renderer: the
-// envelope (header, labeled Type:/Description:/URL: fields) and the external
-// content body are prose markdown, while the opaque external details map is
+// renderEvent renders a single event as a prose-framed markdown block. It switches on
+// the set payload arm and emits a header line (`### … — {time}`) plus an arm-specific
+// body/footer, per the mapping in
+// docs/src/content/docs/proposals/implemented/hybrid-prompt-rendering.md. It is the
+// hybrid renderer: the envelope (header, labeled Type:/Description:/URL: fields) and the
+// external content body are prose markdown, while the opaque external details map is
 // emitted verbatim as an indented-JSON block. The returned block has no trailing
 // newline; callers join blocks with blank lines. An event with no set arm renders empty.
 func renderEvent(event *gritzv1.Event) string {

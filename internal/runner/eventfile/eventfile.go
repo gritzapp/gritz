@@ -1,6 +1,7 @@
 // Package eventfile is the driver's append-only copy of its task's events, in
 // the order the runner forwarded them over the Run stream, which is the order
-// of the runner's replica. See proposals/draft/runner-event-replica.md.
+// of the runner's replica. See
+// docs/src/content/docs/proposals/draft/runner-event-replica.md.
 //
 // The file holds one protojson-encoded gritz.v1.Event per line. Append fsyncs
 // before it returns, so a stored event survives a driver restart and a

@@ -8,7 +8,7 @@ import "strconv"
 // Scopes.Allow. It covers both the task-caller surface (the task-token minter
 // agentauth.Scopes) and the API-caller surface (the apiserver handlers, which
 // enforce per-task scopes directly); see the per-RPC mapping in
-// proposals/draft/scope-based-permissions.md §7.
+// docs/src/content/docs/proposals/implemented/scope-based-permissions.md §7.
 
 // Operation paths, as segment slices. The single source of truth for each
 // operation: scope creation (the runner's token minter, agentauth.Scopes)
@@ -24,7 +24,8 @@ var (
 	// OpTaskTokenCreate is a no-instance, capability-only op: the right to mint a
 	// narrow task token via the CreateTaskToken RPC. It has no instance attribute,
 	// so its handler gates on Scopes.AllowOp (see
-	// proposals/implemented/eliminate-runner-socket-proxy.md §1/§7).
+	// docs/src/content/docs/proposals/implemented/eliminate-runner-socket-proxy.md
+	// §1/§7).
 	OpTaskTokenCreate = []string{"task_token", "create"}
 
 	// API-caller operation paths (proposal §7). Events and keys are managed
@@ -69,7 +70,8 @@ func WithTaskRunner(runner string) Attr { return StringAttr(AttrTaskRunner, runn
 // (not a zero/absent case), so it is always emitted as "true"/"false" — a scope
 // constraining task.archived:"false" denies a request carrying "true", which is
 // how archive-based revocation falls out of the ordinary predicate rule. See
-// proposals/implemented/eliminate-runner-socket-proxy.md §3.
+// docs/src/content/docs/proposals/implemented/eliminate-runner-socket-proxy.md
+// §3.
 func WithTaskArchived(archived bool) Attr {
 	return StringAttr(AttrTaskArchived, strconv.FormatBool(archived))
 }

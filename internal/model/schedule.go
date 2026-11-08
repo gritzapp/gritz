@@ -15,7 +15,8 @@ import (
 // day-of-week) plus the @daily/@hourly/... descriptors. Pinning the accepted
 // fields keeps the grammar explicit and stable: no seconds field, matching what
 // users expect from crontab and GitHub Actions. See
-// proposals/accepted/scheduled-tasks.md §"Schedule specification".
+// docs/src/content/docs/proposals/implemented/scheduled-tasks.md §"Schedule
+// specification".
 var cronParser = cron.NewParser(
 	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
@@ -33,8 +34,9 @@ type ScheduleInstruction struct {
 
 // Schedule is a stored task template plus a cron spec. A server-side scheduler
 // worker materializes a real task run on each occurrence (see
-// proposals/accepted/scheduled-tasks.md). A schedule belongs to an org, not a
-// user — CreatedBy is attribution only and carries no permission semantics.
+// docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
+// belongs to an org, not a user — CreatedBy is attribution only and carries no
+// permission semantics.
 type Schedule struct {
 	ID        int64  `json:"id"`
 	OrgID     int64  `json:"org_id"`

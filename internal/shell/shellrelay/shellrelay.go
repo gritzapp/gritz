@@ -1,5 +1,6 @@
 // Package shellrelay implements the leg-agnostic rendezvous primitive for the
-// driver reverse shell (the design in proposals/draft/driver-reverse-shell.md).
+// driver reverse shell (the design in
+// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md).
 //
 // A Session bridges two WebSocket legs: once both are connected the relay copies
 // WebSocket frames verbatim in both directions. The relay is a mode-agnostic byte

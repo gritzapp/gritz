@@ -4,10 +4,10 @@ import {taskRunnerLayout} from '../../layouts/taskrunner';
 import {Colors} from '../../theme';
 
 // Pruning an archived task, traced from
-// proposals/draft/taskrunner-owns-sandbox.md (Retire and Prune,
-// TaskManager.Run): Run prunes between Poll passes, the archived check runs
-// outside tr.mu, Retire destroys the parked sandbox, and the registry drops
-// the entry right away because no Poll handler holds the TaskRunner.
+// docs/src/content/docs/proposals/draft/taskrunner-owns-sandbox.md (Retire and
+// Prune, TaskManager.Run): Run prunes between Poll passes, the archived check
+// runs outside tr.mu, Retire destroys the parked sandbox, and the registry
+// drops the entry right away because no Poll handler holds the TaskRunner.
 export default makeScene2D(function* (view) {
   const a = taskRunnerLayout(view, 'Prune between Poll passes');
   const {links} = a;

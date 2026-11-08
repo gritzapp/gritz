@@ -5,7 +5,8 @@
 // task-caller taxonomy it is used with — operation paths, attribute keys, and
 // the WithTask* attribute constructors — lives in task.go.
 //
-// See proposals/draft/scope-based-permissions.md for the design.
+// See docs/src/content/docs/proposals/implemented/scope-based-permissions.md
+// for the design.
 package authscope
 
 import (
@@ -102,7 +103,7 @@ func (scopes Scopes) Allow(op []string, attrs ...Attr) bool {
 // still satisfies AllowOp(OpTaskWrite): it answers capability presence, not
 // instance access. Use it only for genuine no-instance capability questions (e.g.
 // OpTaskTokenCreate), never as the pre-half of an instance check — see
-// proposals/implemented/eliminate-runner-socket-proxy.md §5.
+// docs/src/content/docs/proposals/implemented/eliminate-runner-socket-proxy.md §5.
 func (scopes Scopes) AllowOp(op []string) bool {
 	for _, s := range scopes {
 		if s.allowOp(op) {

@@ -1,8 +1,8 @@
 // Package backend defines the interface between the runner's orchestration
 // logic and the runtime that hosts task sandboxes (Docker today; Kubernetes,
 // ECS, Firecracker, AgentCore later). See
-// proposals/accepted/runner-backend-interface.md and
-// proposals/draft/shared-runner-taskstate.md.
+// docs/src/content/docs/proposals/implemented/runner-backend-interface.md and
+// docs/src/content/docs/proposals/implemented/shared-runner-taskstate.md.
 //
 // Backends do runtime work only — create, boot, suspend, destroy — over opaque
 // Handles. They never persist, discover, or reconcile task→sandbox

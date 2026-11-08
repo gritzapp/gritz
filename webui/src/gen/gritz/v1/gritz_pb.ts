@@ -184,8 +184,10 @@ export type Task = Message<"gritz.v1.Task"> & {
 
   /**
    * Non-empty => this sandbox run is a reverse shell for this rendezvous
-   * session id (see proposals/draft/driver-reverse-shell.md). Empty => normal
-   * agent run. Persistent and server-owned; the runner never touches it.
+   * session id (see
+   * docs/src/content/docs/proposals/implemented/driver-reverse-shell.md). Empty
+   * => normal agent run. Persistent and server-owned; the runner never touches
+   * it.
    *
    * @generated from field: string shell_session = 16;
    */
@@ -195,7 +197,7 @@ export type Task = Message<"gritz.v1.Task"> & {
    * Namespace partitions subscription matching in the event router. Empty is
    * the default namespace — the behavior every existing task already has. Set
    * at creation and read-only thereafter (see
-   * proposals/draft/task-namespaces.md).
+   * docs/src/content/docs/proposals/implemented/task-namespaces.md).
    *
    * @generated from field: string namespace = 17;
    */
@@ -827,8 +829,8 @@ export const UploadLogsResponseSchema: GenMessage<UploadLogsResponse> = /*@__PUR
 /**
  * LogChunk is an opaque run of driver log bytes. A task's transcript is the
  * concatenation of its chunks' data in id order — which is write order, because
- * the driver ships with a single in-flight sender.
- * See proposals/implemented/ship-driver-logs-to-server.md.
+ * the driver ships with a single in-flight sender. See
+ * docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
  *
  * @generated from message gritz.v1.LogChunk
  */
@@ -1159,7 +1161,7 @@ export type Event = Message<"gritz.v1.Event"> & {
    * The set arm IS the event type — a typed union, not an opaque Struct. There
    * is no separate `type` field on the wire; the db `type` column is
    * materialized from the arm for indexed filtering (like `direction`). See
-   * proposals/draft/unified-task-event-stream.md.
+   * docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
    *
    * @generated from oneof gritz.v1.Event.payload
    */
@@ -1361,7 +1363,7 @@ export const LinkPayloadSchema: GenMessage<LinkPayload> = /*@__PURE__*/
  * carries every command the runner has to act on, including the withdrawal of
  * a start and the clear when a runner event consumes the command. Command
  * events are not history; timelines skip them (see
- * proposals/draft/runner-event-replica.md).
+ * docs/src/content/docs/proposals/draft/runner-event-replica.md).
  *
  * @generated from message gritz.v1.CommandPayload
  */
@@ -1400,11 +1402,12 @@ export const CommandPayloadSchema: GenMessage<CommandPayload> = /*@__PURE__*/
  * It is the stream replacement for the old logs rows with type='audit'/'info'
  * and the type='error' container-failure rows. Lifecycle events sit beside the
  * existing status mutation in the same transaction; status stays a materialized
- * projection (see proposals/draft/unified-task-event-stream.md "Status stays a
- * projection"). `message` carries the failure detail for SANDBOX_FAILED and is
- * empty for kinds that don't need it. `fields` lists the task fields that
- * changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status") and is empty for
- * other kinds.
+ * projection (see
+ * docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
+ * "Status stays a projection"). `message` carries the failure detail for
+ * SANDBOX_FAILED and is empty for kinds that don't need it. `fields` lists the
+ * task fields that changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status")
+ * and is empty for other kinds.
  *
  * @generated from message gritz.v1.LifecyclePayload
  */
@@ -3089,8 +3092,9 @@ export const CreateGitHubTokenResponseSchema: GenMessage<CreateGitHubTokenRespon
 /**
  * Schedule is a stored task template plus a cron spec. A server-side scheduler
  * worker materializes a real task run on each occurrence (see
- * proposals/accepted/scheduled-tasks.md). A schedule belongs to an org, not a
- * user — created_by is attribution only and carries no permission semantics.
+ * docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
+ * belongs to an org, not a user — created_by is attribution only and carries no
+ * permission semantics.
  *
  * @generated from message gritz.v1.Schedule
  */

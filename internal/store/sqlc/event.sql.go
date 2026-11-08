@@ -157,7 +157,8 @@ type ListEventsByTaskParams struct {
 // A task's events in chronological stream order (ORDER BY id). The optional
 // types filter ($3) narrows to specific arms — an empty/nil array matches all
 // types — so the same query serves both the full timeline and the agent's brief
-// (instruction + external; see proposals/draft/unified-task-event-stream.md
+// (instruction + external; see
+// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
 // "The agent's brief").
 func (q *Queries) ListEventsByTask(ctx context.Context, arg ListEventsByTaskParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listEventsByTask, arg.TaskID, arg.OrgID, pq.Array(arg.Types))
@@ -338,7 +339,7 @@ type ListRunnerEventsParams struct {
 // oldest transaction still running, so every row below it has committed and
 // no row can still commit behind the cursor. Rows from newer transactions are
 // held back until everything older has finished. Covered by idx_events_xid_id.
-// See proposals/draft/runner-event-replica.md.
+// See docs/src/content/docs/proposals/draft/runner-event-replica.md.
 func (q *Queries) ListRunnerEvents(ctx context.Context, arg ListRunnerEventsParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listRunnerEvents,
 		arg.Runner,

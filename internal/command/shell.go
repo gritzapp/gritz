@@ -14,11 +14,11 @@ import (
 
 // ShellCommand opens an interactive debug shell in a task's sandbox. It is a
 // client of the driver reverse-shell feature (the design in
-// proposals/draft/driver-reverse-shell.md): it asks the server to open a shell
-// session via the OpenShell RPC, then hands the session off to shell.Attach,
-// which attaches to the rendezvous relay over a WebSocket and pipes the local
-// terminal through it. This works for any backend and for remote runners — there
-// is no docker-direct path anymore.
+// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md): it asks
+// the server to open a shell session via the OpenShell RPC, then hands the
+// session off to shell.Attach, which attaches to the rendezvous relay over a
+// WebSocket and pipes the local terminal through it. This works for any backend
+// and for remote runners — there is no docker-direct path anymore.
 var ShellCommand = &cli.Command{
 	Name:      "shell",
 	Usage:     "Open an interactive shell in a task's sandbox",

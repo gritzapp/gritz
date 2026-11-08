@@ -13,14 +13,15 @@ import (
 )
 
 // This file exercises the per-task scope enforcement on the apiserver handlers
-// (proposals/implemented/eliminate-runner-socket-proxy.md §3/§5, with the
-// two-tier AllowOp+Allow override): a task token scoped to its own task may act
-// on that task but not on any other task in the org. For every converted handler
-// there is a wrong-instance test: a caller scoped to task A must be denied on
-// task B. That is the safety net for the pre-gate design — the empty-scopes
-// completeness test (scope_test.go) can't catch a forgotten post-load Allow
-// because the pre-gate already denies empty scopes, but a wrong-instance caller
-// passes the pre-gate and must be stopped by the post-load Allow.
+// (docs/src/content/docs/proposals/implemented/eliminate-runner-socket-proxy.md
+// §3/§5, with the two-tier AllowOp+Allow override): a task token scoped to its
+// own task may act on that task but not on any other task in the org. For every
+// converted handler there is a wrong-instance test: a caller scoped to task A
+// must be denied on task B. That is the safety net for the pre-gate design — the
+// empty-scopes completeness test (scope_test.go) can't catch a forgotten
+// post-load Allow because the pre-gate already denies empty scopes, but a
+// wrong-instance caller passes the pre-gate and must be stopped by the post-load
+// Allow.
 
 // --- Behavioral spec: own task allowed, any other task denied ---
 

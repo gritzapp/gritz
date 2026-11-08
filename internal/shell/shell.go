@@ -1,8 +1,9 @@
-// Package shell holds the client-side core of the reverse debug shell (the
-// design in proposals/draft/driver-reverse-shell.md): the driver leg (Serve) and
-// the operator leg (Attach), plus the shared route/URL helpers both legs and the
-// server route registration use. The server-side rendezvous relay lives in the
-// shellrelay sub-package, and the wire framing lives in internal/shell/shellwire.
+// Package shell holds the client-side core of the reverse debug shell (the design
+// in docs/src/content/docs/proposals/implemented/driver-reverse-shell.md): the
+// driver leg (Serve) and the operator leg (Attach), plus the shared route/URL
+// helpers both legs and the server route registration use. The server-side
+// rendezvous relay lives in the shellrelay sub-package, and the wire framing
+// lives in internal/shell/shellwire.
 //
 // Serve allocates a PTY, spawns a shell, dials the server's shell relay
 // WebSocket for a rendezvous session, and pipes the PTY over it using the

@@ -17,12 +17,13 @@ import (
 )
 
 // Schedules are org-owned objects; permissions gate the API surface, not the
-// firing (see proposals/accepted/scheduled-tasks.md §"API surface"). Creating or
-// updating a schedule is a deferred CreateTask, so it demands the same
-// task-create scope on the target (workspace, runner). Deleting or toggling one
-// is a mutation, gated on task-write like every other mutation in the codebase
-// (there is no task-delete tier — write is it). Listing and getting only require
-// org membership, expressed as the task-read capability every member holds.
+// firing (see docs/src/content/docs/proposals/implemented/scheduled-tasks.md
+// §"API surface"). Creating or updating a schedule is a deferred CreateTask, so
+// it demands the same task-create scope on the target (workspace, runner).
+// Deleting or toggling one is a mutation, gated on task-write like every other
+// mutation in the codebase (there is no task-delete tier — write is it). Listing
+// and getting only require org membership, expressed as the task-read capability
+// every member holds.
 
 func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateScheduleRequest) (*gritzv1.CreateScheduleResponse, error) {
 	caller := apiauth.MustCaller(ctx)

@@ -205,7 +205,8 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 		// Carry the comment's code location into the persisted payload so the
 		// agent and UI see the anchored file/line and diff without a GitHub API
 		// round trip. line/start_line are capture-time hints; diff_hunk is the
-		// durable anchor (see proposals/draft/pr-review-comment-code-location.md).
+		// durable anchor (see
+		// docs/src/content/docs/proposals/implemented/pr-review-comment-code-location.md).
 		c := event.Comment
 		// GitHub sends a null line for comments on an outdated diff; fall back to
 		// original_line, which still points at the reviewed commit. This records

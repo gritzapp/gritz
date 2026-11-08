@@ -391,9 +391,9 @@ func TestTask_ApplyRunnerEvent(t *testing.T) {
 }
 
 // The tests below walk multi-step sequences where the version acts as the run
-// counter (proposals/draft/task-run-versions.md): the counter moves exactly at
-// run boundaries and never under a live run unless a restart deliberately
-// disowns it.
+// counter (docs/src/content/docs/proposals/implemented/task-run-versions.md):
+// the counter moves exactly at run boundaries and never under a live run unless
+// a restart deliberately disowns it.
 
 // Back-to-back wakes coalesce into one bump at the exit fold.
 func TestTask_RunVersion_WakeCoalescing(t *testing.T) {

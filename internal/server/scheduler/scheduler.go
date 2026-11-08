@@ -9,7 +9,8 @@
 // FOR UPDATE SKIP LOCKED and both the fire and the advance commit in the same
 // transaction, so a schedule fires exactly once even with several schedulers
 // ticking at the same instant (a duplicated fire would be a duplicated real task
-// run, not an idempotent no-op). See proposals/accepted/scheduled-tasks.md.
+// run, not an idempotent no-op). See
+// docs/src/content/docs/proposals/implemented/scheduled-tasks.md.
 package scheduler
 
 import (

@@ -107,6 +107,14 @@ const diagramItems = (dir = '') => {
 	return [...links, ...groups];
 };
 
+// The Proposals sidebar group's nested groups, one per status directory under
+// src/content/docs/proposals/.
+const proposalGroups = [
+	{ label: 'Draft', directory: 'draft' },
+	{ label: 'Implemented', directory: 'implemented' },
+	{ label: 'Rejected', directory: 'rejected' },
+];
+
 export default defineConfig({
 	site: 'https://docs.gritz.dev',
 	base: base ?? '/',
@@ -126,6 +134,17 @@ export default defineConfig({
 				{ label: 'Start here', items: ['index', 'getting-started'] },
 				...sections.flatMap(section),
 				{ label: 'Diagrams', items: diagramItems() },
+				{
+					label: 'Proposals',
+					items: [
+						{ label: 'About proposals', link: '/proposals/' },
+						...proposalGroups.map(({ label, directory }) => ({
+							label,
+							collapsed: true,
+							items: [{ autogenerate: { directory: `proposals/${directory}` } }],
+						})),
+					],
+				},
 			],
 			components: {
 				// Links each page to its Markdown source.

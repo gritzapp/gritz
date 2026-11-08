@@ -1,5 +1,6 @@
 // Package shellserver owns the server-side registry and HTTP handlers for the
-// driver reverse shell (the design in proposals/draft/driver-reverse-shell.md).
+// driver reverse shell (the design in
+// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md).
 //
 // It tracks rendezvous sessions by id, owns the org each session belongs to, and
 // applies the leg policy the relay is deliberately ignorant of: the pre-upgrade

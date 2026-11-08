@@ -4,9 +4,9 @@ import {taskRunnerLayout} from '../../layouts/taskrunner';
 import {Colors} from '../../theme';
 
 // A runner restart with task 42's sandbox still up, traced from
-// proposals/draft/taskrunner-owns-sandbox.md (Restore, Events, Driver WAL):
-// the command starts HandleEvents before Load, Restore adopts the record and claims the run in
-// one lock acquisition, and Run reattaches from the record's Seq.
+// docs/src/content/docs/proposals/draft/taskrunner-owns-sandbox.md (Restore, Events, Driver
+// WAL): the command starts HandleEvents before Load, Restore adopts the record and claims the
+// run in one lock acquisition, and Run reattaches from the record's Seq.
 export default makeScene2D(function* (view) {
   const a = taskRunnerLayout(view, 'Load: Restore claims the run');
   const {links} = a;
