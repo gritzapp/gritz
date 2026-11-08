@@ -22,7 +22,7 @@ A namespace is a label on a task that separates its subscriptions from other tas
 
 > How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
 
-## Organisations [Section titled “Organisations”](#organisations) An organisation owns everything in gritz: its tasks, the runners connected to it and their workspaces, routing rules, custom event types, schedules and API keys. Nothing is shared between organisations, and an event is routed by each organisation’s own [rules](/pr/2097/concepts/routing-rules/). The first time you sign in, gritz creates a personal organisation for you, your default. You can create more under **Settings → Account → My Organisations**, and switch between those you belong to with the selector at the top of the [Web UI](/pr/2097/using/web-ui/). The current organisation is in each page’s `?org=` parameter. ## Members [Section titled “Members”](#members) Every member of an organisation can do everything in it: create, run and archive any of its tasks, edit its routing rules and schedules, and create and delete its API keys. The one exception is managing the organisation itself, which only its owner can do. The owner is whoever created it. | | Members | Owner | | --------------------------------------------------- | ------- | ----- | | Tasks, schedules, routing rules, custom event types | ✓ | ✓ | | API keys, workspaces, integration settings | ✓ | ✓ | | Add and remove members | | ✓ | | Delete the organisation | | ✓ | The owner adds members on the **Members** page, by the email address they sign in with. A person has to have signed in to gritz once before they can be added. The owner can’t be removed. Membership also decides whose GitHub and Jira activity counts as the organisation’s: a member-only routing rule acts on events from members who have linked their [GitHub](/pr/2097/integrations/github/#link-your-github-account) or [Atlassian](/pr/2097/integrations/jira/#link-your-atlassian-account) account under **Settings → Account**. See [Public rules](/pr/2097/concepts/routing-rules/#public-rules). ### Deleting an organisation [Section titled “Deleting an organisation”](#deleting-an-organisation) The owner can delete an organisation from **My Organisations**, except their default one. Archive all of its tasks first, so their runners destroy the sandboxes: gritz refuses to delete an organisation with unarchived tasks. Deleting it disables its schedules and stops its API keys from working. ## API keys [Section titled “API keys”](#api-keys) An API key lets a program act for the organisation: a [runner](/pr/2097/concepts/runners/), the [CLI](/pr/2097/using/cli/), or a system sending [custom events](/pr/2097/integrations/custom-events/). Create one on the **Keys** page. The key, starting with `xat_`, is shown once, when it is created; store it then. * A key belongs to the organisation it was created in, not to the member who created it, and keeps working if they leave. * It can do what a member can, in that organisation only, apart from the owner’s actions. * Actions taken with it, such as creating a task, are recorded under the key’s name, so give each key a name that says what uses it. * Keys created in the Web UI don’t expire. Delete a key on the **Keys** page to revoke it. Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from its [config file](/pr/2097/using/cli/#configuration). ## Task tokens [Section titled “Task tokens”](#task-tokens) Agents don’t use API keys. Each task gets a token of its own that can only read and update that task: fetch its instructions, rename it, add links and post reports, through the [agent tools](/pr/2097/using/agent-tools/). It can’t see or change other tasks. The token stops working when the task is archived. A workspace can ask for one more permission for its tasks’ tokens, getting GitHub tokens through the organisation’s GitHub App, with the `github_token` [capability](/pr/2097/operators/workspaces-yaml/#capabilities). The server doesn’t issue these tokens yet, so agents get GitHub access from a token in their workspace’s `secrets:` instead, such as `GH_TOKEN`.
+## Organisations [Section titled “Organisations”](#organisations) An organisation owns everything in gritz: its tasks, the runners connected to it and their workspaces, routing rules, custom event types, schedules and API keys. Nothing is shared between organisations, and an event is routed by each organisation’s own [rules](/pr/2097/concepts/routing-rules/). The first time you sign in, gritz creates a personal organisation for you, your default. You can create more under **Settings → Account → My Organisations**, and switch between those you belong to with the selector at the top of the [Web UI](/pr/2097/using/web-ui/). The current organisation is in each page’s `?org=` parameter. ## Members [Section titled “Members”](#members) Every member of an organisation can do everything in it: create, run and archive any of its tasks, edit its routing rules and schedules, and create and delete its API keys. The one exception is managing the organisation itself, which only its owner can do. The owner is whoever created it. | | Members | Owner | | --------------------------------------------------- | ------- | ----- | | Tasks, schedules, routing rules, custom event types | ✓ | ✓ | | API keys, workspaces, integration settings | ✓ | ✓ | | Add and remove members | | ✓ | | Delete the organisation | | ✓ | The owner adds members on the **Members** page, by the email address they sign in with. A person has to have signed in to gritz once before they can be added. The owner can’t be removed. Membership also decides whose GitHub and Jira activity counts as the organisation’s: a member-only routing rule acts on events from members who have linked their [GitHub](/pr/2097/integrations/github/#link-your-github-account) or [Atlassian](/pr/2097/integrations/jira/#link-your-atlassian-account) account under **Settings → Account**. See [Public rules](/pr/2097/concepts/routing-rules/#public-rules). ### Deleting an organisation [Section titled “Deleting an organisation”](#deleting-an-organisation) The owner can delete an organisation from **My Organisations**, except their default one. Archive all of its tasks first, so their runners destroy the sandboxes: gritz refuses to delete an organisation with unarchived tasks. Deleting it disables its schedules and stops its API keys from working. ## API keys [Section titled “API keys”](#api-keys) An API key lets a program act for the organisation: a [runner](/pr/2097/concepts/runners/), the [CLI](/pr/2097/using/cli/), or a system sending [custom events](/pr/2097/integrations/custom-events/). Create one on the **Keys** page. The key, starting with `xat_`, is shown once, when it is created; store it then. * A key belongs to the organisation it was created in, not to the member who created it, and keeps working if they leave. * It can do what a member can, in that organisation only, apart from the owner’s actions. * Actions taken with it, such as creating a task, are recorded under the key’s name, so give each key a name that says what uses it. * Keys created in the Web UI don’t expire. Delete a key on the **Keys** page to revoke it. Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from its [config file](/pr/2097/using/cli/#configuration); a program calling the [API](/pr/2097/reference/api/) sends it on every request. ## Task tokens [Section titled “Task tokens”](#task-tokens) Agents don’t use API keys. Each task gets a token of its own that can only read and update that task: fetch its instructions, rename it, add links and post reports, through the [agent tools](/pr/2097/using/agent-tools/). It can’t see or change other tasks. The token stops working when the task is archived. A workspace can ask for one more permission for its tasks’ tokens, getting GitHub tokens through the organisation’s GitHub App, with the `github_token` [capability](/pr/2097/operators/workspaces-yaml/#capabilities). The server doesn’t issue these tokens yet, so agents get GitHub access from a token in their workspace’s `secrets:` instead, such as `GH_TOKEN`.
 
 # Routing rules
 
@@ -153,6 +153,1182 @@ Task 1234 completed.
 claude --dangerously-load-development-channels server:gritz
 ```
  ### Muting tasks [Section titled “Muting tasks”](#muting-tasks) With `--channel`, three more tools let your Claude choose which tasks it hears about. Every task is on by default. | Tool | | | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | | `channel_mute` | Stops messages for the tasks in `task_ids`, or for every task with `all=true`. | | `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. | | `channel_muted` | Shows which tasks are muted. | Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2097/concepts/events-and-links/#subscriptions), which route external events into tasks.
+
+# API
+
+> Call the gritz Connect API directly, with its endpoint, protocols and authentication, and the full service definition.
+
+Everything gritz does, from the [Web UI](/pr/2097/using/web-ui/) to the [CLI](/pr/2097/using/cli/) and the runners, goes through one service, `gritz.v1.GritzService`. A program with an [API key](#authentication) can call it too. Its full definition is [at the end of this page](#service-definition). ## Endpoint [Section titled “Endpoint”](#endpoint) Every RPC is a `POST` to its own path on the server: 
+```plaintext
+POST https://gritz.dev/gritz.v1.GritzService/<Method>
+```
+ On a self-hosted server, replace `https://gritz.dev` with its base URL. ## Protocols [Section titled “Protocols”](#protocols) The server speaks the [Connect](https://connectrpc.com/docs/protocol/) protocol, gRPC and gRPC-Web, so any Connect or gRPC client generated from the service definition can call it. With Connect, a request body is the request message as JSON (`Content-Type: application/json`) or binary protobuf (`Content-Type: application/proto`). JSON field names are the camelCase form of the proto field names: `page_size` is `pageSize`. ## Authentication [Section titled “Authentication”](#authentication) Send an [API key](/pr/2097/concepts/orgs-members-keys/#api-keys) as a bearer token: 
+```plaintext
+Authorization: Bearer xat_…
+```
+ The key acts for the organisation it was created in, and can call what a member can. A request without a valid key fails with the `unauthenticated` code. ## Example [Section titled “Example”](#example) Check the connection and the server version with `Ping`, then see which organisation the key acts for with `GetCaller`: 
+```sh
+export GRITZ_TOKEN=xat_…
+
+
+curl -sS https://gritz.dev/gritz.v1.GritzService/Ping \
+  -H "Authorization: Bearer $GRITZ_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+
+curl -sS https://gritz.dev/gritz.v1.GritzService/GetCaller \
+  -H "Authorization: Bearer $GRITZ_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+ `Ping` returns `{"version": "…"}`. An error comes back as a non-2xx status with a JSON body such as `{"code": "unauthenticated", "message": "…"}`. ## Service definition [Section titled “Service definition”](#service-definition) The full definition of `gritz.v1`: every RPC of `GritzService` and every message and enum they use, with their comments. proto/gritz/v1/gritz.proto 
+```protobuf
+syntax = "proto3";
+
+
+package gritz.v1;
+
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+
+option go_package = "github.com/gritzapp/gritz/internal/proto/gritz/v1;gritzv1";
+
+
+// GritzService is the gritz API. The web UI, the CLI and the `gritz mcp` server
+// call it for users; runners and the drivers inside task sandboxes call it to
+// run tasks.
+service GritzService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  rpc GetCaller(GetCallerRequest) returns (GetCallerResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  // Called by the runner to follow the events of its tasks. Returns the events
+  // after the cursor in log order, and only once no earlier event can still
+  // appear, so following the cursor never skips one.
+  rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
+  rpc ArchiveTask(ArchiveTaskRequest) returns (ArchiveTaskResponse);
+  rpc UnarchiveTask(UnarchiveTaskRequest) returns (UnarchiveTaskResponse);
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+  rpc RestartTask(RestartTaskRequest) returns (RestartTaskResponse);
+  rpc OpenShell(OpenShellRequest) returns (OpenShellResponse);
+  // Called by the agent's `report` tool in a task's sandbox. Each entry of type
+  // `llm` is added to the task as a report event; entries of other types are
+  // ignored.
+  rpc UploadLogs(UploadLogsRequest) returns (UploadLogsResponse);
+  // Called by the driver in a task's sandbox to ship the task's log.
+  rpc AppendLogChunk(AppendLogChunkRequest) returns (AppendLogChunkResponse);
+  rpc ListLogChunksByTask(ListLogChunksByTaskRequest) returns (ListLogChunksByTaskResponse);
+  rpc CreateLink(CreateLinkRequest) returns (CreateLinkResponse);
+  rpc ListLinks(ListLinksRequest) returns (ListLinksResponse);
+  rpc ListExternalEvents(ListExternalEventsRequest) returns (ListExternalEventsResponse);
+  rpc GetEvent(GetEventRequest) returns (GetEventResponse);
+  rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
+  rpc ListEventsByTask(ListEventsByTaskRequest) returns (ListEventsByTaskResponse);
+  // Called by the runner, and by the driver in a task's sandbox, to report that
+  // a task's run started, stopped or failed.
+  rpc SubmitRunnerEvents(SubmitRunnerEventsRequest) returns (SubmitRunnerEventsResponse);
+  // Called by the runner before it starts a task's sandbox, to get the token the
+  // sandbox calls the API with. The token can read and update only that task,
+  // plus the requested capabilities.
+  rpc CreateTaskToken(CreateTaskTokenRequest) returns (CreateTaskTokenResponse);
+  // Called by the runner when it starts, to register the workspaces it serves.
+  // Replaces the workspaces registered before for the same runner.
+  rpc RegisterWorkspaces(RegisterWorkspacesRequest) returns (RegisterWorkspacesResponse);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc ClearWorkspaces(ClearWorkspacesRequest) returns (ClearWorkspacesResponse);
+  rpc CreateKey(CreateKeyRequest) returns (CreateKeyResponse);
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse);
+  rpc DeleteKey(DeleteKeyRequest) returns (DeleteKeyResponse);
+  rpc UnlinkGitHubAccount(UnlinkGitHubAccountRequest) returns (UnlinkGitHubAccountResponse);
+  rpc LinkGitHubInstallation(LinkGitHubInstallationRequest) returns (LinkGitHubInstallationResponse);
+  rpc UnlinkAtlassianAccount(UnlinkAtlassianAccountRequest) returns (UnlinkAtlassianAccountResponse);
+  rpc CreateOrg(CreateOrgRequest) returns (CreateOrgResponse);
+  rpc ListOrgs(ListOrgsRequest) returns (ListOrgsResponse);
+  rpc DeleteOrg(DeleteOrgRequest) returns (DeleteOrgResponse);
+  rpc AddOrgMember(AddOrgMemberRequest) returns (AddOrgMemberResponse);
+  rpc RemoveOrgMember(RemoveOrgMemberRequest) returns (RemoveOrgMemberResponse);
+  rpc ListOrgMembers(ListOrgMembersRequest) returns (ListOrgMembersResponse);
+  rpc GetOrgSettings(GetOrgSettingsRequest) returns (GetOrgSettingsResponse);
+  rpc GenerateAtlassianWebhookSecret(GenerateAtlassianWebhookSecretRequest) returns (GenerateAtlassianWebhookSecretResponse);
+  rpc GetRoutingRules(GetRoutingRulesRequest) returns (GetRoutingRulesResponse);
+  rpc SetRoutingRules(SetRoutingRulesRequest) returns (SetRoutingRulesResponse);
+  rpc GetEventTypes(GetEventTypesRequest) returns (GetEventTypesResponse);
+  rpc GetCustomEventTypes(GetCustomEventTypesRequest) returns (GetCustomEventTypesResponse);
+  rpc SetCustomEventTypes(SetCustomEventTypesRequest) returns (SetCustomEventTypesResponse);
+  rpc TestEvent(TestEventRequest) returns (TestEventResponse);
+  // Called from a task's sandbox to get a GitHub token. The server doesn't
+  // issue these tokens yet: every call fails with `unimplemented`.
+  rpc CreateGitHubToken(CreateGitHubTokenRequest) returns (CreateGitHubTokenResponse);
+  rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
+  rpc GetSchedule(GetScheduleRequest) returns (GetScheduleResponse);
+  rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
+  rpc UpdateSchedule(UpdateScheduleRequest) returns (UpdateScheduleResponse);
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+  rpc SetScheduleEnabled(SetScheduleEnabledRequest) returns (SetScheduleEnabledResponse);
+  rpc RunSchedule(RunScheduleRequest) returns (RunScheduleResponse);
+}
+
+
+message PingRequest {}
+
+
+message PingResponse {
+  string version = 1;
+}
+
+
+message Instruction {
+  string text = 1;
+  string url = 2;
+}
+
+
+message TaskActions {
+  bool archive = 1;
+  bool cancel = 2;
+  bool restart = 3;
+  bool start = 4;
+  bool unarchive = 5;
+}
+
+
+enum TaskStatus {
+  UNSPECIFIED = 0;
+  PENDING = 1;
+  RUNNING = 2;
+  RESTARTING = 3;
+  CANCELLING = 4;
+  COMPLETED = 5;
+  FAILED = 6;
+  CANCELLED = 7;
+  DRAFT = 8;
+}
+
+
+enum TaskCommand {
+  NONE = 0;
+  RESTART = 1;
+  STOP = 2;
+  START = 3;
+}
+
+
+message Task {
+  int64 id = 1;
+  string name = 2;
+  reserved 3;  // Previously: parent (child tasks removed)
+  string workspace = 4;
+  string runner = 5;  // Runner ID that handles this task
+  reserved 6;  // Previously: instructions (now instruction events in the stream)
+  TaskStatus status = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  TaskCommand command = 10;
+  // The task's current run: 0 before it first starts, then 1, and one more for
+  // each new run.
+  int64 version = 11;
+  TaskActions actions = 12;
+  bool archived = 13;
+  string url = 14;
+  // How long the task stays in a terminal status (COMPLETED, FAILED,
+  // CANCELLED) before it is archived. Zero or unset never archives it, a
+  // negative value archives it as soon as it reaches a terminal status, and a
+  // positive value archives it that long after.
+  google.protobuf.Duration auto_archive = 15;
+
+
+  // See docs/src/content/docs/proposals/implemented/driver-reverse-shell.md.
+  // Persistent and server-owned; the runner never touches it.
+
+
+  // The shell session the task's sandbox serves instead of running the agent,
+  // set by OpenShell. Empty for an ordinary run.
+  string shell_session = 16;
+
+
+  // See docs/src/content/docs/proposals/implemented/task-namespaces.md.
+
+
+  // The task's namespace: only routing rules in the same namespace see its
+  // subscriptions. Empty is the default namespace. Set at creation and can't be
+  // changed.
+  string namespace = 17;
+}
+
+
+message McpServer {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+}
+
+
+message Profile {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+
+message GetProfileRequest {}
+
+
+message GetProfileResponse {
+  Profile profile = 1;
+  repeated Org orgs = 2;
+  int64 default_org_id = 3;
+  GitHubAccount github_account = 4;
+  AtlassianAccount atlassian_account = 5;
+}
+
+
+message GetCallerRequest {}
+
+
+message GetCallerResponse {
+  Org org = 1; // the org the request is authenticated against
+}
+
+
+message ListTasksRequest {
+  int32 page_size = 1;     // Max tasks to return (default: 50, max: 100)
+  string page_token = 2;   // Opaque cursor from a previous next_page_token; empty for the first page
+  bool archived = 3;       // Include archived tasks alongside active ones (default: false)
+}
+
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  string next_page_token = 2;  // Token for the next page; empty when there are no more results
+}
+
+
+message ListRunnerEventsRequest {
+  string runner = 1;  // Runner ID (required)
+  // Opaque; empty for the start of the log, otherwise a previous
+  // response's next_page_token.
+  string page_token = 2;
+  int32 page_size = 3;  // Max events to return; 0 for the server default
+}
+
+
+message ListRunnerEventsResponse {
+  repeated Event events = 1;
+  // Resumes after the last event in this page; the request's page_token when
+  // the page is empty. Pass it back unchanged.
+  string next_page_token = 2;
+  // Whether more events are available right now past this page.
+  bool more = 3;
+}
+
+
+message CreateTaskRequest {
+  string name = 1;
+  reserved 2;  // Previously: parent (child tasks removed)
+  string workspace = 3;
+  repeated Instruction instructions = 4;
+  string runner = 5;  // Runner ID that should handle this task
+  google.protobuf.Duration auto_archive = 6;
+  // The task's namespace; empty is the default namespace. See Task.namespace.
+  string namespace = 7;
+  // Create the task as a DRAFT: no runner picks it up until an UpdateTask with
+  // start set, such as the first instruction sent from the task page, starts it.
+  // False (the default) starts the task immediately.
+  bool draft = 8;
+}
+
+
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+
+message GetTaskRequest {
+  int64 id = 1;
+}
+
+
+message GetTaskResponse {
+  Task task = 1;
+}
+
+
+message UpdateTaskRequest {
+  int64 id = 1;
+  string name = 2;
+  reserved 3;  // Previously: restart
+  repeated Instruction add_instructions = 4;
+  bool start = 5;    // Start after current run finishes (non-interrupting)
+  // The new auto-archive delay, as in Task.auto_archive. Unset leaves it
+  // unchanged.
+  google.protobuf.Duration auto_archive = 6;
+}
+
+
+message UpdateTaskResponse {}
+
+
+message ArchiveTaskRequest {
+  int64 id = 1;
+}
+
+
+message ArchiveTaskResponse {}
+
+
+message UnarchiveTaskRequest {
+  int64 id = 1;
+}
+
+
+message UnarchiveTaskResponse {}
+
+
+message CancelTaskRequest {
+  int64 id = 1;
+}
+
+
+message CancelTaskResponse {}
+
+
+message RestartTaskRequest {
+  int64 id = 1;
+}
+
+
+message RestartTaskResponse {}
+
+
+message OpenShellRequest {
+  int64 task_id = 1;
+}
+
+
+message OpenShellResponse {
+  // The shell session to attach to, at `GET /shell/{session_id}/attach`. The
+  // task's sandbox restarts to serve it, and the task's shell_session is set to
+  // it.
+  string session_id = 1;
+}
+
+
+message LogEntry {
+  string type = 1;
+  string content = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+
+message UploadLogsRequest {
+  int64 task_id = 1;
+  repeated LogEntry entries = 2;
+}
+
+
+message UploadLogsResponse {}
+
+
+// See docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
+// Id order is write order because the driver ships with a single in-flight
+// sender.
+
+
+// LogChunk is a run of bytes from a task's log. The log is the concatenation of
+// its chunks' data in id order.
+message LogChunk {
+  int64 id = 1;
+  int64 task_id = 2;
+  int64 version = 3;  // The run (Task.version) the bytes belong to; 0 for output before the first run.
+  bytes data = 4;     // Raw log bytes, not split into lines.
+  google.protobuf.Timestamp created_at = 5;
+}
+
+
+message AppendLogChunkRequest {
+  int64 task_id = 1;
+  int64 version = 2;  // The run these bytes belong to.
+  // The bytes to append to the task's log. Must be non-empty and at most 1 MiB.
+  bytes data = 3;
+}
+
+
+message AppendLogChunkResponse {}
+
+
+message ListLogChunksByTaskRequest {
+  int64 task_id = 1;
+  int32 page_size = 2;    // Max chunks per page (default 50, max 200).
+  // A previous response's prev_page_token or next_page_token; empty for the
+  // newest page, at the end of the log.
+  string page_token = 3;
+}
+
+
+message ListLogChunksByTaskResponse {
+  repeated LogChunk chunks = 1;  // Oldest first, so their data concatenates in log order.
+  string prev_page_token = 2;    // Token for the older page; empty at the start of the log.
+  // Token for the newer page. Always set, so a client can keep polling it for
+  // new chunks.
+  string next_page_token = 3;
+  // Whether another page exists in the direction just read: older for a
+  // request with a prev_page_token, newer otherwise. Stop when more is false
+  // rather than on a page shorter than page_size.
+  bool more = 4;
+}
+
+
+message TaskLink {
+  int64 id = 1;
+  int64 task_id = 2;
+  string relevance = 3;
+  string url = 4;
+  string title = 5;
+  bool subscribe = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // The key events are matched against, derived from url by the server.
+  // Read-only.
+  string routing_key = 8;
+}
+
+
+message CreateLinkRequest {
+  int64 task_id = 1;
+  string relevance = 2;
+  string url = 3;
+  string title = 4;
+  bool subscribe = 5;
+  reserved 6;
+}
+
+
+message CreateLinkResponse {
+  TaskLink link = 1;
+}
+
+
+message ListLinksRequest {
+  int64 task_id = 1;
+}
+
+
+message ListLinksResponse {
+  repeated TaskLink links = 1;
+}
+
+
+message Event {
+  int64 id = 1;
+  int64 task_id = 2;
+  bool wake = 3;
+  google.protobuf.Timestamp created_at = 4;
+
+
+  // A typed union, not an opaque Struct. The db `type` column is materialized
+  // from the arm for indexed filtering (like `direction`). See
+  // docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
+
+
+  // The event's type and content. The field that is set is the event's type;
+  // there is no separate type field.
+  oneof payload {
+    InstructionPayload instruction = 5;
+    ExternalPayload external = 6;
+    ReportPayload report = 7;
+    LifecyclePayload lifecycle = 8;
+    LinkPayload link = 9;
+    CommandPayload command = 10;
+  }
+}
+
+
+// The stream replacement for the old tasks.instructions JSON column. Kept
+// minimal (parity with the stored instruction); no actor, consistent with the
+// external-only trimming in #957.
+
+
+// InstructionPayload is an instruction to the task's agent.
+message InstructionPayload {
+  string text = 1;
+  string url = 2;
+}
+
+
+message ExternalPayload {
+  string description = 1;
+  string url = 2;
+  string data = 3;
+
+
+  // Distinct from the router's matchable Attrs, which are not persisted.
+
+
+  // Extra context defined by the event's source, shown to the agent by
+  // get_my_task and on the task's timeline. GitHub review comments set `path`,
+  // `line`, `side` and `diff_hunk`; other sources set their own keys or none.
+  // These are not the attributes routing rules match on.
+  map<string, string> details = 4;
+  // Where the event came from, such as "github" or "jira".
+  string source = 5;
+  // The event's type within its source, such as "issue_comment" or
+  // "pull_request_review".
+  string type = 6;
+}
+
+
+// The stream replacement for the old logs rows with type='llm'. Reports are not
+// to-agent, so they never enter the brief.
+
+
+// ReportPayload is a message from the task's agent, written with its `report`
+// tool.
+message ReportPayload {
+  string content = 1;
+}
+
+
+// The link event is the timeline source of truth; the task_links row it mirrors
+// is the subscription/list projection.
+
+
+// LinkPayload records a link the task created, such as a pull request or an
+// issue.
+message LinkPayload {
+  int64 link_id = 1;  // The TaskLink's id.
+  string relevance = 2;
+  string url = 3;
+  string title = 4;
+  bool subscribe = 5;
+}
+
+
+// It is written in the same transaction as the tasks row, so the event log
+// carries every command the runner has to act on, including the withdrawal of
+// a start and the clear when a runner event consumes the command. See
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md.
+
+
+// CommandPayload records that the task's command, or the run it applies to,
+// changed. Runners follow these events to start, restart and stop tasks;
+// timelines don't show them.
+message CommandPayload {
+  TaskCommand command = 1;
+  int64 version = 2;
+  string runner = 3;
+  string workspace = 4;
+}
+
+
+// The stream replacement for the old logs rows with type='audit'/'info' and the
+// type='error' container-failure rows. Lifecycle events sit beside the existing
+// status mutation in the same transaction; status stays a materialized
+// projection (see
+// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
+// "Status stays a projection").
+
+
+// LifecyclePayload records something that happened to the task, such as its
+// creation, its cancellation or its sandbox exiting.
+message LifecyclePayload {
+  LifecycleKind kind = 1;
+  Actor actor = 2;
+  string from_status = 3;
+  string to_status = 4;
+  string message = 5;  // The failure detail for SANDBOX_FAILED; empty for other kinds.
+  // The task fields that changed, such as "name" or "status", for UPDATED;
+  // empty for other kinds.
+  repeated string fields = 6;
+}
+
+
+// Actor identifies who caused a lifecycle event.
+message Actor {
+  string kind = 1;  // One of "user", "runner" or "router".
+  string name = 2;  // The user's name for a user actor; empty otherwise.
+}
+
+
+// The TaskChange set, minus Woken, which splits into an external event plus the
+// transition the wake caused.
+
+
+// LifecycleKind is what happened in a lifecycle event.
+enum LifecycleKind {
+  LIFECYCLE_KIND_UNSPECIFIED = 0;
+  LIFECYCLE_KIND_CREATED = 1;
+  LIFECYCLE_KIND_UPDATED = 2;
+  LIFECYCLE_KIND_CANCELLED = 3;
+  LIFECYCLE_KIND_RESTARTED = 4;
+  LIFECYCLE_KIND_ARCHIVED = 5;
+  LIFECYCLE_KIND_UNARCHIVED = 6;
+  LIFECYCLE_KIND_AUTO_ARCHIVED = 7;
+  LIFECYCLE_KIND_SANDBOX_STARTED = 8;
+  LIFECYCLE_KIND_SANDBOX_EXITED = 9;
+  LIFECYCLE_KIND_SANDBOX_FAILED = 10;
+}
+
+
+message ListExternalEventsRequest {
+  int32 limit = 1;  // Max events to return (default: 100, max: 100)
+}
+
+
+message ListExternalEventsResponse {
+  repeated Event events = 1;
+}
+
+
+message GetEventRequest {
+  int64 id = 1;
+}
+
+
+message GetEventResponse {
+  Event event = 1;
+}
+
+
+message DeleteEventRequest {
+  int64 id = 1;
+}
+
+
+message DeleteEventResponse {}
+
+
+message ListEventsByTaskRequest {
+  int64 task_id = 1;
+  int32 page_size = 2;    // Max events per page (default 50, max 200).
+  // A previous response's prev_page_token or next_page_token; empty for the
+  // newest page.
+  string page_token = 3;
+  // The event types to return, named after Event's payload fields (such as
+  // "instruction" or "external"); empty returns every type.
+  repeated string types = 4;
+}
+
+
+message ListEventsByTaskResponse {
+  repeated Event events = 1;   // Oldest first.
+  string prev_page_token = 2;  // Token for the older page; empty at the first event.
+  // Token for the newer page. Always set, so a client can keep polling it for
+  // new events.
+  string next_page_token = 3;
+  // Whether another page exists in the direction just read: older for a
+  // request with a prev_page_token, newer otherwise. Stop when more is false
+  // rather than on a page shorter than page_size.
+  bool more = 4;
+}
+
+
+message RunnerEvent {
+  int64 task_id = 1;
+  string event = 2;     // "started", "stopped" or "failed".
+  // The run (Task.version) the event is about. An event for another run than
+  // the task's current one is ignored; 0 applies to the current run.
+  int64 version = 3;
+  bool reconcile = 4;   // Events with reconcile set are ignored.
+  string reason = 5;    // Optional human-readable detail, such as why the run failed.
+}
+
+
+message SubmitRunnerEventsRequest {
+  repeated RunnerEvent events = 1;
+}
+
+
+message SubmitRunnerEventsResponse {}
+
+
+message CreateTaskTokenRequest {
+  int64 task_id = 1;
+  // The workspace capabilities to grant the token, such as "github_token".
+  repeated string capabilities = 2;
+}
+
+
+message CreateTaskTokenResponse {
+  string token = 1;
+}
+
+
+message RegisteredWorkspace {
+  string name = 1;
+  string runner_id = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  string description = 4;
+}
+
+
+message RegisterWorkspacesRequest {
+  string runner_id = 1;
+  repeated RegisteredWorkspace workspaces = 2;
+}
+
+
+message RegisterWorkspacesResponse {}
+
+
+message ListWorkspacesRequest {}
+
+
+message ListWorkspacesResponse {
+  repeated RegisteredWorkspace workspaces = 1;
+}
+
+
+message ClearWorkspacesRequest {
+  string runner_id = 1;  // Optional: clear only workspaces for this runner
+}
+
+
+message ClearWorkspacesResponse {}
+
+
+message Key {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+
+message CreateKeyRequest {
+  string name = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+
+message CreateKeyResponse {
+  Key key = 1;
+  string raw_token = 2;
+}
+
+
+message ListKeysRequest {}
+
+
+message ListKeysResponse {
+  repeated Key keys = 1;
+}
+
+
+message DeleteKeyRequest {
+  string id = 1;
+}
+
+
+message DeleteKeyResponse {}
+
+
+message GitHubAccount {
+  int64 id = 1;
+  int64 github_user_id = 2;
+  string github_username = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+
+message UnlinkGitHubAccountRequest {}
+
+
+message UnlinkGitHubAccountResponse {}
+
+
+message LinkGitHubInstallationRequest {
+  int64 installation_id = 1;
+}
+
+
+message LinkGitHubInstallationResponse {}
+
+
+message AtlassianAccount {
+  string atlassian_account_id = 1;
+  string atlassian_username = 3;
+  google.protobuf.Timestamp created_at = 2;
+}
+
+
+message UnlinkAtlassianAccountRequest {}
+
+
+message UnlinkAtlassianAccountResponse {}
+
+
+message Org {
+  int64 id = 1;
+  string name = 2;
+  string owner = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+
+message OrgMember {
+  int64 org_id = 1;
+  string user_id = 2;
+  string email = 3;
+  string name = 4;
+  string role = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+
+message CreateOrgRequest {
+  string name = 1;
+}
+
+
+message CreateOrgResponse {
+  Org org = 1;
+}
+
+
+message ListOrgsRequest {}
+
+
+message ListOrgsResponse {
+  repeated Org orgs = 1;
+}
+
+
+message DeleteOrgRequest {
+  int64 id = 1;
+}
+
+
+message DeleteOrgResponse {}
+
+
+message AddOrgMemberRequest {
+  string email = 1;
+}
+
+
+message AddOrgMemberResponse {
+  OrgMember member = 1;
+}
+
+
+message RemoveOrgMemberRequest {
+  string user_id = 1;
+}
+
+
+message RemoveOrgMemberResponse {}
+
+
+message ListOrgMembersRequest {}
+
+
+message ListOrgMembersResponse {
+  repeated OrgMember members = 1;
+}
+
+
+message GetOrgSettingsRequest {}
+
+
+message GetOrgSettingsResponse {
+  string atlassian_webhook_secret = 1;
+  string atlassian_webhook_url = 2;
+  string github_app_url = 3;
+  string mcp_url = 4;
+  int64 github_installation_id = 5;
+  string custom_webhook_url = 6; // where to POST custom events, e.g. https://gritz.dev/webhook/custom
+}
+
+
+message GenerateAtlassianWebhookSecretRequest {}
+
+
+message GenerateAtlassianWebhookSecretResponse {
+  string secret = 1;
+  string webhook_url = 2;
+}
+
+
+// RuleCondition constrains one attribute of an event. Comparisons are exact and
+// case-sensitive.
+message RuleCondition {
+  string attr = 1;
+  string op = 2;  // One of "equals", "prefix" or "contains".
+  string value = 3;
+}
+
+
+message RoutingRule {
+  reserved 3, 4, 6, 7, 8;  // Previously: prefix, mention, assignee, url_prefix, value (legacy flat matchers)
+  string source = 1;
+  string type = 2;
+  CreateTaskAction create = 5;
+  // Whether a match starts the subscribed tasks again to handle the event.
+  // When false, the event is added to their timelines without starting them.
+  // Rules created in the web UI default to true.
+  bool wakeup = 9;
+  // Conditions the event must meet, all of them. Empty source and type match
+  // any; no conditions match every event of the selected type.
+  repeated RuleCondition conditions = 10;
+  // Whether the rule also acts on events from people who aren't members of the
+  // org. False (the default) acts only on members' events.
+  bool public = 11;
+  // The rule's namespace: a match looks for subscribed tasks only in it, and a
+  // task the rule creates is in it. Empty is the default namespace.
+  string namespace = 12;
+}
+
+
+message CreateTaskAction {
+  string workspace = 1;
+  string runner = 2;
+  string prompt = 3;
+  // The auto-archive delay of the tasks the rule creates, as in
+  // Task.auto_archive.
+  google.protobuf.Duration auto_archive = 4;
+}
+
+
+message GetRoutingRulesRequest {}
+
+
+message GetRoutingRulesResponse {
+  repeated RoutingRule rules = 1;
+}
+
+
+message SetRoutingRulesRequest {
+  repeated RoutingRule rules = 1;
+}
+
+
+message SetRoutingRulesResponse {
+  repeated RoutingRule rules = 1;
+}
+
+
+// AttrDef is an event attribute a routing rule can have a condition on.
+message AttrDef {
+  string key = 1;  // The name a RuleCondition's attr refers to.
+  string label = 2;        // The attribute's name in the routing-rule editor.
+  string help = 3;         // Help text for the attribute in the routing-rule editor.
+  string placeholder = 4;  // Placeholder for the attribute's value in the routing-rule editor.
+}
+
+
+// It mirrors the eventrouter registry entry, exposing only the client-relevant
+// fields (the shipped default rules are intentionally omitted).
+
+
+// EventTypeDef is an event type, identified by its source and type, and every
+// attribute a routing rule can have a condition on for it.
+message EventTypeDef {
+  string source = 1;
+  string type = 2;
+  string label = 3;
+  repeated AttrDef attrs = 4;
+}
+
+
+message GetEventTypesRequest {}
+
+
+message GetEventTypesResponse {
+  repeated EventTypeDef event_types = 1;
+}
+
+
+message GetCustomEventTypesRequest {}
+
+
+message GetCustomEventTypesResponse {
+  repeated EventTypeDef event_types = 1; // every source is "custom"
+}
+
+
+// SetCustomEventTypesRequest replaces the org's custom event types. It fails
+// with `invalid_argument` if a type is malformed, and `failed_precondition` if
+// an existing routing rule would no longer be valid with the new types.
+message SetCustomEventTypesRequest {
+  repeated EventTypeDef event_types = 1;
+}
+
+
+message SetCustomEventTypesResponse {
+  repeated EventTypeDef event_types = 1;
+}
+
+
+// The handler wraps each attr value into the one-element slice eventrouter.Attrs
+// expects, and unpacks the "body" and "url" attrs into Data and URL.
+
+
+// TestEventRequest composes an event and routes it through the org's routing
+// rules, as a dry run or for real.
+message TestEventRequest {
+  string source = 1;                // The event type's source, such as "github".
+  string type = 2;                  // The event type, such as "issue_comment".
+  // The event's attribute values, keyed by AttrDef.key, including "body" and
+  // "url".
+  map<string, string> attrs = 3;
+  string description = 4;           // Optional description shown on the task's timeline.
+  bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
+  map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
+}
+
+
+message TestEventResponse {
+  repeated TestEventMatch matches = 1;  // The match in the caller's org, if any.
+  bool fired = 2;                       // Whether the matches were acted on.
+}
+
+
+// TestEventMatch is what a matching routing rule did, or would do.
+message TestEventMatch {
+  int64 org_id = 1;
+  int32 rule_index = 2;      // The index of the rule that matched, or -1 for a built-in default rule.
+  bool would_wake = 3;       // The matched rule's wakeup.
+  bool would_create = 5;     // Whether a task would be, or was, created.
+  repeated int64 created_task_ids = 6;   // The tasks created; set only when fired.
+  repeated int64 event_ids = 7;          // The events added; set only when fired.
+}
+
+
+message CreateGitHubTokenRequest {}
+
+
+message CreateGitHubTokenResponse {
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+
+// See docs/src/content/docs/proposals/implemented/scheduled-tasks.md.
+
+
+// Schedule is a task template and a cron expression: the server creates a task
+// from the template at each time the expression matches. A schedule belongs to
+// its org, not to the user who created it.
+message Schedule {
+  int64 id = 1;
+  string name = 2;
+  string workspace = 3;
+  string runner = 4;
+  string namespace = 5;
+  repeated Instruction instructions = 6;
+  string cron_expr = 7;
+  string timezone = 8;                      // IANA name; default "UTC".
+  bool enabled = 9;
+  google.protobuf.Duration auto_archive = 10;
+  google.protobuf.Timestamp next_run_at = 11;  // Unset when disabled.
+  google.protobuf.Timestamp last_run_at = 12;  // Unset when it has never run.
+  int64 last_task_id = 13;                  // 0 when it has never run.
+  string created_by = 14;                   // Who created it; grants no permissions.
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+
+message CreateScheduleRequest {
+  string name = 1;
+  string workspace = 2;
+  string runner = 3;
+  string namespace = 4;
+  repeated Instruction instructions = 5;
+  string cron_expr = 6;
+  string timezone = 7;                      // IANA name; empty defaults to "UTC".
+  // Whether the schedule runs. False (the default) creates a schedule that
+  // never runs until SetScheduleEnabled enables it.
+  bool enabled = 8;
+  google.protobuf.Duration auto_archive = 9;
+}
+
+
+message CreateScheduleResponse {
+  Schedule schedule = 1;
+}
+
+
+message GetScheduleRequest {
+  int64 id = 1;
+}
+
+
+message GetScheduleResponse {
+  Schedule schedule = 1;
+}
+
+
+message ListSchedulesRequest {}
+
+
+message ListSchedulesResponse {
+  repeated Schedule schedules = 1;
+}
+
+
+// UpdateScheduleRequest replaces a schedule's template, cron expression and
+// timezone. Changing cron_expr or timezone recomputes next_run_at. Use
+// SetScheduleEnabled to enable or disable it.
+message UpdateScheduleRequest {
+  int64 id = 1;
+  string name = 2;
+  string workspace = 3;
+  string runner = 4;
+  string namespace = 5;
+  repeated Instruction instructions = 6;
+  string cron_expr = 7;
+  string timezone = 8;                      // IANA name; empty defaults to "UTC".
+  google.protobuf.Duration auto_archive = 9;
+}
+
+
+message UpdateScheduleResponse {
+  Schedule schedule = 1;
+}
+
+
+message DeleteScheduleRequest {
+  int64 id = 1;
+}
+
+
+message DeleteScheduleResponse {}
+
+
+// SetScheduleEnabledRequest enables or disables a schedule. Enabling computes
+// next_run_at from now; disabling clears it, and the schedule stops running.
+message SetScheduleEnabledRequest {
+  int64 id = 1;
+  bool enabled = 2;
+}
+
+
+message SetScheduleEnabledResponse {
+  Schedule schedule = 1;
+}
+
+
+// RunScheduleRequest creates a task from a schedule now, once, in addition to
+// its regular runs. It leaves next_run_at, last_run_at and last_task_id
+// unchanged, and works on a disabled schedule too, so a schedule can be tried
+// out before it is enabled.
+message RunScheduleRequest {
+  int64 id = 1;
+}
+
+
+message RunScheduleResponse {
+  Task task = 1;  // The task the run created.
+}
+```
 
 # CLI
 

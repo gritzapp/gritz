@@ -12,11 +12,12 @@ server, registers six tools in
 from an MCP client, so an agent that a user works with locally can't:
 
 - **Administer events.** List the org's external events, inspect or delete one,
-  see which event types exist, define custom event types, or dry-run an event
-  against the routing rules.
+  see which event types exist, define custom event types, dry-run an event
+  against the routing rules, or send a custom event.
 - **Manage schedules.** Create, edit, pause, delete or run one now.
-- **Read org administration data.** Who the members are, what API keys exist
-  and when they expire, the org's webhook and MCP URLs, the routing rules.
+- **Read org administration data or edit routing rules.** Who the members are,
+  what API keys exist and when they expire, the org's webhook and MCP URLs; the
+  routing rules can't be read or changed either.
 - **Manage tasks fully.** Even the task tools lag the API and Web UI: there is
   no cancel, restart or unarchive, no rename, no paging past the 50 newest
   tasks, no archived tasks, no drafts or namespaces, and no access to the
@@ -29,9 +30,12 @@ here changes it.
 
 ## Design
 
-Add tools to `mcpserver.AddTools`, every one a thin proxy over an existing
-`GritzService` RPC. **No proto changes, store changes or migrations are needed**:
-every capability below already has an RPC, because the Web UI uses it.
+Add tools to `mcpserver.AddTools`, every one a thin proxy over a
+`GritzService` RPC. Almost every capability below already has an RPC, because
+the Web UI uses it. The one exception is sending a custom event, which today
+only arrives over HTTP at `/webhook/custom`; a new `SendCustomEvent` RPC
+covers it (see [API additions](#api-additions)). No store changes or
+migrations are needed.
 
 ### Principles
 
@@ -44,16 +48,19 @@ every capability below already has an RPC, because the Web UI uses it.
   `OpOrgRead`, `OpKeyRead`, …) and owner-only rules, and the MCP caller is an
   ordinary API caller (an OAuth app JWT or an API key, both `authscope.Admin()`
   today). A denied call surfaces as an `mcpx.ErrorResult`, as now.
-- **Org data is read-only.** No tool calls `AddOrgMember`, `RemoveOrgMember`,
-  `CreateKey`, `DeleteKey`, `CreateOrg`, `DeleteOrg`,
-  `GenerateAtlassianWebhookSecret`, `LinkGitHubInstallation`, or the account
-  unlink RPCs. Those stay in the Web UI and CLI.
+- **Org data is read-only, except routing rules.** No tool calls
+  `AddOrgMember`, `RemoveOrgMember`, `CreateKey`, `DeleteKey`, `CreateOrg`,
+  `DeleteOrg`, `GenerateAtlassianWebhookSecret`, `LinkGitHubInstallation`, or the
+  account unlink RPCs. Those stay in the Web UI and CLI. Routing rules are the
+  one org setting an agent writes, through `set_routing_rules`, because
+  configuring routing is the admin work an agent is most often asked to do.
 - **No secrets in results.** `GetOrgSettingsResponse.atlassian_webhook_secret`
   is dropped from `get_org_settings`. `ListKeys` returns only key metadata, never
   a token, so `list_keys` is safe as is.
 - **Annotations tell the client what a tool does.** Reads set `ReadOnlyHint`;
-  `delete_event`, `delete_schedule` and `delete_custom_event_type` set
-  `DestructiveHint`, so clients that confirm destructive calls do.
+  `delete_event`, `delete_schedule`, `delete_custom_event_type` and
+  `set_routing_rules` set `DestructiveHint`, so clients that confirm destructive
+  calls do.
 - **Same tools on both transports.** `gritz mcp` and `/mcp` share `AddTools`;
   every tool goes through the `gritzv1connect.GritzServiceHandler` interface, so
   none needs anything the Connect client can't do.
@@ -139,16 +146,23 @@ Details:
 | `get_event` | `GetEvent` | `id` |
 | `delete_event` | `DeleteEvent` | `id` |
 | `test_event` | `TestEvent` | `source`, `type`, `attrs`, `description`, `details`, `fire` |
+| `send_custom_event` | `SendCustomEvent` (new) | `type`, `body`, `url`, `attrs`, `details` |
 
 - **`list_events`** returns a summary per event: `id`, `task_id`, `source`,
   `type`, `description`, `url`, `created_at` from `ExternalPayload`, not the
   `data` blob. `get_event` returns the full event as protojson, like `get_task`'s
   timeline.
-- **`test_event`** defaults to a dry run (`fire: false`), returning
+- **`test_event`** is for testing routing. It takes any registered source and
+  type, defaults to a dry run (`fire: false`), and returns
   `TestEventResponse.matches`: which rule matched and whether it would wake or
-  create. `fire: true` routes it for real; the RPC already requires
-  `OpOrgWrite` for that. This is also how an agent sends a custom event from the
-  MCP; no separate tool posts to `/webhook/custom`.
+  create. `fire: true` routes it for real, as the caller; the RPC already
+  requires `OpOrgWrite` for that.
+- **`send_custom_event`** sends a real custom event, exactly as a POST to
+  `/webhook/custom` does: the same envelope (`type`, `body`, `url`,
+  multi-valued `attrs`, `details`), the same validation, routed with no actor so
+  only public rules fire, under the same `OpEventCreate` scope. It returns the
+  number of tasks the event was routed to, like the webhook's `routed`. Invalid
+  envelopes come back as an error result carrying the validation message.
 
 #### Event types
 
@@ -159,8 +173,8 @@ Details:
 | `delete_custom_event_type` | `GetCustomEventTypes`, `SetCustomEventTypes` | `type` |
 
 - **`list_event_types`** lists the built-in and custom types with their
-  attributes, which is what an agent needs to fill in `test_event` attrs or to explain a
-  routing rule's conditions.
+  attributes, which is what an agent needs to fill in `test_event` or
+  `send_custom_event` attrs, or to write a routing rule's conditions.
 - `SetCustomEventTypes` replaces the whole set. The two write tools read the
   current set, add, replace or remove the one entry by `type`, and write the set
   back, exactly as the Web UI's custom event type pages do. The RPC validates
@@ -193,7 +207,7 @@ Details:
   description says so, so an agent turns it on deliberately.
 - `run_schedule` returns the created task's summary.
 
-#### Org (read-only)
+#### Org
 
 | Tool | RPC | Arguments |
 | --- | --- | --- |
@@ -201,20 +215,27 @@ Details:
 | `list_keys` | `ListKeys` | — |
 | `get_org_settings` | `GetOrgSettings` | — |
 | `get_routing_rules` | `GetRoutingRules` | — |
+| `set_routing_rules` | `SetRoutingRules` | `rules` |
 
 - `list_members` returns `user_id`, `email`, `name`, `role`, `created_at`.
 - `list_keys` returns `id`, `name`, `expires_at`, `created_at`.
 - `get_org_settings` returns `mcp_url`, `custom_webhook_url`,
   `atlassian_webhook_url`, `github_app_url`, `github_installation_id`, and
   never `atlassian_webhook_secret`.
-- `get_routing_rules` returns the rules as protojson. Writing them is out of
-  scope (see [Trade-offs](#trade-offs)).
+- `get_routing_rules` returns the rules as protojson.
+- `set_routing_rules` proxies `SetRoutingRules` as is: `rules` is the full list
+  as protojson `RoutingRule`s, in the shape `get_routing_rules` returns. The
+  agent reads the list, edits it, and writes the whole list back. The tool
+  description says that it replaces every rule in the org, so a list missing a
+  rule deletes it. The RPC validates every rule against the org's event types
+  and returns `InvalidArgument` naming the bad rule, which the tool returns as
+  an error result. It returns the stored rules.
 
 ### Instructions
 
 `mcpserver.Instructions` grows a sentence saying the server also administers
-the org's events, custom event types and schedules, and reads its members, keys
-and routing rules, so clients route those requests here.
+the org's events, custom event types, schedules and routing rules, and reads its
+members and keys, so clients route those requests here.
 
 ### Code layout
 
@@ -226,7 +247,7 @@ each with a `register` function `AddTools` calls in order:
 internal/server/mcpserver/
   mcpserver.go   // NewServer, AddTools, Handler, Instructions, shared helpers
   task.go        // addTaskTools: task and workspace tools
-  event.go       // addEventTools: events and event types
+  event.go       // addEventTools: events, event types, test and custom events
   schedule.go    // addScheduleTools
   org.go         // addOrgTools: members, keys, settings, routing rules
 ```
@@ -244,7 +265,7 @@ The package's exported API doesn't change: `AddTools` registers more tools.
 package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
 
 // Instructions is the prompt shown to MCP clients describing what the gritz server offers.
-const Instructions = "..." // changed: mentions events, schedules and org data
+const Instructions = "..." // changed: mentions events, schedules, routing rules and org data
 
 // AddTools registers the user-facing gritz tools on the given MCP server.
 func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, opts ...Option) // changed: registers the new tools
@@ -256,17 +277,70 @@ the Connect client. Every handler calls `GritzServiceHandler` methods only.
 
 ### API additions
 
-None are required. Considered and left out:
+#### `SendCustomEvent`
 
-- **`SendCustomEvent` RPC.** Custom events arrive over HTTP at
-  `/webhook/custom`, not over Connect, so `gritz mcp` couldn't post one through
-  its client. `test_event` with `fire: true` already routes a synthetic event
-  through the real router, so a separate tool would duplicate it. The difference
-  is the actor: `TestEvent` routes as the caller (member rules apply), the
-  webhook with no actor (public rules only). See [Open Questions](#open-questions).
+Custom events arrive over HTTP at `/webhook/custom`, not over Connect, so
+`gritz mcp` can't post one through its client. A new RPC accepts the same
+envelope:
+
+```proto
+service GritzService {
+  // SendCustomEvent routes one event of an org's custom event type, exactly as
+  // a POST to /webhook/custom does. It requires the event create scope.
+  rpc SendCustomEvent(SendCustomEventRequest) returns (SendCustomEventResponse);
+}
+
+message SendCustomEventRequest {
+  string type = 1;                          // the custom event type
+  string body = 2;                          // matchable as the "body" attr
+  string url = 3;                           // absolute http(s) URL; the subscription key
+  map<string, CustomEventAttr> attrs = 4;   // declared attrs only, not "body" or "url"
+  map<string, string> details = 5;          // persisted verbatim, never matched
+}
+
+// CustomEventAttr is one attribute's values; a proto map can't hold a
+// repeated value directly.
+message CustomEventAttr {
+  repeated string values = 1;
+}
+
+message SendCustomEventResponse {
+  int32 routed = 1; // number of tasks the event was routed to
+}
+```
+
+The webhook handler and the RPC share the validation and routing code in
+`customserver` rather than duplicating it. The body of
+`WebhookHandler.ServeHTTP` after authorization and decoding moves into one
+function:
+
+```go
+package customserver // github.com/gritzapp/gritz/internal/server/customserver
+
+// Send validates env against the org's custom event types and routes it with
+// no actor, so only the org's public rules can fire. It returns the number of
+// tasks routed to. A validation failure is an *EnvelopeError.
+func Send(ctx context.Context, store Store, router Router, orgID int64, env Envelope) (int, error)
+
+// EnvelopeError reports an envelope that failed validation: an unknown type,
+// a missing or non-http(s) url, or an undeclared attr.
+type EnvelopeError struct{ Err error }
+```
+
+`ServeHTTP` checks `OpEventCreate`, decodes the JSON, calls `Send`, and maps an
+`*EnvelopeError` to 400. `apiserver.SendCustomEvent` checks the same
+`OpEventCreate` scope, converts the request to an `Envelope`, calls `Send` with
+the server's router, and maps an `*EnvelopeError` to `InvalidArgument`. Neither
+caller validates on its own, so the two paths can't drift.
+
+#### Considered and left out
+
 - **Per-type custom event type RPCs** (`PutCustomEventType`,
   `DeleteCustomEventType`). They would remove the lost-update window of
   read-modify-write, but the Web UI has the same window and edits are rare.
+- **Per-rule routing-rule RPCs.** Rules have no IDs, so per-rule add and remove
+  would need stable rule IDs in `RoutingRule`. Proxying `SetRoutingRules` is
+  what the Web UI's rule editor does already.
 - **`ListTasks` filters** (status, workspace, namespace). Useful to an agent
   hunting for "my failed tasks", but the Web UI doesn't filter either; paging
   covers it for now.
@@ -283,46 +357,43 @@ adds or changes, in the same PR.
    the existing handlers and the per-domain `register` structure; no behaviour
    change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests
    pass unchanged.
-2. **Richer task reads** — Delivers: `list_tasks` paging and `archived`, the
-   wider task summary, `get_task`'s extra fields and `event_types` filter.
-   Depends on: (1). Verifiable by: mock tests asserting `ListTasksRequest`
-   fields, `next_page_token` in the result and the `types` passed to
-   `ListEventsByTask`.
-3. **Task writes** — Delivers: `create_task` `draft` and `namespace`;
-   `update_task` `name`, `auto_archive`, optional `instruction`, and the
-   nothing-to-do error. Depends on: (1). Verifiable by: mock tests on the
-   `CreateTaskRequest` / `UpdateTaskRequest` sent.
-4. **Task lifecycle** — Delivers: `cancel_task`, `restart_task`,
-   `unarchive_task`. Depends on: (1). Verifiable by: mock tests per tool; a
+2. **Task tools** — Delivers: `list_tasks` paging and `archived`, the wider
+   task summary, `get_task`'s extra fields and `event_types` filter;
+   `create_task` `draft` and `namespace`; `update_task` `name`, `auto_archive`,
+   optional `instruction` and the nothing-to-do error; `cancel_task`,
+   `restart_task`, `unarchive_task`; `get_task_log`; `create_link`. Depends on:
+   (1). Verifiable by: mock tests on the requests each tool sends, including
+   `next_page_token` in the `list_tasks` result, the `types` passed to
+   `ListEventsByTask`, and `get_task_log` walking several `ListLogChunksByTask`
+   pages backwards, stopping at `max_bytes` and returning the right `before`; a
    manual cancel and restart through `gritz mcp` against a local server.
-5. **Task log** — Delivers: `get_task_log`. Depends on: (1). Verifiable by: mock
-   tests walking several `ListLogChunksByTask` pages backwards, stopping at
-   `max_bytes` and returning the right `before`.
-6. **Task links** — Delivers: `create_link`. Depends on: (1). Verifiable by: mock
-   test on the `CreateLinkRequest`; the link appearing in `get_task`.
-7. **Events** — Delivers: `list_events`, `get_event`, `delete_event`. Depends on:
-   (1). Verifiable by: mock tests, including that `list_events` omits `data`.
-8. **Event types** — Delivers: `list_event_types`, `put_custom_event_type`,
-   `delete_custom_event_type`. Depends on: (7). Verifiable by: mock tests that the
-   written set adds, replaces or removes exactly one entry and that a
-   `FailedPrecondition` comes back as an error result.
-9. **Test event** — Delivers: `test_event`. Depends on: (8). Verifiable by: mock
-   tests for dry run and fire; a dry run against a custom type on a local server
-   reporting the matching rule.
-10. **Schedule reads** — Delivers: `list_schedules`, `get_schedule`. Depends on:
-    (1). Verifiable by: mock tests.
-11. **Schedule writes** — Delivers: `create_schedule`, `update_schedule`,
-    `set_schedule_enabled`, `run_schedule`, `delete_schedule`. Depends on: (10).
-    Verifiable by: mock tests, including that `update_schedule` with only
-    `cron_expr` sends the loaded instructions back unchanged.
-12. **Org reads** — Delivers: `list_members`, `list_keys`, `get_org_settings`,
-    `get_routing_rules`. Depends on: (1). Verifiable by: mock tests, including
-    that `get_org_settings` drops the webhook secret.
-13. **Instructions** — Delivers: the updated `mcpserver.Instructions` and the
-    intro of `integrations/mcp` describing the wider tool set. Depends on:
-    (2)–(12). Verifiable by: reading the page; `TestListTools` lists every tool.
+3. **Events and event types** — Delivers: `list_events`, `get_event`,
+   `delete_event`, `list_event_types`, `put_custom_event_type`,
+   `delete_custom_event_type`, `test_event`; the `SendCustomEvent` RPC with
+   `customserver.Send` shared by the webhook handler; `send_custom_event`.
+   Updates `integrations/custom-events` to mention the RPC and the MCP tool.
+   Depends on: (1). Verifiable by: mock tests, including that `list_events`
+   omits `data`, that the written custom type set adds, replaces or removes
+   exactly one entry, and that a `FailedPrecondition` comes back as an error
+   result; the existing webhook tests passing against `Send`; `apiserver`
+   tests that `SendCustomEvent` rejects an unknown type, a relative `url` and
+   an undeclared attr with `InvalidArgument`, requires `OpEventCreate`, and
+   routes with no actor so a member rule doesn't fire.
+4. **Schedules** — Delivers: `list_schedules`, `get_schedule`,
+   `create_schedule`, `update_schedule`, `set_schedule_enabled`,
+   `run_schedule`, `delete_schedule`. Depends on: (1). Verifiable by: mock
+   tests, including that `update_schedule` with only `cron_expr` sends the
+   loaded instructions back unchanged.
+5. **Org** — Delivers: `list_members`, `list_keys`, `get_org_settings`,
+   `get_routing_rules`, `set_routing_rules`. Depends on: (1). Verifiable by:
+   mock tests, including that `get_org_settings` drops the webhook secret, that
+   `set_routing_rules` sends the list unchanged and carries `DestructiveHint`,
+   and that an `InvalidArgument` comes back as an error result.
+6. **Instructions** — Delivers: the updated `mcpserver.Instructions` and the
+   intro of `integrations/mcp` describing the wider tool set. Depends on:
+   (2)–(5). Verifiable by: reading the page; `TestListTools` lists every tool.
 
-Slices 2–7, 10 and 12 depend only on (1) and can land in any order.
+Slices 2–5 depend only on (1) and can land in any order.
 
 ## Trade-offs
 
@@ -331,12 +402,19 @@ Slices 2–7, 10 and 12 depend only on (1) and can land in any order.
   validation. Proxying keeps `gritz mcp` and `/mcp` identical and keeps the MCP
   out of the permission model. The cost is a few read-modify-write tools where
   the RPC replaces a whole set.
-- **No routing-rule writes.** `SetRoutingRules` replaces the org's whole rule
-  list; one bad call from an agent can silently stop every event from waking
-  tasks. A safe tool would need per-rule add/remove, which means indexing rules
-  that have no IDs. Reading the rules is enough for an agent to explain routing
-  and to pair with `test_event`; writing them stays in the Web UI.
-- **A flat tool set, not toolsets.** The MCP goes from 6 tools to 29, which costs
+- **Routing rules are written whole.** `set_routing_rules` proxies
+  `SetRoutingRules`, which replaces the org's whole rule list; one bad call
+  from an agent that drops rules can silently stop events from waking tasks.
+  Per-rule add and remove would be safer, but rules have no IDs to address
+  them by. `DestructiveHint` and a description that says every rule is
+  replaced make the client confirm, the RPC still validates every rule, and
+  `get_routing_rules` plus `test_event` let the agent check its work.
+- **`send_custom_event` beside `test_event`.** `test_event` with `fire: true`
+  already routes a synthetic event, but as the caller, so member rules fire,
+  and with any source. `send_custom_event` is the webhook's behaviour: custom
+  types only, no actor, public rules only. An agent wiring up an integration
+  needs to see what the integration's events will really do.
+- **A flat tool set, not toolsets.** The MCP goes from 6 tools to 31, which costs
   client context. Grouping tools behind a flag (`gritz mcp --tools task,event`)
   or MCP-level toolsets would trim it, but clients already let users disable
   individual tools, and the tool descriptions stay short. Revisit if it hurts.
@@ -347,15 +425,3 @@ Slices 2–7, 10 and 12 depend only on (1) and can land in any order.
 - **One instruction per create.** `CreateTask` and `CreateSchedule` accept
   several instructions, but nothing in the Web UI makes more than one, and one
   string is easier for an agent to fill.
-
-## Open Questions
-
-- Should `test_event` be the only way to send a custom event, or should there
-  be a `send_custom_event` tool (and a `SendCustomEvent` RPC) that routes with no
-  actor, exactly as the webhook does, so only public rules fire?
-- Should routing-rule writes come later as per-rule tools, which would need
-  stable rule IDs in `RoutingRule`?
-- Is `GetOrgSettings`' `github_installation_id` worth exposing, or is it noise
-  for an agent?
-- Do we want toolset filtering (`--tools` on `gritz mcp`, a query parameter on
-  `/mcp`) from the start, given the tool count?

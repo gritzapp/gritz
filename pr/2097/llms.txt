@@ -42,6 +42,7 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 
 ## Reference
 
+- [API](https://docs.gritz.dev/pr/2097/reference/api.md): Call the gritz Connect API directly, with its endpoint, protocols and authentication, and the full service definition.
 - [CLI](https://docs.gritz.dev/pr/2097/reference/cli.md): Every gritz subcommand and flag, with its environment variable and default.
 - [Custom event envelope](https://docs.gritz.dev/pr/2097/reference/custom-event-envelope.md): The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
 - [Event types](https://docs.gritz.dev/pr/2097/reference/event-types.md): Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes routing rule conditions can match.

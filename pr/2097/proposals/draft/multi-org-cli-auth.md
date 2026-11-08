@@ -112,8 +112,10 @@ Every user-facing command selects one entry at startup:
 
 1. If `--key` / `GRITZ_API_KEY` is set, use that key, and skip the files,
    entries and `allowed` entirely (see Explicit key below).
-2. Load and merge the files. A `default` that isn't in the merged `allowed` is
-   an error, whether or not it's the entry being selected:
+2. Load and merge the files, and validate the result. An entry without `id`
+   or `key` is an error naming the file it came from, and so is a `default`
+   that isn't in the merged `allowed`, whether or not either is the entry being
+   selected:
 
    ```
    error: default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/labs/.gritz.yml)
@@ -139,8 +141,7 @@ Every user-facing command selects one entry at startup:
    error: no org entry named "acme": run `gritz login --key <key> --name acme`
    ```
 
-6. The entry supplies the org id, the key and the server. An entry without `id`
-   or `key` is an error naming the file it came from.
+6. The entry supplies the org id, the key and the server.
 
 **Server URL.** `--server` > `GRITZ_SERVER` > the selected entry's `server` >
 `gritzclient.DefaultURL`. Every user-facing command gets the `GRITZ_SERVER` env
@@ -155,34 +156,35 @@ ignored. This is the path for CI and for runners deployed with an injected key.
 
 `login` has to learn which org a key belongs to. Nothing returns that today:
 `GetProfileResponse.default_org_id` is the user's web-UI default, not the org
-the request authenticated as. Add it:
+the request authenticated as, and `GetProfile` reads the caller's user, which
+an API key doesn't have. Add a dedicated RPC:
 
 ```proto
-message GetProfileResponse {
-  Profile profile = 1;
-  repeated Org orgs = 2;
-  int64 default_org_id = 3;
-  GitHubAccount github_account = 4;
-  AtlassianAccount atlassian_account = 5;
-  int64 org_id = 6; // new: the org this request is authenticated against (apiauth.UserInfo.OrgID)
+rpc GetCaller(GetCallerRequest) returns (GetCallerResponse);
+
+message GetCallerRequest {}
+
+message GetCallerResponse {
+  Org org = 1; // the org the request is authenticated against
 }
 ```
 
-`apiserver.GetProfile` sets it from `apiauth.MustCaller(ctx).OrgID`. The org's
-name comes from the matching entry in `orgs`, which `GetProfile` already returns.
+`apiserver.GetCaller` loads the org from `apiauth.MustCaller(ctx).OrgID` with no
+user lookup, so it works for API keys, web UI sessions and MCP OAuth tokens
+alike. `GetProfile` is unchanged.
 
 ### CLI commands
 
 **`gritz login --key <key> [--name <name>] [--server <url>]`**
 
-1. Call `GetProfile` with the key against `--server` (else `GRITZ_SERVER`, else
+1. Call `GetCaller` with the key against `--server` (else `GRITZ_SERVER`, else
    `gritzclient.DefaultURL`). A failure means the key is invalid; report it and
    write nothing.
-2. The org id is `resp.org_id`; the org name is the `name` of the entry in
-   `resp.orgs` with that id.
-3. The entry name is `--name`, else a slug of the org name: lowercase, each run
-   of non-alphanumeric characters becomes a single `-`, and leading and trailing
-   `-` are trimmed (`Acme Labs` → `acme-labs`). An empty slug is an error asking
+2. The org id and name are `resp.org.id` and `resp.org.name`.
+3. The entry name is `--name`, else a slug of the org name: lowercase, apostrophes
+   dropped, each run of other non-alphanumeric characters becomes a single `-`,
+   and leading and trailing `-` are trimmed (`Acme Labs` → `acme-labs`,
+   `Ilia Choly's Org` → `ilia-cholys-org`). An empty slug is an error asking
    for `--name`.
 4. Load `$CONFIG_DIR/.gritz.yml` alone, not the merged view. If it has an entry with
    that name:
@@ -314,17 +316,19 @@ func Login(name string, entry Entry) error // new
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use") // new
 
-// Selection is the entry a command will use.
-type Selection struct { // new
-	// Name is the entry name.
-	Name string
-	// Entry is the selected entry.
-	Entry Entry
-}
+// Validate checks that the entry has an id and a key.
+func (e Entry) Validate() error // new
 
-// Select picks the entry named org, or m.Default when org is empty, enforcing
-// m.Allowed and returning errors that name the file responsible.
-func (m *Merged) Select(org string) (*Selection, error) // new
+// IsAllowed reports whether org may be selected: Allowed is unset or lists it.
+func (m *Merged) IsAllowed(org string) bool // new
+
+// Validate checks that Default is allowed and that every entry is complete,
+// returning errors that name the file responsible.
+func (m *Merged) Validate() error // new
+
+// Lookup returns the entry named org, or m.Default when org is empty,
+// enforcing m.Allowed. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) // new
 
 // Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
 // GRITZ_SERVER) shared by user-facing commands.
@@ -352,34 +356,35 @@ var LoginCommand *cli.Command // new: gritz login
 
 **How it fits:** `configfile` owns everything about how a command finds its
 credentials: the file format, discovery, merging, selection, the shared flags,
-and the `login` write. `Merged.Select` holds the selection rules and takes no
-urfave/cli types, so it can be table-tested against a `Merged` value.
+and the `login` write. `Merged.Validate` and `Merged.Lookup` hold the selection rules and take no
+urfave/cli types, so they can be table-tested against a `Merged` value.
 `Resolve` is the only part that reads the command: it takes `--key` as is, or
-calls `Load` with the working directory and `Select` with `--org`, then applies
+calls `Load` with the working directory, `Validate`, and `Lookup` with `--org`, then applies
 the server precedence and returns the `Entry`. `configfile` doesn't build
 client options; it references `gritzclient` only for the `DefaultURL` constant,
 and there's no helper in `gritzclient` either. Every user-facing command
 appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
 builds `gritzclient.Options` (and `NotificationClientOptions` or the
-`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetProfile`,
+`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetCaller`,
 `configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
 
-1. **Report the caller's org** — Delivers: `GetProfileResponse.org_id` (proto,
-   regenerated code, `apiserver.GetProfile`). Depends on: nothing.
-   Verifiable by: an apiserver test where a key-authenticated `GetProfile`
-   returns the key's org.
+1. **Report the caller's org** — Delivers: the `GetCaller` RPC (proto,
+   regenerated code, `apiserver.GetCaller`). Depends on: nothing.
+   Verifiable by: an e2e API test where `GetCaller` with a key in a
+   non-default org returns that org.
 2. **`.gritz.yml` load, merge and select** — Delivers: `configfile.Entry`, the new
    `File` shape under a temporary name beside the old one, `Read`, `Load`
-   under a temporary name, `Merged.Select` and `Selection`, and `Slug`.
+   under a temporary name, `Entry.Validate`, `Merged.IsAllowed`, `Merged.Validate` and
+   `Merged.Lookup`, and `Slug`.
    Nothing calls them yet.
    Depends on: nothing. Verifiable by: unit tests over temp dirs: the walk
    merges past a `.git` directory up to the temp root; the base layer is always
    merged; `default`/`allowed` come from the nearest file; entries replace
    whole by name; a `default` outside `allowed`, a disallowed `--org` and a
-   missing entry each fail naming the right file (table tests on `Select`
-   over `Merged` values); unknown fields fail.
+   missing entry each fail naming the right file (table tests on `Validate`
+   and `Lookup` over `Merged` values); unknown fields fail.
 3. **`gritz login`** — Delivers: `configfile.Login`, `LoginCommand` and
    `main.go` registration. Depends on: (1), (2). Verifiable by: unit tests for
    `Slug` and for `Login` (new entry, key replaced for same id and server,

@@ -62,7 +62,8 @@ The key, starting with `xat_`, is shown once, when it is created; store it then.
   revoke it.
 
 Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from
-its [config file](/using/cli/#configuration).
+its [config file](/using/cli/#configuration); a program calling the
+[API](/reference/api/) sends it on every request.
 
 ## Task tokens
 
