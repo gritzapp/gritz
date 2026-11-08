@@ -102,41 +102,51 @@ func LoadV2(opts LoadOptions) (*Merged, error) {
 		}
 		base = filepath.Join(configDir, Name)
 	}
-	// Collected nearest first; merged in reverse, base first.
-	var paths []string
+	// Merged nearest first, so the first file to set a value wins.
+	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
 	for d := opts.Dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
-			paths = append(paths, p)
+			if err := m.mergeFile(p); err != nil {
+				return nil, err
+			}
 		}
 		if d == opts.Root || filepath.Dir(d) == d {
 			break
 		}
 	}
-	paths = append(paths, base)
-	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
-	for _, p := range slices.Backward(paths) {
-		f, err := Read(p)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		m.merge(p, f)
+	if err := m.mergeFile(base); err != nil {
+		return nil, err
 	}
 	return m, nil
 }
 
-// merge layers f, read from path, on top of m.
+// mergeFile reads the .gritz.yml file at path and merges it beneath m,
+// skipping it if it doesn't exist.
+func (m *Merged) mergeFile(path string) error {
+	f, err := Read(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	m.merge(path, f)
+	return nil
+}
+
+// merge layers f, read from path, beneath m: it only fills in values m
+// doesn't have yet.
 func (m *Merged) merge(path string, f *FileV2) {
-	if f.Default != "" {
+	if m.Default == "" && f.Default != "" {
 		m.Default, m.DefaultFrom = f.Default, path
 	}
-	if f.Allowed != nil {
+	if m.Allowed == nil && f.Allowed != nil {
 		m.Allowed, m.AllowedFrom = f.Allowed, path
 	}
 	for name, e := range f.Orgs {
-		m.Orgs[name], m.OrgsFrom[name] = e, path
+		if _, ok := m.Orgs[name]; !ok {
+			m.Orgs[name], m.OrgsFrom[name] = e, path
+		}
 	}
 }
 
