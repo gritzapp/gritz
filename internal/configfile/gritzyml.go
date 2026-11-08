@@ -2,6 +2,7 @@ package configfile
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -142,10 +143,7 @@ func (m *Merged) Select(org string) (*Selection, error) {
 		return nil, fmt.Errorf("default %q (from %s) is not in allowed %s (from %s)",
 			m.Default, m.DefaultFrom, formatNames(m.Allowed), m.AllowedFrom)
 	}
-	name := org
-	if name == "" {
-		name = m.Default
-	}
+	name := cmp.Or(org, m.Default)
 	if name == "" {
 		return nil, errors.New("no org selected: pass --org or set default in a .gritz.yml file")
 	}
