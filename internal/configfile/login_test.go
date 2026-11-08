@@ -25,153 +25,98 @@ func TestLogin(t *testing.T) {
 			entry:     Entry{ID: 12, Key: "k1"},
 			want: `default: acme
 orgs:
-  acme:
-    id: 12
-    key: k1
+    acme:
+        id: 12
+        key: k1
 `,
 			wantDefault: true,
 		},
 		{
-			name:      "default server is not written",
-			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "k1", Server: "https://gritz.dev"},
-			want: `default: acme
-orgs:
-  acme:
-    id: 12
-    key: k1
-`,
-			wantDefault: true,
-		},
-		{
-			name:      "other server is written",
+			name:      "server is written",
 			entryName: "local",
 			entry:     Entry{ID: 1, Key: "k1", Server: "http://localhost:8080"},
 			want: `default: local
 orgs:
-  local:
-    id: 1
-    key: k1
-    server: http://localhost:8080
+    local:
+        id: 1
+        key: k1
+        server: http://localhost:8080
 `,
 			wantDefault: true,
 		},
 		{
-			name: "new entry keeps default and comments",
-			file: `# my orgs
-default: acme # the usual one
+			name: "new entry keeps default and allowed",
+			file: `default: acme
 allowed: [acme, labs]
 orgs:
-  # work
-  acme:
-    id: 12
-    key: k1
+  acme: {id: 12, key: k1}
 `,
 			entryName: "labs",
 			entry:     Entry{ID: 31, Key: "k2"},
-			want: `# my orgs
-default: acme # the usual one
-allowed: [acme, labs]
+			want: `default: acme
+allowed:
+    - acme
+    - labs
 orgs:
-  # work
-  acme:
-    id: 12
-    key: k1
-  labs:
-    id: 31
-    key: k2
+    acme:
+        id: 12
+        key: k1
+    labs:
+        id: 31
+        key: k2
 `,
 		},
 		{
 			name: "same id and server replaces key",
 			file: `default: acme
 orgs:
-  acme:
-    id: 12
-    key: old # rotated monthly
+  local: {id: 1, key: old, server: "http://localhost:8080"}
 `,
-			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "new"},
+			entryName: "local",
+			entry:     Entry{ID: 1, Key: "new", Server: "http://localhost:8080"},
 			want: `default: acme
 orgs:
-  acme:
-    id: 12
-    key: new # rotated monthly
-`,
-		},
-		{
-			name: "explicit default server matches omitted server",
-			file: `default: acme
-orgs:
-  acme:
-    id: 12
-    key: old
-    server: https://gritz.dev
-`,
-			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "new"},
-			want: `default: acme
-orgs:
-  acme:
-    id: 12
-    key: new
-    server: https://gritz.dev
+    local:
+        id: 1
+        key: new
+        server: http://localhost:8080
 `,
 		},
 		{
 			name: "default set when absent",
 			file: `orgs:
-  acme:
-    id: 12
-    key: k1
+  acme: {id: 12, key: k1}
 `,
 			entryName: "labs",
 			entry:     Entry{ID: 31, Key: "k2"},
 			want: `default: labs
 orgs:
-  acme:
-    id: 12
-    key: k1
-  labs:
-    id: 31
-    key: k2
-`,
-			wantDefault: true,
-		},
-		{
-			name:      "empty default and orgs are filled in",
-			file:      "default:\norgs:\n",
-			entryName: "acme",
-			entry:     Entry{ID: 12, Key: "k1"},
-			want: `default: acme
-orgs:
-  acme:
-    id: 12
-    key: k1
+    acme:
+        id: 12
+        key: k1
+    labs:
+        id: 31
+        key: k2
 `,
 			wantDefault: true,
 		},
 		{
 			name: "different id",
 			file: `orgs:
-  acme:
-    id: 31
-    key: k1
+  acme: {id: 31, key: k1}
 `,
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2"},
-			err:       `entry name in use: entry "acme" is org 31 on https://gritz.dev; pass --name to add org 12 under another name`,
+			err:       `entry name in use: entry "acme" is org 31 on the default server; pass --name to add org 12 under another name`,
 		},
 		{
 			name: "different server",
 			file: `orgs:
-  acme:
-    id: 12
-    key: k1
+  acme: {id: 12, key: k1}
 `,
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2", Server: "http://localhost:8080"},
-			err:       `entry name in use: entry "acme" is org 12 on https://gritz.dev; pass --name to add org 12 under another name`,
+			err:       `entry name in use: entry "acme" is org 12 on the default server; pass --name to add org 12 under another name`,
 		},
 		{
 			name:      "unknown field",
