@@ -153,10 +153,15 @@ Every user-facing command selects one entry at startup:
 
 6. The entry supplies the org id, the key and the server.
 
-**Server URL.** `--server` > `GRITZ_SERVER` > the selected entry's `server` >
-`gritzclient.DefaultURL`. Every user-facing command gets the `GRITZ_SERVER` env
-source; `mcp` and `notify` lack it today. The shared `--server` flag has no
-default value, so it never overrides an entry's `server`. `Resolve` always
+**Server URL.** The selected entry's `server` > `gritzclient.DefaultURL`.
+`--server` / `GRITZ_SERVER` never overrides an entry's `server`: every entry
+`gritz login` writes carries its own, and an override could send the entry's key
+to a server the user typed or inherited from the environment. `--server`
+without `--key` fails with
+`--server requires --key: entries in .gritz.yml carry their own server`.
+Either the files decide entry, key and server, or explicit credentials do.
+Every user-facing command gets the `GRITZ_SERVER` env source; `mcp` and
+`notify` lack it today. `Resolve` always
 sets `Server`, to `configfile.DefaultServer` (the same URL as
 `gritzclient.DefaultURL`) when nothing else does, so commands pass
 `BaseURL: cfg.Server` as is.
@@ -233,7 +238,7 @@ Each user-facing command gets the same three flags, defined once by
 |---|---|---|
 | `--org` | `GRITZ_ORG` | new; an entry name |
 | `--key`, `-k` | `GRITZ_API_KEY` | replaces `mcp`/`notify` `--token`/`GRITZ_TOKEN` |
-| `--server`, `-s` | `GRITZ_SERVER` | unchanged, plus the env source on `mcp`/`notify` |
+| `--server`, `-s` | `GRITZ_SERVER` | requires `--key`; plus the env source on `mcp`/`notify` |
 
 Each command's action replaces its `configfile.Load` + `cfg.Token == ""` block
 (or `cmd.String("token")`) with one `configfile.Resolve(cmd)` call, which
@@ -364,7 +369,7 @@ func (m *Merged) Validate() error // new
 func (m *Merged) Lookup(org string) (*Entry, error) // new
 
 // Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
-// GRITZ_SERVER) shared by user-facing commands. --server has no default value.
+// GRITZ_SERVER) shared by user-facing commands. --server requires --key.
 func Flags() []cli.Flag // new
 
 // DefaultServer is the server URL used when nothing sets one; it matches
@@ -373,8 +378,9 @@ const DefaultServer = "https://gritz.dev" // new
 
 // Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
 // files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server. Server is always set: DefaultServer when
-// neither --server nor the entry sets it.
+// the entry has only Key and Server, and Server is --server, else
+// DefaultServer. --server requires --key. Without --key, Server is the
+// entry's server, else DefaultServer.
 func Resolve(cmd *cli.Command) (*Entry, error) // new
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
