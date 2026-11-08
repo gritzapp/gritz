@@ -41,7 +41,7 @@ func Login(path, name string, entry Entry) error {
 	}
 	return UpdateFile(path, func(f *File) (bool, error) {
 		if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || old.Server != entry.Server) {
-			return false, fmt.Errorf("%w: %q is org %d on %s", ErrNameTaken, name, old.ID, old.Server)
+			return false, fmt.Errorf("%w: %q is org %d on %s; pass --name to use another name", ErrNameTaken, name, old.ID, old.Server)
 		}
 		f.Orgs[name] = entry
 		f.Org = cmp.Or(f.Org, name)

@@ -2,7 +2,6 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -68,11 +67,7 @@ var LoginCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		err = configfile.Login(filepath.Join(dir, configfile.Name), name, entry)
-		if errors.Is(err, configfile.ErrNameTaken) {
-			return fmt.Errorf("%w; pass --name to add org %d under another name", err, entry.ID)
-		}
-		if err != nil {
+		if err := configfile.Login(filepath.Join(dir, configfile.Name), name, entry); err != nil {
 			return err
 		}
 		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)

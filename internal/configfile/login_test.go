@@ -58,14 +58,14 @@ func TestLogin(t *testing.T) {
 			input:     "login-different-id.yml",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2", Server: DefaultServer},
-			err:       `entry name in use: "acme" is org 31 on https://gritz.dev`,
+			err:       `entry name in use: "acme" is org 31 on https://gritz.dev; pass --name to use another name`,
 		},
 		{
 			name:      "different server",
 			input:     "login-different-server.yml",
 			entryName: "acme",
 			entry:     Entry{ID: 12, Key: "k2", Server: "http://localhost:8080"},
-			err:       `entry name in use: "acme" is org 12 on https://gritz.dev`,
+			err:       `entry name in use: "acme" is org 12 on https://gritz.dev; pass --name to use another name`,
 		},
 		{
 			name:      "unknown field",
