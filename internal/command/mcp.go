@@ -15,7 +15,6 @@ import (
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/oauth2"
 )
 
 // McpCommand runs a local stdio MCP bridge that re-exposes the
@@ -53,7 +52,7 @@ var McpCommand = &cli.Command{
 		// would echo its own create_task/update_task changes back to the
 		// host Claude Code session as channel events (#718).
 		clientID := uuid.NewString()
-		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
+		ts := gritzclient.StaticToken(cfg.Key)
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
 			TokenSource: ts,

@@ -55,8 +55,8 @@ var AgentMcpCommand = &cli.Command{
 		}, nil)
 
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL: cmd.String("server"),
-			Token:   cmd.String("token"),
+			BaseURL:     cmd.String("server"),
+			TokenSource: gritzclient.StaticToken(cmd.String("token")),
 		})
 		task := &model.Task{
 			ID:        cmd.Int64("task"),

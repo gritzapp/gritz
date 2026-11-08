@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"golang.org/x/oauth2"
 	"gotest.tools/v3/poll"
 )
 
@@ -51,7 +51,7 @@ func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions
 	r := &Runner{t: t, opts: runner.ServeOptions{
 		Client:      org.runner,
 		ServerURL:   org.server.URL,
-		TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: org.runnerKey}),
+		TokenSource: gritzclient.StaticToken(org.runnerKey),
 		Backend:     b,
 		StateDB:     filepath.Join(t.TempDir(), "runner.db"),
 		Workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{

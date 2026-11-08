@@ -42,12 +42,9 @@ type NotificationClientOptions struct {
 	// Runner is sent as the ?runner= filter; when empty, no filter is sent
 	// and the server forwards the whole-org stream.
 	Runner string
-	// Token is the bearer token sent with each SSE request. The client
-	// builds its own no-timeout http.Client internally (SSE connections
-	// are long-lived).
-	Token string
-	// TokenSource supplies the bearer token per connection; set instead of
-	// Token.
+	// TokenSource supplies the bearer token for each SSE request; if nil,
+	// no authentication is performed. The client builds its own no-timeout
+	// http.Client internally (SSE connections are long-lived).
 	TokenSource oauth2.TokenSource
 	// ClientID, when non-empty, is the per-process id paired with the
 	// Connect client's X-Client-ID header. Notifications whose ClientID
@@ -68,10 +65,10 @@ type NotificationClientOptions struct {
 // NewNotificationClient returns a new NotificationClient.
 func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
 	transport := http.DefaultTransport
-	if ts := tokenSource(opts.Token, opts.TokenSource); ts != nil {
+	if opts.TokenSource != nil {
 		transport = &AuthTransport{
 			Transport: transport,
-			Source:    ts,
+			Source:    opts.TokenSource,
 			ClientID:  opts.ClientID,
 		}
 	}

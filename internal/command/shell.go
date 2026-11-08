@@ -10,7 +10,6 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/shell"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/oauth2"
 )
 
 // ShellCommand opens an interactive debug shell in a task's sandbox. It is a
@@ -41,7 +40,7 @@ var ShellCommand = &cli.Command{
 
 		// Ask the server to open a shell session for the task. The org is derived
 		// from the key server-side; the operator leg is Bearer-only.
-		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
+		ts := gritzclient.StaticToken(cfg.Key)
 		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
 		resp, err := client.OpenShell(ctx, &gritzv1.OpenShellRequest{TaskId: taskID})
 		if err != nil {

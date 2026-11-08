@@ -33,14 +33,7 @@ func (t *AuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.Transport.RoundTrip(req)
 }
 
-// tokenSource returns ts, or a static source of token when it is set. Setting
-// both is a programming error.
-func tokenSource(token string, ts oauth2.TokenSource) oauth2.TokenSource {
-	if token != "" && ts != nil {
-		panic("gritzclient: both Token and TokenSource set")
-	}
-	if token != "" {
-		return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	}
-	return ts
+// StaticToken returns a TokenSource that always returns token.
+func StaticToken(token string) oauth2.TokenSource {
+	return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 }

@@ -27,8 +27,8 @@ func (o *Org) Subscribe() *Notifications {
 	ready := make(chan struct{})
 	var once sync.Once
 	client := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-		BaseURL: s.URL,
-		Token:   s.userToken(o.Owner.UserID, o.ID),
+		BaseURL:     s.URL,
+		TokenSource: gritzclient.StaticToken(s.userToken(o.Owner.UserID, o.ID)),
 		Handler: func(msg model.Notification) {
 			if msg.Type == "ready" {
 				once.Do(func() { close(ready) })

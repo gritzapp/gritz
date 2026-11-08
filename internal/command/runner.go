@@ -20,7 +20,6 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend/local"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/oauth2"
 )
 
 func defaultWorkspacesPath() string {
@@ -121,7 +120,7 @@ var RunnerCommand = &cli.Command{
 			return fmt.Errorf("failed to load workspace config: %w", err)
 		}
 
-		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
+		ts := gritzclient.StaticToken(cfg.Key)
 		client := gritzclient.New(gritzclient.Options{BaseURL: serverAddr, TokenSource: ts})
 
 		backendName := cmd.String("backend")

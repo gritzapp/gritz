@@ -25,10 +25,8 @@ type Client = gritzv1connect.GritzServiceClient
 type Options struct {
 	// BaseURL is the server URL.
 	BaseURL string
-	// Token is the authentication token, shorthand for a static TokenSource.
-	// If neither is set, no authentication is performed.
-	Token string
-	// TokenSource supplies the bearer token per request; set instead of Token.
+	// TokenSource supplies the bearer token per request.
+	// If nil, no authentication is performed.
 	TokenSource oauth2.TokenSource
 	// Timeout is the timeout for RPC calls.
 	// Defaults to DefaultTimeout if zero.
@@ -47,10 +45,10 @@ type Options struct {
 // New returns a Connect client.
 func New(opts Options) Client {
 	transport := http.DefaultTransport
-	if ts := tokenSource(opts.Token, opts.TokenSource); ts != nil {
+	if opts.TokenSource != nil {
 		transport = &AuthTransport{
 			Transport: transport,
-			Source:    ts,
+			Source:    opts.TokenSource,
 			ClientID:  opts.ClientID,
 		}
 	}

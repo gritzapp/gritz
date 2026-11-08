@@ -39,7 +39,7 @@ type Server struct {
 
 // Client returns a client that calls the server with token.
 func (s *Server) Client(token string) gritzclient.Client {
-	return gritzclient.New(gritzclient.Options{BaseURL: s.URL, Token: token})
+	return gritzclient.New(gritzclient.Options{BaseURL: s.URL, TokenSource: gritzclient.StaticToken(token)})
 }
 
 // CreateOrg creates an org with its own user, and registers the harness's

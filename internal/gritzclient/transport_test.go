@@ -32,7 +32,7 @@ func TestAuthTransport_SetsHeaders(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &http.Client{Transport: &gritzclient.AuthTransport{
 				Transport: http.DefaultTransport,
-				Source:    oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "abc"}),
+				Source:    gritzclient.StaticToken("abc"),
 				ClientID:  tc.clientID,
 			}}
 			req, err := http.NewRequest(http.MethodGet, srv.URL, nil)

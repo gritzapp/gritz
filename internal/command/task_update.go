@@ -10,7 +10,6 @@ import (
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/oauth2"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -75,7 +74,7 @@ var TaskUpdateCommand = &cli.Command{
 		if cmd.IsSet("auto-archive") {
 			req.AutoArchive = durationpb.New(cmd.Duration("auto-archive"))
 		}
-		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
+		ts := gritzclient.StaticToken(cfg.Key)
 		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
 		if _, err := client.UpdateTask(ctx, req); err != nil {
 			return fmt.Errorf("failed to update task: %w", err)

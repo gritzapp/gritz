@@ -11,7 +11,6 @@ import (
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/urfave/cli/v3"
-	"golang.org/x/oauth2"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -51,7 +50,7 @@ var TaskCreateCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: cfg.Key})
+		ts := gritzclient.StaticToken(cfg.Key)
 		client := gritzclient.New(gritzclient.Options{BaseURL: cfg.Server, TokenSource: ts})
 
 		texts := cmd.StringSlice("instruction")

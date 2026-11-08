@@ -91,7 +91,7 @@ func NewExecutor(opts ExecutorOptions) (*Executor, error) {
 	close(e.done)
 	if e.newClient == nil {
 		e.newClient = func(serverURL, token string) gritzclient.Client {
-			return gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: token})
+			return gritzclient.New(gritzclient.Options{BaseURL: serverURL, TokenSource: gritzclient.StaticToken(token)})
 		}
 	}
 	rec, ok, crashed, err := runrecord.Reconcile(e.recordPath, time.Now())
