@@ -22,7 +22,7 @@ A namespace is a label on a task that separates its subscriptions from other tas
 
 > How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
 
-## Organisations [Section titled “Organisations”](#organisations) An organisation owns everything in gritz: its tasks, the runners connected to it and their workspaces, routing rules, custom event types, schedules and API keys. Nothing is shared between organisations, and an event is routed by each organisation’s own [rules](/concepts/routing-rules/). The first time you sign in, gritz creates a personal organisation for you, your default. You can create more under **Settings → Account → My Organisations**, and switch between those you belong to with the selector at the top of the [Web UI](/using/web-ui/). The current organisation is in each page’s `?org=` parameter. ## Members [Section titled “Members”](#members) Every member of an organisation can do everything in it: create, run and archive any of its tasks, edit its routing rules and schedules, and create and delete its API keys. The one exception is managing the organisation itself, which only its owner can do. The owner is whoever created it. | | Members | Owner | | --------------------------------------------------- | ------- | ----- | | Tasks, schedules, routing rules, custom event types | ✓ | ✓ | | API keys, workspaces, integration settings | ✓ | ✓ | | Add and remove members | | ✓ | | Delete the organisation | | ✓ | The owner adds members on the **Members** page, by the email address they sign in with. A person has to have signed in to gritz once before they can be added. The owner can’t be removed. Membership also decides whose GitHub and Jira activity counts as the organisation’s: a member-only routing rule acts on events from members who have linked their [GitHub](/integrations/github/#link-your-github-account) or [Atlassian](/integrations/jira/#link-your-atlassian-account) account under **Settings → Account**. See [Public rules](/concepts/routing-rules/#public-rules). ### Deleting an organisation [Section titled “Deleting an organisation”](#deleting-an-organisation) The owner can delete an organisation from **My Organisations**, except their default one. Archive all of its tasks first, so their runners destroy the sandboxes: gritz refuses to delete an organisation with unarchived tasks. Deleting it disables its schedules and stops its API keys from working. ## API keys [Section titled “API keys”](#api-keys) An API key lets a program act for the organisation: a [runner](/concepts/runners/), the [CLI](/using/cli/), or a system sending [custom events](/integrations/custom-events/). Create one on the **Keys** page. The key, starting with `xat_`, is shown once, when it is created; store it then. * A key belongs to the organisation it was created in, not to the member who created it, and keeps working if they leave. * It can do what a member can, in that organisation only, apart from the owner’s actions. * Actions taken with it, such as creating a task, are recorded under the key’s name, so give each key a name that says what uses it. * Keys created in the Web UI don’t expire. Delete a key on the **Keys** page to revoke it. Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from its [config file](/using/cli/#configuration). ## Task tokens [Section titled “Task tokens”](#task-tokens) Agents don’t use API keys. Each task gets a token of its own that can only read and update that task: fetch its instructions, rename it, add links and post reports, through the [agent tools](/using/agent-tools/). It can’t see or change other tasks. The token stops working when the task is archived. A workspace can ask for one more permission for its tasks’ tokens, getting GitHub tokens through the organisation’s GitHub App, with the `github_token` [capability](/operators/workspaces-yaml/#capabilities). The server doesn’t issue these tokens yet, so agents get GitHub access from a token in their workspace’s `secrets:` instead, such as `GH_TOKEN`.
+## Organisations [Section titled “Organisations”](#organisations) An organisation owns everything in gritz: its tasks, the runners connected to it and their workspaces, routing rules, custom event types, schedules and API keys. Nothing is shared between organisations, and an event is routed by each organisation’s own [rules](/concepts/routing-rules/). The first time you sign in, gritz creates a personal organisation for you, your default. You can create more under **Settings → Account → My Organisations**, and switch between those you belong to with the selector at the top of the [Web UI](/using/web-ui/). The current organisation is in each page’s `?org=` parameter. ## Members [Section titled “Members”](#members) Every member of an organisation can do everything in it: create, run and archive any of its tasks, edit its routing rules and schedules, and create and delete its API keys. The one exception is managing the organisation itself, which only its owner can do. The owner is whoever created it. | | Members | Owner | | --------------------------------------------------- | ------- | ----- | | Tasks, schedules, routing rules, custom event types | ✓ | ✓ | | API keys, workspaces, integration settings | ✓ | ✓ | | Add and remove members | | ✓ | | Delete the organisation | | ✓ | The owner adds members on the **Members** page, by the email address they sign in with. A person has to have signed in to gritz once before they can be added. The owner can’t be removed. Membership also decides whose GitHub and Jira activity counts as the organisation’s: a member-only routing rule acts on events from members who have linked their [GitHub](/integrations/github/#link-your-github-account) or [Atlassian](/integrations/jira/#link-your-atlassian-account) account under **Settings → Account**. See [Public rules](/concepts/routing-rules/#public-rules). ### Deleting an organisation [Section titled “Deleting an organisation”](#deleting-an-organisation) The owner can delete an organisation from **My Organisations**, except their default one. Archive all of its tasks first, so their runners destroy the sandboxes: gritz refuses to delete an organisation with unarchived tasks. Deleting it disables its schedules and stops its API keys from working. ## API keys [Section titled “API keys”](#api-keys) An API key lets a program act for the organisation: a [runner](/concepts/runners/), the [CLI](/using/cli/), or a system sending [custom events](/integrations/custom-events/). Create one on the **Keys** page. The key, starting with `xat_`, is shown once, when it is created; store it then. * A key belongs to the organisation it was created in, not to the member who created it, and keeps working if they leave. * It can do what a member can, in that organisation only, apart from the owner’s actions. * Actions taken with it, such as creating a task, are recorded under the key’s name, so give each key a name that says what uses it. * Keys created in the Web UI don’t expire. Delete a key on the **Keys** page to revoke it. Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from its [config file](/using/cli/#configuration); a program calling the [API](/reference/api/) sends it on every request. ## Task tokens [Section titled “Task tokens”](#task-tokens) Agents don’t use API keys. Each task gets a token of its own that can only read and update that task: fetch its instructions, rename it, add links and post reports, through the [agent tools](/using/agent-tools/). It can’t see or change other tasks. The token stops working when the task is archived. A workspace can ask for one more permission for its tasks’ tokens, getting GitHub tokens through the organisation’s GitHub App, with the `github_token` [capability](/operators/workspaces-yaml/#capabilities). The server doesn’t issue these tokens yet, so agents get GitHub access from a token in their workspace’s `secrets:` instead, such as `GH_TOKEN`.
 
 # Routing rules
 
@@ -53,864 +53,6 @@ A task is one piece of work for one agent. It names a [runner](/concepts/runners
 > What a workspace gives a task (the image, repositories, agent and tools), how to pick one, and who defines them.
 
 A workspace is the recipe for a task’s sandbox. When you create a task you pick one, and it decides everything the agent starts with: * **The image** the sandbox runs, with the agent’s CLI and the tools the work needs. * **Setup commands**, such as cloning the repositories the task works on. They run once, before the task’s first run. * **The agent**: Claude Code, Codex, Cursor or Copilot, its model, the directory it starts in, and any standing instructions for that repository. * **MCP servers** the agent can use, in addition to the [gritz tools](/using/agent-tools/) every agent gets. * **Credentials**, such as a GitHub or model provider token, passed in as secrets. ## Picking a workspace [Section titled “Picking a workspace”](#picking-a-workspace) Workspaces belong to [runners](/concepts/runners/): each runner offers its own set, by name and with a short description. **Workspaces** in the [Web UI](/using/web-ui/#workspaces) lists them all, and the new task form shows the workspaces of the runner you pick. Two runners can offer a workspace with the same name and a different setup. Pick the workspace for the repository or system the task is about. A task keeps its workspace for its whole life; to run the same work in another workspace, create another task. ## Who defines them [Section titled “Who defines them”](#who-defines-them) Workspaces aren’t created in the Web UI. The operator of each runner defines its workspaces in a `workspaces.yaml` file, and the runner registers their names and descriptions with the server when it starts. To add a workspace or change one, ask whoever runs the runner, or see [`workspaces.yaml`](/operators/workspaces-yaml/) if that is you. A change to a workspace applies to tasks created after the runner restarts with it; existing tasks keep the setup they started with. See [Changing a workspace](/operators/workspaces-yaml/#changing-a-workspace).
-
-# LifecycleKind
-
-> LifecycleKind is what happened in a lifecycle event.
-
-LifecycleKind is what happened in a lifecycle event. ## Values [Section titled “Values”](#values) | Name | Number | Description | | -------------------------------- | ------ | ----------- | | `LIFECYCLE_KIND_UNSPECIFIED` | 0 | | | `LIFECYCLE_KIND_CREATED` | 1 | | | `LIFECYCLE_KIND_UPDATED` | 2 | | | `LIFECYCLE_KIND_CANCELLED` | 3 | | | `LIFECYCLE_KIND_RESTARTED` | 4 | | | `LIFECYCLE_KIND_ARCHIVED` | 5 | | | `LIFECYCLE_KIND_UNARCHIVED` | 6 | | | `LIFECYCLE_KIND_AUTO_ARCHIVED` | 7 | | | `LIFECYCLE_KIND_SANDBOX_STARTED` | 8 | | | `LIFECYCLE_KIND_SANDBOX_EXITED` | 9 | | | `LIFECYCLE_KIND_SANDBOX_FAILED` | 10 | |
-
-# TaskCommand
-
-> The `TaskCommand` enum of the gritz API.
-
-## Values [Section titled “Values”](#values) | Name | Number | Description | | --------- | ------ | ----------- | | `NONE` | 0 | | | `RESTART` | 1 | | | `STOP` | 2 | | | `START` | 3 | |
-
-# TaskStatus
-
-> The `TaskStatus` enum of the gritz API.
-
-## Values [Section titled “Values”](#values) | Name | Number | Description | | ------------- | ------ | ----------- | | `UNSPECIFIED` | 0 | | | `PENDING` | 1 | | | `RUNNING` | 2 | | | `RESTARTING` | 3 | | | `CANCELLING` | 4 | | | `COMPLETED` | 5 | | | `FAILED` | 6 | | | `CANCELLED` | 7 | | | `DRAFT` | 8 | |
-
-# Actor
-
-> Actor identifies who caused a lifecycle event.
-
-Actor identifies who caused a lifecycle event. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | -------- | -------------------------------------------------- | | `kind` | `string` | One of “user”, “runner” or “router”. | | `name` | `string` | The user’s name for a user actor; empty otherwise. |
-
-# AddOrgMemberRequest
-
-> The `AddOrgMemberRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------- | ----------- | | `email` | `string` | |
-
-# AddOrgMemberResponse
-
-> The `AddOrgMemberResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------- | ------------------------------------- | ----------- | | `member` | [OrgMember](/api/messages/orgmember/) | |
-
-# AppendLogChunkRequest
-
-> The `AppendLogChunkRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | ------- | --------------------------------------------------------------------------- | | `task_id` | `int64` | | | `version` | `int64` | The run these bytes belong to. | | `data` | `bytes` | The bytes to append to the task’s log. Must be non-empty and at most 1 MiB. |
-
-# AppendLogChunkResponse
-
-> The `AppendLogChunkResponse` message of the gritz API.
-
-This message has no fields.
-
-# ArchiveTaskRequest
-
-> The `ArchiveTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# ArchiveTaskResponse
-
-> The `ArchiveTaskResponse` message of the gritz API.
-
-This message has no fields.
-
-# AtlassianAccount
-
-> The `AtlassianAccount` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ---------------------- | ----------------------------------------------------------------------------------------------- | ----------- | | `atlassian_account_id` | `string` | | | `atlassian_username` | `string` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# AttrDef
-
-> AttrDef is an event attribute a routing rule can have a condition on.
-
-AttrDef is an event attribute a routing rule can have a condition on. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | -------- | ----------------------------------------------------------------- | | `key` | `string` | The name a RuleCondition’s attr refers to. | | `label` | `string` | The attribute’s name in the routing-rule editor. | | `help` | `string` | Help text for the attribute in the routing-rule editor. | | `placeholder` | `string` | Placeholder for the attribute’s value in the routing-rule editor. |
-
-# CancelTaskRequest
-
-> The `CancelTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# CancelTaskResponse
-
-> The `CancelTaskResponse` message of the gritz API.
-
-This message has no fields.
-
-# ClearWorkspacesRequest
-
-> The `ClearWorkspacesRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | -------- | ----------------------------------------------- | | `runner_id` | `string` | Optional: clear only workspaces for this runner |
-
-# ClearWorkspacesResponse
-
-> The `ClearWorkspacesResponse` message of the gritz API.
-
-This message has no fields.
-
-# CommandPayload
-
-> CommandPayload records that the task's command, or the run it applies to, changed.
-
-CommandPayload records that the task’s command, or the run it applies to, changed. Runners follow these events to start, restart and stop tasks; timelines don’t show them. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | -------------------------------------- | ----------- | | `command` | [TaskCommand](/api/enums/taskcommand/) | | | `version` | `int64` | | | `runner` | `string` | | | `workspace` | `string` | |
-
-# CreateGitHubTokenRequest
-
-> The `CreateGitHubTokenRequest` message of the gritz API.
-
-This message has no fields.
-
-# CreateGitHubTokenResponse
-
-> The `CreateGitHubTokenResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ----------- | | `token` | `string` | | | `expires_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# CreateKeyRequest
-
-> The `CreateKeyRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ----------- | | `name` | `string` | | | `expires_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# CreateKeyResponse
-
-> The `CreateKeyResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | ------------------------- | ----------- | | `key` | [Key](/api/messages/key/) | | | `raw_token` | `string` | |
-
-# CreateLinkRequest
-
-> The `CreateLinkRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | -------- | ----------- | | `task_id` | `int64` | | | `relevance` | `string` | | | `url` | `string` | | | `title` | `string` | | | `subscribe` | `bool` | |
-
-# CreateLinkResponse
-
-> The `CreateLinkResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | ----------------------------------- | ----------- | | `link` | [TaskLink](/api/messages/tasklink/) | |
-
-# CreateOrgRequest
-
-> The `CreateOrgRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | -------- | ----------- | | `name` | `string` | |
-
-# CreateOrgResponse
-
-> The `CreateOrgResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------------------------- | ----------- | | `org` | [Org](/api/messages/org/) | |
-
-# CreateScheduleRequest
-
-> The `CreateScheduleRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | | `name` | `string` | | | `workspace` | `string` | | | `runner` | `string` | | | `namespace` | `string` | | | `instructions` | repeated [Instruction](/api/messages/instruction/) | | | `cron_expr` | `string` | | | `timezone` | `string` | IANA name; empty defaults to “UTC”. | | `enabled` | `bool` | Whether the schedule runs. False (the default) creates a schedule that never runs until SetScheduleEnabled enables it. | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | |
-
-# CreateScheduleResponse
-
-> The `CreateScheduleResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ---------- | ----------------------------------- | ----------- | | `schedule` | [Schedule](/api/messages/schedule/) | |
-
-# CreateTaskAction
-
-> The `CreateTaskAction` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | | `workspace` | `string` | | | `runner` | `string` | | | `prompt` | `string` | | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | The auto-archive delay of the tasks the rule creates, as in Task.auto_archive. |
-
-# CreateTaskRequest
-
-> The `CreateTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | | `name` | `string` | | | `workspace` | `string` | | | `instructions` | repeated [Instruction](/api/messages/instruction/) | | | `runner` | `string` | Runner ID that should handle this task | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | | | `namespace` | `string` | The task’s namespace; empty is the default namespace. See Task.namespace. | | `draft` | `bool` | Create the task as a DRAFT: no runner picks it up until an UpdateTask with start set, such as the first instruction sent from the task page, starts it. False (the default) starts the task immediately. |
-
-# CreateTaskResponse
-
-> The `CreateTaskResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | --------------------------- | ----------- | | `task` | [Task](/api/messages/task/) | |
-
-# CreateTaskTokenRequest
-
-> The `CreateTaskTokenRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------- | ----------------- | ---------------------------------------------------------------------- | | `task_id` | `int64` | | | `capabilities` | `repeated string` | The workspace capabilities to grant the token, such as “github_token”. |
-
-# CreateTaskTokenResponse
-
-> The `CreateTaskTokenResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------- | ----------- | | `token` | `string` | |
-
-# DeleteEventRequest
-
-> The `DeleteEventRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# DeleteEventResponse
-
-> The `DeleteEventResponse` message of the gritz API.
-
-This message has no fields.
-
-# DeleteKeyRequest
-
-> The `DeleteKeyRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | -------- | ----------- | | `id` | `string` | |
-
-# DeleteKeyResponse
-
-> The `DeleteKeyResponse` message of the gritz API.
-
-This message has no fields.
-
-# DeleteOrgRequest
-
-> The `DeleteOrgRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# DeleteOrgResponse
-
-> The `DeleteOrgResponse` message of the gritz API.
-
-This message has no fields.
-
-# DeleteScheduleRequest
-
-> The `DeleteScheduleRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# DeleteScheduleResponse
-
-> The `DeleteScheduleResponse` message of the gritz API.
-
-This message has no fields.
-
-# Event
-
-> The `Event` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ----------------------------------------------------------------------------------------------- | ----------------- | | `id` | `int64` | | | `task_id` | `int64` | | | `wake` | `bool` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `instruction` | [InstructionPayload](/api/messages/instructionpayload/) | One of `payload`. | | `external` | [ExternalPayload](/api/messages/externalpayload/) | One of `payload`. | | `report` | [ReportPayload](/api/messages/reportpayload/) | One of `payload`. | | `lifecycle` | [LifecyclePayload](/api/messages/lifecyclepayload/) | One of `payload`. | | `link` | [LinkPayload](/api/messages/linkpayload/) | One of `payload`. | | `command` | [CommandPayload](/api/messages/commandpayload/) | One of `payload`. |
-
-# EventTypeDef
-
-> EventTypeDef is an event type, identified by its source and type, and every attribute a routing rule can have a condition on for it.
-
-EventTypeDef is an event type, identified by its source and type, and every attribute a routing rule can have a condition on for it. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------- | ------------------------------------------ | ----------- | | `source` | `string` | | | `type` | `string` | | | `label` | `string` | | | `attrs` | repeated [AttrDef](/api/messages/attrdef/) | |
-
-# ExternalPayload
-
-> The `ExternalPayload` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | | `description` | `string` | | | `url` | `string` | | | `data` | `string` | | | `details` | `map<string, string>` | Extra context defined by the event’s source, shown to the agent by get_my_task and on the task’s timeline. GitHub review comments set `path`, `line`, `side` and `diff_hunk`; other sources set their own keys or none. These are not the attributes routing rules match on. | | `source` | `string` | Where the event came from, such as “github” or “jira”. | | `type` | `string` | The event’s type within its source, such as “issue_comment” or “pull_request_review”. |
-
-# GenerateAtlassianWebhookSecretRequest
-
-> The `GenerateAtlassianWebhookSecretRequest` message of the gritz API.
-
-This message has no fields.
-
-# GenerateAtlassianWebhookSecretResponse
-
-> The `GenerateAtlassianWebhookSecretResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | -------- | ----------- | | `secret` | `string` | | | `webhook_url` | `string` | |
-
-# GetCallerRequest
-
-> The `GetCallerRequest` message of the gritz API.
-
-This message has no fields.
-
-# GetCallerResponse
-
-> The `GetCallerResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------------------------- | -------------------------------------------- | | `org` | [Org](/api/messages/org/) | the org the request is authenticated against |
-
-# GetCustomEventTypesRequest
-
-> The `GetCustomEventTypesRequest` message of the gritz API.
-
-This message has no fields.
-
-# GetCustomEventTypesResponse
-
-> The `GetCustomEventTypesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ---------------------------------------------------- | ------------------------ | | `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) | every source is “custom” |
-
-# GetEventRequest
-
-> The `GetEventRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# GetEventResponse
-
-> The `GetEventResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | ----------------------------- | ----------- | | `event` | [Event](/api/messages/event/) | |
-
-# GetEventTypesRequest
-
-> The `GetEventTypesRequest` message of the gritz API.
-
-This message has no fields.
-
-# GetEventTypesResponse
-
-> The `GetEventTypesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ---------------------------------------------------- | ----------- | | `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) | |
-
-# GetOrgSettingsRequest
-
-> The `GetOrgSettingsRequest` message of the gritz API.
-
-This message has no fields.
-
-# GetOrgSettingsResponse
-
-> The `GetOrgSettingsResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------------------- | -------- | -------------------------------------------------------------------- | | `atlassian_webhook_secret` | `string` | | | `atlassian_webhook_url` | `string` | | | `github_app_url` | `string` | | | `mcp_url` | `string` | | | `github_installation_id` | `int64` | | | `custom_webhook_url` | `string` | where to POST custom events, e.g. <https://gritz.dev/webhook/custom> |
-
-# GetProfileRequest
-
-> The `GetProfileRequest` message of the gritz API.
-
-This message has no fields.
-
-# GetProfileResponse
-
-> The `GetProfileResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------------- | --------------------------------------------------- | ----------- | | `profile` | [Profile](/api/messages/profile/) | | | `orgs` | repeated [Org](/api/messages/org/) | | | `default_org_id` | `int64` | | | `github_account` | [GitHubAccount](/api/messages/githubaccount/) | | | `atlassian_account` | [AtlassianAccount](/api/messages/atlassianaccount/) | |
-
-# GetRoutingRulesRequest
-
-> The `GetRoutingRulesRequest` message of the gritz API.
-
-This message has no fields.
-
-# GetRoutingRulesResponse
-
-> The `GetRoutingRulesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------------------------------------------------- | ----------- | | `rules` | repeated [RoutingRule](/api/messages/routingrule/) | |
-
-# GetScheduleRequest
-
-> The `GetScheduleRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# GetScheduleResponse
-
-> The `GetScheduleResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ---------- | ----------------------------------- | ----------- | | `schedule` | [Schedule](/api/messages/schedule/) | |
-
-# GetTaskRequest
-
-> The `GetTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# GetTaskResponse
-
-> The `GetTaskResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | --------------------------- | ----------- | | `task` | [Task](/api/messages/task/) | |
-
-# GitHubAccount
-
-> The `GitHubAccount` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------------- | ----------------------------------------------------------------------------------------------- | ----------- | | `id` | `int64` | | | `github_user_id` | `int64` | | | `github_username` | `string` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# Instruction
-
-> The `Instruction` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | -------- | ----------- | | `text` | `string` | | | `url` | `string` | |
-
-# InstructionPayload
-
-> InstructionPayload is an instruction to the task's agent.
-
-InstructionPayload is an instruction to the task’s agent. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | -------- | ----------- | | `text` | `string` | | | `url` | `string` | |
-
-# Key
-
-> The `Key` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ----------- | | `id` | `string` | | | `name` | `string` | | | `expires_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# LifecyclePayload
-
-> LifecyclePayload records something that happened to the task, such as its creation, its cancellation or its sandbox exiting.
-
-LifecyclePayload records something that happened to the task, such as its creation, its cancellation or its sandbox exiting. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------- | | `kind` | [LifecycleKind](/api/enums/lifecyclekind/) | | | `actor` | [Actor](/api/messages/actor/) | | | `from_status` | `string` | | | `to_status` | `string` | | | `message` | `string` | The failure detail for SANDBOX_FAILED; empty for other kinds. | | `fields` | `repeated string` | The task fields that changed, such as “name” or “status”, for UPDATED; empty for other kinds. |
-
-# LinkGitHubInstallationRequest
-
-> The `LinkGitHubInstallationRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------------- | ------- | ----------- | | `installation_id` | `int64` | |
-
-# LinkGitHubInstallationResponse
-
-> The `LinkGitHubInstallationResponse` message of the gritz API.
-
-This message has no fields.
-
-# LinkPayload
-
-> LinkPayload records a link the task created, such as a pull request or an issue.
-
-LinkPayload records a link the task created, such as a pull request or an issue. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | -------- | ------------------ | | `link_id` | `int64` | The TaskLink’s id. | | `relevance` | `string` | | | `url` | `string` | | | `title` | `string` | | | `subscribe` | `bool` | |
-
-# ListEventsByTaskRequest
-
-> The `ListEventsByTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ | | `task_id` | `int64` | | | `page_size` | `int32` | Max events per page (default 50, max 200). | | `page_token` | `string` | A previous response’s prev_page_token or next_page_token; empty for the newest page. | | `types` | `repeated string` | The event types to return, named after Event’s payload fields (such as “instruction” or “external”); empty returns every type. |
-
-# ListEventsByTaskResponse
-
-> The `ListEventsByTaskResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | | `events` | repeated [Event](/api/messages/event/) | Oldest first. | | `prev_page_token` | `string` | Token for the older page; empty at the first event. | | `next_page_token` | `string` | Token for the newer page. Always set, so a client can keep polling it for new events. | | `more` | `bool` | Whether another page exists in the direction just read: older for a request with a prev_page_token, newer otherwise. Stop when more is false rather than on a page shorter than page_size. |
-
-# ListExternalEventsRequest
-
-> The `ListExternalEventsRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | ------- | --------------------------------------------- | | `limit` | `int32` | Max events to return (default: 100, max: 100) |
-
-# ListExternalEventsResponse
-
-> The `ListExternalEventsResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------- | -------------------------------------- | ----------- | | `events` | repeated [Event](/api/messages/event/) | |
-
-# ListKeysRequest
-
-> The `ListKeysRequest` message of the gritz API.
-
-This message has no fields.
-
-# ListKeysResponse
-
-> The `ListKeysResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | ---------------------------------- | ----------- | | `keys` | repeated [Key](/api/messages/key/) | |
-
-# ListLinksRequest
-
-> The `ListLinksRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | ------- | ----------- | | `task_id` | `int64` | |
-
-# ListLinksResponse
-
-> The `ListLinksResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------------------------------------------- | ----------- | | `links` | repeated [TaskLink](/api/messages/tasklink/) | |
-
-# ListLogChunksByTaskRequest
-
-> The `ListLogChunksByTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | -------- | ----------------------------------------------------------------------------------------------------------- | | `task_id` | `int64` | | | `page_size` | `int32` | Max chunks per page (default 50, max 200). | | `page_token` | `string` | A previous response’s prev_page_token or next_page_token; empty for the newest page, at the end of the log. |
-
-# ListLogChunksByTaskResponse
-
-> The `ListLogChunksByTaskResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | | `chunks` | repeated [LogChunk](/api/messages/logchunk/) | Oldest first, so their data concatenates in log order. | | `prev_page_token` | `string` | Token for the older page; empty at the start of the log. | | `next_page_token` | `string` | Token for the newer page. Always set, so a client can keep polling it for new chunks. | | `more` | `bool` | Whether another page exists in the direction just read: older for a request with a prev_page_token, newer otherwise. Stop when more is false rather than on a page shorter than page_size. |
-
-# ListOrgMembersRequest
-
-> The `ListOrgMembersRequest` message of the gritz API.
-
-This message has no fields.
-
-# ListOrgMembersResponse
-
-> The `ListOrgMembersResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | ---------------------------------------------- | ----------- | | `members` | repeated [OrgMember](/api/messages/orgmember/) | |
-
-# ListOrgsRequest
-
-> The `ListOrgsRequest` message of the gritz API.
-
-This message has no fields.
-
-# ListOrgsResponse
-
-> The `ListOrgsResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | ---------------------------------- | ----------- | | `orgs` | repeated [Org](/api/messages/org/) | |
-
-# ListRunnerEventsRequest
-
-> The `ListRunnerEventsRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | -------- | ---------------------------------------------------------------------------------------- | | `runner` | `string` | Runner ID (required) | | `page_token` | `string` | Opaque; empty for the start of the log, otherwise a previous response’s next_page_token. | | `page_size` | `int32` | Max events to return; 0 for the server default |
-
-# ListRunnerEventsResponse
-
-> The `ListRunnerEventsResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | | `events` | repeated [Event](/api/messages/event/) | | | `next_page_token` | `string` | Resumes after the last event in this page; the request’s page_token when the page is empty. Pass it back unchanged. | | `more` | `bool` | Whether more events are available right now past this page. |
-
-# ListSchedulesRequest
-
-> The `ListSchedulesRequest` message of the gritz API.
-
-This message has no fields.
-
-# ListSchedulesResponse
-
-> The `ListSchedulesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | -------------------------------------------- | ----------- | | `schedules` | repeated [Schedule](/api/messages/schedule/) | |
-
-# ListTasksRequest
-
-> The `ListTasksRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | -------- | ----------------------------------------------------------------------- | | `page_size` | `int32` | Max tasks to return (default: 50, max: 100) | | `page_token` | `string` | Opaque cursor from a previous next_page_token; empty for the first page | | `archived` | `bool` | Include archived tasks alongside active ones (default: false) |
-
-# ListTasksResponse
-
-> The `ListTasksResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------------- | ------------------------------------ | ------------------------------------------------------------- | | `tasks` | repeated [Task](/api/messages/task/) | | | `next_page_token` | `string` | Token for the next page; empty when there are no more results |
-
-# ListWorkspacesRequest
-
-> The `ListWorkspacesRequest` message of the gritz API.
-
-This message has no fields.
-
-# ListWorkspacesResponse
-
-> The `ListWorkspacesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ------------------------------------------------------------------ | ----------- | | `workspaces` | repeated [RegisteredWorkspace](/api/messages/registeredworkspace/) | |
-
-# LogChunk
-
-> LogChunk is a run of bytes from a task's log.
-
-LogChunk is a run of bytes from a task’s log. The log is the concatenation of its chunks’ data in id order. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | | `id` | `int64` | | | `task_id` | `int64` | | | `version` | `int64` | The run (Task.version) the bytes belong to; 0 for output before the first run. | | `data` | `bytes` | Raw log bytes, not split into lines. | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# LogEntry
-
-> The `LogEntry` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ----------- | | `type` | `string` | | | `content` | `string` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# McpServer
-
-> The `McpServer` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | --------------------- | ----------- | | `name` | `string` | | | `command` | `string` | | | `args` | `repeated string` | | | `env` | `map<string, string>` | |
-
-# OpenShellRequest
-
-> The `OpenShellRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | ------- | ----------- | | `task_id` | `int64` | |
-
-# OpenShellResponse
-
-> The `OpenShellResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | | `session_id` | `string` | The shell session to attach to, at `GET /shell/{session_id}/attach`. The task’s sandbox restarts to serve it, and the task’s shell_session is set to it. |
-
-# Org
-
-> The `Org` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ----------- | | `id` | `int64` | | | `name` | `string` | | | `owner` | `string` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `updated_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# OrgMember
-
-> The `OrgMember` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ----------------------------------------------------------------------------------------------- | ----------- | | `org_id` | `int64` | | | `user_id` | `string` | | | `email` | `string` | | | `name` | `string` | | | `role` | `string` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# PingRequest
-
-> The `PingRequest` message of the gritz API.
-
-This message has no fields.
-
-# PingResponse
-
-> The `PingResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | -------- | ----------- | | `version` | `string` | |
-
-# Profile
-
-> The `Profile` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------- | ----------- | | `id` | `string` | | | `email` | `string` | | | `name` | `string` | |
-
-# RegisteredWorkspace
-
-> The `RegisteredWorkspace` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ----------------------------------------------------------------------------------------------- | ----------- | | `name` | `string` | | | `runner_id` | `string` | | | `updated_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `description` | `string` | |
-
-# RegisterWorkspacesRequest
-
-> The `RegisterWorkspacesRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ------------------------------------------------------------------ | ----------- | | `runner_id` | `string` | | | `workspaces` | repeated [RegisteredWorkspace](/api/messages/registeredworkspace/) | |
-
-# RegisterWorkspacesResponse
-
-> The `RegisterWorkspacesResponse` message of the gritz API.
-
-This message has no fields.
-
-# RemoveOrgMemberRequest
-
-> The `RemoveOrgMemberRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | -------- | ----------- | | `user_id` | `string` | |
-
-# RemoveOrgMemberResponse
-
-> The `RemoveOrgMemberResponse` message of the gritz API.
-
-This message has no fields.
-
-# ReportPayload
-
-> ReportPayload is a message from the task's agent, written with its `report` tool.
-
-ReportPayload is a message from the task’s agent, written with its `report` tool. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | -------- | ----------- | | `content` | `string` | |
-
-# RestartTaskRequest
-
-> The `RestartTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# RestartTaskResponse
-
-> The `RestartTaskResponse` message of the gritz API.
-
-This message has no fields.
-
-# RoutingRule
-
-> The `RoutingRule` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | | `source` | `string` | | | `type` | `string` | | | `create` | [CreateTaskAction](/api/messages/createtaskaction/) | | | `wakeup` | `bool` | Whether a match starts the subscribed tasks again to handle the event. When false, the event is added to their timelines without starting them. Rules created in the web UI default to true. | | `conditions` | repeated [RuleCondition](/api/messages/rulecondition/) | Conditions the event must meet, all of them. Empty source and type match any; no conditions match every event of the selected type. | | `public` | `bool` | Whether the rule also acts on events from people who aren’t members of the org. False (the default) acts only on members’ events. | | `namespace` | `string` | The rule’s namespace: a match looks for subscribed tasks only in it, and a task the rule creates is in it. Empty is the default namespace. |
-
-# RuleCondition
-
-> RuleCondition constrains one attribute of an event.
-
-RuleCondition constrains one attribute of an event. Comparisons are exact and case-sensitive. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------- | ---------------------------------------- | | `attr` | `string` | | | `op` | `string` | One of “equals”, “prefix” or “contains”. | | `value` | `string` | |
-
-# RunnerEvent
-
-> The `RunnerEvent` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- | | `task_id` | `int64` | | | `event` | `string` | “started”, “stopped” or “failed”. | | `version` | `int64` | The run (Task.version) the event is about. An event for another run than the task’s current one is ignored; 0 applies to the current run. | | `reconcile` | `bool` | Events with reconcile set are ignored. | | `reason` | `string` | Optional human-readable detail, such as why the run failed. |
-
-# RunScheduleRequest
-
-> RunScheduleRequest creates a task from a schedule now, once, in addition to its regular runs.
-
-RunScheduleRequest creates a task from a schedule now, once, in addition to its regular runs. It leaves next_run_at, last_run_at and last_task_id unchanged, and works on a disabled schedule too, so a schedule can be tried out before it is enabled. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# RunScheduleResponse
-
-> The `RunScheduleResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------ | --------------------------- | ------------------------- | | `task` | [Task](/api/messages/task/) | The task the run created. |
-
-# Schedule
-
-> Schedule is a task template and a cron expression: the server creates a task from the template at each time the expression matches.
-
-Schedule is a task template and a cron expression: the server creates a task from the template at each time the expression matches. A schedule belongs to its org, not to the user who created it. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- | | `id` | `int64` | | | `name` | `string` | | | `workspace` | `string` | | | `runner` | `string` | | | `namespace` | `string` | | | `instructions` | repeated [Instruction](/api/messages/instruction/) | | | `cron_expr` | `string` | | | `timezone` | `string` | IANA name; default “UTC”. | | `enabled` | `bool` | | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | | | `next_run_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | Unset when disabled. | | `last_run_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | Unset when it has never run. | | `last_task_id` | `int64` | 0 when it has never run. | | `created_by` | `string` | Who created it; grants no permissions. | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `updated_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-
-# SetCustomEventTypesRequest
-
-> SetCustomEventTypesRequest replaces the org's custom event types.
-
-SetCustomEventTypesRequest replaces the org’s custom event types. It fails with `invalid_argument` if a type is malformed, and `failed_precondition` if an existing routing rule would no longer be valid with the new types. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ---------------------------------------------------- | ----------- | | `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) | |
-
-# SetCustomEventTypesResponse
-
-> The `SetCustomEventTypesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ---------------------------------------------------- | ----------- | | `event_types` | repeated [EventTypeDef](/api/messages/eventtypedef/) | |
-
-# SetRoutingRulesRequest
-
-> The `SetRoutingRulesRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------------------------------------------------- | ----------- | | `rules` | repeated [RoutingRule](/api/messages/routingrule/) | |
-
-# SetRoutingRulesResponse
-
-> The `SetRoutingRulesResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------- | -------------------------------------------------- | ----------- | | `rules` | repeated [RoutingRule](/api/messages/routingrule/) | |
-
-# SetScheduleEnabledRequest
-
-> SetScheduleEnabledRequest enables or disables a schedule.
-
-SetScheduleEnabledRequest enables or disables a schedule. Enabling computes next_run_at from now; disabling clears it, and the schedule stops running. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | ------- | ----------- | | `id` | `int64` | | | `enabled` | `bool` | |
-
-# SetScheduleEnabledResponse
-
-> The `SetScheduleEnabledResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ---------- | ----------------------------------- | ----------- | | `schedule` | [Schedule](/api/messages/schedule/) | |
-
-# SubmitRunnerEventsRequest
-
-> The `SubmitRunnerEventsRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------- | -------------------------------------------------- | ----------- | | `events` | repeated [RunnerEvent](/api/messages/runnerevent/) | |
-
-# SubmitRunnerEventsResponse
-
-> The `SubmitRunnerEventsResponse` message of the gritz API.
-
-This message has no fields.
-
-# Task
-
-> The `Task` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | | `id` | `int64` | | | `name` | `string` | | | `workspace` | `string` | | | `runner` | `string` | Runner ID that handles this task | | `status` | [TaskStatus](/api/enums/taskstatus/) | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `updated_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `command` | [TaskCommand](/api/enums/taskcommand/) | | | `version` | `int64` | The task’s current run: 0 before it first starts, then 1, and one more for each new run. | | `actions` | [TaskActions](/api/messages/taskactions/) | | | `archived` | `bool` | | | `url` | `string` | | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | How long the task stays in a terminal status (COMPLETED, FAILED, CANCELLED) before it is archived. Zero or unset never archives it, a negative value archives it as soon as it reaches a terminal status, and a positive value archives it that long after. | | `shell_session` | `string` | The shell session the task’s sandbox serves instead of running the agent, set by OpenShell. Empty for an ordinary run. | | `namespace` | `string` | The task’s namespace: only routing rules in the same namespace see its subscriptions. Empty is the default namespace. Set at creation and can’t be changed. |
-
-# TaskActions
-
-> The `TaskActions` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----------- | ------ | ----------- | | `archive` | `bool` | | | `cancel` | `bool` | | | `restart` | `bool` | | | `start` | `bool` | | | `unarchive` | `bool` | |
-
-# TaskLink
-
-> The `TaskLink` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | | `id` | `int64` | | | `task_id` | `int64` | | | `relevance` | `string` | | | `url` | `string` | | | `title` | `string` | | | `subscribe` | `bool` | | | `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | | | `routing_key` | `string` | The key events are matched against, derived from url by the server. Read-only. |
-
-# TestEventMatch
-
-> TestEventMatch is what a matching routing rule did, or would do.
-
-TestEventMatch is what a matching routing rule did, or would do. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------------ | ---------------- | ---------------------------------------------------------------------- | | `org_id` | `int64` | | | `rule_index` | `int32` | The index of the rule that matched, or -1 for a built-in default rule. | | `would_wake` | `bool` | The matched rule’s wakeup. | | `would_create` | `bool` | Whether a task would be, or was, created. | | `created_task_ids` | `repeated int64` | The tasks created; set only when fired. | | `event_ids` | `repeated int64` | The events added; set only when fired. |
-
-# TestEventRequest
-
-> TestEventRequest composes an event and routes it through the org's routing rules, as a dry run or for real.
-
-TestEventRequest composes an event and routes it through the org’s routing rules, as a dry run or for real. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------- | --------------------- | ------------------------------------------------------------------------------- | | `source` | `string` | The event type’s source, such as “github”. | | `type` | `string` | The event type, such as “issue_comment”. | | `attrs` | `map<string, string>` | The event’s attribute values, keyed by AttrDef.key, including “body” and “url”. | | `description` | `string` | Optional description shown on the task’s timeline. | | `fire` | `bool` | False (the default) for a dry run; true to act on the matches. | | `details` | `map<string, string>` | Stored as the event’s ExternalPayload.details. |
-
-# TestEventResponse
-
-> The `TestEventResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | -------------------------------------------------------- | -------------------------------------- | | `matches` | repeated [TestEventMatch](/api/messages/testeventmatch/) | The match in the caller’s org, if any. | | `fired` | `bool` | Whether the matches were acted on. |
-
-# UnarchiveTaskRequest
-
-> The `UnarchiveTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ----- | ------- | ----------- | | `id` | `int64` | |
-
-# UnarchiveTaskResponse
-
-> The `UnarchiveTaskResponse` message of the gritz API.
-
-This message has no fields.
-
-# UnlinkAtlassianAccountRequest
-
-> The `UnlinkAtlassianAccountRequest` message of the gritz API.
-
-This message has no fields.
-
-# UnlinkAtlassianAccountResponse
-
-> The `UnlinkAtlassianAccountResponse` message of the gritz API.
-
-This message has no fields.
-
-# UnlinkGitHubAccountRequest
-
-> The `UnlinkGitHubAccountRequest` message of the gritz API.
-
-This message has no fields.
-
-# UnlinkGitHubAccountResponse
-
-> The `UnlinkGitHubAccountResponse` message of the gritz API.
-
-This message has no fields.
-
-# UpdateScheduleRequest
-
-> UpdateScheduleRequest replaces a schedule's template, cron expression and timezone.
-
-UpdateScheduleRequest replaces a schedule’s template, cron expression and timezone. Changing cron_expr or timezone recomputes next_run_at. Use SetScheduleEnabled to enable or disable it. ## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | -------------- | --------------------------------------------------------------------------------------------- | ----------------------------------- | | `id` | `int64` | | | `name` | `string` | | | `workspace` | `string` | | | `runner` | `string` | | | `namespace` | `string` | | | `instructions` | repeated [Instruction](/api/messages/instruction/) | | | `cron_expr` | `string` | | | `timezone` | `string` | IANA name; empty defaults to “UTC”. | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | |
-
-# UpdateScheduleResponse
-
-> The `UpdateScheduleResponse` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ---------- | ----------------------------------- | ----------- | | `schedule` | [Schedule](/api/messages/schedule/) | |
-
-# UpdateTaskRequest
-
-> The `UpdateTaskRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | ------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | | `id` | `int64` | | | `name` | `string` | | | `add_instructions` | repeated [Instruction](/api/messages/instruction/) | | | `start` | `bool` | Start after current run finishes (non-interrupting) | | `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | The new auto-archive delay, as in Task.auto_archive. Unset leaves it unchanged. |
-
-# UpdateTaskResponse
-
-> The `UpdateTaskResponse` message of the gritz API.
-
-This message has no fields.
-
-# UploadLogsRequest
-
-> The `UploadLogsRequest` message of the gritz API.
-
-## Fields [Section titled “Fields”](#fields) | Field | Type | Description | | --------- | -------------------------------------------- | ----------- | | `task_id` | `int64` | | | `entries` | repeated [LogEntry](/api/messages/logentry/) | |
-
-# UploadLogsResponse
-
-> The `UploadLogsResponse` message of the gritz API.
-
-This message has no fields.
 
 # Getting started
 
@@ -1261,110 +403,19 @@ gritz workspaces -c ~/.config/gritz/workspaces.yaml
 
 A proposal is a design document written before a feature or change is built. It describes the problem, the design, and the alternatives that were considered. Proposals are design history for people working on gritz; they describe the design at the time it was written, not necessarily how gritz behaves now. For how gritz works today, see the rest of these docs. Each proposal has one of three statuses: * **Draft**: under discussion or not yet built. * **Implemented**: built and shipped. The code may have moved on since. * **Rejected**: considered and not pursued. The proposal records why.
 
-# Generated API reference docs
+# API reference docs from the proto
 
-> The Connect API in proto/gritz/v1/gritz.proto has no reference docs on docs.gritz.dev, so a client author has to read the proto file to learn its services, messages and enums.
+> The Connect API in proto/gritz/v1/gritz.proto has no reference docs on docs.gritz.dev, so a client author has to find and read the proto file to learn its services, messages and enums.
 
-Issue: <https://github.com/gritzapp/gritz/issues/2098> ## Problem [Section titled “Problem”](#problem) Everything gritz does goes through one Connect service, [`gritz.v1.GritzService`](https://github.com/gritzapp/gritz/blob/master/proto/gritz/v1/gritz.proto): 54 RPCs, 138 messages and 3 enums. API keys exist so that programs can call it, but docs.gritz.dev documents only the CLI, the MCP tools and the webhook envelopes. Someone writing a client reads the 950-line proto file. The proto file is also not written to be read by them. Of its \~160 comment lines, many are contributor notes: links to proposal files by repo path (`docs/src/content/docs/proposals/implemented/unified-task-event-stream.md`), history (`the stream replacement for the old logs rows with type='llm'`, `Previously: parent (child tasks removed)`) and storage details (`the db type column is materialized from the arm`). Most messages and RPCs have no comment at all. The [Buf Schema Registry](https://buf.build/docs/bsr/documentation/) docs layout is the model: a sidebar of services, messages and enums; a page per service with each RPC’s request and response linked; field tables built from proto comments; and links between types. ## Design [Section titled “Design”](#design) ### Overview [Section titled “Overview”](#overview) * An in-repo `protogen` plugin, `protoc-gen-gritz-docs`, runs as a third plugin in `buf.gen.yaml`, so `mise run generate` (`go generate ./...` → `go tool buf generate`) writes the reference pages alongside `internal/proto/`. * It writes plain Starlight Markdown: one page per service, message and enum of package `gritz.v1`, into `docs/src/content/docs/api/`. The pages are checked in. A CI job regenerates them and fails on a diff. * Starlight gives the pages a sidebar section, search and the llms.txt files; `starlight-links-validator` checks every generated type link at docs build. * The proto comments become the reference text. They follow the docs rules; contributor notes move into detached comments, which the generator skips. * A hand-written page, `reference/api`, covers what the proto can’t: the endpoint, authentication and the Connect protocol. `driver.v1` (`proto/driver/v1/driver.proto`) is the runner↔driver protocol inside a sandbox, not something a user or operator calls. It gets no pages. ### Page granularity and URL layout [Section titled “Page granularity and URL layout”](#page-granularity-and-url-layout) One page per top-level service, message and enum, grouped into a directory per kind. The proto has one package and no nested types, so the package is not a path segment: | Proto | File | URL | | ----------------------------- | ----------------------------------- | ---------------------------------------- | | service `GritzService` | `api/services/gritzservice.md` | `/api/services/gritzservice/` | | rpc `GritzService.CreateTask` | (a section of the service page) | `/api/services/gritzservice/#createtask` | | message `CreateTaskRequest` | `api/messages/createtaskrequest.md` | `/api/messages/createtaskrequest/` | | enum `TaskStatus` | `api/enums/taskstatus.md` | `/api/enums/taskstatus/` | The file name is the lower-cased type name. Astro’s content loader lower-cases and strips punctuation from page ids, so the generator emits names that are already their own slug and builds every link from the same `slug` function. Two names that only differ in case would collide; the generator fails on that rather than overwrite. A nested type, should one appear, would get its own page named `outer-inner` (the full name below the package, `.` → `-`). The page title is the proto name (`CreateTaskRequest`); the sidebar sorts by it. Request and response messages get their own pages too, as in the BSR, rather than being inlined under their RPC: several are referenced from more than one place (`GetTaskResponse` carries `Task`, which `ListTasksResponse` repeats), and one page per type keeps every link target a page. #### Service page [Section titled “Service page”](#service-page) 
-```markdown
----
-# Code generated by protoc-gen-gritz-docs. DO NOT EDIT.
-title: GritzService
-description: <first sentence of the service comment>
-editUrl: https://github.com/gritzapp/gritz/edit/master/proto/gritz/v1/gritz.proto
----
+Issues: <https://github.com/gritzapp/gritz/issues/2098>, <https://github.com/gritzapp/gritz/issues/2106> ## Problem [Section titled “Problem”](#problem) Everything gritz does goes through one Connect service, [`gritz.v1.GritzService`](https://github.com/gritzapp/gritz/blob/master/proto/gritz/v1/gritz.proto): 54 RPCs, 138 messages and 3 enums. API keys exist so that programs can call it, but docs.gritz.dev documents only the CLI, the MCP tools and the webhook envelopes. Someone writing a client has to find the 950-line proto file in the repository, and learn the endpoint and authentication from the code. The proto file was also not written to be read by them. Of its \~160 comment lines, many were contributor notes: links to proposal files by repo path (`docs/src/content/docs/proposals/implemented/unified-task-event-stream.md`), history (`the stream replacement for the old logs rows with type='llm'`, `Previously: parent (child tasks removed)`) and storage details (`the db type column is materialized from the arm`). Most messages and RPCs had no comment at all. ## Design [Section titled “Design”](#design) ### Overview [Section titled “Overview”](#overview) * One hand-written page, `reference/api` (`.mdx`), covers what the proto can’t: the endpoint, the protocols, authentication and a `curl` example. * The same page embeds the whole of `proto/gritz/v1/gritz.proto`, imported as a string at docs build time and rendered with Starlight’s `<Code>` component with protobuf highlighting. The reference is the proto itself, as a client author would read it to generate a client. * Nothing is generated or checked in, so there is nothing to keep in sync: the published page is always built from the proto on the branch being built. * The proto comments are the reference text. They follow the docs rules; contributor notes sit in detached comments above the element. `driver.v1` (`proto/driver/v1/driver.proto`) is the runner↔driver protocol inside a sandbox, not something a user or operator calls. It is not embedded. ### `reference/api` [Section titled “reference/api”](#referenceapi) A page in the Reference section, and the entry point from the rest of the docs: * **Endpoint**: the server’s base URL; each RPC is `POST <server>/gritz.v1.GritzService/<Method>`. * **Protocols**: Connect (JSON or binary protobuf), gRPC and gRPC-Web, as served by `connect-go`; JSON field names are the camelCase form of the proto names. * **Authentication**: `Authorization: Bearer <API key>`, linking [API keys](/concepts/orgs-members-keys/#api-keys). `concepts/orgs-members-keys` links back to the page. * **Example**: `curl` calling `Ping` and `GetCaller` with JSON. Both work with an API key (`GetProfile` needs a signed-in user), and together they check the connection, the server version and which organisation the key acts for. * **Service definition**: the embedded proto. The embed is two lines of MDX: 
+```mdx
+import { Code } from '@astrojs/starlight/components';
+import proto from '../../../../../proto/gritz/v1/gritz.proto?raw';
 
 
-<service comment>
-
-
-## CreateTask
-
-
-<rpc comment>
-
-
-`POST /gritz.v1.GritzService/CreateTask`
-
-
-- Request: [CreateTaskRequest](/api/messages/createtaskrequest/)
-- Response: [CreateTaskResponse](/api/messages/createtaskresponse/)
+<Code code={proto} lang="protobuf" title="proto/gritz/v1/gritz.proto" />
 ```
- RPCs appear in declaration order, each an `##` heading, so Starlight’s “On this page” lists them. A streaming RPC (none today) marks the streamed side with `stream`. The procedure path is the URL a Connect client posts to, so it is something the reader acts on. #### Message page [Section titled “Message page”](#message-page) 
-```markdown
----
-# Code generated by protoc-gen-gritz-docs. DO NOT EDIT.
-title: Task
-description: <first sentence of the message comment>
-editUrl: https://github.com/gritzapp/gritz/edit/master/proto/gritz/v1/gritz.proto
----
-
-
-<message comment>
-
-
-## Fields
-
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `id` | `int64` | |
-| `status` | [TaskStatus](/api/enums/taskstatus/) | |
-| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | <field comment> |
-
-
-## Used by
-
-
-- [GetTaskResponse](/api/messages/gettaskresponse/)
-- [ListTasksResponse](/api/messages/listtasksresponse/)
-```
- * **Field**: the proto field name. The JSON name is the camelCase form Connect uses by default; it is not repeated. * **Type**: a scalar in code (`string`, `int64`); a message or enum of the package as a link to its page; a well-known type as a link to its entry on protobuf.dev; `repeated T` and `map<K, V>` around those. `<` is written as `&lt;` so the Markdown renderer never sees a tag. * A `oneof` gets a row per arm, each with the note “One of `payload`.” ahead of its description, so `Event`’s six payload arms read as one choice. A proto3 `optional` field shows `optional` before its type. A `deprecated` field shows “Deprecated.” ahead of its description. * Reserved fields and numbers are not shown. * **Used by** lists every RPC (as a link to its section of the service page) and every message that references the type. It is the BSR’s back-link, and it is how a reader gets from `TaskStatus` to everything that carries it. It is left out when empty. A message with no fields (`PingRequest`) says “This message has no fields.” instead of an empty table. #### Enum page [Section titled “Enum page”](#enum-page) Same frontmatter and comment, then a table of `Name | Number | Description` in declaration order, then **Used by**. ### Comments [Section titled “Comments”](#comments) The generator reads `protogen.Comments` from each element’s source location: * **Leading comment** (directly above, no blank line): the element’s docs. * **Trailing comment** (same line, or the line after): also docs, appended after the leading comment. Many fields here only have one (`int32 page_size = 1; // Max tasks to return (default: 50, max: 100)`). * **Leading detached comments** (separated from the element by a blank line): skipped. These are for contributors: history, storage details, proposal links. No markup to learn, and the split is visible in the proto itself. Comments are Markdown. The comment marker and one following space are stripped from each line; the rest is passed through. * **Services, RPCs, messages and enums** render their comment as block Markdown: paragraphs, lists and code blocks work. The first sentence (up to the first `. `or the end of the first paragraph) is the page’s `description`; with no comment, the description is “The `Task` message of the gritz API.” (`service`, `enum` likewise). * **Fields and enum values** render in a table cell, so their comment must be inline Markdown. Lines are joined with spaces and paragraphs with `<br><br>`; `|` is escaped. A comment with block syntax (a list item, a fenced or indented code block, a heading) fails generation with the file and line, so `mise run generate` catches it rather than the table breaking on the site. * **References**: `[Name]` in a comment, where `Name` is a message, enum, service or `Service.Method` of the package (or its full name, `gritz.v1.Task`), becomes a link to its page or RPC section, as in Go doc comments. A bracketed name that resolves to nothing is left alone, so ordinary Markdown links (`[text](url)`) are unaffected. Repo-path references to proposals don’t belong in these comments at all; they move to detached comments. ### What belongs in the docs [Section titled “What belongs in the docs”](#what-belongs-in-the-docs) The generated pages are docs pages, so CLAUDE.md’s “What belongs in the docs” rules apply, through the proto comments: * RPC, message, field and enum names are the reader’s interface: a client calls `CreateTask` with a `CreateTaskRequest`. Naming them is not an implementation detail on these pages. * The comments’ contents are held to the rules: no history, no storage or package names, no proposal paths. Everything that breaks them today moves into a detached comment above the element, or is rewritten. That is the first slice of the plan. * Runner- and driver-facing RPCs (`RegisterWorkspaces`, `SubmitRunnerEvents`, `UploadLogs`, `AppendLogChunk`, `CreateTaskToken`, …) are on the same service and callable with an API key, so they are documented like the rest, with a comment saying who calls them (“Called by the runner …”). CLAUDE.md changes: * The docs mapping table gets two rows: `proto/gritz/v1/gritz.proto` → `api/*` (generated; edit the proto comments and run `mise run generate`), and the server’s Connect endpoint and auth → `reference/api`. * The Protobuf section says that comments on `gritz.v1` elements are published, that contributor notes go in detached comments, and that `[Name]` links a type. * The “Edit in place” rule needs no change: a PR changing an RPC changes its comment. ### Where the output lives and keeping it in sync [Section titled “Where the output lives and keeping it in sync”](#where-the-output-lives-and-keeping-it-in-sync) `buf.gen.yaml` gains the plugin and `clean`: 
-```yaml
-version: v2
-clean: true
-plugins:
-  - remote: buf.build/protocolbuffers/go
-    out: internal/proto
-    opt: paths=source_relative
-  - remote: buf.build/connectrpc/go:v1.20.0
-    out: internal/proto
-    opt:
-      - paths=source_relative
-      - simple
-  - local: ["go", "run", "./cmd/protoc-gen-gritz-docs"]
-    out: docs/src/content/docs/api
-    strategy: all
-    opt: package=gritz.v1
-```
- * `clean: true` empties each plugin’s `out` before generating, so a removed message’s page is deleted rather than left behind. `internal/proto/` holds only generated files, so cleaning it is safe. `docs/src/content/docs/api/` is owned by the generator; nothing hand-written lives there. * `strategy: all` hands the plugin every file in one request, so a type can be linked whatever file it is in. `package=gritz.v1` selects the published package; `driver.v1` files are in the request but produce nothing. * `go run` keeps the plugin a tool of the module, like `buf`, with no binary to install. The pages are checked in, not built at docs build time: * `docs-pages.yml` and `docs-preview.yml` build the site with Node only. Generating there would put Go and buf in both and couple the docs build to the module. * A proto change and its doc change show up in the same PR diff, so review sees the rendered field table change next to the field. And because the PR touches `docs/`, `docs-preview.yml` builds it and comments a preview link. * It matches `internal/proto/`, which is already generated and checked in. A new workflow, `.github/workflows/generate.yml`, keeps them honest. On PRs and master pushes touching `proto/**`, `buf.gen.yaml`, `cmd/protoc-gen-gritz-docs/**`, `internal/protodocs/**` or `docs/src/content/docs/api/**`, it sets up Go, runs `go tool buf generate`, and fails if `git status --porcelain` reports anything. Covering `internal/proto/` as well is a free side effect; nothing checks it today. ### Sidebar, llms.txt and the links validator [Section titled “Sidebar, llms.txt and the links validator”](#sidebar-llmstxt-and-the-links-validator) * `astro.config.mjs` adds an **API reference** group after the `sections` groups, built like Proposals: `Services`, `Messages` and `Enums` subgroups, each `autogenerate`d from `api/<kind>`. `Messages` is `collapsed: true`; it has 138 entries. The group is added directly rather than through `sections.mjs`, whose one-directory-per-group shape would render the directory names as labels. * `sections.mjs` `sets` gets a third llms.txt set, **API** (`paths: ['api/**']`), and the Users set excludes `api/**` (`'!{operators,proposals,api}/**'`), so an agent reading about using gritz doesn’t pull 141 type pages. `llms-full.txt` still has them. * Every type link is root-relative (`/api/messages/task/`), so the existing `base-links` plugin prefixes it in PR previews, and `starlight-links-validator` fails the build on a link to a page or RPC anchor that doesn’t exist. Links to protobuf.dev are external and not checked. * `reference/api` links into `/api/services/gritzservice/`; the generated pages link nowhere outside `/api/` except protobuf.dev. ### `reference/api` [Section titled “reference/api”](#referenceapi) A hand-written page in the Reference section, and the entry point from the rest of the docs: * The endpoint: the server’s base URL; each RPC is `POST <server>/gritz.v1.GritzService/<Method>`. * Protocols: Connect (JSON or binary protobuf), gRPC and gRPC-Web, as served by `connect-go`; a `curl` example calling `Ping` and `GetProfile` with JSON. * Authentication: `Authorization: Bearer <API key>`, linking [API keys](/concepts/orgs-members-keys/#api-keys); what a task token can call. * Links to the service page and to the proto file. ### API [Section titled “API”](#api) 
-```go
-package protodocs // github.com/gritzapp/gritz/internal/protodocs
-
-
-// Options selects what Generate documents.
-type Options struct {
-  // Package is the proto package to document, such as "gritz.v1".
-  Package protoreflect.FullName
-}
-
-
-// Generate writes a page for every service, message and enum of opts.Package
-// in gen's files, and fails on a comment that can't be rendered or a slug
-// collision.
-func Generate(gen *protogen.Plugin, opts Options) error
-```
- 
-```go
-package main // github.com/gritzapp/gritz/cmd/protoc-gen-gritz-docs
-
-
-// main runs the plugin: it parses the package= option and calls
-// protodocs.Generate.
-func main()
-```
- **How it fits:** `buf generate` runs `go run ./cmd/protoc-gen-gritz-docs` with `package=gritz.v1`. `main` hands the `protogen.Plugin` to `protodocs.Generate`, which collects the package’s types, resolves the “Used by” index and comment references across them, and writes each page with `gen.NewGeneratedFile`. Comment and type rendering are unexported functions of `protodocs`, unit-tested on strings; the checked-in pages are the end-to-end golden output, reviewed in each PR’s diff and enforced by `generate.yml`. ## Implementation Plan [Section titled “Implementation Plan”](#implementation-plan) 1. **Proto comment cleanup** — Delivers: every comment in `gritz.proto` that breaks the docs rules moved into a detached comment or rewritten (proposal paths, history, storage details, the `auto_archive` block layout turned into a sentence); field comments made inline-only; one-line comments on the service and on runner/driver-facing RPCs saying who calls them. Depends on: nothing. Verifiable by: `go tool buf lint`, and generated Go code unchanged apart from the descriptor’s source info. 2. **Generator: message and enum pages** — Delivers: `internal/protodocs` and `cmd/protoc-gen-gritz-docs` writing message and enum pages (field and value tables, type links, well-known types, oneof/optional/deprecated notes, the table-cell check); the `buf.gen.yaml` plugin entry with `clean: true`; the generated pages checked in; the API reference sidebar group (Messages, Enums) and llms.txt set; the CLAUDE.md mapping-table row and Protobuf section. Depends on: (1). Verifiable by: `mise run generate` is idempotent; unit tests for comment and type rendering; `cd docs && pnpm build` passes the links validator. 3. **CI sync check** — Delivers: `.github/workflows/generate.yml`. Depends on: (2). Verifiable by: a PR that edits a proto comment without regenerating fails the job; one that regenerates passes. 4. **Service pages** — Delivers: the `GritzService` page with an `##` section per RPC (comment, procedure path, request/response links), the Services sidebar subgroup, and **Used by** on message and enum pages linking RPC sections and referencing messages. Depends on: (2). Verifiable by: the links validator passing with every RPC anchor and back-link checked; the preview site. 5. **Comment references** — Delivers: `[Name]` / `[Service.Method]` resolution in comments, and the proto comments from (1) using it where they name a type. Depends on: (4) (RPC anchors). Verifiable by: unit tests for resolution; the generated links passing the validator. 6. **`reference/api` page** — Delivers: the hand-written overview (endpoint, protocols, auth, `curl` example) linked from `concepts/orgs-members-keys` and to the service page; its CLAUDE.md mapping-table row. Depends on: (4). Verifiable by: the `curl` example against a local server; `pnpm build`. ## Trade-offs [Section titled “Trade-offs”](#trade-offs) * **protoc-gen-doc with a custom template**: renders one file per template, so splitting into pages means post-processing; no back-link index; Go templates over its own data model rather than the descriptors. Rejected in the issue. * **OpenAPI + `starlight-openapi`**: Connect’s HTTP shape is one `POST` per RPC, so the result reads as 54 identical endpoints with schemas, not services, messages and enums. It also needs a proto → OpenAPI step. Rejected in the issue. * **Generating at docs build time** instead of checking in: no generated files in the repo, but both docs workflows would need Go, the docs dev server would need a generate step first, and reviewers wouldn’t see the rendered change in the PR diff. * **Inlining request/response fields under each RPC**: one page holds the whole call, but shared types (`Task`, `Event`) still need pages, the service page would be very long, and links would point at two kinds of target. A page per type, as in the BSR, is uniform. * **A flat `/api/<name>/` layout**: shorter URLs, but the sidebar groups need a directory each to `autogenerate` from, and the kind in the URL costs nothing. * **An `@exclude`/`@internal` marker** (protoc-gen-doc’s convention) instead of detached comments: explicit, but it’s a syntax to learn and to strip, and a forgotten marker publishes the note. A blank line is how the proto already separates prose that isn’t about the next element. * **A `package` path segment** (`/api/gritz/v1/...`): matches the BSR, but there is one published package. Adding a second would add the segment then; there are no URLs to keep stable. ## Open Questions [Section titled “Open Questions”](#open-questions) * Should runner- and driver-facing RPCs be hidden from the reference? This proposal documents them, since they’re callable with an API key. If they should be hidden, a detached-comment-style convention for RPCs (or splitting them into a second service) would be the way, and is a bigger change. * Should field rows show the JSON name (`createdAt`) next to the proto name, for clients that speak Connect JSON? Left out to keep the table narrow; `curl` users can follow the camelCase rule stated on `reference/api`. * Should **Used by** also cover transitive use (a type nested two messages deep in a response)? Direct references only for now.
+ Vite’s `?raw` import reads the file at build time; no Astro or Vite config is needed, in `pnpm build` or the dev server. The docs workflows check out the whole repository, so the proto is there in both `docs-pages.yml` and `docs-preview.yml`. `docs-preview.yml` only runs for PRs touching `docs/` or `diagrams/`, so a PR that only edits the proto gets no preview; the page still updates when it merges. ### Comments [Section titled “Comments”](#comments) The proto comments are published as written, so CLAUDE.md’s “What belongs in the docs” rules apply to them: * RPC, message, field and enum names are the reader’s interface: a client calls `CreateTask` with a `CreateTaskRequest`. Naming them is not an implementation detail. * The comments’ contents are held to the rules: no history, no storage or package names, no proposal paths. Contributor notes go in a detached comment (separated from the element by a blank line), which reads as a note about the code rather than about the next element. On a page showing the whole file, detached comments are still visible; the split keeps the documentation of each element clean, not hidden. * Runner- and driver-facing RPCs (`RegisterWorkspaces`, `SubmitRunnerEvents`, `UploadLogs`, `AppendLogChunk`, `CreateTaskToken`, …) are on the same service and callable with an API key, so they carry a comment saying who calls them (“Called by the runner …”). CLAUDE.md’s docs mapping table gets one row: `proto/gritz/v1/gritz.proto` and the server’s Connect endpoint and auth → `reference/api`, noting that the proto is embedded at build time so its comments are published. ## Implementation Plan [Section titled “Implementation Plan”](#implementation-plan) 1. **Proto comment cleanup** (done, #2108) — Delivers: every comment in `gritz.proto` that broke the docs rules moved into a detached comment or rewritten (proposal paths, history, storage details, the `auto_archive` block layout turned into a sentence); one-line comments on the service and on runner/driver-facing RPCs saying who calls them. Depends on: nothing. Verifiable by: `go tool buf lint`, and generated Go code unchanged apart from the descriptor’s source info. 2. **`reference/api` with the embedded proto** — Delivers: removal of the page generator that an earlier version of this plan added (`internal/protodocs`, `cmd/protoc-gen-gritz-docs`, its `buf.gen.yaml` entry, the generated `api/` pages, their sidebar group and llms.txt set, and its CLAUDE.md text); the hand-written `reference/api` page (endpoint, protocols, auth, `curl` example, the embedded proto), linked from `concepts/orgs-members-keys`; its CLAUDE.md mapping-table row. Depends on: (1). Verifiable by: `mise run generate` producing the Go and TS code with no diff; `cd docs && pnpm build` passing the links validator; the `curl` example against a local server. ## Trade-offs [Section titled “Trade-offs”](#trade-offs) * **A generator writing a page per service, message and enum** (an in-repo `protoc-gen-gritz-docs` plugin, modelled on the [Buf Schema Registry](https://buf.build/docs/bsr/documentation/) layout, with field tables, type links and “Used by” back-links). This was the first plan, and its message and enum pages were built. Dropped for the embed: * **Simpler.** The generator was \~400 lines of Go plus tests, a third buf plugin, 141 checked-in pages, a sidebar group and an llms.txt set, with service pages, back-links and comment references still to come. The embed is one MDX page. * **Can’t drift.** Generated pages were checked in, so they could fall behind the proto, and needed a CI job that regenerates them and fails on a diff. The embed is built from the proto at docs build time, so there is no copy to fall behind and no sync check to run. * **Fewer rules on comments.** Field comments rendered in table cells had to be inline Markdown, and generation failed on block syntax. In the embedded file a comment is just a comment. * **Cost:** no page or search hit per type, no field tables, no links between types or back-links. A reader finds a type with the browser’s search on the page. For a client author who will generate a client from the proto anyway, the proto is the reference they need. * **protoc-gen-doc with a custom template**: renders one file per template, so splitting into pages means post-processing; no back-link index; Go templates over its own data model rather than the descriptors. Rejected in #2098. * **OpenAPI + `starlight-openapi`**: Connect’s HTTP shape is one `POST` per RPC, so the result reads as 54 identical endpoints with schemas, not services, messages and enums. It also needs a proto → OpenAPI step. Rejected in #2098. * **Linking to the proto on GitHub** instead of embedding it: no build-time import at all, but the docs would point off-site for the reference, and it would be missing from the site’s search and from `llms-full.txt`. ## Open Questions [Section titled “Open Questions”](#open-questions) * Should runner- and driver-facing RPCs be left out of the published reference? They are documented, since they’re callable with an API key. Hiding them would mean splitting them into a second service, which is a bigger change. * Should the page split the proto into sections (services, then messages, then enums) or link RPC names to their messages? That would mean parsing the proto at build time, which brings back some of the generator’s complexity.
 
 # Firecracker Backend for the Runner
 
@@ -13535,6 +12586,1182 @@ if s.slack != nil {
 }
 ```
  Both OAuth and webhook routes are conditional on Slack config because the signing secret is global (same model as GitHub). ### Settings UI [Section titled “Settings UI”](#settings-ui) Add Slack section to `webui/src/routes/settings.tsx`: **Slack Account Card** — mirrors the GitHub Account card: * If linked: show Slack user ID with an “Unlink” button (calls `unlinkSlackAccount` RPC) * If not linked: show “Link Slack Account” button (links to `/slack/login`) * Uses `getSlackAccount` query **Slack Workspace Card** — per-org: * If installed: show connected workspace with an “Uninstall” button (calls `uninstallSlack` RPC) * If not installed: show “Install to Slack” button (links to `/slack/login`) * The OAuth flow handles both workspace installation and user linking in a single step ## Trade-offs [Section titled “Trade-offs”](#trade-offs) ### Global signing secret vs per-org secret [Section titled “Global signing secret vs per-org secret”](#global-signing-secret-vs-per-org-secret) Slack apps have a single signing secret per app, so unlike Jira (where each org has its own instance with its own webhook secret), all orgs share the same Slack app and signing secret. This is the same model as the GitHub integration. The alternative — supporting multiple Slack apps (one per org) — adds complexity for little benefit. Most deployments will use a single Slack app installed to multiple workspaces. ### No built-in outbound messaging [Section titled “No built-in outbound messaging”](#no-built-in-outbound-messaging) This proposal only handles inbound events (Slack to gritz). Outbound messaging (gritz to Slack) is left to workspace configuration — workspaces can add a Slack MCP server to give agents the ability to post messages. This keeps the server-side integration focused on the same concern as GitHub and Jira: routing external events to tasks via the link/event system. ### Event URL construction [Section titled “Event URL construction”](#event-url-construction) Slack events don’t include a permalink URL — the handler constructs one from the channel ID and message timestamp (`https://slack.com/archives/{channel}/p{ts_without_dot}`). This constructed URL must exactly match notify links on tasks. This is somewhat fragile but is the standard Slack permalink format. An alternative is to call the `chat.getPermalink` API for each event, but this adds latency, requires a bot token, and an API call per webhook. ### Bot token not stored [Section titled “Bot token not stored”](#bot-token-not-stored) Since outbound messaging is handled by workspace MCP servers rather than the gritz server, there’s no need to store the Slack bot token. The OAuth flow only needs the `team.id` (to map workspace to org) and `authed_user.id` (to link the user). The bot token from the OAuth response is discarded. ## Open Questions [Section titled “Open Questions”](#open-questions) 1. **Slack user display name:** Should we cache the Slack display name on the user record (like `github_username`)? This would require parsing the OAuth response for additional user info. 2. **Channel-level links vs message-level links:** Should tasks be linkable to entire channels (receive all `gritz:` prefixed messages in a channel) or only to specific message threads? Channel-level links would be simpler for users but noisier. Message-level links require the agent to already have a Slack permalink to link to. 3. **Multiple workspace support:** Can a single org be connected to multiple Slack workspaces? The current design stores one `slack_team_id` per org. Supporting multiple workspaces would require a separate table.
+
+# API
+
+> Call the gritz Connect API directly, with its endpoint, protocols and authentication, and the full service definition.
+
+Everything gritz does, from the [Web UI](/using/web-ui/) to the [CLI](/using/cli/) and the runners, goes through one service, `gritz.v1.GritzService`. A program with an [API key](#authentication) can call it too. Its full definition is [at the end of this page](#service-definition). ## Endpoint [Section titled “Endpoint”](#endpoint) Every RPC is a `POST` to its own path on the server: 
+```plaintext
+POST https://gritz.dev/gritz.v1.GritzService/<Method>
+```
+ On a self-hosted server, replace `https://gritz.dev` with its base URL. ## Protocols [Section titled “Protocols”](#protocols) The server speaks the [Connect](https://connectrpc.com/docs/protocol/) protocol, gRPC and gRPC-Web, so any Connect or gRPC client generated from the service definition can call it. With Connect, a request body is the request message as JSON (`Content-Type: application/json`) or binary protobuf (`Content-Type: application/proto`). JSON field names are the camelCase form of the proto field names: `page_size` is `pageSize`. ## Authentication [Section titled “Authentication”](#authentication) Send an [API key](/concepts/orgs-members-keys/#api-keys) as a bearer token: 
+```plaintext
+Authorization: Bearer xat_…
+```
+ The key acts for the organisation it was created in, and can call what a member can. A request without a valid key fails with the `unauthenticated` code. ## Example [Section titled “Example”](#example) Check the connection and the server version with `Ping`, then see which organisation the key acts for with `GetCaller`: 
+```sh
+export GRITZ_TOKEN=xat_…
+
+
+curl -sS https://gritz.dev/gritz.v1.GritzService/Ping \
+  -H "Authorization: Bearer $GRITZ_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+
+curl -sS https://gritz.dev/gritz.v1.GritzService/GetCaller \
+  -H "Authorization: Bearer $GRITZ_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+ `Ping` returns `{"version": "…"}`. An error comes back as a non-2xx status with a JSON body such as `{"code": "unauthenticated", "message": "…"}`. ## Service definition [Section titled “Service definition”](#service-definition) The full definition of `gritz.v1`: every RPC of `GritzService` and every message and enum they use, with their comments. proto/gritz/v1/gritz.proto 
+```protobuf
+syntax = "proto3";
+
+
+package gritz.v1;
+
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+
+option go_package = "github.com/gritzapp/gritz/internal/proto/gritz/v1;gritzv1";
+
+
+// GritzService is the gritz API. The web UI, the CLI and the `gritz mcp` server
+// call it for users; runners and the drivers inside task sandboxes call it to
+// run tasks.
+service GritzService {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetProfile(GetProfileRequest) returns (GetProfileResponse);
+  rpc GetCaller(GetCallerRequest) returns (GetCallerResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  // Called by the runner to follow the events of its tasks. Returns the events
+  // after the cursor in log order, and only once no earlier event can still
+  // appear, so following the cursor never skips one.
+  rpc ListRunnerEvents(ListRunnerEventsRequest) returns (ListRunnerEventsResponse);
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
+  rpc ArchiveTask(ArchiveTaskRequest) returns (ArchiveTaskResponse);
+  rpc UnarchiveTask(UnarchiveTaskRequest) returns (UnarchiveTaskResponse);
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+  rpc RestartTask(RestartTaskRequest) returns (RestartTaskResponse);
+  rpc OpenShell(OpenShellRequest) returns (OpenShellResponse);
+  // Called by the agent's `report` tool in a task's sandbox. Each entry of type
+  // `llm` is added to the task as a report event; entries of other types are
+  // ignored.
+  rpc UploadLogs(UploadLogsRequest) returns (UploadLogsResponse);
+  // Called by the driver in a task's sandbox to ship the task's log.
+  rpc AppendLogChunk(AppendLogChunkRequest) returns (AppendLogChunkResponse);
+  rpc ListLogChunksByTask(ListLogChunksByTaskRequest) returns (ListLogChunksByTaskResponse);
+  rpc CreateLink(CreateLinkRequest) returns (CreateLinkResponse);
+  rpc ListLinks(ListLinksRequest) returns (ListLinksResponse);
+  rpc ListExternalEvents(ListExternalEventsRequest) returns (ListExternalEventsResponse);
+  rpc GetEvent(GetEventRequest) returns (GetEventResponse);
+  rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
+  rpc ListEventsByTask(ListEventsByTaskRequest) returns (ListEventsByTaskResponse);
+  // Called by the runner, and by the driver in a task's sandbox, to report that
+  // a task's run started, stopped or failed.
+  rpc SubmitRunnerEvents(SubmitRunnerEventsRequest) returns (SubmitRunnerEventsResponse);
+  // Called by the runner before it starts a task's sandbox, to get the token the
+  // sandbox calls the API with. The token can read and update only that task,
+  // plus the requested capabilities.
+  rpc CreateTaskToken(CreateTaskTokenRequest) returns (CreateTaskTokenResponse);
+  // Called by the runner when it starts, to register the workspaces it serves.
+  // Replaces the workspaces registered before for the same runner.
+  rpc RegisterWorkspaces(RegisterWorkspacesRequest) returns (RegisterWorkspacesResponse);
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse);
+  rpc ClearWorkspaces(ClearWorkspacesRequest) returns (ClearWorkspacesResponse);
+  rpc CreateKey(CreateKeyRequest) returns (CreateKeyResponse);
+  rpc ListKeys(ListKeysRequest) returns (ListKeysResponse);
+  rpc DeleteKey(DeleteKeyRequest) returns (DeleteKeyResponse);
+  rpc UnlinkGitHubAccount(UnlinkGitHubAccountRequest) returns (UnlinkGitHubAccountResponse);
+  rpc LinkGitHubInstallation(LinkGitHubInstallationRequest) returns (LinkGitHubInstallationResponse);
+  rpc UnlinkAtlassianAccount(UnlinkAtlassianAccountRequest) returns (UnlinkAtlassianAccountResponse);
+  rpc CreateOrg(CreateOrgRequest) returns (CreateOrgResponse);
+  rpc ListOrgs(ListOrgsRequest) returns (ListOrgsResponse);
+  rpc DeleteOrg(DeleteOrgRequest) returns (DeleteOrgResponse);
+  rpc AddOrgMember(AddOrgMemberRequest) returns (AddOrgMemberResponse);
+  rpc RemoveOrgMember(RemoveOrgMemberRequest) returns (RemoveOrgMemberResponse);
+  rpc ListOrgMembers(ListOrgMembersRequest) returns (ListOrgMembersResponse);
+  rpc GetOrgSettings(GetOrgSettingsRequest) returns (GetOrgSettingsResponse);
+  rpc GenerateAtlassianWebhookSecret(GenerateAtlassianWebhookSecretRequest) returns (GenerateAtlassianWebhookSecretResponse);
+  rpc GetRoutingRules(GetRoutingRulesRequest) returns (GetRoutingRulesResponse);
+  rpc SetRoutingRules(SetRoutingRulesRequest) returns (SetRoutingRulesResponse);
+  rpc GetEventTypes(GetEventTypesRequest) returns (GetEventTypesResponse);
+  rpc GetCustomEventTypes(GetCustomEventTypesRequest) returns (GetCustomEventTypesResponse);
+  rpc SetCustomEventTypes(SetCustomEventTypesRequest) returns (SetCustomEventTypesResponse);
+  rpc TestEvent(TestEventRequest) returns (TestEventResponse);
+  // Called from a task's sandbox to get a GitHub token. The server doesn't
+  // issue these tokens yet: every call fails with `unimplemented`.
+  rpc CreateGitHubToken(CreateGitHubTokenRequest) returns (CreateGitHubTokenResponse);
+  rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
+  rpc GetSchedule(GetScheduleRequest) returns (GetScheduleResponse);
+  rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
+  rpc UpdateSchedule(UpdateScheduleRequest) returns (UpdateScheduleResponse);
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+  rpc SetScheduleEnabled(SetScheduleEnabledRequest) returns (SetScheduleEnabledResponse);
+  rpc RunSchedule(RunScheduleRequest) returns (RunScheduleResponse);
+}
+
+
+message PingRequest {}
+
+
+message PingResponse {
+  string version = 1;
+}
+
+
+message Instruction {
+  string text = 1;
+  string url = 2;
+}
+
+
+message TaskActions {
+  bool archive = 1;
+  bool cancel = 2;
+  bool restart = 3;
+  bool start = 4;
+  bool unarchive = 5;
+}
+
+
+enum TaskStatus {
+  UNSPECIFIED = 0;
+  PENDING = 1;
+  RUNNING = 2;
+  RESTARTING = 3;
+  CANCELLING = 4;
+  COMPLETED = 5;
+  FAILED = 6;
+  CANCELLED = 7;
+  DRAFT = 8;
+}
+
+
+enum TaskCommand {
+  NONE = 0;
+  RESTART = 1;
+  STOP = 2;
+  START = 3;
+}
+
+
+message Task {
+  int64 id = 1;
+  string name = 2;
+  reserved 3;  // Previously: parent (child tasks removed)
+  string workspace = 4;
+  string runner = 5;  // Runner ID that handles this task
+  reserved 6;  // Previously: instructions (now instruction events in the stream)
+  TaskStatus status = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  TaskCommand command = 10;
+  // The task's current run: 0 before it first starts, then 1, and one more for
+  // each new run.
+  int64 version = 11;
+  TaskActions actions = 12;
+  bool archived = 13;
+  string url = 14;
+  // How long the task stays in a terminal status (COMPLETED, FAILED,
+  // CANCELLED) before it is archived. Zero or unset never archives it, a
+  // negative value archives it as soon as it reaches a terminal status, and a
+  // positive value archives it that long after.
+  google.protobuf.Duration auto_archive = 15;
+
+
+  // See docs/src/content/docs/proposals/implemented/driver-reverse-shell.md.
+  // Persistent and server-owned; the runner never touches it.
+
+
+  // The shell session the task's sandbox serves instead of running the agent,
+  // set by OpenShell. Empty for an ordinary run.
+  string shell_session = 16;
+
+
+  // See docs/src/content/docs/proposals/implemented/task-namespaces.md.
+
+
+  // The task's namespace: only routing rules in the same namespace see its
+  // subscriptions. Empty is the default namespace. Set at creation and can't be
+  // changed.
+  string namespace = 17;
+}
+
+
+message McpServer {
+  string name = 1;
+  string command = 2;
+  repeated string args = 3;
+  map<string, string> env = 4;
+}
+
+
+message Profile {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+}
+
+
+message GetProfileRequest {}
+
+
+message GetProfileResponse {
+  Profile profile = 1;
+  repeated Org orgs = 2;
+  int64 default_org_id = 3;
+  GitHubAccount github_account = 4;
+  AtlassianAccount atlassian_account = 5;
+}
+
+
+message GetCallerRequest {}
+
+
+message GetCallerResponse {
+  Org org = 1; // the org the request is authenticated against
+}
+
+
+message ListTasksRequest {
+  int32 page_size = 1;     // Max tasks to return (default: 50, max: 100)
+  string page_token = 2;   // Opaque cursor from a previous next_page_token; empty for the first page
+  bool archived = 3;       // Include archived tasks alongside active ones (default: false)
+}
+
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  string next_page_token = 2;  // Token for the next page; empty when there are no more results
+}
+
+
+message ListRunnerEventsRequest {
+  string runner = 1;  // Runner ID (required)
+  // Opaque; empty for the start of the log, otherwise a previous
+  // response's next_page_token.
+  string page_token = 2;
+  int32 page_size = 3;  // Max events to return; 0 for the server default
+}
+
+
+message ListRunnerEventsResponse {
+  repeated Event events = 1;
+  // Resumes after the last event in this page; the request's page_token when
+  // the page is empty. Pass it back unchanged.
+  string next_page_token = 2;
+  // Whether more events are available right now past this page.
+  bool more = 3;
+}
+
+
+message CreateTaskRequest {
+  string name = 1;
+  reserved 2;  // Previously: parent (child tasks removed)
+  string workspace = 3;
+  repeated Instruction instructions = 4;
+  string runner = 5;  // Runner ID that should handle this task
+  google.protobuf.Duration auto_archive = 6;
+  // The task's namespace; empty is the default namespace. See Task.namespace.
+  string namespace = 7;
+  // Create the task as a DRAFT: no runner picks it up until an UpdateTask with
+  // start set, such as the first instruction sent from the task page, starts it.
+  // False (the default) starts the task immediately.
+  bool draft = 8;
+}
+
+
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+
+message GetTaskRequest {
+  int64 id = 1;
+}
+
+
+message GetTaskResponse {
+  Task task = 1;
+}
+
+
+message UpdateTaskRequest {
+  int64 id = 1;
+  string name = 2;
+  reserved 3;  // Previously: restart
+  repeated Instruction add_instructions = 4;
+  bool start = 5;    // Start after current run finishes (non-interrupting)
+  // The new auto-archive delay, as in Task.auto_archive. Unset leaves it
+  // unchanged.
+  google.protobuf.Duration auto_archive = 6;
+}
+
+
+message UpdateTaskResponse {}
+
+
+message ArchiveTaskRequest {
+  int64 id = 1;
+}
+
+
+message ArchiveTaskResponse {}
+
+
+message UnarchiveTaskRequest {
+  int64 id = 1;
+}
+
+
+message UnarchiveTaskResponse {}
+
+
+message CancelTaskRequest {
+  int64 id = 1;
+}
+
+
+message CancelTaskResponse {}
+
+
+message RestartTaskRequest {
+  int64 id = 1;
+}
+
+
+message RestartTaskResponse {}
+
+
+message OpenShellRequest {
+  int64 task_id = 1;
+}
+
+
+message OpenShellResponse {
+  // The shell session to attach to, at `GET /shell/{session_id}/attach`. The
+  // task's sandbox restarts to serve it, and the task's shell_session is set to
+  // it.
+  string session_id = 1;
+}
+
+
+message LogEntry {
+  string type = 1;
+  string content = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+
+message UploadLogsRequest {
+  int64 task_id = 1;
+  repeated LogEntry entries = 2;
+}
+
+
+message UploadLogsResponse {}
+
+
+// See docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
+// Id order is write order because the driver ships with a single in-flight
+// sender.
+
+
+// LogChunk is a run of bytes from a task's log. The log is the concatenation of
+// its chunks' data in id order.
+message LogChunk {
+  int64 id = 1;
+  int64 task_id = 2;
+  int64 version = 3;  // The run (Task.version) the bytes belong to; 0 for output before the first run.
+  bytes data = 4;     // Raw log bytes, not split into lines.
+  google.protobuf.Timestamp created_at = 5;
+}
+
+
+message AppendLogChunkRequest {
+  int64 task_id = 1;
+  int64 version = 2;  // The run these bytes belong to.
+  // The bytes to append to the task's log. Must be non-empty and at most 1 MiB.
+  bytes data = 3;
+}
+
+
+message AppendLogChunkResponse {}
+
+
+message ListLogChunksByTaskRequest {
+  int64 task_id = 1;
+  int32 page_size = 2;    // Max chunks per page (default 50, max 200).
+  // A previous response's prev_page_token or next_page_token; empty for the
+  // newest page, at the end of the log.
+  string page_token = 3;
+}
+
+
+message ListLogChunksByTaskResponse {
+  repeated LogChunk chunks = 1;  // Oldest first, so their data concatenates in log order.
+  string prev_page_token = 2;    // Token for the older page; empty at the start of the log.
+  // Token for the newer page. Always set, so a client can keep polling it for
+  // new chunks.
+  string next_page_token = 3;
+  // Whether another page exists in the direction just read: older for a
+  // request with a prev_page_token, newer otherwise. Stop when more is false
+  // rather than on a page shorter than page_size.
+  bool more = 4;
+}
+
+
+message TaskLink {
+  int64 id = 1;
+  int64 task_id = 2;
+  string relevance = 3;
+  string url = 4;
+  string title = 5;
+  bool subscribe = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // The key events are matched against, derived from url by the server.
+  // Read-only.
+  string routing_key = 8;
+}
+
+
+message CreateLinkRequest {
+  int64 task_id = 1;
+  string relevance = 2;
+  string url = 3;
+  string title = 4;
+  bool subscribe = 5;
+  reserved 6;
+}
+
+
+message CreateLinkResponse {
+  TaskLink link = 1;
+}
+
+
+message ListLinksRequest {
+  int64 task_id = 1;
+}
+
+
+message ListLinksResponse {
+  repeated TaskLink links = 1;
+}
+
+
+message Event {
+  int64 id = 1;
+  int64 task_id = 2;
+  bool wake = 3;
+  google.protobuf.Timestamp created_at = 4;
+
+
+  // A typed union, not an opaque Struct. The db `type` column is materialized
+  // from the arm for indexed filtering (like `direction`). See
+  // docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
+
+
+  // The event's type and content. The field that is set is the event's type;
+  // there is no separate type field.
+  oneof payload {
+    InstructionPayload instruction = 5;
+    ExternalPayload external = 6;
+    ReportPayload report = 7;
+    LifecyclePayload lifecycle = 8;
+    LinkPayload link = 9;
+    CommandPayload command = 10;
+  }
+}
+
+
+// The stream replacement for the old tasks.instructions JSON column. Kept
+// minimal (parity with the stored instruction); no actor, consistent with the
+// external-only trimming in #957.
+
+
+// InstructionPayload is an instruction to the task's agent.
+message InstructionPayload {
+  string text = 1;
+  string url = 2;
+}
+
+
+message ExternalPayload {
+  string description = 1;
+  string url = 2;
+  string data = 3;
+
+
+  // Distinct from the router's matchable Attrs, which are not persisted.
+
+
+  // Extra context defined by the event's source, shown to the agent by
+  // get_my_task and on the task's timeline. GitHub review comments set `path`,
+  // `line`, `side` and `diff_hunk`; other sources set their own keys or none.
+  // These are not the attributes routing rules match on.
+  map<string, string> details = 4;
+  // Where the event came from, such as "github" or "jira".
+  string source = 5;
+  // The event's type within its source, such as "issue_comment" or
+  // "pull_request_review".
+  string type = 6;
+}
+
+
+// The stream replacement for the old logs rows with type='llm'. Reports are not
+// to-agent, so they never enter the brief.
+
+
+// ReportPayload is a message from the task's agent, written with its `report`
+// tool.
+message ReportPayload {
+  string content = 1;
+}
+
+
+// The link event is the timeline source of truth; the task_links row it mirrors
+// is the subscription/list projection.
+
+
+// LinkPayload records a link the task created, such as a pull request or an
+// issue.
+message LinkPayload {
+  int64 link_id = 1;  // The TaskLink's id.
+  string relevance = 2;
+  string url = 3;
+  string title = 4;
+  bool subscribe = 5;
+}
+
+
+// It is written in the same transaction as the tasks row, so the event log
+// carries every command the runner has to act on, including the withdrawal of
+// a start and the clear when a runner event consumes the command. See
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md.
+
+
+// CommandPayload records that the task's command, or the run it applies to,
+// changed. Runners follow these events to start, restart and stop tasks;
+// timelines don't show them.
+message CommandPayload {
+  TaskCommand command = 1;
+  int64 version = 2;
+  string runner = 3;
+  string workspace = 4;
+}
+
+
+// The stream replacement for the old logs rows with type='audit'/'info' and the
+// type='error' container-failure rows. Lifecycle events sit beside the existing
+// status mutation in the same transaction; status stays a materialized
+// projection (see
+// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
+// "Status stays a projection").
+
+
+// LifecyclePayload records something that happened to the task, such as its
+// creation, its cancellation or its sandbox exiting.
+message LifecyclePayload {
+  LifecycleKind kind = 1;
+  Actor actor = 2;
+  string from_status = 3;
+  string to_status = 4;
+  string message = 5;  // The failure detail for SANDBOX_FAILED; empty for other kinds.
+  // The task fields that changed, such as "name" or "status", for UPDATED;
+  // empty for other kinds.
+  repeated string fields = 6;
+}
+
+
+// Actor identifies who caused a lifecycle event.
+message Actor {
+  string kind = 1;  // One of "user", "runner" or "router".
+  string name = 2;  // The user's name for a user actor; empty otherwise.
+}
+
+
+// The TaskChange set, minus Woken, which splits into an external event plus the
+// transition the wake caused.
+
+
+// LifecycleKind is what happened in a lifecycle event.
+enum LifecycleKind {
+  LIFECYCLE_KIND_UNSPECIFIED = 0;
+  LIFECYCLE_KIND_CREATED = 1;
+  LIFECYCLE_KIND_UPDATED = 2;
+  LIFECYCLE_KIND_CANCELLED = 3;
+  LIFECYCLE_KIND_RESTARTED = 4;
+  LIFECYCLE_KIND_ARCHIVED = 5;
+  LIFECYCLE_KIND_UNARCHIVED = 6;
+  LIFECYCLE_KIND_AUTO_ARCHIVED = 7;
+  LIFECYCLE_KIND_SANDBOX_STARTED = 8;
+  LIFECYCLE_KIND_SANDBOX_EXITED = 9;
+  LIFECYCLE_KIND_SANDBOX_FAILED = 10;
+}
+
+
+message ListExternalEventsRequest {
+  int32 limit = 1;  // Max events to return (default: 100, max: 100)
+}
+
+
+message ListExternalEventsResponse {
+  repeated Event events = 1;
+}
+
+
+message GetEventRequest {
+  int64 id = 1;
+}
+
+
+message GetEventResponse {
+  Event event = 1;
+}
+
+
+message DeleteEventRequest {
+  int64 id = 1;
+}
+
+
+message DeleteEventResponse {}
+
+
+message ListEventsByTaskRequest {
+  int64 task_id = 1;
+  int32 page_size = 2;    // Max events per page (default 50, max 200).
+  // A previous response's prev_page_token or next_page_token; empty for the
+  // newest page.
+  string page_token = 3;
+  // The event types to return, named after Event's payload fields (such as
+  // "instruction" or "external"); empty returns every type.
+  repeated string types = 4;
+}
+
+
+message ListEventsByTaskResponse {
+  repeated Event events = 1;   // Oldest first.
+  string prev_page_token = 2;  // Token for the older page; empty at the first event.
+  // Token for the newer page. Always set, so a client can keep polling it for
+  // new events.
+  string next_page_token = 3;
+  // Whether another page exists in the direction just read: older for a
+  // request with a prev_page_token, newer otherwise. Stop when more is false
+  // rather than on a page shorter than page_size.
+  bool more = 4;
+}
+
+
+message RunnerEvent {
+  int64 task_id = 1;
+  string event = 2;     // "started", "stopped" or "failed".
+  // The run (Task.version) the event is about. An event for another run than
+  // the task's current one is ignored; 0 applies to the current run.
+  int64 version = 3;
+  bool reconcile = 4;   // Events with reconcile set are ignored.
+  string reason = 5;    // Optional human-readable detail, such as why the run failed.
+}
+
+
+message SubmitRunnerEventsRequest {
+  repeated RunnerEvent events = 1;
+}
+
+
+message SubmitRunnerEventsResponse {}
+
+
+message CreateTaskTokenRequest {
+  int64 task_id = 1;
+  // The workspace capabilities to grant the token, such as "github_token".
+  repeated string capabilities = 2;
+}
+
+
+message CreateTaskTokenResponse {
+  string token = 1;
+}
+
+
+message RegisteredWorkspace {
+  string name = 1;
+  string runner_id = 2;
+  google.protobuf.Timestamp updated_at = 3;
+  string description = 4;
+}
+
+
+message RegisterWorkspacesRequest {
+  string runner_id = 1;
+  repeated RegisteredWorkspace workspaces = 2;
+}
+
+
+message RegisterWorkspacesResponse {}
+
+
+message ListWorkspacesRequest {}
+
+
+message ListWorkspacesResponse {
+  repeated RegisteredWorkspace workspaces = 1;
+}
+
+
+message ClearWorkspacesRequest {
+  string runner_id = 1;  // Optional: clear only workspaces for this runner
+}
+
+
+message ClearWorkspacesResponse {}
+
+
+message Key {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+
+message CreateKeyRequest {
+  string name = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+
+message CreateKeyResponse {
+  Key key = 1;
+  string raw_token = 2;
+}
+
+
+message ListKeysRequest {}
+
+
+message ListKeysResponse {
+  repeated Key keys = 1;
+}
+
+
+message DeleteKeyRequest {
+  string id = 1;
+}
+
+
+message DeleteKeyResponse {}
+
+
+message GitHubAccount {
+  int64 id = 1;
+  int64 github_user_id = 2;
+  string github_username = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+
+message UnlinkGitHubAccountRequest {}
+
+
+message UnlinkGitHubAccountResponse {}
+
+
+message LinkGitHubInstallationRequest {
+  int64 installation_id = 1;
+}
+
+
+message LinkGitHubInstallationResponse {}
+
+
+message AtlassianAccount {
+  string atlassian_account_id = 1;
+  string atlassian_username = 3;
+  google.protobuf.Timestamp created_at = 2;
+}
+
+
+message UnlinkAtlassianAccountRequest {}
+
+
+message UnlinkAtlassianAccountResponse {}
+
+
+message Org {
+  int64 id = 1;
+  string name = 2;
+  string owner = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+
+message OrgMember {
+  int64 org_id = 1;
+  string user_id = 2;
+  string email = 3;
+  string name = 4;
+  string role = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+
+message CreateOrgRequest {
+  string name = 1;
+}
+
+
+message CreateOrgResponse {
+  Org org = 1;
+}
+
+
+message ListOrgsRequest {}
+
+
+message ListOrgsResponse {
+  repeated Org orgs = 1;
+}
+
+
+message DeleteOrgRequest {
+  int64 id = 1;
+}
+
+
+message DeleteOrgResponse {}
+
+
+message AddOrgMemberRequest {
+  string email = 1;
+}
+
+
+message AddOrgMemberResponse {
+  OrgMember member = 1;
+}
+
+
+message RemoveOrgMemberRequest {
+  string user_id = 1;
+}
+
+
+message RemoveOrgMemberResponse {}
+
+
+message ListOrgMembersRequest {}
+
+
+message ListOrgMembersResponse {
+  repeated OrgMember members = 1;
+}
+
+
+message GetOrgSettingsRequest {}
+
+
+message GetOrgSettingsResponse {
+  string atlassian_webhook_secret = 1;
+  string atlassian_webhook_url = 2;
+  string github_app_url = 3;
+  string mcp_url = 4;
+  int64 github_installation_id = 5;
+  string custom_webhook_url = 6; // where to POST custom events, e.g. https://gritz.dev/webhook/custom
+}
+
+
+message GenerateAtlassianWebhookSecretRequest {}
+
+
+message GenerateAtlassianWebhookSecretResponse {
+  string secret = 1;
+  string webhook_url = 2;
+}
+
+
+// RuleCondition constrains one attribute of an event. Comparisons are exact and
+// case-sensitive.
+message RuleCondition {
+  string attr = 1;
+  string op = 2;  // One of "equals", "prefix" or "contains".
+  string value = 3;
+}
+
+
+message RoutingRule {
+  reserved 3, 4, 6, 7, 8;  // Previously: prefix, mention, assignee, url_prefix, value (legacy flat matchers)
+  string source = 1;
+  string type = 2;
+  CreateTaskAction create = 5;
+  // Whether a match starts the subscribed tasks again to handle the event.
+  // When false, the event is added to their timelines without starting them.
+  // Rules created in the web UI default to true.
+  bool wakeup = 9;
+  // Conditions the event must meet, all of them. Empty source and type match
+  // any; no conditions match every event of the selected type.
+  repeated RuleCondition conditions = 10;
+  // Whether the rule also acts on events from people who aren't members of the
+  // org. False (the default) acts only on members' events.
+  bool public = 11;
+  // The rule's namespace: a match looks for subscribed tasks only in it, and a
+  // task the rule creates is in it. Empty is the default namespace.
+  string namespace = 12;
+}
+
+
+message CreateTaskAction {
+  string workspace = 1;
+  string runner = 2;
+  string prompt = 3;
+  // The auto-archive delay of the tasks the rule creates, as in
+  // Task.auto_archive.
+  google.protobuf.Duration auto_archive = 4;
+}
+
+
+message GetRoutingRulesRequest {}
+
+
+message GetRoutingRulesResponse {
+  repeated RoutingRule rules = 1;
+}
+
+
+message SetRoutingRulesRequest {
+  repeated RoutingRule rules = 1;
+}
+
+
+message SetRoutingRulesResponse {
+  repeated RoutingRule rules = 1;
+}
+
+
+// AttrDef is an event attribute a routing rule can have a condition on.
+message AttrDef {
+  string key = 1;  // The name a RuleCondition's attr refers to.
+  string label = 2;        // The attribute's name in the routing-rule editor.
+  string help = 3;         // Help text for the attribute in the routing-rule editor.
+  string placeholder = 4;  // Placeholder for the attribute's value in the routing-rule editor.
+}
+
+
+// It mirrors the eventrouter registry entry, exposing only the client-relevant
+// fields (the shipped default rules are intentionally omitted).
+
+
+// EventTypeDef is an event type, identified by its source and type, and every
+// attribute a routing rule can have a condition on for it.
+message EventTypeDef {
+  string source = 1;
+  string type = 2;
+  string label = 3;
+  repeated AttrDef attrs = 4;
+}
+
+
+message GetEventTypesRequest {}
+
+
+message GetEventTypesResponse {
+  repeated EventTypeDef event_types = 1;
+}
+
+
+message GetCustomEventTypesRequest {}
+
+
+message GetCustomEventTypesResponse {
+  repeated EventTypeDef event_types = 1; // every source is "custom"
+}
+
+
+// SetCustomEventTypesRequest replaces the org's custom event types. It fails
+// with `invalid_argument` if a type is malformed, and `failed_precondition` if
+// an existing routing rule would no longer be valid with the new types.
+message SetCustomEventTypesRequest {
+  repeated EventTypeDef event_types = 1;
+}
+
+
+message SetCustomEventTypesResponse {
+  repeated EventTypeDef event_types = 1;
+}
+
+
+// The handler wraps each attr value into the one-element slice eventrouter.Attrs
+// expects, and unpacks the "body" and "url" attrs into Data and URL.
+
+
+// TestEventRequest composes an event and routes it through the org's routing
+// rules, as a dry run or for real.
+message TestEventRequest {
+  string source = 1;                // The event type's source, such as "github".
+  string type = 2;                  // The event type, such as "issue_comment".
+  // The event's attribute values, keyed by AttrDef.key, including "body" and
+  // "url".
+  map<string, string> attrs = 3;
+  string description = 4;           // Optional description shown on the task's timeline.
+  bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
+  map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
+}
+
+
+message TestEventResponse {
+  repeated TestEventMatch matches = 1;  // The match in the caller's org, if any.
+  bool fired = 2;                       // Whether the matches were acted on.
+}
+
+
+// TestEventMatch is what a matching routing rule did, or would do.
+message TestEventMatch {
+  int64 org_id = 1;
+  int32 rule_index = 2;      // The index of the rule that matched, or -1 for a built-in default rule.
+  bool would_wake = 3;       // The matched rule's wakeup.
+  bool would_create = 5;     // Whether a task would be, or was, created.
+  repeated int64 created_task_ids = 6;   // The tasks created; set only when fired.
+  repeated int64 event_ids = 7;          // The events added; set only when fired.
+}
+
+
+message CreateGitHubTokenRequest {}
+
+
+message CreateGitHubTokenResponse {
+  string token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+
+// See docs/src/content/docs/proposals/implemented/scheduled-tasks.md.
+
+
+// Schedule is a task template and a cron expression: the server creates a task
+// from the template at each time the expression matches. A schedule belongs to
+// its org, not to the user who created it.
+message Schedule {
+  int64 id = 1;
+  string name = 2;
+  string workspace = 3;
+  string runner = 4;
+  string namespace = 5;
+  repeated Instruction instructions = 6;
+  string cron_expr = 7;
+  string timezone = 8;                      // IANA name; default "UTC".
+  bool enabled = 9;
+  google.protobuf.Duration auto_archive = 10;
+  google.protobuf.Timestamp next_run_at = 11;  // Unset when disabled.
+  google.protobuf.Timestamp last_run_at = 12;  // Unset when it has never run.
+  int64 last_task_id = 13;                  // 0 when it has never run.
+  string created_by = 14;                   // Who created it; grants no permissions.
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+}
+
+
+message CreateScheduleRequest {
+  string name = 1;
+  string workspace = 2;
+  string runner = 3;
+  string namespace = 4;
+  repeated Instruction instructions = 5;
+  string cron_expr = 6;
+  string timezone = 7;                      // IANA name; empty defaults to "UTC".
+  // Whether the schedule runs. False (the default) creates a schedule that
+  // never runs until SetScheduleEnabled enables it.
+  bool enabled = 8;
+  google.protobuf.Duration auto_archive = 9;
+}
+
+
+message CreateScheduleResponse {
+  Schedule schedule = 1;
+}
+
+
+message GetScheduleRequest {
+  int64 id = 1;
+}
+
+
+message GetScheduleResponse {
+  Schedule schedule = 1;
+}
+
+
+message ListSchedulesRequest {}
+
+
+message ListSchedulesResponse {
+  repeated Schedule schedules = 1;
+}
+
+
+// UpdateScheduleRequest replaces a schedule's template, cron expression and
+// timezone. Changing cron_expr or timezone recomputes next_run_at. Use
+// SetScheduleEnabled to enable or disable it.
+message UpdateScheduleRequest {
+  int64 id = 1;
+  string name = 2;
+  string workspace = 3;
+  string runner = 4;
+  string namespace = 5;
+  repeated Instruction instructions = 6;
+  string cron_expr = 7;
+  string timezone = 8;                      // IANA name; empty defaults to "UTC".
+  google.protobuf.Duration auto_archive = 9;
+}
+
+
+message UpdateScheduleResponse {
+  Schedule schedule = 1;
+}
+
+
+message DeleteScheduleRequest {
+  int64 id = 1;
+}
+
+
+message DeleteScheduleResponse {}
+
+
+// SetScheduleEnabledRequest enables or disables a schedule. Enabling computes
+// next_run_at from now; disabling clears it, and the schedule stops running.
+message SetScheduleEnabledRequest {
+  int64 id = 1;
+  bool enabled = 2;
+}
+
+
+message SetScheduleEnabledResponse {
+  Schedule schedule = 1;
+}
+
+
+// RunScheduleRequest creates a task from a schedule now, once, in addition to
+// its regular runs. It leaves next_run_at, last_run_at and last_task_id
+// unchanged, and works on a disabled schedule too, so a schedule can be tried
+// out before it is enabled.
+message RunScheduleRequest {
+  int64 id = 1;
+}
+
+
+message RunScheduleResponse {
+  Task task = 1;  // The task the run created.
+}
+```
 
 # CLI
 

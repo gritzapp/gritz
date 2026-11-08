@@ -1,6 +1,7 @@
-# Generated API reference docs
+# API reference docs from the proto
 
-Issue: https://github.com/gritzapp/gritz/issues/2098
+Issues: https://github.com/gritzapp/gritz/issues/2098,
+https://github.com/gritzapp/gritz/issues/2106
 
 ## Problem
 
@@ -8,391 +9,147 @@ Everything gritz does goes through one Connect service,
 [`gritz.v1.GritzService`](https://github.com/gritzapp/gritz/blob/master/proto/gritz/v1/gritz.proto):
 54 RPCs, 138 messages and 3 enums. API keys exist so that programs can
 call it, but docs.gritz.dev documents only the CLI, the MCP tools and the
-webhook envelopes. Someone writing a client reads the 950-line proto file.
+webhook envelopes. Someone writing a client has to find the 950-line proto file
+in the repository, and learn the endpoint and authentication from the code.
 
-The proto file is also not written to be read by them. Of its ~160 comment
-lines, many are contributor notes: links to proposal files by repo path
+The proto file was also not written to be read by them. Of its ~160 comment
+lines, many were contributor notes: links to proposal files by repo path
 (`docs/src/content/docs/proposals/implemented/unified-task-event-stream.md`),
 history (`the stream replacement for the old logs rows with type='llm'`,
 `Previously: parent (child tasks removed)`) and storage details (`the db type
-column is materialized from the arm`). Most messages and RPCs have no comment
+column is materialized from the arm`). Most messages and RPCs had no comment
 at all.
-
-The [Buf Schema Registry](https://buf.build/docs/bsr/documentation/) docs layout
-is the model: a sidebar of services, messages and enums; a page per service with
-each RPC's request and response linked; field tables built from proto comments;
-and links between types.
 
 ## Design
 
 ### Overview
 
-- An in-repo `protogen` plugin, `protoc-gen-gritz-docs`, runs as a third
-  plugin in `buf.gen.yaml`, so `mise run generate` (`go generate ./...` →
-  `go tool buf generate`) writes the reference pages alongside
-  `internal/proto/`.
-- It writes plain Starlight Markdown: one page per service, message and enum of
-  package `gritz.v1`, into `docs/src/content/docs/api/`. The pages are checked
-  in. A CI job regenerates them and fails on a diff.
-- Starlight gives the pages a sidebar section, search and the llms.txt files;
-  `starlight-links-validator` checks every generated type link at docs build.
-- The proto comments become the reference text. They follow the docs rules;
-  contributor notes move into detached comments, which the generator skips.
-- A hand-written page, `reference/api`, covers what the proto can't: the
-  endpoint, authentication and the Connect protocol.
+- One hand-written page, `reference/api` (`.mdx`), covers what the proto can't:
+  the endpoint, the protocols, authentication and a `curl` example.
+- The same page embeds the whole of `proto/gritz/v1/gritz.proto`, imported as a
+  string at docs build time and rendered with Starlight's `<Code>` component
+  with protobuf highlighting. The reference is the proto itself, as a client
+  author would read it to generate a client.
+- Nothing is generated or checked in, so there is nothing to keep in sync: the
+  published page is always built from the proto on the branch being built.
+- The proto comments are the reference text. They follow the docs rules;
+  contributor notes sit in detached comments above the element.
 
 `driver.v1` (`proto/driver/v1/driver.proto`) is the runner↔driver protocol
-inside a sandbox, not something a user or operator calls. It gets no pages.
-
-### Page granularity and URL layout
-
-One page per top-level service, message and enum, grouped into a directory per
-kind. The proto has one package and no nested types, so the package is not a
-path segment:
-
-| Proto | File | URL |
-| --- | --- | --- |
-| service `GritzService` | `api/services/gritzservice.md` | `/api/services/gritzservice/` |
-| rpc `GritzService.CreateTask` | (a section of the service page) | `/api/services/gritzservice/#createtask` |
-| message `CreateTaskRequest` | `api/messages/createtaskrequest.md` | `/api/messages/createtaskrequest/` |
-| enum `TaskStatus` | `api/enums/taskstatus.md` | `/api/enums/taskstatus/` |
-
-The file name is the lower-cased type name. Astro's content loader lower-cases
-and strips punctuation from page ids, so the generator emits names that are
-already their own slug and builds every link from the same `slug` function.
-Two names that only differ in case would collide; the generator fails on that
-rather than overwrite. A nested type, should one appear, would get its own page
-named `outer-inner` (the full name below the package, `.` → `-`).
-
-The page title is the proto name (`CreateTaskRequest`); the sidebar sorts by it.
-
-Request and response messages get their own pages too, as in the BSR, rather
-than being inlined under their RPC: several are referenced from more than one
-place (`GetTaskResponse` carries `Task`, which `ListTasksResponse` repeats), and
-one page per type keeps every link target a page.
-
-#### Service page
-
-```markdown
----
-# Code generated by protoc-gen-gritz-docs. DO NOT EDIT.
-title: GritzService
-description: <first sentence of the service comment>
-editUrl: https://github.com/gritzapp/gritz/edit/master/proto/gritz/v1/gritz.proto
----
-
-<service comment>
-
-## CreateTask
-
-<rpc comment>
-
-`POST /gritz.v1.GritzService/CreateTask`
-
-- Request: [CreateTaskRequest](/api/messages/createtaskrequest/)
-- Response: [CreateTaskResponse](/api/messages/createtaskresponse/)
-```
-
-RPCs appear in declaration order, each an `##` heading, so Starlight's
-"On this page" lists them. A streaming RPC (none today) marks the streamed side
-with `stream`. The procedure path is the URL a Connect client posts to, so it is
-something the reader acts on.
-
-#### Message page
-
-```markdown
----
-# Code generated by protoc-gen-gritz-docs. DO NOT EDIT.
-title: Task
-description: <first sentence of the message comment>
-editUrl: https://github.com/gritzapp/gritz/edit/master/proto/gritz/v1/gritz.proto
----
-
-<message comment>
-
-## Fields
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `id` | `int64` | |
-| `status` | [TaskStatus](/api/enums/taskstatus/) | |
-| `created_at` | [google.protobuf.Timestamp](https://protobuf.dev/reference/protobuf/google.protobuf/#timestamp) | |
-| `auto_archive` | [google.protobuf.Duration](https://protobuf.dev/reference/protobuf/google.protobuf/#duration) | <field comment> |
-
-## Used by
-
-- [GetTaskResponse](/api/messages/gettaskresponse/)
-- [ListTasksResponse](/api/messages/listtasksresponse/)
-```
-
-- **Field**: the proto field name. The JSON name is the camelCase form Connect
-  uses by default; it is not repeated.
-- **Type**: a scalar in code (`string`, `int64`); a message or enum of the
-  package as a link to its page; a well-known type as a link to its entry on
-  protobuf.dev; `repeated T` and `map<K, V>` around those. `<` is written as
-  `&lt;` so the Markdown renderer never sees a tag.
-- A `oneof` gets a row per arm, each with the note "One of `payload`." ahead of
-  its description, so `Event`'s six payload arms read as one choice. A proto3
-  `optional` field shows `optional` before its type. A `deprecated` field shows
-  "Deprecated." ahead of its description.
-- Reserved fields and numbers are not shown.
-- **Used by** lists every RPC (as a link to its section of the service page) and
-  every message that references the type. It is the BSR's back-link, and it is
-  how a reader gets from `TaskStatus` to everything that carries it. It is left
-  out when empty.
-
-A message with no fields (`PingRequest`) says "This message has no fields."
-instead of an empty table.
-
-#### Enum page
-
-Same frontmatter and comment, then a table of `Name | Number | Description` in
-declaration order, then **Used by**.
-
-### Comments
-
-The generator reads `protogen.Comments` from each element's source location:
-
-- **Leading comment** (directly above, no blank line): the element's docs.
-- **Trailing comment** (same line, or the line after): also docs, appended after
-  the leading comment. Many fields here only have one (`int32 page_size = 1;
-  // Max tasks to return (default: 50, max: 100)`).
-- **Leading detached comments** (separated from the element by a blank line):
-  skipped. These are for contributors: history, storage details, proposal
-  links. No markup to learn, and the split is visible in the proto itself.
-
-Comments are Markdown. The comment marker and one following space are stripped
-from each line; the rest is passed through.
-
-- **Services, RPCs, messages and enums** render their comment as block Markdown:
-  paragraphs, lists and code blocks work. The first sentence (up to the first
-  `. ` or the end of the first paragraph) is the page's `description`; with no
-  comment, the description is "The `Task` message of the gritz API." (`service`,
-  `enum` likewise).
-- **Fields and enum values** render in a table cell, so their comment must be
-  inline Markdown. Lines are joined with spaces and paragraphs with `<br><br>`;
-  `|` is escaped. A comment with block syntax (a list item, a fenced or indented
-  code block, a heading) fails generation with the file and line, so
-  `mise run generate` catches it rather than the table breaking on the site.
-- **References**: `[Name]` in a comment, where `Name` is a message, enum,
-  service or `Service.Method` of the package (or its full name, `gritz.v1.Task`),
-  becomes a link to its page or RPC section, as in Go doc comments. A bracketed
-  name that resolves to nothing is left alone, so ordinary Markdown links
-  (`[text](url)`) are unaffected. Repo-path references to proposals don't belong
-  in these comments at all; they move to detached comments.
-
-### What belongs in the docs
-
-The generated pages are docs pages, so CLAUDE.md's "What belongs in the docs"
-rules apply, through the proto comments:
-
-- RPC, message, field and enum names are the reader's interface: a client calls
-  `CreateTask` with a `CreateTaskRequest`. Naming them is not an implementation
-  detail on these pages.
-- The comments' contents are held to the rules: no history, no storage or
-  package names, no proposal paths. Everything that breaks them today moves into
-  a detached comment above the element, or is rewritten. That is the first slice
-  of the plan.
-- Runner- and driver-facing RPCs (`RegisterWorkspaces`, `SubmitRunnerEvents`,
-  `UploadLogs`, `AppendLogChunk`, `CreateTaskToken`, …) are on the same service
-  and callable with an API key, so they are documented like the rest, with a
-  comment saying who calls them ("Called by the runner …").
-
-CLAUDE.md changes:
-
-- The docs mapping table gets two rows: `proto/gritz/v1/gritz.proto` →
-  `api/*` (generated; edit the proto comments and run `mise run generate`), and
-  the server's Connect endpoint and auth → `reference/api`.
-- The Protobuf section says that comments on `gritz.v1` elements are published,
-  that contributor notes go in detached comments, and that `[Name]` links a type.
-- The "Edit in place" rule needs no change: a PR changing an RPC changes its
-  comment.
-
-### Where the output lives and keeping it in sync
-
-`buf.gen.yaml` gains the plugin and `clean`:
-
-```yaml
-version: v2
-clean: true
-plugins:
-  - remote: buf.build/protocolbuffers/go
-    out: internal/proto
-    opt: paths=source_relative
-  - remote: buf.build/connectrpc/go:v1.20.0
-    out: internal/proto
-    opt:
-      - paths=source_relative
-      - simple
-  - local: ["go", "run", "./cmd/protoc-gen-gritz-docs"]
-    out: docs/src/content/docs/api
-    strategy: all
-    opt: package=gritz.v1
-```
-
-- `clean: true` empties each plugin's `out` before generating, so a removed
-  message's page is deleted rather than left behind. `internal/proto/` holds
-  only generated files, so cleaning it is safe. `docs/src/content/docs/api/` is
-  owned by the generator; nothing hand-written lives there.
-- `strategy: all` hands the plugin every file in one request, so a type can be
-  linked whatever file it is in. `package=gritz.v1` selects the published
-  package; `driver.v1` files are in the request but produce nothing.
-- `go run` keeps the plugin a tool of the module, like `buf`, with no binary to
-  install.
-
-The pages are checked in, not built at docs build time:
-
-- `docs-pages.yml` and `docs-preview.yml` build the site with Node only.
-  Generating there would put Go and buf in both and couple the docs build to
-  the module.
-- A proto change and its doc change show up in the same PR diff, so review sees
-  the rendered field table change next to the field. And because the PR touches
-  `docs/`, `docs-preview.yml` builds it and comments a preview link.
-- It matches `internal/proto/`, which is already generated and checked in.
-
-A new workflow, `.github/workflows/generate.yml`, keeps them honest. On PRs and
-master pushes touching `proto/**`, `buf.gen.yaml`, `cmd/protoc-gen-gritz-docs/**`,
-`internal/protodocs/**` or `docs/src/content/docs/api/**`, it sets up Go, runs
-`go tool buf generate`, and fails if `git status --porcelain` reports anything.
-Covering `internal/proto/` as well is a free side effect; nothing checks it
-today.
-
-### Sidebar, llms.txt and the links validator
-
-- `astro.config.mjs` adds an **API reference** group after the `sections`
-  groups, built like Proposals: `Services`, `Messages` and `Enums` subgroups,
-  each `autogenerate`d from `api/<kind>`. `Messages` is `collapsed: true`; it
-  has 138 entries. The group is added directly rather than through
-  `sections.mjs`, whose one-directory-per-group shape would render the
-  directory names as labels.
-- `sections.mjs` `sets` gets a third llms.txt set, **API** (`paths:
-  ['api/**']`), and the Users set excludes `api/**`
-  (`'!{operators,proposals,api}/**'`), so an agent reading about using gritz
-  doesn't pull 141 type pages. `llms-full.txt` still has them.
-- Every type link is root-relative (`/api/messages/task/`), so the existing
-  `base-links` plugin prefixes it in PR previews, and
-  `starlight-links-validator` fails the build on a link to a page or RPC
-  anchor that doesn't exist. Links to protobuf.dev are external and not checked.
-- `reference/api` links into `/api/services/gritzservice/`; the generated pages
-  link nowhere outside `/api/` except protobuf.dev.
+inside a sandbox, not something a user or operator calls. It is not embedded.
 
 ### `reference/api`
 
-A hand-written page in the Reference section, and the entry point from the rest
-of the docs:
+A page in the Reference section, and the entry point from the rest of the docs:
 
-- The endpoint: the server's base URL; each RPC is `POST
+- **Endpoint**: the server's base URL; each RPC is `POST
   <server>/gritz.v1.GritzService/<Method>`.
-- Protocols: Connect (JSON or binary protobuf), gRPC and gRPC-Web, as served by
-  `connect-go`; a `curl` example calling `Ping` and `GetProfile` with JSON.
-- Authentication: `Authorization: Bearer <API key>`, linking
-  [API keys](/concepts/orgs-members-keys/#api-keys); what a task token can call.
-- Links to the service page and to the proto file.
+- **Protocols**: Connect (JSON or binary protobuf), gRPC and gRPC-Web, as
+  served by `connect-go`; JSON field names are the camelCase form of the proto
+  names.
+- **Authentication**: `Authorization: Bearer <API key>`, linking
+  [API keys](/concepts/orgs-members-keys/#api-keys). `concepts/orgs-members-keys`
+  links back to the page.
+- **Example**: `curl` calling `Ping` and `GetCaller` with JSON. Both work with
+  an API key (`GetProfile` needs a signed-in user), and together they check the
+  connection, the server version and which organisation the key acts for.
+- **Service definition**: the embedded proto.
 
-### API
+The embed is two lines of MDX:
 
-```go
-package protodocs // github.com/gritzapp/gritz/internal/protodocs
+```mdx
+import { Code } from '@astrojs/starlight/components';
+import proto from '../../../../../proto/gritz/v1/gritz.proto?raw';
 
-// Options selects what Generate documents.
-type Options struct {
-	// Package is the proto package to document, such as "gritz.v1".
-	Package protoreflect.FullName
-}
-
-// Generate writes a page for every service, message and enum of opts.Package
-// in gen's files, and fails on a comment that can't be rendered or a slug
-// collision.
-func Generate(gen *protogen.Plugin, opts Options) error
+<Code code={proto} lang="protobuf" title="proto/gritz/v1/gritz.proto" />
 ```
 
-```go
-package main // github.com/gritzapp/gritz/cmd/protoc-gen-gritz-docs
+Vite's `?raw` import reads the file at build time; no Astro or Vite config is
+needed, in `pnpm build` or the dev server. The docs workflows check out the
+whole repository, so the proto is there in both `docs-pages.yml` and
+`docs-preview.yml`. `docs-preview.yml` only runs for PRs touching `docs/` or
+`diagrams/`, so a PR that only edits the proto gets no preview; the page still
+updates when it merges.
 
-// main runs the plugin: it parses the package= option and calls
-// protodocs.Generate.
-func main()
-```
+### Comments
 
-**How it fits:** `buf generate` runs `go run ./cmd/protoc-gen-gritz-docs` with
-`package=gritz.v1`. `main` hands the `protogen.Plugin` to `protodocs.Generate`,
-which collects the package's types, resolves the "Used by" index and comment
-references across them, and writes each page with `gen.NewGeneratedFile`.
-Comment and type rendering are unexported functions of `protodocs`, unit-tested
-on strings; the checked-in pages are the end-to-end golden output, reviewed in
-each PR's diff and enforced by `generate.yml`.
+The proto comments are published as written, so CLAUDE.md's "What belongs in
+the docs" rules apply to them:
+
+- RPC, message, field and enum names are the reader's interface: a client calls
+  `CreateTask` with a `CreateTaskRequest`. Naming them is not an implementation
+  detail.
+- The comments' contents are held to the rules: no history, no storage or
+  package names, no proposal paths. Contributor notes go in a detached comment
+  (separated from the element by a blank line), which reads as a note about the
+  code rather than about the next element. On a page showing the whole file,
+  detached comments are still visible; the split keeps the documentation of
+  each element clean, not hidden.
+- Runner- and driver-facing RPCs (`RegisterWorkspaces`, `SubmitRunnerEvents`,
+  `UploadLogs`, `AppendLogChunk`, `CreateTaskToken`, …) are on the same service
+  and callable with an API key, so they carry a comment saying who calls them
+  ("Called by the runner …").
+
+CLAUDE.md's docs mapping table gets one row: `proto/gritz/v1/gritz.proto` and
+the server's Connect endpoint and auth → `reference/api`, noting that the proto
+is embedded at build time so its comments are published.
 
 ## Implementation Plan
 
-1. **Proto comment cleanup** — Delivers: every comment in `gritz.proto` that
-   breaks the docs rules moved into a detached comment or rewritten (proposal
-   paths, history, storage details, the `auto_archive` block layout turned into
-   a sentence); field comments made inline-only; one-line comments on the
-   service and on runner/driver-facing RPCs saying who calls them. Depends on:
-   nothing. Verifiable by: `go tool buf lint`, and generated Go code unchanged
-   apart from the descriptor's source info.
-2. **Generator: message and enum pages** — Delivers: `internal/protodocs` and
-   `cmd/protoc-gen-gritz-docs` writing message and enum pages (field and value
-   tables, type links, well-known types, oneof/optional/deprecated notes, the
-   table-cell check); the `buf.gen.yaml` plugin entry with `clean: true`; the
-   generated pages checked in; the API reference sidebar group (Messages,
-   Enums) and llms.txt set; the CLAUDE.md mapping-table row and Protobuf
-   section. Depends on: (1). Verifiable by: `mise run generate` is idempotent;
-   unit tests for comment and type rendering; `cd docs && pnpm build` passes the
-   links validator.
-3. **CI sync check** — Delivers: `.github/workflows/generate.yml`. Depends on:
-   (2). Verifiable by: a PR that edits a proto comment without regenerating
-   fails the job; one that regenerates passes.
-4. **Service pages** — Delivers: the `GritzService` page with an `##` section
-   per RPC (comment, procedure path, request/response links), the Services
-   sidebar subgroup, and **Used by** on message and enum pages linking RPC
-   sections and referencing messages. Depends on: (2). Verifiable by: the
-   links validator passing with every RPC anchor and back-link checked; the
-   preview site.
-5. **Comment references** — Delivers: `[Name]` / `[Service.Method]` resolution
-   in comments, and the proto comments from (1) using it where they name a type.
-   Depends on: (4) (RPC anchors). Verifiable by: unit tests for resolution; the
-   generated links passing the validator.
-6. **`reference/api` page** — Delivers: the hand-written overview (endpoint,
-   protocols, auth, `curl` example) linked from `concepts/orgs-members-keys` and
-   to the service page; its CLAUDE.md mapping-table row. Depends on: (4).
-   Verifiable by: the `curl` example against a local server; `pnpm build`.
+1. **Proto comment cleanup** (done, #2108) — Delivers: every comment in
+   `gritz.proto` that broke the docs rules moved into a detached comment or
+   rewritten (proposal paths, history, storage details, the `auto_archive`
+   block layout turned into a sentence); one-line comments on the service and
+   on runner/driver-facing RPCs saying who calls them. Depends on: nothing.
+   Verifiable by: `go tool buf lint`, and generated Go code unchanged apart from
+   the descriptor's source info.
+2. **`reference/api` with the embedded proto** — Delivers: removal of the page
+   generator that an earlier version of this plan added (`internal/protodocs`,
+   `cmd/protoc-gen-gritz-docs`, its `buf.gen.yaml` entry, the generated
+   `api/` pages, their sidebar group and llms.txt set, and its CLAUDE.md text);
+   the hand-written `reference/api` page (endpoint, protocols, auth, `curl`
+   example, the embedded proto), linked from `concepts/orgs-members-keys`; its
+   CLAUDE.md mapping-table row. Depends on: (1). Verifiable by: `mise run
+   generate` producing the Go and TS code with no diff; `cd docs && pnpm build`
+   passing the links validator; the `curl` example against a local server.
 
 ## Trade-offs
 
+- **A generator writing a page per service, message and enum** (an in-repo
+  `protoc-gen-gritz-docs` plugin, modelled on the
+  [Buf Schema Registry](https://buf.build/docs/bsr/documentation/) layout, with
+  field tables, type links and "Used by" back-links). This was the first plan,
+  and its message and enum pages were built. Dropped for the embed:
+  - **Simpler.** The generator was ~400 lines of Go plus tests, a third buf
+    plugin, 141 checked-in pages, a sidebar group and an llms.txt set, with
+    service pages, back-links and comment references still to come. The embed
+    is one MDX page.
+  - **Can't drift.** Generated pages were checked in, so they could fall behind
+    the proto, and needed a CI job that regenerates them and fails on a diff.
+    The embed is built from the proto at docs build time, so there is no copy
+    to fall behind and no sync check to run.
+  - **Fewer rules on comments.** Field comments rendered in table cells had to
+    be inline Markdown, and generation failed on block syntax. In the embedded
+    file a comment is just a comment.
+  - **Cost:** no page or search hit per type, no field tables, no links between
+    types or back-links. A reader finds a type with the browser's search on the
+    page. For a client author who will generate a client from the proto anyway,
+    the proto is the reference they need.
 - **protoc-gen-doc with a custom template**: renders one file per template, so
   splitting into pages means post-processing; no back-link index; Go templates
-  over its own data model rather than the descriptors. Rejected in the issue.
+  over its own data model rather than the descriptors. Rejected in #2098.
 - **OpenAPI + `starlight-openapi`**: Connect's HTTP shape is one `POST` per RPC,
   so the result reads as 54 identical endpoints with schemas, not services,
-  messages and enums. It also needs a proto → OpenAPI step. Rejected in the
-  issue.
-- **Generating at docs build time** instead of checking in: no generated files in
-  the repo, but both docs workflows would need Go, the docs dev server would
-  need a generate step first, and reviewers wouldn't see the rendered change in
-  the PR diff.
-- **Inlining request/response fields under each RPC**: one page holds the whole
-  call, but shared types (`Task`, `Event`) still need pages, the service page
-  would be very long, and links would point at two kinds of target. A page per
-  type, as in the BSR, is uniform.
-- **A flat `/api/<name>/` layout**: shorter URLs, but the sidebar groups need a
-  directory each to `autogenerate` from, and the kind in the URL costs nothing.
-- **An `@exclude`/`@internal` marker** (protoc-gen-doc's convention) instead of
-  detached comments: explicit, but it's a syntax to learn and to strip, and a
-  forgotten marker publishes the note. A blank line is how the proto already
-  separates prose that isn't about the next element.
-- **A `package` path segment** (`/api/gritz/v1/...`): matches the BSR, but
-  there is one published package. Adding a second would add the segment then;
-  there are no URLs to keep stable.
+  messages and enums. It also needs a proto → OpenAPI step. Rejected in #2098.
+- **Linking to the proto on GitHub** instead of embedding it: no build-time
+  import at all, but the docs would point off-site for the reference, and it
+  would be missing from the site's search and from `llms-full.txt`.
 
 ## Open Questions
 
-- Should runner- and driver-facing RPCs be hidden from the reference? This
-  proposal documents them, since they're callable with an API key. If they
-  should be hidden, a detached-comment-style convention for RPCs (or splitting
-  them into a second service) would be the way, and is a bigger change.
-- Should field rows show the JSON name (`createdAt`) next to the proto name, for
-  clients that speak Connect JSON? Left out to keep the table narrow; `curl`
-  users can follow the camelCase rule stated on `reference/api`.
-- Should **Used by** also cover transitive use (a type nested two messages deep
-  in a response)? Direct references only for now.
+- Should runner- and driver-facing RPCs be left out of the published reference?
+  They are documented, since they're callable with an API key. Hiding them would
+  mean splitting them into a second service, which is a bigger change.
+- Should the page split the proto into sections (services, then messages, then
+  enums) or link RPC names to their messages? That would mean parsing the proto
+  at build time, which brings back some of the generator's complexity.

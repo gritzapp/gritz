@@ -10,7 +10,6 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 - [Abridged documentation](https://docs.gritz.dev/llms-small.txt): every page, with non-essential content removed
 - [Users](https://docs.gritz.dev/_llms-txt/users.txt): using gritz and its integrations
 - [Operators](https://docs.gritz.dev/_llms-txt/operators.txt): deploying and running gritz
-- [API](https://docs.gritz.dev/_llms-txt/api.txt): the messages and enums of the gritz Connect API
 
 ## Start here
 
@@ -43,6 +42,7 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 
 ## Reference
 
+- [API](https://docs.gritz.dev/reference/api.md): Call the gritz Connect API directly, with its endpoint, protocols and authentication, and the full service definition.
 - [CLI](https://docs.gritz.dev/reference/cli.md): Every gritz subcommand and flag, with its environment variable and default.
 - [Custom event envelope](https://docs.gritz.dev/reference/custom-event-envelope.md): The request and response of POST /webhook/custom, with every field, its validation, authentication and status codes.
 - [Event types](https://docs.gritz.dev/reference/event-types.md): Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes routing rule conditions can match.
