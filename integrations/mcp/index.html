@@ -127,7 +127,7 @@ client.</p>
 <div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="json"><code><div class="ec-line"><div class="code"><span style="--0:#D6DEEB;--1:#403F53">{</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#7FDBCA;--1:#096E72">"mcpServers"</span><span style="--0:#D6DEEB;--1:#403F53">: {</span></div></div><div class="ec-line"><div class="code"><span class="indent">    </span><span style="--0:#7FDBCA;--1:#096E72">"gritz"</span><span style="--0:#D6DEEB;--1:#403F53">: {</span></div></div><div class="ec-line"><div class="code"><span class="indent">      </span><span style="--0:#7FDBCA;--1:#096E72">"command"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">gritz</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">,</span></div></div><div class="ec-line"><div class="code"><span class="indent">      </span><span style="--0:#7FDBCA;--1:#096E72">"args"</span><span style="--0:#D6DEEB;--1:#403F53">: [</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">mcp</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">--channel</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">]</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#D6DEEB;--1:#403F53">    </span></span><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div><div class="ec-line"><div class="code"><span class="indent"><span style="--0:#D6DEEB;--1:#403F53">  </span></span><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div><div class="ec-line"><div class="code"><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="{  &quot;mcpServers&quot;: {    &quot;gritz&quot;: {      &quot;command&quot;: &quot;gritz&quot;,      &quot;args&quot;: [&quot;mcp&quot;, &quot;--channel&quot;]    }  }}"><div></div></button></div></figure></div>
 <p><code dir="auto">gritz mcp</code> picks its organisation, key and server as every CLI command does,
 from the <code dir="auto">.gritz.yml</code> files of the directory the client starts it in: a
-repository whose <code dir="auto">.gritz.yml</code> sets <code dir="auto">default</code> gets that organisation with no key in
+repository whose <code dir="auto">.gritz.yml</code> sets <code dir="auto">org</code> gets that organisation with no key in
 the MCP config.</p>
 <table>
 <thead>
@@ -139,7 +139,7 @@ the MCP config.</p>
 <tbody>
 <tr>
 <td><code dir="auto">--org</code></td>
-<td>The organisation, by its name in the <code dir="auto">.gritz.yml</code> files. Defaults to <code dir="auto">GRITZ_ORG</code>, otherwise their <code dir="auto">default</code>.</td>
+<td>The organisation, by its name in the <code dir="auto">.gritz.yml</code> files. Defaults to <code dir="auto">GRITZ_ORG</code>, otherwise their <code dir="auto">org</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">--key</code>, <code dir="auto">-k</code></td>

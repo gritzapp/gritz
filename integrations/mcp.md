@@ -108,12 +108,12 @@ Or in a project's `.mcp.json`:
 
 `gritz mcp` picks its organisation, key and server as every CLI command does,
 from the `.gritz.yml` files of the directory the client starts it in: a
-repository whose `.gritz.yml` sets `default` gets that organisation with no key in
+repository whose `.gritz.yml` sets `org` gets that organisation with no key in
 the MCP config.
 
 | Flag | |
 | --- | --- |
-| `--org` | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `default`. |
+| `--org` | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`. |
 | `--key`, `-k` | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. |
 | `--server`, `-s` | The server URL. Defaults to `GRITZ_SERVER`, otherwise the organisation's `server`, otherwise `https://gritz.dev`. |
 | `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |

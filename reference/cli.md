@@ -19,7 +19,7 @@ flag wins when both are set.
 
 | Flag | Environment | |
 | --- | --- | --- |
-| `--org` | `GRITZ_ORG` | The organisation's name in the `.gritz.yml` files. Defaults to their `default`. |
+| `--org` | `GRITZ_ORG` | The organisation's name in the `.gritz.yml` files. Defaults to their `org`. |
 | `--key`, `-k` | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`. |
 | `--server`, `-s` | `GRITZ_SERVER` | The server URL. Defaults to the organisation's `server`, otherwise `https://gritz.dev`. |
 
@@ -34,14 +34,14 @@ user config directory (`~/.config/gritz` on Linux).
 
 Asks the server which organisation an API key belongs to, and saves the key
 under a name in `.gritz.yml` in the config directory. Logging in again with a new
-key for the same organisation and server replaces the key. If the file has no
-`default`, the name becomes it.
+key for the same organisation and server replaces the key. The server is always
+saved with the organisation. If the file has no `org`, the name becomes it.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
 | `--key`, `-k` | `GRITZ_API_KEY` | | The API key. Required. |
 | `--name` | | the organisation's name, in lowercase with dashes | The name to save it under. |
-| `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL, saved with the organisation when given. |
+| `--server`, `-s` | `GRITZ_SERVER` | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL. |
 
 ## Tasks
 

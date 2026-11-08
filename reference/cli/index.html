@@ -92,7 +92,7 @@ flag wins when both are set.</p>
 <tr>
 <td><code dir="auto">--org</code></td>
 <td><code dir="auto">GRITZ_ORG</code></td>
-<td>The organisation’s name in the <code dir="auto">.gritz.yml</code> files. Defaults to their <code dir="auto">default</code>.</td>
+<td>The organisation’s name in the <code dir="auto">.gritz.yml</code> files. Defaults to their <code dir="auto">org</code>.</td>
 </tr>
 <tr>
 <td><code dir="auto">--key</code>, <code dir="auto">-k</code></td>
@@ -114,8 +114,8 @@ user config directory (<code dir="auto">~/.config/gritz</code> on Linux).</p>
 <div class="sl-heading-wrapper level-h3"><h3 id="gritz-login"><code dir="auto">gritz login</code></h3><a class="sl-anchor-link" href="#gritz-login"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “gritz login”</span></a></div>
 <p>Asks the server which organisation an API key belongs to, and saves the key
 under a name in <code dir="auto">.gritz.yml</code> in the config directory. Logging in again with a new
-key for the same organisation and server replaces the key. If the file has no
-<code dir="auto">default</code>, the name becomes it.</p>
+key for the same organisation and server replaces the key. The server is always
+saved with the organisation. If the file has no <code dir="auto">org</code>, the name becomes it.</p>
 <table>
 <thead>
 <tr>
@@ -141,8 +141,8 @@ key for the same organisation and server replaces the key. If the file has no
 <tr>
 <td><code dir="auto">--server</code>, <code dir="auto">-s</code></td>
 <td><code dir="auto">GRITZ_SERVER</code></td>
-<td><code dir="auto">https://gritz.dev</code></td>
-<td>The server URL, saved with the organisation when given.</td>
+<td>the top-level <code dir="auto">server</code> of the nearest <code dir="auto">.gritz.yml</code> that sets one, otherwise <code dir="auto">https://gritz.dev</code></td>
+<td>The server URL.</td>
 </tr>
 </tbody>
 </table>

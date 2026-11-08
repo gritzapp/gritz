@@ -22,18 +22,20 @@ Logged in to Acme Labs (org 12) as "acme-labs"
 `gritz login` asks the server which organisation the key belongs to and saves the
 key under a name in `.gritz.yml` in the gritz config directory. The name is the
 organisation's name in lowercase with dashes, unless `--name` gives another, and
-the first organisation you log in to becomes the default. Log in once for each
-organisation you work in:
+the first organisation you log in to becomes the selected `org`. Log in once for
+each organisation you work in:
 
 ```yaml
-default: acme-labs
+org: acme-labs
 orgs:
   acme-labs:
     id: 12
     key: xat_...
+    server: https://gritz.dev
   personal:
     id: 3
     key: xat_...
+    server: https://gritz.dev
 ```
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under your
@@ -43,7 +45,7 @@ user config directory: `~/.config/gritz` on Linux,
 ### Choosing an organisation
 
 Every command acts in one organisation: the one `--org` (or `GRITZ_ORG`) names,
-otherwise the `default`.
+otherwise the `org` of the `.gritz.yml` files.
 
 ```bash
 gritz task list --org personal
@@ -56,25 +58,34 @@ wins. Organisations of the same name replace each other whole. A repository can
 pick its organisation without holding a key:
 
 ```yaml
-default: acme-labs
+org: acme-labs
 allowed: [acme-labs]
 ```
 
 `allowed` lists the organisations that can be used below the file; a command run
-there with any other `--org` fails, and so does every command if the `default`
+there with any other `--org` fails, and so does every command if the `org`
 isn't allowed. Every field is optional, and an unknown field is an error.
 
 ### Server
 
-Every command talks to `https://gritz.dev` unless the organisation has a
-`server`, or `--server` (`-s`) or the `GRITZ_SERVER` environment variable names
-another server:
+Every command talks to the organisation's `server`, or to `https://gritz.dev` if
+it has none, unless `--server` (`-s`) or the `GRITZ_SERVER` environment variable
+names another server:
 
 ```bash
 gritz login --key xat_... --server https://gritz.example.com
 ```
 
-`gritz login` with `--server` saves the server with the organisation.
+`gritz login` saves the server with the organisation. Without `--server`, it
+uses the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise
+`https://gritz.dev`, so a repository can name the server its organisation lives
+on:
+
+```yaml
+server: https://gritz.example.com
+```
+
+The top-level `server` is read only by `gritz login`.
 
 ### Key without a config file
 
