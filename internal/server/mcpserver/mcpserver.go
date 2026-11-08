@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -83,19 +84,43 @@ type handlers struct {
 }
 
 type taskSummary struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Workspace string `json:"workspace"`
-	Status    string `json:"status"`
-	URL       string `json:"url,omitempty"`
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Workspace string    `json:"workspace"`
+	Runner    string    `json:"runner,omitempty"`
+	Namespace string    `json:"namespace,omitempty"`
+	Status    string    `json:"status"`
+	Archived  bool      `json:"archived"`
+	URL       string    `json:"url,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
 }
 
 func taskSummaryOf(t *gritzv1.Task) taskSummary {
-	return taskSummary{
+	s := taskSummary{
 		ID:        t.Id,
 		Name:      t.Name,
 		Workspace: t.Workspace,
+		Runner:    t.Runner,
+		Namespace: t.Namespace,
 		Status:    t.Status.String(),
+		Archived:  t.Archived,
 		URL:       t.Url,
 	}
+	if t.CreatedAt != nil {
+		s.CreatedAt = t.CreatedAt.AsTime()
+	}
+	if t.UpdatedAt != nil {
+		s.UpdatedAt = t.UpdatedAt.AsTime()
+	}
+	return s
+}
+
+// parseAutoArchive parses an auto_archive argument, a Go duration string.
+func parseAutoArchive(s string) (*durationpb.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid auto_archive %q: %w", s, err)
+	}
+	return durationpb.New(d), nil
 }

@@ -128,16 +128,25 @@ otherwise:
 | Tool | |
 | --- | --- |
 | `list_workspaces` | Lists the workspaces runners offer: each one's name, description and runner ID. |
-| `create_task` | Creates a task and starts it. |
-| `list_tasks` | Lists the organisation's 50 newest unarchived tasks: ID, name, workspace, status and URL. |
-| `get_task` | Gets a task with its links and its full timeline: instructions, events, reports and status changes. |
-| `update_task` | Adds an instruction to a task, and optionally starts it. |
+| `create_task` | Creates a task and starts it, or creates a draft. |
+| `list_tasks` | Lists the organisation's tasks, newest first, a page at a time. |
+| `get_task` | Gets a task with its links, the actions it allows, and its timeline: instructions, events, reports and status changes. |
+| `update_task` | Adds an instruction to a task, renames it, changes its auto-archive delay, or starts it. |
+| `cancel_task` | Cancels a task. |
+| `restart_task` | Restarts a task. |
 | `archive_task` | Archives a finished task. |
+| `unarchive_task` | Unarchives a task. |
+| `get_task_log` | Reads the end of a task's agent transcript. |
+| `create_link` | Links a resource, such as a pull request, to a task. |
 
 You don't call these yourself: ask your agent, for example "Create a gritz task
 in the pets-workshop workspace to add a `--json` flag, then tell me when it has
 opened a pull request." It calls `list_workspaces` to find the runner, then
 `create_task`.
+
+Each tool that changes a task returns the task's ID, name, workspace, runner,
+namespace, status, whether it is archived, its URL, and when it was created and
+last updated. `list_tasks` returns the same for each task.
 
 ### `create_task`
 
@@ -145,29 +154,78 @@ opened a pull request." It calls `list_workspaces` to find the runner, then
 | --- | --- |
 | `workspace` | The [workspace](/concepts/workspaces/). Required. |
 | `runner` | The [runner](/concepts/runners/) that offers it. Required. |
-| `instruction` | The task's instruction. Required. |
+| `instruction` | The task's instruction. Required unless `draft` is set. |
 | `name` | A name for the task. The task's agent names it if this is empty. |
 | `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
-
-It returns the task's ID, name, workspace, status and URL.
+| `namespace` | The task's [namespace](/concepts/namespaces/). Empty is the default namespace. It can't be changed later. |
+| `draft` | Create the task as a draft, which doesn't run until `update_task` starts it. |
 
 ### `update_task`
 
 | Argument | |
 | --- | --- |
 | `id` | The task ID. Required. |
-| `instruction` | The instruction to add. Required. |
-| `url` | A URL the instruction is about, such as an issue. |
+| `instruction` | An instruction to add. |
+| `url` | A URL the instruction is about, such as an issue. Only with `instruction`. |
+| `name` | A new name for the task. |
+| `auto_archive` | A new auto-archive delay, as in `create_task`. |
 | `start` | Start the task. A running task isn't interrupted: it runs again when its current run ends. |
 
-An instruction added without `start` waits until something else starts the task.
+A call sets at least one of `instruction`, `name`, `auto_archive` and `start`.
+An instruction added without `start` waits until something else starts the
+task.
 
-### `get_task`, `list_tasks`, `archive_task`
+### `list_tasks`
 
-`get_task` and `archive_task` take the task's `id`. `archive_task` only archives
-a task that has completed, failed or been cancelled; archiving destroys its
-sandbox. Cancelling and restarting tasks are done in the
-[Web UI](/using/web-ui/#the-task-page).
+| Argument | |
+| --- | --- |
+| `page_size` | How many tasks to return: 50 by default, at most 100. |
+| `page_token` | The `next_page_token` of the previous page; empty for the first page. |
+| `archived` | Include archived tasks. |
+
+It returns `tasks` and `next_page_token`, which is empty on the last page.
+
+### `get_task`
+
+| Argument | |
+| --- | --- |
+| `id` | The task ID. Required. |
+| `event_types` | Only return timeline events of these types: `instruction`, `external`, `report`, `lifecycle` or `link`. Empty returns all of them. |
+
+Besides the fields above, it returns the task's auto-archive delay, its links,
+its timeline, and `actions`: whether the task can be archived, cancelled,
+restarted, started or unarchived now.
+
+### `cancel_task`, `restart_task`, `archive_task`, `unarchive_task`
+
+Each takes the task's `id`. `archive_task` only archives a task that has
+completed, failed or been cancelled; archiving destroys its sandbox. `get_task`'s
+`actions` say which of these a task allows.
+
+### `get_task_log`
+
+| Argument | |
+| --- | --- |
+| `id` | The task ID. Required. |
+| `max_bytes` | About how many bytes to return: 64 KiB by default, at most 1 MiB. |
+| `before` | The `before` of a previous call, to read the bytes preceding it. Empty reads the end of the log. |
+
+It returns `log`, the raw transcript the task's agent wrote, the same as the
+task page's **Logs** tab, with [secrets](/operators/secrets/) masked; and
+`before`, which is empty once `log` reaches the start of the transcript.
+
+### `create_link`
+
+| Argument | |
+| --- | --- |
+| `task_id` | The task ID. Required. |
+| `url` | The resource's URL. Required. |
+| `relevance` | Why the resource matters to the task. |
+| `title` | A title for the link. |
+| `subscribe` | Route the resource's events, such as comments on a pull request, to the task. See [subscriptions](/concepts/events-and-links/#subscriptions). |
+
+Use it to subscribe a task to something you made yourself, such as a pull
+request you opened by hand.
 
 ## Channels
 
