@@ -1,5 +1,5 @@
 // Package e2e stands up gritz for one test and drives it as its users do (see
-// docs/src/content/docs/proposals/draft/e2e-harness.md).
+// docs/src/content/docs/proposals/implemented/e2e-harness.md).
 package e2e
 
 import (

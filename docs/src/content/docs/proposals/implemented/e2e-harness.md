@@ -22,7 +22,7 @@ The bugs that matter live in the seams between those pieces. The run boundary in
 #1868 was a server bug that only showed up once the runner consumed the server's
 command events. Neither side's tests could see it, because each side tested
 against its own idea of the other. The runner-event-replica work
-(`proposals/draft/runner-event-replica.md`) moves behaviour across those seams
+(`proposals/implemented/runner-event-replica.md`) moves behaviour across those seams
 one slice at a time, and each slice has rebuilt the test plumbing to keep the
 existing tests passing. #1890 lists what that has left behind: `testrunner` grown
 piecemeal, polling helpers that only exist for intermediate designs, follower and

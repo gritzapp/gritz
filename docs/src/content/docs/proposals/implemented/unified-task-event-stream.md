@@ -39,7 +39,7 @@ draft proposals are circling the same center of gravity from different sides:
 - `proposals/draft/task-change-unifying-logs-and-notifications.md` proposes a
   `model.TaskChange` value type so a single structured fact projects to both an
   audit-log row and a channel notification.
-- `proposals/draft/richer-tool-call-logs.md` enriches the `mcp` log channel.
+- `proposals/implemented/richer-tool-call-logs.md` enriches the `mcp` log channel.
 
 This proposal unifies the four channels into one ordered, typed, per-task event
 stream, and folds the `TaskChange` work in as the `lifecycle` event type.
@@ -277,7 +277,7 @@ an event-type home:
 So the `logs` table is **dropped outright** — no separate channel, no `volume`
 discriminator, no partial indexes, no two-table union for the #918 timeline
 (which now reads the one stream). If raw tool-call or transcript streaming is
-added later (the domain of `proposals/draft/richer-tool-call-logs.md`) and is
+added later (the domain of `proposals/implemented/richer-tool-call-logs.md`) and is
 genuinely high-volume, that is future work: it gets its own event type (or a
 dedicated store) and its own indexing decision then. This proposal does not
 pre-build for output that isn't captured today.

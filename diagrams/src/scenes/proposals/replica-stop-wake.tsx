@@ -4,7 +4,7 @@ import {replicaLayout} from '../../layouts/replica';
 import {Colors} from '../../theme';
 
 // A stop, a park and a wake, traced from
-// docs/src/content/docs/proposals/draft/runner-event-replica.md (Driver: Run
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md (Driver: Run
 // becomes a bidirectional stream, What the driver does with each event, Runner
 // events still go to the server directly, RunEnded; Runner: TaskRunner acts on
 // its stream): the driver stops the run and submits stopped itself, the

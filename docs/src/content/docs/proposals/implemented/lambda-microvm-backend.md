@@ -40,7 +40,7 @@ pays a price:
 - **Firecracker** (proposals/draft/firecracker-backend.md) runs per-task KVM
   microVMs, but the runner host owns the whole virtualization stack: `/dev/kvm`,
   a guest kernel, TAP/bridge/NAT, rootfs conversion, base-image GC, the jailer.
-- **Bedrock AgentCore** (proposals/draft/agent-core-backend.md) is fully managed
+- **Bedrock AgentCore** (proposals/rejected/agent-core-backend.md) is fully managed
   with no host compute, but it is *connection-coupled* — work is driven by a held
   `InvokeAgentRuntime` request, so a runner restart risks cancelling the session
   (its central open question), and `Stop` is a hard teardown with no in-microVM
@@ -559,7 +559,7 @@ establishes.
 ### Task state and the Handle
 
 This backend follows the shared-runner-taskstate design
-(proposals/draft/shared-runner-taskstate.md, now merged): the **runner owns the
+(proposals/implemented/shared-runner-taskstate.md, now merged): the **runner owns the
 `taskstate` store** and is its only writer, and the backend does runtime work only
 over opaque `backend.Handle`s. The backend persists, discovers, and reconciles
 **nothing** locally — there is no per-backend state directory.

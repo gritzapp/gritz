@@ -44,7 +44,7 @@ one-shot task picture rather than a scrollable surface (see
 [The agent brief](#4b-the-agent-brief-gettaskdetails--unchanged-out-of-scope)).
 
 Task **list** pagination already landed — the generic `internal/pagination` keyset package and
-`Store.ListTasksPage` / `taskSource` (see `proposals/draft/task-pagination.md`). This proposal
+`Store.ListTasksPage` / `taskSource` (see `proposals/implemented/task-pagination.md`). This proposal
 reuses those conventions for the per-task event stream, adapting them for an append-only,
 live-followed **timeline**.
 

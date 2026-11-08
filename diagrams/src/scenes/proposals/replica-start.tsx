@@ -4,7 +4,7 @@ import {replicaLayout} from '../../layouts/replica';
 import {Colors} from '../../theme';
 
 // A start reaching the driver, traced from
-// docs/src/content/docs/proposals/draft/runner-event-replica.md (Runner:
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md (Runner:
 // TaskRunner acts on its stream; Driver: Run becomes a bidirectional stream;
 // Server: command events): the TaskRunner folds start v1, boots the sandbox,
 // opens Run with the RunSpec, forwards from the driver's Hello position, and

@@ -4,7 +4,7 @@ import {replicaLayout} from '../../layouts/replica';
 import {Colors} from '../../theme';
 
 // The commit-safe read, traced from
-// docs/src/content/docs/proposals/draft/runner-event-replica.md (Problem; Server: a
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md (Problem; Server: a
 // commit-safe read with an xid watermark; Server: an opaque cursor; Inside taskevents:
 // Replication): two transactions commit out of id order, the watermark holds the later id back
 // until the earlier transaction commits, and Log stores the page and wakes the tasks' streams.

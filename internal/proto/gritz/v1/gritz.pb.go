@@ -3058,7 +3058,7 @@ func (x *LinkPayload) GetSubscribe() bool {
 // carries every command the runner has to act on, including the withdrawal of
 // a start and the clear when a runner event consumes the command. Command
 // events are not history; timelines skip them (see
-// docs/src/content/docs/proposals/draft/runner-event-replica.md).
+// docs/src/content/docs/proposals/implemented/runner-event-replica.md).
 type CommandPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Command       TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`

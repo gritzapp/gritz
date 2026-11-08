@@ -9,7 +9,7 @@ Issue: https://github.com/gritzapp/gritz/issues/1826
 
 The runner now has a SQLite database, `internal/runner/runnerstore`
 (`--state-db`, default `/var/lib/gritz/runner.db`), holding its replica of its
-tasks' event logs (`proposals/draft/runner-event-replica.md`). Its other
+tasks' event logs (`proposals/implemented/runner-event-replica.md`). Its other
 durable state is still in two hand-rolled file stores:
 
 - `internal/runner/taskstate`: the task→sandbox-handle records
