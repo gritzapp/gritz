@@ -115,9 +115,10 @@ loses `Required: true`; without it, `login` runs the browser flow:
    existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add
    `org=<id>`, so re-logging in to an entry preselects its org (the web UI's
    root route already switches to `?org=`).
-3. **Open the browser** with the platform opener (`xdg-open`, `open`,
-   `rundll32 url.dll,FileProtocolHandler`), and print the URL in case it
-   doesn't open:
+3. **Print the authorize URL and open the browser** with the platform opener
+   (`xdg-open`, `open`, `rundll32 url.dll,FileProtocolHandler`). The URL is
+   always printed; if the opener fails, `login` carries on and the user opens
+   the printed URL on the same machine:
 
    ```
    Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
@@ -146,6 +147,21 @@ org (or the `?org=` preselected in step 2), and passes the selection to
 `auth.fetchToken(orgId)` on Approve. This also lets Claude.ai and other MCP
 clients be connected to a non-current org without switching the whole UI first.
 One login is one org; logging in to a second org is a second `gritz login`.
+
+### Headless machines
+
+The browser login only works where the browser runs on the same machine as
+`login`, because the redirect goes to its loopback listener. There is no
+pasted-redirect or device flow. Elsewhere:
+
+- **Use a key.** `gritz login --key`, or `GRITZ_API_KEY`, as today. This is
+  the credential for CI, containers and deployed runners: one that dies after
+  30 idle days, and that rotates by rewriting a file, is the wrong fit for an
+  image or a secret store.
+- **Copy an entry.** A refresh token isn't bound to a machine, so an entry
+  from a laptop's `.gritz.yml` works when copied to another machine's. Each
+  copy then rotates on its own, and all of them stay valid because old refresh
+  tokens are never invalidated.
 
 ### Refresh and write-back
 
@@ -301,9 +317,10 @@ type Options struct {
 	Server string
 	// OrgID, when non-zero, preselects the org on the approval page.
 	OrgID int64
-	// OpenBrowser opens the authorize URL.
+	// OpenBrowser opens the authorize URL; Login ignores its error, having
+	// already printed the URL.
 	OpenBrowser func(url string) error
-	// Prompt receives the URL to print.
+	// Prompt receives the authorize URL, always printed.
 	Prompt io.Writer
 }
 
@@ -397,7 +414,9 @@ then `GetCaller` with the returned access token, then `configfile.Login` with
    writing `refresh_token` entries. Depends on: (1), (3).
    Verifiable by: an `oauthlogin` unit test driving the flow end to end against
    `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the
-   way the page does and follows the redirect; a state mismatch and `error=access_denied` fail; an e2e
+   way the page does and follows the redirect, and one whose `OpenBrowser`
+   fails and the test follows the URL printed to `Prompt` instead; a state
+   mismatch and `error=access_denied` fail; an e2e
    test that logs in this way and then runs `gritz task list` with the entry.
 5. **Docs** — Delivers: `using/cli` (browser login first, re-login on
    expiry), `reference/cli` (`login` flags, `refresh_token` field),
@@ -428,9 +447,15 @@ Slices 1 and 2 are independent and can land in either order.
 - **Server-side changes: none vs. a CLI-specific refresh TTL.** A longer
   refresh TTL for the CLI would add a client distinction the server doesn't
   have; the daily write-back already makes 30 days an idle timeout.
+- **Loopback only vs. a pasted redirect or a device flow for headless
+  machines.** Pasting the failed redirect URL back into the terminal needs
+  `login` to read stdin alongside the listener and a `--no-browser` flag. A
+  device authorization grant (RFC 8628) needs server-side state for the device
+  code, polling and a code-entry page, where the rest of `oauthflow` is
+  stateless. Headless machines are already served by a key or a copied entry,
+  so neither is worth its code path.
 - **A fixed `gritz-cli` client id vs. dynamic registration.** `/oauth/register`
-  returns a fresh UUID that nothing records, so registering buys nothing. A
-  constant id also lets the approval page name the client later if wanted.
+  returns a fresh UUID that nothing records, so registering buys nothing.
 - **Storing the refresh token only vs. also the access token.** Covered under
   The entry: one network round trip per command is cheaper than a second field
   that is almost always stale.
@@ -438,12 +463,3 @@ Slices 1 and 2 are independent and can land in either order.
   `org_id`, and entries name one org, so one login per org fits both. A
   multi-org token would be a change to `apiauth` for a saving of one browser
   approval per extra org.
-
-## Open Questions
-
-1. Should the approval page show that the client is the gritz CLI (when
-   `client_id` is `gritz-cli`) and the redirect host, so a user can tell a CLI
-   login apart from an MCP connector?
-2. Should `Resolve` check a refresh token's `exp` locally and fail before any
-   network call? It saves one failed request per command after expiry, at the
-   cost of trusting the client clock.
