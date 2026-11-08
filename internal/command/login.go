@@ -38,11 +38,11 @@ var LoginCommand = &cli.Command{
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		wd, err := os.Getwd()
+		cwd, err := os.Getwd()
 		if err != nil {
 			return err
 		}
-		merged, err := configfile.Load(configfile.LoadOptions{Dir: wd})
+		merged, err := configfile.Load(configfile.LoadOptions{Dir: cwd})
 		if err != nil {
 			return err
 		}
