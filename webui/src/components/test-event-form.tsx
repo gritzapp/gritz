@@ -100,9 +100,16 @@ export function TestEventForm() {
     for (const attr of availableAttrs) {
       const value = attrValues[attr.key]
       if (value === undefined || value === '') continue
-      if (attr.key === 'body') body = value
-      else if (attr.key === 'url') url = value
-      else attrs[attr.key] = { values: [value] }
+      switch (attr.key) {
+        case 'body':
+          body = value
+          break
+        case 'url':
+          url = value
+          break
+        default:
+          attrs[attr.key] = { values: [value] }
+      }
     }
     const detailMap: Record<string, string> = {}
     for (const row of details) {
