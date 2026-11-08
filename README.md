@@ -14,6 +14,21 @@ Documentation: https://docs.gritz.dev
 
 ![Web UI](images/webui.png)
 
+## Quick Start
+
+Create an API key on the **Keys** page of the Web UI, then log in with it and
+start a runner:
+
+```bash
+gritz login --key <key>
+gritz runner
+```
+
+`gritz login` saves the key as an org entry in `.gritz.yml` in the gritz config
+directory (`~/.config/gritz` on Linux). See the
+[CLI docs](https://docs.gritz.dev/using/cli/) for `.gritz.yml` and working with
+several orgs.
+
 ## Local Development
 
 ```bash
@@ -24,6 +39,20 @@ Builds the Web UI and a Linux `gritz` binary, then starts PostgreSQL, a
 `--no-auth` server and a runner with the `dummy` workspace from
 `dev/workspaces.yml` in Docker (`docker-compose.dev.yml`, which reads a `.env`
 file at the repo root). The Web UI is at http://localhost:6464/ui.
+
+To run a runner from your shell against the local server instead, pass the
+credentials explicitly (`--server` requires `--key`):
+
+```bash
+gritz runner --key <api-key> --server http://localhost:6464
+```
+
+or log in to the local server once and select its entry with `--org`:
+
+```bash
+gritz login --key <api-key> --server http://localhost:6464 --name local
+gritz runner --org local
+```
 
 ### Build
 
