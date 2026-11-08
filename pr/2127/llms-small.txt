@@ -13688,12 +13688,14 @@ message SetCustomEventTypesResponse {
 message TestEventRequest {
   string source = 1;                // The event type's source, such as "github".
   string type = 2;                  // The event type, such as "issue_comment".
-  // The event's attribute values, keyed by AttrDef.key, including "body" and
-  // "url". An attr may have several values; "body" and "url" take one.
+  // The event's attribute values, keyed by AttrDef.key. An attr may have
+  // several values. "body" and "url" are sent in their own fields, not here.
   map<string, AttrValues> attrs = 3;
   string description = 4;           // Optional description shown on the task's timeline; a custom event defaults to its type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
+  string body = 7;                  // The event's text, matched by rules on the "body" attr.
+  string url = 8;                   // The event's resource URL, matched by rules on the "url" attr and by subscribed links.
 }
 
 
