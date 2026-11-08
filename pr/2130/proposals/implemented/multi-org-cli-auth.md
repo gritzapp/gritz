@@ -338,6 +338,11 @@ func Load(opts LoadOptions) (*Merged, error) // replaced: was Load(*Overrides) (
 // entry.Server.
 func Login(path, name string, entry Entry) error // new
 
+// LoginServer returns the server `gritz login` uses when --server isn't
+// given: the top-level server of the nearest .gritz.yml from the working
+// directory, else DefaultServer.
+func LoginServer() (string, error) // new
+
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use") // new
 
@@ -394,8 +399,9 @@ client options and doesn't reference `gritzclient` at all, and there's no
 helper in `gritzclient` either. Every user-facing command
 appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
 builds `gritzclient.Options` (and `NotificationClientOptions` or the
-`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `Load` for the
-login server, then `GetCaller`, `configfile.Slug` and `configfile.Login`.
+`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls
+`configfile.LoginServer` when `--server` isn't given, then `GetCaller`,
+`configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
 
