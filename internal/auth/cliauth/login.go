@@ -13,9 +13,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// loginTimeout is how long Login waits for the browser to come back.
-const loginTimeout = 10 * time.Minute
-
 // LoginOptions configures Login.
 type LoginOptions struct {
 	// Server is the gritz server URL.
@@ -27,12 +24,14 @@ type LoginOptions struct {
 	OpenBrowser func(url string) error
 	// Prompt receives the authorize URL, always printed.
 	Prompt io.Writer
+	// Timeout is how long Login waits for the browser to come back.
+	Timeout time.Duration
 }
 
 // Login runs the authorization code flow with PKCE over a loopback redirect
 // and returns the exchanged token.
 func Login(ctx context.Context, opts LoginOptions) (*oauth2.Token, error) {
-	ctx, cancel := context.WithTimeoutCause(ctx, loginTimeout, errors.New("login timed out after 10 minutes"))
+	ctx, cancel := context.WithTimeoutCause(ctx, opts.Timeout, fmt.Errorf("login timed out after %s", opts.Timeout))
 	defer cancel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"gotest.tools/v3/assert"
@@ -45,6 +46,7 @@ func TestLogin(t *testing.T) {
 		OrgID:       12,
 		OpenBrowser: openBrowser,
 		Prompt:      io.Discard,
+		Timeout:     time.Minute,
 	})
 
 	// Assert - the refresh token works

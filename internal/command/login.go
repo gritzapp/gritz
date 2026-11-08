@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/cli/browser"
 	"github.com/gritzapp/gritz/internal/auth/cliauth"
@@ -76,6 +77,7 @@ var LoginCommand = &cli.Command{
 				OrgID:       orgID,
 				OpenBrowser: browser.OpenURL,
 				Prompt:      os.Stdout,
+				Timeout:     10 * time.Minute,
 			})
 			if err != nil {
 				return err
