@@ -193,15 +193,18 @@ name comes from the matching entry in `orgs`, which `GetProfile` already returns
    - for a different id or server, fail: `entry "acme" is org 31 on https://gritz.dev; pass --name to add org 12 under another name`.
 5. Otherwise add `{id, key, server}` under the name, writing `server` only when
    it isn't `gritzclient.DefaultURL`.
-6. Write the file to a temp file in `$CONFIG_DIR` and rename it into place,
+6. If the file has no `default`, set it to the entry's name, so the first org
+   added becomes the default. An existing `default` is never changed.
+7. Write the file to a temp file in `$CONFIG_DIR` and rename it into place,
    creating it `0600` if it didn't exist. The edit goes through a `yaml.Node`
    so the user's comments and key order survive.
-7. Print `Logged in to Acme Labs (org 12) as "acme-labs"`.
+8. Print `Logged in to Acme Labs (org 12) as "acme-labs"` and, when step 6 set
+   it, `Default org set to "acme-labs"`.
 
 The key is taken from `--key` only; there is no stdin or TTY prompt. `--key`
 here reads the same `GRITZ_API_KEY` env source as every other command, so
-`GRITZ_API_KEY=... gritz login` also works. `login` never touches `default` or
-`allowed`.
+`GRITZ_API_KEY=... gritz login` also works. Apart from step 6, `login` never
+touches `default`, and it never touches `allowed`.
 
 There's no `logout` and no `org` subcommand. Removing an entry, switching the
 default or restricting `allowed` is an edit to a `.gritz.yml` file.
@@ -307,7 +310,8 @@ func Load(dir string) (*Merged, error) // replaced: was Load(*Overrides) (*File,
 
 // Login writes entry under name into $CONFIG_DIR/.gritz.yml, replacing the key of
 // an existing entry with the same id and server, and failing with ErrNameTaken
-// if name belongs to a different org or server. The caller validates the key.
+// if name belongs to a different org or server. It sets default to name when
+// the file has none. The caller validates the key.
 func Login(name string, entry Entry) error // new
 
 // ErrNameTaken is returned by Login when name is in use by another org or server.
@@ -382,7 +386,7 @@ builds `gritzclient.Options` (and `NotificationClientOptions` or the
 3. **`gritz login`** — Delivers: `configfile.Login`, `LoginCommand` and
    `main.go` registration. Depends on: (1), (2). Verifiable by: unit tests for
    `Slug` and for `Login` (new entry, key replaced for same id and server,
-   `ErrNameTaken` otherwise, comments preserved); an e2e test that creates a
+   `ErrNameTaken` otherwise, `default` set only when absent, comments preserved); an e2e test that creates a
    key, runs `gritz login --key`, and checks the written entry.
 4. **Wire existing commands and delete the old config** — Delivers:
    `configfile.Flags`/`configfile.Resolve`; `task`, `logs`, `shell`, `mcp`, `notify` and
@@ -436,10 +440,3 @@ builds `gritzclient.Options` (and `NotificationClientOptions` or the
   key-minting endpoint and a loopback redirect listener. A key from
   `/ui/keys/new` works with one proto field, and a browser flow can later be
   layered on top to produce the same entry.
-
-## Open Questions
-
-1. **First-login default.** `login` never sets `default`, so after the first
-   login every command fails with "no org selected" until the user adds
-   `default:` by hand or passes `--org`. Should `login` set `default` in
-   `$CONFIG_DIR/.gritz.yml` when that file has none?
