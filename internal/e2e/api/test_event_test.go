@@ -484,3 +484,60 @@ func TestTestEventCustomInvalid(t *testing.T) {
 	// Assert: nothing was persisted.
 	assert.Equal(t, len(h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})), 0)
 }
+
+// TestTestEventBuiltinInvalid asserts a built-in test event is validated
+// against its type like a custom one.
+func TestTestEventBuiltinInvalid(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, nil)
+	tests := []struct {
+		name   string
+		source string
+		typ    string
+		url    string
+		attrs  map[string]*gritzv1.AttrValues
+	}{
+		{
+			name:   "unknown source",
+			source: "gitlab",
+			typ:    "issue_comment",
+			url:    "https://github.com/o/r/issues/1",
+		},
+		{
+			name:   "unknown type",
+			source: "github",
+			typ:    "push",
+			url:    "https://github.com/o/r/issues/1",
+		},
+		{
+			name:   "missing url",
+			source: "github",
+			typ:    "issue_comment",
+		},
+		{
+			name:   "undeclared attr",
+			source: "github",
+			typ:    "issue_comment",
+			url:    "https://github.com/o/r/issues/1",
+			attrs:  map[string]*gritzv1.AttrValues{"severity": {Values: []string{"critical"}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			_, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
+				Source: tt.source,
+				Type:   tt.typ,
+				Url:    tt.url,
+				Attrs:  tt.attrs,
+				Fire:   true,
+			})
+
+			// Assert
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+		})
+	}
+
+	// Assert: nothing was persisted.
+	assert.Equal(t, len(h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})), 0)
+}

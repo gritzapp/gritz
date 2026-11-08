@@ -6642,10 +6642,11 @@ func (x *SetCustomEventTypesResponse) GetEventTypes() []*EventTypeDef {
 }
 
 // TestEventRequest composes an event and routes it through the org's routing
-// rules, as a dry run or for real. An event of a built-in source routes as the
-// caller. A custom event is validated and routed like one posted to the custom
-// event webhook: it fails with `invalid_argument` where the webhook would
-// reject it, and it has no actor, so only public rules match it.
+// rules, as a dry run or for real. Every event is validated against its type:
+// it fails with `invalid_argument` for an unknown source or type, a missing or
+// non-absolute http(s) url, or an attr the type doesn't declare. An event of a
+// built-in source routes as the caller. A custom event routes like one posted
+// to the custom event webhook: it has no actor, so only public rules match it.
 type TestEventRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Source string                 `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"` // The event type's source, such as "github".

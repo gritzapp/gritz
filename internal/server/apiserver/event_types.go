@@ -108,14 +108,13 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 //     other outbound side effects are deliberately not fired: the injected router
 //     carries no OnRouteOutcome (§5).
 //
-// An event of a built-in source is not validated against the schema registry:
-// attrs pass through as-is, and an unknown type/attr simply yields no match
-// rather than an error. It routes as the caller. A custom event is validated
-// and composed by the custom webhook's own code, so it is rejected with
-// InvalidArgument wherever the webhook would reject it, and it routes with no
-// actor, so only public rules match it. For a dry run, task/link resolution is
-// skipped — the report is derived from the matched rule alone; firing resolves
-// links so it can wake existing subscribed tasks.
+// Every event is validated against its type's schema, as the custom webhook
+// validates a custom event, and rejected with InvalidArgument for an unknown
+// source or type, a missing or non-absolute http(s) url, or an undeclared attr.
+// An event of a built-in source routes as the caller; a custom event routes
+// with no actor, as from the webhook, so only public rules match it. For a dry
+// run, task/link resolution is skipped — the report is derived from the matched
+// rule alone; firing resolves links so it can wake existing subscribed tasks.
 func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (*gritzv1.TestEventResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// Fire mutates (wakes/creates tasks), so it needs OpOrgWrite — the same scope
@@ -132,14 +131,27 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		return nil, connect.NewError(connect.CodeInternal, errors.New("event router not configured"))
 	}
 
-	// Compose the synthetic InputEvent. Details pass through verbatim — the
-	// router does not interpret them and they never affect matching. Orgs is
-	// scoped to the caller's org; Meta stays nil (only OnRouteOutcome reads it,
-	// which the test path never invokes).
 	attrs := eventrouter.Attrs{}
 	for key, attr := range req.Attrs {
 		attrs[key] = attr.GetValues()
 	}
+	custom, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	reg := eventrouter.DefaultSchemaRegistry.With(custom...)
+	def, ok := reg.EventTypeFor(req.Source, req.Type)
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown event type %q/%q", req.Source, req.Type))
+	}
+	if err := def.ValidateEvent(req.Url, attrs); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	// Compose the synthetic InputEvent. Details pass through verbatim — the
+	// router does not interpret them and they never affect matching. Orgs is
+	// scoped to the caller's org; Meta stays nil (only OnRouteOutcome reads it,
+	// which the test path never invokes).
 	input := eventrouter.InputEvent{
 		Source:      req.Source,
 		Type:        req.Type,
@@ -152,18 +164,6 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		Details:     req.Details,
 	}
 	if req.Source == eventrouter.SourceCustom {
-		custom, err := s.store.GetOrgCustomEventTypes(ctx, nil, caller.OrgID)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
-		def, ok := reg.EventTypeFor(eventrouter.SourceCustom, req.Type)
-		if !ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown event type %q", req.Type))
-		}
-		if err := def.ValidateEvent(req.Url, attrs); err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
 		// A custom event has no actor, as from the webhook: only public rules
 		// match it.
 		input = eventrouter.InputEvent{
