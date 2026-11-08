@@ -152,43 +152,53 @@ func TestIsAllowed(t *testing.T) {
 	}
 }
 
-func TestSelect(t *testing.T) {
+func TestEntryValidate(t *testing.T) {
 	t.Parallel()
-	acme := Entry{ID: 12, Key: "k1"}
-	local := Entry{ID: 1, Key: "k2", Server: "http://localhost:8080"}
-	orgs := map[string]Entry{"acme": acme, "local": local}
+	tests := []struct {
+		name  string
+		entry Entry
+		err   string
+	}{
+		{"complete", Entry{ID: 12, Key: "k"}, ""},
+		{"with server", Entry{ID: 12, Key: "k", Server: "http://localhost:8080"}, ""},
+		{"no id", Entry{Key: "k"}, "no id"},
+		{"no key", Entry{ID: 12}, "no key"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.entry.Validate()
+
+			if tt.err != "" {
+				assert.Error(t, err, tt.err)
+				return
+			}
+			assert.NilError(t, err)
+		})
+	}
+}
+
+func TestValidate(t *testing.T) {
+	t.Parallel()
+	orgs := map[string]Entry{"acme": {ID: 12, Key: "k1"}, "local": {ID: 1, Key: "k2"}}
 	from := map[string]string{"acme": "/cfg/.gritz.yml", "local": "/cfg/.gritz.yml"}
 	tests := []struct {
 		name   string
 		merged Merged
-		org    string
-		want   *Selection
 		err    string
 	}{
 		{
-			name:   "default",
-			merged: Merged{Default: "acme", DefaultFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
-			want:   &Selection{Name: "acme", Entry: acme},
+			name:   "empty",
+			merged: Merged{},
 		},
 		{
-			name:   "org overrides default",
-			merged: Merged{Default: "acme", DefaultFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
-			org:    "local",
-			want:   &Selection{Name: "local", Entry: local},
-		},
-		{
-			name: "org in allowed",
+			name: "default in allowed",
 			merged: Merged{
-				Allowed: []string{"acme", "local"}, AllowedFrom: "/repo/.gritz.yml",
+				Default: "acme", DefaultFrom: "/repo/.gritz.yml",
+				Allowed: []string{"acme"}, AllowedFrom: "/repo/.gritz.yml",
 				Orgs: orgs, OrgsFrom: from,
 			},
-			org:  "local",
-			want: &Selection{Name: "local", Entry: local},
-		},
-		{
-			name:   "nothing selected",
-			merged: Merged{Orgs: orgs, OrgsFrom: from},
-			err:    "no org selected: pass --org or set default in a .gritz.yml file",
 		},
 		{
 			name: "default outside allowed",
@@ -200,14 +210,74 @@ func TestSelect(t *testing.T) {
 			err: `default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/.gritz.yml)`,
 		},
 		{
-			name: "default outside allowed with org given",
+			name: "entry without id",
 			merged: Merged{
-				Default: "acme", DefaultFrom: "/home/me/src/labs/.gritz.yml",
-				Allowed: []string{"local"}, AllowedFrom: "/home/me/src/.gritz.yml",
+				Orgs:     map[string]Entry{"acme": {Key: "k1"}},
+				OrgsFrom: map[string]string{"acme": "/repo/.gritz.yml"},
+			},
+			err: `org entry "acme" (from /repo/.gritz.yml): no id`,
+		},
+		{
+			name: "entry without key",
+			merged: Merged{
+				Orgs:     map[string]Entry{"acme": {ID: 12}},
+				OrgsFrom: map[string]string{"acme": "/repo/.gritz.yml"},
+			},
+			err: `org entry "acme" (from /repo/.gritz.yml): no key`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.merged.Validate()
+
+			if tt.err != "" {
+				assert.Error(t, err, tt.err)
+				return
+			}
+			assert.NilError(t, err)
+		})
+	}
+}
+
+func TestLookup(t *testing.T) {
+	t.Parallel()
+	acme := Entry{ID: 12, Key: "k1"}
+	local := Entry{ID: 1, Key: "k2", Server: "http://localhost:8080"}
+	orgs := map[string]Entry{"acme": acme, "local": local}
+	from := map[string]string{"acme": "/cfg/.gritz.yml", "local": "/cfg/.gritz.yml"}
+	tests := []struct {
+		name   string
+		merged Merged
+		org    string
+		want   *Entry
+		err    string
+	}{
+		{
+			name:   "default",
+			merged: Merged{Default: "acme", DefaultFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
+			want:   &acme,
+		},
+		{
+			name:   "org overrides default",
+			merged: Merged{Default: "acme", DefaultFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
+			org:    "local",
+			want:   &local,
+		},
+		{
+			name: "org in allowed",
+			merged: Merged{
+				Allowed: []string{"acme", "local"}, AllowedFrom: "/repo/.gritz.yml",
 				Orgs: orgs, OrgsFrom: from,
 			},
-			org: "local",
-			err: `default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [local] (from /home/me/src/.gritz.yml)`,
+			org:  "local",
+			want: &local,
+		},
+		{
+			name:   "nothing selected",
+			merged: Merged{Orgs: orgs, OrgsFrom: from},
+			err:    "no org selected: pass --org or set default in a .gritz.yml file",
 		},
 		{
 			name: "org outside allowed",
@@ -230,29 +300,12 @@ func TestSelect(t *testing.T) {
 			org:    "labs",
 			err:    "no org entry named \"labs\": run `gritz login --key <key> --name labs`",
 		},
-		{
-			name: "entry without id",
-			merged: Merged{
-				Orgs:     map[string]Entry{"acme": {Key: "k1"}},
-				OrgsFrom: map[string]string{"acme": "/repo/.gritz.yml"},
-			},
-			org: "acme",
-			err: `org entry "acme" (from /repo/.gritz.yml) has no id`,
-		},
-		{
-			name: "entry without key",
-			merged: Merged{
-				Orgs:     map[string]Entry{"acme": {ID: 12}},
-				OrgsFrom: map[string]string{"acme": "/repo/.gritz.yml"},
-			},
-			org: "acme",
-			err: `org entry "acme" (from /repo/.gritz.yml) has no key`,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := tt.merged.Select(tt.org)
+
+			got, err := tt.merged.Lookup(tt.org)
 
 			if tt.err != "" {
 				assert.Error(t, err, tt.err)

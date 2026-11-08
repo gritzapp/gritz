@@ -115,8 +115,10 @@ Every user-facing command selects one entry at startup:
 
 1. If `--key` / `GRITZ_API_KEY` is set, use that key, and skip the files,
    entries and `allowed` entirely (see Explicit key below).
-2. Load and merge the files. A `default` that isn't in the merged `allowed` is
-   an error, whether or not it's the entry being selected:
+2. Load and merge the files, and validate the result. An entry without `id`
+   or `key` is an error naming the file it came from, and so is a `default`
+   that isn't in the merged `allowed`, whether or not either is the entry being
+   selected:
 
    ```
    error: default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/labs/.gritz.yml)
@@ -142,8 +144,7 @@ Every user-facing command selects one entry at startup:
    error: no org entry named "acme": run `gritz login --key <key> --name acme`
    ```
 
-6. The entry supplies the org id, the key and the server. An entry without `id`
-   or `key` is an error naming the file it came from.
+6. The entry supplies the org id, the key and the server.
 
 **Server URL.** `--server` > `GRITZ_SERVER` > the selected entry's `server` >
 `gritzclient.DefaultURL`. Every user-facing command gets the `GRITZ_SERVER` env
@@ -318,17 +319,19 @@ func Login(name string, entry Entry) error // new
 // ErrNameTaken is returned by Login when name is in use by another org or server.
 var ErrNameTaken = errors.New("entry name in use") // new
 
-// Selection is the entry a command will use.
-type Selection struct { // new
-	// Name is the entry name.
-	Name string
-	// Entry is the selected entry.
-	Entry Entry
-}
+// Validate checks that the entry has an id and a key.
+func (e Entry) Validate() error // new
 
-// Select picks the entry named org, or m.Default when org is empty, enforcing
-// m.Allowed and returning errors that name the file responsible.
-func (m *Merged) Select(org string) (*Selection, error) // new
+// IsAllowed reports whether org may be selected: Allowed is unset or lists it.
+func (m *Merged) IsAllowed(org string) bool // new
+
+// Validate checks that Default is allowed and that every entry is complete,
+// returning errors that name the file responsible.
+func (m *Merged) Validate() error // new
+
+// Lookup returns the entry named org, or m.Default when org is empty,
+// enforcing m.Allowed. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) // new
 
 // Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
 // GRITZ_SERVER) shared by user-facing commands.
@@ -356,10 +359,10 @@ var LoginCommand *cli.Command // new: gritz login
 
 **How it fits:** `configfile` owns everything about how a command finds its
 credentials: the file format, discovery, merging, selection, the shared flags,
-and the `login` write. `Merged.Select` holds the selection rules and takes no
-urfave/cli types, so it can be table-tested against a `Merged` value.
+and the `login` write. `Merged.Validate` and `Merged.Lookup` hold the selection rules and take no
+urfave/cli types, so they can be table-tested against a `Merged` value.
 `Resolve` is the only part that reads the command: it takes `--key` as is, or
-calls `Load` with the working directory and `Select` with `--org`, then applies
+calls `Load` with the working directory, `Validate`, and `Lookup` with `--org`, then applies
 the server precedence and returns the `Entry`. `configfile` doesn't build
 client options; it references `gritzclient` only for the `DefaultURL` constant,
 and there's no helper in `gritzclient` either. Every user-facing command
@@ -376,14 +379,15 @@ builds `gritzclient.Options` (and `NotificationClientOptions` or the
    non-default org returns that org.
 2. **`.gritz.yml` load, merge and select** — Delivers: `configfile.Entry`, the new
    `File` shape under a temporary name beside the old one, `Read`, `Load`
-   under a temporary name, `Merged.Select` and `Selection`, and `Slug`.
+   under a temporary name, `Entry.Validate`, `Merged.IsAllowed`, `Merged.Validate` and
+   `Merged.Lookup`, and `Slug`.
    Nothing calls them yet.
    Depends on: nothing. Verifiable by: unit tests over temp dirs: the walk
    merges past a `.git` directory up to the temp root; the base layer is always
    merged; `default`/`allowed` come from the nearest file; entries replace
    whole by name; a `default` outside `allowed`, a disallowed `--org` and a
-   missing entry each fail naming the right file (table tests on `Select`
-   over `Merged` values); unknown fields fail.
+   missing entry each fail naming the right file (table tests on `Validate`
+   and `Lookup` over `Merged` values); unknown fields fail.
 3. **`gritz login`** — Delivers: `configfile.Login`, `LoginCommand` and
    `main.go` registration. Depends on: (1), (2). Verifiable by: unit tests for
    `Slug` and for `Login` (new entry, key replaced for same id and server,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,6 +27,17 @@ type Entry struct {
 	Key string `yaml:"key"`
 	// Server is the server URL; empty means gritzclient.DefaultURL.
 	Server string `yaml:"server,omitempty"`
+}
+
+// Validate checks that the entry has an id and a key.
+func (e Entry) Validate() error {
+	if e.ID == 0 {
+		return errors.New("no id")
+	}
+	if e.Key == "" {
+		return errors.New("no key")
+	}
+	return nil
 }
 
 // FileV2 is the contents of one .gritz.yml file.
@@ -133,21 +145,24 @@ func (m *Merged) IsAllowed(org string) bool {
 	return m.Allowed == nil || slices.Contains(m.Allowed, org)
 }
 
-// Selection is the entry a command will use.
-type Selection struct {
-	// Name is the entry name.
-	Name string
-	// Entry is the selected entry.
-	Entry Entry
-}
-
-// Select picks the entry named org, or m.Default when org is empty, enforcing
-// m.Allowed and returning errors that name the file responsible.
-func (m *Merged) Select(org string) (*Selection, error) {
+// Validate checks that Default is allowed and that every entry is complete,
+// returning errors that name the file responsible.
+func (m *Merged) Validate() error {
 	if m.Default != "" && !m.IsAllowed(m.Default) {
-		return nil, fmt.Errorf("default %q (from %s) is not in allowed %s (from %s)",
+		return fmt.Errorf("default %q (from %s) is not in allowed %s (from %s)",
 			m.Default, m.DefaultFrom, m.Allowed, m.AllowedFrom)
 	}
+	for _, name := range slices.Sorted(maps.Keys(m.Orgs)) {
+		if err := m.Orgs[name].Validate(); err != nil {
+			return fmt.Errorf("org entry %q (from %s): %w", name, m.OrgsFrom[name], err)
+		}
+	}
+	return nil
+}
+
+// Lookup returns the entry named org, or m.Default when org is empty,
+// enforcing m.Allowed. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) {
 	name := cmp.Or(org, m.Default)
 	if name == "" {
 		return nil, errors.New("no org selected: pass --org or set default in a .gritz.yml file")
@@ -160,13 +175,7 @@ func (m *Merged) Select(org string) (*Selection, error) {
 	if !ok {
 		return nil, fmt.Errorf("no org entry named %q: run `gritz login --key <key> --name %s`", name, name)
 	}
-	if e.ID == 0 {
-		return nil, fmt.Errorf("org entry %q (from %s) has no id", name, m.OrgsFrom[name])
-	}
-	if e.Key == "" {
-		return nil, fmt.Errorf("org entry %q (from %s) has no key", name, m.OrgsFrom[name])
-	}
-	return &Selection{Name: name, Entry: e}, nil
+	return &e, nil
 }
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
