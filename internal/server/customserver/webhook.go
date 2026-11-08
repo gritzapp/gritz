@@ -2,6 +2,7 @@ package customserver
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -75,14 +76,10 @@ func ToInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (e
 			return eventrouter.InputEvent{}, fmt.Errorf("attr %q not declared by event type %q", key, def.Type)
 		}
 	}
-	description := env.Description
-	if description == "" {
-		description = def.Label
-	}
 	return eventrouter.InputEvent{
 		Source:      eventrouter.SourceCustom,
 		Type:        def.Type,
-		Description: description,
+		Description: cmp.Or(env.Description, def.Label),
 		Data:        env.Body,
 		URL:         env.URL,
 		Orgs:        []int64{orgID},
