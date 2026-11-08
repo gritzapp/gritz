@@ -153,6 +153,11 @@ the MCP config.
 | `set_schedule_enabled` | Enables or disables a schedule. |
 | `run_schedule` | Creates a task from a schedule now. |
 | `delete_schedule` | Deletes a schedule. |
+| `list_members` | Lists the organisation's members. |
+| `list_keys` | Lists the organisation's API keys, without their tokens. |
+| `get_org_settings` | Gets the organisation's integration URLs and its GitHub App installation. |
+| `get_routing_rules` | Gets the organisation's routing rules. |
+| `set_routing_rules` | Replaces every routing rule of the organisation. |
 
 You don't call these yourself: ask your agent, for example "Create a gritz task
 in the pets-workshop workspace to add a `--json` flag, then tell me when it has
@@ -322,6 +327,23 @@ Each takes the schedule's `id`; `set_schedule_enabled` also takes `enabled`.
 `run_schedule` creates a task from the schedule now, even if it is disabled,
 without changing its next or last run, and returns the task. Deleting a
 schedule keeps the tasks it created.
+
+### `get_org_settings`
+
+Returns the organisation's MCP URL, custom event webhook URL, Atlassian webhook
+URL, GitHub App URL and GitHub App installation ID. It never returns the
+Atlassian webhook secret; read it in the Web UI, as in
+[Jira](/integrations/jira/#1-generate-the-webhook-secret).
+
+### `get_routing_rules`, `set_routing_rules`
+
+`get_routing_rules` returns the organisation's
+[routing rules](/concepts/routing-rules/) in order. `set_routing_rules` takes
+`rules`, the whole list in the same shape, and replaces every rule with it: a
+rule missing from the list is deleted. Your agent reads the rules, edits the
+list and writes it all back. A rule that names an unknown event type or
+attribute fails the call with the bad rule named, and no rule is changed. It
+returns the stored rules.
 
 ## Channels
 
