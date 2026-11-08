@@ -35,7 +35,7 @@ type NotificationClient struct {
 
 // NotificationClientOptions configures a NotificationClient.
 type NotificationClientOptions struct {
-	// BaseURL is the server URL; empty means DefaultURL.
+	// BaseURL is the server URL (e.g. https://gritz.dev).
 	BaseURL string
 	// Runner is sent as the ?runner= filter; when empty, no filter is sent
 	// and the server forwards the whole-org stream.
@@ -63,7 +63,7 @@ type NotificationClientOptions struct {
 // NewNotificationClient returns a new NotificationClient.
 func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
 	return &NotificationClient{
-		baseURL:  cmp.Or(opts.BaseURL, DefaultURL),
+		baseURL:  opts.BaseURL,
 		runner:   opts.Runner,
 		clientID: opts.ClientID,
 		http: &http.Client{

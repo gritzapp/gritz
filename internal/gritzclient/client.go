@@ -22,7 +22,7 @@ type Client = gritzv1connect.GritzServiceClient
 
 // Options configures the gritz client.
 type Options struct {
-	// BaseURL is the server URL; empty means DefaultURL.
+	// BaseURL is the server URL.
 	BaseURL string
 	// Token is the authentication token.
 	// If empty, no authentication is performed.
@@ -52,7 +52,7 @@ func New(opts Options) Client {
 		}
 	}
 	httpClient := &http.Client{Transport: transport, Timeout: cmp.Or(opts.Timeout, DefaultTimeout)}
-	return gritzv1connect.NewGritzServiceClient(httpClient, cmp.Or(opts.BaseURL, DefaultURL),
+	return gritzv1connect.NewGritzServiceClient(httpClient, opts.BaseURL,
 		connect.WithInterceptors(opts.Retry),
 	)
 }
