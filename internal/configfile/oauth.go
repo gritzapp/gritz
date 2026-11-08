@@ -9,80 +9,59 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gritzapp/gritz/internal/x/oauthx"
 	"golang.org/x/oauth2"
 )
 
-// ClientID is the OAuth client id the CLI uses.
-const ClientID = "gritz-cli"
-
-// rotateAge is how old the stored refresh token must be before a refresh
-// writes the rotated one back.
+// rotateAge is how old the stored refresh token must be before a new one
+// is written back.
 const rotateAge = 24 * time.Hour
 
-// OAuthConfig returns the OAuth client config for server, with redirectURL as
-// the redirect URI (empty for refresh only).
-func OAuthConfig(server, redirectURL string) *oauth2.Config {
-	return &oauth2.Config{
-		ClientID: ClientID,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:   server + "/ui/oauth/authorize",
-			TokenURL:  server + "/oauth/token",
-			AuthStyle: oauth2.AuthStyleInParams,
-		},
-		RedirectURL: redirectURL,
-	}
-}
-
 // TokenSource returns the entry's credentials: the key as a static token, or
-// access tokens refreshed from RefreshToken, writing rotated refresh tokens
-// back to Path.
+// access tokens refreshed from RefreshToken, writing new refresh tokens back
+// to Path once the stored one is more than a day old.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource {
 	if e.Key != "" {
 		return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: e.Key})
 	}
-	return oauth2.ReuseTokenSource(nil, &refreshSource{
-		ctx:     ctx,
-		config:  OAuthConfig(e.Server, ""),
-		entry:   e,
-		current: e.RefreshToken,
-		stored:  e.RefreshToken,
-	})
-}
-
-// refreshSource exchanges the entry's refresh token for an access token on
-// every call. oauth2.ReuseTokenSource serialises the calls.
-type refreshSource struct {
-	ctx    context.Context
-	config *oauth2.Config
-	entry  *Entry
-	// current is the refresh token used for the next refresh.
-	current string
-	// stored is the refresh token last written to entry.Path.
-	stored string
-}
-
-func (s *refreshSource) Token() (*oauth2.Token, error) {
-	tok, err := s.config.TokenSource(s.ctx, &oauth2.Token{RefreshToken: s.current}).Token()
-	if err != nil {
-		var re *oauth2.RetrieveError
-		if errors.As(err, &re) && re.Response.StatusCode == http.StatusBadRequest {
-			login := "gritz login --name " + s.entry.Name
-			if s.entry.Server != DefaultServer {
-				login += " --server " + s.entry.Server
+	stored := e.RefreshToken
+	return &entrySource{entry: e, src: oauthx.NewRefreshSource(ctx, oauthx.RefreshSourceOptions{
+		Config:       oauthx.Config(e.Server, ""),
+		RefreshToken: e.RefreshToken,
+		OnNewRefreshToken: func(token string) {
+			if !issuedBefore(stored, time.Now().Add(-rotateAge)) {
+				return
 			}
-			return nil, fmt.Errorf("org entry %q: login expired or revoked: run `%s`", s.entry.Name, login)
-		}
-		return nil, fmt.Errorf("org entry %q: refresh: %w", s.entry.Name, err)
+			if err := UpdateEntry(e.Path, e.Name, rotate(stored, token)); err != nil {
+				slog.Warn("failed to write new refresh token", "path", e.Path, "org", e.Name, "err", err)
+				return
+			}
+			stored = token
+		},
+	})}
+}
+
+// entrySource names the entry in refresh errors, and tells the user to log
+// in again when the server rejects the refresh token.
+type entrySource struct {
+	entry *Entry
+	src   oauth2.TokenSource
+}
+
+func (s *entrySource) Token() (*oauth2.Token, error) {
+	tok, err := s.src.Token()
+	if err == nil {
+		return tok, nil
 	}
-	s.current = tok.RefreshToken
-	if s.current != s.stored && issuedBefore(s.stored, time.Now().Add(-rotateAge)) {
-		if err := Rotate(s.entry.Path, s.entry.Name, s.stored, s.current); err != nil {
-			slog.Warn("failed to write rotated refresh token", "path", s.entry.Path, "org", s.entry.Name, "err", err)
-		} else {
-			s.stored = s.current
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) && re.Response.StatusCode == http.StatusBadRequest {
+		login := "gritz login --name " + s.entry.Name
+		if s.entry.Server != DefaultServer {
+			login += " --server " + s.entry.Server
 		}
+		return nil, fmt.Errorf("org entry %q: login expired or revoked: run `%s`", s.entry.Name, login)
 	}
-	return tok, nil
+	return nil, fmt.Errorf("org entry %q: refresh: %w", s.entry.Name, err)
 }
 
 // issuedBefore reports whether the JWT token was issued before t, read

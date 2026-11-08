@@ -172,40 +172,45 @@ pasted-redirect or device flow. Elsewhere:
 `Entry.TokenSource(ctx)` returns:
 
 - for a `key` entry (and for `--key`): `gritzclient.StaticToken` of the key.
-- for a `refresh_token` entry: `oauth2.ReuseTokenSource(nil, src)`, where `src`
-  is a `refreshSource` holding the entry's server, name, path and current refresh
-  token. `ReuseTokenSource` caches the access token and calls `src.Token()` only
-  when it has expired (with `oauth2`'s 10-second early expiry), serialised by its
-  own mutex, so one process never refreshes twice concurrently.
+- for a `refresh_token` entry: `oauthx.NewRefreshSource` with
+  `oauthx.Config(server, "")`, wrapped to name the entry in its errors.
 
-`refreshSource.Token()`:
+`oauthx.NewRefreshSource` is generic: it knows nothing about `.gritz.yml`. It
+is an `oauth2.ReuseTokenSource` over a source that exchanges the refresh token
+in use at the token endpoint. `ReuseTokenSource` caches the access token and
+refreshes only when it has expired (with `oauth2`'s 10-second early expiry),
+serialised by its own mutex, so one process never refreshes twice
+concurrently. Whenever a refresh returns a different refresh token, the source
+uses it from then on and passes it to `OnNewRefreshToken`.
 
-1. Calls `oauth2.Config{ClientID: "gritz-cli", Endpoint: {TokenURL:
-   <server>/oauth/token}}.TokenSource(ctx, &oauth2.Token{RefreshToken: rt}).Token()`.
-2. On an `*oauth2.RetrieveError` (the server's 400 `invalid refresh_token`:
-   expired, signed by a rotated app key, user removed, org archived), returns:
+`configfile` supplies the policy:
+
+1. On a 400 from the token endpoint (`*oauth2.RetrieveError`, the server's
+   `invalid refresh_token`: expired, signed by a rotated app key, user removed,
+   org archived), the wrapper returns:
 
    ```
    org entry "acme": login expired or revoked: run `gritz login --name acme`
    ```
 
    For `--server` entries the hint includes `--server`.
-3. On success, keeps the new refresh token in memory for the next refresh, and
-   **writes it back** if the stored token's `iat` (read from the JWT payload
-   without verification) is more than 24 hours old:
-   `configfile.Rotate(path, name, old, new)`. A write-back failure is logged with
+2. `OnNewRefreshToken` tracks the token it last stored and **writes the new one
+   back** if the stored token's `iat` (read from the JWT payload without
+   verification) is more than 24 hours old. A write-back failure is logged with
    `slog.Warn` and otherwise ignored; the in-memory token keeps working.
 
-`configfile.Rotate` re-reads the file at `path`, and if `orgs[name].refresh_token`
-still equals `old`, replaces it with `new` and writes the file the same way as
-`Login` (temp file + rename via `atomicio.WriteFile`, mode kept). If the entry
-is gone or holds a different token, it does nothing: another process already
-rotated it, or the user logged in again, and either result is at least as fresh.
+The write goes through `configfile.UpdateEntry`, which `Login` also uses: it
+re-reads the file at `path`, lets a callback change the file and the entry,
+and writes it back the same way (temp file + rename via `atomicio.WriteFile`,
+mode kept). The rotation callback replaces `orgs[name].refresh_token` only if
+it still equals the stored token. If the entry is gone or holds a different
+token, it leaves the file as it is: another process already rotated it, or the
+user logged in again, and either result is at least as fresh.
 
 **Where.** The file the entry came from: `Lookup` now fills `Entry.Name` and
 `Entry.Path` (from `Merged.OrgsFrom`). `login` only ever writes
 `$CONFIG_DIR/.gritz.yml`, but a refresh-token entry the user moved into another
-file keeps itself alive there too. Like `login`, `Rotate` re-marshals the file,
+file keeps itself alive there too. Like `login`, the write-back re-marshals the file,
 dropping comments.
 
 **Concurrency.** Commands sharing an entry never coordinate:
@@ -216,7 +221,7 @@ dropping comments.
   do at once, both read the same `old`, both write, and the later rename wins.
   Either token is valid.
 - The window that can lose an unrelated edit is a `login` or a hand edit to the
-  same file landing between `Rotate`'s read and its rename. It is the same
+  same file landing between the write-back's read and its rename. It is the same
   read-modify-rename window `login` already has, and it is not worth a lock
   file.
 
@@ -296,20 +301,43 @@ func (e Entry) Validate() error // changed
 // back to Path.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
 
-// ClientID is the OAuth client id the CLI uses.
-const ClientID = "gritz-cli" // new
-
-// OAuthConfig returns the OAuth client config for server, with redirectURL as
-// the redirect URI (empty for refresh only).
-func OAuthConfig(server, redirectURL string) *oauth2.Config // new
-
-// Rotate replaces the refresh token of the entry named name in the .gritz.yml
-// file at path with newToken, if it still holds oldToken.
-func Rotate(path, name, oldToken, newToken string) error // new
+// UpdateEntry rereads the .gritz.yml file at path (empty if missing) and
+// calls fn with it and the entry named name (nil if absent). When fn returns
+// an entry, UpdateEntry stores it under name, along with fn's changes to the
+// file, and writes the file atomically, keeping its mode or creating it 0600.
+// When fn returns nil or an error, the file is left as it is.
+func UpdateEntry(path, name string, fn func(*File, *Entry) (*Entry, error)) error // new
 
 // Lookup returns the entry named org, or m.Org when org is empty,
 // enforcing m.Allowed, with Name and Path set. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
+```
+
+```go
+package oauthx // github.com/gritzapp/gritz/internal/x/oauthx — new
+
+// ClientID is the OAuth client id the gritz CLI uses.
+const ClientID = "gritz-cli"
+
+// Config returns the OAuth client config for the gritz server at server,
+// with redirectURL as the redirect URI (empty for refresh only).
+func Config(server, redirectURL string) *oauth2.Config
+
+// RefreshSourceOptions configures NewRefreshSource.
+type RefreshSourceOptions struct {
+	// Config is the OAuth client config whose token endpoint refreshes.
+	Config *oauth2.Config
+	// RefreshToken is the refresh token to start from.
+	RefreshToken string
+	// OnNewRefreshToken is called whenever a refresh returns a refresh token
+	// different from the one in use. Later refreshes use the new token.
+	// Calls are serialised.
+	OnNewRefreshToken func(token string)
+}
+
+// NewRefreshSource returns a TokenSource that exchanges the refresh token for
+// access tokens, caching each until it expires.
+func NewRefreshSource(ctx context.Context, opts RefreshSourceOptions) oauth2.TokenSource
 ```
 
 ```go
@@ -383,12 +411,14 @@ type ServeOptions struct {
 **How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path`
 set; every command calls `TokenSource(ctx)` on it and hands the source to
 `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the
-source refreshes through `OAuthConfig` and calls `Rotate` on its own. `gritz
-login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`'s endpoints
+source is an `oauthx.NewRefreshSource` whose `OnNewRefreshToken` writes back
+through `UpdateEntry`. `gritz
+login` without `--key` calls `oauthlogin.Login` with `oauthx.Config`'s endpoints
 and `browser.OpenURL`,
 then `GetCaller` with the returned access token, then `configfile.Login` with
 `{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`;
-`configfile` knows nothing about browsers or listeners.
+`configfile` knows nothing about browsers or listeners; `oauthx` knows nothing
+about entries.
 
 ## Implementation Plan
 
@@ -407,15 +437,16 @@ then `GetCaller` with the returned access token, then `configfile.Login` with
    asks the source on each request and returns its error; existing e2e tests
    pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new
-   `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`,
-   `Rotate`, `Entry.TokenSource` with write-back and the re-login error; the
+   `Validate`, `Lookup` setting `Name`/`Path`, `UpdateEntry`, `internal/x/oauthx`,
+   `Entry.TokenSource` with write-back and the re-login error; the
    commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`.
    A hand-written entry works from here on. Depends on: (2).
-   Verifiable by: unit tests for `Validate` (both, neither) and `Rotate`
-   (replaces when old matches, no-op when changed or gone, keeps mode); a test
-   against an `oauthflow` `httptest` server that a source refreshes once per
-   access token expiry, writes back only when `iat` is over 24h old, and maps
-   an expired refresh token to the re-login error.
+   Verifiable by: unit tests for `Validate` (both, neither) and the rotation
+   write (replaces when old matches, no-op when changed or gone); an `oauthx`
+   test that the source refreshes once per access token expiry and reports each
+   new refresh token; a test against an `oauthflow` `httptest` server that an
+   entry writes back only when `iat` is over 24h old, and maps an expired
+   refresh token to the re-login error.
 4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`,
    `github.com/cli/browser` as a direct dependency, `--key`
    no longer required, the `org=` preselect, and `login`
@@ -448,7 +479,7 @@ Slices 1 and 2 are independent and can land in either order.
   minutes from a runner, widening the window for clobbering a concurrent edit.
   A daily threshold slides the expiry for anyone who uses the CLI at least once
   a month, with one rewrite a day.
-- **No lock vs. a lock file.** A lock around `Rotate` and `Login` would close
+- **No lock vs. a lock file.** A lock around the write-back and `Login` would close
   the read-modify-rename window. Because any of the refresh tokens involved is
   valid, the only thing a race can lose is a concurrent hand edit or `login`
   to the same file, which is rare enough not to justify a lock.

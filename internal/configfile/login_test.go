@@ -152,8 +152,8 @@ func TestLogin_ExistingFileMode(t *testing.T) {
 	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
 }
 
-// Regenerate the goldens with: go test ./internal/configfile/ -run TestRotate -update
-func TestRotate(t *testing.T) {
+// Regenerate the goldens with: go test ./internal/configfile/ -run TestUpdateEntry_Rotate -update
+func TestUpdateEntry_Rotate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
@@ -175,7 +175,7 @@ func TestRotate(t *testing.T) {
 			assert.NilError(t, os.WriteFile(path, input, 0o600))
 
 			// Act
-			err = Rotate(path, tt.entryName, tt.oldToken, "new")
+			err = UpdateEntry(path, tt.entryName, rotate(tt.oldToken, "new"))
 
 			// Assert
 			assert.NilError(t, err)
@@ -190,29 +190,13 @@ func TestRotate(t *testing.T) {
 	}
 }
 
-func TestRotate_FileGone(t *testing.T) {
+func TestUpdateEntry_RotateFileGone(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), Name)
 
-	err := Rotate(path, "acme", "old", "new")
+	err := UpdateEntry(path, "acme", rotate("old", "new"))
 
 	assert.NilError(t, err)
 	_, err = os.Stat(path)
 	assert.Assert(t, os.IsNotExist(err))
-}
-
-func TestRotate_KeepsMode(t *testing.T) {
-	t.Parallel()
-	input, err := os.ReadFile(filepath.Join("testdata", "rotate.yml"))
-	assert.NilError(t, err)
-	path := filepath.Join(t.TempDir(), Name)
-	assert.NilError(t, os.WriteFile(path, input, 0o640))
-	assert.NilError(t, os.Chmod(path, 0o640)) // in case the umask narrowed it
-
-	err = Rotate(path, "acme", "old", "new")
-
-	assert.NilError(t, err)
-	info, err := os.Stat(path)
-	assert.NilError(t, err)
-	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
 }

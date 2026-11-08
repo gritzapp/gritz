@@ -35,12 +35,41 @@ func LoginServer() (string, error) {
 // ErrNameTaken if name belongs to a different org or server. It sets org to
 // name when the file has none. The caller validates the credential and sets
 // entry.Server.
-//
-// The file is replaced atomically, keeping its mode, or created 0600.
 func Login(path, name string, entry Entry) error {
 	if entry.Server == "" {
 		panic("configfile: Login without a server")
 	}
+	return UpdateEntry(path, name, func(f *File, old *Entry) (*Entry, error) {
+		if old != nil && (old.ID != entry.ID || cmp.Or(old.Server, DefaultServer) != entry.Server) {
+			return nil, fmt.Errorf("%w: entry %q is org %d on %s; pass --name to add org %d under another name",
+				ErrNameTaken, name, old.ID, cmp.Or(old.Server, DefaultServer), entry.ID)
+		}
+		if f.Org == "" {
+			f.Org = name
+		}
+		return &entry, nil
+	})
+}
+
+// rotate returns an UpdateEntry func that replaces the entry's refresh token
+// with newToken if it still holds oldToken. Otherwise another process rotated
+// it, or the user logged in again, and the file is left as it is.
+func rotate(oldToken, newToken string) func(*File, *Entry) (*Entry, error) {
+	return func(_ *File, e *Entry) (*Entry, error) {
+		if e == nil || e.RefreshToken != oldToken {
+			return nil, nil
+		}
+		e.RefreshToken = newToken
+		return e, nil
+	}
+}
+
+// UpdateEntry rereads the .gritz.yml file at path (empty if missing) and
+// calls fn with it and the entry named name (nil if absent). When fn returns
+// an entry, UpdateEntry stores it under name, along with fn's changes to the
+// file, and writes the file atomically, keeping its mode or creating it 0600.
+// When fn returns nil or an error, the file is left as it is.
+func UpdateEntry(path, name string, fn func(*File, *Entry) (*Entry, error)) error {
 	mode := fs.FileMode(0o600)
 	f, err := Read(path)
 	switch {
@@ -55,54 +84,23 @@ func Login(path, name string, entry Entry) error {
 		}
 		mode = info.Mode().Perm()
 	}
-	if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || cmp.Or(old.Server, DefaultServer) != entry.Server) {
-		return fmt.Errorf("%w: entry %q is org %d on %s; pass --name to add org %d under another name",
-			ErrNameTaken, name, old.ID, cmp.Or(old.Server, DefaultServer), entry.ID)
+	var old *Entry
+	if e, ok := f.Orgs[name]; ok {
+		old = &e
+	}
+	e, err := fn(f, old)
+	if e == nil || err != nil {
+		return err
 	}
 	if f.Orgs == nil {
 		f.Orgs = map[string]Entry{}
 	}
-	f.Orgs[name] = entry
-	if f.Org == "" {
-		f.Org = name
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return write(path, f, mode)
-}
-
-// Rotate replaces the refresh token of the entry named name in the .gritz.yml
-// file at path with newToken, if it still holds oldToken. If the file or the
-// entry is gone, or the entry holds another token, it does nothing: another
-// process rotated it, or the user logged in again.
-//
-// The file is replaced atomically, keeping its mode.
-func Rotate(path, name, oldToken, newToken string) error {
-	f, err := Read(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	e, ok := f.Orgs[name]
-	if !ok || e.RefreshToken != oldToken {
-		return nil
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	e.RefreshToken = newToken
-	f.Orgs[name] = e
-	return write(path, f, info.Mode().Perm())
-}
-
-// write replaces the file at path with f atomically.
-func write(path string, f *File, mode fs.FileMode) error {
+	f.Orgs[name] = *e
 	data, err := yaml.Marshal(f)
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	return atomicio.WriteFile(path, data, mode)
