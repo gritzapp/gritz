@@ -1,6 +1,6 @@
 // Package taskevents replicates the runner's event log from the server into
 // its runnerstore and exposes each task's events as a stream. See
-// proposals/draft/runner-event-replica.md.
+// docs/src/content/docs/proposals/draft/runner-event-replica.md.
 package taskevents
 
 import (

@@ -76,8 +76,8 @@ const maxLogChunkSize = 1 << 20 // 1 MiB
 // UploadLogs: the driver's narrow task JWT already carries OpTaskWrite bound to
 // its task, so no scope changes are needed. Nothing is published — UploadLogs's
 // notifications were already silenced as log spam
-// (proposals/implemented/summary-gated-channel-notifications.md) and raw chunks
-// are strictly noisier.
+// (docs/src/content/docs/proposals/implemented/summary-gated-channel-notifications.md)
+// and raw chunks are strictly noisier.
 func (s *Server) AppendLogChunk(ctx context.Context, req *gritzv1.AppendLogChunkRequest) (*gritzv1.AppendLogChunkResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// Coarse, fail-fast capability gate before the DB read (AllowOp ignores

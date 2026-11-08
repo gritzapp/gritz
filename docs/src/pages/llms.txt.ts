@@ -32,7 +32,8 @@ export const GET: APIRoute = async ({ site }) => {
 			),
 		].join('\n'),
 		'## Start here',
-		list(docs.filter(({ id }) => !id.includes('/'))),
+		// The proposals are design history and aren't listed; their index's id is `proposals`.
+		list(docs.filter(({ id }) => !id.includes('/') && id !== 'proposals')),
 	];
 	for (const { label, directory } of sections) {
 		const pages = docs.filter(({ id }) => id.startsWith(`${directory}/`));

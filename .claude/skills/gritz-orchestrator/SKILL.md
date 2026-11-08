@@ -294,7 +294,7 @@ On top of the usual rules (see [Writing good task instructions](#writing-good-ta
 for each layer:
 
 - **Reference the plan file; don't paste it.** Point at the proposal (e.g. "implement slice N
-  of `proposals/accepted/foo.md`"), not a copy of its text.
+  of `docs/src/content/docs/proposals/draft/foo.md`"), not a copy of its text.
 - **Name the slice** exactly as it appears in the plan, and reference the layer sub-issue
   (`Part of #<layer>`).
 - **Say the prior layers are already on `master`.** The agent branches from `master`; it does
@@ -405,8 +405,9 @@ instruction that uniquely determines the right outcome.
 
 - **Reference in-repo artifacts; don't paste them.** Proposals, issues, and code are in
   the repo the agent has cloned. Point at the file (e.g. "implement
-  `proposals/draft/foo.md`") instead of copying its contents into the instruction — a
-  pasted copy only drifts from the source of truth and bloats the task.
+  `docs/src/content/docs/proposals/draft/foo.md`") instead of copying its contents
+  into the instruction — a pasted copy only drifts from the source of truth and
+  bloats the task.
 - **State decisions, not derivations.** Include the choices already made, the scope
   boundaries (especially what is **out of scope** — "do NOT add X"), and any non-obvious
   gotcha. Leave the rediscoverable details (file paths, type names, exact code) to the

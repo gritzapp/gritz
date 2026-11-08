@@ -4,11 +4,11 @@ import {fakeBackendLayout} from '../../layouts/fakebackend';
 import {Colors} from '../../theme';
 
 // A sandbox the test makes gone, traced from
-// proposals/implemented/fake-runner-backend.md (Controls, Driver hookup, State
-// machine, "Gone at Start, then a fresh sandbox"): Set(c1, Gone) drops the
-// attached stream, attach finds StatusGone and the run is lost; the next
-// Start finds c1 gone through the stale-handle rule; the one after creates
-// c2. Destroyed stays empty: the runner never destroyed c1.
+// docs/src/content/docs/proposals/implemented/fake-runner-backend.md (Controls,
+// Driver hookup, State machine, "Gone at Start, then a fresh sandbox"): Set(c1,
+// Gone) drops the attached stream, attach finds StatusGone and the run is lost;
+// the next Start finds c1 gone through the stale-handle rule; the one after
+// creates c2. Destroyed stays empty: the runner never destroyed c1.
 export default makeScene2D(function* (view) {
   const a = fakeBackendLayout(view, 'A sandbox the test makes gone');
   const {links} = a;

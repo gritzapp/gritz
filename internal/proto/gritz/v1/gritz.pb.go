@@ -448,13 +448,15 @@ type Task struct {
 	//	positive:        archive that long after reaching terminal status
 	AutoArchive *durationpb.Duration `protobuf:"bytes,15,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
 	// Non-empty => this sandbox run is a reverse shell for this rendezvous
-	// session id (see proposals/draft/driver-reverse-shell.md). Empty => normal
-	// agent run. Persistent and server-owned; the runner never touches it.
+	// session id (see
+	// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md). Empty
+	// => normal agent run. Persistent and server-owned; the runner never touches
+	// it.
 	ShellSession string `protobuf:"bytes,16,opt,name=shell_session,json=shellSession,proto3" json:"shell_session,omitempty"`
 	// Namespace partitions subscription matching in the event router. Empty is
 	// the default namespace — the behavior every existing task already has. Set
 	// at creation and read-only thereafter (see
-	// proposals/draft/task-namespaces.md).
+	// docs/src/content/docs/proposals/implemented/task-namespaces.md).
 	Namespace     string `protobuf:"bytes,17,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1977,8 +1979,8 @@ func (*UploadLogsResponse) Descriptor() ([]byte, []int) {
 
 // LogChunk is an opaque run of driver log bytes. A task's transcript is the
 // concatenation of its chunks' data in id order — which is write order, because
-// the driver ships with a single in-flight sender.
-// See proposals/implemented/ship-driver-logs-to-server.md.
+// the driver ships with a single in-flight sender. See
+// docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
 type LogChunk struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2599,7 +2601,7 @@ type Event struct {
 	// The set arm IS the event type — a typed union, not an opaque Struct. There
 	// is no separate `type` field on the wire; the db `type` column is
 	// materialized from the arm for indexed filtering (like `direction`). See
-	// proposals/draft/unified-task-event-stream.md.
+	// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md.
 	//
 	// Types that are valid to be assigned to Payload:
 	//
@@ -3056,7 +3058,7 @@ func (x *LinkPayload) GetSubscribe() bool {
 // carries every command the runner has to act on, including the withdrawal of
 // a start and the clear when a runner event consumes the command. Command
 // events are not history; timelines skip them (see
-// proposals/draft/runner-event-replica.md).
+// docs/src/content/docs/proposals/draft/runner-event-replica.md).
 type CommandPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Command       TaskCommand            `protobuf:"varint,1,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
@@ -3130,11 +3132,12 @@ func (x *CommandPayload) GetWorkspace() string {
 // It is the stream replacement for the old logs rows with type='audit'/'info'
 // and the type='error' container-failure rows. Lifecycle events sit beside the
 // existing status mutation in the same transaction; status stays a materialized
-// projection (see proposals/draft/unified-task-event-stream.md "Status stays a
-// projection"). `message` carries the failure detail for SANDBOX_FAILED and is
-// empty for kinds that don't need it. `fields` lists the task fields that
-// changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status") and is empty for
-// other kinds.
+// projection (see
+// docs/src/content/docs/proposals/implemented/unified-task-event-stream.md
+// "Status stays a projection"). `message` carries the failure detail for
+// SANDBOX_FAILED and is empty for kinds that don't need it. `fields` lists the
+// task fields that changed for LIFECYCLE_KIND_UPDATED (e.g. "name", "status")
+// and is empty for other kinds.
 type LifecyclePayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          LifecycleKind          `protobuf:"varint,1,opt,name=kind,proto3,enum=gritz.v1.LifecycleKind" json:"kind,omitempty"`
@@ -6909,8 +6912,9 @@ func (x *CreateGitHubTokenResponse) GetExpiresAt() *timestamppb.Timestamp {
 
 // Schedule is a stored task template plus a cron spec. A server-side scheduler
 // worker materializes a real task run on each occurrence (see
-// proposals/accepted/scheduled-tasks.md). A schedule belongs to an org, not a
-// user — created_by is attribution only and carries no permission semantics.
+// docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
+// belongs to an org, not a user — created_by is attribution only and carries no
+// permission semantics.
 type Schedule struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`

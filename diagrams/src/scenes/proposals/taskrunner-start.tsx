@@ -4,9 +4,9 @@ import {taskRunnerLayout} from '../../layouts/taskrunner';
 import {Colors} from '../../theme';
 
 // A START for a task with no sandbox, traced from
-// proposals/draft/taskrunner-owns-sandbox.md (Start, Registry and the manager,
-// Run): get-or-create the TaskRunner, build the spec, then Start creates the
-// sandbox, records it and claims the run under tr.mu.
+// docs/src/content/docs/proposals/draft/taskrunner-owns-sandbox.md (Start,
+// Registry and the manager, Run): get-or-create the TaskRunner, build the spec,
+// then Start creates the sandbox, records it and claims the run under tr.mu.
 export default makeScene2D(function* (view) {
   const a = taskRunnerLayout(view, 'TaskRunner.Start creates its sandbox');
   const {links} = a;

@@ -12,7 +12,8 @@ import (
 // chunks' Data in ID order, which — because the driver ships with a single
 // in-flight sender — is the order the bytes were written.
 //
-// See proposals/implemented/ship-driver-logs-to-server.md.
+// See
+// docs/src/content/docs/proposals/implemented/ship-driver-logs-to-server.md.
 type LogChunk struct {
 	ID     int64 `json:"id"`
 	OrgID  int64 `json:"org_id"`

@@ -1,5 +1,6 @@
 // Package shellwire defines the end-to-end framing for the driver reverse shell
-// (step 3 of the design in proposals/draft/driver-reverse-shell.md).
+// (step 3 of the design in
+// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md).
 //
 // Frames travel as binary WebSocket messages between the driver (which owns the
 // PTY) and the operator's client. The server-side relay

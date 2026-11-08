@@ -3,11 +3,11 @@ import {all, waitFor} from '@motion-canvas/core';
 import {replicaLayout} from '../../layouts/replica';
 import {Colors} from '../../theme';
 
-// The commit-safe read, traced from proposals/draft/runner-event-replica.md
-// (Problem; Server: a commit-safe read with an xid watermark; Server: an
-// opaque cursor; Inside taskevents: Replication): two transactions commit out of id order, the
-// watermark holds the later id back until the earlier transaction commits,
-// and Log stores the page and wakes the tasks' streams.
+// The commit-safe read, traced from
+// docs/src/content/docs/proposals/draft/runner-event-replica.md (Problem; Server: a
+// commit-safe read with an xid watermark; Server: an opaque cursor; Inside taskevents:
+// Replication): two transactions commit out of id order, the watermark holds the later id back
+// until the earlier transaction commits, and Log stores the page and wakes the tasks' streams.
 export default makeScene2D(function* (view) {
   const a = replicaLayout(view, 'ListRunnerEvents reads below the xid watermark');
   const {links} = a;

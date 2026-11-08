@@ -76,7 +76,7 @@ type Task struct {
 	// Namespace partitions subscription matching in the event router. Empty is
 	// the default namespace — the behavior every existing task already has. It is
 	// set at creation and read-only thereafter (see
-	// proposals/draft/task-namespaces.md).
+	// docs/src/content/docs/proposals/implemented/task-namespaces.md).
 	Namespace string `json:"namespace,omitempty"`
 	// AutoArchive controls auto-archive after the task reaches a terminal
 	// status. 0 = never (default); <0 = archive immediately; >0 = delay.
@@ -84,7 +84,8 @@ type Task struct {
 	// ShellSession is the rendezvous session id for a driver reverse-shell run.
 	// Non-empty => this sandbox run is a shell for that session; empty => normal
 	// agent run. Persistent and server-owned (see
-	// proposals/draft/driver-reverse-shell.md). Inert for now — no consumers yet.
+	// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md).
+	// Inert for now — no consumers yet.
 	ShellSession string `json:"shell_session,omitempty"`
 }
 
@@ -113,7 +114,8 @@ func (t *Task) LogValue() slog.Value {
 // post-load Allow check in the apiserver task handlers. Centralizing the set
 // here keeps a handler from forgetting one (especially task.archived): own-task
 // matching rides on task.id and archive-based revocation on task.archived. See
-// proposals/implemented/eliminate-runner-socket-proxy.md §5.
+// docs/src/content/docs/proposals/implemented/eliminate-runner-socket-proxy.md
+// §5.
 func (t *Task) ScopeAttr() []authscope.Attr {
 	return []authscope.Attr{
 		authscope.WithTaskID(t.ID),
@@ -225,10 +227,11 @@ func (t *Task) ApplyRunnerEvent(e *RunnerEvent) bool {
 		return false
 	}
 
-	// The version is the run counter (see proposals/draft/task-run-versions.md):
-	// N >= 1 is scoped to run N, so the event applies only when it matches the
-	// task's current run; 0 is the unscoped bypass, applying regardless of the
-	// task's version. The guard logic is unchanged — only its meaning is now
+	// The version is the run counter (see
+	// docs/src/content/docs/proposals/implemented/task-run-versions.md): N >= 1
+	// is scoped to run N, so the event applies only when it matches the task's
+	// current run; 0 is the unscoped bypass, applying regardless of the task's
+	// version. The guard logic is unchanged — only its meaning is now
 	// normative.
 	if e.Version != 0 && e.Version != t.Version {
 		return false
@@ -283,7 +286,7 @@ func (t *Task) applyRunnerEventStopped() bool {
 			// boundary: run N's exit provisions run N+1. Go back to pending so
 			// the runner picks it up and starts a new container, keep the start
 			// command for it, and bump the version to N+1 (see
-			// proposals/draft/task-run-versions.md).
+			// docs/src/content/docs/proposals/implemented/task-run-versions.md).
 			t.Status = TaskStatusPending
 			t.Version++
 			return true

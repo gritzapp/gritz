@@ -16,7 +16,7 @@ import (
 // Attrs maps a dimension name to the event's values for that dimension.
 // Single-valued dimensions are one-element slices. Webhook handlers populate it
 // at extraction time and the attribute matcher (Match) reads from it. See
-// proposals/draft/attribute-based-event-matching.md.
+// docs/src/content/docs/proposals/implemented/attribute-based-event-matching.md.
 type Attrs map[string][]string
 
 // InputEvent represents a parsed webhook event ready for routing. Its matchable

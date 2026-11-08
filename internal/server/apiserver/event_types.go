@@ -94,7 +94,8 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 }
 
 // TestEvent feeds a hand-composed synthetic event into the real routing code
-// scoped to the caller's org (see proposals/draft/test-event-injection.md). It
+// scoped to the caller's org (see
+// docs/src/content/docs/proposals/implemented/test-event-injection.md). It
 // supports two modes:
 //
 //   - Dry run (fire=false, OpOrgRead): composes an InputEvent from the request,

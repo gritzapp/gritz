@@ -23,10 +23,10 @@ type Driver struct {
 	Client gritzclient.Client
 	// Log bundles the driver's structured logger with the append-only
 	// /gritz/log sink it tees setup command and Claude CLI output into (see
-	// proposals/implemented/driver-logs-to-sandbox.md). It is required: the
-	// driver server builds it via agent.OpenDriverLog, and tests use
-	// agent.DiscardDriverLog. os.Stdout/os.Stderr stay in every tee, so docker
-	// logs output is unchanged.
+	// docs/src/content/docs/proposals/implemented/driver-logs-to-sandbox.md).
+	// It is required: the driver server builds it via agent.OpenDriverLog, and
+	// tests use agent.DiscardDriverLog. os.Stdout/os.Stderr stay in every tee,
+	// so docker logs output is unchanged.
 	Log    *DriverLog
 	Config ConfigStore // where the task config file lives
 	// Events is the driver's event file, which the prompt renders from.
@@ -151,10 +151,10 @@ func (d *Driver) submit(ctx context.Context, event model.RunnerEvent) error {
 // run forks into one of two mutually exclusive modes: a debug-shell run when
 // the task carries a shell_session, or the normal agent path otherwise. A
 // sandbox run is one mode, chosen once at startup (see the design in
-// proposals/draft/driver-reverse-shell.md). The fork lives inside run so a
-// shell run emits the same started/stopped/failed lifecycle events as an agent
-// run. The task is fetched once by Run and passed in, so this reuses that
-// single read rather than fetching again.
+// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md). The
+// fork lives inside run so a shell run emits the same started/stopped/failed
+// lifecycle events as an agent run. The task is fetched once by Run and passed
+// in, so this reuses that single read rather than fetching again.
 func (d *Driver) run(ctx context.Context, task *gritzv1.Task) error {
 	if session := task.GetShellSession(); session != "" {
 		return shell.Serve(ctx, shell.ServeOptions{
@@ -197,7 +197,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// cursor is held on cfg but persisted only by the post-run Save below, so a
 	// run that fails before that Save leaves the stored cursor untouched and the
 	// next run reads from the same position (at-least-once). See
-	// proposals/draft/runner-event-replica.md.
+	// docs/src/content/docs/proposals/draft/runner-event-replica.md.
 	events, last, err := d.promptEvents(cfg.PromptedEventID)
 	if err != nil {
 		return err
@@ -210,9 +210,10 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// learns its task without a tool round-trip. The brief's events are the
 	// instruction+external slice already read above (on the first run
 	// cfg.PromptedEventID is 0, so the read starts at the head of the file and
-	// returns exactly that slice); only the links need a fresh read. A wake
-	// run leaves promptLinks nil and is completely unchanged (the wake branch
-	// renders Events instead). See proposals/draft/first-run-brief-injection.md.
+	// returns exactly that slice); only the links need a fresh read. A wake run
+	// leaves promptLinks nil and is completely unchanged (the wake branch renders
+	// Events instead). See
+	// docs/src/content/docs/proposals/implemented/first-run-brief-injection.md.
 	var promptLinks []*gritzv1.TaskLink
 	if !cfg.Started {
 		resp, err := d.Client.ListLinks(ctx, &gritzv1.ListLinksRequest{TaskId: d.TaskID})

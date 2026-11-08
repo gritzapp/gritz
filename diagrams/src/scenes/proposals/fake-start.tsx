@@ -4,11 +4,11 @@ import {fakeBackendLayout} from '../../layouts/fakebackend';
 import {Colors} from '../../theme';
 
 // A run on the fake backend, traced from
-// proposals/implemented/fake-runner-backend.md (State machine, Observations, Driver
-// hookup, "a sandbox that fails to start"): the test calls TaskManager.Start,
-// the fake records the Spec and takes c1 created -> up -> parked, its driver
-// answers only while c1 is up, and the test waits with TaskManager.Wait and
-// asserts on Snapshot.
+// docs/src/content/docs/proposals/implemented/fake-runner-backend.md (State
+// machine, Observations, Driver hookup, "a sandbox that fails to start"): the
+// test calls TaskManager.Start, the fake records the Spec and takes c1 created
+// -> up -> parked, its driver answers only while c1 is up, and the test waits
+// with TaskManager.Wait and asserts on Snapshot.
 export default makeScene2D(function* (view) {
   const a = fakeBackendLayout(view, 'A run on the fake backend');
   const {links} = a;

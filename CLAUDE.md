@@ -110,6 +110,8 @@ cd docs && pnpm build     # Build docs and diagrams; starlight-links-validator f
 
 The docs build also builds the Motion Canvas diagrams in `diagrams/` (`pnpm diagrams`, into the gitignored `docs/public/diagrams/`), served at `/diagrams/` (index) and `/diagrams/<slug>/`. In an `.mdx` page, `<Diagram slug="create-task" />` (`docs/src/components/Diagram.astro`) plays one inline, with a link to its own page; the build fails if the project doesn't exist. Markdown links to `/diagrams/...` are checked against the built files.
 
+Design proposals are docs pages too, in `docs/src/content/docs/proposals/{draft,implemented,rejected}/`, listed in the Proposals sidebar section and left out of the llms.txt documentation sets. Write and move them with the `proposal` skill. The "What belongs in the docs" rules below don't apply to proposals: they are design history for contributors.
+
 `docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link.
 
 **A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR, if that page no longer describes it correctly.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update. See "What belongs in the docs" below before writing anything.
@@ -128,7 +130,7 @@ Config examples in the docs follow the `secrets:` rule above: credentials go und
 
 ### What belongs in the docs
 
-The docs are for people who use or operate gritz, not for people who work on it. They describe what gritz does now, in terms the reader acts on: commands, flags, config fields, UI, event attributes, observable behaviour.
+The docs are for people who use or operate gritz, not for people who work on it. They describe what gritz does now, in terms the reader acts on: commands, flags, config fields, UI, event attributes, observable behaviour. None of this applies to the proposals.
 
 - **Most bug fixes need no docs change.** If a careful reader of the page as it stands would already expect the fixed behaviour, the page is correct and stays as it is. Update it only when it described the buggy behaviour, documented a workaround the fix removes, or the fix changes what the user sees or does.
 - **Don't document the absence of a bug.** No "X no longer resets Y", "X now correctly …", or "Note: X does not …" for a failure nobody would assume.

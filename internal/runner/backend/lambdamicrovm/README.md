@@ -3,7 +3,7 @@
 Runs each task in an AWS Lambda MicroVM whose main process is the driver server
 (`gritz driver --aws-lambda-hooks`). The runner starts each run with
 driver.v1 `Run` over AWS's managed proxy and suspends the VM after every run.
-See `proposals/draft/driver-server.md`.
+See `docs/src/content/docs/proposals/draft/driver-server.md`.
 
 ```
 AWS_REGION=us-east-1 gritz runner --backend lambda-microvm

@@ -4,10 +4,10 @@ import {taskRunnerLayout} from '../../layouts/taskrunner';
 import {Colors} from '../../theme';
 
 // A sandbox that vanishes mid-run, traced from
-// proposals/draft/taskrunner-owns-sandbox.md (Run, Events, Start): attach
-// reports the run lost through the events channel and keeps the record; the
-// next START clears the gone sandbox and fails with ErrGone, as today; the
-// START after that creates a fresh sandbox.
+// docs/src/content/docs/proposals/draft/taskrunner-owns-sandbox.md (Run,
+// Events, Start): attach reports the run lost through the events channel and
+// keeps the record; the next START clears the gone sandbox and fails with
+// ErrGone, as today; the START after that creates a fresh sandbox.
 export default makeScene2D(function* (view) {
   const a = taskRunnerLayout(view, 'A gone sandbox: lost, failed, then fresh');
   const {links} = a;

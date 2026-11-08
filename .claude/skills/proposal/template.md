@@ -1,4 +1,7 @@
-# Title
+---
+title: Title
+description: One sentence summarizing the problem the proposal addresses.
+---
 
 Issue: https://github.com/gritzapp/gritz/issues/NNN
 
@@ -55,7 +58,8 @@ calls `Create`.
 
 Only when the user explicitly asked for a visualization; otherwise omit this
 section. The Motion Canvas project for this proposal: its path
-(`diagrams/src/projects/proposals/<slug>.ts`) and one line per scene saying which
+(`diagrams/src/projects/proposals/<slug>.ts`), a link to its page
+(`[diagram](/diagrams/proposals/<slug>/)`), and one line per scene saying which
 flow it shows. View it with `mise run motioncanvas`.
 
 ## Implementation Plan

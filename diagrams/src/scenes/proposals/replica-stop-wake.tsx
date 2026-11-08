@@ -4,13 +4,13 @@ import {replicaLayout} from '../../layouts/replica';
 import {Colors} from '../../theme';
 
 // A stop, a park and a wake, traced from
-// proposals/draft/runner-event-replica.md (Driver: Run becomes a
-// bidirectional stream, What the driver does with each event, Runner events
-// still go to the server directly, RunEnded; Runner: TaskRunner acts on its
-// stream): the driver stops the run and submits stopped itself, the
-// TaskRunner parks on RunEnded, and the next start
-// boots the sandbox again and resends only the events after the driver's
-// Hello position. Picks up where replica-start ends.
+// docs/src/content/docs/proposals/draft/runner-event-replica.md (Driver: Run
+// becomes a bidirectional stream, What the driver does with each event, Runner
+// events still go to the server directly, RunEnded; Runner: TaskRunner acts on
+// its stream): the driver stops the run and submits stopped itself, the
+// TaskRunner parks on RunEnded, and the next start boots the sandbox again and
+// resends only the events after the driver's Hello position. Picks up where
+// replica-start ends.
 export default makeScene2D(function* (view) {
   const a = replicaLayout(view, 'Stop, park, and resume from the driver’s position');
   const {links} = a;

@@ -1,7 +1,7 @@
 # e2e harness rules
 
 Rules for `internal/e2e` and the tests built on it. The design is in
-`proposals/draft/e2e-harness.md`.
+`docs/src/content/docs/proposals/draft/e2e-harness.md`.
 
 ## Where tests live
 

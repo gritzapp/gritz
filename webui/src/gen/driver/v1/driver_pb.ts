@@ -2,104 +2,17 @@
 // @generated from file driver/v1/driver.proto (package driver.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Event } from "../../gritz/v1/gritz_pb";
+import { file_gritz_v1_gritz } from "../../gritz/v1/gritz_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file driver/v1/driver.proto.
  */
 export const file_driver_v1_driver: GenFile = /*@__PURE__*/
-  fileDesc("ChZkcml2ZXIvdjEvZHJpdmVyLnByb3RvEglkcml2ZXIudjEivwEKCVJ1blJlY29yZBIPCgd2ZXJzaW9uGAEgASgDEikKBXN0YXRlGAIgASgOMhouZHJpdmVyLnYxLlJ1blJlY29yZC5TdGF0ZRIvCgtmaW5pc2hlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiRQoFU3RhdGUSFQoRU1RBVEVfVU5TUEVDSUZJRUQQABIRCg1TVEFURV9SVU5OSU5HEAESEgoOU1RBVEVfRklOSVNIRUQQAiIPCg1TdGF0dXNSZXF1ZXN0IkAKDlN0YXR1c1Jlc3BvbnNlEiYKA3J1bhgBIAEoCzIULmRyaXZlci52MS5SdW5SZWNvcmRIAIgBAUIGCgRfcnVuIpUCCgdSdW5TcGVjEigKA2VudhgFIAMoCzIbLmRyaXZlci52MS5SdW5TcGVjLkVudkVudHJ5EjAKB3NlY3JldHMYBiADKAsyHy5kcml2ZXIudjEuUnVuU3BlYy5TZWNyZXRzRW50cnkSHgoFZmlsZXMYByADKAsyDy5kcml2ZXIudjEuRmlsZRIPCgd0YXNrX2lkGAggASgDEhIKCnNlcnZlcl91cmwYCSABKAkSDQoFdG9rZW4YCiABKAkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARouCgxTZWNyZXRzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASI9CgRGaWxlEgwKBHBhdGgYASABKAkSDAoEZGF0YRgCIAEoDBIMCgRtb2RlGAMgASgDEgsKA2RpchgEIAEoCCI/CgpSdW5SZXF1ZXN0Eg8KB3ZlcnNpb24YASABKAMSIAoEc3BlYxgCIAEoCzISLmRyaXZlci52MS5SdW5TcGVjIpQBCgtSdW5SZXNwb25zZRInCghhY2NlcHRlZBgCIAEoCzITLmRyaXZlci52MS5BY2NlcHRlZEgAEioKCmtlZXBfYWxpdmUYAyABKAsyFC5kcml2ZXIudjEuS2VlcEFsaXZlSAASJwoIZmluaXNoZWQYBiABKAsyEy5kcml2ZXIudjEuRmluaXNoZWRIAEIHCgVldmVudCIcCghBY2NlcHRlZBIQCghhdHRhY2hlZBgBIAEoCCItCghGaW5pc2hlZBIPCgd2ZXJzaW9uGAEgASgDEhAKCHJlcG9ydGVkGAIgASgIIgsKCUtlZXBBbGl2ZSIeCgtTdG9wUmVxdWVzdBIPCgd2ZXJzaW9uGAEgASgDIh8KDFN0b3BSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIMr8BCg1Ecml2ZXJTZXJ2aWNlEj0KBlN0YXR1cxIYLmRyaXZlci52MS5TdGF0dXNSZXF1ZXN0GhkuZHJpdmVyLnYxLlN0YXR1c1Jlc3BvbnNlEjYKA1J1bhIVLmRyaXZlci52MS5SdW5SZXF1ZXN0GhYuZHJpdmVyLnYxLlJ1blJlc3BvbnNlMAESNwoEU3RvcBIWLmRyaXZlci52MS5TdG9wUmVxdWVzdBoXLmRyaXZlci52MS5TdG9wUmVzcG9uc2VCPVo7Z2l0aHViLmNvbS9ncml0emFwcC9ncml0ei9pbnRlcm5hbC9wcm90by9kcml2ZXIvdjE7ZHJpdmVydjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
-
-/**
- * @generated from message driver.v1.RunRecord
- */
-export type RunRecord = Message<"driver.v1.RunRecord"> & {
-  /**
-   * @generated from field: int64 version = 1;
-   */
-  version: bigint;
-
-  /**
-   * @generated from field: driver.v1.RunRecord.State state = 2;
-   */
-  state: RunRecord_State;
-
-  /**
-   * When the run finished.
-   *
-   * @generated from field: google.protobuf.Timestamp finished_at = 3;
-   */
-  finishedAt?: Timestamp | undefined;
-};
-
-/**
- * Describes the message driver.v1.RunRecord.
- * Use `create(RunRecordSchema)` to create a new message.
- */
-export const RunRecordSchema: GenMessage<RunRecord> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 0);
-
-/**
- * @generated from enum driver.v1.RunRecord.State
- */
-export enum RunRecord_State {
-  /**
-   * @generated from enum value: STATE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: STATE_RUNNING = 1;
-   */
-  RUNNING = 1,
-
-  /**
-   * @generated from enum value: STATE_FINISHED = 2;
-   */
-  FINISHED = 2,
-}
-
-/**
- * Describes the enum driver.v1.RunRecord.State.
- */
-export const RunRecord_StateSchema: GenEnum<RunRecord_State> = /*@__PURE__*/
-  enumDesc(file_driver_v1_driver, 0, 0);
-
-/**
- * @generated from message driver.v1.StatusRequest
- */
-export type StatusRequest = Message<"driver.v1.StatusRequest"> & {
-};
-
-/**
- * Describes the message driver.v1.StatusRequest.
- * Use `create(StatusRequestSchema)` to create a new message.
- */
-export const StatusRequestSchema: GenMessage<StatusRequest> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 1);
-
-/**
- * @generated from message driver.v1.StatusResponse
- */
-export type StatusResponse = Message<"driver.v1.StatusResponse"> & {
-  /**
-   * Absent if this sandbox has never started a run.
-   *
-   * @generated from field: optional driver.v1.RunRecord run = 1;
-   */
-  run?: RunRecord | undefined;
-};
-
-/**
- * Describes the message driver.v1.StatusResponse.
- * Use `create(StatusResponseSchema)` to create a new message.
- */
-export const StatusResponseSchema: GenMessage<StatusResponse> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 2);
+  fileDesc("ChZkcml2ZXIvdjEvZHJpdmVyLnByb3RvEglkcml2ZXIudjEilQIKB1J1blNwZWMSKAoDZW52GAUgAygLMhsuZHJpdmVyLnYxLlJ1blNwZWMuRW52RW50cnkSMAoHc2VjcmV0cxgGIAMoCzIfLmRyaXZlci52MS5SdW5TcGVjLlNlY3JldHNFbnRyeRIeCgVmaWxlcxgHIAMoCzIPLmRyaXZlci52MS5GaWxlEg8KB3Rhc2tfaWQYCCABKAMSEgoKc2VydmVyX3VybBgJIAEoCRINCgV0b2tlbhgKIAEoCRoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGi4KDFNlY3JldHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIj0KBEZpbGUSDAoEcGF0aBgBIAEoCRIMCgRkYXRhGAIgASgMEgwKBG1vZGUYAyABKAMSCwoDZGlyGAQgASgIImwKClJ1blJlcXVlc3QSJwoGZXZlbnRzGAMgASgLMhUuZHJpdmVyLnYxLlRhc2tFdmVudHNIABIiCgRzcGVjGAUgASgLMhIuZHJpdmVyLnYxLlJ1blNwZWNIAEIFCgNtc2dKBAgBEAJKBAgCEAMiLQoKVGFza0V2ZW50cxIfCgZldmVudHMYASADKAsyDy5ncml0ei52MS5FdmVudCKEAQoLUnVuUmVzcG9uc2USKgoKa2VlcF9hbGl2ZRgDIAEoCzIULmRyaXZlci52MS5LZWVwQWxpdmVIABIhCgVoZWxsbxgHIAEoCzIQLmRyaXZlci52MS5IZWxsb0gAEh8KBGlkbGUYCCABKAsyDy5kcml2ZXIudjEuSWRsZUgAQgUKA21zZyIeCgVIZWxsbxIVCg1sYXN0X2V2ZW50X2lkGAEgASgDIikKBElkbGUSDwoHdmVyc2lvbhgBIAEoAxIQCghyZXBvcnRlZBgCIAEoCCILCglLZWVwQWxpdmUySQoNRHJpdmVyU2VydmljZRI4CgNSdW4SFS5kcml2ZXIudjEuUnVuUmVxdWVzdBoWLmRyaXZlci52MS5SdW5SZXNwb25zZSgBMAFCPVo7Z2l0aHViLmNvbS9ncml0emFwcC9ncml0ei9pbnRlcm5hbC9wcm90by9kcml2ZXIvdjE7ZHJpdmVydjFiBnByb3RvMw", [file_gritz_v1_gritz]);
 
 /**
  * RunSpec carries everything the driver reads from its flags and its
@@ -160,7 +73,7 @@ export type RunSpec = Message<"driver.v1.RunSpec"> & {
  * Use `create(RunSpecSchema)` to create a new message.
  */
 export const RunSpecSchema: GenMessage<RunSpec> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 3);
+  messageDesc(file_driver_v1_driver, 0);
 
 /**
  * File is a file or directory the driver writes into the sandbox.
@@ -202,23 +115,34 @@ export type File = Message<"driver.v1.File"> & {
  * Use `create(FileSchema)` to create a new message.
  */
 export const FileSchema: GenMessage<File> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 4);
+  messageDesc(file_driver_v1_driver, 1);
 
 /**
  * @generated from message driver.v1.RunRequest
  */
 export type RunRequest = Message<"driver.v1.RunRequest"> & {
   /**
-   * @generated from field: int64 version = 1;
+   * @generated from oneof driver.v1.RunRequest.msg
    */
-  version: bigint;
-
-  /**
-   * Set to start a run. Omitted to attach.
-   *
-   * @generated from field: driver.v1.RunSpec spec = 2;
-   */
-  spec?: RunSpec | undefined;
+  msg: {
+    /**
+     * The task's events, in log order. Never on the first message.
+     *
+     * @generated from field: driver.v1.TaskEvents events = 3;
+     */
+    value: TaskEvents;
+    case: "events";
+  } | {
+    /**
+     * The spec the driver starts runs with, until a later stream brings
+     * another. Only on the first message; omitted, the driver keeps the one
+     * it has.
+     *
+     * @generated from field: driver.v1.RunSpec spec = 5;
+     */
+    value: RunSpec;
+    case: "spec";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
@@ -226,24 +150,33 @@ export type RunRequest = Message<"driver.v1.RunRequest"> & {
  * Use `create(RunRequestSchema)` to create a new message.
  */
 export const RunRequestSchema: GenMessage<RunRequest> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 5);
+  messageDesc(file_driver_v1_driver, 2);
+
+/**
+ * @generated from message driver.v1.TaskEvents
+ */
+export type TaskEvents = Message<"driver.v1.TaskEvents"> & {
+  /**
+   * @generated from field: repeated gritz.v1.Event events = 1;
+   */
+  events: Event[];
+};
+
+/**
+ * Describes the message driver.v1.TaskEvents.
+ * Use `create(TaskEventsSchema)` to create a new message.
+ */
+export const TaskEventsSchema: GenMessage<TaskEvents> = /*@__PURE__*/
+  messageDesc(file_driver_v1_driver, 3);
 
 /**
  * @generated from message driver.v1.RunResponse
  */
 export type RunResponse = Message<"driver.v1.RunResponse"> & {
   /**
-   * @generated from oneof driver.v1.RunResponse.event
+   * @generated from oneof driver.v1.RunResponse.msg
    */
-  event: {
-    /**
-     * First message on every stream.
-     *
-     * @generated from field: driver.v1.Accepted accepted = 2;
-     */
-    value: Accepted;
-    case: "accepted";
-  } | {
+  msg: {
     /**
      * @generated from field: driver.v1.KeepAlive keep_alive = 3;
      */
@@ -251,12 +184,21 @@ export type RunResponse = Message<"driver.v1.RunResponse"> & {
     case: "keepAlive";
   } | {
     /**
-     * Last message of a run. Sent after its terminal runner event.
+     * First message on every stream.
      *
-     * @generated from field: driver.v1.Finished finished = 6;
+     * @generated from field: driver.v1.Hello hello = 7;
      */
-    value: Finished;
-    case: "finished";
+    value: Hello;
+    case: "hello";
+  } | {
+    /**
+     * Last message of a stream: no run is in progress and no newer start or
+     * restart is pending. Sent after the last run's terminal runner event.
+     *
+     * @generated from field: driver.v1.Idle idle = 8;
+     */
+    value: Idle;
+    case: "idle";
   } | { case: undefined; value?: undefined };
 };
 
@@ -265,38 +207,44 @@ export type RunResponse = Message<"driver.v1.RunResponse"> & {
  * Use `create(RunResponseSchema)` to create a new message.
  */
 export const RunResponseSchema: GenMessage<RunResponse> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 6);
+  messageDesc(file_driver_v1_driver, 4);
 
 /**
- * @generated from message driver.v1.Accepted
+ * @generated from message driver.v1.Hello
  */
-export type Accepted = Message<"driver.v1.Accepted"> & {
+export type Hello = Message<"driver.v1.Hello"> & {
   /**
-   * True if the call attached to an existing run rather than starting one.
+   * Id of the last event the driver has stored; 0 for none.
    *
-   * @generated from field: bool attached = 1;
+   * @generated from field: int64 last_event_id = 1;
    */
-  attached: boolean;
+  lastEventId: bigint;
 };
 
 /**
- * Describes the message driver.v1.Accepted.
- * Use `create(AcceptedSchema)` to create a new message.
+ * Describes the message driver.v1.Hello.
+ * Use `create(HelloSchema)` to create a new message.
  */
-export const AcceptedSchema: GenMessage<Accepted> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 7);
+export const HelloSchema: GenMessage<Hello> = /*@__PURE__*/
+  messageDesc(file_driver_v1_driver, 5);
 
 /**
- * @generated from message driver.v1.Finished
+ * Idle is the last message of a Run stream: the driver's run has ended and
+ * no newer start or restart is pending in its event file.
+ *
+ * @generated from message driver.v1.Idle
  */
-export type Finished = Message<"driver.v1.Finished"> & {
+export type Idle = Message<"driver.v1.Idle"> & {
   /**
+   * Version of the last run; 0 if the driver has never run one.
+   *
    * @generated from field: int64 version = 1;
    */
   version: bigint;
 
   /**
-   * True if the server acknowledged the run's terminal runner event.
+   * Whether the driver's SubmitRunnerEvents call for the run's terminal event
+   * succeeded. False makes the runner report the run failed.
    *
    * @generated from field: bool reported = 2;
    */
@@ -304,11 +252,11 @@ export type Finished = Message<"driver.v1.Finished"> & {
 };
 
 /**
- * Describes the message driver.v1.Finished.
- * Use `create(FinishedSchema)` to create a new message.
+ * Describes the message driver.v1.Idle.
+ * Use `create(IdleSchema)` to create a new message.
  */
-export const FinishedSchema: GenMessage<Finished> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 8);
+export const IdleSchema: GenMessage<Idle> = /*@__PURE__*/
+  messageDesc(file_driver_v1_driver, 6);
 
 /**
  * @generated from message driver.v1.KeepAlive
@@ -321,95 +269,36 @@ export type KeepAlive = Message<"driver.v1.KeepAlive"> & {
  * Use `create(KeepAliveSchema)` to create a new message.
  */
 export const KeepAliveSchema: GenMessage<KeepAlive> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 9);
-
-/**
- * @generated from message driver.v1.StopRequest
- */
-export type StopRequest = Message<"driver.v1.StopRequest"> & {
-  /**
-   * @generated from field: int64 version = 1;
-   */
-  version: bigint;
-};
-
-/**
- * Describes the message driver.v1.StopRequest.
- * Use `create(StopRequestSchema)` to create a new message.
- */
-export const StopRequestSchema: GenMessage<StopRequest> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 10);
-
-/**
- * @generated from message driver.v1.StopResponse
- */
-export type StopResponse = Message<"driver.v1.StopResponse"> & {
-  /**
-   * True if a running run with this version was stopped.
-   *
-   * @generated from field: bool stopped = 1;
-   */
-  stopped: boolean;
-};
-
-/**
- * Describes the message driver.v1.StopResponse.
- * Use `create(StopResponseSchema)` to create a new message.
- */
-export const StopResponseSchema: GenMessage<StopResponse> = /*@__PURE__*/
-  messageDesc(file_driver_v1_driver, 11);
+  messageDesc(file_driver_v1_driver, 7);
 
 /**
  * DriverService is served by `gritz driver` inside the sandbox and
  * called by the runner. Runs execute in-process, one at a time.
  *
- * Field numbers follow proposals/draft/driver-server.md, so the fields later
- * steps add stay wire-compatible with drivers built from this cut.
- *
  * @generated from service driver.v1.DriverService
  */
 export const DriverService: GenService<{
   /**
-   * Status reports that the server is up, plus the current run record.
+   * Run is the runner's connection to the driver for one busy period. The
+   * runner sends a first message, with the RunSpec to start runs with, and
+   * the driver answers Hello. The runner then sends the task's events after
+   * the driver's position as TaskEvents: first one batch, possibly empty,
+   * with every event it has, then new ones as they are replicated. The driver
+   * stores them in its event file and acts on the latest command among them:
+   * it starts, restarts and stops runs itself, running consecutive versions
+   * on the same stream. Once it has the first batch, it sends Idle and ends
+   * the stream when no run is in progress and no newer start or restart is
+   * pending.
    *
-   * @generated from rpc driver.v1.DriverService.Status
-   */
-  status: {
-    methodKind: "unary";
-    input: typeof StatusRequestSchema;
-    output: typeof StatusResponseSchema;
-  },
-  /**
-   * Run is attach-or-start, keyed on version:
-   *   another Run stream already open      -> Unavailable (retry)
-   *   record.version > version             -> FailedPrecondition (stale)
-   *   record.version == version            -> attach, spec ignored
-   *   no record / older version, idle      -> start the run (spec required,
-   *                                           NotFound without one)
-   *   another version running              -> Aborted (busy)
-   * At most one Run stream is open at a time. The stream ends after the run's
-   * Finished has been sent. A dropped or closed stream detaches and nothing
-   * else: the run keeps going.
+   * At most one Run stream is open at a time; another is Unavailable. A
+   * dropped or closed stream detaches and nothing else: the run keeps going.
    *
    * @generated from rpc driver.v1.DriverService.Run
    */
   run: {
-    methodKind: "server_streaming";
+    methodKind: "bidi_streaming";
     input: typeof RunRequestSchema;
     output: typeof RunResponseSchema;
-  },
-  /**
-   * Stop gracefully stops the run with the given version: cancel the run
-   * context with ErrStop (agents and setup commands SIGTERM their process
-   * groups); the run reports its terminal event and sends Finished as usual.
-   * A no-op if that version is not the active run.
-   *
-   * @generated from rpc driver.v1.DriverService.Stop
-   */
-  stop: {
-    methodKind: "unary";
-    input: typeof StopRequestSchema;
-    output: typeof StopResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_driver_v1_driver, 0);
