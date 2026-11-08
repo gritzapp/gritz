@@ -8,14 +8,6 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-// testdata returns the absolute path of elem under testdata.
-func testdata(t *testing.T, elem ...string) string {
-	t.Helper()
-	p, err := filepath.Abs(filepath.Join(append([]string{"testdata"}, elem...)...))
-	assert.NilError(t, err)
-	return p
-}
-
 func TestRead(t *testing.T) {
 	t.Parallel()
 
@@ -57,14 +49,14 @@ func TestRead_UnknownField(t *testing.T) {
 func TestLoadV2(t *testing.T) {
 	t.Parallel()
 	// Arrange - a base layer, a parent directory and a repo below it
-	base := testdata(t, "tree", "config", Name)
-	work := testdata(t, "tree", "work", Name)
-	repo := testdata(t, "tree", "work", "repo", Name)
+	base := filepath.FromSlash("testdata/tree/config/.gritz.yml")
+	work := filepath.FromSlash("testdata/tree/work/.gritz.yml")
+	repo := filepath.FromSlash("testdata/tree/work/repo/.gritz.yml")
 
 	// Act
 	m, err := LoadV2(LoadOptions{
-		Dir:  testdata(t, "tree", "work", "repo"),
-		Root: testdata(t, "tree"),
+		Dir:  filepath.FromSlash("testdata/tree/work/repo"),
+		Root: filepath.FromSlash("testdata/tree"),
 		Base: base,
 	})
 
@@ -90,11 +82,11 @@ func TestLoadV2(t *testing.T) {
 
 func TestLoadV2_BaseOnly(t *testing.T) {
 	t.Parallel()
-	base := testdata(t, "base-only", "config", Name)
+	base := filepath.FromSlash("testdata/base-only/config/.gritz.yml")
 
 	m, err := LoadV2(LoadOptions{
-		Dir:  testdata(t, "base-only"),
-		Root: testdata(t, "base-only"),
+		Dir:  filepath.FromSlash("testdata/base-only"),
+		Root: filepath.FromSlash("testdata/base-only"),
 		Base: base,
 	})
 
@@ -109,7 +101,7 @@ func TestLoadV2_BaseOnly(t *testing.T) {
 
 func TestLoadV2_NoFiles(t *testing.T) {
 	t.Parallel()
-	dir := testdata(t, "tree")
+	dir := filepath.FromSlash("testdata/tree")
 
 	m, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, Name)})
 
@@ -130,7 +122,7 @@ func TestLoadV2_NotRegular(t *testing.T) {
 
 func TestLoadV2_UnknownField(t *testing.T) {
 	t.Parallel()
-	dir := testdata(t, "unknown-field")
+	dir := filepath.FromSlash("testdata/unknown-field")
 
 	_, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
 

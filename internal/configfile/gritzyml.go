@@ -65,7 +65,7 @@ type Merged struct {
 
 // LoadOptions configures LoadV2.
 type LoadOptions struct {
-	// Dir is where the walk starts.
+	// Dir is where the walk starts. It must be absolute unless Root is set.
 	Dir string
 	// Root is the last directory the walk visits; empty means /.
 	Root string
@@ -77,6 +77,9 @@ type LoadOptions struct {
 //
 // TODO: rename to Load once the config.json Load is removed.
 func LoadV2(opts LoadOptions) (*Merged, error) {
+	if opts.Root == "" && !filepath.IsAbs(opts.Dir) {
+		panic("configfile: LoadV2 walks to / from a relative Dir")
+	}
 	base := opts.Base
 	if base == "" {
 		configDir, err := Dir()
@@ -85,27 +88,13 @@ func LoadV2(opts LoadOptions) (*Merged, error) {
 		}
 		base = filepath.Join(configDir, Name)
 	}
-	base, err := filepath.Abs(base)
-	if err != nil {
-		return nil, err
-	}
-	dir, err := filepath.Abs(opts.Dir)
-	if err != nil {
-		return nil, err
-	}
-	root := opts.Root
-	if root != "" {
-		if root, err = filepath.Abs(root); err != nil {
-			return nil, err
-		}
-	}
 	// Collected nearest first; merged in reverse, base first.
 	var paths []string
-	for d := dir; ; d = filepath.Dir(d) {
+	for d := opts.Dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
 			paths = append(paths, p)
 		}
-		if d == root || filepath.Dir(d) == d {
+		if d == opts.Root || filepath.Dir(d) == d {
 			break
 		}
 	}
