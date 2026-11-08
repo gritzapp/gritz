@@ -3,7 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import starlightLinksValidator from 'starlight-links-validator';
 import starlightLlmsTxt from 'starlight-llms-txt';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { sections, sets } from './src/sections.mjs';
 
 // PR previews build with DOCS_BASE=/pr/<n>/. Astro writes absolute URLs, so a
@@ -85,6 +85,28 @@ const section = ({ label, directory }) =>
 		? [{ label, items: [{ autogenerate: { directory } }] }]
 		: [];
 
+// The Diagrams sidebar group: one link per Motion Canvas project in
+// ../diagrams/src/projects/ (the same files the diagrams build turns into
+// /diagrams/<slug>/ pages), with each subdirectory as a nested group.
+const diagramsDir = new URL('../diagrams/src/projects/', import.meta.url);
+const humanize = (name) => name.charAt(0).toUpperCase() + name.slice(1).replaceAll('-', ' ');
+const diagramItems = (dir = '') => {
+	const entries = readdirSync(new URL(dir, diagramsDir), { withFileTypes: true }).sort((a, b) =>
+		a.name.localeCompare(b.name),
+	);
+	const links = entries
+		.filter((e) => e.isFile() && e.name.endsWith('.ts'))
+		.map((e) => {
+			const slug = `${dir}${e.name.slice(0, -'.ts'.length)}`;
+			return { label: humanize(e.name.slice(0, -'.ts'.length)), link: `/diagrams/${slug}/` };
+		});
+	const groups = entries
+		.filter((e) => e.isDirectory())
+		.map((e) => ({ label: humanize(e.name), items: diagramItems(`${dir}${e.name}/`) }))
+		.filter((g) => g.items.length > 0);
+	return [...links, ...groups];
+};
+
 export default defineConfig({
 	site: 'https://docs.gritz.dev',
 	base: base ?? '/',
@@ -103,6 +125,7 @@ export default defineConfig({
 			sidebar: [
 				{ label: 'Start here', items: ['index', 'getting-started'] },
 				...sections.flatMap(section),
+				{ label: 'Diagrams', items: diagramItems() },
 			],
 			components: {
 				// Links each page to its Markdown source.
