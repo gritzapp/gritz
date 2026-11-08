@@ -93,8 +93,8 @@ text. The account ID is at the end of the URL of the person's Jira profile. See
 [Event types](/reference/event-types/#jira) for every attribute.
 
 Each event on a task's timeline has a description, such as
-`Ada Lovelace commented on PROJ-123`, its URL and, for comments, the comment's
-text. gritz doesn't post anything back to Jira.
+`Ada Lovelace commented on PROJ-123`, its URL and its text: the comment's
+text, or the issue's description for label and assignment events. gritz doesn't post anything back to Jira.
 
 ## Examples
 
