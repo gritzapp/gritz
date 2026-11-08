@@ -170,7 +170,7 @@ pasted-redirect or device flow. Elsewhere:
 
 - for a `key` entry (and for `--key`): `gritzclient.StaticToken` of the key.
 - for a `refresh_token` entry: `oauthx.NewRefreshSource` with
-  `oauthx.Config(server, "")`, wrapped to name the entry in its errors.
+  `configfile.OAuthConfig(server, "")`, wrapped to name the entry in its errors.
 
 `oauthx.NewRefreshSource` is generic: it knows nothing about `.gritz.yml`. It
 is an `oauth2.ReuseTokenSource` over a source that exchanges the refresh token
@@ -178,7 +178,7 @@ in use at the token endpoint. `ReuseTokenSource` caches the access token and
 refreshes only when it has expired (with `oauth2`'s 10-second early expiry),
 serialised by its own mutex, so one process never refreshes twice
 concurrently. Whenever a refresh returns a different refresh token, the source
-uses it from then on and passes it to `OnNewRefreshToken`.
+uses it from then on and passes it to `OnNewRefreshToken`, if set.
 
 `configfile` supplies the policy:
 
@@ -298,6 +298,13 @@ func (e Entry) Validate() error // changed
 // back to Path.
 func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
 
+// ClientID is the OAuth client id the CLI uses.
+const ClientID = "gritz-cli" // new
+
+// OAuthConfig returns the OAuth client config for server, with redirectURL as
+// the redirect URI (empty for refresh only).
+func OAuthConfig(server, redirectURL string) *oauth2.Config // new
+
 // UpdateEntry rereads the .gritz.yml file at path (empty if missing) and
 // calls fn with it and the entry named name (nil if absent). When fn returns
 // an entry, UpdateEntry stores it under name, along with fn's changes to the
@@ -313,13 +320,6 @@ func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
 ```go
 package oauthx // github.com/gritzapp/gritz/internal/x/oauthx — new
 
-// ClientID is the OAuth client id the gritz CLI uses.
-const ClientID = "gritz-cli"
-
-// Config returns the OAuth client config for the gritz server at server,
-// with redirectURL as the redirect URI (empty for refresh only).
-func Config(server, redirectURL string) *oauth2.Config
-
 // RefreshSourceOptions configures NewRefreshSource.
 type RefreshSourceOptions struct {
 	// Config is the OAuth client config whose token endpoint refreshes.
@@ -328,7 +328,7 @@ type RefreshSourceOptions struct {
 	RefreshToken string
 	// OnNewRefreshToken is called whenever a refresh returns a refresh token
 	// different from the one in use. Later refreshes use the new token.
-	// Calls are serialised.
+	// Calls are serialised. It is optional.
 	OnNewRefreshToken func(token string)
 }
 
@@ -410,7 +410,7 @@ set; every command calls `TokenSource(ctx)` on it and hands the source to
 `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the
 source is an `oauthx.NewRefreshSource` whose `OnNewRefreshToken` writes back
 through `UpdateEntry`. `gritz
-login` without `--key` calls `oauthlogin.Login` with `oauthx.Config`'s endpoints
+login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`'s endpoints
 and `browser.OpenURL`,
 then `GetCaller` with the returned access token, then `configfile.Login` with
 `{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`;
@@ -434,7 +434,8 @@ about entries.
    asks the source on each request and returns its error; existing e2e tests
    pass.
 3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new
-   `Validate`, `Lookup` setting `Name`/`Path`, `UpdateEntry`, `internal/x/oauthx`,
+   `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`,
+   `UpdateEntry`, `internal/x/oauthx`,
    `Entry.TokenSource` with write-back and the re-login error; the
    commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`.
    A hand-written entry works from here on. Depends on: (2).
