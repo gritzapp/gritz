@@ -891,9 +891,9 @@ The agent needs its own Jira credentials, from its [workspace](/concepts/workspa
 
 # MCP
 
-> Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks; the tools it offers, and task notifications through Claude Code channels.
+> Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks and administer the organisation; the tools it offers, and task notifications through Claude Code channels.
 
-gritz is an MCP server, so the agent you work with locally, such as Claude Code or Cursor, can hand work off to gritz: list the workspaces, create tasks, follow them up with instructions, read what they did, and archive them.
+gritz is an MCP server, so the agent you work with locally, such as Claude Code or Cursor, can hand work off to gritz: list the workspaces, create tasks, follow them up with instructions, read what they did, and archive them. It can also manage the organisation’s events, custom event types, schedules and routing rules, and read its members, API keys and settings.
 
 There are two ways to connect:
 
@@ -2082,6 +2082,336 @@ Each proposal has one of three statuses:
 * **Implemented**: built and shipped. The code may have moved on since.
 * **Rejected**: considered and not pursued. The proposal records why.
 
+# CLI OAuth tokens instead of API keys
+
+> Logging the CLI in means creating an API key in the web UI and pasting it into `gritz login --key`, and the key it stores never expires and isn't tied to the user who made it.
+
+Issue: <https://github.com/gritzapp/gritz/issues/2090>
+
+## Problem
+
+[Section titled “Problem”](#problem)
+
+[Multi-org CLI auth](/proposals/implemented/multi-org-cli-auth/) gave the CLI named org entries in `.gritz.yml`, but the only way to fill one is `gritz login --key <key>`: open `/ui/keys/new`, create a key, copy it, paste it. That is one key per org per machine, each living until someone deletes it in the web UI, and every action taken with it is audited as “(API key)” rather than as the person at the keyboard.
+
+The server already runs an OAuth 2.1 + PKCE authorization server for MCP clients ([MCP OAuth](/proposals/implemented/mcp-oauth/), [`internal/auth/oauthflow`](https://github.com/gritzapp/gritz/tree/master/internal/auth/oauthflow)). `gritz login` should use it: open a browser, approve, done. The issue’s first direction was to use OAuth only to mint an API key; the direction it settled on is for the CLI to store the OAuth tokens in its `.gritz.yml` entry and use them directly in place of a key. That leaves what the issue first set aside: refresh-token expiry, writing rotated tokens back, and long-running commands that need a refreshing token source.
+
+## Design
+
+[Section titled “Design”](#design)
+
+### Overview
+
+[Section titled “Overview”](#overview)
+
+* `gritz login` without `--key` runs the authorization code flow with PKCE against the entry’s server, with a loopback redirect. The org is the one approved on the approval page.
+* The entry stores the **refresh token** in a new `refresh_token` field, instead of `key`. Access tokens are never written down.
+* Every user-facing command builds an `oauth2.TokenSource` from the selected entry. For a `refresh_token` entry the source exchanges it for a 5-minute access token on first use and again whenever that expires, so long-running commands (`mcp`, `notify`, `runner`) keep working.
+* When a refresh returns a rotated refresh token and the stored one is more than a day old, the source writes the new one back into the file the entry came from. Using the CLI at least once every 30 days keeps the login alive indefinitely.
+* `key` entries, `gritz login --key` and `--key` / `GRITZ_API_KEY` are unchanged. Keys remain the credential for CI and deployed runners.
+* Server side: no new endpoints or proto changes. The approval page gets an org picker.
+
+### What the server already gives us
+
+[Section titled “What the server already gives us”](#what-the-server-already-gives-us)
+
+These properties of `oauthflow` shape the design, and none of them change:
+
+* `/oauth/authorize` (POST from the approval page) accepts any `client_id` and `redirect_uri`; it only binds them into the 60-second auth code JWT, which `/oauth/token` checks along with PKCE. There’s no client registry, so the CLI needs no `/oauth/register` call.
+* The access token is an ordinary app JWT (5 minutes, `authscope.Admin()` in the approved org), accepted by `apiauth.authenticate` as a Bearer on the Connect API, `/events` SSE and `/shell/attach`, exactly like a web UI session. `GetCaller` reads `apiauth.MustCaller(ctx).OrgID`, so it works with one.
+* The refresh token is a stateless JWT with a 30-day `exp`. Every refresh issues a new one with a fresh 30 days, after `ResolveOrg` re-checks that the user is still a member and the org isn’t archived.
+* **Old refresh tokens stay valid until their own `exp`.** There is no reuse detection. Two processes refreshing the same token both succeed, and a rotated token that is never saved costs nothing.
+
+The last point is what keeps refresh simple: write-back is an optimisation that slides the 30-day window, not a correctness requirement, so it needs no locking.
+
+### The entry
+
+[Section titled “The entry”](#the-entry)
+
+```yaml
+org: acme
+orgs:
+  acme:
+    id: 12
+    refresh_token: eyJhbGciOiJFZERTQSIs...
+  acme-ci:
+    id: 12
+    key: xat_...
+  local:
+    id: 1
+    server: http://localhost:8080
+    refresh_token: eyJhbGciOiJFZERTQSIs...
+```
+
+* `refresh_token`: an OAuth refresh token for the org, written by `gritz login`.
+* An entry has exactly one of `key` and `refresh_token`. `Entry.Validate` reports `no key or refresh_token` or `both key and refresh_token`, named with the file as today.
+* Merge and selection are unchanged: entries still replace whole by name, so a key from one file is never paired with a refresh token from another.
+* The `--key` / `GRITZ_API_KEY` override is unchanged: it skips every file, `refresh_token` entries included.
+
+Only the refresh token is stored. Persisting the 5-minute access token would save one round trip per command, but adds a second field that goes stale between any two commands more than five minutes apart and has to be rewritten on almost every run.
+
+### `gritz login`
+
+[Section titled “gritz login”](#gritz-login)
+
+```plaintext
+gritz login [--name <name>] [--server <url>]
+gritz login --key <key> [--name <name>] [--server <url>]
+```
+
+With `--key` (or `GRITZ_API_KEY`) set, `login` behaves exactly as today. `--key` loses `Required: true`; without it, `login` runs the browser flow:
+
+1. **Listen.** Bind `127.0.0.1:0` and serve `GET /callback`. The redirect URI is `http://127.0.0.1:<port>/callback` (a loopback IP literal, per RFC 8252 §7.3).
+
+2. **Build the authorize URL** with `oauth2.Config{ClientID: "gritz-cli", Endpoint: {AuthURL: <server>/ui/oauth/authorize, TokenURL: <server>/oauth/token}, RedirectURL: <redirect URI>}`, a random `state`, and `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`. If `--name` names an existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add `org=<id>`, so re-logging in to an entry preselects its org (the web UI’s root route already switches to `?org=`).
+
+3. **Print the authorize URL and open the browser** with [`github.com/cli/browser`](https://github.com/cli/browser)’s `browser.OpenURL` (already in `go.mod` as an indirect dependency; it becomes direct). The URL is always printed; if opening fails, `login` carries on and the user opens the printed URL on the same machine:
+
+   ```plaintext
+   Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
+   ```
+
+4. **Wait** for a request to `/callback` and check its `state`; `error=access_denied` (the approval page’s Deny) fails with `login denied`. The callback answers with a short “Logged in, you can close this tab” page. Give up after 10 minutes.
+
+5. **Exchange** the code with `cfg.Exchange(ctx, code, oauth2.VerifierOption(v))`.
+
+6. **Identify the org** by calling `GetCaller` with the access token, exactly as the `--key` path does with the key, then name the entry (`--name`, else `configfile.Slug(org.name)`).
+
+7. **Write** `{id, refresh_token, server}` with `configfile.Login`, unchanged: same name for the same id and server replaces the entry’s credential (a `key` entry becomes a `refresh_token` entry and vice versa), a different org fails with `ErrNameTaken`, and the first entry becomes the file’s `org`.
+
+8. Print `Logged in to Acme Labs (org 12) as "acme-labs"`.
+
+The client id is the constant `gritz-cli`. The server only checks that the token request repeats it, so there’s nothing to register.
+
+**Which org.** The approval page decides: the token is minted for the org the user approves. Today the page shows the web UI’s current org and mints for it. It gets an org `<Select>` listing `GetProfile`’s orgs, defaulting to the current org (or the `?org=` preselected in step 2), and passes the selection to `auth.fetchToken(orgId)` on Approve. This also lets Claude.ai and other MCP clients be connected to a non-current org without switching the whole UI first. One login is one org; logging in to a second org is a second `gritz login`.
+
+### Headless machines
+
+[Section titled “Headless machines”](#headless-machines)
+
+The browser login only works where the browser runs on the same machine as `login`, because the redirect goes to its loopback listener. There is no pasted-redirect or device flow. Elsewhere:
+
+* **Use a key.** `gritz login --key`, or `GRITZ_API_KEY`, as today. This is the credential for CI, containers and deployed runners: one that dies after 30 idle days, and that rotates by rewriting a file, is the wrong fit for an image or a secret store.
+* **Copy an entry.** A refresh token isn’t bound to a machine, so an entry from a laptop’s `.gritz.yml` works when copied to another machine’s. Each copy then rotates on its own, and all of them stay valid because old refresh tokens are never invalidated.
+
+### Refresh and write-back
+
+[Section titled “Refresh and write-back”](#refresh-and-write-back)
+
+`Entry.TokenSource(ctx)` returns:
+
+* for a `key` entry (and for `--key`): `oauth2.StaticTokenSource` of the key.
+* for a `refresh_token` entry: `oauth2.ReuseTokenSource(nil, src)`, where `src` is a `refreshSource` holding the entry’s server, name, path and current refresh token. `ReuseTokenSource` caches the access token and calls `src.Token()` only when it has expired (with `oauth2`’s 10-second early expiry), serialised by its own mutex, so one process never refreshes twice concurrently.
+
+`refreshSource.Token()`:
+
+1. Calls `oauth2.Config{ClientID: "gritz-cli", Endpoint: {TokenURL: <server>/oauth/token}}.TokenSource(ctx, &oauth2.Token{RefreshToken: rt}).Token()`.
+
+2. On an `*oauth2.RetrieveError` (the server’s 400 `invalid refresh_token`: expired, signed by a rotated app key, user removed, org archived), returns:
+
+   ```plaintext
+   org entry "acme": login expired or revoked: run `gritz login --name acme`
+   ```
+
+   For `--server` entries the hint includes `--server`.
+
+3. On success, keeps the new refresh token in memory for the next refresh, and **writes it back** if the stored token’s `iat` (read from the JWT payload without verification) is more than 24 hours old: `configfile.Rotate(path, name, old, new)`. A write-back failure is logged with `slog.Warn` and otherwise ignored; the in-memory token keeps working.
+
+`configfile.Rotate` re-reads the file at `path`, and if `orgs[name].refresh_token` still equals `old`, replaces it with `new` and writes the file the same way as `Login` (temp file + rename via `atomicio.WriteFile`, mode kept). If the entry is gone or holds a different token, it does nothing: another process already rotated it, or the user logged in again, and either result is at least as fresh.
+
+**Where.** The file the entry came from: `Lookup` now fills `Entry.Name` and `Entry.Path` (from `Merged.OrgsFrom`). `login` only ever writes `$CONFIG_DIR/.gritz.yml`, but a refresh-token entry the user moved into another file keeps itself alive there too. Like `login`, `Rotate` re-marshals the file, dropping comments.
+
+**Concurrency.** Commands sharing an entry never coordinate:
+
+* All of them can refresh with the same stored token; the server accepts it each time.
+* At most one rotation per day crosses the 24-hour threshold in practice; if two do at once, both read the same `old`, both write, and the later rename wins. Either token is valid.
+* The window that can lose an unrelated edit is a `login` or a hand edit to the same file landing between `Rotate`’s read and its rename. It is the same read-modify-rename window `login` already has, and it is not worth a lock file.
+
+**Expiry in practice.** A refresh-token entry expires only after 30 days in which nothing used it past the 24-hour threshold. A long-running `runner` or `mcp` refreshes every 5 minutes and so rewrites once a day while it runs.
+
+### Commands
+
+[Section titled “Commands”](#commands)
+
+Each user-facing command already calls `configfile.Resolve`. It now builds its clients from `cfg.TokenSource(ctx)` instead of `cfg.Key`:
+
+| Command                           | Change                                                                                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task list/create/update`, `logs` | `gritzclient.Options{TokenSource: ts}`                                                                                                        |
+| `shell`                           | client from `ts`; `shell.Attach` gets `ts`. The token is read once, when the WebSocket dials; the server doesn’t re-check an open connection. |
+| `mcp`, `notify`                   | client and `NotificationClient` from `ts`. Each SSE reconnect fetches a current token; an open stream isn’t re-checked.                       |
+| `runner`                          | `runner.ServeOptions.TokenSource` replaces `Token`; the client and the notification client share it.                                          |
+| `login`                           | unchanged on the `--key` path; uses the exchanged access token for `GetCaller`                                                                |
+
+`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` gain a `TokenSource` field beside `Token`; `Token` stays as the shorthand for a static token, used by `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key. Setting both panics.
+
+A refresh failure surfaces from `AuthTransport.RoundTrip` as the request’s error. One-shot commands exit with the “run `gritz login`” message; `runner`, `mcp` and `notify` log it on every attempt, the same as any other server outage, until restarted after a new `login`.
+
+### Server-side changes
+
+[Section titled “Server-side changes”](#server-side-changes)
+
+* **Approval page org picker** (`webui/src/routes/oauth.authorize.tsx`), above.
+* Nothing else. No proto change: `GetCaller` already serves app JWTs. No `oauthflow` change: the redirect URI, client id, refresh rotation and 30-day TTL are already what the CLI needs.
+
+Behaviour that changes as a consequence, worth knowing rather than changing:
+
+* CLI actions are audited as the user (`UserInfo.AuditName` without “(API key)”).
+* The CLI acts with `authscope.Admin()` in the org, like the web UI and MCP connectors, rather than with the scopes of a key.
+* A refresh-token entry can’t be revoked individually. Removing the user from the org or archiving the org stops it at the next refresh (within 5 minutes); otherwise it lives as long as it keeps being used. This matches MCP connectors, and the trade-off in [MCP OAuth](/proposals/implemented/mcp-oauth/#refresh-tokens-are-not-revocable).
+
+### API
+
+[Section titled “API”](#api)
+
+```go
+package configfile // github.com/gritzapp/gritz/internal/configfile
+
+
+// Entry is one named org in a .gritz.yml file.
+type Entry struct {
+  // ID is the org id.
+  ID int64 `yaml:"id"`
+  // Key is an API key for the org.
+  Key string `yaml:"key,omitempty"` // changed: omitempty
+  // RefreshToken is an OAuth refresh token for the org.
+  RefreshToken string `yaml:"refresh_token,omitempty"` // new
+  // Server is the server URL; empty means the file's top-level server, else the default server.
+  Server string `yaml:"server,omitempty"`
+  // Name is the entry's name; set by Lookup.
+  Name string `yaml:"-"` // new
+  // Path is the file the entry came from; set by Lookup.
+  Path string `yaml:"-"` // new
+}
+
+
+// Validate checks that the entry has an id and exactly one of a key and a
+// refresh token.
+func (e Entry) Validate() error // changed
+
+
+// TokenSource returns the entry's credentials: the key as a static token, or
+// access tokens refreshed from RefreshToken, writing rotated refresh tokens
+// back to Path.
+func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
+
+
+// ClientID is the OAuth client id the CLI uses.
+const ClientID = "gritz-cli" // new
+
+
+// OAuthConfig returns the OAuth client config for server, with redirectURL as
+// the redirect URI (empty for refresh only).
+func OAuthConfig(server, redirectURL string) *oauth2.Config // new
+
+
+// Rotate replaces the refresh token of the entry named name in the .gritz.yml
+// file at path with newToken, if it still holds oldToken.
+func Rotate(path, name, oldToken, newToken string) error // new
+
+
+// Lookup returns the entry named org, or m.Org when org is empty,
+// enforcing m.Allowed, with Name and Path set. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
+```
+
+```go
+package oauthlogin // github.com/gritzapp/gritz/internal/oauthlogin — new
+
+
+// Options configures Login.
+type Options struct {
+  // Server is the gritz server URL.
+  Server string
+  // OrgID, when non-zero, preselects the org on the approval page.
+  OrgID int64
+  // OpenBrowser opens the authorize URL; gritz login sets it to
+  // browser.OpenURL. Login ignores its error, having already printed the URL.
+  OpenBrowser func(url string) error
+  // Prompt receives the authorize URL, always printed.
+  Prompt io.Writer
+}
+
+
+// Login runs the authorization code flow with PKCE over a loopback redirect
+// and returns the exchanged token.
+func Login(ctx context.Context, opts Options) (*oauth2.Token, error)
+```
+
+```go
+package gritzclient // github.com/gritzapp/gritz/internal/gritzclient
+
+
+type Options struct {
+  // ...
+  // TokenSource supplies the bearer token per request; set instead of Token.
+  TokenSource oauth2.TokenSource // new
+}
+
+
+type NotificationClientOptions struct {
+  // ...
+  // TokenSource supplies the bearer token per connection; set instead of Token.
+  TokenSource oauth2.TokenSource // new
+}
+
+
+// AuthTransport injects a Bearer token from Source into requests.
+type AuthTransport struct {
+  Transport http.RoundTripper
+  Source    oauth2.TokenSource // changed: was Token string
+  ClientID  string
+}
+```
+
+```go
+package shell // github.com/gritzapp/gritz/internal/shell
+
+
+type AttachOptions struct {
+  ServerURL   string
+  TokenSource oauth2.TokenSource // changed: was Token string
+  Session     string
+}
+```
+
+```go
+package runner // github.com/gritzapp/gritz/internal/runner
+
+
+type ServeOptions struct {
+  // ...
+  TokenSource oauth2.TokenSource // changed: was Token string
+}
+```
+
+**How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path` set; every command calls `TokenSource(ctx)` on it and hands the source to `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the source refreshes through `OAuthConfig` and calls `Rotate` on its own. `gritz login` without `--key` calls `oauthlogin.Login` with `OAuthConfig`’s endpoints and `browser.OpenURL`, then `GetCaller` with the returned access token, then `configfile.Login` with `{ID, RefreshToken, Server}`. `oauthlogin` knows nothing about `.gritz.yml`; `configfile` knows nothing about browsers or listeners.
+
+## Implementation Plan
+
+[Section titled “Implementation Plan”](#implementation-plan)
+
+1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
+2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions` (panicking if both are set), `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing a static source of `cfg.Key`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
+3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `ClientID`, `OAuthConfig`, `Rotate`, `Entry.TokenSource` with write-back and the re-login error; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither) and `Rotate` (replaces when old matches, no-op when changed or gone, keeps mode); a test against an `oauthflow` `httptest` server that a source refreshes once per access token expiry, writes back only when `iat` is over 24h old, and maps an expired refresh token to the re-login error.
+4. **`gritz login` browser flow** — Delivers: `internal/oauthlogin`, `github.com/cli/browser` as a direct dependency, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: an `oauthlogin` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
+5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
+
+Slices 1 and 2 are independent and can land in either order.
+
+## Trade-offs
+
+[Section titled “Trade-offs”](#trade-offs)
+
+* **OAuth tokens in the entry vs. minting an API key with OAuth.** Minting a key (the issue’s first direction) keeps every command and the config format unchanged, but leaves the problems a key has: it never expires, it piles up one per machine in `/ui/keys`, it’s audited as “(API key)”, and a key needs a server-side `CreateKey` path for app-JWT callers. Storing the refresh token costs a token source and a write-back, both small because the server never invalidates an old refresh token.
+* **Writing back after 24 hours vs. on every refresh vs. never.** Never writing back means re-logging in every 30 days no matter how often the CLI is used. Writing on every refresh rewrites the file on every command and every 5 minutes from a runner, widening the window for clobbering a concurrent edit. A daily threshold slides the expiry for anyone who uses the CLI at least once a month, with one rewrite a day.
+* **No lock vs. a lock file.** A lock around `Rotate` and `Login` would close the read-modify-rename window. Because any of the refresh tokens involved is valid, the only thing a race can lose is a concurrent hand edit or `login` to the same file, which is rare enough not to justify a lock.
+* **Server-side changes: none vs. a CLI-specific refresh TTL.** A longer refresh TTL for the CLI would add a client distinction the server doesn’t have; the daily write-back already makes 30 days an idle timeout.
+* **Loopback only vs. a pasted redirect or a device flow for headless machines.** Pasting the failed redirect URL back into the terminal needs `login` to read stdin alongside the listener and a `--no-browser` flag. A device authorization grant (RFC 8628) needs server-side state for the device code, polling and a code-entry page, where the rest of `oauthflow` is stateless. Headless machines are already served by a key or a copied entry, so neither is worth its code path.
+* **A fixed `gritz-cli` client id vs. dynamic registration.** `/oauth/register` returns a fresh UUID that nothing records, so registering buys nothing.
+* **Storing the refresh token only vs. also the access token.** Covered under The entry: one network round trip per command is cheaper than a second field that is almost always stale.
+* **One org per login vs. a token for several orgs.** App JWTs carry one `org_id`, and entries name one org, so one login per org fits both. A multi-org token would be a change to `apiauth` for a saving of one browser approval per extra org.
+
 # Firecracker Backend for the Runner
 
 > Docker is the only task sandbox, so every task shares the runner host's kernel and a container escape exposes the host, its credentials, and all other tasks.
@@ -2606,241 +2936,6 @@ Tests live in `internal/server/apiserver/org_test.go` alongside the existing org
 1. **Exact default value.** §4 proposes `20`. Defensible alternatives: `10` (tighter), `50` (looser). Easy to change post-merge by setting the env var; the design doesn’t depend on the specific number.
 2. **Whether to surface the cap in `GetProfile`.** The Web UI could pre-emptively grey out “Create Org” when the user is at the cap. This is purely cosmetic — the API error already explains the cap on attempt — and we can defer it to a follow-up. If we add it, it slots into `GetProfileResponse` as `max_orgs_per_user` (`internal/server/apiserver/apiserver.go:82-92`).
 3. **Whether `DeleteOrg` of an over-cap user’s org should be unlocked even from a non-default org.** Today `DeleteOrg` only blocks deletion of the user’s *default* org (`org.go:71`). The grandfather scenario doesn’t change that — over-cap users can still delete their non-default orgs to free slots — so probably no change needed. Worth confirming in implementation review.
-
-# MCP admin tools and fuller task management
-
-> The user-facing MCP only creates, lists, reads, updates and archives tasks, so events, custom event types, schedules and org data, plus several task operations the API and Web UI offer, can't be reached from an MCP client.
-
-Issue: <https://github.com/gritzapp/gritz/issues/2095>
-
-## Problem
-
-[Section titled “Problem”](#problem)
-
-The user-facing MCP, served as `gritz mcp` over stdio and as `/mcp` on the server, registers six tools in [`internal/server/mcpserver`](https://github.com/gritzapp/gritz/blob/master/internal/server/mcpserver/mcpserver.go): `list_workspaces`, `create_task`, `get_task`, `list_tasks`, `update_task` and `archive_task`. Everything else the `GritzService` API offers is unreachable from an MCP client, so an agent that a user works with locally can’t:
-
-* **Administer events.** List the org’s external events, inspect or delete one, see which event types exist, define custom event types, dry-run an event against the routing rules, or send a custom event.
-* **Manage schedules.** Create, edit, pause, delete or run one now.
-* **Read org administration data or edit routing rules.** Who the members are, what API keys exist and when they expire, the org’s webhook and MCP URLs; the routing rules can’t be read or changed either.
-* **Manage tasks fully.** Even the task tools lag the API and Web UI: there is no cancel, restart or unarchive, no rename, no paging past the 50 newest tasks, no archived tasks, no drafts or namespaces, and no access to the agent’s transcript.
-
-The in-sandbox agent MCP (`gritz tool agent-mcp`, [`internal/runner/agentmcp`](https://github.com/gritzapp/gritz/tree/master/internal/runner/agentmcp)) is out of scope. It serves a task’s own agent with a task token, and nothing here changes it.
-
-## Design
-
-[Section titled “Design”](#design)
-
-Add tools to `mcpserver.AddTools`, every one a thin proxy over a `GritzService` RPC. Every capability below already has an RPC, because the Web UI uses it, so no RPCs, store changes or migrations are needed.
-
-### Principles
-
-[Section titled “Principles”](#principles)
-
-* **One tool, one intent.** A tool maps onto one RPC, or onto a short fixed sequence where the RPC’s shape doesn’t fit an agent (read-modify-write for the replace-whole-set RPCs, a follow-up `GetTask` to return the changed task, as `update_task` and `archive_task` already do).
-* **The API is the authority.** The tools check no permissions themselves. Each RPC already checks `caller.Scopes` (`authscope.OpEventWrite`, `OpOrgRead`, `OpKeyRead`, …) and owner-only rules, and the MCP caller is an ordinary API caller (an OAuth app JWT or an API key, both `authscope.Admin()` today). A denied call surfaces as an `mcpx.ErrorResult`, as now.
-* **Org data is read-only, except routing rules.** No tool calls `AddOrgMember`, `RemoveOrgMember`, `CreateKey`, `DeleteKey`, `CreateOrg`, `DeleteOrg`, `GenerateAtlassianWebhookSecret`, `LinkGitHubInstallation`, or the account unlink RPCs. Those stay in the Web UI and CLI. Routing rules are the one org setting an agent writes, through `set_routing_rules`, because configuring routing is the admin work an agent is most often asked to do.
-* **No secrets in results.** `GetOrgSettingsResponse.atlassian_webhook_secret` is dropped from `get_org_settings`. `ListKeys` returns only key metadata, never a token, so `list_keys` is safe as is.
-* **Annotations tell the client what a tool does.** Reads set `ReadOnlyHint`; `delete_event`, `delete_schedule`, `delete_custom_event_type` and `set_routing_rules` set `DestructiveHint`, so clients that confirm destructive calls do.
-* **Same tools on both transports.** `gritz mcp` and `/mcp` share `AddTools`; every tool goes through the `gritzv1connect.GritzServiceHandler` interface, so none needs anything the Connect client can’t do.
-
-### Task tools: audit and gaps
-
-[Section titled “Task tools: audit and gaps”](#task-tools-audit-and-gaps)
-
-What the API and Web UI do with tasks, against the MCP today:
-
-| Capability                      | RPC                                                 | Web UI                               | MCP today                         | Proposal                                                                                                                   |
-| ------------------------------- | --------------------------------------------------- | ------------------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| List, paged, with archived      | `ListTasks` (`page_size`, `page_token`, `archived`) | yes                                  | first page of 50, unarchived only | `list_tasks` takes `page_size`, `page_token`, `archived`; returns `next_page_token`                                        |
-| Task fields in lists            | `Task`                                              | status, archived badge, auto-archive | id, name, workspace, status, url  | summary adds `runner`, `namespace`, `archived`, `created_at`, `updated_at`                                                 |
-| Read task + timeline            | `GetTask`, `ListEventsByTask`, `ListLinks`          | yes                                  | yes, every event                  | `get_task` adds `auto_archive`, `archived`, `namespace`, `actions`, timestamps; takes `event_types` to filter the timeline |
-| Create as draft, in a namespace | `CreateTask` (`draft`, `namespace`)                 | yes (always draft)                   | no                                | `create_task` takes `draft`, `namespace`                                                                                   |
-| Rename                          | `UpdateTask.name`                                   | no                                   | no                                | `update_task` takes `name`                                                                                                 |
-| Change auto-archive             | `UpdateTask.auto_archive`                           | yes                                  | no                                | `update_task` takes `auto_archive`                                                                                         |
-| Add instruction, start          | `UpdateTask`                                        | yes                                  | yes                               | `instruction` becomes optional, so a call can only rename or start                                                         |
-| Cancel                          | `CancelTask`                                        | yes                                  | no                                | `cancel_task`                                                                                                              |
-| Restart                         | `RestartTask`                                       | yes                                  | no                                | `restart_task`                                                                                                             |
-| Archive                         | `ArchiveTask`                                       | yes                                  | yes                               | unchanged                                                                                                                  |
-| Unarchive                       | `UnarchiveTask`                                     | yes                                  | no                                | `unarchive_task`                                                                                                           |
-| Agent transcript                | `ListLogChunksByTask`                               | yes (Logs tab)                       | no                                | `get_task_log`                                                                                                             |
-| Link a resource                 | `CreateLink`                                        | no                                   | no                                | `create_link`                                                                                                              |
-| Shell                           | `OpenShell`                                         | yes                                  | no                                | out of scope: an interactive terminal, not a tool call                                                                     |
-
-`get_task` returning `actions` (`TaskActions`: archive, cancel, restart, start, unarchive) lets the agent see what the task allows before it tries, the same flags the Web UI uses to enable its buttons.
-
-### Tool set
-
-[Section titled “Tool set”](#tool-set)
-
-Existing tools are marked *(changed)* or *(unchanged)*; the rest are new.
-
-#### Tasks
-
-[Section titled “Tasks”](#tasks)
-
-| Tool                            | RPC                                        | Arguments                                                                          |
-| ------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `list_workspaces` *(unchanged)* | `ListWorkspaces`                           | —                                                                                  |
-| `list_tasks` *(changed)*        | `ListTasks`                                | `page_size`, `page_token`, `archived`                                              |
-| `get_task` *(changed)*          | `GetTask`, `ListEventsByTask`, `ListLinks` | `id`, `event_types`                                                                |
-| `create_task` *(changed)*       | `CreateTask`                               | `workspace`, `runner`, `instruction`, `name`, `auto_archive`, `namespace`, `draft` |
-| `update_task` *(changed)*       | `UpdateTask`, `GetTask`                    | `id`, `instruction`, `url`, `name`, `auto_archive`, `start`                        |
-| `cancel_task`                   | `CancelTask`, `GetTask`                    | `id`                                                                               |
-| `restart_task`                  | `RestartTask`, `GetTask`                   | `id`                                                                               |
-| `archive_task` *(unchanged)*    | `ArchiveTask`, `GetTask`                   | `id`                                                                               |
-| `unarchive_task`                | `UnarchiveTask`, `GetTask`                 | `id`                                                                               |
-| `get_task_log`                  | `ListLogChunksByTask`                      | `id`, `before`, `max_bytes`                                                        |
-| `create_link`                   | `CreateLink`                               | `task_id`, `url`, `title`, `relevance`, `subscribe`                                |
-
-Details:
-
-* **`list_tasks`** returns `{tasks, next_page_token}` instead of a bare array. `page_size` defaults to the server’s 50.
-* **`get_task`**’s `event_types` is passed to `gritzclient.ListAllEventsByTask`, which already sends it as `ListEventsByTaskRequest.types` (the tool passes `nil` today), so an agent that only wants the instructions or the external events doesn’t page in the whole timeline. Empty means every type, as now; command events stay skipped.
-* **`update_task`** rejects a call that sets none of `instruction`, `name`, `auto_archive` or `start` with an error result. `auto_archive` takes the Go duration strings `create_task` already parses; an unset argument leaves `UpdateTaskRequest.auto_archive` nil (leave alone).
-* **`create_task`** with `draft: true` creates the task in `DRAFT`; the agent starts it later with `update_task` and `start: true`, the same flow as the Web UI’s composer. `instruction` stays required for a non-draft create.
-* **`get_task_log`** returns the tail of the task’s transcript as text: it walks `ListLogChunksByTask` backwards from the newest page (empty `page_token`, then `prev_page_token`) until it has `max_bytes` (default 64 KiB, capped at 1 MiB) or history runs out, and returns `{log, before}`, where `before` is the `prev_page_token` to pass back for the preceding bytes, empty at the start of the log. Chunks are the shipped log, so declared secrets are already masked. The tool doesn’t parse the driver’s log format.
-* **`create_link`** lets the user subscribe a task to a resource they made by hand, such as a PR opened outside gritz, so the task receives its events. It maps 1:1 onto `CreateLink`; `relevance` is free text describing why the link matters, as in the agent’s own `create_link`.
-
-#### Events
-
-[Section titled “Events”](#events)
-
-| Tool           | RPC                  | Arguments                                                                  |
-| -------------- | -------------------- | -------------------------------------------------------------------------- |
-| `list_events`  | `ListExternalEvents` | `limit`                                                                    |
-| `get_event`    | `GetEvent`           | `id`                                                                       |
-| `delete_event` | `DeleteEvent`        | `id`                                                                       |
-| `test_event`   | `TestEvent`          | `source`, `type`, `body`, `url`, `attrs`, `description`, `details`, `fire` |
-
-* **`list_events`** returns a summary per event: `id`, `task_id`, `source`, `type`, `description`, `url`, `created_at` from `ExternalPayload`, not the `data` blob. `get_event` returns the full event as protojson, like `get_task`’s timeline.
-* **`test_event`** is for testing routing. It takes any registered source and type, defaults to a dry run (`fire: false`), and returns `TestEventResponse.matches`: which rule matched and whether it would wake or create. `fire: true` routes it for real; the RPC already requires `OpOrgWrite` for that. The RPC validates the event against its type and routes a custom event with no actor, exactly as `/webhook/custom` does, so firing a custom event is how an agent sends one; an invalid event comes back as an error result carrying the validation message.
-
-#### Event types
-
-[Section titled “Event types”](#event-types)
-
-| Tool                       | RPC                                          | Arguments                |
-| -------------------------- | -------------------------------------------- | ------------------------ |
-| `list_event_types`         | `GetEventTypes`                              | —                        |
-| `put_custom_event_type`    | `GetCustomEventTypes`, `SetCustomEventTypes` | `type`, `label`, `attrs` |
-| `delete_custom_event_type` | `GetCustomEventTypes`, `SetCustomEventTypes` | `type`                   |
-
-* **`list_event_types`** lists the built-in and custom types with their attributes, which is what an agent needs to fill in `test_event`’s attrs, or to write a routing rule’s conditions.
-* `SetCustomEventTypes` replaces the whole set. The two write tools read the current set, add, replace or remove the one entry by `type`, and write the set back, exactly as the Web UI’s custom event type pages do. The RPC validates the result: a malformed schema is `InvalidArgument`, and removing a type a routing rule still uses is `FailedPrecondition`, which the tool returns as an error result naming the problem. `source` is always `"custom"` and is not an argument.
-
-#### Schedules
-
-[Section titled “Schedules”](#schedules)
-
-| Tool                   | RPC                             | Arguments                                                                                                     |
-| ---------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `list_schedules`       | `ListSchedules`                 | —                                                                                                             |
-| `get_schedule`         | `GetSchedule`                   | `id`                                                                                                          |
-| `create_schedule`      | `CreateSchedule`                | `name`, `workspace`, `runner`, `namespace`, `instruction`, `cron_expr`, `timezone`, `auto_archive`, `enabled` |
-| `update_schedule`      | `GetSchedule`, `UpdateSchedule` | `id`, and any of the create arguments except `enabled`                                                        |
-| `set_schedule_enabled` | `SetScheduleEnabled`            | `id`, `enabled`                                                                                               |
-| `run_schedule`         | `RunSchedule`                   | `id`                                                                                                          |
-| `delete_schedule`      | `DeleteSchedule`                | `id`                                                                                                          |
-
-* Schedules take one `instruction`, like `create_task`, mapped to a one-element `instructions`. A schedule with several stored instructions is shown with all of them by `get_schedule`; `update_schedule` without `instruction` keeps them.
-* `UpdateScheduleRequest` replaces every template field. `update_schedule` takes each as optional (pointer fields in the input struct), loads the schedule with `GetSchedule`, overlays the arguments given and sends the full request, so “change the cron to 9am” doesn’t blank the instructions.
-* `create_schedule` defaults `enabled` to `false`, as the RPC does; the tool description says so, so an agent turns it on deliberately.
-* `run_schedule` returns the created task’s summary.
-
-#### Org
-
-[Section titled “Org”](#org)
-
-| Tool                | RPC               | Arguments |
-| ------------------- | ----------------- | --------- |
-| `list_members`      | `ListOrgMembers`  | —         |
-| `list_keys`         | `ListKeys`        | —         |
-| `get_org_settings`  | `GetOrgSettings`  | —         |
-| `get_routing_rules` | `GetRoutingRules` | —         |
-| `set_routing_rules` | `SetRoutingRules` | `rules`   |
-
-* `list_members` returns `user_id`, `email`, `name`, `role`, `created_at`.
-* `list_keys` returns `id`, `name`, `expires_at`, `created_at`.
-* `get_org_settings` returns `mcp_url`, `custom_webhook_url`, `atlassian_webhook_url`, `github_app_url`, `github_installation_id`, and never `atlassian_webhook_secret`.
-* `get_routing_rules` returns the rules as protojson.
-* `set_routing_rules` proxies `SetRoutingRules` as is: `rules` is the full list as protojson `RoutingRule`s, in the shape `get_routing_rules` returns. The agent reads the list, edits it, and writes the whole list back. The tool description says that it replaces every rule in the org, so a list missing a rule deletes it. The RPC validates every rule against the org’s event types and returns `InvalidArgument` naming the bad rule, which the tool returns as an error result. It returns the stored rules.
-
-### Instructions
-
-[Section titled “Instructions”](#instructions)
-
-`mcpserver.Instructions` grows a sentence saying the server also administers the org’s events, custom event types, schedules and routing rules, and reads its members and keys, so clients route those requests here.
-
-### Code layout
-
-[Section titled “Code layout”](#code-layout)
-
-`mcpserver.go` holds the server, `AddTools` and the shared helpers (`taskSummary`, duration parsing). The handlers move into one file per domain, each with a `register` function `AddTools` calls in order:
-
-```plaintext
-internal/server/mcpserver/
-  mcpserver.go   // NewServer, AddTools, Handler, Instructions, shared helpers
-  task.go        // addTaskTools: task and workspace tools
-  event.go       // addEventTools: events, event types, test and custom events
-  schedule.go    // addScheduleTools
-  org.go         // addOrgTools: members, keys, settings, routing rules
-```
-
-Tests stay on the existing pattern in `mcpserver_test.go`: a `gritzclient.ClientMock` behind an in-memory MCP session, asserting the RPC request each tool sends and the result it renders, plus `TestListTools` for the registered names. The test file splits along the same lines.
-
-### API
-
-[Section titled “API”](#api)
-
-The package’s exported API doesn’t change: `AddTools` registers more tools.
-
-```go
-package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
-
-
-// Instructions is the prompt shown to MCP clients describing what the gritz server offers.
-const Instructions = "..." // changed: mentions events, schedules, routing rules and org data
-
-
-// AddTools registers the user-facing gritz tools on the given MCP server.
-func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, opts ...Option) // changed: registers the new tools
-```
-
-**How it fits:** unchanged. The server’s `/mcp` handler and `gritz mcp` both call `AddTools`; the server passes the in-process `apiserver.Server`, `gritz mcp` the Connect client. Every handler calls `GritzServiceHandler` methods only.
-
-### Considered and left out
-
-[Section titled “Considered and left out”](#considered-and-left-out)
-
-* **Per-type custom event type RPCs** (`PutCustomEventType`, `DeleteCustomEventType`). They would remove the lost-update window of read-modify-write, but the Web UI has the same window and edits are rare.
-* **Per-rule routing-rule RPCs.** Rules have no IDs, so per-rule add and remove would need stable rule IDs in `RoutingRule`. Proxying `SetRoutingRules` is what the Web UI’s rule editor does already.
-* **`ListTasks` filters** (status, workspace, namespace). Useful to an agent hunting for “my failed tasks”, but the Web UI doesn’t filter either; paging covers it for now.
-* **`ListExternalEvents` paging.** It returns at most the 100 newest events. That’s enough for an agent looking at recent activity, and the Web UI has the same limit.
-
-## Implementation Plan
-
-[Section titled “Implementation Plan”](#implementation-plan)
-
-Each slice updates the **Tools** section of `integrations/mcp` for the tools it adds or changes, in the same PR.
-
-1. **Split the package** — Delivers: `mcpserver.go` split into `task.go` with the existing handlers and the per-domain `register` structure; no behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass unchanged.
-2. **Task tools** — Delivers: `list_tasks` paging and `archived`, the wider task summary, `get_task`’s extra fields and `event_types` filter; `create_task` `draft` and `namespace`; `update_task` `name`, `auto_archive`, optional `instruction` and the nothing-to-do error; `cancel_task`, `restart_task`, `unarchive_task`; `get_task_log`; `create_link`. Depends on: (1). Verifiable by: mock tests on the requests each tool sends, including `next_page_token` in the `list_tasks` result, the `types` passed to `ListEventsByTask`, and `get_task_log` walking several `ListLogChunksByTask` pages backwards, stopping at `max_bytes` and returning the right `before`; a manual cancel and restart through `gritz mcp` against a local server.
-3. **Events and event types** — Delivers: `list_events`, `get_event`, `delete_event`, `list_event_types`, `put_custom_event_type`, `delete_custom_event_type`, `test_event`. Updates `integrations/custom-events` to mention firing a custom event with `test_event`. Depends on: (1). Verifiable by: mock tests, including that `list_events` omits `data`, that the written custom type set adds, replaces or removes exactly one entry, that `test_event` sends `body`, `url` and multi-valued `attrs`, and that a `FailedPrecondition` or `InvalidArgument` comes back as an error result.
-4. **Schedules** — Delivers: `list_schedules`, `get_schedule`, `create_schedule`, `update_schedule`, `set_schedule_enabled`, `run_schedule`, `delete_schedule`. Depends on: (1). Verifiable by: mock tests, including that `update_schedule` with only `cron_expr` sends the loaded instructions back unchanged.
-5. **Org** — Delivers: `list_members`, `list_keys`, `get_org_settings`, `get_routing_rules`, `set_routing_rules`. Depends on: (1). Verifiable by: mock tests, including that `get_org_settings` drops the webhook secret, that `set_routing_rules` sends the list unchanged and carries `DestructiveHint`, and that an `InvalidArgument` comes back as an error result.
-6. **Instructions** — Delivers: the updated `mcpserver.Instructions` and the intro of `integrations/mcp` describing the wider tool set. Depends on: (2)–(5). Verifiable by: reading the page; `TestListTools` lists every tool.
-
-Slices 2–5 depend only on (1) and can land in any order.
-
-## Trade-offs
-
-[Section titled “Trade-offs”](#trade-offs)
-
-* **Proxy tools over existing RPCs, not new MCP-specific endpoints.** Every capability already exists for the Web UI, with its authorization and validation. Proxying keeps `gritz mcp` and `/mcp` identical and keeps the MCP out of the permission model. The cost is a few read-modify-write tools where the RPC replaces a whole set.
-* **Routing rules are written whole.** `set_routing_rules` proxies `SetRoutingRules`, which replaces the org’s whole rule list; one bad call from an agent that drops rules can silently stop events from waking tasks. Per-rule add and remove would be safer, but rules have no IDs to address them by. `DestructiveHint` and a description that says every rule is replaced make the client confirm, the RPC still validates every rule, and `get_routing_rules` plus `test_event` let the agent check its work.
-* **A flat tool set, not toolsets.** The MCP goes from 6 tools to 30, which costs client context. Grouping tools behind a flag (`gritz mcp --tools task,event`) or MCP-level toolsets would trim it, but clients already let users disable individual tools, and the tool descriptions stay short. Revisit if it hurts.
-* **`get_task_log` returns a byte tail, not parsed turns.** The transcript is the driver’s raw log in whatever format the agent CLI writes; parsing it per agent would couple the MCP to every agent integration. A byte budget keeps results bounded.
-* **One instruction per create.** `CreateTask` and `CreateSchedule` accept several instructions, but nothing in the Web UI makes more than one, and one string is easier for an agent to fill.
 
 # Nomad Backend for the Runner
 
@@ -15361,6 +15456,241 @@ Queries: `CreateLink` inserts `routing_url`; the link `SELECT`s return it; `Find
 
 1. **Re-derivation on logic change.** If `RoutingURL` evolves, stored keys can drift. A one-shot backfill command can re-derive existing rows; acceptable to defer.
 2. **Unmappable API URLs.** GitHub API comment URLs without the parent number, and Jira API URLs that use a numeric issue id, can’t be reduced to the web key without a network lookup. Proposed: leave them unchanged (they simply won’t cross-match a web URL). Worth confirming this is acceptable or whether a lookup is warranted.
+
+# MCP admin tools and fuller task management
+
+> The user-facing MCP only creates, lists, reads, updates and archives tasks, so events, custom event types, schedules and org data, plus several task operations the API and Web UI offer, can't be reached from an MCP client.
+
+Issue: <https://github.com/gritzapp/gritz/issues/2095>
+
+## Problem
+
+[Section titled “Problem”](#problem)
+
+The user-facing MCP, served as `gritz mcp` over stdio and as `/mcp` on the server, registers six tools in [`internal/server/mcpserver`](https://github.com/gritzapp/gritz/blob/master/internal/server/mcpserver/mcpserver.go): `list_workspaces`, `create_task`, `get_task`, `list_tasks`, `update_task` and `archive_task`. Everything else the `GritzService` API offers is unreachable from an MCP client, so an agent that a user works with locally can’t:
+
+* **Administer events.** List the org’s external events, inspect or delete one, see which event types exist, define custom event types, dry-run an event against the routing rules, or send a custom event.
+* **Manage schedules.** Create, edit, pause, delete or run one now.
+* **Read org administration data or edit routing rules.** Who the members are, what API keys exist and when they expire, the org’s webhook and MCP URLs; the routing rules can’t be read or changed either.
+* **Manage tasks fully.** Even the task tools lag the API and Web UI: there is no cancel, restart or unarchive, no rename, no paging past the 50 newest tasks, no archived tasks, no drafts or namespaces, and no access to the agent’s transcript.
+
+The in-sandbox agent MCP (`gritz tool agent-mcp`, [`internal/runner/agentmcp`](https://github.com/gritzapp/gritz/tree/master/internal/runner/agentmcp)) is out of scope. It serves a task’s own agent with a task token, and nothing here changes it.
+
+## Design
+
+[Section titled “Design”](#design)
+
+Add tools to `mcpserver.AddTools`, every one a thin proxy over a `GritzService` RPC. Every capability below already has an RPC, because the Web UI uses it, so no RPCs, store changes or migrations are needed.
+
+### Principles
+
+[Section titled “Principles”](#principles)
+
+* **One tool, one intent.** A tool maps onto one RPC, or onto a short fixed sequence where the RPC’s shape doesn’t fit an agent (read-modify-write for the replace-whole-set RPCs, a follow-up `GetTask` to return the changed task, as `update_task` and `archive_task` already do).
+* **The API is the authority.** The tools check no permissions themselves. Each RPC already checks `caller.Scopes` (`authscope.OpEventWrite`, `OpOrgRead`, `OpKeyRead`, …) and owner-only rules, and the MCP caller is an ordinary API caller (an OAuth app JWT or an API key, both `authscope.Admin()` today). A denied call surfaces as an `mcpx.ErrorResult`, as now.
+* **Org data is read-only, except routing rules.** No tool calls `AddOrgMember`, `RemoveOrgMember`, `CreateKey`, `DeleteKey`, `CreateOrg`, `DeleteOrg`, `GenerateAtlassianWebhookSecret`, `LinkGitHubInstallation`, or the account unlink RPCs. Those stay in the Web UI and CLI. Routing rules are the one org setting an agent writes, through `set_routing_rules`, because configuring routing is the admin work an agent is most often asked to do.
+* **No secrets in results.** `GetOrgSettingsResponse.atlassian_webhook_secret` is dropped from `get_org_settings`. `ListKeys` returns only key metadata, never a token, so `list_keys` is safe as is.
+* **Annotations tell the client what a tool does.** Reads set `ReadOnlyHint`; `delete_event`, `delete_schedule`, `delete_custom_event_type` and `set_routing_rules` set `DestructiveHint`, so clients that confirm destructive calls do.
+* **Same tools on both transports.** `gritz mcp` and `/mcp` share `AddTools`; every tool goes through the `gritzv1connect.GritzServiceHandler` interface, so none needs anything the Connect client can’t do.
+
+### Task tools: audit and gaps
+
+[Section titled “Task tools: audit and gaps”](#task-tools-audit-and-gaps)
+
+What the API and Web UI do with tasks, against the MCP today:
+
+| Capability                      | RPC                                                 | Web UI                               | MCP today                         | Proposal                                                                                                                   |
+| ------------------------------- | --------------------------------------------------- | ------------------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| List, paged, with archived      | `ListTasks` (`page_size`, `page_token`, `archived`) | yes                                  | first page of 50, unarchived only | `list_tasks` takes `page_size`, `page_token`, `archived`; returns `next_page_token`                                        |
+| Task fields in lists            | `Task`                                              | status, archived badge, auto-archive | id, name, workspace, status, url  | summary adds `runner`, `namespace`, `archived`, `created_at`, `updated_at`                                                 |
+| Read task + timeline            | `GetTask`, `ListEventsByTask`, `ListLinks`          | yes                                  | yes, every event                  | `get_task` adds `auto_archive`, `archived`, `namespace`, `actions`, timestamps; takes `event_types` to filter the timeline |
+| Create as draft, in a namespace | `CreateTask` (`draft`, `namespace`)                 | yes (always draft)                   | no                                | `create_task` takes `draft`, `namespace`                                                                                   |
+| Rename                          | `UpdateTask.name`                                   | no                                   | no                                | `update_task` takes `name`                                                                                                 |
+| Change auto-archive             | `UpdateTask.auto_archive`                           | yes                                  | no                                | `update_task` takes `auto_archive`                                                                                         |
+| Add instruction, start          | `UpdateTask`                                        | yes                                  | yes                               | `instruction` becomes optional, so a call can only rename or start                                                         |
+| Cancel                          | `CancelTask`                                        | yes                                  | no                                | `cancel_task`                                                                                                              |
+| Restart                         | `RestartTask`                                       | yes                                  | no                                | `restart_task`                                                                                                             |
+| Archive                         | `ArchiveTask`                                       | yes                                  | yes                               | unchanged                                                                                                                  |
+| Unarchive                       | `UnarchiveTask`                                     | yes                                  | no                                | `unarchive_task`                                                                                                           |
+| Agent transcript                | `ListLogChunksByTask`                               | yes (Logs tab)                       | no                                | `get_task_log`                                                                                                             |
+| Link a resource                 | `CreateLink`                                        | no                                   | no                                | `create_link`                                                                                                              |
+| Shell                           | `OpenShell`                                         | yes                                  | no                                | out of scope: an interactive terminal, not a tool call                                                                     |
+
+`get_task` returning `actions` (`TaskActions`: archive, cancel, restart, start, unarchive) lets the agent see what the task allows before it tries, the same flags the Web UI uses to enable its buttons.
+
+### Tool set
+
+[Section titled “Tool set”](#tool-set)
+
+Existing tools are marked *(changed)* or *(unchanged)*; the rest are new.
+
+#### Tasks
+
+[Section titled “Tasks”](#tasks)
+
+| Tool                            | RPC                                        | Arguments                                                                          |
+| ------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `list_workspaces` *(unchanged)* | `ListWorkspaces`                           | —                                                                                  |
+| `list_tasks` *(changed)*        | `ListTasks`                                | `page_size`, `page_token`, `archived`                                              |
+| `get_task` *(changed)*          | `GetTask`, `ListEventsByTask`, `ListLinks` | `id`, `event_types`                                                                |
+| `create_task` *(changed)*       | `CreateTask`                               | `workspace`, `runner`, `instruction`, `name`, `auto_archive`, `namespace`, `draft` |
+| `update_task` *(changed)*       | `UpdateTask`, `GetTask`                    | `id`, `instruction`, `url`, `name`, `auto_archive`, `start`                        |
+| `cancel_task`                   | `CancelTask`, `GetTask`                    | `id`                                                                               |
+| `restart_task`                  | `RestartTask`, `GetTask`                   | `id`                                                                               |
+| `archive_task` *(unchanged)*    | `ArchiveTask`, `GetTask`                   | `id`                                                                               |
+| `unarchive_task`                | `UnarchiveTask`, `GetTask`                 | `id`                                                                               |
+| `get_task_log`                  | `ListLogChunksByTask`                      | `id`, `before`, `max_bytes`                                                        |
+| `create_link`                   | `CreateLink`                               | `task_id`, `url`, `title`, `relevance`, `subscribe`                                |
+
+Details:
+
+* **`list_tasks`** returns `{tasks, next_page_token}` instead of a bare array. `page_size` defaults to the server’s 50.
+* **`get_task`**’s `event_types` is passed to `gritzclient.ListAllEventsByTask`, which already sends it as `ListEventsByTaskRequest.types` (the tool passes `nil` today), so an agent that only wants the instructions or the external events doesn’t page in the whole timeline. Empty means every type, as now; command events stay skipped.
+* **`update_task`** rejects a call that sets none of `instruction`, `name`, `auto_archive` or `start` with an error result. `auto_archive` takes the Go duration strings `create_task` already parses; an unset argument leaves `UpdateTaskRequest.auto_archive` nil (leave alone).
+* **`create_task`** with `draft: true` creates the task in `DRAFT`; the agent starts it later with `update_task` and `start: true`, the same flow as the Web UI’s composer. `instruction` stays required for a non-draft create.
+* **`get_task_log`** returns the tail of the task’s transcript as text: it walks `ListLogChunksByTask` backwards from the newest page (empty `page_token`, then `prev_page_token`) until it has `max_bytes` (default 64 KiB, capped at 1 MiB) or history runs out, and returns `{log, before}`, where `before` is the `prev_page_token` to pass back for the preceding bytes, empty at the start of the log. Chunks are the shipped log, so declared secrets are already masked. The tool doesn’t parse the driver’s log format.
+* **`create_link`** lets the user subscribe a task to a resource they made by hand, such as a PR opened outside gritz, so the task receives its events. It maps 1:1 onto `CreateLink`; `relevance` is free text describing why the link matters, as in the agent’s own `create_link`.
+
+#### Events
+
+[Section titled “Events”](#events)
+
+| Tool           | RPC                  | Arguments                                                                  |
+| -------------- | -------------------- | -------------------------------------------------------------------------- |
+| `list_events`  | `ListExternalEvents` | `limit`                                                                    |
+| `get_event`    | `GetEvent`           | `id`                                                                       |
+| `delete_event` | `DeleteEvent`        | `id`                                                                       |
+| `test_event`   | `TestEvent`          | `source`, `type`, `body`, `url`, `attrs`, `description`, `details`, `fire` |
+
+* **`list_events`** returns a summary per event: `id`, `task_id`, `source`, `type`, `description`, `url`, `created_at` from `ExternalPayload`, not the `data` blob. `get_event` returns the full event as protojson, like `get_task`’s timeline.
+* **`test_event`** is for testing routing. It takes any registered source and type, defaults to a dry run (`fire: false`), and returns `TestEventResponse.matches`: which rule matched and whether it would wake or create. `fire: true` routes it for real; the RPC already requires `OpOrgWrite` for that. The RPC validates the event against its type and routes a custom event with no actor, exactly as `/webhook/custom` does, so firing a custom event is how an agent sends one; an invalid event comes back as an error result carrying the validation message.
+
+#### Event types
+
+[Section titled “Event types”](#event-types)
+
+| Tool                       | RPC                                          | Arguments                |
+| -------------------------- | -------------------------------------------- | ------------------------ |
+| `list_event_types`         | `GetEventTypes`                              | —                        |
+| `put_custom_event_type`    | `GetCustomEventTypes`, `SetCustomEventTypes` | `type`, `label`, `attrs` |
+| `delete_custom_event_type` | `GetCustomEventTypes`, `SetCustomEventTypes` | `type`                   |
+
+* **`list_event_types`** lists the built-in and custom types with their attributes, which is what an agent needs to fill in `test_event`’s attrs, or to write a routing rule’s conditions.
+* `SetCustomEventTypes` replaces the whole set. The two write tools read the current set, add, replace or remove the one entry by `type`, and write the set back, exactly as the Web UI’s custom event type pages do. The RPC validates the result: a malformed schema is `InvalidArgument`, and removing a type a routing rule still uses is `FailedPrecondition`, which the tool returns as an error result naming the problem. `source` is always `"custom"` and is not an argument.
+
+#### Schedules
+
+[Section titled “Schedules”](#schedules)
+
+| Tool                   | RPC                             | Arguments                                                                                                     |
+| ---------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `list_schedules`       | `ListSchedules`                 | —                                                                                                             |
+| `get_schedule`         | `GetSchedule`                   | `id`                                                                                                          |
+| `create_schedule`      | `CreateSchedule`                | `name`, `workspace`, `runner`, `namespace`, `instruction`, `cron_expr`, `timezone`, `auto_archive`, `enabled` |
+| `update_schedule`      | `GetSchedule`, `UpdateSchedule` | `id`, and any of the create arguments except `enabled`                                                        |
+| `set_schedule_enabled` | `SetScheduleEnabled`            | `id`, `enabled`                                                                                               |
+| `run_schedule`         | `RunSchedule`                   | `id`                                                                                                          |
+| `delete_schedule`      | `DeleteSchedule`                | `id`                                                                                                          |
+
+* Schedules take one `instruction`, like `create_task`, mapped to a one-element `instructions`. A schedule with several stored instructions is shown with all of them by `get_schedule`; `update_schedule` without `instruction` keeps them.
+* `UpdateScheduleRequest` replaces every template field. `update_schedule` takes each as optional (pointer fields in the input struct), loads the schedule with `GetSchedule`, overlays the arguments given and sends the full request, so “change the cron to 9am” doesn’t blank the instructions.
+* `create_schedule` defaults `enabled` to `false`, as the RPC does; the tool description says so, so an agent turns it on deliberately.
+* `run_schedule` returns the created task’s summary.
+
+#### Org
+
+[Section titled “Org”](#org)
+
+| Tool                | RPC               | Arguments |
+| ------------------- | ----------------- | --------- |
+| `list_members`      | `ListOrgMembers`  | —         |
+| `list_keys`         | `ListKeys`        | —         |
+| `get_org_settings`  | `GetOrgSettings`  | —         |
+| `get_routing_rules` | `GetRoutingRules` | —         |
+| `set_routing_rules` | `SetRoutingRules` | `rules`   |
+
+* `list_members` returns `user_id`, `email`, `name`, `role`, `created_at`.
+* `list_keys` returns `id`, `name`, `expires_at`, `created_at`.
+* `get_org_settings` returns `mcp_url`, `custom_webhook_url`, `atlassian_webhook_url`, `github_app_url`, `github_installation_id`, and never `atlassian_webhook_secret`.
+* `get_routing_rules` returns the rules as protojson.
+* `set_routing_rules` proxies `SetRoutingRules` as is: `rules` is the full list as protojson `RoutingRule`s, in the shape `get_routing_rules` returns. The agent reads the list, edits it, and writes the whole list back. The tool description says that it replaces every rule in the org, so a list missing a rule deletes it. The RPC validates every rule against the org’s event types and returns `InvalidArgument` naming the bad rule, which the tool returns as an error result. It returns the stored rules.
+
+### Instructions
+
+[Section titled “Instructions”](#instructions)
+
+`mcpserver.Instructions` grows a sentence saying the server also administers the org’s events, custom event types, schedules and routing rules, and reads its members and keys, so clients route those requests here.
+
+### Code layout
+
+[Section titled “Code layout”](#code-layout)
+
+`mcpserver.go` holds the server, `AddTools` and the shared helpers (`taskSummary`, duration parsing). The handlers move into one file per domain, each with a `register` function `AddTools` calls in order:
+
+```plaintext
+internal/server/mcpserver/
+  mcpserver.go   // NewServer, AddTools, Handler, Instructions, shared helpers
+  task.go        // addTaskTools: task and workspace tools
+  event.go       // addEventTools: events, event types, test and custom events
+  schedule.go    // addScheduleTools
+  org.go         // addOrgTools: members, keys, settings, routing rules
+```
+
+Tests stay on the existing pattern in `mcpserver_test.go`: a `gritzclient.ClientMock` behind an in-memory MCP session, asserting the RPC request each tool sends and the result it renders, plus `TestListTools` for the registered names. The test file splits along the same lines.
+
+### API
+
+[Section titled “API”](#api)
+
+The package’s exported API doesn’t change: `AddTools` registers more tools.
+
+```go
+package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
+
+
+// Instructions is the prompt shown to MCP clients describing what the gritz server offers.
+const Instructions = "..." // changed: mentions events, schedules, routing rules and org data
+
+
+// AddTools registers the user-facing gritz tools on the given MCP server.
+func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, opts ...Option) // changed: registers the new tools
+```
+
+**How it fits:** unchanged. The server’s `/mcp` handler and `gritz mcp` both call `AddTools`; the server passes the in-process `apiserver.Server`, `gritz mcp` the Connect client. Every handler calls `GritzServiceHandler` methods only.
+
+### Considered and left out
+
+[Section titled “Considered and left out”](#considered-and-left-out)
+
+* **Per-type custom event type RPCs** (`PutCustomEventType`, `DeleteCustomEventType`). They would remove the lost-update window of read-modify-write, but the Web UI has the same window and edits are rare.
+* **Per-rule routing-rule RPCs.** Rules have no IDs, so per-rule add and remove would need stable rule IDs in `RoutingRule`. Proxying `SetRoutingRules` is what the Web UI’s rule editor does already.
+* **`ListTasks` filters** (status, workspace, namespace). Useful to an agent hunting for “my failed tasks”, but the Web UI doesn’t filter either; paging covers it for now.
+* **`ListExternalEvents` paging.** It returns at most the 100 newest events. That’s enough for an agent looking at recent activity, and the Web UI has the same limit.
+
+## Implementation Plan
+
+[Section titled “Implementation Plan”](#implementation-plan)
+
+Each slice updates the **Tools** section of `integrations/mcp` for the tools it adds or changes, in the same PR.
+
+1. **Split the package** — Delivers: `mcpserver.go` split into `task.go` with the existing handlers and the per-domain `register` structure; no behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass unchanged.
+2. **Task tools** — Delivers: `list_tasks` paging and `archived`, the wider task summary, `get_task`’s extra fields and `event_types` filter; `create_task` `draft` and `namespace`; `update_task` `name`, `auto_archive`, optional `instruction` and the nothing-to-do error; `cancel_task`, `restart_task`, `unarchive_task`; `get_task_log`; `create_link`. Depends on: (1). Verifiable by: mock tests on the requests each tool sends, including `next_page_token` in the `list_tasks` result, the `types` passed to `ListEventsByTask`, and `get_task_log` walking several `ListLogChunksByTask` pages backwards, stopping at `max_bytes` and returning the right `before`; a manual cancel and restart through `gritz mcp` against a local server.
+3. **Events and event types** — Delivers: `list_events`, `get_event`, `delete_event`, `list_event_types`, `put_custom_event_type`, `delete_custom_event_type`, `test_event`. Updates `integrations/custom-events` to mention firing a custom event with `test_event`. Depends on: (1). Verifiable by: mock tests, including that `list_events` omits `data`, that the written custom type set adds, replaces or removes exactly one entry, that `test_event` sends `body`, `url` and multi-valued `attrs`, and that a `FailedPrecondition` or `InvalidArgument` comes back as an error result.
+4. **Schedules** — Delivers: `list_schedules`, `get_schedule`, `create_schedule`, `update_schedule`, `set_schedule_enabled`, `run_schedule`, `delete_schedule`. Depends on: (1). Verifiable by: mock tests, including that `update_schedule` with only `cron_expr` sends the loaded instructions back unchanged.
+5. **Org** — Delivers: `list_members`, `list_keys`, `get_org_settings`, `get_routing_rules`, `set_routing_rules`. Depends on: (1). Verifiable by: mock tests, including that `get_org_settings` drops the webhook secret, that `set_routing_rules` sends the list unchanged and carries `DestructiveHint`, and that an `InvalidArgument` comes back as an error result.
+6. **Instructions** — Delivers: the updated `mcpserver.Instructions` and the intro of `integrations/mcp` describing the wider tool set. Depends on: (2)–(5). Verifiable by: reading the page; `TestListTools` lists every tool.
+
+Slices 2–5 depend only on (1) and can land in any order.
+
+## Trade-offs
+
+[Section titled “Trade-offs”](#trade-offs)
+
+* **Proxy tools over existing RPCs, not new MCP-specific endpoints.** Every capability already exists for the Web UI, with its authorization and validation. Proxying keeps `gritz mcp` and `/mcp` identical and keeps the MCP out of the permission model. The cost is a few read-modify-write tools where the RPC replaces a whole set.
+* **Routing rules are written whole.** `set_routing_rules` proxies `SetRoutingRules`, which replaces the org’s whole rule list; one bad call from an agent that drops rules can silently stop events from waking tasks. Per-rule add and remove would be safer, but rules have no IDs to address them by. `DestructiveHint` and a description that says every rule is replaced make the client confirm, the RPC still validates every rule, and `get_routing_rules` plus `test_event` let the agent check its work.
+* **A flat tool set, not toolsets.** The MCP goes from 6 tools to 30, which costs client context. Grouping tools behind a flag (`gritz mcp --tools task,event`) or MCP-level toolsets would trim it, but clients already let users disable individual tools, and the tool descriptions stay short. Revisit if it hurts.
+* **`get_task_log` returns a byte tail, not parsed turns.** The transcript is the driver’s raw log in whatever format the agent CLI writes; parsing it per agent would couple the MCP to every agent integration. A byte budget keeps results bounded.
+* **One instruction per create.** `CreateTask` and `CreateSchedule` accept several instructions, but nothing in the Web UI makes more than one, and one string is easier for an agent to fill.
 
 # OAuth 2.1 for MCP endpoint
 

@@ -38,7 +38,7 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 - [Custom events](https://docs.gritz.dev/integrations/custom-events.md): Send events from any system, such as an alerting tool or a deploy pipeline, to gritz so they create or wake up tasks.
 - [GitHub](https://docs.gritz.dev/integrations/github.md): Install the gritz GitHub App, link your GitHub account, and route pull request and issue events to tasks; the events gritz receives, the reactions it posts, and GitHub credentials for agents.
 - [Jira](https://docs.gritz.dev/integrations/jira.md): Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, labels and assignments to tasks.
-- [MCP](https://docs.gritz.dev/integrations/mcp.md): Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks; the tools it offers, and task notifications through Claude Code channels.
+- [MCP](https://docs.gritz.dev/integrations/mcp.md): Connect Claude Code, Cursor or any MCP client to gritz, over HTTP with OAuth or locally with gritz mcp, to create and manage tasks and administer the organisation; the tools it offers, and task notifications through Claude Code channels.
 
 ## Reference
 
