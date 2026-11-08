@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -12,7 +13,6 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/server/customserver"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
@@ -76,7 +76,7 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 		}
 		reg := eventrouter.DefaultSchemaRegistry.With(defs...)
 		for i, rule := range rules {
-			if err := reg.Validate(rule); err != nil {
+			if err := reg.ValidateRule(rule); err != nil {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("routing rule %d: %w", i+1, err))
 			}
 		}
@@ -157,17 +157,14 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
-		input, err = customserver.ToInputEvent(customserver.Envelope{
-			Type:        req.Type,
-			Description: req.Description,
-			Body:        req.Body,
-			URL:         req.Url,
-			Attrs:       attrs,
-			Details:     req.Details,
-		}, reg, caller.OrgID)
+		// A custom event has no actor, as from the webhook: only public rules
+		// match it.
+		input.UserID = ""
+		def, err := reg.Validate(input)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
+		input.Description = cmp.Or(req.Description, def.Label)
 	}
 
 	// Plan is the shared read-only matcher — running it (not a parallel simulator)

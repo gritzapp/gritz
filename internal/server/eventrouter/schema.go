@@ -1,7 +1,10 @@
 package eventrouter
 
 import (
+	"errors"
 	"fmt"
+	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 
@@ -115,8 +118,8 @@ func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 	return reg
 }
 
-// Validate checks the rule against the event-type registry, returning a wrapped
-// error naming the first offending selector, op, or attr. Every rule must name
+// ValidateRule checks the rule against the event-type registry, returning a
+// wrapped error naming the first offending selector, op, or attr. Every rule must name
 // exactly one registered (Source, Type) event type: an empty Type is rejected,
 // and — because the registry is keyed by (Source, Type) and label_added exists
 // under multiple sources — an empty Source is rejected too. Each condition's op
@@ -124,7 +127,7 @@ func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 // type's valid attrs (its Attrs set, which includes the derived body/url).
 // A custom rule must also be Public: custom events are ingested without an
 // actor, so routing only considers the org's public rules for them.
-func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
+func (r *SchemaRegistry) ValidateRule(rule model.RoutingRule) error {
 	if rule.Type == "" {
 		return fmt.Errorf("rule must select an event type: empty type")
 	}
@@ -149,6 +152,35 @@ func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
 		}
 	}
 	return nil
+}
+
+// Validate checks e against its type's schema: the type must be registered
+// for e.Source, URL must be an absolute http or https URL, and every attr
+// must be declared by the type. "body" and "url" can't be attrs; they are
+// derived from Data and URL. It returns the type's definition.
+func (r *SchemaRegistry) Validate(e InputEvent) (model.EventTypeDef, error) {
+	def, ok := r.EventTypeFor(e.Source, e.Type)
+	if !ok {
+		return model.EventTypeDef{}, fmt.Errorf("unknown event type %q", e.Type)
+	}
+	if e.URL == "" {
+		return model.EventTypeDef{}, errors.New("url is required")
+	}
+	u, err := url.Parse(e.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return model.EventTypeDef{}, fmt.Errorf("url %q must be an absolute http or https URL", e.URL)
+	}
+	for _, key := range slices.Sorted(maps.Keys(e.Attrs)) {
+		// InputEvent.Attr derives these from Data and URL, so a value sent
+		// here would be silently ignored.
+		if key == "body" || key == "url" {
+			return model.EventTypeDef{}, fmt.Errorf("attr %q must be sent as the envelope's %q field", key, key)
+		}
+		if !def.HasAttr(key) {
+			return model.EventTypeDef{}, fmt.Errorf("attr %q not declared by event type %q", key, def.Type)
+		}
+	}
+	return def, nil
 }
 
 // DefaultSchemaRegistry is the process-wide registry of built-in event types.

@@ -34,7 +34,7 @@ var (
 	}
 )
 
-func TestSchemaRegistryValidate(t *testing.T) {
+func TestSchemaRegistryValidateRule(t *testing.T) {
 	reg := NewSchemaRegistry()
 	reg.MustRegister(testComment)
 	reg.MustRegister(testLabel)
@@ -134,9 +134,9 @@ func TestSchemaRegistryValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := reg.Validate(tt.rule)
+			err := reg.ValidateRule(tt.rule)
 			if tt.wantErr {
-				assert.Assert(t, err != nil, "Validate() = nil, want error")
+				assert.Assert(t, err != nil, "ValidateRule() = nil, want error")
 			} else {
 				assert.NilError(t, err)
 			}
@@ -540,7 +540,7 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.reg.Validate(tt.rule)
+			err := tt.reg.ValidateRule(tt.rule)
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 			} else {

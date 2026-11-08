@@ -304,7 +304,7 @@ func (s *Server) SetRoutingRules(ctx context.Context, req *gritzv1.SetRoutingRul
 		}
 		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
 		for i, rule := range rules {
-			if err := reg.Validate(rule); err != nil {
+			if err := reg.ValidateRule(rule); err != nil {
 				return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("routing rule %d: %w", i+1, err))
 			}
 		}

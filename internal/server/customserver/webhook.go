@@ -5,13 +5,9 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
-	"net/url"
-	"slices"
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
@@ -47,47 +43,6 @@ func NewWebhookRequest(ctx context.Context, url, token string, env Envelope) (*h
 	return req, nil
 }
 
-// ToInputEvent validates env against the custom types in reg and builds the
-// event to route, with no actor. The description defaults to the type's
-// label. The
-// URL is used as sent: it is the subscription key, so every event about the
-// same resource must send the same one.
-func ToInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (eventrouter.InputEvent, error) {
-	// The source is pinned to custom, so a type named like a built-in one
-	// can't resolve to the built-in schema.
-	def, ok := reg.EventTypeFor(eventrouter.SourceCustom, env.Type)
-	if !ok {
-		return eventrouter.InputEvent{}, fmt.Errorf("unknown event type %q", env.Type)
-	}
-	if env.URL == "" {
-		return eventrouter.InputEvent{}, errors.New("url is required")
-	}
-	u, err := url.Parse(env.URL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return eventrouter.InputEvent{}, fmt.Errorf("url %q must be an absolute http or https URL", env.URL)
-	}
-	for _, key := range slices.Sorted(maps.Keys(env.Attrs)) {
-		// InputEvent.Attr derives these from Data and URL, so a value sent
-		// here would be silently ignored.
-		if key == "body" || key == "url" {
-			return eventrouter.InputEvent{}, fmt.Errorf("attr %q must be sent as the envelope's %q field", key, key)
-		}
-		if !def.HasAttr(key) {
-			return eventrouter.InputEvent{}, fmt.Errorf("attr %q not declared by event type %q", key, def.Type)
-		}
-	}
-	return eventrouter.InputEvent{
-		Source:      eventrouter.SourceCustom,
-		Type:        def.Type,
-		Description: cmp.Or(env.Description, def.Label),
-		Data:        env.Body,
-		URL:         env.URL,
-		Orgs:        []int64{orgID},
-		Attrs:       env.Attrs,
-		Details:     env.Details,
-	}, nil
-}
-
 // WebhookHandler accepts custom events from Bearer-authenticated callers. It
 // must be mounted behind apiauth's RequireBearerAuth.
 type WebhookHandler struct {
@@ -120,11 +75,25 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reg := eventrouter.DefaultSchemaRegistry.With(types...)
-	input, err := ToInputEvent(env, reg, caller.OrgID)
+	// The source is pinned to custom, so a type named like a built-in one
+	// can't resolve to the built-in schema. The URL is used as sent: it is the
+	// subscription key, so every event about the same resource must send the
+	// same one.
+	input := eventrouter.InputEvent{
+		Source:  eventrouter.SourceCustom,
+		Type:    env.Type,
+		Data:    env.Body,
+		URL:     env.URL,
+		Orgs:    []int64{caller.OrgID},
+		Attrs:   env.Attrs,
+		Details: env.Details,
+	}
+	def, err := reg.Validate(input)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	input.Description = cmp.Or(env.Description, def.Label)
 
 	routed, err := h.Router.Route(r.Context(), input)
 	if err != nil {
