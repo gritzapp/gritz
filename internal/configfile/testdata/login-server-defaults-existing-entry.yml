@@ -1,3 +1,0 @@
-org: acme
-orgs:
-  acme: {id: 12, key: old}
