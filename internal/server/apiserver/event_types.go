@@ -76,7 +76,7 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 		}
 		reg := eventrouter.DefaultSchemaRegistry.With(defs...)
 		for i, rule := range rules {
-			if err := reg.ValidateRule(rule); err != nil {
+			if err := reg.Validate(rule); err != nil {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("routing rule %d: %w", i+1, err))
 			}
 		}
@@ -160,7 +160,7 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		// A custom event has no actor, as from the webhook: only public rules
 		// match it.
 		input.UserID = ""
-		def, err := reg.Validate(input)
+		def, err := reg.ValidateEvent(input)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}

@@ -88,7 +88,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Attrs:   env.Attrs,
 		Details: env.Details,
 	}
-	def, err := reg.Validate(input)
+	def, err := reg.ValidateEvent(input)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
