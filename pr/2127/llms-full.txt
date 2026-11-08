@@ -242,7 +242,7 @@ Make a rule public to let people outside the organisation, such as outside contr
 * **Dry run** shows which rule would match the event and whether that rule would wake tasks or create one. It changes nothing. It reports the rule’s settings only: it doesn’t check whether a task is subscribed to the URL.
 * **Fire** routes the event for real, as if it had arrived from its source: it wakes or creates tasks and stores the event on them. It doesn’t post anything back to GitHub or Jira.
 
-Both run the event only for the organisation you are in, and both reject an event that doesn’t fit its type: the URL must be an absolute `http` or `https` URL, and every attribute must be one the type declares. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2127/integrations/custom-events/) is routed like one posted to the webhook: it has no actor, so only public rules match it, and without a description it gets its type’s label.
+Both run the event only for the organisation you are in, and both reject an event that doesn’t fit its type: the URL must be an absolute `http` or `https` URL, and every attribute must be one the type declares. An event without a description gets its type’s label. A GitHub or Jira event runs as yours, so your organisation’s member-only rules can match it. A [custom event](/pr/2127/integrations/custom-events/) is routed like one posted to the webhook: it has no actor, so only public rules match it.
 
 # Runners
 
@@ -30702,7 +30702,7 @@ message TestEventRequest {
   // The event's attribute values, keyed by AttrDef.key. An attr may have
   // several values. "body" and "url" are sent in their own fields, not here.
   map<string, AttrValues> attrs = 3;
-  string description = 4;           // Optional description shown on the task's timeline; a custom event defaults to its type's label.
+  string description = 4;           // Optional description shown on the task's timeline; defaults to the event type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
   string body = 7;                  // The event's text, matched by rules on the "body" attr.
