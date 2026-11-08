@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/gritzapp/gritz/internal/configfile"
@@ -32,14 +33,25 @@ var LoginCommand = &cli.Command{
 		&cli.StringFlag{
 			Name:    "server",
 			Aliases: []string{"s"},
-			Usage:   "server URL (default: " + gritzclient.DefaultURL + ")",
+			Usage:   "server URL (default: the top-level server of the nearest .gritz.yml, else " + configfile.DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		m, err := configfile.Load(configfile.LoadOptions{Dir: wd})
+		if err != nil {
+			return err
+		}
+		entry := configfile.Entry{
+			Key:    cmd.String("key"),
+			Server: cmp.Or(cmd.String("server"), m.Server, configfile.DefaultServer),
+		}
 		client := gritzclient.New(gritzclient.Options{
-			BaseURL: cmp.Or(entry.Server, gritzclient.DefaultURL),
+			BaseURL: entry.Server,
 			Token:   entry.Key,
 		})
 		resp, err := client.GetCaller(ctx, &gritzv1.GetCallerRequest{})

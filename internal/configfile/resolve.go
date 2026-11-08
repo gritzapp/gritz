@@ -19,7 +19,7 @@ func Flags() []cli.Flag {
 	return []cli.Flag{
 		&cli.StringFlag{
 			Name:    "org",
-			Usage:   "org entry name from a .gritz.yml file (default: the merged default)",
+			Usage:   "org entry name from a .gritz.yml file (default: the merged org)",
 			Sources: cli.EnvVars("GRITZ_ORG"),
 		},
 		&cli.StringFlag{

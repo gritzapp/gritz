@@ -3,7 +3,7 @@ title: "Multi-org CLI auth and default org config"
 description: "The CLI holds a single API key bound to one org, so users in several orgs cannot switch orgs without rewriting its config, and nothing ties a directory to an org."
 ---
 
-Issues: https://github.com/gritzapp/gritz/issues/1940, https://github.com/gritzapp/gritz/issues/2065
+Issues: https://github.com/gritzapp/gritz/issues/1940, https://github.com/gritzapp/gritz/issues/2065, https://github.com/gritzapp/gritz/issues/2129
 
 ## Problem
 
@@ -32,7 +32,7 @@ authenticate as that org), so the CLI is logged in to one org at a time:
 ### Overview
 
 - One file format, `.gritz.yml`, used at every level. It names orgs, holds their
-  keys and servers, and picks a default.
+  keys and servers, and selects one with `org`.
 - Every user-facing command merges the `.gritz.yml` files from the working
   directory up to `/`, on top of `$CONFIG_DIR/.gritz.yml`, then selects one org
   entry. The entry supplies the server, org id and key.
@@ -46,7 +46,8 @@ YAML, parsed with the `gopkg.in/yaml.v3` dependency that `workspaces.yaml`
 already uses. Every field is optional:
 
 ```yaml
-default: acme
+org: acme
+server: https://gritz.example.com
 allowed: [acme, local]
 orgs:
   acme:
@@ -62,10 +63,14 @@ orgs:
   - `id`: the org id (`orgs.id`).
   - `key`: an API key for that org, the `CreateKeyResponse.raw_token` string.
   - `server`: the server URL; omitted means the default server, `https://gritz.dev`.
-- `default` names the entry used when none is selected explicitly.
+    `login` always writes it.
+- `org` names the entry used when none is selected explicitly. It matches the
+  `--org` flag.
+- `server` (top-level) is the server `gritz login` uses when `--server` isn't
+  given. It has no effect when entries are read.
 - `allowed` lists the entry names that may be selected. Unset allows every entry.
 
-Unknown fields are a parse error, so a typo like `defualt:` doesn't silently do
+Unknown fields are a parse error, so a typo like `ogr:` doesn't silently do
 nothing.
 
 **Names are local aliases.** The server only ever sees the key, which determines
@@ -90,19 +95,21 @@ but isn't a regular file is an error.
 
 Layers merge from the base up, so nearer files win:
 
-- `default` and `allowed` each come from the nearest file that sets them.
+- `org`, `allowed` and the top-level `server` each come from the nearest file
+  that sets them.
 - `orgs` merges by name. A nearer entry replaces a farther one with the same
   name whole; fields are not merged across files, so an id from one file can't
   be paired with a key from another.
 
-The merged result remembers which file set `default`, `allowed` and each entry,
+The merged result remembers which file set `org`, `allowed` and each entry,
 for error messages.
 
 The intended layering:
 
 - `$CONFIG_DIR/.gritz.yml` holds the user's entries and keys, written by `login`.
-- A `.gritz.yml` checked into a repo sets `default`, and optionally `allowed`, using
-  names the team agrees on. It holds no keys.
+- A `.gritz.yml` checked into a repo sets `org`, and optionally `allowed`, using
+  names the team agrees on, and optionally the top-level `server` its org
+  lives on. It holds no keys.
 - A `.gritz.yml` in an uncommitted parent directory (`~/work/acme/.gritz.yml`) can pin
   everything below it, including several repos.
 
@@ -116,19 +123,19 @@ Every user-facing command selects one entry at startup:
 1. If `--key` / `GRITZ_API_KEY` is set, use that key, and skip the files,
    entries and `allowed` entirely (see Explicit key below).
 2. Load and merge the files, and validate the result. An entry without `id`
-   or `key` is an error naming the file it came from, and so is a `default`
+   or `key` is an error naming the file it came from, and so is an `org`
    that isn't in the merged `allowed`, whether or not either is the entry being
    selected:
 
    ```
-   error: default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/labs/.gritz.yml)
+   error: org "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/labs/.gritz.yml)
    ```
 
-3. The selected name is `--org` / `GRITZ_ORG` if set, else the merged `default`.
+3. The selected name is `--org` / `GRITZ_ORG` if set, else the merged `org`.
    With neither:
 
    ```
-   error: no org selected: pass --org or set default in a .gritz.yml file
+   error: no org selected: pass --org or set org in a .gritz.yml file
    ```
 
 4. If `allowed` is set and doesn't contain the name, fail, naming the file that
@@ -185,7 +192,8 @@ alike. `GetProfile` is unchanged.
 **`gritz login --key <key> [--name <name>] [--server <url>]`**
 
 1. Call `GetCaller` with the key against `--server` (else `GRITZ_SERVER`, else
-   `gritzclient.DefaultURL`). A failure means the key is invalid; report it and
+   the top-level `server` of the nearest `.gritz.yml` that sets one, walking up
+   from the working directory to the base layer, else `configfile.DefaultServer`). A failure means the key is invalid; report it and
    write nothing.
 2. The org id and name are `resp.org.id` and `resp.org.name`.
 3. The entry name is `--name`, else a slug of the org name: lowercase, apostrophes
@@ -196,13 +204,13 @@ alike. `GetProfile` is unchanged.
 4. Load `$CONFIG_DIR/.gritz.yml` alone, not the merged view. If it has an entry with
    that name:
    - for the same id and server, replace its key;
-   - for a different id or server, fail: `entry "acme" is org 31 on the default server; pass --name to add org 12 under another name`.
-   The server is compared exactly as written, so an omitted `server` and an
-   explicit `https://gritz.dev` differ.
-5. Otherwise add `{id, key, server}` under the name, writing `server` only when
-   `--server` (or `GRITZ_SERVER`) was given.
-6. If the file has no `default`, set it to the entry's name, so the first org
-   added becomes the default. An existing `default` is never changed.
+   - for a different id or server, fail: `entry "acme" is org 31 on https://gritz.dev; pass --name to add org 12 under another name`.
+   An omitted `server` in a hand-written entry compares as `https://gritz.dev`.
+5. Otherwise add `{id, key, server}` under the name. `server` is always written,
+   including `https://gritz.dev`, so the entry doesn't depend on which
+   `.gritz.yml` files are around when it's read.
+6. If the file has no `org`, set it to the entry's name, so the first org
+   added is selected. An existing `org` is never changed.
 7. Write the file to a temp file in `$CONFIG_DIR` and rename it into place,
    keeping its mode, or creating it `0600` if it didn't exist. The file is
    re-marshalled, so comments and key order in it are not preserved.
@@ -211,10 +219,10 @@ alike. `GetProfile` is unchanged.
 The key is taken from `--key` only; there is no stdin or TTY prompt. `--key`
 here reads the same `GRITZ_API_KEY` env source as every other command, so
 `GRITZ_API_KEY=... gritz login` also works. Apart from step 6, `login` never
-touches `default`, and it never touches `allowed`.
+touches `org`, and it never touches `allowed`.
 
 There's no `logout` and no `org` subcommand. Removing an entry, switching the
-default or restricting `allowed` is an edit to a `.gritz.yml` file.
+selected `org` or restricting `allowed` is an edit to a `.gritz.yml` file.
 
 **Existing commands**
 
@@ -239,7 +247,7 @@ for `NotificationClientOptions` and `shell.Attach`:
   `shell.Attach` in place of `cfg.Token`.
 - `mcp`: `--token` (required) is replaced by selection. A Claude Code MCP config
   of `{"command": "gritz", "args": ["mcp"]}` launched from a repo picks up the
-  repo's `default` without a token in the config. The notification client gets
+  repo's `org` without a token in the config. The notification client gets
   the same key and server.
 - `notify`: same change as `mcp`. Running one `notify` per org with `--org` is
   how to watch several orgs.
@@ -291,8 +299,11 @@ type Entry struct { // new
 
 // File is the contents of one .gritz.yml file.
 type File struct { // replaced: was {Token}
-	// Default is the entry name selected when none is given.
-	Default string `yaml:"default,omitempty"`
+	// Org is the entry name selected when none is given.
+	Org string `yaml:"org,omitempty"`
+	// Server is the server `gritz login` uses when --server isn't given. It
+	// has no effect on reading entries.
+	Server string `yaml:"server,omitempty"`
 	// Allowed lists the entry names that may be selected; nil allows all.
 	Allowed []string `yaml:"allowed,omitempty"`
 	// Orgs maps local names to entries.
@@ -304,8 +315,9 @@ func Read(path string) (*File, error) // new
 
 // Merged is the result of merging .gritz.yml files, nearest winning.
 type Merged struct { // new
-	Default     string
-	DefaultFrom string // path of the file that set Default
+	Org         string
+	OrgFrom     string // path of the file that set Org
+	Server      string // the nearest top-level server, used only by `gritz login`
 	Allowed     []string
 	AllowedFrom string // path of the file that set Allowed
 	Orgs        map[string]Entry
@@ -324,8 +336,9 @@ func Load(opts LoadOptions) (*Merged, error) // replaced: was Load(*Overrides) (
 
 // Login writes entry under name into the .gritz.yml file at path, replacing the
 // key of an existing entry with the same id and server, and failing with
-// ErrNameTaken if name belongs to a different org or server. It sets default to
-// name when the file has none. The caller validates the key.
+// ErrNameTaken if name belongs to a different org or server. It sets org to
+// name when the file has none. The caller validates the key and sets
+// entry.Server.
 func Login(path, name string, entry Entry) error // new
 
 // ErrNameTaken is returned by Login when name is in use by another org or server.
@@ -337,11 +350,11 @@ func (e Entry) Validate() error // new
 // IsAllowed reports whether org may be selected: Allowed is unset or lists it.
 func (m *Merged) IsAllowed(org string) bool // new
 
-// Validate checks that Default is allowed and that every entry is complete,
+// Validate checks that Org is allowed and that every entry is complete,
 // returning errors that name the file responsible.
 func (m *Merged) Validate() error // new
 
-// Lookup returns the entry named org, or m.Default when org is empty,
+// Lookup returns the entry named org, or m.Org when org is empty,
 // enforcing m.Allowed. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) // new
 
@@ -384,8 +397,8 @@ client options and doesn't reference `gritzclient` at all, and there's no
 helper in `gritzclient` either. Every user-facing command
 appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
 builds `gritzclient.Options` (and `NotificationClientOptions` or the
-`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetCaller`,
-`configfile.Slug` and `configfile.Login`.
+`shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `Load` for the
+login server, then `GetCaller`, `configfile.Slug` and `configfile.Login`.
 
 ## Implementation Plan
 
@@ -400,14 +413,14 @@ builds `gritzclient.Options` (and `NotificationClientOptions` or the
    Nothing calls them yet.
    Depends on: nothing. Verifiable by: unit tests over temp dirs: the walk
    merges past a `.git` directory up to the temp root; the base layer is always
-   merged; `default`/`allowed` come from the nearest file; entries replace
-   whole by name; a `default` outside `allowed`, a disallowed `--org` and a
+   merged; `org`/`allowed` come from the nearest file; entries replace
+   whole by name; an `org` outside `allowed`, a disallowed `--org` and a
    missing entry each fail naming the right file (table tests on `Validate`
    and `Lookup` over `Merged` values); unknown fields fail.
 3. **`gritz login`** — Delivers: `configfile.Login`, `LoginCommand` and
    `main.go` registration. Depends on: (1), (2). Verifiable by: unit tests for
    `Slug` and for `Login` (new entry, key replaced for same id and server,
-   `ErrNameTaken` otherwise, `default` set only when absent); an e2e test that creates a
+   `ErrNameTaken` otherwise, `org` set only when absent); an e2e test that creates a
    key, runs `gritz login --key`, and checks the written entry.
 4. **Wire existing commands and delete the old config** — Delivers:
    `configfile.Flags`/`configfile.Resolve`; `task`, `logs`, `shell`, `mcp`, `notify` and
@@ -417,7 +430,7 @@ builds `gritzclient.Options` (and `NotificationClientOptions` or the
    `integrations/mcp`, `operators/runner`). Depends on: (2), (3).
    Verifiable by: an e2e test that logs in to two orgs and runs
    `gritz task list` from a directory whose
-   `.gritz.yml` sets `default` to org A while the base default is org B, and sees
+   `.gritz.yml` sets `org` to org A while the base layer selects org B, and sees
    only org A's tasks; and one where `--org` names an entry outside `allowed`
    and fails.
 

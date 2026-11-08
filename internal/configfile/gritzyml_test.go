@@ -17,7 +17,8 @@ func TestRead(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.DeepEqual(t, f, &File{
-		Default: "acme",
+		Org:     "acme",
+		Server:  "https://gritz.example.com",
 		Allowed: []string{"acme", "local"},
 		Orgs: map[string]Entry{
 			"acme":  {ID: 12, Key: "k1"},
@@ -63,8 +64,9 @@ func TestLoad(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{
-		Default:     "acme",
-		DefaultFrom: work,
+		Org:         "acme",
+		OrgFrom:     work,
+		Server:      "https://work.example.com",
 		Allowed:     []string{"acme"},
 		AllowedFrom: repo,
 		Orgs: map[string]Entry{
@@ -92,10 +94,10 @@ func TestLoad_BaseOnly(t *testing.T) {
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{
-		Default:     "acme",
-		DefaultFrom: base,
-		Orgs:        map[string]Entry{"acme": {ID: 12, Key: "k"}},
-		OrgsFrom:    map[string]string{"acme": base},
+		Org:      "acme",
+		OrgFrom:  base,
+		Orgs:     map[string]Entry{"acme": {ID: 12, Key: "k"}},
+		OrgsFrom: map[string]string{"acme": base},
 	})
 }
 
@@ -193,21 +195,21 @@ func TestValidate(t *testing.T) {
 			merged: Merged{},
 		},
 		{
-			name: "default in allowed",
+			name: "org in allowed",
 			merged: Merged{
-				Default: "acme", DefaultFrom: "/repo/.gritz.yml",
+				Org: "acme", OrgFrom: "/repo/.gritz.yml",
 				Allowed: []string{"acme"}, AllowedFrom: "/repo/.gritz.yml",
 				Orgs: orgs, OrgsFrom: from,
 			},
 		},
 		{
-			name: "default outside allowed",
+			name: "org outside allowed",
 			merged: Merged{
-				Default: "acme", DefaultFrom: "/home/me/src/labs/.gritz.yml",
+				Org: "acme", OrgFrom: "/home/me/src/labs/.gritz.yml",
 				Allowed: []string{"labs"}, AllowedFrom: "/home/me/src/.gritz.yml",
 				Orgs: orgs, OrgsFrom: from,
 			},
-			err: `default "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/.gritz.yml)`,
+			err: `org "acme" (from /home/me/src/labs/.gritz.yml) is not in allowed [labs] (from /home/me/src/.gritz.yml)`,
 		},
 		{
 			name: "entry without id",
@@ -255,13 +257,13 @@ func TestLookup(t *testing.T) {
 		err    string
 	}{
 		{
-			name:   "default",
-			merged: Merged{Default: "acme", DefaultFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
+			name:   "org",
+			merged: Merged{Org: "acme", OrgFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
 			want:   &acme,
 		},
 		{
-			name:   "org overrides default",
-			merged: Merged{Default: "acme", DefaultFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
+			name:   "org argument overrides org",
+			merged: Merged{Org: "acme", OrgFrom: "/repo/.gritz.yml", Orgs: orgs, OrgsFrom: from},
 			org:    "local",
 			want:   &local,
 		},
@@ -277,7 +279,7 @@ func TestLookup(t *testing.T) {
 		{
 			name:   "nothing selected",
 			merged: Merged{Orgs: orgs, OrgsFrom: from},
-			err:    "no org selected: pass --org or set default in a .gritz.yml file",
+			err:    "no org selected: pass --org or set org in a .gritz.yml file",
 		},
 		{
 			name: "org outside allowed",
