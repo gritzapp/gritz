@@ -198,17 +198,15 @@ func (s *Server) testEventInput(ctx context.Context, caller *apiauth.UserInfo, r
 		}
 		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
 		input, err := customserver.ToInputEvent(customserver.Envelope{
-			Type:    req.Type,
-			Body:    req.Body,
-			URL:     req.Url,
-			Attrs:   attrs,
-			Details: req.Details,
+			Type:        req.Type,
+			Description: req.Description,
+			Body:        req.Body,
+			URL:         req.Url,
+			Attrs:       attrs,
+			Details:     req.Details,
 		}, reg, caller.OrgID)
 		if err != nil {
 			return eventrouter.InputEvent{}, connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		if req.Description != "" {
-			input.Description = req.Description
 		}
 		return input, nil
 	}

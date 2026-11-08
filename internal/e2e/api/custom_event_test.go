@@ -96,3 +96,63 @@ func TestPostCustomEvent(t *testing.T) {
 		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"),
 	)
 }
+
+// TestPostCustomEventDescription asserts an envelope's description replaces
+// the type's label on the stored event.
+func TestPostCustomEventDescription(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
+		EventTypes: []*gritzv1.EventTypeDef{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Label:  "Dynatrace Problem",
+				Attrs:  []*gritzv1.AttrDef{{Key: "body"}, {Key: "url"}},
+			},
+		},
+	})
+	assert.NilError(t, err)
+	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
+		Rules: []*gritzv1.RoutingRule{
+			{
+				Source: "custom",
+				Type:   "problem",
+				Create: &gritzv1.CreateTaskAction{
+					Workspace: e2e.DefaultWorkspace,
+					Runner:    e2e.DefaultRunner,
+				},
+				Public: true,
+			},
+		},
+	})
+	webhook := h.Org.CustomWebhook(h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "dynatrace"}))
+	url := "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=1"
+
+	// Act
+	resp := webhook.Send(customserver.Envelope{
+		Type:        "problem",
+		Description: "CPU saturation on web-1",
+		URL:         url,
+	})
+
+	// Assert
+	assert.DeepEqual(t,
+		resp,
+		&e2e.WebhookResponse{StatusCode: http.StatusOK, Body: "{\"routed\":1}\n"},
+	)
+	assert.DeepEqual(t,
+		h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{}),
+		[]*gritzv1.Event{{
+			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+				Description: "CPU saturation on web-1",
+				Url:         url,
+				Source:      "custom",
+				Type:        "problem",
+			}},
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"),
+	)
+}

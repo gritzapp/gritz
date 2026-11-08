@@ -22,11 +22,12 @@ const maxEnvelopeBytes = 1 << 20
 
 // Envelope is the JSON body of a custom event submission.
 type Envelope struct {
-	Type    string              `json:"type"`
-	Body    string              `json:"body"`
-	URL     string              `json:"url"`
-	Attrs   map[string][]string `json:"attrs"`
-	Details map[string]string   `json:"details"`
+	Type        string              `json:"type"`
+	Description string              `json:"description"`
+	Body        string              `json:"body"`
+	URL         string              `json:"url"`
+	Attrs       map[string][]string `json:"attrs"`
+	Details     map[string]string   `json:"details"`
 }
 
 // NewWebhookRequest returns a request submitting env to the custom event
@@ -46,7 +47,8 @@ func NewWebhookRequest(ctx context.Context, url, token string, env Envelope) (*h
 }
 
 // ToInputEvent validates env against the custom types in reg and builds the
-// event to route, with no actor and the type's label as its description. The
+// event to route, with no actor. The description defaults to the type's
+// label. The
 // URL is used as sent: it is the subscription key, so every event about the
 // same resource must send the same one.
 func ToInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (eventrouter.InputEvent, error) {
@@ -73,10 +75,14 @@ func ToInputEvent(env Envelope, reg *eventrouter.SchemaRegistry, orgID int64) (e
 			return eventrouter.InputEvent{}, fmt.Errorf("attr %q not declared by event type %q", key, def.Type)
 		}
 	}
+	description := env.Description
+	if description == "" {
+		description = def.Label
+	}
 	return eventrouter.InputEvent{
 		Source:      eventrouter.SourceCustom,
 		Type:        def.Type,
-		Description: def.Label,
+		Description: description,
 		Data:        env.Body,
 		URL:         env.URL,
 		Orgs:        []int64{orgID},
