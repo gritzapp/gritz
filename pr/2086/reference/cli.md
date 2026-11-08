@@ -60,7 +60,7 @@ Changes a task. It needs at least one of `--add-instruction`, `--start`,
 | `--add-instruction`, `-i` | | | Add an instruction. Repeat it for several. |
 | `--start`, `-r` | | | Start the task. A running task isn't interrupted: it runs again when its current run ends. |
 | `--name`, `-n` | | | Rename the task. |
-| `--auto-archive` | | `0` | Set the auto-archive delay. Every update sets it, to never when the flag is left out. |
+| `--auto-archive` | | | Set the auto-archive delay. `0` is never; a negative value archives the task as soon as it finishes. Left out, the task keeps the delay it has. |
 | `--server`, `-s` | `GRITZ_SERVER` | `https://gritz.dev` | The server URL. |
 
 ### `gritz logs <task-id>`

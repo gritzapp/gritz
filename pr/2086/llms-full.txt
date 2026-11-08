@@ -404,7 +404,7 @@ A task can be archived when it is finished or a draft, and has no pending comman
 
 [Section titled “Auto-archive”](#auto-archive)
 
-A task’s auto-archive delay archives it automatically once it has been finished for that long. The default is never. **Immediately** archives it as soon as it finishes, which suits tasks whose result lives elsewhere, such as a pull request. The delay counts from the task’s last change, so a task that is woken up again starts over. A draft is never auto-archived; archive it by hand. The server checks for due tasks about once a minute.
+A task’s auto-archive delay archives it automatically once it has been finished for that long. The default is never. **Immediately** archives it as soon as it finishes, which suits tasks whose result lives elsewhere, such as a pull request. The delay counts from the task’s last change, so a task that is woken up again starts over. The server checks for due tasks about once a minute.
 
 Set it when you create the task, in the task page’s sidebar, with `--auto-archive` on the [CLI](/pr/2086/using/cli/), on a routing rule that creates tasks, or on a schedule. Unarchiving a task sets its delay back to never. Agents can’t change their own task’s delay.
 
@@ -1961,13 +1961,13 @@ Prints the organisation’s 50 newest unarchived tasks as JSON.
 
 Changes a task. It needs at least one of `--add-instruction`, `--start`, `--name` or `--auto-archive`.
 
-| Flag                      | Environment    | Default             |                                                                                            |
-| ------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------ |
-| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                 |
-| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends. |
-| `--name`, `-n`            |                |                     | Rename the task.                                                                           |
-| `--auto-archive`          |                | `0`                 | Set the auto-archive delay. Every update sets it, to never when the flag is left out.      |
-| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                            |
+| Flag                      | Environment    | Default             |                                                                                                                                                 |
+| ------------------------- | -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--add-instruction`, `-i` |                |                     | Add an instruction. Repeat it for several.                                                                                                      |
+| `--start`, `-r`           |                |                     | Start the task. A running task isn’t interrupted: it runs again when its current run ends.                                                      |
+| `--name`, `-n`            |                |                     | Rename the task.                                                                                                                                |
+| `--auto-archive`          |                |                     | Set the auto-archive delay. `0` is never; a negative value archives the task as soon as it finishes. Left out, the task keeps the delay it has. |
+| `--server`, `-s`          | `GRITZ_SERVER` | `https://gritz.dev` | The server URL.                                                                                                                                 |
 
 ### `gritz logs <task-id>`
 
@@ -2647,11 +2647,9 @@ gritz task update 1234 --start -i "Also update the README."
 | `--add-instruction`, `-i` | Add an instruction. Repeat it for several.                                                                                                  |
 | `--start`, `-r`           | Start the task, as the Web UI does when you send an instruction. A running task isn’t interrupted: it runs again when its current run ends. |
 | `--name`, `-n`            | Rename the task.                                                                                                                            |
-| `--auto-archive`          | Set the auto-archive delay.                                                                                                                 |
+| `--auto-archive`          | Set the auto-archive delay. Left out, the task keeps the delay it has.                                                                      |
 
 An instruction added without `--start` waits on the task until something else starts it, such as an event or a later `--start`.
-
-Every `gritz task update` also sets the task’s auto-archive delay: to `--auto-archive` when it is given, and otherwise to never. Pass `--auto-archive` again to keep a delay the task already had.
 
 Cancelling, restarting and archiving tasks are done in the [Web UI](/pr/2086/using/web-ui/#the-task-page).
 
