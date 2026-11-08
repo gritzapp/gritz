@@ -187,8 +187,10 @@ func (s *Server) Handler() http.Handler {
 	// clean pre-upgrade 401 rather than a 302 to the login page.
 	mux.Handle(shell.DriverRoute, alice.New(s.auth.RequireAuth()).Then(s.shell.DriverHandler()))
 	mux.Handle(shell.AttachRoute, alice.New(s.auth.CheckAuth()).Then(s.shell.AttachHandler()))
-	// MCP endpoint (protected by auth middleware)
-	mux.Handle("/mcp", alice.New(s.auth.RequireAuth()).Then(mcpserver.Handler(s.api)))
+	// MCP endpoint: an OAuth protected resource, so a request without a valid
+	// Bearer token gets a 401 whose WWW-Authenticate challenge points the MCP
+	// client at the protected resource metadata, not a login redirect.
+	mux.Handle("/mcp", alice.New(s.auth.RequireResourceAuth(s.baseURL+"/.well-known/oauth-protected-resource")).Then(mcpserver.Handler(s.api)))
 	// React UI (SPA with client-side routing, protected by cookie auth)
 	mux.Handle("/ui/", http.StripPrefix("/ui", s.auth.RequireAuth()(WebUI())))
 	mux.Handle("/", http.RedirectHandler("/ui/", http.StatusFound))

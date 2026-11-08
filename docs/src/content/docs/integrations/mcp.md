@@ -56,6 +56,19 @@ Give the client the URL. gritz supports the MCP authorization flow: OAuth 2.1
 with PKCE and dynamic client registration, so a client that supports it
 registers itself and needs no client ID.
 
+A request to `/mcp` without a valid bearer token gets a `401` with a
+`WWW-Authenticate` challenge whose `resource_metadata` points at the server's
+protected resource metadata:
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://gritz.dev/.well-known/oauth-protected-resource"
+```
+
+The client reads the authorization server from there, and starts the sign-in.
+An expired or invalid token gets the same challenge with
+`error="invalid_token"`. `/mcp` doesn't accept the Web UI's browser session.
+
 ### Signing in
 
 When the client first connects, it opens gritz in your browser. Sign in if you

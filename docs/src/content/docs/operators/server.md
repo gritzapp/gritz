@@ -28,7 +28,8 @@ The server applies its database migrations itself when it starts.
 
 `--base-url` builds every URL the server hands out or registers with a provider:
 the login callback (`/auth/callback`), the GitHub and Atlassian OAuth callbacks,
-and the MCP and custom webhook URLs shown on **Settings → Organisation**. Set it
+the OAuth metadata and `/mcp`'s `WWW-Authenticate` challenge, and the MCP and
+custom webhook URLs shown on **Settings → Organisation**. Set it
 to the public URL, behind any TLS-terminating proxy.
 
 The server exports OpenTelemetry traces when `OTEL_EXPORTER_OTLP_ENDPOINT` is
@@ -161,7 +162,7 @@ Archiving a task makes its runner destroy the task's sandbox.
 | `/ui/` | The Web UI. `/` redirects here. |
 | `/healthz` | `200 ok` when the database answers, `503` otherwise. Unauthenticated, for load balancer checks. |
 | `/auth/` | Login, callback and logout. |
-| `/mcp` | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. See [MCP](/integrations/mcp/). |
+| `/mcp` | The user-facing MCP server, for Claude Code, Cursor and other MCP clients. Bearer tokens only: a request without one gets a `401` pointing at `/.well-known/oauth-protected-resource`, even with `--no-auth`. See [MCP](/integrations/mcp/). |
 | `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/oauth/register`, `/oauth/authorize`, `/oauth/token` | OAuth for MCP clients that connect to `/mcp`, with dynamic client registration. |
 | `/events` | The notification stream that runners and `gritz notify` hold open. |
 | `/webhook/github`, `/webhook/atlassian` | GitHub and Jira webhooks, when those integrations are enabled. |
