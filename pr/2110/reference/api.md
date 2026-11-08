@@ -1,0 +1,65 @@
+# API
+
+Everything gritz does, from the [Web UI](/using/web-ui/) to the
+[CLI](/using/cli/) and the runners, goes through one service,
+`gritz.v1.GritzService`. A program with an [API key](#authentication) can call
+it too. Its full definition is [at the end of this page](#service-definition).
+
+## Endpoint
+
+Every RPC is a `POST` to its own path on the server:
+
+```
+POST https://gritz.dev/gritz.v1.GritzService/<Method>
+```
+
+On a self-hosted server, replace `https://gritz.dev` with its base URL.
+
+## Protocols
+
+The server speaks the [Connect](https://connectrpc.com/docs/protocol/) protocol,
+gRPC and gRPC-Web, so any Connect or gRPC client generated from the service
+definition can call it. With Connect, a request body is the request message as
+JSON (`Content-Type: application/json`) or binary protobuf
+(`Content-Type: application/proto`). JSON field names are the camelCase form of
+the proto field names: `page_size` is `pageSize`.
+
+## Authentication
+
+Send an [API key](/concepts/orgs-members-keys/#api-keys) as a bearer token:
+
+```
+Authorization: Bearer xat_…
+```
+
+The key acts for the organisation it was created in, and can call what a member
+can. A request without a valid key fails with the `unauthenticated` code.
+
+## Example
+
+Check the connection and the server version with `Ping`, then see which
+organisation the key acts for with `GetCaller`:
+
+```sh
+export GRITZ_TOKEN=xat_…
+
+curl -sS https://gritz.dev/gritz.v1.GritzService/Ping \
+  -H "Authorization: Bearer $GRITZ_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+
+curl -sS https://gritz.dev/gritz.v1.GritzService/GetCaller \
+  -H "Authorization: Bearer $GRITZ_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+`Ping` returns `{"version": "…"}`. An error comes back as a non-2xx status with
+a JSON body such as `{"code": "unauthenticated", "message": "…"}`.
+
+## Service definition
+
+The full definition of `gritz.v1`: every RPC of `GritzService` and every
+message and enum they use, with their comments.
+
+<Code code={proto} lang="protobuf" title="proto/gritz/v1/gritz.proto" />
