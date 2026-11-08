@@ -41,6 +41,9 @@ func Config(server, redirectURL string) *oauth2.Config {
 type TokenSourceOptions struct {
 	// Server is the gritz server URL.
 	Server string
+	// Key is an API key. When set, the source returns it as a static token and
+	// the refresh fields are ignored.
+	Key string
 	// RefreshToken is the refresh token to start from.
 	RefreshToken string
 	// OnRefreshToken, if set, is called with a rotated refresh token once the
@@ -49,9 +52,12 @@ type TokenSourceOptions struct {
 	OnRefreshToken func(token string)
 }
 
-// TokenSource returns a TokenSource that refreshes access tokens from
-// opts.RefreshToken, caching each until it expires.
+// TokenSource returns a TokenSource that returns opts.Key, or else refreshes
+// access tokens from opts.RefreshToken, caching each until it expires.
 func TokenSource(ctx context.Context, opts TokenSourceOptions) oauth2.TokenSource {
+	if opts.Key != "" {
+		return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: opts.Key})
+	}
 	return oauth2.ReuseTokenSource(nil, &refreshSource{
 		ctx:      ctx,
 		config:   Config(opts.Server, ""),

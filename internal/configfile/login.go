@@ -39,37 +39,21 @@ func Login(path, name string, entry Entry) error {
 	if entry.Server == "" {
 		panic("configfile: Login without a server")
 	}
-	return UpdateEntry(path, name, func(f *File, old *Entry) (*Entry, error) {
-		if old != nil && (old.ID != entry.ID || cmp.Or(old.Server, DefaultServer) != entry.Server) {
-			return nil, fmt.Errorf("%w: entry %q is org %d on %s; pass --name to add org %d under another name",
+	return UpdateFile(path, func(f *File) (bool, error) {
+		if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || cmp.Or(old.Server, DefaultServer) != entry.Server) {
+			return false, fmt.Errorf("%w: entry %q is org %d on %s; pass --name to add org %d under another name",
 				ErrNameTaken, name, old.ID, cmp.Or(old.Server, DefaultServer), entry.ID)
 		}
-		if f.Org == "" {
-			f.Org = name
-		}
-		return &entry, nil
+		f.Orgs[name] = entry
+		f.Org = cmp.Or(f.Org, name)
+		return true, nil
 	})
 }
 
-// rotate returns an UpdateEntry func that replaces the entry's refresh token
-// with newToken if it still holds oldToken. Otherwise another process rotated
-// it, or the user logged in again, and the file is left as it is.
-func rotate(oldToken, newToken string) func(*File, *Entry) (*Entry, error) {
-	return func(_ *File, e *Entry) (*Entry, error) {
-		if e == nil || e.RefreshToken != oldToken {
-			return nil, nil
-		}
-		e.RefreshToken = newToken
-		return e, nil
-	}
-}
-
-// UpdateEntry rereads the .gritz.yml file at path (empty if missing) and
-// calls fn with it and the entry named name (nil if absent). When fn returns
-// an entry, UpdateEntry stores it under name, along with fn's changes to the
-// file, and writes the file atomically, keeping its mode or creating it 0600.
-// When fn returns nil or an error, the file is left as it is.
-func UpdateEntry(path, name string, fn func(*File, *Entry) (*Entry, error)) error {
+// UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
+// to change it, and writes it back atomically when fn returns true, keeping
+// its mode or creating it 0600. f.Orgs is never nil when fn is called.
+func UpdateFile(path string, fn func(f *File) (bool, error)) error {
 	mode := fs.FileMode(0o600)
 	f, err := Read(path)
 	switch {
@@ -84,18 +68,12 @@ func UpdateEntry(path, name string, fn func(*File, *Entry) (*Entry, error)) erro
 		}
 		mode = info.Mode().Perm()
 	}
-	var old *Entry
-	if e, ok := f.Orgs[name]; ok {
-		old = &e
-	}
-	e, err := fn(f, old)
-	if e == nil || err != nil {
-		return err
-	}
 	if f.Orgs == nil {
 		f.Orgs = map[string]Entry{}
 	}
-	f.Orgs[name] = *e
+	if ok, err := fn(f); !ok || err != nil {
+		return err
+	}
 	data, err := yaml.Marshal(f)
 	if err != nil {
 		return err
