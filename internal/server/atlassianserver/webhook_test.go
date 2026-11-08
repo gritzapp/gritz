@@ -174,8 +174,9 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				WebhookEvent: "jira:issue_updated",
 				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
 				Issue: &atlassian.Issue{
-					Key:  "PROJ-7",
-					Self: "https://mycompany.atlassian.net/rest/api/2/issue/7",
+					Key:    "PROJ-7",
+					Self:   "https://mycompany.atlassian.net/rest/api/2/issue/7",
+					Fields: atlassian.IssueFields{Description: "gritz: triage this"},
 				},
 				Changelog: &atlassian.Changelog{
 					Items: []atlassian.ChangelogItem{
@@ -187,6 +188,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Source:      "atlassian",
 				Type:        "label_added",
 				Description: `Test User added label(s) "gritz" to PROJ-7`,
+				Data:        "gritz: triage this",
 				Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"abc123"}},
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-7",
 			}},
@@ -256,8 +258,9 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				WebhookEvent: "jira:issue_updated",
 				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
 				Issue: &atlassian.Issue{
-					Key:  "PROJ-11",
-					Self: "https://mycompany.atlassian.net/rest/api/2/issue/11",
+					Key:    "PROJ-11",
+					Self:   "https://mycompany.atlassian.net/rest/api/2/issue/11",
+					Fields: atlassian.IssueFields{Description: "  gritz: pick this up\n"},
 				},
 				Changelog: &atlassian.Changelog{
 					Items: []atlassian.ChangelogItem{
@@ -269,6 +272,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Source:      "atlassian",
 				Type:        "issue_assigned",
 				Description: "Test User assigned PROJ-11 to Gritz Bot",
+				Data:        "gritz: pick this up",
 				Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"abc123"}},
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-11",
 			}},
@@ -297,8 +301,9 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				WebhookEvent: "jira:issue_updated",
 				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
 				Issue: &atlassian.Issue{
-					Key:  "PROJ-12",
-					Self: "https://mycompany.atlassian.net/rest/api/2/issue/12",
+					Key:    "PROJ-12",
+					Self:   "https://mycompany.atlassian.net/rest/api/2/issue/12",
+					Fields: atlassian.IssueFields{Description: "gritz: both"},
 				},
 				Changelog: &atlassian.Changelog{
 					Items: []atlassian.ChangelogItem{
@@ -312,6 +317,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Source:      "atlassian",
 					Type:        "label_added",
 					Description: `Test User added label(s) "gritz" to PROJ-12`,
+					Data:        "gritz: both",
 					Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"abc123"}},
 					URL:         "https://mycompany.atlassian.net/browse/PROJ-12",
 				},
@@ -319,6 +325,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Source:      "atlassian",
 					Type:        "issue_assigned",
 					Description: "Test User assigned PROJ-12 to Gritz Bot",
+					Data:        "gritz: both",
 					Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"abc123"}},
 					URL:         "https://mycompany.atlassian.net/browse/PROJ-12",
 				},

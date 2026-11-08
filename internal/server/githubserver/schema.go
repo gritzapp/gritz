@@ -33,9 +33,9 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 			{
 				Key:         "url",
-				Label:       "Issue/PR URL",
+				Label:       "Comment URL",
 				Placeholder: "https://github.com/owner/repo/",
-				Help:        "Matched against the commented issue or PR URL, e.g. to scope a rule to a single repo.",
+				Help:        "Matched against the comment's own URL (the issue or PR URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
 			},
 			{
 				Key:         "mention",
@@ -64,9 +64,9 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 			{
 				Key:         "url",
-				Label:       "PR URL",
-				Placeholder: "https://github.com/owner/repo/pull/123",
-				Help:        "Matched against the reviewed PR URL, e.g. to scope a rule to a single repo.",
+				Label:       "Review Comment URL",
+				Placeholder: "https://github.com/owner/repo/",
+				Help:        "Matched against the review comment's own URL (the PR URL followed by #discussion_r…), e.g. to scope a rule to a single repo.",
 			},
 			{
 				Key:         "mention",
@@ -95,9 +95,9 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 			{
 				Key:         "url",
-				Label:       "PR URL",
-				Placeholder: "https://github.com/owner/repo/pull/123",
-				Help:        "Matched against the reviewed PR URL, e.g. to scope a rule to a single repo.",
+				Label:       "Review URL",
+				Placeholder: "https://github.com/owner/repo/",
+				Help:        "Matched against the review's own URL (the PR URL followed by #pullrequestreview-…), e.g. to scope a rule to a single repo.",
 			},
 			{
 				Key:         "mention",
@@ -219,9 +219,9 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 			{
 				Key:         "state",
-				Label:       "State",
+				Label:       "Merged or Closed",
 				Placeholder: "merged",
-				Help:        `Whether the PR was "merged" or just "closed".`,
+				Help:        `"merged" if the PR was merged, "closed" if it was closed without merging.`,
 			},
 			{
 				Key:         "user",

@@ -26,9 +26,9 @@ func TestSchemaRegistration(t *testing.T) {
 		},
 		{
 			Key:         "url",
-			Label:       "Issue URL",
+			Label:       "Comment URL",
 			Placeholder: "https://your-domain.atlassian.net/browse/PROJ-",
-			Help:        "Matched against the commented issue URL, e.g. to scope a rule to a single project.",
+			Help:        "Matched against the comment's own URL (the issue URL followed by ?focusedCommentId=…), e.g. to scope a rule to a single project.",
 		},
 		{
 			Key:         "mention",

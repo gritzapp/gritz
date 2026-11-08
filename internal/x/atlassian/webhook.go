@@ -110,7 +110,8 @@ type Issue struct {
 
 // IssueFields represents the fields of a Jira issue.
 type IssueFields struct {
-	Summary string `json:"summary"`
+	Summary     string `json:"summary"`
+	Description string `json:"description"`
 }
 
 // ParseWebhook parses a Jira webhook payload from JSON.

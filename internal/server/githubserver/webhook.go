@@ -291,6 +291,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				Source:      "github",
 				Type:        EventTypeIssueAssigned,
 				Description: fmt.Sprintf("%s assigned issue #%d to @%s", senderLogin, number, assigneeLogin),
+				Data:        strings.TrimSpace(event.Issue.GetBody()),
 				URL:         *event.Issue.HTMLURL,
 				Attrs:       eventrouter.Attrs{"assignee": {assigneeLogin}, "user": {senderLogin}},
 				Meta: GitHubMeta{
@@ -315,6 +316,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				Source:      "github",
 				Type:        EventTypeLabelAdded,
 				Description: fmt.Sprintf("%s labeled issue #%d %q", senderLogin, number, label),
+				Data:        strings.TrimSpace(event.Issue.GetBody()),
 				Attrs:       eventrouter.Attrs{"label": {label}, "user": {senderLogin}},
 				URL:         *event.Issue.HTMLURL,
 				Meta: GitHubMeta{
@@ -340,6 +342,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				Source:      "github",
 				Type:        EventTypePullRequestOpened,
 				Description: fmt.Sprintf("%s opened PR #%d", senderLogin, number),
+				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				Attrs:       eventrouter.Attrs{"user": {senderLogin}},
 				// model.RoutingKey reduces this PR URL to the canonical /pull/N,
 				// matching the link the agent created when it opened the PR.
@@ -364,6 +367,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				Source:      "github",
 				Type:        EventTypePullRequestAssigned,
 				Description: fmt.Sprintf("%s assigned PR #%d to @%s", senderLogin, number, assigneeLogin),
+				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				URL:         *event.PullRequest.HTMLURL,
 				Attrs:       eventrouter.Attrs{"assignee": {assigneeLogin}, "user": {senderLogin}},
 				Meta: GitHubMeta{
@@ -388,6 +392,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				Source:      "github",
 				Type:        EventTypeLabelAdded,
 				Description: fmt.Sprintf("%s labeled PR #%d %q", senderLogin, number, label),
+				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				Attrs:       eventrouter.Attrs{"label": {label}, "user": {senderLogin}},
 				URL:         *event.PullRequest.HTMLURL,
 				Meta: GitHubMeta{
@@ -404,22 +409,18 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			}
 			senderLogin := event.Sender.GetLogin()
 			number := event.PullRequest.GetNumber()
-			// GitHub fires "closed" for both merges and plain closes; the merge
-			// state goes in Data so a routing rule can target merges via
-			// Prefix=merged if desired.
-			data := "closed"
-			verb := "closed"
+			// GitHub fires "closed" for both merges and plain closes; the
+			// "state" attr carries which, so a routing rule can target merges.
+			state := "closed"
 			if event.PullRequest.GetMerged() {
-				data = "merged"
-				verb = "merged"
+				state = "merged"
 			}
 			return &eventrouter.InputEvent{
 				Source:      "github",
 				Type:        EventTypePullRequestClosed,
-				Description: fmt.Sprintf("%s %s PR #%d", senderLogin, verb, number),
-				Data:        data,
-				// state mirrors the "merged"/"closed" string already in Data.
-				Attrs: eventrouter.Attrs{"state": {data}, "user": {senderLogin}},
+				Description: fmt.Sprintf("%s %s PR #%d", senderLogin, state, number),
+				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
+				Attrs:       eventrouter.Attrs{"state": {state}, "user": {senderLogin}},
 				// model.RoutingKey reduces this PR URL to the canonical /pull/N,
 				// matching the link the agent created when it opened the PR.
 				URL: *event.PullRequest.HTMLURL,

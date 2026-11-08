@@ -543,6 +543,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(7),
 					NodeID:  github.Ptr("I_node7"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/7"),
+					Body:    github.Ptr("  gritz: fix the flaky test\n"),
 				},
 				Assignee: &github.User{
 					Login: github.Ptr("icholy-bot"),
@@ -562,6 +563,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "issue_assigned",
 				Description: "octocat assigned issue #7 to @icholy-bot",
+				Data:        "gritz: fix the flaky test",
 				URL:         "https://github.com/owner/repo/issues/7",
 				Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}, "user": {"octocat"}},
 				Meta: GitHubMeta{
@@ -607,6 +609,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(12),
 					NodeID:  github.Ptr("PR_node12"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+					Body:    github.Ptr("gritz: review this"),
 				},
 				Assignee: &github.User{
 					Login: github.Ptr("icholy-bot"),
@@ -626,6 +629,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "pull_request_assigned",
 				Description: "alice assigned PR #12 to @icholy-bot",
+				Data:        "gritz: review this",
 				URL:         "https://github.com/owner/repo/pull/12",
 				Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}, "user": {"alice"}},
 				Meta: GitHubMeta{
@@ -671,6 +675,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(7),
 					NodeID:  github.Ptr("I_node7"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/7"),
+					Body:    github.Ptr("gritz: triage"),
 				},
 				Label: &github.Label{Name: github.Ptr("gritz")},
 				Sender: &github.User{
@@ -686,6 +691,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "label_added",
 				Description: `octocat labeled issue #7 "gritz"`,
+				Data:        "gritz: triage",
 				Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"octocat"}},
 				URL:         "https://github.com/owner/repo/issues/7",
 				Meta: GitHubMeta{
@@ -718,6 +724,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(12),
 					NodeID:  github.Ptr("PR_node12"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+					Body:    github.Ptr("Adds the thing."),
 				},
 				Label: &github.Label{Name: github.Ptr("needs-review")},
 				Sender: &github.User{
@@ -733,6 +740,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "label_added",
 				Description: `alice labeled PR #12 "needs-review"`,
+				Data:        "Adds the thing.",
 				Attrs:       eventrouter.Attrs{"label": {"needs-review"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
 				Meta: GitHubMeta{
@@ -762,6 +770,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(12),
 					NodeID:  github.Ptr("PR_node12"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+					Body:    github.Ptr("Fixes #7."),
 					Merged:  github.Ptr(true),
 				},
 				Sender: &github.User{
@@ -777,7 +786,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "pull_request_closed",
 				Description: "alice merged PR #12",
-				Data:        "merged",
+				Data:        "Fixes #7.",
 				Attrs:       eventrouter.Attrs{"state": {"merged"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
 				Meta: GitHubMeta{
@@ -795,6 +804,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(12),
 					NodeID:  github.Ptr("PR_node12"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+					Body:    github.Ptr("Fixes #7."),
 					Merged:  github.Ptr(false),
 				},
 				Sender: &github.User{
@@ -810,7 +820,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "pull_request_closed",
 				Description: "alice closed PR #12",
-				Data:        "closed",
+				Data:        "Fixes #7.",
 				Attrs:       eventrouter.Attrs{"state": {"closed"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
 				Meta: GitHubMeta{
@@ -840,6 +850,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Number:  github.Ptr(12),
 					NodeID:  github.Ptr("PR_node12"),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+					Body:    github.Ptr("Fixes #7."),
 				},
 				Sender: &github.User{
 					ID:    github.Ptr[int64](42),
@@ -854,6 +865,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Source:      "github",
 				Type:        "pull_request_opened",
 				Description: "alice opened PR #12",
+				Data:        "Fixes #7.",
 				URL:         "https://github.com/owner/repo/pull/12",
 				Attrs:       eventrouter.Attrs{"user": {"alice"}},
 				Meta: GitHubMeta{
