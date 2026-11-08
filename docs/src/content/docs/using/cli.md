@@ -74,14 +74,14 @@ isn't allowed. Every field is optional, and an unknown field is an error.
 ### Server
 
 Every command talks to the organisation's `server`, or to `https://gritz.dev` if
-it has none, unless `--server` (`-s`) or the `GRITZ_SERVER` environment variable
-names another server:
+it has none. `gritz login` saves the server you give it with `--server` (`-s`)
+or the `GRITZ_SERVER` environment variable:
 
 ```bash
 gritz login --key xat_... --server https://gritz.example.com
 ```
 
-`gritz login` saves the server with the organisation. Without `--server`, it
+ Without `--server`, it
 uses the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise
 `https://gritz.dev`, so a repository can name the server its organisation lives
 on:
@@ -97,7 +97,9 @@ The top-level `server` is read only by `gritz login`.
 `--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key
 directly, for CI and other places with no config file. The command then reads no
 `.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or
-`https://gritz.dev`:
+`https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER`
+need a key this way, since an organisation in a `.gritz.yml` carries its own
+server:
 
 ```bash
 GRITZ_API_KEY=xat_... gritz task list

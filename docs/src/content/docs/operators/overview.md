@@ -52,8 +52,8 @@ Two consequences for networking:
 
 - The server never connects to a runner, so a runner can sit behind NAT or a
   firewall as long as it can reach the server.
-- Sandboxes connect to the server themselves, at the URL the runner was given
-  with `--server`. That URL has to resolve and be reachable from inside the
+- Sandboxes connect to the server themselves, at the runner's server URL: its
+  organisation's `server`, or `--server` with `--key`. That URL has to resolve and be reachable from inside the
   sandbox, not just from the runner's host.
 
 ## Versions
