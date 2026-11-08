@@ -25,7 +25,7 @@ type Entry struct {
 	ID int64 `yaml:"id"`
 	// Key is an API key for the org.
 	Key string `yaml:"key"`
-	// Server is the server URL; empty means gritzclient.DefaultURL.
+	// Server is the server URL; empty means the default server.
 	Server string `yaml:"server,omitempty"`
 }
 
@@ -40,10 +40,8 @@ func (e Entry) Validate() error {
 	return nil
 }
 
-// FileV2 is the contents of one .gritz.yml file.
-//
-// TODO: rename to File once the config.json File is removed.
-type FileV2 struct {
+// File is the contents of one .gritz.yml file.
+type File struct {
 	// Default is the entry name selected when none is given.
 	Default string `yaml:"default,omitempty"`
 	// Allowed lists the entry names that may be selected; nil allows all.
@@ -53,12 +51,12 @@ type FileV2 struct {
 }
 
 // Read parses the .gritz.yml file at path, rejecting unknown fields.
-func Read(path string) (*FileV2, error) {
+func Read(path string) (*File, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var f FileV2
+	var f File
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
@@ -77,7 +75,7 @@ type Merged struct {
 	OrgsFrom    map[string]string // entry name -> path of the file that set it
 }
 
-// LoadOptions configures LoadV2.
+// LoadOptions configures Load.
 type LoadOptions struct {
 	// Dir is where the walk starts. It must be absolute unless Root is set.
 	Dir string
@@ -87,12 +85,10 @@ type LoadOptions struct {
 	Base string
 }
 
-// LoadV2 merges the base layer and every .gritz.yml from opts.Dir up to opts.Root.
-//
-// TODO: rename to Load once the config.json Load is removed.
-func LoadV2(opts LoadOptions) (*Merged, error) {
+// Load merges the base layer and every .gritz.yml from opts.Dir up to opts.Root.
+func Load(opts LoadOptions) (*Merged, error) {
 	if opts.Root == "" && !filepath.IsAbs(opts.Dir) {
-		panic("configfile: LoadV2 walks to / from a relative Dir")
+		panic("configfile: Load walks to / from a relative Dir")
 	}
 	base := opts.Base
 	if base == "" {

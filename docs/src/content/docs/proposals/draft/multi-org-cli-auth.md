@@ -61,7 +61,7 @@ orgs:
 - `orgs` maps a local name to an entry:
   - `id`: the org id (`orgs.id`).
   - `key`: an API key for that org, the `CreateKeyResponse.raw_token` string.
-  - `server`: the server URL; omitted means `gritzclient.DefaultURL`.
+  - `server`: the server URL; omitted means the default server, `https://gritz.dev`.
 - `default` names the entry used when none is selected explicitly.
 - `allowed` lists the entry names that may be selected. Unset allows every entry.
 
@@ -148,7 +148,10 @@ Every user-facing command selects one entry at startup:
 
 **Server URL.** `--server` > `GRITZ_SERVER` > the selected entry's `server` >
 `gritzclient.DefaultURL`. Every user-facing command gets the `GRITZ_SERVER` env
-source; `mcp` and `notify` lack it today.
+source; `mcp` and `notify` lack it today. The shared `--server` flag has no
+default value, so it never overrides an entry's `server`. `Resolve` leaves
+`Server` empty when nothing sets it, and `gritzclient` (`New`,
+`NewNotificationClient`) and `shell.Attach` use `DefaultURL` for an empty URL.
 
 **Explicit key.** `--key` / `GRITZ_API_KEY` supplies a raw key directly. The key
 determines the org server-side, and the server is `--server` > `GRITZ_SERVER` >
@@ -224,7 +227,7 @@ Each user-facing command gets the same three flags, defined once by
 | `--server`, `-s` | `GRITZ_SERVER` | unchanged, plus the env source on `mcp`/`notify` |
 
 Each command's action replaces its `configfile.Load` + `cfg.Token == ""` block
-(or `cmd.String("token")`) with one `configfile.Resolve(ctx, cmd)` call, which
+(or `cmd.String("token")`) with one `configfile.Resolve(cmd)` call, which
 runs the selection above and returns the entry to use. The command builds its
 client options inline from it,
 `gritzclient.Options{BaseURL: e.Server, Token: e.Key, ...}`, and the same way
@@ -241,7 +244,9 @@ for `NotificationClientOptions` and `shell.Attach`:
   how to watch several orgs.
 - `runner`: `configfile.Load(&Overrides{Token: ...})` is replaced by the same
   selection, so a runner on a laptop uses an entry from `.gritz.yml`. Deployed
-  runners keep using `GRITZ_API_KEY`.
+  runners keep using `GRITZ_API_KEY`. The runner hands its server URL to the
+  sandboxes as well as to its client, so it applies `gritzclient.DefaultURL`
+  to an empty `Server` itself.
 
 **Not changed:** `gritz tool agent-mcp`, the GitHub MCP proxy and the git
 credential helper run inside the sandbox with the task JWT on
@@ -281,7 +286,7 @@ type Entry struct { // new
 	ID int64 `yaml:"id"`
 	// Key is an API key for the org.
 	Key string `yaml:"key"`
-	// Server is the server URL; empty means gritzclient.DefaultURL.
+	// Server is the server URL; empty means the default server.
 	Server string `yaml:"server,omitempty"`
 }
 
@@ -308,8 +313,15 @@ type Merged struct { // new
 	OrgsFrom    map[string]string // entry name -> path of the file that set it
 }
 
-// Load merges $CONFIG_DIR/.gritz.yml and every .gritz.yml from dir up to /.
-func Load(dir string) (*Merged, error) // replaced: was Load(*Overrides) (*File, error)
+// LoadOptions configures Load.
+type LoadOptions struct { // new
+	Dir  string // where the walk starts
+	Root string // the last directory the walk visits; empty means /
+	Base string // the base layer; empty means $CONFIG_DIR/.gritz.yml
+}
+
+// Load merges the base layer and every .gritz.yml from opts.Dir up to opts.Root.
+func Load(opts LoadOptions) (*Merged, error) // replaced: was Load(*Overrides) (*File, error)
 
 // Login writes entry under name into the .gritz.yml file at path, replacing the
 // key of an existing entry with the same id and server, and failing with
@@ -335,14 +347,14 @@ func (m *Merged) Validate() error // new
 func (m *Merged) Lookup(org string) (*Entry, error) // new
 
 // Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
-// GRITZ_SERVER) shared by user-facing commands.
+// GRITZ_SERVER) shared by user-facing commands. --server has no default value.
 func Flags() []cli.Flag // new
 
 // Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
-// files from the working directory, and returns the entry to use. Server is
-// always set (gritzclient.DefaultURL when no layer sets it). With --key, the
-// entry has only Key and Server.
-func Resolve(ctx context.Context, cmd *cli.Command) (*Entry, error) // new
+// files from the working directory, and returns the entry to use. With --key,
+// the entry has only Key and Server. Server is empty when neither --server nor
+// the entry sets it.
+func Resolve(cmd *cli.Command) (*Entry, error) // new
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
 func Slug(orgName string) string // new
@@ -365,8 +377,9 @@ urfave/cli types, so they can be table-tested against a `Merged` value.
 `Resolve` is the only part that reads the command: it takes `--key` as is, or
 calls `Load` with the working directory, `Validate`, and `Lookup` with `--org`, then applies
 the server precedence and returns the `Entry`. `configfile` doesn't build
-client options; it references `gritzclient` only for the `DefaultURL` constant,
-and there's no helper in `gritzclient` either. Every user-facing command
+client options and doesn't reference `gritzclient` at all; `gritzclient`
+applies `DefaultURL` to an empty `BaseURL`, and there's no other helper in
+`gritzclient`. Every user-facing command
 appends `configfile.Flags()...`, calls `configfile.Resolve` in its action, and
 builds `gritzclient.Options` (and `NotificationClientOptions` or the
 `shell.Attach` arguments) inline from the entry's `Server` and `Key`. `LoginCommand` calls `GetCaller`,

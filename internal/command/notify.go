@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/notify"
@@ -21,30 +22,22 @@ import (
 var NotifyCommand = &cli.Command{
 	Name:  "notify",
 	Usage: "Subscribe to server notifications and emit system notifications",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-		},
-		&cli.StringFlag{
-			Name:     "token",
-			Usage:    "Authentication token",
-			Sources:  cli.EnvVars("GRITZ_TOKEN"),
-			Required: true,
-		},
+	Flags: append([]cli.Flag{
 		&cli.StringFlag{
 			Name:  "title",
 			Usage: "Title shown on each system notification",
 			Value: "gritz",
 		},
-	},
+	}, configfile.Flags()...),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		e, err := configfile.Resolve(cmd)
+		if err != nil {
+			return err
+		}
 		title := cmd.String("title")
 		nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-			BaseURL: cmd.String("server"),
-			Token:   cmd.String("token"),
+			BaseURL: e.Server,
+			Token:   e.Key,
 			Handler: func(n model.Notification) {
 				// Only surface terminal task transitions (completed,
 				// failed, cancelled) — these are the outcomes that need

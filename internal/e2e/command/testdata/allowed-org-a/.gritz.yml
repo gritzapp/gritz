@@ -1,0 +1,2 @@
+default: org-a
+allowed: [org-a]

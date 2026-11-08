@@ -26,7 +26,7 @@ func Login(path, name string, entry Entry) error {
 	f, err := Read(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		f = &FileV2{}
+		f = &File{}
 	case err != nil:
 		return err
 	default:

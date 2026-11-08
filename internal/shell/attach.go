@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/coder/websocket"
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/shell/shellwire"
 	"golang.org/x/term"
 )
@@ -22,6 +24,7 @@ type WinSize struct {
 
 // AttachOptions configures Attach.
 type AttachOptions struct {
+	// ServerURL is the server URL; empty means gritzclient.DefaultURL.
 	ServerURL string
 	Token     string
 	Session   string
@@ -38,7 +41,7 @@ type AttachOptions struct {
 // thin wrapper: it asks the server to open a session via the OpenShell RPC and
 // then hands the session off to Attach.
 func Attach(ctx context.Context, opts AttachOptions) (int, error) {
-	url, err := AttachURL(opts.ServerURL, opts.Session)
+	url, err := AttachURL(cmp.Or(opts.ServerURL, gritzclient.DefaultURL), opts.Session)
 	if err != nil {
 		return 1, err
 	}

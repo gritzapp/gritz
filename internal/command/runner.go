@@ -1,6 +1,7 @@
 package command
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -40,14 +41,7 @@ func defaultRunnerID() string {
 var RunnerCommand = &cli.Command{
 	Name:  "runner",
 	Usage: "Start the runner (monitors tasks, manages containers)",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-			Sources: cli.EnvVars("GRITZ_SERVER"),
-		},
+	Flags: append([]cli.Flag{
 		&cli.StringFlag{
 			Name:    "workspaces",
 			Aliases: []string{"w"},
@@ -97,15 +91,8 @@ var RunnerCommand = &cli.Command{
 			Usage: "Enable debug logging",
 			Value: false,
 		},
-		&cli.StringFlag{
-			Name:    "key",
-			Aliases: []string{"k"},
-			Usage:   "API key (takes priority over config file)",
-			Sources: cli.EnvVars("GRITZ_API_KEY"),
-		},
-	},
+	}, configfile.Flags()...),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		serverAddr := cmd.String("server")
 		configPath := cmd.String("workspaces")
 		pollInterval := cmd.Duration("poll")
 		concurrency := cmd.Int("concurrency")
@@ -122,25 +109,20 @@ var RunnerCommand = &cli.Command{
 			log = slog.New(handler)
 		}
 
-		cfg, err := configfile.Load(&configfile.Overrides{
-			Token: cmd.String("key"),
-		})
+		e, err := configfile.Resolve(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return err
 		}
-		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first or provide -key flag")
-		}
+		// The sandboxes are handed the URL too, so it is resolved here
+		// rather than left to the client's default.
+		serverAddr := cmp.Or(e.Server, gritzclient.DefaultURL)
 
 		workspaces, err := workspace.LoadConfig(configPath, nil)
 		if err != nil {
 			return fmt.Errorf("failed to load workspace config: %w", err)
 		}
 
-		client := gritzclient.New(gritzclient.Options{
-			BaseURL: serverAddr,
-			Token:   cfg.Token,
-		})
+		client := gritzclient.New(gritzclient.Options{BaseURL: serverAddr, Token: e.Key})
 
 		backendName := cmd.String("backend")
 		var be backend.Backend
@@ -197,7 +179,7 @@ var RunnerCommand = &cli.Command{
 		return runner.Serve(ctx, runner.ServeOptions{
 			Client:       client,
 			ServerURL:    serverAddr,
-			Token:        cfg.Token,
+			Token:        e.Key,
 			Backend:      be,
 			StateDB:      cmd.String("state-db"),
 			Workspaces:   workspaces,

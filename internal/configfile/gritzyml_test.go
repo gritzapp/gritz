@@ -16,7 +16,7 @@ func TestRead(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.DeepEqual(t, f, &FileV2{
+	assert.DeepEqual(t, f, &File{
 		Default: "acme",
 		Allowed: []string{"acme", "local"},
 		Orgs: map[string]Entry{
@@ -31,7 +31,7 @@ func TestRead_Empty(t *testing.T) {
 	f, err := Read(filepath.Join("testdata", "empty", Name))
 
 	assert.NilError(t, err)
-	assert.DeepEqual(t, f, &FileV2{})
+	assert.DeepEqual(t, f, &File{})
 }
 
 func TestRead_UnknownField(t *testing.T) {
@@ -46,7 +46,7 @@ func TestRead_UnknownField(t *testing.T) {
 	}
 }
 
-func TestLoadV2(t *testing.T) {
+func TestLoad(t *testing.T) {
 	t.Parallel()
 	// Arrange - a base layer, a parent directory and a repo below it
 	base := filepath.FromSlash("testdata/tree/config/.gritz.yml")
@@ -54,7 +54,7 @@ func TestLoadV2(t *testing.T) {
 	repo := filepath.FromSlash("testdata/tree/work/repo/.gritz.yml")
 
 	// Act
-	m, err := LoadV2(LoadOptions{
+	m, err := Load(LoadOptions{
 		Dir:  filepath.FromSlash("testdata/tree/work/repo"),
 		Root: filepath.FromSlash("testdata/tree"),
 		Base: base,
@@ -80,11 +80,11 @@ func TestLoadV2(t *testing.T) {
 	})
 }
 
-func TestLoadV2_BaseOnly(t *testing.T) {
+func TestLoad_BaseOnly(t *testing.T) {
 	t.Parallel()
 	base := filepath.FromSlash("testdata/base-only/config/.gritz.yml")
 
-	m, err := LoadV2(LoadOptions{
+	m, err := Load(LoadOptions{
 		Dir:  filepath.FromSlash("testdata/base-only"),
 		Root: filepath.FromSlash("testdata/base-only"),
 		Base: base,
@@ -99,32 +99,32 @@ func TestLoadV2_BaseOnly(t *testing.T) {
 	})
 }
 
-func TestLoadV2_NoFiles(t *testing.T) {
+func TestLoad_NoFiles(t *testing.T) {
 	t.Parallel()
 	dir := filepath.FromSlash("testdata/tree")
 
-	m, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, Name)})
+	m, err := Load(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, Name)})
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
 }
 
-func TestLoadV2_Directory(t *testing.T) {
+func TestLoad_Directory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, Name)
 	assert.NilError(t, os.Mkdir(p, 0o755))
 
-	_, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
+	_, err := Load(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
 
 	assert.ErrorContains(t, err, p+": is a directory")
 }
 
-func TestLoadV2_UnknownField(t *testing.T) {
+func TestLoad_UnknownField(t *testing.T) {
 	t.Parallel()
 	dir := filepath.FromSlash("testdata/unknown-field")
 
-	_, err := LoadV2(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
+	_, err := Load(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, "base.yml")})
 
 	assert.ErrorContains(t, err, filepath.Join(dir, Name)+": ")
 }

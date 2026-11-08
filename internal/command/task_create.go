@@ -16,14 +16,7 @@ import (
 var TaskCreateCommand = &cli.Command{
 	Name:  "create",
 	Usage: "Create a new task",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "server",
-			Aliases: []string{"s"},
-			Usage:   "server URL",
-			Value:   gritzclient.DefaultURL,
-			Sources: cli.EnvVars("GRITZ_SERVER"),
-		},
+	Flags: append([]cli.Flag{
 		&cli.StringFlag{
 			Name:    "name",
 			Aliases: []string{"n"},
@@ -50,17 +43,13 @@ var TaskCreateCommand = &cli.Command{
 			Name:  "auto-archive",
 			Usage: "Auto-archive the task this long after it reaches a terminal status. 0 = never (default), negative = archive immediately, positive = delay (e.g. 1h, 24h).",
 		},
-	},
+	}, configfile.Flags()...),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		serverURL := cmd.String("server")
-		cfg, err := configfile.Load(nil)
+		e, err := configfile.Resolve(cmd)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return err
 		}
-		if cfg.Token == "" {
-			return fmt.Errorf("not authenticated, run setup first")
-		}
-		client := gritzclient.New(gritzclient.Options{BaseURL: serverURL, Token: cfg.Token})
+		client := gritzclient.New(gritzclient.Options{BaseURL: e.Server, Token: e.Key})
 
 		texts := cmd.StringSlice("instruction")
 		instructions := make([]*gritzv1.Instruction, len(texts))
