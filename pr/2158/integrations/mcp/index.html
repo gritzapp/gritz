@@ -171,11 +171,9 @@ every other tool acts in it. Two tools manage it:</p>
 <ul>
 <li><code dir="auto">list_orgs</code> lists the entries: each one’s <code dir="auto">name</code>, organisation <code dir="auto">id</code>,
 <code dir="auto">server</code>, and whether it is <code dir="auto">current</code>. It doesn’t contact the server.</li>
-<li><code dir="auto">switch_org</code> takes an entry’s <code dir="auto">name</code> and makes it current. It checks the
-entry’s login with the server first, and fails, staying in the current
-organisation, if the login doesn’t work or belongs to another organisation
-than the entry’s <code dir="auto">id</code>. It returns the entry’s <code dir="auto">name</code>, <code dir="auto">id</code> and <code dir="auto">server</code>, and
-the organisation’s name as <code dir="auto">org_name</code>.</li>
+<li><code dir="auto">switch_org</code> takes an entry’s <code dir="auto">name</code> and makes it current. It returns the
+entry’s <code dir="auto">name</code>, <code dir="auto">id</code> and <code dir="auto">server</code>. It doesn’t contact the server either: if
+the entry’s login doesn’t work, the first tool call after the switch fails.</li>
 </ul>
 <p>The entries are those in the files when <code dir="auto">gritz mcp</code> started; restart it to pick
 up a <code dir="auto">gritz login</code> made since.</p>

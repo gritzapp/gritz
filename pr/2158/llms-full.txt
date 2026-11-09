@@ -1009,7 +1009,7 @@ Or in a project’s `.mcp.json`:
 A session started from the `.gritz.yml` files starts in the organisation `--org` picks, and can switch to any other entry in those files, within their `allowed` list. It acts in one organisation at a time, the current one, and every other tool acts in it. Two tools manage it:
 
 * `list_orgs` lists the entries: each one’s `name`, organisation `id`, `server`, and whether it is `current`. It doesn’t contact the server.
-* `switch_org` takes an entry’s `name` and makes it current. It checks the entry’s login with the server first, and fails, staying in the current organisation, if the login doesn’t work or belongs to another organisation than the entry’s `id`. It returns the entry’s `name`, `id` and `server`, and the organisation’s name as `org_name`.
+* `switch_org` takes an entry’s `name` and makes it current. It returns the entry’s `name`, `id` and `server`. It doesn’t contact the server either: if the entry’s login doesn’t work, the first tool call after the switch fails.
 
 The entries are those in the files when `gritz mcp` started; restart it to pick up a `gritz login` made since.
 
@@ -16492,7 +16492,7 @@ Lists the entries the session can switch to: `merged.Entries()`, every entry in 
 * `server` is the entry’s own `server`, else `https://gritz.dev`; never empty.
 * Keys are never returned.
 * The list is the merged files as loaded at startup. An entry added with `gritz login` while the session runs shows up after a restart.
-* It makes no server call, so it never fails on a stale key; `switch_org` is where a bad key surfaces.
+* It makes no server call, so it never fails on a stale key; neither does `switch_org`, so a bad key surfaces on the first tool call after the switch.
 
 This is how the current org is shown: the entry with `current: true` here, and the result of `switch_org`. No other tool result names the org; task results already carry a Web UI `url` with `?org=<id>`.
 
@@ -16507,16 +16507,15 @@ Makes the named entry the current org.
 | `name`   | An entry name from `list_orgs`. Required. |
 
 1. Look the entry up with `merged.Lookup(name)` on the `*configfile.Merged` loaded at startup: the same rules as `--org` at startup, so a name outside `allowed` or with no entry fails with the same error message.
-2. Build a `gritzclient` for it from `entry.TokenSource(ctx)` (see [Credentials](#credentials)) with the session’s client id, and call `GetCaller`. A failure (bad or expired key, unreachable server) is an error result, and the current org is unchanged.
-3. If `GetCallerResponse.org.id` differs from the entry’s `id`, fail without switching: `entry "acme" says org 12, but its key belongs to org 31`. This keeps a mis-pasted key from sending writes to an org the user didn’t name.
-4. Make the client current. With `--channel`, start following the org (see [Channel notifications](#channel-notifications)).
-5. Return the new current org:
+2. Build a `gritzclient` for it from `entry.TokenSource(ctx)` (see [Credentials](#credentials)) with the session’s client id. This makes no server call.
+3. Make the client current. With `--channel`, start following the org (see [Channel notifications](#channel-notifications)).
+4. Return the new current org:
 
 ```json
-{"name": "local", "id": 1, "server": "http://localhost:8080", "org_name": "Local dev"}
+{"name": "local", "id": 1, "server": "http://localhost:8080"}
 ```
 
-`org_name` is the server-side org name from `GetCaller`, so the agent can tell the user which org it is now in. Switching to the current org repeats the check and is otherwise a no-op.
+Switching to the current org replaces its client with an equivalent one and is otherwise a no-op.
 
 ### How the tools pick up the current org
 
@@ -16685,7 +16684,7 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) // changed: takes the entry name
 ```
 
-**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
+**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
 
@@ -16694,7 +16693,7 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 1. **`Merged.Entries` and the `Lookup` server default** — Delivers: `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Entries` filters by `allowed`, sorts by name and returns each entry as `Lookup` would (`Name` set, `Server` defaulted), and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
 3. **Per-org channel** — Delivers: `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same entry starts no stream, and that the mute tools edit the set `org` names.
-4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad key leaves the current org, id mismatch fails, `allowed` enforced, a `refresh_token` entry authenticates); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
+4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests for `switch_org` (the switched-to entry becomes current and is followed, `list_orgs` marks it; an unknown entry leaves the current org); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
 
 Slices 1 and 2 are independent.
 
@@ -16706,7 +16705,7 @@ Slices 1 and 2 are independent.
 * **Follow used orgs vs. only the current one vs. all.** See [Channel notifications](#channel-notifications): current-only loses completions of tasks the agent started; all-entries opens streams nobody asked for. Used orgs costs one stream per org switched to, never torn down.
 * **`org` as a tag attribute vs. a prefix in the text.** `Meta` is what the channel protocol offers for structured context, and it leaves the message text and its tests unchanged.
 * **Fresh client per switch vs. a client cache.** Clients hold no connection state worth keeping; a cache would be a map with no benefit.
-* **`GetCaller` on switch vs. trusting the entry.** One round trip per switch catches a dead key before the first real call fails, and an id mismatch before a write lands in the wrong org.
+* **Trusting the entry vs. `GetCaller` on switch.** A round trip per switch would catch a dead key before the first real call, and a key that belongs to another org than the entry’s `id`. `gritz login` already records the id from `GetCaller`, so the entry is trusted and a switch makes no server call; a dead key fails the first tool call instead.
 * **Snapshot of `.gritz.yml` at startup vs. reloading on each call.** Reloading would pick up `gritz login` without a restart, but would let the current entry’s key or `allowed` change under a running session. Logins are rare; a restart is fine.
 * **Startup error vs. starting with no current org.** A session with no merged `org` and no `--org` fails at startup, as today, rather than starting with only `list_orgs` and `switch_org` working until the first switch.
 * **No `org` field on state-changing results.** Results stay unchanged; `list_orgs`, the `switch_org` result and the `?org=` in task URLs show the current org.

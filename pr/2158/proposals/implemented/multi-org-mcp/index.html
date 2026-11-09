@@ -110,8 +110,8 @@ empty.</li>
 <li>Keys are never returned.</li>
 <li>The list is the merged files as loaded at startup. An entry added with
 <code dir="auto">gritz login</code> while the session runs shows up after a restart.</li>
-<li>It makes no server call, so it never fails on a stale key; <code dir="auto">switch_org</code> is
-where a bad key surfaces.</li>
+<li>It makes no server call, so it never fails on a stale key; neither does
+<code dir="auto">switch_org</code>, so a bad key surfaces on the first tool call after the switch.</li>
 </ul>
 <p>This is how the current org is shown: the entry with <code dir="auto">current: true</code> here, and
 the result of <code dir="auto">switch_org</code>. No other tool result names the org; task results
@@ -137,20 +137,15 @@ already carry a Web UI <code dir="auto">url</code> with <code dir="auto">?org=&l
 loaded at startup: the same rules as <code dir="auto">--org</code> at startup, so a name outside <code dir="auto">allowed</code> or with no entry fails
 with the same error message.</li>
 <li>Build a <code dir="auto">gritzclient</code> for it from <code dir="auto">entry.TokenSource(ctx)</code> (see
-<a href="#credentials">Credentials</a>) with the session’s client id, and call
-<code dir="auto">GetCaller</code>. A failure (bad or expired key, unreachable server) is an error
-result, and the current org is unchanged.</li>
-<li>If <code dir="auto">GetCallerResponse.org.id</code> differs from the entry’s <code dir="auto">id</code>, fail without
-switching: <code dir="auto">entry "acme" says org 12, but its key belongs to org 31</code>. This
-keeps a mis-pasted key from sending writes to an org the user didn’t name.</li>
+<a href="#credentials">Credentials</a>) with the session’s client id. This makes no
+server call.</li>
 <li>Make the client current. With <code dir="auto">--channel</code>, start following the org (see
 <a href="#channel-notifications">Channel notifications</a>).</li>
 <li>Return the new current org:</li>
 </ol>
-<div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="json"><code><div class="ec-line"><div class="code"><span style="--0:#D6DEEB;--1:#403F53">{</span><span style="--0:#7FDBCA;--1:#096E72">"name"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">local</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"id"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#F78C6C;--1:#AA0982">1</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"server"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">http://localhost:8080</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"org_name"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">Local dev</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="{&quot;name&quot;: &quot;local&quot;, &quot;id&quot;: 1, &quot;server&quot;: &quot;http://localhost:8080&quot;, &quot;org_name&quot;: &quot;Local dev&quot;}"><div></div></button></div></figure></div>
-<p><code dir="auto">org_name</code> is the server-side org name from <code dir="auto">GetCaller</code>, so the agent can tell
-the user which org it is now in. Switching to the current org repeats the check
-and is otherwise a no-op.</p>
+<div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="json"><code><div class="ec-line"><div class="code"><span style="--0:#D6DEEB;--1:#403F53">{</span><span style="--0:#7FDBCA;--1:#096E72">"name"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">local</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"id"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#F78C6C;--1:#AA0982">1</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"server"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">http://localhost:8080</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="{&quot;name&quot;: &quot;local&quot;, &quot;id&quot;: 1, &quot;server&quot;: &quot;http://localhost:8080&quot;}"><div></div></button></div></figure></div>
+<p>Switching to the current org replaces its client with an equivalent one and is
+otherwise a no-op.</p>
 <div class="sl-heading-wrapper level-h3"><h3 id="how-the-tools-pick-up-the-current-org">How the tools pick up the current org</h3><a class="sl-anchor-link" href="#how-the-tools-pick-up-the-current-org"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “How the tools pick up the current org”</span></a></div>
 <p><code dir="auto">mcpserver.AddTools</code> takes a function returning the service instead of the
 service itself:</p>
@@ -285,7 +280,7 @@ builds <code dir="auto">mcpbridge.NewOrgSwitcher</code> with <code dir="auto">ch
 appends <code dir="auto">OrgsInstructions</code>. The <code dir="auto">NotificationClient</code> setup moves from <code dir="auto">mcp.go</code>
 into <code dir="auto">Channel.Follow</code>. <code dir="auto">list_orgs</code> maps <code dir="auto">merged.Entries()</code> to its result, with no second lookup;
 <code dir="auto">switch_org</code> calls <code dir="auto">merged.Lookup</code>, <code dir="auto">gritzclient.New</code> with
-<code dir="auto">Options{TokenSource: entry.TokenSource(ctx)}</code>, <code dir="auto">GetCaller</code> and <code dir="auto">follow</code>;
+<code dir="auto">Options{TokenSource: entry.TokenSource(ctx)}</code> and <code dir="auto">follow</code>;
 <code dir="auto">Channel</code>’s tools pick the mute set by their <code dir="auto">org</code> argument.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="implementation-plan">Implementation Plan</h2><a class="sl-anchor-link" href="#implementation-plan"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Implementation Plan”</span></a></div>
 <ol>
@@ -316,9 +311,9 @@ the set <code dir="auto">org</code> names.</li>
 tools, <code dir="auto">OrgsInstructions</code>, the <code dir="auto">gritz mcp</code> wiring, and following each
 switched-to org. Updates <code dir="auto">integrations/mcp</code> (a section on orgs, the tool
 table, the <code dir="auto">--key</code> note). Depends on: (1), (2), (3). Verifiable by:
-<code dir="auto">mcpbridge</code> tests with <code dir="auto">httptest</code> servers for <code dir="auto">switch_org</code> (success, bad
-key leaves the current org, id mismatch fails, <code dir="auto">allowed</code> enforced, a
-<code dir="auto">refresh_token</code> entry authenticates); an e2e
+<code dir="auto">mcpbridge</code> tests for <code dir="auto">switch_org</code> (the switched-to entry becomes current
+and is followed, <code dir="auto">list_orgs</code> marks it; an unknown entry leaves the current
+org); an e2e
 test that logs in to two orgs, starts <code dir="auto">gritz mcp --channel</code> in-process,
 creates a task in org A, switches to org B and creates a task there; then
 <code dir="auto">list_tasks</code> shows only org B’s task, and cancelling the org A task from
@@ -341,9 +336,11 @@ channel protocol offers for structured context, and it leaves the message
 text and its tests unchanged.</li>
 <li><strong>Fresh client per switch vs. a client cache.</strong> Clients hold no connection
 state worth keeping; a cache would be a map with no benefit.</li>
-<li><strong><code dir="auto">GetCaller</code> on switch vs. trusting the entry.</strong> One round trip per switch
-catches a dead key before the first real call fails, and an id mismatch
-before a write lands in the wrong org.</li>
+<li><strong>Trusting the entry vs. <code dir="auto">GetCaller</code> on switch.</strong> A round trip per switch
+would catch a dead key before the first real call, and a key that belongs to
+another org than the entry’s <code dir="auto">id</code>. <code dir="auto">gritz login</code> already records the id from
+<code dir="auto">GetCaller</code>, so the entry is trusted and a switch makes no server call; a
+dead key fails the first tool call instead.</li>
 <li><strong>Snapshot of <code dir="auto">.gritz.yml</code> at startup vs. reloading on each call.</strong>
 Reloading would pick up <code dir="auto">gritz login</code> without a restart, but would let the
 current entry’s key or <code dir="auto">allowed</code> change under a running session. Logins are
