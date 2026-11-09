@@ -109,6 +109,15 @@ allowed: [acme-labs]
 there with any other `--org` fails, and so does every command if the `org`
 isn't allowed. Every field is optional, and an unknown field is an error.
 
+A `.gritz.local.yml` beside a `.gritz.yml` holds local overrides, such as a
+different `org` or `allowed`, or organisations with their keys. It has the same
+format and wins over the `.gritz.yml` in its directory. Add it to `.gitignore`
+to keep it out of the repository:
+
+```bash
+echo .gritz.local.yml >> .gitignore
+```
+
 `gritz login --list` shows the organisations you can pick from the current
 directory, with `*` marking the one selected by default:
 
@@ -142,7 +151,7 @@ The top-level `server` is read only by `gritz login`.
 
 `--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key
 directly, for CI and other places with no config file. The command then reads no
-`.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or
+`.gritz.yml` files, fails if `--org` is also given, and talks to `--server`, `GRITZ_SERVER` or
 `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER`
 need a key this way, since an organisation in a `.gritz.yml` carries its own
 server:
