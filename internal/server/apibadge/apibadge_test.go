@@ -1,19 +1,19 @@
-package server_test
+package apibadge_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/server"
+	"github.com/gritzapp/gritz/internal/server/apibadge"
 	"gotest.tools/v3/assert"
 )
 
-func TestBadgeHandler(t *testing.T) {
+func TestHandler(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	mux := http.NewServeMux()
-	mux.Handle(server.BadgeRoute, server.BadgeHandler())
+	mux.Handle(apibadge.Route, apibadge.Handler())
 	rec := httptest.NewRecorder()
 
 	// Act
@@ -25,7 +25,7 @@ func TestBadgeHandler(t *testing.T) {
 	assert.Equal(t, rec.Body.String(), `{"schemaVersion":1,"label":"","message":"2474","color":"black","labelColor":"black","logoSvg":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"#fff\"><rect x=\"8\" y=\"2\" width=\"16\" height=\"7\" rx=\"2\"/><rect x=\"2\" y=\"8\" width=\"7\" height=\"15\" rx=\"2\"/><rect x=\"17\" y=\"15\" width=\"13\" height=\"6\" rx=\"2\"/><rect x=\"8\" y=\"23\" width=\"9\" height=\"7\" rx=\"2\"/></svg>"}`+"\n")
 }
 
-func TestBadgeHandler_InvalidID(t *testing.T) {
+func TestHandler_InvalidID(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -46,7 +46,7 @@ func TestBadgeHandler_InvalidID(t *testing.T) {
 			t.Parallel()
 			// Arrange
 			mux := http.NewServeMux()
-			mux.Handle(server.BadgeRoute, server.BadgeHandler())
+			mux.Handle(apibadge.Route, apibadge.Handler())
 			rec := httptest.NewRecorder()
 
 			// Act

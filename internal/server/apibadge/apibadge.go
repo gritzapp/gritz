@@ -1,4 +1,4 @@
-package server
+package apibadge
 
 import (
 	"encoding/json"
@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// BadgeRoute serves a task's shields.io endpoint badge. The mux matches only
+// Route serves a task's shields.io endpoint badge. The mux matches only
 // whole path segments, so the handler strips the ".json" suffix itself.
-const BadgeRoute = "GET /badge/{file}"
+const Route = "GET /badge/{file}"
 
 // badgeLogo is the gritz logo in white, for the black badge.
 const badgeLogo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="#fff"><rect x="8" y="2" width="16" height="7" rx="2"/><rect x="2" y="8" width="7" height="15" rx="2"/><rect x="17" y="15" width="13" height="6" rx="2"/><rect x="8" y="23" width="9" height="7" rx="2"/></svg>`
@@ -25,11 +25,11 @@ type badge struct {
 	LogoSvg       string `json:"logoSvg"`
 }
 
-// BadgeHandler serves /badge/{id}.json: a black badge showing the gritz logo
+// Handler serves /badge/{id}.json: a black badge showing the gritz logo
 // and the task id. It is public and reads nothing but the path, so it reveals
 // nothing about the task, not even whether it exists. The id must be a
 // positive integer in canonical form; anything else is a 404.
-func BadgeHandler() http.Handler {
+func Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, ok := strings.CutSuffix(r.PathValue("file"), ".json")
 		if !ok {
