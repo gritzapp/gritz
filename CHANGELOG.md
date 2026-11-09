@@ -1,5 +1,24 @@
 # Changelog
 
+## [4.8.0](https://github.com/gritzapp/gritz/compare/v4.7.0...v4.8.0) (2026-11-09)
+
+
+### Features
+
+* add install script ([#2190](https://github.com/gritzapp/gritz/issues/2190)) ([3320b98](https://github.com/gritzapp/gritz/commit/3320b9860908e5a56d16295eed75d5a7e4108ad5))
+* **agent:** sign posts with a gritz task badge ([#2201](https://github.com/gritzapp/gritz/issues/2201)) ([c554f53](https://github.com/gritzapp/gritz/commit/c554f534c0ac4af9dc19cc2fc73472d5bd65ea9f))
+* **server:** serve task badge JSON for shields.io ([#2199](https://github.com/gritzapp/gritz/issues/2199)) ([1dbfe6d](https://github.com/gritzapp/gritz/commit/1dbfe6d0bd1d6cdea49a18ec126d8d212bb9d4a8))
+
+
+### Bug Fixes
+
+* **webui:** offer immediate auto-archive in the schedule form ([#2197](https://github.com/gritzapp/gritz/issues/2197)) ([2a675d6](https://github.com/gritzapp/gritz/commit/2a675d6a628d52afa95398e0a78e12a1fe7c5434))
+
+
+### Miscellaneous
+
+* document installing the gritz CLI ([#2192](https://github.com/gritzapp/gritz/issues/2192)) ([036dfa6](https://github.com/gritzapp/gritz/commit/036dfa6edc652d76ac4736770137945d8d51931d))
+
 ## [4.7.0](https://github.com/gritzapp/gritz/compare/v4.6.0...v4.7.0) (2026-11-09)
 
 
