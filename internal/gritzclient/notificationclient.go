@@ -118,9 +118,6 @@ func (c *NotificationClient) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		// A clean end of stream returns nil, but the stream is down all the
-		// same.
-		err = cmp.Or(err, io.EOF)
 		c.log.Warn("SSE connection lost, reconnecting", "err", err)
 		c.report(err)
 		if !common.SleepContext(ctx, c.reconnect) {
@@ -170,7 +167,7 @@ func (c *NotificationClient) open(ctx context.Context) (io.ReadCloser, error) {
 }
 
 // stream reads events from body and dispatches them to the handler until
-// the stream ends. It returns nil on a clean end of stream.
+// the stream ends. It returns io.EOF on a clean end of stream.
 func (c *NotificationClient) stream(body io.Reader) error {
 	r := sse.NewReader(body)
 	for {
@@ -181,7 +178,7 @@ func (c *NotificationClient) stream(body io.Reader) error {
 		// The reader returns a zero Event with nil error on clean EOF.
 		// Real events always carry an Event type from the server.
 		if ev.Event == "" {
-			return nil
+			return io.EOF
 		}
 		// Keep-alives exist only to put bytes on an idle stream. They carry
 		// no data, so drop them before decoding.
