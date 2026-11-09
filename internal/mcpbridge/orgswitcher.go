@@ -25,8 +25,8 @@ type OrgSwitcherOptions struct {
 	Entry *configfile.Entry
 	// ClientID is sent by every client the switcher builds.
 	ClientID string
-	// Follow is called for Entry and for every org switched to later.
-	Follow func(entry *configfile.Entry)
+	// OnSwitch is called for Entry and for every org switched to later.
+	OnSwitch func(entry *configfile.Entry)
 }
 
 // OrgSwitcher holds the session's current org and its client.
@@ -39,7 +39,7 @@ type OrgSwitcher struct {
 	client  gritzclient.Client
 }
 
-// NewOrgSwitcher starts the session in opts.Entry and follows it. Clients are
+// NewOrgSwitcher starts the session in opts.Entry and calls OnSwitch for it. Clients are
 // built from the entry's TokenSource(ctx).
 func NewOrgSwitcher(ctx context.Context, opts OrgSwitcherOptions) *OrgSwitcher {
 	o := &OrgSwitcher{
@@ -48,7 +48,7 @@ func NewOrgSwitcher(ctx context.Context, opts OrgSwitcherOptions) *OrgSwitcher {
 		current: opts.Entry.Name,
 		client:  newClient(ctx, opts.Entry, opts.ClientID),
 	}
-	opts.Follow(opts.Entry)
+	opts.OnSwitch(opts.Entry)
 	return o
 }
 
@@ -119,11 +119,10 @@ func (o *OrgSwitcher) switchOrgTool(_ context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
-	// The token source outlives this call, so it takes the process context.
-	client := newClient(o.ctx, entry, o.opts.ClientID)
 	o.mu.Lock()
-	o.current, o.client = entry.Name, client
+	// The token source outlives this call, so it takes the process context.
+	o.current, o.client = entry.Name, newClient(o.ctx, entry, o.opts.ClientID)
 	o.mu.Unlock()
-	o.opts.Follow(entry)
+	o.opts.OnSwitch(entry)
 	return mcpx.JSONResult(switchOrgOutput{Name: entry.Name, ID: entry.ID, Server: entry.Server}), nil, nil
 }

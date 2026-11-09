@@ -70,7 +70,7 @@ var McpCommand = &cli.Command{
 			Merged:   merged,
 			Entry:    entry,
 			ClientID: clientID,
-			Follow: func(entry *configfile.Entry) {
+			OnSwitch: func(entry *configfile.Entry) {
 				if ch != nil {
 					ch.Follow(ctx, entry)
 				}

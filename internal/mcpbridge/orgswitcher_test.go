@@ -10,7 +10,7 @@ import (
 )
 
 // newOrgSwitcherTest returns an OrgSwitcher started in entry "a" of orgs
-// "a" and "b", and the names follow was called with.
+// "a" and "b", and the names OnSwitch was called with.
 func newOrgSwitcherTest(t *testing.T) (*OrgSwitcher, *[]string) {
 	t.Helper()
 	merged := &configfile.Merged{Orgs: map[string]configfile.Entry{
@@ -21,9 +21,9 @@ func newOrgSwitcherTest(t *testing.T) (*OrgSwitcher, *[]string) {
 	assert.NilError(t, err)
 	var followed []string
 	o := NewOrgSwitcher(context.Background(), OrgSwitcherOptions{
-		Merged: merged,
-		Entry:  entry,
-		Follow: func(e *configfile.Entry) { followed = append(followed, e.Name) },
+		Merged:   merged,
+		Entry:    entry,
+		OnSwitch: func(e *configfile.Entry) { followed = append(followed, e.Name) },
 	})
 	return o, &followed
 }
