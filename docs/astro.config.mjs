@@ -122,6 +122,13 @@ export default defineConfig({
 		baseLinks,
 		starlight({
 			title: 'gritz',
+			// The web UI's icon; logo-dark.png is it inverted, as the web UI shows it in
+			// dark mode.
+			logo: {
+				light: './src/assets/logo-light.png',
+				dark: './src/assets/logo-dark.png',
+			},
+			favicon: '/favicon.png',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/gritzapp/gritz' }],
 			editLink: {
 				baseUrl: 'https://github.com/gritzapp/gritz/edit/master/docs/',
