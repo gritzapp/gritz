@@ -57,7 +57,8 @@ func (o *OrgSwitcher) onSwitch(entry *configfile.Entry) {
 		ClientID:    o.opts.ClientID,
 	})
 	o.mu.Lock()
-	o.current, o.client = entry.Name, client
+	o.current = entry.Name
+	o.client = client
 	o.mu.Unlock()
 	if o.opts.OnSwitch != nil {
 		o.opts.OnSwitch(entry)
