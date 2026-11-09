@@ -2,6 +2,7 @@ package mcpbridge
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/configfile"
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/gritzapp/gritz/internal/x/mcptest"
@@ -491,7 +493,9 @@ func TestFollow_Once(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{
+		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
+	}, "")
 
 	// Act
 	ch.Follow(ctx, &configfile.Entry{Name: "acme", ID: 1, Key: "k1", Server: srv.URL})
@@ -505,4 +509,28 @@ func TestFollow_Once(t *testing.T) {
 	slices.Sort(got)
 	assert.DeepEqual(t, got, []string{"Bearer k1", "Bearer k3"})
 	assert.Assert(t, cmp.Len(auths, 0))
+}
+
+// TestHealthReporter checks that each stream health transition becomes a
+// channel event carrying the org attribute.
+func TestHealthReporter(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	sender := &ChannelSenderMock{
+		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
+	}
+	report := NewChannel(sender, "").healthReporter(context.Background(), "acme")
+
+	// Act
+	report(gritzclient.Health{Connected: true})
+	report(gritzclient.Health{Err: errors.New("EOF")})
+	report(gritzclient.Health{Connected: true})
+
+	// Assert
+	meta := map[string]string{"org": "acme"}
+	assert.DeepEqual(t, sender.SentChannelParams(), []mcpchannel.Params{
+		{Content: `Connected to org "acme".`, Meta: meta},
+		{Content: `Lost the connection to org "acme": EOF, retrying.`, Meta: meta},
+		{Content: `Reconnected to org "acme" (notifications sent while it was down were missed).`, Meta: meta},
+	})
 }

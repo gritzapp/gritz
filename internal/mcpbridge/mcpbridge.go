@@ -74,12 +74,37 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
 		TokenSource: entry.TokenSource(ctx),
 		ClientID:    c.clientID,
 		Handler:     func(n model.Notification) { c.Forward(ctx, entry.Name, n) },
+		OnHealth:    c.healthReporter(ctx, entry.Name),
 	})
 	go func() {
 		if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("gritz channel: stream ended", "org", entry.Name, "err", err)
 		}
 	}()
+}
+
+// healthReporter returns the OnHealth callback of org's stream, which pushes
+// a channel event for each change of the stream's health.
+func (c *Channel) healthReporter(ctx context.Context, org string) func(gritzclient.Health) {
+	var everConnected bool
+	return func(h gritzclient.Health) {
+		var msg string
+		switch {
+		case h.Connected && !everConnected:
+			msg = fmt.Sprintf("Connected to org %q.", org)
+		case h.Connected:
+			msg = fmt.Sprintf("Reconnected to org %q (notifications sent while it was down were missed).", org)
+		case everConnected:
+			msg = fmt.Sprintf("Lost the connection to org %q: %v, retrying.", org, h.Err)
+		default:
+			msg = fmt.Sprintf("Can't connect to org %q: %v, retrying.", org, h.Err)
+		}
+		everConnected = everConnected || h.Connected
+		p := mcpchannel.Params{Content: msg, Meta: map[string]string{"org": org}}
+		if err := c.sender.SendChannel(ctx, p); err != nil {
+			slog.Warn("gritz channel: failed to send", "err", err)
+		}
+	}
 }
 
 // filter returns the filter of the followed entry named org.

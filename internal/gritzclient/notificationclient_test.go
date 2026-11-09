@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -228,4 +229,48 @@ func TestNotificationClient_SkipsMalformedData(t *testing.T) {
 	// Act + Assert: malformed event is skipped; subsequent valid event arrives.
 	got := recv(t, received, time.Second, "change after malformed")
 	assert.DeepEqual(t, got, model.Notification{Type: "change", OrgID: 9})
+}
+
+func TestNotificationClient_OnHealth(t *testing.T) {
+	t.Parallel()
+	// Arrange: two failed attempts, a stream the server closes at once, then
+	// a stream that stays up.
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch requests.Add(1) {
+		case 1, 2:
+			w.WriteHeader(http.StatusInternalServerError)
+		case 3:
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		}
+	}))
+	t.Cleanup(srv.Close)
+	health := make(chan gritzclient.Health, 8)
+	c := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
+		BaseURL:           srv.URL,
+		ReconnectInterval: time.Millisecond,
+		Handler:           func(model.Notification) {},
+		OnHealth:          func(h gritzclient.Health) { health <- h },
+	})
+
+	// Act
+	runClient(t, c)
+
+	// Assert: one call per transition, none for the repeated failure.
+	var got []bool
+	for range 4 {
+		h := recv(t, health, time.Second, "health transition")
+		assert.Equal(t, h.Err == nil, h.Connected)
+		got = append(got, h.Connected)
+	}
+	assert.DeepEqual(t, got, []bool{false, true, false, true})
+	select {
+	case h := <-health:
+		t.Fatalf("unexpected health call: %+v", h)
+	case <-time.After(50 * time.Millisecond):
+	}
 }
