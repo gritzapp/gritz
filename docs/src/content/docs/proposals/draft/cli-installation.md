@@ -67,26 +67,10 @@ builds:
     goarch: [amd64, arm64]
     ldflags:
       - -X github.com/gritzapp/gritz/internal/version.Version={{ .Tag }}
-  # A linux-only build for the bare binaries: archives select builds by id,
-  # not by platform. It recompiles the two linux targets, a few seconds each.
-  - id: gritz-bare
-    main: ./cmd/gritz
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    ldflags:
-      - -X github.com/gritzapp/gritz/internal/version.Version={{ .Tag }}
 
 archives:
-  - id: tarball
-    ids: [gritz]
-    formats: [tar.gz]
+  - formats: [tar.gz]
     name_template: gritz_{{ .Os }}_{{ .Arch }}
-  # The bare linux binaries `gritz download` and the Docker backend fetch by name.
-  - id: bare
-    ids: [gritz-bare]
-    formats: [binary]
-    name_template: gritz-{{ .Os }}-{{ .Arch }}
 
 checksum:
   name_template: checksums.txt
@@ -102,14 +86,59 @@ changelog:
 Each release then carries:
 
 - `gritz_linux_amd64.tar.gz`, `gritz_linux_arm64.tar.gz`,
-  `gritz_darwin_amd64.tar.gz`, `gritz_darwin_arm64.tar.gz`
-- `gritz-linux-amd64`, `gritz-linux-arm64`, unchanged, because
-  [`prebuilt.BinaryNames`](https://github.com/gritzapp/gritz/blob/master/internal/runner/prebuilt/prebuilt.go)
-  looks them up by exact name
-- `checksums.txt` covering all of the above
+  `gritz_darwin_amd64.tar.gz`, `gritz_darwin_arm64.tar.gz`, each holding a
+  single `gritz` binary (plus the `README.md` and `CHANGELOG.md` GoReleaser
+  includes by default)
+- `checksums.txt` covering the archives
+
+The bare `gritz-linux-amd64` and `gritz-linux-arm64` assets are no longer
+published. `gritz download` reads the linux archives instead (below).
 
 The `trigger-deploy` job keeps `needs: [release-please, release, docker]`, so a
 deploy still waits for the assets.
+
+### `gritz download` reads the archives
+
+[`prebuilt.Download`](https://github.com/gritzapp/gritz/blob/master/internal/runner/prebuilt/prebuilt.go)
+looks up release assets by the names in `prebuilt.BinaryNames` and writes each
+one straight to the `prebuilt` directory. It changes to:
+
+1. For each of `amd64` and `arm64`, find the asset `gritz_linux_<arch>.tar.gz`
+   in the latest release.
+2. Stream it through `compress/gzip` and `archive/tar`, and write the entry
+   named `gritz` to `prebuilt/gritz-linux-<arch>` with mode `0755`. An archive
+   without that entry is an error.
+
+The files in the `prebuilt` directory keep their names, so `BinaryPath`,
+`ReadBinary`, the Docker backend, `mise run build`, the `Dockerfile` and the
+tests that read `prebuilt/gritz-linux-<arch>` are unchanged. Only the release
+asset names move. `BinaryNames` becomes a list of architectures.
+
+`Download` does not verify `checksums.txt`: it fetches over TLS from the GitHub
+API, as it does today. Verifying is cheap to add if wanted; see Open Questions.
+
+A `gritz download` from a binary older than this change fails against a release
+made after it, with `asset gritz-linux-amd64 not found`. Downloading the new
+release fixes it, so nothing older is kept around.
+
+### API
+
+```go
+package prebuilt // github.com/gritzapp/gritz/internal/runner/prebuilt
+
+// BinaryNames lists the prebuilt binary file names. // removed
+var BinaryNames []string // removed
+
+// Arches lists the architectures Download fetches driver binaries for.
+var Arches = []string{"amd64", "arm64"} // new
+
+// Download extracts the gritz binary from each linux archive of the latest
+// release into the prebuilt directory. // changed: reads gritz_linux_<arch>.tar.gz
+func Download(ctx context.Context, repo string) error
+```
+
+**How it fits:** `gritz download` calls `Download` as it does today; nothing
+else uses `BinaryNames`.
 
 ### Install script
 
@@ -148,23 +177,33 @@ same for free.
   `mise run install` with an Install section listing the three paths, and say
   how each one updates.
 - [`operators/runner`](/operators/runner/): point at the same install paths
-  instead of `mise run install`. A runner on macOS still needs `gritz download`
-  for the linux driver binaries, so the "Driver binaries" section stays.
+  instead of `mise run install` and the bare `gritz-linux-*` release binaries.
+  A runner on macOS still needs `gritz download` for the linux driver binaries,
+  so the "Driver binaries" section stays; its file names in the `prebuilt`
+  directory don't change.
+- [`operators/deployment`](/operators/deployment/): list the archives and
+  `checksums.txt` as the release's binary assets instead of `gritz-linux-amd64`
+  and `gritz-linux-arm64`.
 - `README.md`: a one-line install command near the top.
 
 ## Implementation Plan
 
-1. **GoReleaser release artifacts** — Delivers: `.goreleaser.yaml` and the
-   `release` job running GoReleaser. Depends on: nothing. Verifiable by:
-   `goreleaser release --snapshot --clean` locally lists the archives, the bare
-   linux binaries and `checksums.txt`; the next release carries them and
-   `gritz download` still works against it.
+1. **GoReleaser release artifacts and `gritz download`** — Delivers:
+   `.goreleaser.yaml`, the `release` job running GoReleaser, `prebuilt.Download`
+   extracting from the linux archives, and the `operators/deployment` and
+   `operators/runner` lines that name the release assets. These land together:
+   a release made without the bare assets breaks the old `Download`. Depends on:
+   nothing. Verifiable by: `goreleaser release --snapshot --clean` locally
+   produces the four archives and `checksums.txt`; a unit test extracts `gritz`
+   from a snapshot-shaped archive and rejects one without it; after the next
+   release, `gritz download` fills the `prebuilt` directory and the Docker
+   backend starts a task with it.
 2. **Install script** — Delivers: `docs/public/install.sh`. Depends on: (1)
    having shipped in a release. Verifiable by: running it from the PR preview URL
    on Linux and macOS, with and without `GRITZ_VERSION`, and with a tampered
    checksum.
-3. **Install docs** — Delivers: the `using/cli`, `operators/runner` and README
-   changes, including mise. Depends on: (2). Verifiable by:
+3. **Install docs** — Delivers: the rest of the `using/cli`, `operators/runner`
+   and README changes, including mise. Depends on: (2). Verifiable by:
    `cd docs && pnpm build`, and following each path from the page.
 
 ## Trade-offs
@@ -174,6 +213,10 @@ same for free.
   every later addition (another platform, a package manager) more of it.
   GoReleaser does all of it from one file and is the convention mise and aqua
   expect.
+- **Keep publishing the bare linux binaries.** Leaves `prebuilt.Download`
+  alone, but GoReleaser selects archive inputs by build id, not platform, so
+  it takes a second linux-only build that compiles both linux targets again,
+  and every release carries the same binaries twice.
 - **Make `go install` work.** It would need the built web UI committed, or a
   CLI-only binary that leaves out the server. Committing build output churns
   every UI change through Go history; splitting the binary breaks the
@@ -193,6 +236,8 @@ same for free.
 - Should we sign and notarize the macOS binaries now (GoReleaser supports it
   with `notarize`), or accept that a browser-downloaded archive needs
   `xattr -d com.apple.quarantine` before it runs?
+- Should `gritz download` also fetch `checksums.txt` and verify the archives,
+  as the install script does?
 - Windows: fix `internal/shell` with build tags and ship `windows/amd64` (zip),
   or document WSL as the only Windows path?
 - Is `docs.gritz.dev/install.sh` the right URL, or should the script live at
