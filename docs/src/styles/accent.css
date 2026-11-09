@@ -1,0 +1,16 @@
+/* The web UI's colours (webui/src/index.css): --primary where Starlight puts its
+   accent, --accent (a muted surface) as the low tone. Links and the current
+   page use --sl-color-accent in the light theme and --sl-color-accent-high in
+   the dark one. */
+
+:root {
+	--sl-color-accent-low: oklch(0.269 0 0); /* --accent */
+	--sl-color-accent: oklch(0.556 0 0); /* --ring */
+	--sl-color-accent-high: oklch(0.922 0 0); /* --primary */
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: oklch(0.97 0 0); /* --accent */
+	--sl-color-accent: oklch(0.205 0 0); /* --primary */
+	--sl-color-accent-high: oklch(0.145 0 0); /* --foreground */
+}
