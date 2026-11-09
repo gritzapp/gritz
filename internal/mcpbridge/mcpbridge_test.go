@@ -491,7 +491,9 @@ func TestFollow_Once(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{
+		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
+	}, "")
 
 	// Act
 	ch.Follow(ctx, &configfile.Entry{Name: "acme", ID: 1, Key: "k1", Server: srv.URL})
@@ -505,4 +507,31 @@ func TestFollow_Once(t *testing.T) {
 	slices.Sort(got)
 	assert.DeepEqual(t, got, []string{"Bearer k1", "Bearer k3"})
 	assert.Assert(t, cmp.Len(auths, 0))
+}
+
+// TestFollow_Health checks that a stream health transition becomes a channel
+// event carrying the org attribute.
+func TestFollow_Health(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+	sent := make(chan mcpchannel.Params, 1)
+	ch := NewChannel(&ChannelSenderMock{
+		SendChannelFunc: func(_ context.Context, p mcpchannel.Params) error {
+			sent <- p
+			return nil
+		},
+	}, "")
+
+	// Act
+	ch.Follow(t.Context(), &configfile.Entry{Name: "acme", ID: 1, Key: "k", Server: srv.URL})
+
+	// Assert
+	assert.DeepEqual(t, <-sent, mcpchannel.Params{
+		Content: `Lost the connection: unexpected status: 502, retrying.`,
+		Meta:    map[string]string{"org": "acme"},
+	})
 }

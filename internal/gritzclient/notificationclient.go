@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -33,6 +34,15 @@ type NotificationClient struct {
 	log       *slog.Logger
 	reconnect time.Duration
 	handler   func(model.Notification)
+	onHealth  func(Health)
+	err       error // the last reported state, nil meaning connected
+}
+
+// Health is the state of the notification stream, reported to
+// NotificationClientOptions.OnHealth.
+type Health struct {
+	Connected bool  // the stream is up
+	Err       error // why it is down; nil while connected
 }
 
 // NotificationClientOptions configures a NotificationClient.
@@ -60,6 +70,11 @@ type NotificationClientOptions struct {
 	// Handler is called once per received event with the decoded
 	// notification. Required.
 	Handler func(model.Notification)
+	// OnHealth, if set, is called from Run whenever Connected changes. The
+	// stream starts out as connected, so a successful first connect isn't
+	// reported and a first failure is reported as a drop. Retries that keep
+	// failing don't call it again.
+	OnHealth func(Health)
 }
 
 // NewNotificationClient returns a new NotificationClient.
@@ -80,6 +95,7 @@ func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
 		log:       cmp.Or(opts.Log, slog.Default()),
 		reconnect: cmp.Or(opts.ReconnectInterval, DefaultSSEReconnectInterval),
 		handler:   opts.Handler,
+		onHealth:  opts.OnHealth,
 	}
 }
 
@@ -91,15 +107,29 @@ func (c *NotificationClient) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err != nil {
-			c.log.Warn("SSE connection lost, reconnecting", "err", err)
-		}
+		c.log.Warn("SSE connection lost, reconnecting", "err", err)
+		c.health(err)
 		if !common.SleepContext(ctx, c.reconnect) {
 			return ctx.Err()
 		}
 	}
 }
 
+// health records the stream's state, err nil meaning connected, and calls
+// OnHealth when it changes.
+func (c *NotificationClient) health(err error) {
+	if (c.err == nil) == (err == nil) {
+		return
+	}
+	c.err = err
+	if c.onHealth != nil {
+		c.onHealth(Health{Connected: err == nil, Err: err})
+	}
+}
+
+// connect streams events to the handler until the connection ends,
+// reporting the stream as connected once the server accepts it. It returns
+// io.EOF on a clean end of stream.
 func (c *NotificationClient) connect(ctx context.Context) error {
 	u, err := url.Parse(strings.TrimRight(c.baseURL, "/") + "/events")
 	if err != nil {
@@ -123,6 +153,7 @@ func (c *NotificationClient) connect(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
+	c.health(nil)
 	r := sse.NewReader(resp.Body)
 	for {
 		ev, err := r.Read()
@@ -132,7 +163,7 @@ func (c *NotificationClient) connect(ctx context.Context) error {
 		// The reader returns a zero Event with nil error on clean EOF.
 		// Real events always carry an Event type from the server.
 		if ev.Event == "" {
-			return nil
+			return io.EOF
 		}
 		// Keep-alives exist only to put bytes on an idle stream. They carry
 		// no data, so drop them before decoding.
