@@ -38,10 +38,6 @@ var McpCommand = &cli.Command{
 		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		_, cfg, err := configfile.Resolve(cmd)
-		if err != nil {
-			return err
-		}
 		// One stable id per bridge process. It is sent on every mutation
 		// RPC so the server stamps the resulting notifications with this
 		// id, and on the SSE subscription so the notification client
@@ -49,37 +45,74 @@ var McpCommand = &cli.Command{
 		// would echo its own create_task/update_task changes back to the
 		// host Claude Code session as channel events (#718).
 		clientID := uuid.NewString()
-		client := gritzclient.New(gritzclient.Options{
-			BaseURL:     cfg.Server,
-			TokenSource: cfg.TokenSource(ctx),
-			ClientID:    clientID,
-		})
 		var capabilities mcp.ServerCapabilities
 		if cmd.Bool("channel") {
 			capabilities.Experimental = mcpchannel.Experimental()
 		}
+		transport := mcpchannel.NewTransport(&mcp.StdioTransport{})
+
+		// The mute set and its channel_mute/channel_unmute/channel_muted
+		// tools only exist when there's a channel stream to filter. Without
+		// --channel the bridge behaves exactly as before. Orgs are followed
+		// before the session starts, so the mute tools always find the
+		// startup org.
+		var ch *mcpbridge.Channel
+		follow := func(*configfile.Entry) {}
+		if cmd.Bool("channel") {
+			ch = mcpbridge.NewChannel(transport, clientID)
+			follow = func(entry *configfile.Entry) { ch.Follow(ctx, entry) }
+		}
+
+		// --key (and --server, which requires it) selects one raw key with
+		// no entries to switch between; everything else is a .gritz.yml
+		// session with list_orgs and switch_org.
+		instructions := mcpserver.Instructions
+		var service mcpserver.ServiceFunc
+		var orgs *mcpbridge.Orgs
+		if cmd.String("key") != "" || cmd.String("server") != "" {
+			entry, err := configfile.Resolve(cmd)
+			if err != nil {
+				return err
+			}
+			service = mcpserver.Static(gritzclient.New(gritzclient.Options{
+				BaseURL:     entry.Server,
+				TokenSource: entry.TokenSource(ctx),
+				ClientID:    clientID,
+			}))
+			follow(entry)
+		} else {
+			merged, err := configfile.Load(configfile.LoadOptions{})
+			if err != nil {
+				return err
+			}
+			if err := merged.Validate(); err != nil {
+				return err
+			}
+			entry, err := merged.Lookup(cmd.String("org"))
+			if err != nil {
+				return err
+			}
+			orgs = mcpbridge.NewOrgs(ctx, merged, entry, clientID, follow)
+			service = orgs.Service
+			instructions += mcpbridge.OrgsInstructions
+		}
+
 		server := mcp.NewServer(&mcp.Implementation{
 			Name:    "gritz",
 			Version: "1.0.0",
 		}, &mcp.ServerOptions{
-			Instructions: mcpserver.Instructions,
+			Instructions: instructions,
 			Capabilities: &capabilities,
 		})
 		var toolOpts []mcpserver.Option
 		if cmd.IsSet("auto-archive") {
 			toolOpts = append(toolOpts, mcpserver.WithDefaultAutoArchive(cmd.Duration("auto-archive")))
 		}
-		mcpserver.AddTools(server, mcpserver.Static(client), toolOpts...)
-
-		transport := mcpchannel.NewTransport(&mcp.StdioTransport{})
-
-		// The mute set and its channel_mute/channel_unmute/channel_muted
-		// tools only exist when there's a channel stream to filter. Without
-		// --channel the bridge behaves exactly as before. The org is followed
-		// before the session starts, so the mute tools always find it.
-		if cmd.Bool("channel") {
-			ch := mcpbridge.NewChannel(transport, clientID)
-			ch.Follow(ctx, cfg)
+		mcpserver.AddTools(server, service, toolOpts...)
+		if orgs != nil {
+			orgs.AddTools(server)
+		}
+		if ch != nil {
 			ch.AddTools(server)
 		}
 

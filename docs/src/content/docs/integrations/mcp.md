@@ -19,7 +19,9 @@ There are two ways to connect:
   talks to the server with the CLI's login. It is also the only way to get
   [channels](#channels): task updates pushed into a Claude Code session.
 
-Both offer the same [tools](#tools), and act in one organisation.
+Both offer the same [tools](#tools). Over HTTP the client acts in one
+organisation; `gritz mcp` can [switch](#organisations) between the
+organisations you've logged in to.
 
 This page is about the tools *you* use to drive gritz. The tools gritz gives the
 agents running inside tasks are in [Agent tools](/using/agent-tools/).
@@ -121,15 +123,35 @@ credential in the MCP config.
 | Flag | |
 | --- | --- |
 | `--org` | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`. |
-| `--key`, `-k` | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. |
+| `--key`, `-k` | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. The session stays in the key's organisation, without `list_orgs` and `switch_org`. |
 | `--server`, `-s` | The server URL to use with `--key`, which it requires. Defaults to `GRITZ_SERVER`, otherwise `https://gritz.dev`. |
 | `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
 | `--channel` | Push task updates into the Claude Code session. See [Channels](#channels). |
+
+### Organisations
+
+A session started from the `.gritz.yml` files starts in the organisation
+`--org` picks, and can switch to any other entry in those files, within their
+`allowed` list. It acts in one organisation at a time, the current one, and
+every other tool acts in it. Two tools manage it:
+
+- `list_orgs` lists the entries: each one's `name`, organisation `id`,
+  `server`, and whether it is `current`. It doesn't contact the server.
+- `switch_org` takes an entry's `name` and makes it current. It checks the
+  entry's login with the server first, and fails, staying in the current
+  organisation, if the login doesn't work or belongs to another organisation
+  than the entry's `id`. It returns the entry's `name`, `id` and `server`, and
+  the organisation's name as `org_name`.
+
+The entries are those in the files when `gritz mcp` started; restart it to pick
+up a `gritz login` made since.
 
 ## Tools
 
 | Tool | |
 | --- | --- |
+| `list_orgs` | Lists the organisations a `gritz mcp` session can switch to, and marks the current one. See [Organisations](#organisations). |
+| `switch_org` | Switches a `gritz mcp` session to another organisation. |
 | `list_workspaces` | Lists the workspaces runners offer: each one's name, description and runner ID. |
 | `create_task` | Creates a task and starts it, or creates a draft. |
 | `list_tasks` | Lists the organisation's tasks, newest first, a page at a time. |
@@ -355,7 +377,7 @@ returns the stored rules.
 
 [Channels](https://code.claude.com/docs/en/channels) let an MCP server push
 messages into a running Claude Code session. With `--channel`, `gritz mcp`
-pushes the organisation's task updates, so your Claude hears about a task
+pushes the task updates of every organisation the session has been in, so your Claude hears about a task
 finishing without polling:
 
 ```
@@ -364,8 +386,8 @@ finishing without polling:
 <channel source="gritz" org="acme">Task 1234 completed.</channel>
 ```
 
-The `org` attribute is the name of the `.gritz.yml` entry `gritz mcp` started
-with; a session started with `--key` sends none.
+The `org` attribute is the name of the `.gritz.yml` entry of the task's
+organisation; a session started with `--key` sends none.
 
 It sends a message when a task is created (by anyone, by a routing rule or by a
 schedule), when one is queued with new instructions, woken from a finished state
