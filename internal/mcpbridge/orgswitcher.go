@@ -19,8 +19,8 @@ const OrgsInstructions = "\nThis session acts in one gritz organisation at a tim
 	"Every other tool acts in the current organisation. " +
 	"Check it with list_orgs before changing anything if you're not sure which organisation you're in."
 
-// Orgs is the session's current org and its client.
-type Orgs struct {
+// OrgSwitcher holds the session's current org and its client.
+type OrgSwitcher struct {
 	ctx      context.Context
 	merged   *configfile.Merged
 	clientID string
@@ -31,11 +31,11 @@ type Orgs struct {
 	client  gritzclient.Client
 }
 
-// NewOrgs starts the session in entry, calling follow for it and for every
+// NewOrgSwitcher starts the session in entry, calling follow for it and for every
 // org switched to later. switch_org looks entries up in merged. Clients are
 // built from entry.TokenSource(ctx).
-func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *Orgs {
-	o := &Orgs{
+func NewOrgSwitcher(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *OrgSwitcher {
+	o := &OrgSwitcher{
 		ctx:      ctx,
 		merged:   merged,
 		clientID: clientID,
@@ -56,14 +56,14 @@ func newClient(ctx context.Context, entry *configfile.Entry, clientID string) gr
 }
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
-func (o *Orgs) Service() gritzv1connect.GritzServiceHandler {
+func (o *OrgSwitcher) Service() gritzv1connect.GritzServiceHandler {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.client
 }
 
 // AddTools registers list_orgs and switch_org.
-func (o *Orgs) AddTools(server *mcp.Server) {
+func (o *OrgSwitcher) AddTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_orgs",
 		Description: "List the gritz organisations this session can switch to, from the " +
@@ -91,7 +91,7 @@ type listOrgsOutput struct {
 	Orgs []orgSummary `json:"orgs"`
 }
 
-func (o *Orgs) listOrgsTool(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+func (o *OrgSwitcher) listOrgsTool(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 	o.mu.Lock()
 	current := o.current
 	o.mu.Unlock()
@@ -113,7 +113,7 @@ type switchOrgOutput struct {
 	OrgName string `json:"org_name"`
 }
 
-func (o *Orgs) switchOrgTool(ctx context.Context, _ *mcp.CallToolRequest, in switchOrgInput) (*mcp.CallToolResult, any, error) {
+func (o *OrgSwitcher) switchOrgTool(ctx context.Context, _ *mcp.CallToolRequest, in switchOrgInput) (*mcp.CallToolResult, any, error) {
 	entry, err := o.merged.Lookup(in.Name)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil

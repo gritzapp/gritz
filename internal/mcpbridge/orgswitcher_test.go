@@ -32,9 +32,9 @@ func (callerService) GetCaller(ctx context.Context, _ *gritzv1.GetCallerRequest)
 	return &gritzv1.GetCallerResponse{Org: org}, nil
 }
 
-// newOrgsTest returns Orgs started in entry "a" against a server that knows
+// newOrgSwitcherTest returns an OrgSwitcher started in entry "a" against a server that knows
 // keys "ka" (org 1) and "kb" (org 2), and the names follow was called with.
-func newOrgsTest(t *testing.T, orgs map[string]configfile.Entry) (*Orgs, *[]string) {
+func newOrgSwitcherTest(t *testing.T, orgs map[string]configfile.Entry) (*OrgSwitcher, *[]string) {
 	t.Helper()
 	path, handler := gritzv1connect.NewGritzServiceHandler(callerService{})
 	keys := map[string]*gritzv1.Org{"ka": {Id: 1, Name: "Org A"}, "kb": {Id: 2, Name: "Org B"}}
@@ -56,14 +56,14 @@ func newOrgsTest(t *testing.T, orgs map[string]configfile.Entry) (*Orgs, *[]stri
 	entry, err := merged.Lookup("a")
 	assert.NilError(t, err)
 	var followed []string
-	o := NewOrgs(context.Background(), merged, entry, "", func(e *configfile.Entry) { followed = append(followed, e.Name) })
+	o := NewOrgSwitcher(context.Background(), merged, entry, "", func(e *configfile.Entry) { followed = append(followed, e.Name) })
 	return o, &followed
 }
 
 func TestSwitchOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	o, followed := newOrgsTest(t, map[string]configfile.Entry{
+	o, followed := newOrgSwitcherTest(t, map[string]configfile.Entry{
 		"a": {ID: 1, Key: "ka"},
 		"b": {ID: 2, Key: "kb"},
 	})
@@ -106,7 +106,7 @@ func TestSwitchOrg_Fails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			o, followed := newOrgsTest(t, map[string]configfile.Entry{
+			o, followed := newOrgSwitcherTest(t, map[string]configfile.Entry{
 				"a": {ID: 1, Key: "ka"},
 				"b": tt.entry,
 			})

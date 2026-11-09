@@ -68,7 +68,7 @@ var McpCommand = &cli.Command{
 		// session with list_orgs and switch_org.
 		instructions := mcpserver.Instructions
 		var service mcpserver.ServiceFunc
-		var orgs *mcpbridge.Orgs
+		var switcher *mcpbridge.OrgSwitcher
 		if cmd.String("key") != "" || cmd.String("server") != "" {
 			entry, err := configfile.Resolve(cmd)
 			if err != nil {
@@ -92,8 +92,8 @@ var McpCommand = &cli.Command{
 			if err != nil {
 				return err
 			}
-			orgs = mcpbridge.NewOrgs(ctx, merged, entry, clientID, follow)
-			service = orgs.Service
+			switcher = mcpbridge.NewOrgSwitcher(ctx, merged, entry, clientID, follow)
+			service = switcher.Service
 			instructions += mcpbridge.OrgsInstructions
 		}
 
@@ -109,8 +109,8 @@ var McpCommand = &cli.Command{
 			toolOpts = append(toolOpts, mcpserver.WithDefaultAutoArchive(cmd.Duration("auto-archive")))
 		}
 		mcpserver.AddTools(server, service, toolOpts...)
-		if orgs != nil {
-			orgs.AddTools(server)
+		if switcher != nil {
+			switcher.AddTools(server)
 		}
 		if ch != nil {
 			ch.AddTools(server)
