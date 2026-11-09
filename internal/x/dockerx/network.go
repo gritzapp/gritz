@@ -5,58 +5,47 @@ package dockerx
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 )
 
 // NetworkRepairer is the minimal Docker API surface used by RepairNetworks.
 type NetworkRepairer interface {
-	ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error)
 	NetworkInspect(ctx context.Context, networkID string, options network.InspectOptions) (network.Inspect, error)
 	NetworkDisconnect(ctx context.Context, networkID, containerID string, force bool) error
 	NetworkConnect(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error
 }
 
-// RepairNetworks reconciles a container's network attachments with the live
-// Docker network registry. For each name in networks, it compares the
-// container's pinned endpoint ID against the live network's ID, and — if
-// they differ, or the container isn't attached at all — force-disconnects
-// (if attached) and reconnects by name.
+// RepairNetworks reconciles a container's network attachments, as reported by
+// inspecting it, with the live Docker network registry. For each attached
+// network, it compares the endpoint's pinned network ID against the live
+// network's ID and, if they differ, force-disconnects and reconnects by name.
+// An endpoint with no pinned ID belongs to a container that has never started,
+// and is left alone.
 //
 // Returns the names of the networks that were actually repaired (may be
 // empty). Recovers from stale endpoint pins left behind after
 // `docker compose down && up` recreates a network under the same name with
 // a fresh ID.
-func RepairNetworks(ctx context.Context, c NetworkRepairer, containerID string, networks []string) ([]string, error) {
-	if len(networks) == 0 {
-		return nil, nil
-	}
-	info, err := c.ContainerInspect(ctx, containerID)
-	if err != nil {
-		return nil, fmt.Errorf("inspect container: %w", err)
-	}
+func RepairNetworks(ctx context.Context, c NetworkRepairer, containerID string, endpoints map[string]*network.EndpointSettings) ([]string, error) {
 	var repaired []string
-	for _, name := range networks {
+	for _, name := range slices.Sorted(maps.Keys(endpoints)) {
+		endpoint := endpoints[name]
+		if endpoint == nil || endpoint.NetworkID == "" {
+			continue
+		}
 		live, err := c.NetworkInspect(ctx, name, network.InspectOptions{})
 		if err != nil {
 			return repaired, fmt.Errorf("inspect network %q: %w", name, err)
 		}
-		var (
-			endpoint *network.EndpointSettings
-			attached bool
-		)
-		if info.NetworkSettings != nil {
-			endpoint, attached = info.NetworkSettings.Networks[name]
-		}
-		if attached && endpoint != nil && endpoint.NetworkID == live.ID {
+		if endpoint.NetworkID == live.ID {
 			continue
 		}
-		if attached {
-			if err := c.NetworkDisconnect(ctx, name, containerID, true); err != nil && !isNotConnectedErr(err) {
-				return repaired, fmt.Errorf("disconnect %q: %w", name, err)
-			}
+		if err := c.NetworkDisconnect(ctx, name, containerID, true); err != nil && !isNotConnectedErr(err) {
+			return repaired, fmt.Errorf("disconnect %q: %w", name, err)
 		}
 		if err := c.NetworkConnect(ctx, name, containerID, nil); err != nil {
 			return repaired, fmt.Errorf("connect %q: %w", name, err)

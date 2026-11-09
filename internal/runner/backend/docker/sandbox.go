@@ -13,6 +13,7 @@ import (
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/driverclient"
+	"github.com/gritzapp/gritz/internal/x/dockerx"
 )
 
 // suspendTimeout is how long Suspend lets the driver server shut down gracefully
@@ -55,13 +56,28 @@ func (s *sandbox) Handle() backend.Handle {
 	return backend.Handle{Type: HandleType, ID: s.id}
 }
 
-// Boot starts the container. Booting a running container is a no-op.
+// Boot starts the container. Booting a running container is a no-op. Before
+// starting a stopped container, Boot reconnects it to any attached network
+// that was recreated under the same name since it last ran, which the daemon
+// would otherwise refuse to start it on.
 func (s *sandbox) Boot(ctx context.Context) error {
-	err := s.b.docker.ContainerStart(ctx, s.id, container.StartOptions{})
+	info, err := s.b.docker.ContainerInspect(ctx, s.id)
 	if cerrdefs.IsNotFound(err) {
 		return backend.ErrGone
 	}
 	if err != nil {
+		return fmt.Errorf("failed to inspect container: %w", err)
+	}
+	if !info.State.Running {
+		repaired, err := dockerx.RepairNetworks(ctx, s.b.docker, s.id, info.NetworkSettings.Networks)
+		if len(repaired) > 0 {
+			s.b.log.Info("repaired stale network attachments", "container", s.id, "networks", repaired)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to repair networks: %w", err)
+		}
+	}
+	if err := s.b.docker.ContainerStart(ctx, s.id, container.StartOptions{}); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 	return nil

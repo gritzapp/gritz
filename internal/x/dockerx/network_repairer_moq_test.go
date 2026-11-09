@@ -5,7 +5,6 @@ package dockerx
 
 import (
 	"context"
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"sync"
 )
@@ -20,9 +19,6 @@ var _ NetworkRepairer = &NetworkRepairerMock{}
 //
 //		// make and configure a mocked NetworkRepairer
 //		mockedNetworkRepairer := &NetworkRepairerMock{
-//			ContainerInspectFunc: func(ctx context.Context, containerID string) (container.InspectResponse, error) {
-//				panic("mock out the ContainerInspect method")
-//			},
 //			NetworkConnectFunc: func(ctx context.Context, networkID string, containerID string, config *network.EndpointSettings) error {
 //				panic("mock out the NetworkConnect method")
 //			},
@@ -39,9 +35,6 @@ var _ NetworkRepairer = &NetworkRepairerMock{}
 //
 //	}
 type NetworkRepairerMock struct {
-	// ContainerInspectFunc mocks the ContainerInspect method.
-	ContainerInspectFunc func(ctx context.Context, containerID string) (container.InspectResponse, error)
-
 	// NetworkConnectFunc mocks the NetworkConnect method.
 	NetworkConnectFunc func(ctx context.Context, networkID string, containerID string, config *network.EndpointSettings) error
 
@@ -53,13 +46,6 @@ type NetworkRepairerMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
-		// ContainerInspect holds details about calls to the ContainerInspect method.
-		ContainerInspect []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// ContainerID is the containerID argument value.
-			ContainerID string
-		}
 		// NetworkConnect holds details about calls to the NetworkConnect method.
 		NetworkConnect []struct {
 			// Ctx is the ctx argument value.
@@ -92,46 +78,9 @@ type NetworkRepairerMock struct {
 			Options network.InspectOptions
 		}
 	}
-	lockContainerInspect  sync.RWMutex
 	lockNetworkConnect    sync.RWMutex
 	lockNetworkDisconnect sync.RWMutex
 	lockNetworkInspect    sync.RWMutex
-}
-
-// ContainerInspect calls ContainerInspectFunc.
-func (mock *NetworkRepairerMock) ContainerInspect(ctx context.Context, containerID string) (container.InspectResponse, error) {
-	if mock.ContainerInspectFunc == nil {
-		panic("NetworkRepairerMock.ContainerInspectFunc: method is nil but NetworkRepairer.ContainerInspect was just called")
-	}
-	callInfo := struct {
-		Ctx         context.Context
-		ContainerID string
-	}{
-		Ctx:         ctx,
-		ContainerID: containerID,
-	}
-	mock.lockContainerInspect.Lock()
-	mock.calls.ContainerInspect = append(mock.calls.ContainerInspect, callInfo)
-	mock.lockContainerInspect.Unlock()
-	return mock.ContainerInspectFunc(ctx, containerID)
-}
-
-// ContainerInspectCalls gets all the calls that were made to ContainerInspect.
-// Check the length with:
-//
-//	len(mockedNetworkRepairer.ContainerInspectCalls())
-func (mock *NetworkRepairerMock) ContainerInspectCalls() []struct {
-	Ctx         context.Context
-	ContainerID string
-} {
-	var calls []struct {
-		Ctx         context.Context
-		ContainerID string
-	}
-	mock.lockContainerInspect.RLock()
-	calls = mock.calls.ContainerInspect
-	mock.lockContainerInspect.RUnlock()
-	return calls
 }
 
 // NetworkConnect calls NetworkConnectFunc.
