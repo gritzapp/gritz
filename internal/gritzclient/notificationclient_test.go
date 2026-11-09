@@ -234,7 +234,7 @@ func TestNotificationClient_SkipsMalformedData(t *testing.T) {
 func TestNotificationClient_OnHealth(t *testing.T) {
 	t.Parallel()
 	// Arrange: two failed attempts, a stream the server closes at once, then
-	// a stream that stays up.
+	// a stream that stays up. The first failure counts as a drop.
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch requests.Add(1) {

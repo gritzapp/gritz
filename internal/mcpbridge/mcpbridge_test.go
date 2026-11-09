@@ -522,14 +522,12 @@ func TestHealthReporter(t *testing.T) {
 	report := NewChannel(sender, "").healthReporter(context.Background(), "acme")
 
 	// Act
-	report(gritzclient.Health{Connected: true})
 	report(gritzclient.Health{Err: errors.New("EOF")})
 	report(gritzclient.Health{Connected: true})
 
 	// Assert
 	meta := map[string]string{"org": "acme"}
 	assert.DeepEqual(t, sender.SentChannelParams(), []mcpchannel.Params{
-		{Content: `Connected to org "acme".`, Meta: meta},
 		{Content: `Lost the connection to org "acme": EOF, retrying.`, Meta: meta},
 		{Content: `Reconnected to org "acme" (notifications sent while it was down were missed).`, Meta: meta},
 	})

@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,10 +38,6 @@ type NotificationClient struct {
 	err       error // the last reported state, nil meaning connected
 }
 
-// errNotStarted is the state before Run's first report, so that report
-// always calls OnHealth the first time.
-var errNotStarted = errors.New("not started yet")
-
 // Health is the state of the notification stream, reported to
 // NotificationClientOptions.OnHealth.
 type Health struct {
@@ -75,10 +70,10 @@ type NotificationClientOptions struct {
 	// Handler is called once per received event with the decoded
 	// notification. Required.
 	Handler func(model.Notification)
-	// OnHealth, if set, is called from Run whenever Connected changes: the
-	// first connect or first failure, an established stream dropping, and
-	// a failing stream reconnecting. Retries that keep failing don't call
-	// it again.
+	// OnHealth, if set, is called from Run whenever Connected changes. The
+	// stream starts out as connected, so a successful first connect isn't
+	// reported and a first failure is reported as a drop. Retries that keep
+	// failing don't call it again.
 	OnHealth func(Health)
 }
 
@@ -101,7 +96,6 @@ func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
 		reconnect: cmp.Or(opts.ReconnectInterval, DefaultSSEReconnectInterval),
 		handler:   opts.Handler,
 		onHealth:  opts.OnHealth,
-		err:       errNotStarted,
 	}
 }
 
@@ -129,7 +123,7 @@ func (c *NotificationClient) Run(ctx context.Context) error {
 // report records the stream's state, err nil meaning connected, and calls
 // OnHealth when it changes.
 func (c *NotificationClient) report(err error) {
-	if c.err != errNotStarted && (c.err == nil) == (err == nil) {
+	if (c.err == nil) == (err == nil) {
 		return
 	}
 	c.err = err
