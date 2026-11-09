@@ -131,6 +131,8 @@ func (s *Server) Handler() http.Handler {
 	mux := otelx.NewMux("gritz")
 	// Health check for load balancers (public)
 	mux.Handle("GET /healthz", HealthHandler(s.log, s.store))
+	// shields.io endpoint badge for a task (public)
+	mux.Handle(BadgeRoute, BadgeHandler())
 	// App JWT token endpoint (cookie-authenticated)
 	mux.Handle("/auth/token", alice.New(s.auth.CheckAuth()).Then(s.auth.HandleToken()))
 	// Auth routes (login, callback, logout)
