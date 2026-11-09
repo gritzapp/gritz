@@ -129,6 +129,7 @@ export default defineConfig({
 				dark: './src/assets/logo-dark.png',
 			},
 			favicon: '/favicon.png',
+			customCss: ['./src/styles/accent.css'],
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/gritzapp/gritz' }],
 			editLink: {
 				baseUrl: 'https://github.com/gritzapp/gritz/edit/master/docs/',
