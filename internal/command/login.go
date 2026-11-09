@@ -51,7 +51,7 @@ var LoginCommand = &cli.Command{
 			if err := merged.Validate(); err != nil {
 				return err
 			}
-			return cliformat.WriteConfigEntries(os.Stdout, merged.Entries(), merged.Org)
+			return cliformat.WriteConfigEntries(os.Stdout, merged)
 		}
 		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
 		if entry.Server == "" {

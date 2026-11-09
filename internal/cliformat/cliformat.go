@@ -9,14 +9,14 @@ import (
 	"github.com/gritzapp/gritz/internal/configfile"
 )
 
-// WriteConfigEntries writes entries as a table, marking the entry named org
-// (the default) with *. It never writes credentials.
-func WriteConfigEntries(w io.Writer, entries []configfile.Entry, org string) error {
+// WriteConfigEntries writes merged's entries as a table, marking the default
+// (merged.Org) with *. It never writes credentials. Call merged.Validate first.
+func WriteConfigEntries(w io.Writer, merged *configfile.Merged) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "\tNAME\tID\tSERVER\tLOGIN")
-	for _, e := range entries {
+	for _, e := range merged.Entries() {
 		mark, login := "", "oauth"
-		if e.Name == org {
+		if e.Name == merged.Org {
 			mark = "*"
 		}
 		if e.Key != "" {
