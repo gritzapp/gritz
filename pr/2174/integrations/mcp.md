@@ -393,8 +393,8 @@ It also tells your Claude when an organisation's notification stream goes down
 and comes back, since it misses updates in between:
 
 ```
-<channel source="gritz" org="acme">Lost the connection to org "acme": unexpected status: 502, retrying.</channel>
-<channel source="gritz" org="acme">Reconnected to org "acme" (notifications sent while it was down were missed).</channel>
+<channel source="gritz" org="acme">Lost the connection: unexpected status: 502, retrying.</channel>
+<channel source="gritz" org="acme">Reconnected (notifications sent while it was down were missed).</channel>
 ```
 
 A stream that can't connect in the first place is reported as lost too.
