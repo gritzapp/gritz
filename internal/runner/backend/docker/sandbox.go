@@ -68,7 +68,7 @@ func (s *sandbox) Boot(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to inspect container: %w", err)
 	}
-	if !info.State.Running && info.NetworkSettings != nil {
+	if !info.State.Running {
 		repaired, err := dockerx.RepairNetworks(ctx, s.b.docker, s.id, info.NetworkSettings.Networks)
 		if len(repaired) > 0 {
 			s.b.log.Info("repaired stale network attachments", "container", s.id, "networks", repaired)
