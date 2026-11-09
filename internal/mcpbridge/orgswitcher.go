@@ -17,31 +17,38 @@ const OrgsInstructions = "\nThis session acts in one gritz organisation at a tim
 	"Every other tool acts in the current organisation. " +
 	"Check it with list_orgs before changing anything if you're not sure which organisation you're in."
 
+// OrgSwitcherOptions configures an OrgSwitcher.
+type OrgSwitcherOptions struct {
+	// Merged is the config switch_org looks entries up in.
+	Merged *configfile.Merged
+	// Entry is the org the session starts in.
+	Entry *configfile.Entry
+	// ClientID is sent by every client the switcher builds.
+	ClientID string
+	// Follow is called for Entry and for every org switched to later.
+	Follow func(entry *configfile.Entry)
+}
+
 // OrgSwitcher holds the session's current org and its client.
 type OrgSwitcher struct {
-	ctx      context.Context
-	merged   *configfile.Merged
-	clientID string
-	follow   func(entry *configfile.Entry)
+	ctx  context.Context
+	opts OrgSwitcherOptions
 
 	mu      sync.Mutex
 	current string
 	client  gritzclient.Client
 }
 
-// NewOrgSwitcher starts the session in entry, calling follow for it and for every
-// org switched to later. switch_org looks entries up in merged. Clients are
-// built from entry.TokenSource(ctx).
-func NewOrgSwitcher(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *OrgSwitcher {
+// NewOrgSwitcher starts the session in opts.Entry and follows it. Clients are
+// built from the entry's TokenSource(ctx).
+func NewOrgSwitcher(ctx context.Context, opts OrgSwitcherOptions) *OrgSwitcher {
 	o := &OrgSwitcher{
-		ctx:      ctx,
-		merged:   merged,
-		clientID: clientID,
-		follow:   follow,
-		current:  entry.Name,
-		client:   newClient(ctx, entry, clientID),
+		ctx:     ctx,
+		opts:    opts,
+		current: opts.Entry.Name,
+		client:  newClient(ctx, opts.Entry, opts.ClientID),
 	}
-	follow(entry)
+	opts.Follow(opts.Entry)
 	return o
 }
 
@@ -91,7 +98,7 @@ func (o *OrgSwitcher) listOrgsTool(_ context.Context, _ *mcp.CallToolRequest, _ 
 	current := o.current
 	o.mu.Unlock()
 	var out listOrgsOutput
-	for _, e := range o.merged.Entries() {
+	for _, e := range o.opts.Merged.Entries() {
 		out.Orgs = append(out.Orgs, orgSummary{Name: e.Name, ID: e.ID, Server: e.Server, Current: e.Name == current})
 	}
 	return mcpx.JSONResult(out), nil, nil
@@ -108,15 +115,15 @@ type switchOrgOutput struct {
 }
 
 func (o *OrgSwitcher) switchOrgTool(_ context.Context, _ *mcp.CallToolRequest, in switchOrgInput) (*mcp.CallToolResult, any, error) {
-	entry, err := o.merged.Lookup(in.Name)
+	entry, err := o.opts.Merged.Lookup(in.Name)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
 	// The token source outlives this call, so it takes the process context.
-	client := newClient(o.ctx, entry, o.clientID)
+	client := newClient(o.ctx, entry, o.opts.ClientID)
 	o.mu.Lock()
 	o.current, o.client = entry.Name, client
 	o.mu.Unlock()
-	o.follow(entry)
+	o.opts.Follow(entry)
 	return mcpx.JSONResult(switchOrgOutput{Name: entry.Name, ID: entry.ID, Server: entry.Server}), nil, nil
 }

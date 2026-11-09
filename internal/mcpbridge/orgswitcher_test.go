@@ -20,7 +20,11 @@ func newOrgSwitcherTest(t *testing.T) (*OrgSwitcher, *[]string) {
 	entry, err := merged.Lookup("a")
 	assert.NilError(t, err)
 	var followed []string
-	o := NewOrgSwitcher(context.Background(), merged, entry, "", func(e *configfile.Entry) { followed = append(followed, e.Name) })
+	o := NewOrgSwitcher(context.Background(), OrgSwitcherOptions{
+		Merged: merged,
+		Entry:  entry,
+		Follow: func(e *configfile.Entry) { followed = append(followed, e.Name) },
+	})
 	return o, &followed
 }
 
