@@ -29,12 +29,12 @@ A runner can run every backend; each workspace says which one it uses.
    `lambda_microvm:` on Lambda MicroVMs, and a new `local:` on the local
    backend. A workspace has exactly one of them.
 3. **Backend settings live in the section.** The Lambda region comes from the
-   section's ARNs; the local root is `local.root`. Docker keeps using the
-   standard Docker environment (`DOCKER_HOST`, ...).
-4. **Per-sandbox settings travel in the handle.** The region and the root are
-   written into the sandbox's `Handle.Data`, so one backend instance per type
-   serves every region or root, and `Open` reconnects after a restart without
-   the workspace.
+   section's ARNs, and every `lambda_microvm` workspace in a config shares it;
+   the local root is `local.root`. Docker keeps using the standard Docker
+   environment (`DOCKER_HOST`, ...).
+4. **The local root travels in the handle.** It is written into the sandbox's
+   `Handle.Data`, so one local backend serves every root, and `Open`
+   reconnects after a restart without the workspace.
 5. **The runner builds only the backends its workspaces use** and dispatches
    through a `backend.Set`, which is itself a `backend.Backend`: `Create`
    routes by the workspace's section, `Open` by the handle's type.
@@ -104,27 +104,32 @@ that doesn't parse as an ARN, and an `egress_connector` or `ingress_connector`
 whose ARN names another region. The default ingress connector is built from
 this region, as it is from the runner's today.
 
-A runner can therefore serve workspaces in several regions.
+A runner serves one Lambda region, as today. `Config.Validate` requires every
+`lambda_microvm` workspace to be in the same region, and rejects a config that
+mixes regions, naming the workspaces in each. `Config.LambdaRegion()` returns
+that region, or `""` when no workspace uses Lambda.
 
 ### Backends
 
-#### Settings carried per sandbox
+#### The local root, carried per sandbox
 
-A sandbox's region or root has to be known in two places: at `Create`, from the
-workspace, and at `Open`, from a record written by an earlier process, when the
-workspace may have changed. Two ways to get it to `Open`:
+Workspaces can use different local roots, and a sandbox's root has to be known
+in two places: at `Create`, from the workspace, and at `Open`, from a record
+written by an earlier process, when the workspace may have changed. Two ways
+to get it to `Open`:
 
-- **One backend instance per distinct value**, keyed by type and region or
-  root. `Open` still needs to know which instance owns a handle, so the value
-  would have to be in the handle anyway, plus a second level of dispatch.
-- **The value in the handle's `Data`**, which is backend-defined, persisted,
-  and never read by the runner. One instance per type; it reads the value from
-  the workspace at `Create` and from `Data` at `Open`.
+- **One local backend per distinct root**. `Open` still needs to know which
+  instance owns a handle, so the root would have to be in the handle anyway,
+  plus a second level of dispatch.
+- **The root in the handle's `Data`**, which is backend-defined, persisted,
+  and never read by the runner. One local backend; it reads the root from the
+  workspace at `Create` and from `Data` at `Open`.
 
-The second is simpler and is the design. Records written before this change
-have no region or root in `Data`; per the no-backwards-compatibility rule,
-`Open` rejects them and `Load` drops them like any unopenable record (see
-[Existing sandboxes](#existing-sandboxes)).
+The second is simpler and is the design. Local records written before this
+change have no root in `Data`; per the no-backwards-compatibility rule, `Open`
+rejects them and `Load` drops them like any unopenable record (see
+[Existing sandboxes](#existing-sandboxes)). The local backend is for tests and
+development, so this costs nothing in production.
 
 #### Docker
 
@@ -132,15 +137,16 @@ Unchanged but for the interface changes below. Handles stay `{ID: container id}`
 
 #### Lambda MicroVMs
 
-- `sandboxData` gains `Region`, next to `Endpoint`. `Create` writes the
-  workspace's region; `Open` requires it.
-- `Options.Cloud Cloud` becomes `Options.Cloud func(region string) Cloud`, and
-  the backend keeps one client per region it has used, made on first use. The
-  command passes a function returning
-  `lambdamicrovms.NewFromConfig(awsCfg, withRegion(region))`; tests return
-  their fake. `Options.Region` is removed.
-- Credentials still resolve through the standard AWS SDK chain on the runner,
-  loaded once, only when some workspace has `lambda_microvm:`.
+- One backend for the config's region, as today: `Options.Cloud` stays a
+  single `Cloud`, and `Options.Region` is set from `Config.LambdaRegion()`
+  instead of `--lambda-microvm-region` or the SDK's region. Handles are
+  unchanged: the VM's ID, and its endpoint in `Data`.
+- The command loads the AWS config with that region
+  (`config.WithRegion(cfg.LambdaRegion())`), only when some workspace has
+  `lambda_microvm:`. Credentials still resolve through the standard AWS SDK
+  chain.
+- `Create` panics on a workspace in another region: `Config.Validate` makes it
+  unreachable.
 
 #### Local
 
@@ -204,8 +210,8 @@ every backend's `Open` already rejects a foreign type.
 ### Existing sandboxes
 
 A task keeps its sandbox until it is archived, and the sandbox keeps the
-backend, region and root it was created with, because `Open` routes by the
-record's `Handle.Type` and reads the rest from `Handle.Data`, not from the
+backend and local root it was created with, because `Open` routes by the
+record's `Handle.Type` and reads the root from `Handle.Data`, not from the
 workspace.
 
 - **Moving a workspace to another section** applies to sandboxes created from
@@ -213,10 +219,17 @@ workspace.
   on the old backend; its runs are built from the current workspace, so they
   get the new backend's run environment.
 - **A record whose backend the runner no longer builds** (no workspace uses it
-  any more), and a Lambda or local record from before this change, can't be
-  opened. `Load` drops it and logs it, as it does for a runner restarted with
-  a different `--backend` today, and the sandbox is left for the operator.
-  Archive those tasks before the upgrade or the config change.
+  any more), and a local record from before this change, can't be opened.
+  `Load` drops it and logs it, as it does for a runner restarted with a
+  different `--backend` today, and the sandbox is left for the operator.
+- **A Lambda sandbox from another region**, after the config's region changes,
+  is dropped at load too. Its handle names no region, so `Open` succeeds, but
+  the runner's client looks the VM up in the new region, doesn't find it, and
+  `Restore` reads it as gone and drops the record. The VM is left for the
+  operator, as when a runner's region changes today.
+
+Archive those tasks before the upgrade or the config change. Docker and Lambda
+records from before this change open as they do today.
 
 ### e2e harness
 
@@ -239,7 +252,8 @@ Edited in the same PR as the runner wiring:
   backend its workspaces use". The table's `--backend` row becomes the
   section row; the paragraph on a workspace having both sections goes. The
   Lambda part loses `--backend lambda-microvm` and `--lambda-microvm-region`,
-  says the region is the image ARN's, and drops `region` from the field table.
+  says the region is the image ARN's and is shared by all of a config's
+  `lambda_microvm` workspaces, and drops `region` from the field table.
 - `operators/runner` and `reference/cli`: the three flag rows go. The CLI
   page's note on `--backend local` becomes a pointer to the `local:` section.
 - `operators/workspaces-yaml`: the field table says a workspace has exactly one
@@ -275,6 +289,10 @@ func (w *Workspace) Backend() string // new
 
 // Backends returns the distinct backends the config's workspaces use.
 func (c *Config) Backends() []string // new
+
+// LambdaRegion returns the region of the config's lambda_microvm
+// workspaces, which Validate requires them to share, or "" if there are none.
+func (c *Config) LambdaRegion() string // new
 
 type LambdaMicroVM struct {
 	// Region string // removed
@@ -347,10 +365,9 @@ package lambdamicrovm // github.com/gritzapp/gritz/internal/runner/backend/lambd
 const HandleType = workspace.BackendLambdaMicroVM // changed: defined from workspace
 
 type Options struct {
-	// Cloud returns the control-plane client for a region; the backend calls
-	// it once per region it uses.
-	Cloud func(region string) Cloud // changed: was Cloud
-	// Region string // removed
+	// Region is the AWS region of the runner's MicroVMs: the config's
+	// Config.LambdaRegion.
+	Region string // doc changed: set from the config, not a flag
 	// ... unchanged
 }
 ```
@@ -375,8 +392,9 @@ name in `Config.Backends()`, wraps them in `backend.NewSet`, and hands the set
 to `runner.Serve` as its `Backend`. `TaskManager.specs` calls `RunEnv` and
 `BinaryPath` with the task's workspace; `TaskRunner` calls `Create` with a spec
 carrying that workspace, and `Restore` calls `Open` with a record's handle. The
-set forwards each call to the right backend, which reads the region or root
-from the workspace at `Create` and from the handle at `Open`.
+set forwards each call to the right backend. The Lambda backend is built for
+`Config.LambdaRegion()`; the local backend reads the root from the workspace at
+`Create` and from the handle at `Open`.
 
 ## Implementation Plan
 
@@ -387,28 +405,24 @@ from the workspace at `Create` and from the handle at `Open`.
 2. **Section validation at load time** — Delivers: `Container` as a pointer,
    the `workspace.Backend*` constants with each `HandleType` defined from them,
    `Workspace.Backend()`, `Config.Backends()`, the exactly-one-section rule,
-   and `LambdaMicroVM.Validate` (with the ARN region rule and `Region()`, the
-   `region` field removed). `Backend.ValidateWorkspace` and its call in
-   `TaskManager.specs` are removed; the Lambda backend's check that the
-   workspace is in the runner's region moves into its `Create` until (3).
-   Depends on: nothing. Verifiable by: `LoadConfig` tests for none, both, and
-   an invalid section; `gritz workspaces` on a bad file.
-3. **Per-sandbox Lambda region** — Delivers: `Region` in the Lambda handle's
-   `Data`, `Options.Cloud` as a per-region function with cached clients, and
-   `Options.Region` and `--lambda-microvm-region` removed, with their docs.
-   `gritz runner` passes the function. Depends on: (2). Verifiable by: backend tests with a fake per region: `Create` in
-   two regions reaches two fakes, `Open` of each handle reaches its region's,
-   a handle without a region is an error.
-4. **Local section and per-sandbox root** — Delivers: `workspace.Local` and its
+   `LambdaMicroVM.Validate` with `Region()` and the ARN rules (the `region`
+   field removed), and the one-region rule with `Config.LambdaRegion()`.
+   `Backend.ValidateWorkspace` and its call in `TaskManager.specs` are removed.
+   `gritz runner` loads the AWS config for `Config.LambdaRegion()`, and
+   `--lambda-microvm-region` is removed, with its docs. Depends on: nothing.
+   Verifiable by: `LoadConfig` tests for no section, two sections, an invalid
+   section, and two Lambda workspaces in different regions; `gritz workspaces`
+   on a bad file; the Lambda backend tests.
+3. **Local section and per-sandbox root** — Delivers: `workspace.Local` and its
    validation, `Root` in the local handle's `Data`, `Options.Root` removed,
    locks keyed by directory, and the e2e harness's `DefaultWorkspace` carrying
    `local.root`. `--local-root` is removed, with its docs; `--backend local`
-   stays until (5). Depends on: (2). Verifiable by: `local`
-   tests across two roots; the e2e suite.
-5. **`backend.Set`, runner wiring and docs** — Delivers: `NewSet` and its
+   stays until (4). Depends on: (2). Verifiable by: `local` tests across two
+   roots; the e2e suite.
+4. **`backend.Set`, runner wiring and docs** — Delivers: `NewSet` and its
    routing, the `Handle.Type` doc change, `gritz runner` building backends from
    `Config.Backends()`, `--backend` removed, and the rest of the docs edits
-   listed above. Depends on: (1), (3), (4). Verifiable by: `Set` unit tests with two
+   listed above. Depends on: (1), (3). Verifiable by: `Set` unit tests with two
    `BackendMock`s stamping different handle types (`Create` and `BinaryPath`
    reach the workspace's backend, `Open` the handle's, an unknown handle type
    is an error, `Close` closes both); a runner with one Docker and one Lambda
@@ -423,9 +437,13 @@ from the workspace at `Create` and from the handle at `Open`.
   sections. Sharing a workspace across backends isn't a use case, and the field
   brings a default backend, enable flags and dropping workspaces a runner
   can't serve. The section alone is enough.
-- **One backend instance per region or root** was set aside for carrying the
-  value in the handle: `Open` needs the value either way, and with it in the
-  handle, no second dispatch level is needed.
+- **Several Lambda regions per runner** are out of scope. They would need the
+  region in each handle and a control-plane client per region; one region per
+  runner is what operators run today, and a second region can have its own
+  runner.
+- **One local backend per root** was set aside for carrying the root in the
+  handle: `Open` needs the root either way, and with it in the handle, no
+  second dispatch level is needed.
 - **A `backends:` section in `workspaces.yaml`** for backend settings (a
   Docker host per backend, AWS profiles) would allow several instances of one
   type. Nothing asks for it; Docker's environment and the AWS SDK chain cover
