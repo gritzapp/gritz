@@ -262,13 +262,22 @@ package mcpbridge // github.com/gritzapp/gritz/internal/mcpbridge
 // OrgsInstructions is appended to gritz mcp's server instructions.
 const OrgsInstructions = "..." // new
 
+// OrgSwitcherOptions configures an OrgSwitcher: the config switch_org looks
+// entries up in, the startup entry, the session's client id, and the follow
+// callback, called for the startup entry and every org switched to later.
+type OrgSwitcherOptions struct {
+	Merged   *configfile.Merged
+	Entry    *configfile.Entry
+	ClientID string
+	Follow   func(entry *configfile.Entry)
+} // new
+
 // OrgSwitcher holds the session's current org and its client.
 type OrgSwitcher struct{ ... } // new
 
-// NewOrgSwitcher starts the session in entry, calling follow for it and for every
-// org switched to later. switch_org looks entries up in merged. Clients are
-// built from entry.TokenSource(ctx).
-func NewOrgSwitcher(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *OrgSwitcher // new
+// NewOrgSwitcher starts the session in opts.Entry and follows it. Clients are
+// built from the entry's TokenSource(ctx).
+func NewOrgSwitcher(ctx context.Context, opts OrgSwitcherOptions) *OrgSwitcher // new
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
 func (o *OrgSwitcher) Service() gritzv1connect.GritzServiceHandler // new
@@ -292,7 +301,7 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 ```
 
 **How it fits:** `gritz mcp` calls `Resolve` once, with or without `--key`,
-builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without
+builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `Follow` (a no-op without
 `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and
 appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
 into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup;
