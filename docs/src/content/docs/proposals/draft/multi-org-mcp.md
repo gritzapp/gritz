@@ -147,10 +147,11 @@ never touches in this session and stale keys that only fail and log.
 Following the orgs the session has used covers exactly the tasks the agent can
 have acted on.
 
-Orgs are identified by `orgKey{server, id}`, not by entry name. Two entries for
-the same org (`acme` and `acme-ci`) share one stream and one mute set, so a
-notification isn't delivered twice. In `--key` mode the entry has no id, and
-the single org is `orgKey{server, 0}`.
+Followed orgs are identified by entry name, `""` in `--key` mode. Two entries
+for the same org (`acme` and `acme-ci`) get separate streams and mute sets, so
+a session that switches between them hears each notification once per entry.
+That takes two entries for one org and a switch between them, which is rare
+enough not to need deduplicating.
 
 **Telling tasks apart.** Task ids are a `BIGSERIAL` per server, so two orgs on
 one server never share an id, but the same id can exist on two servers
@@ -162,13 +163,13 @@ Claude Code renders as a tag attribute:
 <channel source="gritz" org="acme">Task 1234 completed.</channel>
 ```
 
-The name is that of the entry that started the stream. The message text is
+The message text is
 unchanged, and `--key` sessions send no `org` attribute (there's only one org).
 The attribute is always set, not only once a second org is followed, so the
 format doesn't change mid-session.
 
-**Mute sets per org.** `Channel` keeps one `TaskFilter` per `orgKey`.
-`Forward` checks the filter of the org whose stream delivered the
+**Mute sets per org.** `Channel` keeps one `TaskFilter` per entry name.
+`Forward` checks the filter of the entry whose stream delivered the
 notification. `channel_mute`, `channel_unmute` and `channel_muted` take an
 optional `org` argument, an entry name as shown in the `org="..."` channel
 attribute, and act on that org's set, including `all=true`. Omitting `org`
@@ -287,25 +288,19 @@ func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
 // AddTools registers list_orgs and switch_org.
 func (o *Orgs) AddTools(server *mcp.Server) // new
 
-// OrgKey identifies an org across entries and servers.
-type OrgKey struct { // new
-	Server string
-	ID     int64
-}
-
 // NewChannel returns a Channel that forwards through sender and follows no
 // org yet.
 func NewChannel(sender ChannelSender, clientID string) *Channel // changed: takes clientID
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
-// (none when empty, as for --key), unless its org is already followed. The
+// (none when empty, as for --key), unless it is already followed. The
 // NotificationClient is built from entry.TokenSource(ctx). The stream runs
 // until ctx ends.
 func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 
-// Forward applies the summary gate and the org's mute set, then pushes the
-// channel notification.
-func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification) // changed: takes the org
+// Forward applies the summary gate and the mute set of the entry named name,
+// then pushes the channel notification, with name as the org attribute.
+func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) // changed: takes the entry name
 ```
 
 **How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client
@@ -336,14 +331,14 @@ into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with n
    `Static(mock)`; one test where the `ServiceFunc` returns a different mock on
    each call and `update_task` sends both its RPCs to the first. Admin-tool
    slices that land after this one follow the same rule.
-3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the
+3. **Per-org channel** — Delivers: `Channel.Follow` owning the
    `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml`
    sessions, and the `org` field in the channel tools' results; `gritz mcp`
    follows only its startup org. Updates the Channels section of
    `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that
    `Forward` uses the delivering org's mute set, that the meta carries the name
    and is absent with an empty name, that a second `Follow` for the same
-   `OrgKey` under another name starts no stream, and that the mute tools edit
+   entry starts no stream, and that the mute tools edit
    the set `org` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each

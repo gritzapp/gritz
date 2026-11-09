@@ -41,53 +41,39 @@ type ChannelSender interface {
 	SendChannel(ctx context.Context, p mcpchannel.Params) error
 }
 
-// OrgKey identifies an org across entries and servers. Two entries for the
-// same org share one key.
-type OrgKey struct {
-	Server string
-	ID     int64
-}
-
-// followedOrg is the channel state of one followed org.
-type followedOrg struct {
-	name   string // the name of the entry that started the stream
-	filter *TaskFilter
-}
-
-// Channel owns the mute-aware forwarding gate. The mute state itself lives
-// in each followed org's filter. One Channel is created per
-// `gritz mcp --channel` process.
+// Channel owns the mute-aware forwarding gate. The mute state lives in one
+// filter per followed entry, keyed by entry name ("" for --key). One Channel
+// is created per `gritz mcp --channel` process.
 type Channel struct {
 	sender   ChannelSender
 	clientID string
 
-	mu   sync.Mutex
-	orgs map[OrgKey]*followedOrg
+	mu      sync.Mutex
+	filters map[string]*TaskFilter
 }
 
 // NewChannel returns a Channel that forwards through sender and follows no
-// org yet.
+// entry yet.
 func NewChannel(sender ChannelSender, clientID string) *Channel {
-	return &Channel{sender: sender, clientID: clientID, orgs: map[OrgKey]*followedOrg{}}
+	return &Channel{sender: sender, clientID: clientID, filters: map[string]*TaskFilter{}}
 }
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
-// (none when empty, as for --key), unless its org is already followed. The
+// (none when empty, as for --key), unless the entry is already followed. The
 // NotificationClient is built from entry.TokenSource(ctx). The stream runs
 // until ctx ends.
 func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
-	key := OrgKey{Server: entry.Server, ID: entry.ID}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.orgs[key]; ok {
+	if _, ok := c.filters[entry.Name]; ok {
 		return
 	}
-	c.orgs[key] = &followedOrg{name: entry.Name, filter: NewTaskFilter()}
+	c.filters[entry.Name] = NewTaskFilter()
 	nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
 		BaseURL:     entry.Server,
 		TokenSource: entry.TokenSource(ctx),
 		ClientID:    c.clientID,
-		Handler:     func(n model.Notification) { c.Forward(ctx, key, n) },
+		Handler:     func(n model.Notification) { c.Forward(ctx, entry.Name, n) },
 	})
 	go func() {
 		if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -96,37 +82,24 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
 	}()
 }
 
-// org returns the state of a followed org.
-func (c *Channel) org(key OrgKey) *followedOrg {
+// filter returns the filter of the followed entry named org, or of the only
+// followed entry when org is empty, with the entry's name.
+func (c *Channel) filter(org string) (string, *TaskFilter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	o, ok := c.orgs[key]
+	if org == "" && len(c.filters) > 1 {
+		return "", nil, errors.New("following several orgs: pass org, as shown in the channel's org attribute")
+	}
+	if org == "" {
+		for name, f := range c.filters {
+			return name, f, nil
+		}
+	}
+	f, ok := c.filters[org]
 	if !ok {
-		panic(fmt.Sprintf("mcpbridge: org %+v is not followed", key))
+		return "", nil, fmt.Errorf("not following org %q", org)
 	}
-	return o
-}
-
-// namedOrg returns the followed org whose entry is named name, or the only
-// followed org when name is empty.
-func (c *Channel) namedOrg(name string) (*followedOrg, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if name == "" {
-		if len(c.orgs) > 1 {
-			return nil, errors.New("following several orgs: pass org, as shown in the channel's org attribute")
-		}
-		for _, o := range c.orgs {
-			return o, nil
-		}
-		panic("mcpbridge: no org is followed")
-	}
-	for _, o := range c.orgs {
-		if o.name == name {
-			return o, nil
-		}
-	}
-	return nil, fmt.Errorf("not following org %q", name)
+	return org, f, nil
 }
 
 // primaryTaskID returns the id of the first task resource in the
@@ -141,23 +114,25 @@ func primaryTaskID(n model.Notification) (int64, bool) {
 }
 
 // Forward applies the summary gate and the org's mute set, then pushes the
-// channel notification, with the org's entry name as the org attribute.
+// channel notification, with the entry name as the org attribute.
 //
 // With an empty mute set this is identical to the bridge's original inline
 // handler: the same ChannelMessage gate and the same SendChannel call. A
 // notification naming a muted task is dropped; a notification with no task
 // resource is always forwarded (the mute set only ever holds task ids).
-func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification) {
+func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) {
 	if n.ChannelMessage == "" {
 		return // summary gate: not channel-worthy
 	}
-	o := c.org(org)
-	if id, ok := primaryTaskID(n); ok && o.filter.Muted(id) {
+	c.mu.Lock()
+	f := c.filters[name]
+	c.mu.Unlock()
+	if id, ok := primaryTaskID(n); ok && f.Muted(id) {
 		return // this task has been muted by the agent
 	}
 	p := mcpchannel.Params{Content: n.ChannelMessage}
-	if o.name != "" {
-		p.Meta = map[string]string{"org": o.name}
+	if name != "" {
+		p.Meta = map[string]string{"org": name}
 	}
 	if err := c.sender.SendChannel(ctx, p); err != nil {
 		slog.Warn("gritz channel: failed to send", "err", err)
@@ -211,17 +186,17 @@ type muteInput struct {
 }
 
 func (c *Channel) muteTool(_ context.Context, _ *mcp.CallToolRequest, in muteInput) (*mcp.CallToolResult, any, error) {
-	o, err := c.namedOrg(in.Org)
+	name, f, err := c.filter(in.Org)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
 	if in.All {
-		o.filter.MuteAll()
+		f.MuteAll()
 	}
 	for _, id := range in.TaskIDs {
-		o.filter.Mute(id)
+		f.Mute(id)
 	}
-	return o.mutedResult(), nil, nil
+	return mutedResult(name, f), nil, nil
 }
 
 type unmuteInput struct {
@@ -231,17 +206,17 @@ type unmuteInput struct {
 }
 
 func (c *Channel) unmuteTool(_ context.Context, _ *mcp.CallToolRequest, in unmuteInput) (*mcp.CallToolResult, any, error) {
-	o, err := c.namedOrg(in.Org)
+	name, f, err := c.filter(in.Org)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
 	if in.All {
-		o.filter.Clear()
+		f.Clear()
 	}
 	for _, id := range in.TaskIDs {
-		o.filter.Unmute(id)
+		f.Unmute(id)
 	}
-	return o.mutedResult(), nil, nil
+	return mutedResult(name, f), nil, nil
 }
 
 type mutedInput struct {
@@ -249,11 +224,11 @@ type mutedInput struct {
 }
 
 func (c *Channel) mutedTool(_ context.Context, _ *mcp.CallToolRequest, in mutedInput) (*mcp.CallToolResult, any, error) {
-	o, err := c.namedOrg(in.Org)
+	name, f, err := c.filter(in.Org)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
-	return o.mutedResult(), nil, nil
+	return mutedResult(name, f), nil, nil
 }
 
 // muteState is the wire representation of the current mute state a tool
@@ -271,21 +246,21 @@ type muteState struct {
 // mutedResult renders the current mute state for a tool response. Under
 // mute-all the exception set is reported as the unmuted (still-delivering)
 // tasks; otherwise it is reported as the muted tasks.
-func (o *followedOrg) mutedResult() *mcp.CallToolResult {
-	if o.filter.All() {
+func mutedResult(name string, f *TaskFilter) *mcp.CallToolResult {
+	if f.All() {
 		return mcpx.JSONResult(muteState{
-			Org:     o.name,
+			Org:     name,
 			All:     true,
-			Unmuted: o.filter.Exceptions(),
+			Unmuted: f.Exceptions(),
 			Note: "Every task is muted except those in unmuted. Keep more tasks " +
 				"delivering with channel_unmute(task_ids=...), or channel_unmute(all=true) " +
 				"to resume everything. Muting is per bridge session and resets on restart.",
 		})
 	}
 	return mcpx.JSONResult(muteState{
-		Org:   o.name,
+		Org:   name,
 		All:   false,
-		Muted: o.filter.Exceptions(),
+		Muted: f.Exceptions(),
 		Note:  "Channel notifications for all tasks except these are delivered. Muting is per bridge session and resets on restart.",
 	})
 }

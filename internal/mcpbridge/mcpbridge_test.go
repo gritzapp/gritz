@@ -18,13 +18,11 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-var testOrg = OrgKey{Server: "https://gritz.test", ID: 1}
-
-// newTestChannel returns a Channel following testOrg under name without a
+// newTestChannel returns a Channel following an entry named name without a
 // stream.
 func newTestChannel(sender ChannelSender, name string) *Channel {
 	ch := NewChannel(sender, "")
-	ch.orgs[testOrg] = &followedOrg{name: name, filter: NewTaskFilter()}
+	ch.filters[name] = NewTaskFilter()
 	return ch
 }
 
@@ -39,7 +37,7 @@ func TestForward_DefaultForwardsEverything(t *testing.T) {
 	ch := newTestChannel(sender, "")
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 		ChannelMessage: "Task 42 completed.",
@@ -63,7 +61,7 @@ func TestForward_EmptyChannelMessage(t *testing.T) {
 	ch := newTestChannel(sender, "")
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:      "change",
 		Resources: []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 	})
@@ -81,15 +79,15 @@ func TestForward_MutedTaskDropped(t *testing.T) {
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
 	ch := newTestChannel(sender, "")
-	ch.orgs[testOrg].filter.Mute(42)
+	ch.filters[""].Mute(42)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 		ChannelMessage: "Task 42 completed.",
 	})
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 7}},
 		ChannelMessage: "Task 7 completed.",
@@ -113,10 +111,10 @@ func TestForward_NonTaskScopedAlwaysForwarded(t *testing.T) {
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
 	ch := newTestChannel(sender, "")
-	ch.orgs[testOrg].filter.Mute(42)
+	ch.filters[""].Mute(42)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{ChannelMessage: "System notice."})
+	ch.Forward(context.Background(), "", model.Notification{ChannelMessage: "System notice."})
 
 	// Assert
 	assert.DeepEqual(t,
@@ -134,11 +132,11 @@ func TestForward_Unmute(t *testing.T) {
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
 	ch := newTestChannel(sender, "")
-	ch.orgs[testOrg].filter.Mute(42)
-	ch.orgs[testOrg].filter.Unmute(42)
+	ch.filters[""].Mute(42)
+	ch.filters[""].Unmute(42)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 		ChannelMessage: "Task 42 completed.",
@@ -161,12 +159,12 @@ func TestForward_MuteAllDropsEveryTask(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 		ChannelMessage: "Task 42 completed.",
 	})
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 7}},
 		ChannelMessage: "Task 7 completed.",
@@ -190,7 +188,7 @@ func TestForward_MuteAllStillForwardsNonTaskScoped(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{ChannelMessage: "System notice."})
+	ch.Forward(context.Background(), "", model.Notification{ChannelMessage: "System notice."})
 
 	// Assert
 	assert.DeepEqual(t,
@@ -215,7 +213,7 @@ func TestForward_MuteAllThenUnmuteAll(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 		ChannelMessage: "Task 42 completed.",
@@ -229,7 +227,7 @@ func TestMuteTool_All(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "")
-	ch.orgs[testOrg].filter.Mute(7)
+	ch.filters[""].Mute(7)
 
 	// Act
 	res, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
@@ -259,12 +257,12 @@ func TestForward_MuteAllThenUnmuteOne(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 123}},
 		ChannelMessage: "Task 123 completed.",
 	})
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 7}},
 		ChannelMessage: "Task 7 completed.",
@@ -318,7 +316,7 @@ func TestMuteTool_RemuteUnderMuteAll(t *testing.T) {
 	mcptest.UnmarshalCallToolResult(t, res, &got)
 	assert.Assert(t, got.All)
 	assert.Equal(t, len(got.Unmuted), 0)
-	ch.Forward(context.Background(), testOrg, model.Notification{
+	ch.Forward(context.Background(), "", model.Notification{
 		Type:           "change",
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 123}},
 		ChannelMessage: "Task 123 completed.",
@@ -345,9 +343,9 @@ func TestUnmuteTool(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "")
-	ch.orgs[testOrg].filter.Mute(1)
-	ch.orgs[testOrg].filter.Mute(2)
-	ch.orgs[testOrg].filter.Mute(3)
+	ch.filters[""].Mute(1)
+	ch.filters[""].Mute(2)
+	ch.filters[""].Mute(3)
 
 	// Act
 	res, _, err := ch.unmuteTool(context.Background(), nil, unmuteInput{TaskIDs: []int64{2}})
@@ -363,8 +361,8 @@ func TestUnmuteTool_All(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "")
-	ch.orgs[testOrg].filter.Mute(1)
-	ch.orgs[testOrg].filter.Mute(2)
+	ch.filters[""].Mute(1)
+	ch.filters[""].Mute(2)
 
 	// Act
 	res, _, err := ch.unmuteTool(context.Background(), nil, unmuteInput{All: true})
@@ -380,8 +378,8 @@ func TestMutedTool(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "")
-	ch.orgs[testOrg].filter.Mute(5)
-	ch.orgs[testOrg].filter.Mute(1)
+	ch.filters[""].Mute(5)
+	ch.filters[""].Mute(1)
 
 	// Act
 	res, _, err := ch.mutedTool(context.Background(), nil, mutedInput{})
@@ -402,7 +400,7 @@ func TestForward_OrgMeta(t *testing.T) {
 	ch := newTestChannel(sender, "acme")
 
 	// Act
-	ch.Forward(context.Background(), testOrg, model.Notification{ChannelMessage: "Task 42 completed."})
+	ch.Forward(context.Background(), "acme", model.Notification{ChannelMessage: "Task 42 completed."})
 
 	// Assert
 	assert.DeepEqual(t,
@@ -420,17 +418,16 @@ func TestForward_PerOrgMuteSet(t *testing.T) {
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
 	ch := newTestChannel(sender, "a")
-	other := OrgKey{Server: "http://localhost:8080", ID: 1}
-	ch.orgs[other] = &followedOrg{name: "b", filter: NewTaskFilter()}
-	ch.orgs[testOrg].filter.Mute(42)
+	ch.filters["b"] = NewTaskFilter()
+	ch.filters["a"].Mute(42)
 	n := model.Notification{
 		Resources:      []model.NotificationResource{{Action: "updated", Type: "task", ID: 42}},
 		ChannelMessage: "Task 42 completed.",
 	}
 
 	// Act
-	ch.Forward(context.Background(), testOrg, n)
-	ch.Forward(context.Background(), other, n)
+	ch.Forward(context.Background(), "a", n)
+	ch.Forward(context.Background(), "b", n)
 
 	// Assert
 	assert.DeepEqual(t,
@@ -445,8 +442,7 @@ func TestMuteTool_NamedOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "a")
-	other := OrgKey{Server: "https://gritz.test", ID: 2}
-	ch.orgs[other] = &followedOrg{name: "b", filter: NewTaskFilter()}
+	ch.filters["b"] = NewTaskFilter()
 
 	// Act
 	res, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "b", TaskIDs: []int64{42}})
@@ -456,8 +452,8 @@ func TestMuteTool_NamedOrg(t *testing.T) {
 	var got muteState
 	mcptest.UnmarshalCallToolResult(t, res, &got)
 	assert.DeepEqual(t, got, muteState{Org: "b", Muted: []int64{42}}, cmpopts.IgnoreFields(muteState{}, "Note"))
-	assert.Assert(t, ch.orgs[other].filter.Muted(42))
-	assert.Assert(t, !ch.orgs[testOrg].filter.Muted(42))
+	assert.Assert(t, ch.filters["b"].Muted(42))
+	assert.Assert(t, !ch.filters["a"].Muted(42))
 }
 
 // TestMuteTool_OrgErrors checks that org must name a followed org, and can
@@ -466,7 +462,7 @@ func TestMuteTool_OrgErrors(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "a")
-	ch.orgs[OrgKey{Server: "https://gritz.test", ID: 2}] = &followedOrg{name: "b", filter: NewTaskFilter()}
+	ch.filters["b"] = NewTaskFilter()
 
 	// Act
 	unknown, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "x", TaskIDs: []int64{42}})
@@ -481,9 +477,9 @@ func TestMuteTool_OrgErrors(t *testing.T) {
 	assert.Assert(t, cmp.Contains(omitted.Content[0].(*mcp.TextContent).Text, "pass org"))
 }
 
-// TestFollow_SameOrgOnce checks that a second entry for an already followed
-// org starts no stream and keeps the first entry's name.
-func TestFollow_SameOrgOnce(t *testing.T) {
+// TestFollow_Once checks that following an already followed entry again
+// starts no stream.
+func TestFollow_Once(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	auths := make(chan string, 3)
@@ -498,7 +494,7 @@ func TestFollow_SameOrgOnce(t *testing.T) {
 
 	// Act
 	ch.Follow(ctx, &configfile.Entry{Name: "acme", ID: 1, Key: "k1", Server: srv.URL})
-	ch.Follow(ctx, &configfile.Entry{Name: "acme-ci", ID: 1, Key: "k2", Server: srv.URL})
+	ch.Follow(ctx, &configfile.Entry{Name: "acme", ID: 1, Key: "k2", Server: srv.URL})
 	ch.Follow(ctx, &configfile.Entry{Name: "other", ID: 2, Key: "k3", Server: srv.URL})
 	got := []string{<-auths, <-auths}
 	cancel()
@@ -508,5 +504,4 @@ func TestFollow_SameOrgOnce(t *testing.T) {
 	slices.Sort(got)
 	assert.DeepEqual(t, got, []string{"Bearer k1", "Bearer k3"})
 	assert.Assert(t, cmp.Len(auths, 0))
-	assert.Equal(t, ch.orgs[OrgKey{Server: srv.URL, ID: 1}].name, "acme")
 }
