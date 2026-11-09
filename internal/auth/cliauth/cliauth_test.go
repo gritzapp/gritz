@@ -20,7 +20,8 @@ func (memberResolver) ResolveOrg(_ context.Context, _ string, orgID int64) (int6
 	return orgID, nil
 }
 
-// oauthServer serves oauthflow's token endpoint and counts its requests.
+// oauthServer serves oauthflow's authorize and token endpoints, and counts the
+// token requests.
 type oauthServer struct {
 	URL      string
 	key      ed25519.PrivateKey
@@ -34,10 +35,13 @@ func newOAuthServer(t *testing.T) *oauthServer {
 	auth, err := oauthflow.New(oauthflow.Options{AppKey: key, OrgResolver: memberResolver{}, BaseURL: "http://localhost"})
 	assert.NilError(t, err)
 	s := &oauthServer{key: key}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/authorize", auth.HandleAuthorize)
+	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
 		s.requests.Add(1)
 		auth.HandleToken(w, r)
-	}))
+	})
+	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	s.URL = srv.URL
 	return s

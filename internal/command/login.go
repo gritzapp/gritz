@@ -3,26 +3,28 @@ package command
 import (
 	"context"
 	"fmt"
-	"path/filepath"
+	"os"
+	"time"
 
+	"github.com/cli/browser"
+	"github.com/gritzapp/gritz/internal/auth/cliauth"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/urfave/cli/v3"
 )
 
-// LoginCommand adds an org entry for an API key to $CONFIG_DIR/.gritz.yml,
-// learning the key's org from the server.
+// LoginCommand adds an org entry to $CONFIG_DIR/.gritz.yml, logging in with
+// the browser or an API key and learning the org from the server.
 var LoginCommand = &cli.Command{
 	Name:  "login",
-	Usage: "Add an org entry for an API key to the user's .gritz.yml",
+	Usage: "Log in with the browser, or an API key, and add an org entry to the user's .gritz.yml",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name:     "key",
-			Aliases:  []string{"k"},
-			Usage:    "API key, as shown when the key is created",
-			Sources:  cli.EnvVars("GRITZ_API_KEY"),
-			Required: true,
+			Name:    "key",
+			Aliases: []string{"k"},
+			Usage:   "API key, as shown when the key is created (default: log in with the browser)",
+			Sources: cli.EnvVars("GRITZ_API_KEY"),
 		},
 		&cli.StringFlag{
 			Name:  "name",
@@ -44,13 +46,28 @@ var LoginCommand = &cli.Command{
 			}
 			entry.Server = server
 		}
+
+		token := entry.Key
+		if token == "" {
+			tok, err := cliauth.Login(ctx, cliauth.LoginOptions{
+				Server:      entry.Server,
+				OpenBrowser: browser.OpenURL,
+				Prompt:      os.Stdout,
+				Timeout:     10 * time.Minute,
+			})
+			if err != nil {
+				return err
+			}
+			token = tok.AccessToken
+			entry.RefreshToken = tok.RefreshToken
+		}
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     entry.Server,
-			TokenSource: gritzclient.StaticToken(entry.Key),
+			TokenSource: gritzclient.StaticToken(token),
 		})
 		resp, err := client.GetCaller(ctx, &gritzv1.GetCallerRequest{})
 		if err != nil {
-			return fmt.Errorf("failed to check key: %w", err)
+			return fmt.Errorf("failed to identify the org: %w", err)
 		}
 		org := resp.GetOrg()
 		entry.ID = org.GetId()
@@ -62,12 +79,7 @@ var LoginCommand = &cli.Command{
 				return fmt.Errorf("org name %q has no characters usable as an entry name: pass --name", org.GetName())
 			}
 		}
-
-		dir, err := configfile.Dir()
-		if err != nil {
-			return err
-		}
-		if err := configfile.Login(filepath.Join(dir, configfile.Name), name, entry); err != nil {
+		if err := configfile.Login("", name, entry); err != nil {
 			return err
 		}
 		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)

@@ -114,10 +114,7 @@ loses `Required: true`; without it, `login` runs the browser flow:
 2. **Build the authorize URL** with `oauth2.Config{ClientID: "gritz-cli",
    Endpoint: {AuthURL: <server>/ui/oauth/authorize, TokenURL: <server>/oauth/token},
    RedirectURL: <redirect URI>}`, a random `state`, and
-   `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`. If `--name` names an
-   existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add
-   `org=<id>`, so re-logging in to an entry preselects its org (the web UI's
-   root route already switches to `?org=`).
+   `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`.
 3. **Print the authorize URL and open the browser** with
    [`github.com/cli/browser`](https://github.com/cli/browser)'s
    `browser.OpenURL` (already in `go.mod` as an indirect dependency; it becomes
@@ -147,7 +144,7 @@ request repeats it, so there's nothing to register.
 **Which org.** The approval page decides: the token is minted for the org the
 user approves. Today the page shows the web UI's current org and mints for it.
 It gets an org `<Select>` listing `GetProfile`'s orgs, defaulting to the current
-org (or the `?org=` preselected in step 2), and passes the selection to
+org, and passes the selection to
 `auth.fetchToken(orgId)` on Approve. This also lets Claude.ai and other MCP
 clients be connected to a non-current org without switching the whole UI first.
 One login is one org; logging in to a second org is a second `gritz login`.
@@ -349,13 +346,13 @@ func TokenSource(ctx context.Context, opts TokenSourceOptions) oauth2.TokenSourc
 type LoginOptions struct {
 	// Server is the gritz server URL.
 	Server string
-	// OrgID, when non-zero, preselects the org on the approval page.
-	OrgID int64
 	// OpenBrowser opens the authorize URL; gritz login sets it to
 	// browser.OpenURL. Login ignores its error, having already printed the URL.
 	OpenBrowser func(url string) error
 	// Prompt receives the authorize URL, always printed.
 	Prompt io.Writer
+	// Timeout is how long Login waits for the browser to come back.
+	Timeout time.Duration
 }
 
 // Login runs the authorization code flow with PKCE over a loopback redirect
@@ -451,7 +448,7 @@ then `GetCaller` with the returned access token, then `configfile.Login` with
    holds a key.
 4. **`gritz login` browser flow** — Delivers: `cliauth.Login`,
    `github.com/cli/browser` as a direct dependency, `--key`
-   no longer required, the `org=` preselect, and `login`
+   no longer required, and `login`
    writing `refresh_token` entries. Depends on: (1), (3).
    Verifiable by: a `cliauth.Login` unit test driving the flow end to end against
    `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the
