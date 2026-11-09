@@ -2,15 +2,12 @@ package command
 
 import (
 	"context"
-	"errors"
-	"log/slog"
 	"slices"
 
 	"github.com/google/uuid"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/mcpbridge"
-	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/mcpserver"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -52,10 +49,9 @@ var McpCommand = &cli.Command{
 		// would echo its own create_task/update_task changes back to the
 		// host Claude Code session as channel events (#718).
 		clientID := uuid.NewString()
-		ts := cfg.TokenSource(ctx)
 		client := gritzclient.New(gritzclient.Options{
 			BaseURL:     cfg.Server,
-			TokenSource: ts,
+			TokenSource: cfg.TokenSource(ctx),
 			ClientID:    clientID,
 		})
 		var capabilities mcp.ServerCapabilities
@@ -82,7 +78,8 @@ var McpCommand = &cli.Command{
 		// --channel the bridge behaves exactly as before.
 		var ch *mcpbridge.Channel
 		if cmd.Bool("channel") {
-			ch = mcpbridge.NewChannel(transport)
+			org := mcpbridge.OrgKey{Server: cfg.Server, ID: cfg.ID}
+			ch = mcpbridge.NewChannel(transport, clientID, func() mcpbridge.OrgKey { return org })
 			ch.AddTools(server)
 		}
 
@@ -91,17 +88,7 @@ var McpCommand = &cli.Command{
 			return err
 		}
 		if ch != nil {
-			go func() {
-				nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
-					BaseURL:     cfg.Server,
-					TokenSource: ts,
-					ClientID:    clientID,
-					Handler:     func(n model.Notification) { ch.Forward(ctx, n) },
-				})
-				if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-					slog.Warn("gritz channel: stream ended", "err", err)
-				}
-			}()
+			ch.Follow(ctx, cfg)
 		}
 		return session.Wait()
 	},

@@ -359,10 +359,13 @@ pushes the organisation's task updates, so your Claude hears about a task
 finishing without polling:
 
 ```
-Task 1234 created on my-runner/pets-workshop.
-Task 1234 woken by event 567: octocat commented on PR #42 (https://github.com/…)
-Task 1234 completed.
+<channel source="gritz" org="acme">Task 1234 created on my-runner/pets-workshop.</channel>
+<channel source="gritz" org="acme">Task 1234 woken by event 567: octocat commented on PR #42 (https://github.com/…)</channel>
+<channel source="gritz" org="acme">Task 1234 completed.</channel>
 ```
+
+The `org` attribute is the name of the `.gritz.yml` entry `gritz mcp` started
+with; a session started with `--key` sends none.
 
 It sends a message when a task is created (by anyone, by a routing rule or by a
 schedule), when one is queued with new instructions, woken from a finished state
@@ -389,6 +392,7 @@ about. Every task is on by default.
 | `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. |
 | `channel_muted` | Shows which tasks are muted. |
 
-Muting lasts until `gritz mcp` exits. It is separate from
+Each result names the `.gritz.yml` entry in `org`. Muting lasts until `gritz mcp`
+exits. It is separate from
 [subscribed links](/concepts/events-and-links/#subscriptions), which route
 external events into tasks.
