@@ -11,6 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/oauthflow"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
+	"github.com/gritzapp/gritz/internal/server/apibadge"
 	"github.com/gritzapp/gritz/internal/server/apiserver"
 	"github.com/gritzapp/gritz/internal/server/atlassianserver"
 	"github.com/gritzapp/gritz/internal/server/customserver"
@@ -131,6 +132,8 @@ func (s *Server) Handler() http.Handler {
 	mux := otelx.NewMux("gritz")
 	// Health check for load balancers (public)
 	mux.Handle("GET /healthz", HealthHandler(s.log, s.store))
+	// shields.io endpoint badge for a task (public)
+	mux.Handle(apibadge.Route, apibadge.Handler())
 	// App JWT token endpoint (cookie-authenticated)
 	mux.Handle("/auth/token", alice.New(s.auth.CheckAuth()).Then(s.auth.HandleToken()))
 	// Auth routes (login, callback, logout)
