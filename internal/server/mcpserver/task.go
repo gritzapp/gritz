@@ -8,6 +8,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/x/mcpx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -92,7 +93,8 @@ func (h *handlers) addTaskTools(server *mcp.Server) {
 type listWorkspacesInput struct{}
 
 func (h *handlers) listWorkspaces(ctx context.Context, req *mcp.CallToolRequest, input listWorkspacesInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.ListWorkspaces(ctx, &gritzv1.ListWorkspacesRequest{})
+	service := h.service()
+	resp, err := service.ListWorkspaces(ctx, &gritzv1.ListWorkspacesRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list workspaces: %v", err), nil, nil
 	}
@@ -123,6 +125,7 @@ type createTaskInput struct {
 }
 
 func (h *handlers) createTask(ctx context.Context, _ *mcp.CallToolRequest, input createTaskInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	if input.Instruction == "" && !input.Draft {
 		return mcpx.ErrorResult("instruction is required unless draft is set"), nil, nil
 	}
@@ -144,7 +147,7 @@ func (h *handlers) createTask(ctx context.Context, _ *mcp.CallToolRequest, input
 		}
 		req.AutoArchive = d
 	}
-	resp, err := h.service.CreateTask(ctx, req)
+	resp, err := service.CreateTask(ctx, req)
 	if err != nil {
 		return mcpx.ErrorResult("failed to create task: %v", err), nil, nil
 	}
@@ -175,20 +178,21 @@ func taskLinkOf(l *gritzv1.TaskLink) taskLink {
 }
 
 func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input getTaskInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	// Event-native: compose the header, the full event stream (all arms, in
 	// stream order), and the links from the primitives. The old synthesized
 	// instructions/logs projections are dropped — a caller wanting just the
 	// instruction arm or just the report/lifecycle activity filters the raw
 	// events by type, matching the webui timeline shape.
-	taskResp, err := h.service.GetTask(ctx, &gritzv1.GetTaskRequest{Id: input.ID})
+	taskResp, err := service.GetTask(ctx, &gritzv1.GetTaskRequest{Id: input.ID})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get task: %v", err), nil, nil
 	}
-	events, err := gritzclient.ListAllEventsByTask(ctx, h.service, input.ID, input.EventTypes)
+	events, err := gritzclient.ListAllEventsByTask(ctx, service, input.ID, input.EventTypes)
 	if err != nil {
 		return mcpx.ErrorResult("failed to list events: %v", err), nil, nil
 	}
-	linksResp, err := h.service.ListLinks(ctx, &gritzv1.ListLinksRequest{TaskId: input.ID})
+	linksResp, err := service.ListLinks(ctx, &gritzv1.ListLinksRequest{TaskId: input.ID})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list links: %v", err), nil, nil
 	}
@@ -248,7 +252,8 @@ type listTasksInput struct {
 }
 
 func (h *handlers) listTasks(ctx context.Context, req *mcp.CallToolRequest, input listTasksInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.ListTasks(ctx, &gritzv1.ListTasksRequest{
+	service := h.service()
+	resp, err := service.ListTasks(ctx, &gritzv1.ListTasksRequest{
 		PageSize:  input.PageSize,
 		PageToken: input.PageToken,
 		Archived:  input.Archived,
@@ -280,6 +285,7 @@ type updateTaskInput struct {
 }
 
 func (h *handlers) updateTask(ctx context.Context, req *mcp.CallToolRequest, input updateTaskInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	if input.Instruction == "" && input.Name == "" && input.AutoArchive == "" && !input.Start {
 		return mcpx.ErrorResult("nothing to update: set at least one of instruction, name, auto_archive or start"), nil, nil
 	}
@@ -301,10 +307,10 @@ func (h *handlers) updateTask(ctx context.Context, req *mcp.CallToolRequest, inp
 		}
 		updateReq.AutoArchive = d
 	}
-	if _, err := h.service.UpdateTask(ctx, updateReq); err != nil {
+	if _, err := service.UpdateTask(ctx, updateReq); err != nil {
 		return mcpx.ErrorResult("failed to update task: %v", err), nil, nil
 	}
-	return h.taskResult(ctx, input.ID), nil, nil
+	return taskResult(ctx, service, input.ID), nil, nil
 }
 
 type taskIDInput struct {
@@ -312,36 +318,40 @@ type taskIDInput struct {
 }
 
 func (h *handlers) cancelTask(ctx context.Context, req *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, any, error) {
-	if _, err := h.service.CancelTask(ctx, &gritzv1.CancelTaskRequest{Id: input.ID}); err != nil {
+	service := h.service()
+	if _, err := service.CancelTask(ctx, &gritzv1.CancelTaskRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to cancel task: %v", err), nil, nil
 	}
-	return h.taskResult(ctx, input.ID), nil, nil
+	return taskResult(ctx, service, input.ID), nil, nil
 }
 
 func (h *handlers) restartTask(ctx context.Context, req *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, any, error) {
-	if _, err := h.service.RestartTask(ctx, &gritzv1.RestartTaskRequest{Id: input.ID}); err != nil {
+	service := h.service()
+	if _, err := service.RestartTask(ctx, &gritzv1.RestartTaskRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to restart task: %v", err), nil, nil
 	}
-	return h.taskResult(ctx, input.ID), nil, nil
+	return taskResult(ctx, service, input.ID), nil, nil
 }
 
 func (h *handlers) archiveTask(ctx context.Context, req *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, any, error) {
-	if _, err := h.service.ArchiveTask(ctx, &gritzv1.ArchiveTaskRequest{Id: input.ID}); err != nil {
+	service := h.service()
+	if _, err := service.ArchiveTask(ctx, &gritzv1.ArchiveTaskRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to archive task: %v", err), nil, nil
 	}
-	return h.taskResult(ctx, input.ID), nil, nil
+	return taskResult(ctx, service, input.ID), nil, nil
 }
 
 func (h *handlers) unarchiveTask(ctx context.Context, req *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, any, error) {
-	if _, err := h.service.UnarchiveTask(ctx, &gritzv1.UnarchiveTaskRequest{Id: input.ID}); err != nil {
+	service := h.service()
+	if _, err := service.UnarchiveTask(ctx, &gritzv1.UnarchiveTaskRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to unarchive task: %v", err), nil, nil
 	}
-	return h.taskResult(ctx, input.ID), nil, nil
+	return taskResult(ctx, service, input.ID), nil, nil
 }
 
 // taskResult renders the summary of a task a tool just changed.
-func (h *handlers) taskResult(ctx context.Context, id int64) *mcp.CallToolResult {
-	resp, err := h.service.GetTask(ctx, &gritzv1.GetTaskRequest{Id: id})
+func taskResult(ctx context.Context, service gritzv1connect.GritzServiceHandler, id int64) *mcp.CallToolResult {
+	resp, err := service.GetTask(ctx, &gritzv1.GetTaskRequest{Id: id})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get updated task: %v", err)
 	}
@@ -355,6 +365,7 @@ type getTaskLogInput struct {
 }
 
 func (h *handlers) getTaskLog(ctx context.Context, req *mcp.CallToolRequest, input getTaskLogInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	maxBytes := input.MaxBytes
 	if maxBytes <= 0 {
 		maxBytes = defaultLogBytes
@@ -370,7 +381,7 @@ func (h *handlers) getTaskLog(ctx context.Context, req *mcp.CallToolRequest, inp
 	listReq := &gritzv1.ListLogChunksByTaskRequest{TaskId: input.ID, PageToken: input.Before}
 	before := input.Before
 	for {
-		resp, err := h.service.ListLogChunksByTask(ctx, listReq)
+		resp, err := service.ListLogChunksByTask(ctx, listReq)
 		if err != nil {
 			return mcpx.ErrorResult("failed to list log chunks: %v", err), nil, nil
 		}
@@ -421,7 +432,8 @@ type createLinkInput struct {
 }
 
 func (h *handlers) createLink(ctx context.Context, req *mcp.CallToolRequest, input createLinkInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.CreateLink(ctx, &gritzv1.CreateLinkRequest{
+	service := h.service()
+	resp, err := service.CreateLink(ctx, &gritzv1.CreateLinkRequest{
 		TaskId:    input.TaskID,
 		Url:       input.URL,
 		Title:     input.Title,

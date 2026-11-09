@@ -58,7 +58,8 @@ func (h *handlers) addScheduleTools(server *mcp.Server) {
 type listSchedulesInput struct{}
 
 func (h *handlers) listSchedules(ctx context.Context, req *mcp.CallToolRequest, input listSchedulesInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.ListSchedules(ctx, &gritzv1.ListSchedulesRequest{})
+	service := h.service()
+	resp, err := service.ListSchedules(ctx, &gritzv1.ListSchedulesRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list schedules: %v", err), nil, nil
 	}
@@ -70,7 +71,8 @@ type scheduleIDInput struct {
 }
 
 func (h *handlers) getSchedule(ctx context.Context, req *mcp.CallToolRequest, input scheduleIDInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetSchedule(ctx, &gritzv1.GetScheduleRequest{Id: input.ID})
+	service := h.service()
+	resp, err := service.GetSchedule(ctx, &gritzv1.GetScheduleRequest{Id: input.ID})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get schedule: %v", err), nil, nil
 	}
@@ -90,6 +92,7 @@ type createScheduleInput struct {
 }
 
 func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest, input createScheduleInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	createReq := &gritzv1.CreateScheduleRequest{
 		Name:         input.Name,
 		Workspace:    input.Workspace,
@@ -107,7 +110,7 @@ func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest,
 		}
 		createReq.AutoArchive = d
 	}
-	resp, err := h.service.CreateSchedule(ctx, createReq)
+	resp, err := service.CreateSchedule(ctx, createReq)
 	if err != nil {
 		return mcpx.ErrorResult("failed to create schedule: %v", err), nil, nil
 	}
@@ -127,9 +130,10 @@ type updateScheduleInput struct {
 }
 
 func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest, input updateScheduleInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	// UpdateSchedule replaces every template field, so start from the stored
 	// schedule and overlay the arguments given.
-	getResp, err := h.service.GetSchedule(ctx, &gritzv1.GetScheduleRequest{Id: input.ID})
+	getResp, err := service.GetSchedule(ctx, &gritzv1.GetScheduleRequest{Id: input.ID})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get schedule: %v", err), nil, nil
 	}
@@ -173,7 +177,7 @@ func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest,
 		}
 		updateReq.AutoArchive = d
 	}
-	resp, err := h.service.UpdateSchedule(ctx, updateReq)
+	resp, err := service.UpdateSchedule(ctx, updateReq)
 	if err != nil {
 		return mcpx.ErrorResult("failed to update schedule: %v", err), nil, nil
 	}
@@ -186,7 +190,8 @@ type setScheduleEnabledInput struct {
 }
 
 func (h *handlers) setScheduleEnabled(ctx context.Context, req *mcp.CallToolRequest, input setScheduleEnabledInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.SetScheduleEnabled(ctx, &gritzv1.SetScheduleEnabledRequest{Id: input.ID, Enabled: input.Enabled})
+	service := h.service()
+	resp, err := service.SetScheduleEnabled(ctx, &gritzv1.SetScheduleEnabledRequest{Id: input.ID, Enabled: input.Enabled})
 	if err != nil {
 		return mcpx.ErrorResult("failed to set schedule enabled: %v", err), nil, nil
 	}
@@ -194,7 +199,8 @@ func (h *handlers) setScheduleEnabled(ctx context.Context, req *mcp.CallToolRequ
 }
 
 func (h *handlers) runSchedule(ctx context.Context, req *mcp.CallToolRequest, input scheduleIDInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.RunSchedule(ctx, &gritzv1.RunScheduleRequest{Id: input.ID})
+	service := h.service()
+	resp, err := service.RunSchedule(ctx, &gritzv1.RunScheduleRequest{Id: input.ID})
 	if err != nil {
 		return mcpx.ErrorResult("failed to run schedule: %v", err), nil, nil
 	}
@@ -202,7 +208,8 @@ func (h *handlers) runSchedule(ctx context.Context, req *mcp.CallToolRequest, in
 }
 
 func (h *handlers) deleteSchedule(ctx context.Context, req *mcp.CallToolRequest, input scheduleIDInput) (*mcp.CallToolResult, any, error) {
-	if _, err := h.service.DeleteSchedule(ctx, &gritzv1.DeleteScheduleRequest{Id: input.ID}); err != nil {
+	service := h.service()
+	if _, err := service.DeleteSchedule(ctx, &gritzv1.DeleteScheduleRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to delete schedule: %v", err), nil, nil
 	}
 	type deleted struct {

@@ -36,6 +36,15 @@ func WithDefaultAutoArchive(d time.Duration) Option {
 	}
 }
 
+// ServiceFunc returns the service a tool call goes to; each handler calls it
+// once, at its start, and uses that value for every RPC it makes.
+type ServiceFunc func() gritzv1connect.GritzServiceHandler
+
+// Static returns a ServiceFunc that always returns s.
+func Static(s gritzv1connect.GritzServiceHandler) ServiceFunc {
+	return func() gritzv1connect.GritzServiceHandler { return s }
+}
+
 // NewServer builds an MCP server with the user-facing gritz tools
 // registered. The same setup is used by the HTTP handler and by the
 // local stdio command.
@@ -46,15 +55,16 @@ func NewServer(service gritzv1connect.GritzServiceHandler, opts ...Option) *mcp.
 	}, &mcp.ServerOptions{
 		Instructions: Instructions,
 	})
-	AddTools(server, service, opts...)
+	AddTools(server, Static(service), opts...)
 	return server
 }
 
 // AddTools registers the user-facing gritz tools on the given MCP server.
-// Tool handlers proxy to the supplied service, which can be either an
-// in-process GritzServiceHandler (server-side) or the generated Connect
-// client (remote) since both interfaces share the same method signatures.
-func AddTools(server *mcp.Server, service gritzv1connect.GritzServiceHandler, opts ...Option) {
+// Tool handlers proxy to the service returned by service, which can be
+// either an in-process GritzServiceHandler (server-side) or the generated
+// Connect client (remote) since both interfaces share the same method
+// signatures.
+func AddTools(server *mcp.Server, service ServiceFunc, opts ...Option) {
 	h := &handlers{service: service}
 	for _, opt := range opts {
 		opt(h)
@@ -82,7 +92,7 @@ func Handler(service gritzv1connect.GritzServiceHandler) http.Handler {
 }
 
 type handlers struct {
-	service gritzv1connect.GritzServiceHandler
+	service ServiceFunc
 	// defaultAutoArchive is applied to create_task when the call omits the
 	// auto_archive param. nil means no default is sent (server behavior
 	// unchanged).
