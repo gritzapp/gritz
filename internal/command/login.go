@@ -8,6 +8,7 @@ import (
 
 	"github.com/cli/browser"
 	"github.com/gritzapp/gritz/internal/auth/cliauth"
+	"github.com/gritzapp/gritz/internal/cliformat"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -36,8 +37,22 @@ var LoginCommand = &cli.Command{
 			Usage:   "server URL (default: the top-level server of the nearest .gritz.yml, else " + configfile.DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
+		&cli.BoolFlag{
+			Name:  "list",
+			Usage: "list the org entries --org accepts from the working directory instead of logging in; * marks the default",
+		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		if cmd.Bool("list") {
+			merged, err := configfile.Load(configfile.LoadOptions{})
+			if err != nil {
+				return err
+			}
+			if err := merged.Validate(); err != nil {
+				return err
+			}
+			return cliformat.WriteConfigEntries(os.Stdout, merged)
+		}
 		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
 		if entry.Server == "" {
 			server, err := configfile.LoginServer()

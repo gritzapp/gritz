@@ -114,6 +114,15 @@ allowed: [acme-labs]
 there with any other `--org` fails, and so does every command if the `org`
 isn't allowed. Every field is optional, and an unknown field is an error.
 
+`gritz login --list` shows the organisations you can pick from the current
+directory, with `*` marking the one selected by default:
+
+```
+   NAME      ID  SERVER             LOGIN
+   acme-ci   12  https://gritz.dev  key
+*  personal  3   https://gritz.dev  oauth
+```
+
 ### Server
 
 Every command talks to the organisation's `server`, or to `https://gritz.dev` if

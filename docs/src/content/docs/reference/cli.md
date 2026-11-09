@@ -51,6 +51,7 @@ file has no `org`, the name becomes it.
 | `--key`, `-k` | `GRITZ_API_KEY` | log in with the browser | An API key to save instead of logging in with the browser. |
 | `--name` | | the organisation's name, in lowercase with dashes | The name to save it under. |
 | `--server`, `-s` | `GRITZ_SERVER` | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL. |
+| `--list` | | | Instead of logging in, list the organisations `--org` accepts in the current directory: name, ID, server, and `key` or `oauth` (a browser login), with `*` marking the selected `org`. It never prints a key or refresh token and doesn't contact the server. |
 
 The browser has to run on the same machine as `gritz login`, which waits up to
 10 minutes for the approval.
