@@ -16,7 +16,7 @@ There are two ways to connect:
 - **Over HTTP, to `/mcp` on the server.** Nothing to install; you sign in with
   your browser. Use this unless you need channels.
 - **Locally, with `gritz mcp`.** Your client runs the `gritz` binary, which
-  talks to the server with an API key. It is also the only way to get
+  talks to the server with the CLI's login. It is also the only way to get
   [channels](#channels): task updates pushed into a Claude Code session.
 
 Both offer the same [tools](#tools), and act in one organisation.
@@ -90,7 +90,7 @@ under the key's name.
 ## Connect with `gritz mcp`
 
 `gritz mcp` is a local MCP server over stdio. Your client starts it, and it
-forwards each tool call to the server's API with an API key. Install the
+forwards each tool call to the server's API with the CLI's login. Install the
 [CLI](/using/cli/) and [log in](/using/cli/#configuration), then add it to your
 client.
 
@@ -113,10 +113,10 @@ Or in a project's `.mcp.json`:
 }
 ```
 
-`gritz mcp` picks its organisation, key and server as every CLI command does,
+`gritz mcp` picks its organisation, login and server as every CLI command does,
 from the `.gritz.yml` files of the directory the client starts it in: a
-repository whose `.gritz.yml` sets `org` gets that organisation with no key in
-the MCP config.
+repository whose `.gritz.yml` sets `org` gets that organisation with no
+credential in the MCP config.
 
 | Flag | |
 | --- | --- |

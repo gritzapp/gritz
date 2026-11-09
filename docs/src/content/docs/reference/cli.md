@@ -20,7 +20,7 @@ flag wins when both are set.
 ## Authentication
 
 `gritz task`, `gritz logs`, `gritz shell`, `gritz mcp`, `gritz notify` and
-`gritz runner` take these flags, which pick the organisation, API key and server:
+`gritz runner` take these flags, which pick the organisation, credential and server:
 
 | Flag | Environment | |
 | --- | --- | --- |
@@ -38,16 +38,36 @@ user config directory (`~/.config/gritz` on Linux).
 
 ### `gritz login`
 
-Asks the server which organisation an API key belongs to, and saves the key
-under a name in `.gritz.yml` in the config directory. Logging in again with a new
-key for the same organisation and server replaces the key. The server is always
-saved with the organisation. If the file has no `org`, the name becomes it.
+Logs in to an organisation and saves it under a name in `.gritz.yml` in the
+config directory. Without `--key`, it opens the browser to approve the login in
+the Web UI, for the organisation selected there, and saves a `refresh_token`;
+with `--key`, it asks the server which organisation the key belongs to and saves
+the `key`. Logging in again to the same organisation and server replaces the
+entry's credential. The server is always saved with the organisation. If the
+file has no `org`, the name becomes it.
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--key`, `-k` | `GRITZ_API_KEY` | | The API key. Required. |
+| `--key`, `-k` | `GRITZ_API_KEY` | log in with the browser | An API key to save instead of logging in with the browser. |
 | `--name` | | the organisation's name, in lowercase with dashes | The name to save it under. |
 | `--server`, `-s` | `GRITZ_SERVER` | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL. |
+
+The browser has to run on the same machine as `gritz login`, which waits up to
+10 minutes for the approval.
+
+### `.gritz.yml`
+
+| Field | |
+| --- | --- |
+| `org` | The selected organisation's name. |
+| `allowed` | The organisation names that can be used below the file. |
+| `server` | The server `gritz login` uses without `--server`. |
+| `orgs.<name>.id` | The organisation's ID. |
+| `orgs.<name>.refresh_token` | A browser login, written by `gritz login`. It expires after 30 days unused; the CLI renews it in place while it is used. |
+| `orgs.<name>.key` | An API key, written by `gritz login --key`. |
+| `orgs.<name>.server` | The organisation's server URL. Defaults to `https://gritz.dev`. |
+
+An organisation has exactly one of `refresh_token` and `key`.
 
 ## Tasks
 
