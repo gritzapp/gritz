@@ -1,0 +1,615 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-toc data-has-sidebar class="astro-5x2k4ple"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Slim sandbox binary | gritz</title><link rel="canonical" href="https://docs.gritz.dev/pr/2202/proposals/draft/sandbox-binary/"/><link rel="sitemap" href="/pr/2202/sitemap-index.xml"/><link rel="shortcut icon" href="/pr/2202/favicon.png" type="image/png"/><meta name="generator" content="Astro v7.4.7"/><meta name="generator" content="Starlight v0.42.10"/><meta property="og:title" content="Slim sandbox binary"/><meta property="og:type" content="article"/><meta property="og:url" content="https://docs.gritz.dev/pr/2202/proposals/draft/sandbox-binary/"/><meta property="og:locale" content="en"/><meta property="og:description" content="The runner puts the whole 65 MB gritz binary into every task sandbox, although only `gritz driver` and `gritz tool` ever run there."/><meta property="og:site_name" content="gritz"/><meta name="twitter:card" content="summary_large_image"/><meta name="description" content="The runner puts the whole 65 MB gritz binary into every task sandbox, although only `gritz driver` and `gritz tool` ever run there."/><meta name="robots" content="noindex"/><link rel="alternate" type="text/markdown" href="/pr/2202/proposals/draft/sandbox-binary.md"><script>
+	window.StarlightThemeProvider = (() => {
+		const storedTheme =
+			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const theme =
+			storedTheme ||
+			(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+		return {
+			updatePickers(theme = storedTheme || 'auto') {
+				document.querySelectorAll('starlight-theme-select').forEach((picker) => {
+					const select = picker.querySelector('select');
+					if (select) select.value = theme;
+					/** @type {HTMLTemplateElement | null} */
+					const tmpl = document.querySelector(`#theme-icons`);
+					const newIcon = tmpl && tmpl.content.querySelector('.' + theme);
+					if (newIcon) {
+						const oldIcon = picker.querySelector('svg.label-icon');
+						if (oldIcon) {
+							oldIcon.replaceChildren(...newIcon.cloneNode(true).childNodes);
+						}
+					}
+				});
+			},
+		};
+	})();
+</script><template id="theme-icons"><svg aria-hidden="true" class="light astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg aria-hidden="true" class="dark astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg aria-hidden="true" class="auto astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></template><link rel="stylesheet" href="/pr/2202/_astro/print.C9eyqPGL.css" media="print"><link rel="stylesheet" href="/pr/2202/_astro/common.D-WUtj-1.css"><script type="module" src="/pr/2202/_astro/page.cNngjUgL.js"></script></head><body class="astro-5x2k4ple"><a class="sl-skip-link astro-dw3twjds" href="#_top">Skip to content</a><div class="page sl-flex astro-l65recf6"><header class="header astro-l65recf6"><div class="header astro-p4v3khkj"><div class="title-wrapper sl-flex astro-p4v3khkj"><a href="/pr/2202/" class="site-title sl-flex astro-nf6cllwp"><img class="light:sl-hidden print:hidden astro-nf6cllwp" alt src="/pr/2202/_astro/logo-dark.ZRyBytxz.png" width="161" height="161"><img class="dark:sl-hidden print:block astro-nf6cllwp" alt src="/pr/2202/_astro/logo-light.BVnSNNPN.png" width="161" height="161"><span class="astro-nf6cllwp" translate="no">gritz</span></a></div><div class="sl-flex print:hidden astro-p4v3khkj"><site-search class="astro-p4v3khkj astro-szh3x5nu" data-translations="{&quot;placeholder&quot;:&quot;Search&quot;}"><button data-open-modal disabled aria-label="Search" aria-keyshortcuts="Control+K" class="astro-szh3x5nu"><svg aria-hidden="true" class="astro-szh3x5nu astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.71 20.29 18 16.61A9 9 0 1 0 16.61 18l3.68 3.68a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.39ZM11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z"/></svg><span class="sl-hidden md:sl-block astro-szh3x5nu" aria-hidden="true">Search</span><kbd class="sl-hidden md:sl-flex astro-szh3x5nu" style="display: none"><kbd class="astro-szh3x5nu">Ctrl</kbd><kbd class="astro-szh3x5nu">K</kbd></kbd></button><dialog style="padding: 0" aria-label="Search" class="astro-szh3x5nu"><div class="dialog-frame sl-flex astro-szh3x5nu"><button data-close-modal class="sl-flex md:sl-hidden astro-szh3x5nu">Cancel</button><div class="search-container astro-szh3x5nu"><div id="starlight__search" class="astro-szh3x5nu"></div></div></div></dialog></site-search><script>
+	(() => {
+		const openBtn = document.querySelector('button[data-open-modal]');
+		const shortcut = openBtn?.querySelector('kbd');
+		if (!openBtn || !(shortcut instanceof HTMLElement)) return;
+		const platformKey = shortcut.querySelector('kbd');
+		if (platformKey && /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform)) {
+			platformKey.textContent = '⌘';
+			openBtn.setAttribute('aria-keyshortcuts', 'Meta+K');
+		}
+		shortcut.style.display = '';
+	})();
+</script><script type="module" src="/pr/2202/_astro/Search.astro_astro_type_script_index_0_lang.DBK1rLTB.js"></script></div><div class="sl-hidden md:sl-flex print:hidden right-group astro-p4v3khkj"><div class="sl-flex social-icons astro-p4v3khkj"><a href="https://github.com/gritzapp/gritz" rel="me" class="sl-flex astro-rfzcmob2"><span class="sr-only astro-rfzcmob2">GitHub</span><svg aria-hidden="true" class="astro-rfzcmob2 astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-select><label style="--sl-select-width: 6.25em" class="astro-iqwwpeju"><span class="sr-only astro-iqwwpeju">Select theme</span><svg aria-hidden="true" class="icon label-icon astro-iqwwpeju astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg><select autocomplete="off" class="astro-iqwwpeju"><option value="dark" class="astro-iqwwpeju">Dark</option><option value="light" class="astro-iqwwpeju">Light</option><option value="auto" selected class="astro-iqwwpeju">Auto</option></select><svg aria-hidden="true" class="icon caret astro-iqwwpeju astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>
+	StarlightThemeProvider.updatePickers();
+</script><script type="module">var e=`starlight-theme`,t=e=>e===`auto`||e===`dark`||e===`light`?e:`auto`,n=()=>t(typeof localStorage<`u`&&localStorage.getItem(e));function r(t){typeof localStorage<`u`&&localStorage.setItem(e,t===`light`||t===`dark`?t:``)}var i=()=>matchMedia(`(prefers-color-scheme: light)`).matches?`light`:`dark`;function a(e){StarlightThemeProvider.updatePickers(e),document.documentElement.dataset.theme=e===`auto`?i():e,r(e)}matchMedia(`(prefers-color-scheme: light)`).addEventListener(`change`,()=>{n()===`auto`&&a(`auto`)});var o=class extends HTMLElement{constructor(){super(),a(n()),this.querySelector(`select`)?.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&a(t(e.currentTarget.value))})}};customElements.define(`starlight-theme-select`,o);</script><script type="module">var e=class extends HTMLElement{constructor(){super();let e=this.querySelector(`select`);e&&(e.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&(window.location.pathname=e.currentTarget.value)}),window.addEventListener(`pageshow`,t=>{if(!t.persisted)return;let n=e.querySelector(`option[selected]`)?.index;n!==e.selectedIndex&&(e.selectedIndex=n??0)}))}};customElements.define(`starlight-lang-select`,e);</script></div></div></header><nav class="sidebar print:hidden astro-l65recf6" aria-label="Main"><button popovertarget="starlight__sidebar" class="sl-menu-button sl-flex md:sl-hidden print:hidden astro-fp7a3s3j"><svg aria-hidden="true" class="open-menu astro-fp7a3s3j astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M3 8h18a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2Zm18 8H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Zm0-5H3a1 1 0 0 0 0 2h18a1 1 0 0 0 0-2Z"/></svg><svg aria-hidden="true" class="close-menu astro-fp7a3s3j astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="m13.41 12 6.3-6.29a1.004 1.004 0 1 0-1.42-1.42L12 10.59l-6.29-6.3a1.004 1.004 0 0 0-1.42 1.42l6.3 6.29-6.3 6.29a1 1 0 0 0 0 1.42.998.998 0 0 0 1.42 0l6.29-6.3 6.29 6.3a.999.999 0 0 0 1.42 0 1 1 0 0 0 0-1.42L13.41 12Z"/></svg><span class="sr-only astro-fp7a3s3j">Menu</span></button><script type="module">var e=class extends HTMLElement{constructor(){super();let e=matchMedia(`(min-width: 50em)`),t=()=>{this.popover=e.matches?null:`auto`};t(),e.addEventListener(`change`,()=>t()),this.addEventListener(`toggle`,({newState:e})=>this.trapFocus(e===`open`))}trapFocus(e){document.querySelectorAll(`.main-frame, .sl-skip-link`).forEach(t=>{t.toggleAttribute(`inert`,e)})}};customElements.define(`sl-sidebar-pane`,e);</script><sl-sidebar-pane popover id="starlight__sidebar" class="sidebar-pane astro-l65recf6"><div class="sidebar-content sl-flex astro-l65recf6"><sl-sidebar-state-persist data-hash="0mjqkrb" class="astro-7hhee7iz"><script aria-hidden="true">
+		(() => {
+			try {
+				if (!matchMedia('(min-width: 50em)').matches) return;
+				/** @type {HTMLElement | null} */
+				const target = document.querySelector('sl-sidebar-state-persist');
+				const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+				if (!target || !state || target.dataset.hash !== state.hash) return;
+				window._starlightScrollRestore = state.scroll;
+				customElements.define(
+					'sl-sidebar-restore',
+					class SidebarRestore extends HTMLElement {
+						connectedCallback() {
+							try {
+								const idx = parseInt(this.dataset.index || '');
+								const details = this.closest('details');
+								if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+							} catch {}
+						}
+					}
+				);
+			} catch {}
+		})();
+	</script><ul class="top-level astro-vfgkxefn"><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Start here</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="0"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">What is gritz?</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/getting-started/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Getting started</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Concepts</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="1"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/tasks/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Tasks</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/workspaces/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Workspaces</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/runners/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Runners</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/events-and-links/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Events and links</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/routing-rules/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Routing rules</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/namespaces/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Namespaces</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/schedules/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Schedules</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/concepts/orgs-members-keys/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Orgs, members and keys</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Using gritz</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="2"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/using/web-ui/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Web UI</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/using/cli/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">CLI</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/using/agent-tools/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Agent tools</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Integrations</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="3"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/integrations/github/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">GitHub</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/integrations/jira/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Jira</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/integrations/custom-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Custom events</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/integrations/mcp/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">MCP</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Reference</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="4"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/reference/custom-event-envelope/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Custom event envelope</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/reference/event-types/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Event types</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/reference/cli/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">CLI</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/reference/api/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">API</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Operators</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="5"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/operators/overview/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Overview</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/server/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Server</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/runner/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Runner</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/backends/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Backends</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/workspaces-yaml/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">workspaces.yaml</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/secrets/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Secrets</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/deployment/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Deployment</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/operators/debugging/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Debugging</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Diagrams</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="6"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/diagrams/create-task/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Create task</span></a></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Proposals</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="7"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/diagrams/proposals/fake-runner-backend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Fake runner backend</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/diagrams/proposals/runner-event-replica/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Runner event replica</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/diagrams/proposals/taskrunner-owns-sandbox/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Taskrunner owns sandbox</span></a></li></ul></details></li></ul></details></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Proposals</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="8"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">About proposals</span></a></li><li class="astro-vfgkxefn"><details open class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Draft</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="9"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/firecracker-backend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Firecracker Backend for the Runner</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/max-orgs-per-user/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Maximum Orgs Per User</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/nomad-backend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Nomad Backend for the Runner</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/org-mcp-auto-archive-default/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Org-level default auto-archive for the HTTP MCP</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/reset-task-sandbox/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Reset a task&#39;s sandbox</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/runner-event-stream/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Stream runner events instead of pull + SSE wake</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/sandbox-binary/" aria-current="page" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Slim sandbox binary</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/server-managed-workspaces/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Server-Managed Workspace Configurations</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/split-github-app/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Optional Runner-Local GitHub App</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/draft/webui-pwa/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Web UI as a Progressive Web App</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Implemented</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="10"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/agent-config-store/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Inject the Agent Config Location via a `ConfigStore`</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/api-reference-docs/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">API reference docs from the proto</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/atlassian-label-routing-rule/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Atlassian Routing Rule for Jira Label Added</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/attribute-based-event-matching/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Attribute-Based Event Representation and Rule Matching</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/auto-archive-tasks/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Auto-Archive Tasks After Configurable Timeout</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/auto-repair-stale-network/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Auto-Repair Stale Container Network Attachment</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/backend-wait-per-handle/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Per-handle `Backend.Wait` (task-oriented exit observation)</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/cache-installation-tokens/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">A Reusable GitHub App Token Cache (`githubx.AppTokenCache`)</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/channel-mute-tools/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">`channel_mute` / `channel_unmute` / `channel_muted`: per-task mute for the channel bridge</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/claude-code-channels/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Claude Code Channels for a local gritz MCP bridge</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/cli-installation/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">CLI installation</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/cli-oauth-login/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">CLI OAuth tokens instead of API keys</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/create-empty-task/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Create empty task</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/custom-external-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Custom External Events</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/docker-image-publishing/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Publish Docker Images for Server and Runner</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/docs-site/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">docs.gritz.dev docs site</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/driver-logs-to-sandbox/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">In-sandbox driver logs at /gritz/log</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/driver-owned-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Driver-Owned Runner Events</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/driver-reverse-shell/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Driver reverse shell</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/driver-server/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Driver as a Server</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/e2e-harness/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">End-to-end tests on a local backend</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/eliminate-runner-socket-proxy/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Direct driver–server connection: eliminate the runner socket proxy</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/event-native-mcp-tools/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Event-native MCP tool surfaces</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/eventrouter-non-member-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Eventrouter: support events from non-org-member users</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/fake-runner-backend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Fake runner backend</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/first-run-brief-injection/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Inject the Full Task Brief Into the First-Run Prompt</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/generic-durable-outbox/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Generic Durable Outbox</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/github-app-installation-tokens/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">GitHub App Installation Token API</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/github-comment-reactions/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Emoji Reactions for Matched GitHub Comments</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/hybrid-prompt-rendering/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Hybrid Prompt Rendering: Converge Init/Wake, Render Events as Markdown</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/idempotent-restart-handling/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Idempotent restart handling</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/include-archived-tasks/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Include Archived Tasks in the Task List</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/lambda-microvm-backend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">AWS Lambda MicroVMs Backend for the Runner</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/lambda-validate-script/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Run an image script in the Lambda MicroVM validate hook</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/link-routing-url/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Link Routing URL</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/mcp-admin-tools/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">MCP admin tools and fuller task management</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/mcp-oauth/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">OAuth 2.1 for MCP endpoint</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/multi-org-cli-auth/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Multi-org CLI auth and default org config</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/multi-org-mcp/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Multi-org gritz mcp</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/n8n-community-node/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">n8n Community Node for gritz</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/org-level-event-routing/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Org-Level Event Routing Configuration</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/org-query-param-deep-linking/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Org query param for deep linking</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/per-tab-client-id-sse/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Per-Tab Client ID for SSE Notifications</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/pr-review-comment-code-location/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Enrich GitHub PR review-comment events with code location</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/remove-get-task-details/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Remove `GetTaskDetails`; consumers compose from the primitives</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/resume-setup-from-failed-command/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Resume Setup From Failed Command</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/richer-lifecycle-event-context/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Richer Lifecycle Event Context</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/richer-tool-call-logs/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Richer tool-call log output</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/routing-rules-assignment/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Assignment-Triggered Routing Rules</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/routing-rules-create-tasks/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Routing Rules That Create Tasks</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/run-schedule-now/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Run a Schedule Now (Manual Trigger)</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/runner-backend-interface/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Runner Backend Interface</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/runner-event-replica/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Runner and driver as replicas of the task event log</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/runner-sse-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Runner SSE Subscription Instead of Polling</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/scheduled-tasks/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Recurring Scheduled Tasks</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/scope-based-permissions/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Unified scope-based (capability) permission model</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/secret-hygiene-for-shipped-driver-logs/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Secret hygiene for shipped driver logs</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/server-mcp-update-task/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Add `update_task` tool to server MCP</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/server-side-atlassian-integration/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Server-Side Jira Integration</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/share-github-installation-across-orgs/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Share a GitHub Installation Across Multiple gritz Orgs</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/shared-runner-taskstate/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Shared Runner-Local Taskstate Store</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/ship-driver-logs-to-server/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Ship driver logs to the server</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/show-version-in-frontend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Show Server Version in the Frontend</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/simplify-bearer-auth-dispatch/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Simplify HTTP authentication dispatch</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/sqlite-runner-state/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">SQLite runner state</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/summary-gated-channel-notifications/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Channel-Message-Gated Notifications</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/task-event-pagination/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Task Event Pagination</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/task-links-subscriptions-ui/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Task links tab (read-only)</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/task-namespaces/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Task Namespaces for Routing Rules</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/task-pagination/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Task Pagination</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/task-run-versions/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Task Version as Run Counter (Run-Versions)</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/taskrunner-owns-sandbox/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">TaskRunner owns its sandbox lifecycle</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/test-event-injection/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Test Event Injection for Routing Rules</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/unified-task-event-stream/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Restructure tasks as a unified event stream</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/version-stamped-runner-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Version-Stamped Runner and Driver Events</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/wake-prompt-event-injection/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Inject New Events Into the Wake Prompt via a Saved Cursor</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/websocket-org-subscriptions/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">WebSocket endpoint for real-time org change notifications</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/websocket-to-sse/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Switch from WebSockets to Server-Sent Events (SSE)</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/implemented/webui-shell/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Web UI task shell</span></a></li></ul></details></li><li class="astro-vfgkxefn"><details class="astro-vfgkxefn"><summary class="astro-vfgkxefn"><span class="group-label astro-vfgkxefn"><span class="large astro-vfgkxefn">Rejected</span></span><svg aria-hidden="true" class="caret astro-vfgkxefn astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><sl-sidebar-restore data-index="11"></sl-sidebar-restore><ul class="astro-vfgkxefn"><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/agent-core-backend/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Bedrock AgentCore Backend for the Runner</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/agent-skills-discovery/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Agent Skills Discovery</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/generic-shim/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Generic Standalone Shim Binary</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/ory-network-auth/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Switch auth provider from Zitadel Cloud to Ory Network</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/provider-agnostic-oidc/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Provider-agnostic OIDC auth</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/run-scoped-runner-events/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Run-Scoped Runner Events with Explicit Rejection</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/server-side-taskstate/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Server-side taskstate: durable task→sandbox-handle mapping</span></a></li><li class="astro-vfgkxefn"><a href="/pr/2202/proposals/rejected/slack-integration/" class="astro-vfgkxefn"><span class="astro-vfgkxefn">Slack Integration</span></a></li></ul></details></li></ul></details></li></ul><script aria-hidden="true">
+		(() => {
+			const scroller = document.getElementById('starlight__sidebar');
+			if (!window._starlightScrollRestore || !scroller) return;
+			scroller.scrollTop = window._starlightScrollRestore;
+			delete window._starlightScrollRestore;
+		})();
+	</script></sl-sidebar-state-persist><div class="md:sl-hidden"><div class="mobile-preferences sl-flex astro-jo46d26u"><div class="social-icons astro-jo46d26u"><a href="https://github.com/gritzapp/gritz" rel="me" class="sl-flex astro-rfzcmob2"><span class="sr-only astro-rfzcmob2">GitHub</span><svg aria-hidden="true" class="astro-rfzcmob2 astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg></a></div><starlight-theme-select><label style="--sl-select-width: 6.25em" class="astro-iqwwpeju"><span class="sr-only astro-iqwwpeju">Select theme</span><svg aria-hidden="true" class="icon label-icon astro-iqwwpeju astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg><select autocomplete="off" class="astro-iqwwpeju"><option value="dark" class="astro-iqwwpeju">Dark</option><option value="light" class="astro-iqwwpeju">Light</option><option value="auto" selected class="astro-iqwwpeju">Auto</option></select><svg aria-hidden="true" class="icon caret astro-iqwwpeju astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>
+	StarlightThemeProvider.updatePickers();
+</script></div></div></div></sl-sidebar-pane></nav><div class="main-frame astro-l65recf6"><script type="module">var e=document.getElementById(`starlight__sidebar`),t=e?.querySelector(`sl-sidebar-state-persist`),n=`sl-sidebar-state`,r=()=>{let r=[],i=t?.dataset.hash||``;try{let e=sessionStorage.getItem(n),t=JSON.parse(e||`{}`);Array.isArray(t.open)&&t.hash===i&&(r=t.open)}catch{}return{hash:i,open:r,scroll:e?.scrollTop||0}},i=e=>{try{sessionStorage.setItem(n,JSON.stringify(e))}catch{}},a=()=>i(r()),o=(e,t)=>{let n=r();n.open[t]=e,i(n)};t?.addEventListener(`click`,e=>{if(!(e.target instanceof Element))return;let t=e.target.closest(`summary`)?.closest(`details`);if(!t)return;let n=t.querySelector(`sl-sidebar-restore`),r=parseInt(n?.dataset.index||``);isNaN(r)||o(!t.open,r)}),addEventListener(`visibilitychange`,()=>{document.visibilityState===`hidden`&&a()});</script><div class="lg:sl-flex astro-ncb2fjae"><aside class="right-sidebar-container print:hidden astro-ncb2fjae"><div class="right-sidebar astro-ncb2fjae"><div class="lg:sl-hidden astro-jle4cftu"><mobile-starlight-toc data-min-h="2" data-max-h="3" class="astro-z5ffooxo"><nav aria-labelledby="starlight__on-this-page--mobile" class="astro-z5ffooxo"><details id="starlight__mobile-toc" class="astro-z5ffooxo"><summary id="starlight__on-this-page--mobile" class="sl-flex astro-z5ffooxo"><span class="toggle sl-flex astro-z5ffooxo">On this page<svg aria-hidden="true" class="caret astro-z5ffooxo astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;"><path d="m14.83 11.29-4.24-4.24a1 1 0 1 0-1.42 1.41L12.71 12l-3.54 3.54a1 1 0 0 0 0 1.41 1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.24-4.24a1.002 1.002 0 0 0 0-1.42Z"/></svg></span><span class="display-current astro-z5ffooxo"></span></summary><div class="dropdown astro-z5ffooxo"><ul class="isMobile astro-xv4y26l2" style="--depth: 0;"><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#_top" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Overview</span></a></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#problem" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Problem</span></a><ul class="isMobile astro-xv4y26l2" style="--depth: 1;"><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#why-the-binary-is-so-big" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Why the binary is so big</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#measurements" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Measurements</span></a></li></ul></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#design" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Design</span></a><ul class="isMobile astro-xv4y26l2" style="--depth: 1;"><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#the-sandbox-binary" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">The sandbox binary</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#removing-the-linker-triggers" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Removing the linker triggers</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#build-flags" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Build flags</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#building-and-embedding" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Building and embedding</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#delivery-per-backend" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Delivery per backend</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#api" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">API</span></a></li></ul></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#implementation-plan" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Implementation Plan</span></a></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#trade-offs" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Trade-offs</span></a></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#open-questions" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Open Questions</span></a></li></ul></div></details></nav></mobile-starlight-toc><script type="module" src="/pr/2202/_astro/MobileTableOfContents.astro_astro_type_script_index_0_lang.C3fM4Kra.js"></script></div><div class="right-sidebar-panel sl-hidden lg:sl-block astro-jle4cftu"><div class="sl-container astro-jle4cftu"><starlight-toc data-min-h="2" data-max-h="3"><nav aria-labelledby="starlight__on-this-page"><h2 id="starlight__on-this-page">On this page</h2><ul class="astro-xv4y26l2" style="--depth: 0;"><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#_top" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Overview</span></a></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#problem" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Problem</span></a><ul class="astro-xv4y26l2" style="--depth: 1;"><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#why-the-binary-is-so-big" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Why the binary is so big</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#measurements" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Measurements</span></a></li></ul></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#design" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Design</span></a><ul class="astro-xv4y26l2" style="--depth: 1;"><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#the-sandbox-binary" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">The sandbox binary</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#removing-the-linker-triggers" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Removing the linker triggers</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#build-flags" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Build flags</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#building-and-embedding" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Building and embedding</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#delivery-per-backend" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">Delivery per backend</span></a></li><li style="--depth: 1;" class="astro-xv4y26l2"><a href="#api" style="--depth: 1;" class="astro-xv4y26l2"><span style="--depth: 1;" class="astro-xv4y26l2">API</span></a></li></ul></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#implementation-plan" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Implementation Plan</span></a></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#trade-offs" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Trade-offs</span></a></li><li style="--depth: 0;" class="astro-xv4y26l2"><a href="#open-questions" style="--depth: 0;" class="astro-xv4y26l2"><span style="--depth: 0;" class="astro-xv4y26l2">Open Questions</span></a></li></ul></nav></starlight-toc><script type="module" src="/pr/2202/_astro/TableOfContents.astro_astro_type_script_index_0_lang.BpJaGz7G.js"></script></div></div></div></aside><div class="main-pane astro-ncb2fjae"><main data-pagefind-body class="astro-5x2k4ple" lang="en" dir="ltr"><div class="content-panel astro-bzpcdevi"><div class="sl-container astro-bzpcdevi"><h1 id="_top" class="astro-2ooisx4g">Slim sandbox binary</h1></div></div><div class="content-panel astro-bzpcdevi"><div class="sl-container astro-bzpcdevi"><div class="sl-markdown-content"><p>Issues: <a href="https://github.com/gritzapp/gritz/issues/1150">https://github.com/gritzapp/gritz/issues/1150</a>, <a href="https://github.com/gritzapp/gritz/issues/1661">https://github.com/gritzapp/gritz/issues/1661</a></p>
+<div class="sl-heading-wrapper level-h2"><h2 id="problem">Problem</h2><a class="sl-anchor-link" href="#problem"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Problem”</span></a></div>
+<p>Every sandbox gets the full <code dir="auto">gritz</code> binary at <code dir="auto">backend.BinaryPath</code>
+(<code dir="auto">/usr/local/bin/gritz</code>). That binary contains the server, the embedded web UI,
+the runner, the Docker client, the AWS SDK, pgx, SQLite, OTel/gRPC and go-github.
+Only these subcommands run inside a sandbox:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Started by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">gritz driver</code></td>
+<td>the Docker container’s <code dir="auto">Cmd</code>, the MicroVM image’s <code dir="auto">ENTRYPOINT</code>, the local backend</td>
+</tr>
+<tr>
+<td><code dir="auto">gritz tool proxy</code></td>
+<td>the Docker backend’s <code dir="auto">execConn</code>, for every driver.v1 connection (<code dir="auto">docker exec</code>)</td>
+</tr>
+<tr>
+<td><code dir="auto">gritz tool agent-mcp</code></td>
+<td>the agent, as the injected <code dir="auto">gritz</code> MCP server (<code dir="auto">internal/runner/spec.go</code>)</td>
+</tr>
+<tr>
+<td><code dir="auto">gritz tool git-credential</code></td>
+<td>git, on every fetch and push, when a workspace configures it as a credential helper</td>
+</tr>
+<tr>
+<td><code dir="auto">gritz tool github-mcp</code></td>
+<td>the agent, when a workspace configures it as an MCP server</td>
+</tr>
+</tbody>
+</table>
+<p><code dir="auto">gritz tool microvm-shim</code>, which #1661 measured, was removed in 1233735b.
+<code dir="auto">gritz tool proxy</code> is new since then.</p>
+<p>The binary reaches a sandbox in one of two ways:</p>
+<ul>
+<li><strong>Docker.</strong> For every task, <code dir="auto">docker.Backend.create</code> calls <code dir="auto">prebuilt.ReadBinary(arch)</code>.
+If the runner is a static Linux binary for the image’s architecture,
+<code dir="auto">ReadBinary</code> reads the runner’s own executable (<code dir="auto">os.Executable()</code>). Otherwise
+it reads <code dir="auto">gritz-linux-&lt;arch&gt;</code> from the prebuilt directory (<code dir="auto">GRITZ_PREBUILT_DIR</code>,
+or <code dir="auto">prebuilt/</code> in the config directory). <code dir="auto">gritz download</code> fills that directory
+from the <em>latest</em> GitHub release’s <code dir="auto">gritz_linux_&lt;arch&gt;.tar.gz</code> archives. The
+runner image puts both arches in <code dir="auto">/app/prebuilt</code>. The backend then holds the
+whole file in memory, copies it into a tar <code dir="auto">bytes.Buffer</code>, and runs
+<code dir="auto">CopyToContainer</code>. Each container’s writable layer keeps its own copy until
+the container is pruned.</li>
+<li><strong>Lambda MicroVMs.</strong> The operator bakes a <code dir="auto">linux/arm64</code> <code dir="auto">gritz</code> binary into the
+image (<code dir="auto">internal/runner/backend/lambdamicrovm/microvm.Dockerfile</code>). Today
+that is a full binary built with <code dir="auto">go build ./cmd/gritz</code>, or one taken from the
+release archive.</li>
+</ul>
+<p>The <strong>local</strong> backend runs its own executable (<code dir="auto">os.Executable()</code> in
+<code dir="auto">internal/command/runner.go</code>). The tests and e2e harness run
+<code dir="auto">prebuilt/gritz-linux-&lt;arch&gt;</code>, which <code dir="auto">mise run build</code> and <code dir="auto">test.yml</code> build.</p>
+<p>Every build site uses <code dir="auto">CGO_ENABLED=0 go build</code> with no stripping:
+<code dir="auto">mise run build</code>, <code dir="auto">mise run dev</code>, <code dir="auto">Dockerfile</code>, <code dir="auto">test.yml</code> and
+<code dir="auto">.goreleaser.yaml</code>. The release build only adds <code dir="auto">-X …version.Version</code>.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="why-the-binary-is-so-big">Why the binary is so big</h3><a class="sl-anchor-link" href="#why-the-binary-is-so-big"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Why the binary is so big”</span></a></div>
+<p>#1661’s analysis still holds. All three causes are still present on <code dir="auto">master</code>
+(741fea19):</p>
+<ol>
+<li>
+<p><strong><code dir="auto">internal/command</code> is one package.</strong> Each <code dir="auto">var XCommand = &amp;cli.Command{Action: …}</code>
+is initialized at package level, so any <code dir="auto">main</code> that imports the package keeps
+every subcommand’s <code dir="auto">Action</code> reachable, along with everything those actions call.
+A <code dir="auto">main</code> that registers only <code dir="auto">command.DriverCommand</code> still lists all 813
+packages of the full binary in <code dir="auto">go list -deps</code>, and comes to 55.8 MB.</p>
+</li>
+<li>
+<p><strong><code dir="auto">text/template</code> execution turns off dead-method elimination.</strong>
+<code dir="auto">text/template.(*state).evalField</code> calls <code dir="auto">reflect.Value.MethodByName</code>, so the
+linker keeps every exported method of every reachable type. The sandbox
+reaches it from two places, and the full binary from three:</p>
+<ul>
+<li>urfave/cli’s help printer. v3.14.0 removes it with the
+<code dir="auto">urfave_cli_no_template</code> build tag. We are on v3.10.1.</li>
+<li><code dir="auto">agentprompt.promptTemplate</code> (<code dir="auto">PROMPT.md</code>). It runs <code dir="auto">.Task.GetId</code>
+and similar methods by name.</li>
+<li>Full binary only: <code dir="auto">golang.org/x/net/trace</code>, which comes in through grpc from
+the OTel OTLP exporters. <code dir="auto">-tags grpcnotrace</code> removes it.</li>
+</ul>
+<p>The saving appears only when every caller is gone. Removing just one saves
+nothing (see the table below).</p>
+</li>
+<li>
+<p><strong>No stripping.</strong> DWARF and the symbol tables account for about 30% of every
+binary.</p>
+</li>
+</ol>
+<p><code dir="auto">gritzclient/client_moq_wait.go</code> is a non-test file, and it imports
+<code dir="auto">gotest.tools/v3/poll</code>. That brings <code dir="auto">go-cmp</code> and gotest.tools, which itself
+imports <code dir="auto">text/template</code>, into every binary that uses <code dir="auto">gritzclient</code>. The linker
+drops all of it and the template is never executed, so this costs nothing
+today. It is worth moving behind a test-only file anyway.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="measurements">Measurements</h3><a class="sl-anchor-link" href="#measurements"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Measurements”</span></a></div>
+<p>These sizes are fresh. They were taken on <code dir="auto">master</code> at 741fea19 with go1.27.3,
+<code dir="auto">GOOS=linux CGO_ENABLED=0</code>, using scratch code only. All sizes are <code dir="auto">stat -c %s</code>,
+in MB = 10^6 bytes. “Stripped” means <code dir="auto">-trimpath -ldflags="-s -w"</code>.</p>
+<p>The template fix is the same in every row that has it: urfave/cli v3.14.0
+built with <code dir="auto">-tags urfave_cli_no_template</code>, plus <code dir="auto">agentprompt.Render</code>
+rewritten with a <code dir="auto">strings.Builder</code> so it no longer uses <code dir="auto">text/template</code>. The
+full binary also needs <code dir="auto">grpcnotrace</code>.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Configuration</th>
+<th style="text-align: right">amd64</th>
+<th style="text-align: right">amd64 stripped</th>
+<th style="text-align: right">arm64</th>
+<th style="text-align: right">arm64 stripped</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F0</td>
+<td>full <code dir="auto">./cmd/gritz</code> (today)</td>
+<td style="text-align: right"><strong>65.39</strong></td>
+<td style="text-align: right">46.08</td>
+<td style="text-align: right"><strong>62.00</strong></td>
+<td style="text-align: right">43.38</td>
+</tr>
+<tr>
+<td>F1</td>
+<td>F0 + <code dir="auto">grpcnotrace</code></td>
+<td style="text-align: right">64.91</td>
+<td style="text-align: right">45.72</td>
+<td style="text-align: right">61.42</td>
+<td style="text-align: right">42.99</td>
+</tr>
+<tr>
+<td>F2</td>
+<td>F0 + cli v3.14.0 + tag + <code dir="auto">agentprompt</code> rewrite</td>
+<td style="text-align: right">65.47</td>
+<td style="text-align: right">46.14</td>
+<td style="text-align: right">62.02</td>
+<td style="text-align: right">43.38</td>
+</tr>
+<tr>
+<td>F3</td>
+<td>F2 + <code dir="auto">grpcnotrace</code>: every template caller gone</td>
+<td style="text-align: right">52.01</td>
+<td style="text-align: right">36.91</td>
+<td style="text-align: right">49.17</td>
+<td style="text-align: right">34.73</td>
+</tr>
+<tr>
+<td>F4</td>
+<td>F3 + both sandbox binaries embedded, gzipped (see Design)</td>
+<td style="text-align: right">61.58</td>
+<td style="text-align: right">46.47</td>
+<td style="text-align: right">58.74</td>
+<td style="text-align: right">44.30</td>
+</tr>
+<tr>
+<td>A0</td>
+<td>driver only, <code dir="auto">main</code> imports <code dir="auto">command.DriverCommand</code></td>
+<td style="text-align: right">55.77</td>
+<td style="text-align: right">38.87</td>
+<td style="text-align: right">52.77</td>
+<td style="text-align: right">36.57</td>
+</tr>
+<tr>
+<td>A1</td>
+<td>A0 + template fix + <code dir="auto">grpcnotrace</code></td>
+<td style="text-align: right">41.79</td>
+<td style="text-align: right">29.26</td>
+<td style="text-align: right">39.44</td>
+<td style="text-align: right">27.53</td>
+</tr>
+<tr>
+<td>B0</td>
+<td>driver only, its file copied into <code dir="auto">package main</code> (no <code dir="auto">internal/command</code>)</td>
+<td style="text-align: right">27.73</td>
+<td style="text-align: right">18.92</td>
+<td style="text-align: right">26.22</td>
+<td style="text-align: right">17.83</td>
+</tr>
+<tr>
+<td>B1</td>
+<td>B0 + template fix</td>
+<td style="text-align: right">19.75</td>
+<td style="text-align: right">13.49</td>
+<td style="text-align: right">18.48</td>
+<td style="text-align: right">12.58</td>
+</tr>
+<tr>
+<td>P0</td>
+<td><code dir="auto">driver</code> + <code dir="auto">tool proxy</code> (the minimum the Docker backend needs)</td>
+<td style="text-align: right">27.75</td>
+<td style="text-align: right">18.93</td>
+<td style="text-align: right">26.22</td>
+<td style="text-align: right">17.83</td>
+</tr>
+<tr>
+<td>P1</td>
+<td>P0 + template fix</td>
+<td style="text-align: right">19.77</td>
+<td style="text-align: right">13.50</td>
+<td style="text-align: right">18.48</td>
+<td style="text-align: right">12.58</td>
+</tr>
+<tr>
+<td>S0</td>
+<td><strong>sandbox</strong>: <code dir="auto">driver</code> + <code dir="auto">tool {agent-mcp,git-credential,github-mcp,proxy}</code>, no <code dir="auto">internal/command</code></td>
+<td style="text-align: right">28.14</td>
+<td style="text-align: right">19.20</td>
+<td style="text-align: right">26.54</td>
+<td style="text-align: right">18.02</td>
+</tr>
+<tr>
+<td>S1</td>
+<td>S0 + template fix</td>
+<td style="text-align: right"><strong>20.37</strong></td>
+<td style="text-align: right"><strong>13.91</strong></td>
+<td style="text-align: right"><strong>19.06</strong></td>
+<td style="text-align: right"><strong>12.91</strong></td>
+</tr>
+<tr>
+<td>S1−proxy</td>
+<td>S1 without <code dir="auto">tool proxy</code></td>
+<td style="text-align: right">20.36</td>
+<td style="text-align: right">13.90</td>
+<td style="text-align: right">19.06</td>
+<td style="text-align: right">12.91</td>
+</tr>
+</tbody>
+</table>
+<p>Compressed, with <code dir="auto">gzip -9</code> and <code dir="auto">xz -9</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Binary</th>
+<th style="text-align: right">Stripped</th>
+<th style="text-align: right">gzip</th>
+<th style="text-align: right">xz</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F0 amd64</td>
+<td style="text-align: right">46.08</td>
+<td style="text-align: right">14.12</td>
+<td style="text-align: right">10.27</td>
+</tr>
+<tr>
+<td>F3 amd64</td>
+<td style="text-align: right">36.91</td>
+<td style="text-align: right">11.78</td>
+<td style="text-align: right">8.68</td>
+</tr>
+<tr>
+<td>S1 amd64</td>
+<td style="text-align: right">13.91</td>
+<td style="text-align: right">5.04</td>
+<td style="text-align: right">3.88</td>
+</tr>
+<tr>
+<td>S1 arm64</td>
+<td style="text-align: right">12.91</td>
+<td style="text-align: right">4.53</td>
+<td style="text-align: right">3.30</td>
+</tr>
+</tbody>
+</table>
+<p>What the numbers show:</p>
+<ul>
+<li><strong><code dir="auto">internal/command</code> is now the largest single cost.</strong> Importing it for
+<code dir="auto">DriverCommand</code> alone costs 28 MB (A0 vs B0). #1661 measured 15.5 MB, so the
+coupling has grown with the runner’s SQLite state, the new servers, and so on.</li>
+<li><strong>The template fix only pays off once every caller is gone.</strong> F2 is no smaller
+than F0, and F1 saves only the trace package itself. F3 saves 13.4 MB on the
+full binary and 7.8 MB on the sandbox binary (S0 → S1).</li>
+<li><strong><code dir="auto">tool proxy</code> costs almost nothing.</strong> It is about 10 KB (S1 vs S1−proxy),
+because <code dir="auto">internal/x/stdioproxy</code> uses only <code dir="auto">io</code> and <code dir="auto">net</code>.
+<code dir="auto">agent-mcp</code>, <code dir="auto">git-credential</code> and <code dir="auto">github-mcp</code> together add 0.6 MB on top of
+the driver (S1 vs P1), mostly the MCP SDK. A driver-only binary is therefore
+not worth having separately from the sandbox binary.</li>
+<li><strong>Nothing heavy is linked into the sandbox binary any more.</strong> S1 has 18
+modules and 345 packages: connect, protobuf, the MCP SDK, urfave/cli,
+coder/websocket and creack/pty (reverse shell), plus small helpers. There is no
+AWS, Docker, pgx or grpc. <code dir="auto">internal/x/awsmicrovm</code> no longer imports the AWS
+SDK, and with <code dir="auto">microvm-shim</code> gone so are #1661’s compile-time-only
+<code dir="auto">lambdamicrovm</code>/<code dir="auto">workspace</code> edges.</li>
+<li>Stripping saves about 30% of every configuration.</li>
+</ul>
+<p>The result is 65.4 → 13.9 MB per Docker task on amd64 (−79%), and 62.0 → 12.9 MB
+in the MicroVM image on arm64.</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="design">Design</h2><a class="sl-anchor-link" href="#design"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Design”</span></a></div>
+<p>Ship a separate <strong>sandbox binary</strong> that contains only the in-sandbox commands,
+built with the linker triggers removed and stripped. Embed it in the <code dir="auto">gritz</code>
+binary, so the runner always carries the sandbox binary of its own release.
+Publish it as a release asset for MicroVM images.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="the-sandbox-binary">The sandbox binary</h3><a class="sl-anchor-link" href="#the-sandbox-binary"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “The sandbox binary”</span></a></div>
+<ul>
+<li>Move <code dir="auto">driver.go</code>, <code dir="auto">tool.go</code>, <code dir="auto">agent_mcp.go</code>, <code dir="auto">git_credential.go</code>,
+<code dir="auto">github_mcp.go</code> and <code dir="auto">proxy.go</code> from <code dir="auto">internal/command</code> to a new package,
+<code dir="auto">internal/command/sandboxcmd</code>. None of them uses anything else in
+<code dir="auto">internal/command</code>; they compile unchanged as their own package.</li>
+<li>Add <code dir="auto">cmd/gritz-sandbox</code>. Its root command is named <code dir="auto">gritz</code> and registers only
+<code dir="auto">sandboxcmd.DriverCommand</code> and <code dir="auto">sandboxcmd.ToolCommand</code>, with
+<code dir="auto">version.String()</code> as its version.</li>
+<li>In the sandbox it is still installed as <code dir="auto">/usr/local/bin/gritz</code>
+(<code dir="auto">backend.BinaryPath</code>). Every in-sandbox command line therefore stays the same:
+the container <code dir="auto">Cmd</code>, the <code dir="auto">docker exec</code> proxy, the injected MCP server, and
+workspaces’ <code dir="auto">!gritz tool git-credential</code> helpers.</li>
+<li>The full <code dir="auto">gritz</code> binary drops <code dir="auto">driver</code> and <code dir="auto">tool</code>, along with <code dir="auto">download</code>
+(see below). Nothing on the host runs them.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="removing-the-linker-triggers">Removing the linker triggers</h3><a class="sl-anchor-link" href="#removing-the-linker-triggers"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Removing the linker triggers”</span></a></div>
+<ul>
+<li><code dir="auto">agentprompt.Render</code> is written in plain Go with a <code dir="auto">strings.Builder</code>. That is
+already the style of <code dir="auto">renderHeader</code> and <code dir="auto">renderLink</code>. <code dir="auto">PROMPT.md</code> and
+<code dir="auto">promptTemplate</code> are deleted. The existing <code dir="auto">agentprompt</code> golden tests pin
+the output byte for byte.</li>
+<li>urfave/cli goes to ≥ v3.14.0. Every build uses the tags
+<code dir="auto">urfave_cli_no_template,grpcnotrace</code>. They go in <code dir="auto">mise.toml</code>’s
+<code dir="auto">[env] GOFLAGS</code>, which covers <code dir="auto">mise run build/dev/install/test/lint</code>, and are
+also set in <code dir="auto">Dockerfile</code>, <code dir="auto">test.yml</code>, <code dir="auto">lint.yml</code> and <code dir="auto">.goreleaser.yaml</code>. #1661’s
+follow-up confirmed that help output stays byte-identical under the tag, and
+gritz uses no custom help templates.</li>
+<li><strong>Guards.</strong>
+<ul>
+<li>A CI step fails the build if
+<code dir="auto">go build -ldflags=-dumpdep ./cmd/gritz ./cmd/gritz-sandbox</code> reports
+<code dir="auto">&lt;ReflectMethod&gt;</code>. Without it, a new template caller would silently undo the
+saving.</li>
+<li>A test runs <code dir="auto">--help</code> on every command of both binaries under the tag,
+because a custom <code dir="auto">*HelpTemplate</code> panics in tagged builds.</li>
+<li>A <code dir="auto">sandboxbin</code> test asserts that each embedded binary stays under a size
+budget (6 MB gzipped). It also checks that <code dir="auto">go list -deps ./cmd/gritz-sandbox</code>
+contains no <code dir="auto">internal/server</code>, <code dir="auto">internal/store</code>, <code dir="auto">internal/runner/backend</code>,
+<code dir="auto">aws-sdk-go-v2</code> or <code dir="auto">docker/docker</code>.</li>
+</ul>
+</li>
+<li><code dir="auto">gritzclient/client_moq_wait.go</code> moves into a <code dir="auto">_test.go</code>-only helper package,
+so <code dir="auto">gotest.tools</code> and <code dir="auto">go-cmp</code> leave the binaries’ module graph.</li>
+</ul>
+<div class="sl-heading-wrapper level-h3"><h3 id="build-flags">Build flags</h3><a class="sl-anchor-link" href="#build-flags"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Build flags”</span></a></div>
+<p>Every artifact built for release or shipped into a sandbox uses
+<code dir="auto">-trimpath -ldflags="-s -w -X …version.Version=&lt;tag&gt;"</code>: the release archives,
+the images and the embedded sandbox binaries. Panics still print function names
+and line numbers, because <code dir="auto">.gopclntab</code> is kept. We lose DWARF in shipped
+binaries, which only matters for attaching delve to a release build. Local
+<code dir="auto">go build</code> stays unstripped.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="building-and-embedding">Building and embedding</h3><a class="sl-anchor-link" href="#building-and-embedding"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Building and embedding”</span></a></div>
+<p>A new package <code dir="auto">internal/runner/sandboxbin</code> embeds
+<code dir="auto">gritz-sandbox-linux-amd64.gz</code> and <code dir="auto">gritz-sandbox-linux-arm64.gz</code>. Both files
+are gitignored and produced by <code dir="auto">go generate ./internal/runner/sandboxbin</code>,
+which runs a <code dir="auto">build.sh</code> next to them. The script runs, for each arch:</p>
+<div class="expressive-code"><link rel="stylesheet" href="/pr/2202/_astro/ec.w36nc.css"><script type="module" src="/pr/2202/_astro/ec.0vx5m.js"></script><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="sh"><code><div class="ec-line"><div class="code"><span style="--0:#C5E478;--1:#3B61B0">CGO_ENABLED</span><span style="--0:#C792EA;--1:#8844AE">=</span><span style="--0:#ECC48D;--1:#3B61B0">0</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">GOOS</span><span style="--0:#C792EA;--1:#8844AE">=</span><span style="--0:#ECC48D;--1:#3B61B0">linux</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">GOARCH</span><span style="--0:#C792EA;--1:#8844AE">=</span><span style="--0:#C5E478;--1:#3B61B0">$arch</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">go</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">build</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">-trimpath</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#F78C6C;--1:#AA0982">\</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#82AAFF;--1:#3B61B0">-ldflags</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#ECC48D;--1:#984E4D">-s -w -X github.com/gritzapp/gritz/internal/version.Version=${</span><span style="--0:#C5E478;--1:#3B61B0">VERSION</span><span style="--0:#7FDBCA;--1:#096E72">:-</span><span style="--0:#C5E478;--1:#3B61B0">dev</span><span style="--0:#ECC48D;--1:#984E4D">}</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#F78C6C;--1:#AA0982">\</span></div></div><div class="ec-line"><div class="code"><span class="indent">  </span><span style="--0:#82AAFF;--1:#3B61B0">-o</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">-</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">./cmd/gritz-sandbox</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">|</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">gzip</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">-9</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">&gt;</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">gritz-sandbox-linux-</span><span style="--0:#C5E478;--1:#3B61B0">$arch</span><span style="--0:#ECC48D;--1:#3B61B0">.gz</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \  -ldflags &quot;-s -w -X github.com/gritzapp/gritz/internal/version.Version=${VERSION:-dev}&quot; \  -o - ./cmd/gritz-sandbox | gzip -9 > gritz-sandbox-linux-$arch.gz"><div></div></button></div></figure></div>
+<p><code dir="auto">go generate</code> is the single entry point every build site calls before building
+<code dir="auto">./cmd/gritz</code>. That is the same contract the web UI already has: <code dir="auto">go build</code>
+fails until <code dir="auto">internal/server/webui</code> exists.</p>
+<table>
+<thead>
+<tr>
+<th>Build site</th>
+<th>Change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code dir="auto">mise run build</code></td>
+<td>a <code dir="auto">build:sandbox</code> task (with <code dir="auto">sources</code>/<code dir="auto">outputs</code>, like <code dir="auto">build:webui</code>) runs the generate step; <code dir="auto">build</code> depends on it. The <code dir="auto">prebuilt/</code> outputs go away.</td>
+</tr>
+<tr>
+<td><code dir="auto">mise run dev</code>, <code dir="auto">mise run install</code>, <code dir="auto">mise run lint</code></td>
+<td>depend on <code dir="auto">build:sandbox</code></td>
+</tr>
+<tr>
+<td><code dir="auto">test.yml</code></td>
+<td>the “Build prebuilt binaries for runner tests” step becomes <code dir="auto">go generate ./internal/runner/sandboxbin</code></td>
+</tr>
+<tr>
+<td><code dir="auto">lint.yml</code></td>
+<td>writes empty placeholder <code dir="auto">.gz</code> files, as it already does for the web UI’s <code dir="auto">index.html</code></td>
+</tr>
+<tr>
+<td><code dir="auto">Dockerfile</code></td>
+<td>the builder stage runs the generate step with <code dir="auto">VERSION</code>, then builds <code dir="auto">gritz</code>. The <code dir="auto">prebuilt/</code> builds, <code dir="auto">/app/prebuilt</code> and <code dir="auto">GRITZ_PREBUILT_DIR</code> are removed from the runner image.</td>
+</tr>
+<tr>
+<td><code dir="auto">.goreleaser.yaml</code></td>
+<td>a <code dir="auto">before.hooks</code> entry runs the generate step with <code dir="auto">VERSION={{ .Tag }}</code></td>
+</tr>
+</tbody>
+</table>
+<p>gzip comes from the standard library. xz would save another 2.3 MB per pair
+but needs a third-party decoder. The embedded payload is 9.6 MB, so the full
+binary goes from 65.4 MB today to 46.5 MB stripped (F4). The runner and server
+images therefore shrink even though they now carry both sandbox binaries.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="delivery-per-backend">Delivery per backend</h3><a class="sl-anchor-link" href="#delivery-per-backend"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Delivery per backend”</span></a></div>
+<ul>
+<li><strong>Docker.</strong> <code dir="auto">create</code> calls <code dir="auto">sandboxbin.Binary(info.Architecture)</code> instead of
+<code dir="auto">prebuilt.ReadBinary</code>. <code dir="auto">Binary</code> decompresses each arch once (<code dir="auto">sync.Once</code>)
+and returns the cached 13–14 MB slice. An unknown arch is an error, as it is
+today. The <code dir="auto">os.Executable()</code> shortcut, the prebuilt directory,
+<code dir="auto">GRITZ_PREBUILT_DIR</code>, <code dir="auto">gritz download</code> and <code dir="auto">internal/runner/prebuilt</code> are
+deleted. The runner always carries the sandbox binary from its own build, on
+any host OS and arch, including macOS. That also removes today’s skew:
+<code dir="auto">gritz download</code> fetches the <em>latest</em> release, not the runner’s.</li>
+<li><strong>Local.</strong> <code dir="auto">local.Options.Binary</code> stays a path. When <code dir="auto">gritz runner --backend local</code>
+starts, it writes <code dir="auto">sandboxbin.Binary(runtime.GOARCH)</code> to
+<code dir="auto">&lt;local-root&gt;/bin/gritz</code> (mode 0755) and passes that path. It fails on a
+non-Linux host. The tests (<code dir="auto">local_test.go</code>, <code dir="auto">internal/e2e</code>, docker’s
+<code dir="auto">sandbox_test.go</code>) do the same through a small test helper in <code dir="auto">sandboxbin</code>,
+instead of reading <code dir="auto">prebuilt/</code>.</li>
+<li><strong>Lambda MicroVMs.</strong> GoReleaser gains a second build, <code dir="auto">id: gritz-sandbox</code>
+(<code dir="auto">main: ./cmd/gritz-sandbox</code>, linux only, same flags and tags), and a second
+archive, <code dir="auto">gritz-sandbox_linux_{amd64,arm64}.tar.gz</code>. Both appear in
+<code dir="auto">checksums.txt</code>. With <code dir="auto">-trimpath</code> the build is reproducible, so these binaries
+are byte-identical to the embedded ones. The MicroVM recipe copies the
+<code dir="auto">gritz</code> entry of <code dir="auto">gritz-sandbox_linux_arm64.tar.gz</code> into the image, and the
+<code dir="auto">microvm.Dockerfile</code> comment changes to
+<code dir="auto">go build -trimpath -ldflags="-s -w" -o gritz ./cmd/gritz-sandbox</code>. Operators
+still rebuild the image on upgrade.</li>
+<li><strong>install.sh</strong> is unchanged. It installs <code dir="auto">gritz_&lt;os&gt;_&lt;arch&gt;.tar.gz</code>, the host
+CLI, and the new archives have a different name prefix.</li>
+</ul>
+<p>Server, runner and driver still ship together: one release builds all of them,
+and the runner can only hand a sandbox the driver it was built with.</p>
+<div class="sl-heading-wrapper level-h3"><h3 id="api">API</h3><a class="sl-anchor-link" href="#api"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “API”</span></a></div>
+<div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="go"><code><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">package</span><span style="--0:#D6DEEB;--1:#403F53"> sandboxcmd </span><span style="--0:#919F9F;--1:#5D6376">// github.com/gritzapp/gritz/internal/command/sandboxcmd (new; files moved from internal/command)</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#919F9F;--1:#5D6376">// DriverCommand runs the driver server.</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">DriverCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#919F9F;--1:#5D6376">// ToolCommand groups the in-sandbox tools: agent-mcp, git-credential, github-mcp and proxy.</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">ToolCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="package sandboxcmd // github.com/gritzapp/gritz/internal/command/sandboxcmd (new; files moved from internal/command)// DriverCommand runs the driver server.var DriverCommand *cli.Command// ToolCommand groups the in-sandbox tools: agent-mcp, git-credential, github-mcp and proxy.var ToolCommand *cli.Command"><div></div></button></div></figure></div>
+<div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="go"><code><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">package</span><span style="--0:#D6DEEB;--1:#403F53"> sandboxbin </span><span style="--0:#919F9F;--1:#5D6376">// github.com/gritzapp/gritz/internal/runner/sandboxbin (new)</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#919F9F;--1:#5D6376">// Arches lists the linux architectures embedded.</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">Arches</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C792EA;--1:#8844AE">=</span><span style="--0:#D6DEEB;--1:#403F53"> []</span><span style="--0:#C792EA;--1:#8844AE">string</span><span style="--0:#D6DEEB;--1:#403F53">{</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#ECC48D;--1:#984E4D">amd64</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#ECC48D;--1:#984E4D">arm64</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#919F9F;--1:#5D6376">// Binary returns the sandbox binary for linux/arch, decompressed once and cached.</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">func</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">Binary</span><span style="--1:#403F53"><span style="--0:#D6DEEB">(</span><span style="--0:#D7DBE0">arch</span><span style="--0:#D6DEEB"> </span></span><span style="--0:#C792EA;--1:#8844AE">string</span><span style="--0:#D6DEEB;--1:#403F53">) ([]</span><span style="--0:#C792EA;--1:#8844AE">byte</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#C792EA;--1:#8844AE">error</span><span style="--0:#D6DEEB;--1:#403F53">)</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="package sandboxbin // github.com/gritzapp/gritz/internal/runner/sandboxbin (new)// Arches lists the linux architectures embedded.var Arches = []string{&quot;amd64&quot;, &quot;arm64&quot;}// Binary returns the sandbox binary for linux/arch, decompressed once and cached.func Binary(arch string) ([]byte, error)"><div></div></button></div></figure></div>
+<div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="go"><code><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">package</span><span style="--0:#D6DEEB;--1:#403F53"> command </span><span style="--0:#919F9F;--1:#5D6376">// github.com/gritzapp/gritz/internal/command</span></div></div><div class="ec-line"><div class="code">
+</div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">DriverCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command        </span><span style="--0:#919F9F;--1:#5D6376">// removed: moved to sandboxcmd</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">ToolCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command          </span><span style="--0:#919F9F;--1:#5D6376">// removed: moved to sandboxcmd</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">AgentMcpCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command      </span><span style="--0:#919F9F;--1:#5D6376">// removed: moved to sandboxcmd, unexported</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">GitCredentialCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command </span><span style="--0:#919F9F;--1:#5D6376">// removed: moved to sandboxcmd, unexported</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">GitHubMCPCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command     </span><span style="--0:#919F9F;--1:#5D6376">// removed: moved to sandboxcmd, unexported</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">ProxyCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command         </span><span style="--0:#919F9F;--1:#5D6376">// removed: moved to sandboxcmd, unexported</span></div></div><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">var</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#C5E478;--1:#3B61B0">DownloadCommand</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">*</span><span style="--0:#D6DEEB;--1:#403F53">cli.Command      </span><span style="--0:#919F9F;--1:#5D6376">// removed</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="package command // github.com/gritzapp/gritz/internal/commandvar DriverCommand *cli.Command        // removed: moved to sandboxcmdvar ToolCommand *cli.Command          // removed: moved to sandboxcmdvar AgentMcpCommand *cli.Command      // removed: moved to sandboxcmd, unexportedvar GitCredentialCommand *cli.Command // removed: moved to sandboxcmd, unexportedvar GitHubMCPCommand *cli.Command     // removed: moved to sandboxcmd, unexportedvar ProxyCommand *cli.Command         // removed: moved to sandboxcmd, unexportedvar DownloadCommand *cli.Command      // removed"><div></div></button></div></figure></div>
+<div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="go"><code><div class="ec-line"><div class="code"><span style="--0:#C792EA;--1:#8844AE">package</span><span style="--0:#D6DEEB;--1:#403F53"> prebuilt </span><span style="--0:#919F9F;--1:#5D6376">// github.com/gritzapp/gritz/internal/runner/prebuilt — removed</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="package prebuilt // github.com/gritzapp/gritz/internal/runner/prebuilt — removed"><div></div></button></div></figure></div>
+<p><code dir="auto">agentprompt.Render</code> keeps its signature. Only its implementation changes.</p>
+<p><strong>How it fits:</strong> <code dir="auto">cmd/gritz-sandbox</code> registers the two <code dir="auto">sandboxcmd</code> commands.
+<code dir="auto">go generate</code> builds it into <code dir="auto">sandboxbin</code>. <code dir="auto">cmd/gritz</code> no longer registers
+them. The Docker backend and the runner’s local-backend setup call
+<code dir="auto">sandboxbin.Binary</code>.</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="implementation-plan">Implementation Plan</h2><a class="sl-anchor-link" href="#implementation-plan"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Implementation Plan”</span></a></div>
+<ol>
+<li><strong>Strip release builds.</strong> Delivers: <code dir="auto">-trimpath -ldflags="-s -w"</code> in
+<code dir="auto">.goreleaser.yaml</code> and <code dir="auto">Dockerfile</code>. Depends on: nothing. Verifiable by:
+<code dir="auto">goreleaser build --snapshot</code>, then checking that the archive binary is
+about 46 MB and that a panic still prints file:line.</li>
+<li><strong>Render the prompt without <code dir="auto">text/template</code>.</strong> Delivers: a plain-Go
+<code dir="auto">agentprompt.Render</code>, and <code dir="auto">PROMPT.md</code> deleted. Depends on: nothing.
+Verifiable by: the existing golden tests passing unchanged.</li>
+<li><strong>cli v3.14.0, build tags and guards.</strong> Delivers: the upgrade, the
+<code dir="auto">urfave_cli_no_template,grpcnotrace</code> tags at every build site, the
+<code dir="auto">&lt;ReflectMethod&gt;</code> CI check for <code dir="auto">./cmd/gritz</code>, and the <code dir="auto">--help</code> test. Moves
+<code dir="auto">client_moq_wait.go</code> to test-only code. Depends on: (2). Verifiable by: the
+CI check passing, and <code dir="auto">./cmd/gritz</code> at about 52 MB unstripped (F3).</li>
+<li><strong><code dir="auto">sandboxcmd</code> and <code dir="auto">cmd/gritz-sandbox</code>.</strong> Delivers: the moved command files,
+the new <code dir="auto">main</code>, and the dependency guard. <code dir="auto">cmd/gritz</code> still registers
+<code dir="auto">driver</code>/<code dir="auto">tool</code> from <code dir="auto">sandboxcmd</code>, because it is still the binary that
+sandboxes run. Depends on: (3). Verifiable by:
+<code dir="auto">go build ./cmd/gritz-sandbox</code> at about 20 MB, and the guard test.</li>
+<li><strong>Embed and deliver to Docker.</strong> Delivers: <code dir="auto">sandboxbin</code> with <code dir="auto">go generate</code>,
+build-site wiring (mise, CI, <code dir="auto">Dockerfile</code>, GoReleaser hook), the Docker
+backend on <code dir="auto">sandboxbin.Binary</code>, and the size-budget test. Deletes
+<code dir="auto">internal/runner/prebuilt</code>, <code dir="auto">gritz download</code>, <code dir="auto">GRITZ_PREBUILT_DIR</code> and the
+runner image’s <code dir="auto">/app/prebuilt</code>. Updates <code dir="auto">operators/runner</code> (Driver binaries),
+<code dir="auto">operators/deployment</code>, <code dir="auto">reference/cli</code>, <code dir="auto">using/cli</code> and the CLI list in
+<code dir="auto">CLAUDE.md</code>. Depends on: (4). Verifiable by: <code dir="auto">mise run dev</code>, then running a
+task and checking <code dir="auto">docker exec gritz-&lt;id&gt; ls -l /usr/local/bin/gritz</code> (about
+14 MB) and that the task completes. The docker backend tests pass on the
+embedded binary.</li>
+<li><strong>Local backend and tests on the sandbox binary; drop <code dir="auto">driver</code>/<code dir="auto">tool</code> from
+<code dir="auto">gritz</code>.</strong> Delivers: <code dir="auto">gritz runner --backend local</code> writing the embedded
+binary, the test helper, and the e2e harness switched over. <code dir="auto">cmd/gritz</code> no
+longer registers <code dir="auto">sandboxcmd</code>. Depends on: (5). Verifiable by:
+<code dir="auto">mise run test</code> (e2e included), and <code dir="auto">gritz --help</code> no longer listing
+<code dir="auto">driver</code>/<code dir="auto">tool</code>.</li>
+<li><strong>Release the sandbox archives for MicroVMs.</strong> Delivers: the GoReleaser
+<code dir="auto">gritz-sandbox</code> build and archive, an updated <code dir="auto">microvm.Dockerfile</code> and
+backend README, and updates to the <code dir="auto">operators/backends</code> “Building the image”
+section and the <code dir="auto">operators/deployment</code> release list. Depends on: (4).
+Verifiable by: <code dir="auto">goreleaser release --snapshot --clean</code> listing
+<code dir="auto">gritz-sandbox_linux_{amd64,arm64}.tar.gz</code> in <code dir="auto">checksums.txt</code>, with
+contents byte-identical to the embedded files after <code dir="auto">gunzip</code>.</li>
+</ol>
+<div class="sl-heading-wrapper level-h2"><h2 id="trade-offs">Trade-offs</h2><a class="sl-anchor-link" href="#trade-offs"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Trade-offs”</span></a></div>
+<p><strong>Strip only (F0 → 46.1 MB).</strong> Trivial, and part of the recommendation, but on
+its own the sandbox still gets the server, the web UI and the AWS SDK.</p>
+<p><strong>One binary with the linker triggers fixed (F3: 52.0 MB, 36.9 MB stripped).</strong>
+This keeps the “runner copies itself” model and needs no new artifact. It is
+still 2.7× the sandbox binary, and the server surface stays inside every
+untrusted sandbox. The fixes are prerequisites of the recommendation anyway
+(S0 → S1), so this option is a subset of the plan, not an alternative to it.</p>
+<p><strong>Split <code dir="auto">internal/command</code> without a second <code dir="auto">main</code>.</strong> This saves nothing. The
+full binary needs every command regardless. Splitting matters only for a <code dir="auto">main</code>
+that leaves commands out, which is why the split happens as part of
+<code dir="auto">cmd/gritz-sandbox</code>. Splitting the host commands into per-command packages
+would also stop A0-style coupling for future binaries, but it has no customer
+today.</p>
+<p><strong>A driver-only binary plus a separate tools binary.</strong> The Docker backend needs
+<code dir="auto">tool proxy</code> for every connection, and every agent needs <code dir="auto">tool agent-mcp</code>. The
+tools add 0.6 MB on top of the driver (P1 vs S1), so a second binary buys
+nothing.</p>
+<p><strong>Delivery: embed vs. a prebuilt directory.</strong> The alternative is to keep
+<code dir="auto">prebuilt/</code> and <code dir="auto">gritz download</code> with <code dir="auto">gritz-sandbox-linux-&lt;arch&gt;</code> files, and
+ship them in the runner image and next to the release archives. That leaves
+the full binary at 36.9 MB instead of 46.5 MB stripped. But the runner can no
+longer copy itself, so every runner started from a release archive on Linux
+would need <code dir="auto">gritz download</code> or an extra file. <code dir="auto">download</code> also fetches the latest
+release rather than the runner’s own, which is a skew the embed removes. The
+embed costs 9.6 MB in a binary downloaded once per host, against 51 MB saved per
+task.</p>
+<p><strong>Keeping <code dir="auto">driver</code>/<code dir="auto">tool</code> in the full binary.</strong> They would add no size, because
+the code is linked anyway, and would keep <code dir="auto">--backend local</code> working on macOS.
+But nothing on the host runs them, and two binaries that can both act as a
+driver invite someone to run the wrong one in a sandbox. Layer (4) keeps them
+temporarily; layer (6) removes them.</p>
+<p><strong>Compression.</strong> xz or zstd would shrink the embedded payload further: 7.2 MB
+instead of 9.6 MB for xz. That needs a third-party decoder in the runner for a
+saving that only affects the one-time download. UPX is rejected for the reasons
+in #1661: a per-exec decompression cost on every <code dir="auto">git-credential</code> call, no
+page-cache sharing, AV false positives, and broken <code dir="auto">go version -m</code>.</p>
+<p><strong>Further trimming, not pursued here.</strong> #1661 found two more savings, not
+re-measured here: a 5-RPC driver client instead of the 52-RPC
+<code dir="auto">GritzServiceClient</code> (about −1.2 MB in a driver-only build), and moving
+<code dir="auto">DummyAgent</code> out (about 0 MB in the sandbox binary, because <code dir="auto">agent-mcp</code> needs
+the MCP SDK anyway). Both can follow once the size-budget test makes the gains
+visible.</p>
+<div class="sl-heading-wrapper level-h2"><h2 id="open-questions">Open Questions</h2><a class="sl-anchor-link" href="#open-questions"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Open Questions”</span></a></div>
+<ul>
+<li>Should <code dir="auto">--backend local</code> keep working on macOS? With <code dir="auto">driver</code> dropped from
+<code dir="auto">gritz</code>, it needs a <code dir="auto">darwin</code> sandbox build. That would mean embedding host-arch
+builds or building one on demand in dev. The local backend is for tests and
+development only, and <code dir="auto">mise run dev</code> uses Docker, so the proposal says no.</li>
+<li>The server image carries the 9.6 MB embedded payload it never uses. A build
+tag could leave <code dir="auto">sandboxbin</code> empty for <code dir="auto">gritz server</code>-only builds. That would
+make two variants of the same binary, so the proposal accepts the bytes
+instead.</li>
+<li>For MicroVM images, is a release asset the right handoff? An alternative is a
+<code dir="auto">gritz sandbox-binary --arch arm64 -o gritz</code> command that writes the runner’s
+embedded copy. It cannot drift from the runner, but it adds a host command
+that exists only for image builds.</li>
+</ul>
+</div><footer class="sl-flex astro-kzhqao4g"><div class="meta sl-flex astro-kzhqao4g"><a href="https://github.com/gritzapp/gritz/edit/master/docs/src/content/docs/proposals/draft/sandbox-binary.md" class="sl-flex print:hidden astro-mhgz6trh"><svg aria-hidden="true" class="astro-mhgz6trh astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.2em;"><path d="M22 7.24a1 1 0 0 0-.29-.71l-4.24-4.24a1 1 0 0 0-1.1-.22 1 1 0 0 0-.32.22l-2.83 2.83L2.29 16.05a1 1 0 0 0-.29.71V21a1 1 0 0 0 1 1h4.24a1 1 0 0 0 .76-.29l10.87-10.93L21.71 8c.1-.1.17-.2.22-.33a1 1 0 0 0 0-.24v-.14l.07-.05ZM6.83 20H4v-2.83l9.93-9.93 2.83 2.83L6.83 20ZM18.17 8.66l-2.83-2.83 1.42-1.41 2.82 2.82-1.41 1.42Z"/></svg>Edit page</a></div><div class="pagination-links print:hidden astro-n4c7kgxf" dir="ltr"><a href="/pr/2202/proposals/draft/runner-event-stream/" rel="prev" class="astro-n4c7kgxf"><svg aria-hidden="true" class="astro-n4c7kgxf astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17 11H9.41l3.3-3.29a1.004 1.004 0 1 0-1.42-1.42l-5 5a1 1 0 0 0-.21.33 1 1 0 0 0 0 .76 1 1 0 0 0 .21.33l5 5a1.002 1.002 0 0 0 1.639-.325 1 1 0 0 0-.219-1.095L9.41 13H17a1 1 0 0 0 0-2Z"/></svg><span class="astro-n4c7kgxf">Previous<br class="astro-n4c7kgxf"><span class="link-title astro-n4c7kgxf">Stream runner events instead of pull + SSE wake</span></span></a><a href="/pr/2202/proposals/draft/server-managed-workspaces/" rel="next" class="astro-n4c7kgxf"><svg aria-hidden="true" class="astro-n4c7kgxf astro-yajtf6qh" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.5rem;"><path d="M17.92 11.62a1.001 1.001 0 0 0-.21-.33l-5-5a1.003 1.003 0 1 0-1.42 1.42l3.3 3.29H7a1 1 0 0 0 0 2h7.59l-3.3 3.29a1.002 1.002 0 0 0 .325 1.639 1 1 0 0 0 1.095-.219l5-5a1 1 0 0 0 .21-.33 1 1 0 0 0 0-.76Z"/></svg><span class="astro-n4c7kgxf">Next<br class="astro-n4c7kgxf"><span class="link-title astro-n4c7kgxf">Server-Managed Workspace Configurations</span></span></a></div></footer></div></div></main></div></div></div></div></body></html>
