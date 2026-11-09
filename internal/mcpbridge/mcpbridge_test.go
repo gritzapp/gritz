@@ -13,16 +13,17 @@ import (
 	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/gritzapp/gritz/internal/x/mcptest"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
 
 var testOrg = OrgKey{Server: "https://gritz.test", ID: 1}
 
-// newTestChannel returns a Channel whose current org is testOrg, followed
-// under name without a stream.
+// newTestChannel returns a Channel following testOrg under name without a
+// stream.
 func newTestChannel(sender ChannelSender, name string) *Channel {
-	ch := NewChannel(sender, "", func() OrgKey { return testOrg })
+	ch := NewChannel(sender, "")
 	ch.orgs[testOrg] = &followedOrg{name: name, filter: NewTaskFilter()}
 	return ch
 }
@@ -438,28 +439,46 @@ func TestForward_PerOrgMuteSet(t *testing.T) {
 	)
 }
 
-// TestMuteTool_CurrentOrg checks that the mute tools edit the set of the org
-// current names.
-func TestMuteTool_CurrentOrg(t *testing.T) {
+// TestMuteTool_NamedOrg checks that the mute tools edit the set of the org
+// named by org.
+func TestMuteTool_NamedOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	a := OrgKey{Server: "https://gritz.test", ID: 1}
-	b := OrgKey{Server: "https://gritz.test", ID: 2}
-	current := b
-	ch := NewChannel(&ChannelSenderMock{}, "", func() OrgKey { return current })
-	ch.orgs[a] = &followedOrg{name: "a", filter: NewTaskFilter()}
-	ch.orgs[b] = &followedOrg{name: "b", filter: NewTaskFilter()}
+	ch := newTestChannel(&ChannelSenderMock{}, "a")
+	other := OrgKey{Server: "https://gritz.test", ID: 2}
+	ch.orgs[other] = &followedOrg{name: "b", filter: NewTaskFilter()}
 
 	// Act
-	res, _, err := ch.muteTool(context.Background(), nil, muteInput{TaskIDs: []int64{42}})
+	res, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "b", TaskIDs: []int64{42}})
 
 	// Assert
 	assert.NilError(t, err)
 	var got muteState
 	mcptest.UnmarshalCallToolResult(t, res, &got)
 	assert.DeepEqual(t, got, muteState{Org: "b", Muted: []int64{42}}, cmpopts.IgnoreFields(muteState{}, "Note"))
-	assert.Assert(t, ch.orgs[b].filter.Muted(42))
-	assert.Assert(t, !ch.orgs[a].filter.Muted(42))
+	assert.Assert(t, ch.orgs[other].filter.Muted(42))
+	assert.Assert(t, !ch.orgs[testOrg].filter.Muted(42))
+}
+
+// TestMuteTool_OrgErrors checks that org must name a followed org, and can
+// only be omitted while one org is followed.
+func TestMuteTool_OrgErrors(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	ch := newTestChannel(&ChannelSenderMock{}, "a")
+	ch.orgs[OrgKey{Server: "https://gritz.test", ID: 2}] = &followedOrg{name: "b", filter: NewTaskFilter()}
+
+	// Act
+	unknown, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "x", TaskIDs: []int64{42}})
+	assert.NilError(t, err)
+	omitted, _, err := ch.mutedTool(context.Background(), nil, mutedInput{})
+	assert.NilError(t, err)
+
+	// Assert
+	assert.Assert(t, unknown.IsError)
+	assert.Assert(t, cmp.Contains(unknown.Content[0].(*mcp.TextContent).Text, `not following org "x"`))
+	assert.Assert(t, omitted.IsError)
+	assert.Assert(t, cmp.Contains(omitted.Content[0].(*mcp.TextContent).Text, "pass org"))
 }
 
 // TestFollow_SameOrgOnce checks that a second entry for an already followed
@@ -475,7 +494,7 @@ func TestFollow_SameOrgOnce(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	ctx, cancel := context.WithCancel(context.Background())
-	ch := NewChannel(&ChannelSenderMock{}, "", nil)
+	ch := NewChannel(&ChannelSenderMock{}, "")
 
 	// Act
 	ch.Follow(ctx, &configfile.Entry{Name: "acme", ID: 1, Key: "k1", Server: srv.URL})

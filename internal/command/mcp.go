@@ -75,20 +75,17 @@ var McpCommand = &cli.Command{
 
 		// The mute set and its channel_mute/channel_unmute/channel_muted
 		// tools only exist when there's a channel stream to filter. Without
-		// --channel the bridge behaves exactly as before.
-		var ch *mcpbridge.Channel
+		// --channel the bridge behaves exactly as before. The org is followed
+		// before the session starts, so the mute tools always find it.
 		if cmd.Bool("channel") {
-			org := mcpbridge.OrgKey{Server: cfg.Server, ID: cfg.ID}
-			ch = mcpbridge.NewChannel(transport, clientID, func() mcpbridge.OrgKey { return org })
+			ch := mcpbridge.NewChannel(transport, clientID)
+			ch.Follow(ctx, cfg)
 			ch.AddTools(server)
 		}
 
 		session, err := server.Connect(ctx, transport, nil)
 		if err != nil {
 			return err
-		}
-		if ch != nil {
-			ch.Follow(ctx, cfg)
 		}
 		return session.Wait()
 	},

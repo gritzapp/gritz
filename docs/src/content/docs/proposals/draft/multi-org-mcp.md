@@ -169,16 +169,20 @@ format doesn't change mid-session.
 
 **Mute sets per org.** `Channel` keeps one `TaskFilter` per `orgKey`.
 `Forward` checks the filter of the org whose stream delivered the
-notification. `channel_mute`, `channel_unmute` and `channel_muted` keep their
-arguments (no `org` argument) and act on the **current** org's set, including
-`all=true`. Their results gain an `org` field naming it:
+notification. `channel_mute`, `channel_unmute` and `channel_muted` take an
+optional `org` argument, an entry name as shown in the `org="..."` channel
+attribute, and act on that org's set, including `all=true`. Omitting `org`
+means the only followed org (always the case with `--key`, and before any
+switch); with more than one followed it is an error result asking for `org`,
+and an `org` that isn't followed is an error result
+(`not following org "x"`). Their results gain an `org` field naming it:
 
 ```json
 {"org": "acme", "all": false, "muted": [1234], "note": "..."}
 ```
 
-To mute a task in another org, the agent switches to it first. Mute sets
-survive switching away and back, and still reset when the process exits.
+Muting doesn't depend on the current org, so `switch_org` doesn't change which
+tasks are muted. Mute sets reset when the process exits.
 
 ### Flags
 
@@ -280,9 +284,6 @@ func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.E
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
 func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
 
-// Current returns the current org's key.
-func (o *Orgs) Current() OrgKey // new
-
 // AddTools registers list_orgs and switch_org.
 func (o *Orgs) AddTools(server *mcp.Server) // new
 
@@ -292,9 +293,9 @@ type OrgKey struct { // new
 	ID     int64
 }
 
-// NewChannel returns a Channel that forwards through sender and whose tools
-// edit the mute set of the org current returns.
-func NewChannel(sender ChannelSender, clientID string, current func() OrgKey) *Channel // changed: takes clientID and current
+// NewChannel returns a Channel that forwards through sender and follows no
+// org yet.
+func NewChannel(sender ChannelSender, clientID string) *Channel // changed: takes clientID
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
 // (none when empty, as for --key), unless its org is already followed. The
@@ -317,7 +318,7 @@ appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
 into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup;
 `switch_org` calls `merged.Lookup`, `gritzclient.New` with
 `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`;
-`Channel`'s tools read `current()` to pick the mute set.
+`Channel`'s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
 
@@ -343,7 +344,7 @@ into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with n
    `Forward` uses the delivering org's mute set, that the meta carries the name
    and is absent with an empty name, that a second `Follow` for the same
    `OrgKey` under another name starts no stream, and that the mute tools edit
-   the set `current` names.
+   the set `org` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each
    switched-to org. Updates `integrations/mcp` (a section on orgs, the tool
@@ -369,10 +370,6 @@ Slices 1 and 2 are independent.
   [Channel notifications](#channel-notifications): current-only loses
   completions of tasks the agent started; all-entries opens streams nobody
   asked for. Used orgs costs one stream per org switched to, never torn down.
-- **Mute tools act on the current org vs. take an `org` argument.** An
-  argument would let the agent mute a task in another org without switching,
-  but it's the per-tool org argument the issue ruled out, in miniature.
-  Muting is rare enough that a switch first is acceptable.
 - **`org` as a tag attribute vs. a prefix in the text.** `Meta` is what the
   channel protocol offers for structured context, and it leaves the message
   text and its tests unchanged.
