@@ -3,7 +3,6 @@ package configfile
 import (
 	"cmp"
 	"errors"
-	"os"
 
 	"github.com/urfave/cli/v3"
 )
@@ -52,11 +51,7 @@ func Resolve(cmd *cli.Command) (*Entry, error) {
 	if server != "" {
 		return nil, errors.New("--server requires --key: entries in .gritz.yml carry their own server")
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	m, err := Load(LoadOptions{Dir: wd})
+	m, err := Load(LoadOptions{})
 	if err != nil {
 		return nil, err
 	}

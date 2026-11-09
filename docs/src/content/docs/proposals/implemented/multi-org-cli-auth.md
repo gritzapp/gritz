@@ -331,7 +331,7 @@ type Merged struct { // new
 
 // LoadOptions configures Load.
 type LoadOptions struct { // new
-	Dir  string // where the walk starts
+	Dir  string // where the walk starts; empty means the working directory
 	Root string // the last directory the walk visits; empty means /
 	Base string // the base layer; empty means $CONFIG_DIR/.gritz.yml
 }
