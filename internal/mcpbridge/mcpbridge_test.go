@@ -2,7 +2,6 @@ package mcpbridge
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/configfile"
-	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/gritzapp/gritz/internal/x/mcptest"
@@ -511,24 +509,29 @@ func TestFollow_Once(t *testing.T) {
 	assert.Assert(t, cmp.Len(auths, 0))
 }
 
-// TestHealthReporter checks that each stream health transition becomes a
-// channel event carrying the org attribute.
-func TestHealthReporter(t *testing.T) {
+// TestFollow_Health checks that a stream health transition becomes a channel
+// event carrying the org attribute.
+func TestFollow_Health(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	sender := &ChannelSenderMock{
-		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
-	}
-	report := NewChannel(sender, "").healthReporter(context.Background(), "acme")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+	sent := make(chan mcpchannel.Params, 1)
+	ch := NewChannel(&ChannelSenderMock{
+		SendChannelFunc: func(_ context.Context, p mcpchannel.Params) error {
+			sent <- p
+			return nil
+		},
+	}, "")
 
 	// Act
-	report(gritzclient.Health{Err: errors.New("EOF")})
-	report(gritzclient.Health{Connected: true})
+	ch.Follow(t.Context(), &configfile.Entry{Name: "acme", ID: 1, Key: "k", Server: srv.URL})
 
 	// Assert
-	meta := map[string]string{"org": "acme"}
-	assert.DeepEqual(t, sender.SentChannelParams(), []mcpchannel.Params{
-		{Content: `Lost the connection to org "acme": EOF, retrying.`, Meta: meta},
-		{Content: `Reconnected to org "acme" (notifications sent while it was down were missed).`, Meta: meta},
+	assert.DeepEqual(t, <-sent, mcpchannel.Params{
+		Content: `Lost the connection to org "acme": unexpected status: 502, retrying.`,
+		Meta:    map[string]string{"org": "acme"},
 	})
 }
