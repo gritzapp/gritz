@@ -304,8 +304,8 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 ```
 
 **How it fits:** `gritz mcp` calls `Resolve` once, with or without `--key`,
-builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `OnSwitch` (unset without
-`--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and
+builds `mcpbridge.NewOrgSwitcher` with an `OnSwitch` that calls `ch.Follow` (nothing
+without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and
 appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
 into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup;
 `switch_org` calls `merged.Lookup`, `gritzclient.New` with
