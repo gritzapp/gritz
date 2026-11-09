@@ -387,7 +387,7 @@ about. Every task is on by default.
 | `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. |
 | `channel_muted` | Shows which tasks are muted. |
 
-Each tool takes an optional `org`, the `org` attribute of the messages to
-mute, and names it in its result. Muting lasts until `gritz mcp` exits. It is separate from
+Each tool takes `org`, the `org` attribute of the messages to mute, and names
+it in its result; leave it out only in a session started with `--key`. Muting lasts until `gritz mcp` exits. It is separate from
 [subscribed links](/concepts/events-and-links/#subscriptions), which route
 external events into tasks.

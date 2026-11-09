@@ -208,12 +208,10 @@ format doesn’t change mid-session.</p>
 <p><strong>Mute sets per org.</strong> <code dir="auto">Channel</code> keeps one <code dir="auto">TaskFilter</code> per entry name.
 <code dir="auto">Forward</code> checks the filter of the entry whose stream delivered the
 notification. <code dir="auto">channel_mute</code>, <code dir="auto">channel_unmute</code> and <code dir="auto">channel_muted</code> take an
-optional <code dir="auto">org</code> argument, an entry name as shown in the <code dir="auto">org="..."</code> channel
-attribute, and act on that org’s set, including <code dir="auto">all=true</code>. Omitting <code dir="auto">org</code>
-means the only followed org (always the case with <code dir="auto">--key</code>, and before any
-switch); with more than one followed it is an error result asking for <code dir="auto">org</code>,
-and an <code dir="auto">org</code> that isn’t followed is an error result
-(<code dir="auto">not following org "x"</code>). Their results gain an <code dir="auto">org</code> field naming it:</p>
+<code dir="auto">org</code> argument, an entry name as shown in the <code dir="auto">org="..."</code> channel attribute,
+and act on that org’s set, including <code dir="auto">all=true</code>. <code dir="auto">org</code> is required unless the
+session uses <code dir="auto">--key</code>, whose stream has no name; an <code dir="auto">org</code> that isn’t followed
+is an error result (<code dir="auto">not following org "x"</code>). Their results gain an <code dir="auto">org</code> field naming it:</p>
 <div class="expressive-code"><figure class="frame not-content"><figcaption class="header"></figcaption><pre data-language="json"><code><div class="ec-line"><div class="code"><span style="--0:#D6DEEB;--1:#403F53">{</span><span style="--0:#7FDBCA;--1:#096E72">"org"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">acme</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"all"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#FF6A83;--1:#A24848">false</span><span style="--0:#D6DEEB;--1:#403F53">, </span><span style="--0:#7FDBCA;--1:#096E72">"muted"</span><span style="--0:#D6DEEB;--1:#403F53">: [</span><span style="--0:#F78C6C;--1:#AA0982">1234</span><span style="--0:#D6DEEB;--1:#403F53">], </span><span style="--0:#7FDBCA;--1:#096E72">"note"</span><span style="--0:#D6DEEB;--1:#403F53">: </span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#C789D6;--1:#7C5686">...</span><span style="--0:#D9F5DD;--1:#111111">"</span><span style="--0:#D6DEEB;--1:#403F53">}</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="{&quot;org&quot;: &quot;acme&quot;, &quot;all&quot;: false, &quot;muted&quot;: [1234], &quot;note&quot;: &quot;...&quot;}"><div></div></button></div></figure></div>
 <p>Muting doesn’t depend on the current org, so <code dir="auto">switch_org</code> doesn’t change which
 tasks are muted. Mute sets reset when the process exits.</p>

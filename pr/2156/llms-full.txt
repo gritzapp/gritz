@@ -1252,7 +1252,7 @@ With `--channel`, three more tools let your Claude choose which tasks it hears a
 | `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. |
 | `channel_muted`  | Shows which tasks are muted.                                                                                                                                    |
 
-Each tool takes an optional `org`, the `org` attribute of the messages to mute, and names it in its result. Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2156/concepts/events-and-links/#subscriptions), which route external events into tasks.
+Each tool takes `org`, the `org` attribute of the messages to mute, and names it in its result; leave it out only in a session started with `--key`. Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2156/concepts/events-and-links/#subscriptions), which route external events into tasks.
 
 # Backends
 
@@ -2725,7 +2725,7 @@ Followed orgs are identified by entry name, `""` in `--key` mode. Two entries fo
 
 The message text is unchanged, and `--key` sessions send no `org` attribute (there’s only one org). The attribute is always set, not only once a second org is followed, so the format doesn’t change mid-session.
 
-**Mute sets per org.** `Channel` keeps one `TaskFilter` per entry name. `Forward` checks the filter of the entry whose stream delivered the notification. `channel_mute`, `channel_unmute` and `channel_muted` take an optional `org` argument, an entry name as shown in the `org="..."` channel attribute, and act on that org’s set, including `all=true`. Omitting `org` means the only followed org (always the case with `--key`, and before any switch); with more than one followed it is an error result asking for `org`, and an `org` that isn’t followed is an error result (`not following org "x"`). Their results gain an `org` field naming it:
+**Mute sets per org.** `Channel` keeps one `TaskFilter` per entry name. `Forward` checks the filter of the entry whose stream delivered the notification. `channel_mute`, `channel_unmute` and `channel_muted` take an `org` argument, an entry name as shown in the `org="..."` channel attribute, and act on that org’s set, including `all=true`. `org` is required unless the session uses `--key`, whose stream has no name; an `org` that isn’t followed is an error result (`not following org "x"`). Their results gain an `org` field naming it:
 
 ```json
 {"org": "acme", "all": false, "muted": [1234], "note": "..."}
