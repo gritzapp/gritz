@@ -80,7 +80,7 @@ function NewTaskPage() {
       <h1 className="text-2xl font-bold mb-6">Create New Task</h1>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="name">Name (optional)</Label>

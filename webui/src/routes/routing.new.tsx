@@ -32,7 +32,7 @@ function NewRoutingRulePage() {
       <h1 className="text-2xl font-bold mb-6">New Routing Rule</h1>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           {isLoading ? (
             <div className="text-muted-foreground">Loading...</div>
           ) : (

@@ -36,7 +36,7 @@ function NewCustomEventTypePage() {
       <h1 className="text-2xl font-bold mb-6">New Custom Event Type</h1>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           {isLoading ? (
             <div className="text-muted-foreground">Loading...</div>
           ) : (

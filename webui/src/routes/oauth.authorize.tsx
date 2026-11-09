@@ -49,7 +49,7 @@ function OAuthAuthorizePage() {
     return (
       <div className="container mx-auto py-8 px-4">
         <Card>
-          <CardContent className="pt-6">
+          <CardContent>
             <p className="text-destructive">Missing required OAuth parameters.</p>
           </CardContent>
         </Card>
@@ -62,7 +62,7 @@ function OAuthAuthorizePage() {
       <h1 className="text-2xl font-bold mb-6">Authorize Application</h1>
 
       <Card>
-        <CardContent className="pt-6 space-y-4">
+        <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             An application is requesting access to your account.
           </p>

@@ -54,7 +54,7 @@ function EditCustomEventTypePage() {
       <h1 className="text-2xl font-bold mb-6">Edit Custom Event Type</h1>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           {isLoading || !initialValues ? (
             <div className="text-muted-foreground">Loading...</div>
           ) : (
