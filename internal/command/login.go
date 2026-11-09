@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"text/tabwriter"
 	"time"
 
 	"github.com/cli/browser"
@@ -36,8 +37,15 @@ var LoginCommand = &cli.Command{
 			Usage:   "server URL (default: the top-level server of the nearest .gritz.yml, else " + configfile.DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
+		&cli.BoolFlag{
+			Name:  "list",
+			Usage: "list the org entries --org accepts from the working directory instead of logging in; * marks the default",
+		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		if cmd.Bool("list") {
+			return listEntries()
+		}
 		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
 		if entry.Server == "" {
 			server, err := configfile.LoginServer()
@@ -85,4 +93,29 @@ var LoginCommand = &cli.Command{
 		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)
 		return nil
 	},
+}
+
+// listEntries prints the org entries --org accepts from the working
+// directory, marking the default with *. It never prints credentials.
+func listEntries() error {
+	m, err := configfile.Load(configfile.LoadOptions{})
+	if err != nil {
+		return err
+	}
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "\tNAME\tID\tSERVER\tLOGIN")
+	for _, e := range m.Entries() {
+		mark, login := "", "browser"
+		if e.Name == m.Org {
+			mark = "*"
+		}
+		if e.Key != "" {
+			login = "key"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", mark, e.Name, e.ID, e.Server, login)
+	}
+	return w.Flush()
 }
