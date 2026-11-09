@@ -137,11 +137,9 @@ every other tool acts in it. Two tools manage it:
 
 - `list_orgs` lists the entries: each one's `name`, organisation `id`,
   `server`, and whether it is `current`. It doesn't contact the server.
-- `switch_org` takes an entry's `name` and makes it current. It checks the
-  entry's login with the server first, and fails, staying in the current
-  organisation, if the login doesn't work or belongs to another organisation
-  than the entry's `id`. It returns the entry's `name`, `id` and `server`, and
-  the organisation's name as `org_name`.
+- `switch_org` takes an entry's `name` and makes it current. It returns the
+  entry's `name`, `id` and `server`. It doesn't contact the server either: if
+  the entry's login doesn't work, the first tool call after the switch fails.
 
 The entries are those in the files when `gritz mcp` started; restart it to pick
 up a `gritz login` made since.

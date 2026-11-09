@@ -58,8 +58,8 @@ in the merged `orgs` that `allowed` permits, sorted by name, each mapped to
 - Keys are never returned.
 - The list is the merged files as loaded at startup. An entry added with
   `gritz login` while the session runs shows up after a restart.
-- It makes no server call, so it never fails on a stale key; `switch_org` is
-  where a bad key surfaces.
+- It makes no server call, so it never fails on a stale key; neither does
+  `switch_org`, so a bad key surfaces on the first tool call after the switch.
 
 This is how the current org is shown: the entry with `current: true` here, and
 the result of `switch_org`. No other tool result names the org; task results
@@ -77,23 +77,18 @@ Makes the named entry the current org.
    loaded at startup: the same rules as `--org` at startup, so a name outside `allowed` or with no entry fails
    with the same error message.
 2. Build a `gritzclient` for it from `entry.TokenSource(ctx)` (see
-   [Credentials](#credentials)) with the session's client id, and call
-   `GetCaller`. A failure (bad or expired key, unreachable server) is an error
-   result, and the current org is unchanged.
-3. If `GetCallerResponse.org.id` differs from the entry's `id`, fail without
-   switching: `entry "acme" says org 12, but its key belongs to org 31`. This
-   keeps a mis-pasted key from sending writes to an org the user didn't name.
-4. Make the client current. With `--channel`, start following the org (see
+   [Credentials](#credentials)) with the session's client id. This makes no
+   server call.
+3. Make the client current. With `--channel`, start following the org (see
    [Channel notifications](#channel-notifications)).
-5. Return the new current org:
+4. Return the new current org:
 
 ```json
-{"name": "local", "id": 1, "server": "http://localhost:8080", "org_name": "Local dev"}
+{"name": "local", "id": 1, "server": "http://localhost:8080"}
 ```
 
-`org_name` is the server-side org name from `GetCaller`, so the agent can tell
-the user which org it is now in. Switching to the current org repeats the check
-and is otherwise a no-op.
+Switching to the current org replaces its client with an equivalent one and is
+otherwise a no-op.
 
 ### How the tools pick up the current org
 
@@ -310,7 +305,7 @@ builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without
 appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
 into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup;
 `switch_org` calls `merged.Lookup`, `gritzclient.New` with
-`Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`;
+`Options{TokenSource: entry.TokenSource(ctx)}` and `follow`;
 `Channel`'s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
@@ -342,9 +337,9 @@ into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with n
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each
    switched-to org. Updates `integrations/mcp` (a section on orgs, the tool
    table, the `--key` note). Depends on: (1), (2), (3). Verifiable by:
-   `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad
-   key leaves the current org, id mismatch fails, `allowed` enforced, a
-   `refresh_token` entry authenticates); an e2e
+   `mcpbridge` tests for `switch_org` (the switched-to entry becomes current
+   and is followed, `list_orgs` marks it; an unknown entry leaves the current
+   org); an e2e
    test that logs in to two orgs, starts `gritz mcp --channel` in-process,
    creates a task in org A, switches to org B and creates a task there; then
    `list_tasks` shows only org B's task, and cancelling the org A task from
@@ -368,9 +363,11 @@ Slices 1 and 2 are independent.
   text and its tests unchanged.
 - **Fresh client per switch vs. a client cache.** Clients hold no connection
   state worth keeping; a cache would be a map with no benefit.
-- **`GetCaller` on switch vs. trusting the entry.** One round trip per switch
-  catches a dead key before the first real call fails, and an id mismatch
-  before a write lands in the wrong org.
+- **Trusting the entry vs. `GetCaller` on switch.** A round trip per switch
+  would catch a dead key before the first real call, and a key that belongs to
+  another org than the entry's `id`. `gritz login` already records the id from
+  `GetCaller`, so the entry is trusted and a switch makes no server call; a
+  dead key fails the first tool call instead.
 - **Snapshot of `.gritz.yml` at startup vs. reloading on each call.**
   Reloading would pick up `gritz login` without a restart, but would let the
   current entry's key or `allowed` change under a running session. Logins are

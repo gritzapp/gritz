@@ -6,7 +6,6 @@ import (
 
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
-	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/x/mcpx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -74,9 +73,7 @@ func (o *OrgSwitcher) AddTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "switch_org",
 		Description: "Make the named organisation, an entry name from list_orgs, the current " +
-			"one. Every other tool acts in the current organisation. Fails, leaving the " +
-			"current organisation unchanged, if the entry's credentials don't work or " +
-			"belong to another organisation.",
+			"one. Every other tool acts in the current organisation.",
 	}, o.switchOrgTool)
 }
 
@@ -107,34 +104,21 @@ type switchOrgInput struct {
 }
 
 type switchOrgOutput struct {
-	Name    string `json:"name"`
-	ID      int64  `json:"id"`
-	Server  string `json:"server"`
-	OrgName string `json:"org_name"`
+	Name   string `json:"name"`
+	ID     int64  `json:"id"`
+	Server string `json:"server"`
 }
 
-func (o *OrgSwitcher) switchOrgTool(ctx context.Context, _ *mcp.CallToolRequest, in switchOrgInput) (*mcp.CallToolResult, any, error) {
+func (o *OrgSwitcher) switchOrgTool(_ context.Context, _ *mcp.CallToolRequest, in switchOrgInput) (*mcp.CallToolResult, any, error) {
 	entry, err := o.merged.Lookup(in.Name)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
 	// The token source outlives this call, so it takes the process context.
 	client := newClient(o.ctx, entry, o.clientID)
-	resp, err := client.GetCaller(ctx, &gritzv1.GetCallerRequest{})
-	if err != nil {
-		return mcpx.ErrorResult("org %q: %s", entry.Name, err), nil, nil
-	}
-	if id := resp.GetOrg().GetId(); id != entry.ID {
-		return mcpx.ErrorResult("entry %q says org %d, but its key belongs to org %d", entry.Name, entry.ID, id), nil, nil
-	}
 	o.mu.Lock()
 	o.current, o.client = entry.Name, client
 	o.mu.Unlock()
 	o.follow(entry)
-	return mcpx.JSONResult(switchOrgOutput{
-		Name:    entry.Name,
-		ID:      entry.ID,
-		Server:  entry.Server,
-		OrgName: resp.GetOrg().GetName(),
-	}), nil, nil
+	return mcpx.JSONResult(switchOrgOutput{Name: entry.Name, ID: entry.ID, Server: entry.Server}), nil, nil
 }
