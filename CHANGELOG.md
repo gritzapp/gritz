@@ -1,5 +1,26 @@
 # Changelog
 
+## [4.6.0](https://github.com/gritzapp/gritz/compare/v4.5.0...v4.6.0) (2026-11-09)
+
+
+### Features
+
+* **agent:** add process agent type that runs a configured command ([#2180](https://github.com/gritzapp/gritz/issues/2180)) ([3bc5a00](https://github.com/gritzapp/gritz/commit/3bc5a00709b61778b91406294c926d5a8381144b))
+
+
+### Bug Fixes
+
+* **configfile:** don't suggest --key in the missing-org login hint ([#2178](https://github.com/gritzapp/gritz/issues/2178)) ([468a183](https://github.com/gritzapp/gritz/commit/468a183f7c5c6d887793f5862fd6373816928c7e))
+* report the VCS revision instead of Go's pseudo-version ([#2176](https://github.com/gritzapp/gritz/issues/2176)) ([b4402d0](https://github.com/gritzapp/gritz/commit/b4402d021523f254144cfad64528c2d2e2c99f11))
+
+
+### Miscellaneous
+
+* add .gritz.yml ([896312c](https://github.com/gritzapp/gritz/commit/896312ce78bf790e8f5b11a0db09f7333b686ef6))
+* add dev org to .gritz.yml and document the local dev stack in CLAUDE.md ([425939c](https://github.com/gritzapp/gritz/commit/425939cfe21d4f2ca8d52dfce0551bd6eb18425d))
+* move README setup section below the Web UI screenshot ([05bda96](https://github.com/gritzapp/gritz/commit/05bda96051e51436a37666718a1fed0aaf2ce073))
+* **skills:** pass org to the channel mute tools in the orchestrator skill ([#2179](https://github.com/gritzapp/gritz/issues/2179)) ([a47a044](https://github.com/gritzapp/gritz/commit/a47a044f8bcc8c0b50d7536ce34faaf813f62460))
+
 ## [4.5.0](https://github.com/gritzapp/gritz/compare/v4.4.0...v4.5.0) (2026-11-09)
 
 
