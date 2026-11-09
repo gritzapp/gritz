@@ -7,9 +7,12 @@ import "runtime/debug"
 var Version string
 
 // String returns the build version. It prefers the version injected at build
-// time, then the module version, falling back to the short VCS revision for
-// local builds and "(devel)" / "(unknown)" when no version information is
-// available.
+// time, falling back to the short VCS revision (with a "-dirty" suffix for
+// modified trees) and "(unknown)" when neither is available.
+//
+// The module version from the build info is ignored: the module path has no
+// major version suffix, so Go stamps a pseudo-version after the last v1 tag
+// rather than the release tag.
 func String() string {
 	if Version != "" {
 		return Version
@@ -18,20 +21,24 @@ func String() string {
 	if !ok {
 		return "(unknown)"
 	}
-	version := info.Main.Version
-	if version == "" || version == "(devel)" {
-		for _, setting := range info.Settings {
-			if setting.Key == "vcs.revision" {
-				v := setting.Value
-				if len(v) > 8 {
-					v = v[:8]
-				}
-				return v
-			}
+	var revision string
+	var modified bool
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
 		}
 	}
-	if version == "" {
-		return "(devel)"
+	if revision == "" {
+		return "(unknown)"
 	}
-	return version
+	if len(revision) > 8 {
+		revision = revision[:8]
+	}
+	if modified {
+		revision += "-dirty"
+	}
+	return revision
 }
