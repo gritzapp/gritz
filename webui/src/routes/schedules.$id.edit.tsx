@@ -10,7 +10,7 @@ import type { Schedule } from '@/gen/gritz/v1/gritz_pb'
 import { Card, CardContent } from '@/components/ui/card'
 import { useOrgId } from '@/hooks/use-org-id'
 import { ScheduleForm, type ScheduleFormValues } from '@/components/schedule-form'
-import { durationFromHours, hoursFromDuration } from '@/lib/duration'
+import { autoArchiveSelectValue, durationFromAutoArchiveSelect } from '@/lib/duration'
 
 export const Route = createFileRoute('/schedules/$id/edit')({
   component: EditSchedulePage,
@@ -29,7 +29,7 @@ function scheduleToValues(schedule: Schedule): ScheduleFormValues {
     cronExpr: schedule.cronExpr,
     timezone: schedule.timezone,
     enabled: schedule.enabled,
-    autoArchive: hoursFromDuration(schedule.autoArchive) || 'never',
+    autoArchive: autoArchiveSelectValue(schedule.autoArchive),
   }
 }
 
@@ -57,7 +57,7 @@ function EditSchedulePage() {
       instructions: [{ text: values.instruction, url: '' }],
       cronExpr: values.cronExpr,
       timezone: values.timezone,
-      autoArchive: durationFromHours(values.autoArchive),
+      autoArchive: durationFromAutoArchiveSelect(values.autoArchive),
     })
     // enabled lives on its own RPC (it has distinct side effects: enabling
     // recomputes next_run_at, disabling clears it), so only call it when the

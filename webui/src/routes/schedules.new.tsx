@@ -8,7 +8,7 @@ import {
   emptyScheduleValues,
   type ScheduleFormValues,
 } from '@/components/schedule-form'
-import { durationFromHours } from '@/lib/duration'
+import { durationFromAutoArchiveSelect } from '@/lib/duration'
 
 export const Route = createFileRoute('/schedules/new')({
   component: NewSchedulePage,
@@ -29,7 +29,7 @@ function NewSchedulePage() {
       cronExpr: values.cronExpr,
       timezone: values.timezone,
       enabled: values.enabled,
-      autoArchive: durationFromHours(values.autoArchive),
+      autoArchive: durationFromAutoArchiveSelect(values.autoArchive),
     })
     navigate({ to: '/schedules', search: { org: orgId } })
   }
