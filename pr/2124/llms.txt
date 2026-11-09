@@ -20,7 +20,7 @@ Every page is also served as Markdown: take its URL, drop the trailing slash and
 
 - [Events and links](https://docs.gritz.dev/pr/2124/concepts/events-and-links.md): How tasks link to pull requests, issues and other resources, how a subscribed link lets an event on that resource wake the task, and where events show up.
 - [Namespaces](https://docs.gritz.dev/pr/2124/concepts/namespaces.md): How a task's namespace scopes which routing rules see its subscriptions, so separate workflows on the same resource don't wake or suppress each other's tasks.
-- [Organisations, members and API keys](https://docs.gritz.dev/pr/2124/concepts/orgs-members-keys.md): How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
+- [Organisations, members and API keys](https://docs.gritz.dev/pr/2124/concepts/orgs-members-keys.md): How organisations own tasks, runners and rules, what members and the owner can do, and what CLI logins, API keys and task tokens can access.
 - [Routing rules](https://docs.gritz.dev/pr/2124/concepts/routing-rules.md): How an organisation's routing rules match events by type and conditions, why the first match wins, waking versus creating tasks, public rules, and testing rules with a test event.
 - [Runners](https://docs.gritz.dev/pr/2124/concepts/runners.md): Where a task runs, how runners connect to an organisation, choosing a runner for a task, and what happens when a runner is offline.
 - [Schedules](https://docs.gritz.dev/pr/2124/concepts/schedules.md): Create tasks on a cron schedule, in a timezone, and run a schedule's task on demand with run now.

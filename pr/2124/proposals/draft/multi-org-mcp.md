@@ -69,8 +69,8 @@ Makes the named entry the current org.
 | --- | --- |
 | `name` | An entry name from `list_orgs`. Required. |
 
-1. Select the entry with `configfile.Selector.Select(name)`: the same rules
-   as `--org` at startup, so a name outside `allowed` or with no entry fails
+1. Look the entry up with `merged.Lookup(name)` on the `*configfile.Merged`
+   loaded at startup: the same rules as `--org` at startup, so a name outside `allowed` or with no entry fails
    with the same error message.
 2. Build a `gritzclient` for it from `entry.TokenSource(ctx)` (see
    [Credentials](#credentials)) with the session's client id, and call
@@ -118,8 +118,9 @@ notification streams filter out the session's own changes in every org.
 ### Credentials
 
 Every client and `NotificationClient` the session builds gets its credentials
-from the entry's token source, `entry.TokenSource(ctx)`, as introduced by
-[CLI OAuth login](/proposals/draft/cli-oauth-login/), never from `entry.Key`.
+from the entry's token source, `entry.TokenSource(ctx)`, as every command does
+since [CLI OAuth login](/proposals/implemented/cli-oauth-login/), never from
+`entry.Key`.
 A `key` entry gives a static token, and a `refresh_token` entry exchanges and
 rotates its refresh token, so both kinds work for the startup org, for
 `switch_org` and for `Channel.Follow`. `--key` is a static token too.
@@ -222,25 +223,22 @@ schedules and events all act in the current org. Two consequences:
 ```go
 package configfile // github.com/gritzapp/gritz/internal/configfile
 
-// Selector selects entries from the merged .gritz.yml files.
-type Selector struct { // new
-	Merged *Merged
-}
+// Names returns the entry names Allowed permits, sorted.
+func (m *Merged) Names() []string // new
 
-// NewSelector loads and validates the merged files from the working directory.
-// It returns nil when --key is set, and fails when --server is set without it.
-func NewSelector(cmd *cli.Command) (*Selector, error) // new
+// Lookup returns the entry named org, or m.Org when org is empty, enforcing
+// m.Allowed, with Name and Path set, and Server set to DefaultServer when the
+// entry has none. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) // changed: fills in DefaultServer
 
-// Select returns the name and entry of org, or of the merged Org when org is
-// empty, enforcing Allowed. The entry's Server is its own, else DefaultServer.
-func (s *Selector) Select(org string) (string, *Entry, error) // new
-
-// Names returns the names Select accepts, sorted.
-func (s *Selector) Names() []string // new
-
-// Resolve returns the --key entry, or NewSelector and Select(--org).
-func Resolve(cmd *cli.Command) (*Entry, error) // changed: built on Selector, same behaviour
+// Resolve applies --key, --server and --org.
+func Resolve(cmd *cli.Command) (*Entry, error) // changed: no longer defaults Server; Lookup does
 ```
+
+`gritz mcp` loads the files as every command does,
+`configfile.Load(configfile.LoadOptions{})` (an empty `Dir` is the working
+directory) followed by `merged.Validate()`, and keeps the `*Merged` for the
+session. `--key` sessions skip loading entirely, as now.
 
 ```go
 package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
@@ -269,10 +267,10 @@ const OrgsInstructions = "..." // new
 // Orgs is the session's current org and its client.
 type Orgs struct{ ... } // new
 
-// NewOrgs starts the session in the entry named name, calling follow for it
-// and for every org switched to later. Clients are built from
-// entry.TokenSource(ctx).
-func NewOrgs(ctx context.Context, sel *configfile.Selector, name string, entry *configfile.Entry, clientID string, follow func(name string, entry *configfile.Entry)) *Orgs // new
+// NewOrgs starts the session in entry, calling follow for it and for every
+// org switched to later. switch_org looks entries up in merged. Clients are
+// built from entry.TokenSource(ctx).
+func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *Orgs // new
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
 func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
@@ -293,40 +291,41 @@ type OrgKey struct { // new
 // edit the mute set of the org current returns.
 func NewChannel(sender ChannelSender, clientID string, current func() OrgKey) *Channel // changed: takes clientID and current
 
-// Follow starts forwarding entry's notifications, labelled with name (none
-// when empty), unless its org is already followed. The NotificationClient is
-// built from entry.TokenSource(ctx). The stream runs until ctx ends.
-func (c *Channel) Follow(ctx context.Context, name string, entry *configfile.Entry) // new
+// Follow starts forwarding entry's notifications, labelled with entry.Name
+// (none when empty, as for --key), unless its org is already followed. The
+// NotificationClient is built from entry.TokenSource(ctx). The stream runs
+// until ctx ends.
+func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 
 // Forward applies the summary gate and the org's mute set, then pushes the
 // channel notification.
 func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification) // changed: takes the org
 ```
 
-**How it fits:** `gritz mcp` calls `configfile.NewSelector`. With `--key` (nil
-selector) it calls `Resolve`, builds one client from the entry's token source, passes
-`mcpserver.Static(client)` to `AddTools`, and with `--channel` calls
-`ch.Follow(ctx, "", entry)`. Otherwise it calls `sel.Select(--org)`, builds
-`mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without
+**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client
+from the entry's token source, passes `mcpserver.Static(client)` to `AddTools`,
+and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`).
+Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`,
+builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without
 `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and
-appends `OrgsInstructions`. The `NotificationClient` setup moves from
-`mcp.go` into `Channel.Follow`. `Orgs.switch_org` calls `Selector.Select`,
-`gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`,
-`GetCaller` and `follow`; `Channel`'s tools read
-`current()` to pick the mute set.
+appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
+into `Channel.Follow`. `list_orgs` reads `merged.Names()` and `merged.Orgs`;
+`switch_org` calls `merged.Lookup`, `gritzclient.New` with
+`Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`;
+`Channel`'s tools read `current()` to pick the mute set.
 
 ## Implementation Plan
 
-Depends on [CLI OAuth login](/proposals/draft/cli-oauth-login/), being
-implemented: slices 3 and 4 need `Entry.TokenSource` and the `TokenSource`
-fields on `gritzclient.Options` and `NotificationClientOptions`.
+Builds on [#2145](https://github.com/gritzapp/gritz/pull/2145), in progress,
+which makes an empty `LoadOptions.Dir` mean the working directory; slice 4
+rebases onto it.
 
-1. **`configfile.Selector`** — Delivers: `Selector`, `NewSelector`, `Select`,
-   `Names`; `Resolve` rebuilt on them. Nothing else changes. Depends on:
-   nothing. Verifiable by: the existing `configfile` tests pass; table tests
-   for `Select` (merged `org`, `allowed`, missing entry, the entry's own
-   `server`, `DefaultServer` for an entry without one) and `Names` (filters by
-   `allowed`, sorted).
+1. **`Merged.Names` and the `Lookup` server default** — Delivers:
+   `(*Merged).Names`; `Lookup` sets `DefaultServer` on an entry without a
+   server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by:
+   the existing `configfile` tests pass; tests that `Names` filters by
+   `allowed` and sorts, and that `Lookup` keeps an entry's own `server` and
+   fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`,
    `AddTools` taking a `ServiceFunc`, every handler snapshotting the service
    once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on:
@@ -342,7 +341,7 @@ fields on `gritzclient.Options` and `NotificationClientOptions`.
    `Forward` uses the delivering org's mute set, that the meta carries the name
    and is absent with an empty name, that a second `Follow` for the same
    `OrgKey` under another name starts no stream, and that the mute tools edit
-   the set `current` names. Depends on CLI OAuth's `TokenSource` options.
+   the set `current` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each
    switched-to org. Updates `integrations/mcp` (a section on orgs, the tool
@@ -355,7 +354,7 @@ fields on `gritzclient.Options` and `NotificationClientOptions`.
    `list_tasks` shows only org B's task, and cancelling the org A task from
    another client delivers its channel message with `org="a"`.
 
-Slices 1 and 2 are independent, and of CLI OAuth.
+Slices 1 and 2 are independent.
 
 ## Trade-offs
 

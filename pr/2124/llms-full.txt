@@ -105,7 +105,7 @@ The task page’s sidebar shows a task’s namespace, and agents see it in [`get
 
 # Organisations, members and API keys
 
-> How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
+> How organisations own tasks, runners and rules, what members and the owner can do, and what CLI logins, API keys and task tokens can access.
 
 ## Organisations
 
@@ -142,14 +142,16 @@ The owner can delete an organisation from **My Organisations**, except their def
 
 [Section titled “API keys”](#api-keys)
 
-An API key lets a program act for the organisation: a [runner](/pr/2124/concepts/runners/), the [CLI](/pr/2124/using/cli/), or a system sending [custom events](/pr/2124/integrations/custom-events/). Create one on the **Keys** page. The key, starting with `xat_`, is shown once, when it is created; store it then.
+An API key lets a program act for the organisation: a [runner](/pr/2124/concepts/runners/), the [CLI](/pr/2124/using/cli/) in CI, or a system sending [custom events](/pr/2124/integrations/custom-events/). Create one on the **Keys** page. The key, starting with `xat_`, is shown once, when it is created; store it then.
+
+People using the CLI on their own machine don’t need a key: [`gritz login`](/pr/2124/using/cli/#configuration) logs them in with the browser, and the CLI then acts as them, like the Web UI. That login stops working when they leave the organisation, or after 30 days without use. Keys are for what runs unattended, such as CI and deployed runners.
 
 * A key belongs to the organisation it was created in, not to the member who created it, and keeps working if they leave.
 * It can do what a member can, in that organisation only, apart from the owner’s actions.
 * Actions taken with it, such as creating a task, are recorded under the key’s name, so give each key a name that says what uses it.
 * Keys created in the Web UI don’t expire. Delete a key on the **Keys** page to revoke it.
 
-Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from its [config file](/pr/2124/using/cli/#configuration); a program calling the [API](/pr/2124/reference/api/) sends it on every request.
+Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from `--key`, `GRITZ_API_KEY` or its [config file](/pr/2124/using/cli/#logging-in-with-an-api-key); a program calling the [API](/pr/2124/reference/api/) sends it on every request.
 
 ## Task tokens
 
@@ -898,7 +900,7 @@ gritz is an MCP server, so the agent you work with locally, such as Claude Code 
 There are two ways to connect:
 
 * **Over HTTP, to `/mcp` on the server.** Nothing to install; you sign in with your browser. Use this unless you need channels.
-* **Locally, with `gritz mcp`.** Your client runs the `gritz` binary, which talks to the server with an API key. It is also the only way to get [channels](#channels): task updates pushed into a Claude Code session.
+* **Locally, with `gritz mcp`.** Your client runs the `gritz` binary, which talks to the server with the CLI’s login. It is also the only way to get [channels](#channels): task updates pushed into a Claude Code session.
 
 Both offer the same [tools](#tools), and act in one organisation.
 
@@ -969,7 +971,7 @@ The client then acts with the key: in the key’s organisation, and recorded und
 
 [Section titled “Connect with gritz mcp”](#connect-with-gritz-mcp)
 
-`gritz mcp` is a local MCP server over stdio. Your client starts it, and it forwards each tool call to the server’s API with an API key. Install the [CLI](/pr/2124/using/cli/) and [log in](/pr/2124/using/cli/#configuration), then add it to your client.
+`gritz mcp` is a local MCP server over stdio. Your client starts it, and it forwards each tool call to the server’s API with the CLI’s login. Install the [CLI](/pr/2124/using/cli/) and [log in](/pr/2124/using/cli/#configuration), then add it to your client.
 
 For Claude Code:
 
@@ -990,7 +992,7 @@ Or in a project’s `.mcp.json`:
 }
 ```
 
-`gritz mcp` picks its organisation, key and server as every CLI command does, from the `.gritz.yml` files of the directory the client starts it in: a repository whose `.gritz.yml` sets `org` gets that organisation with no key in the MCP config.
+`gritz mcp` picks its organisation, login and server as every CLI command does, from the `.gritz.yml` files of the directory the client starts it in: a repository whose `.gritz.yml` sets `org` gets that organisation with no credential in the MCP config.
 
 | Flag             |                                                                                                                                     |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -1587,7 +1589,7 @@ These steps run a runner against gritz.dev on a machine with Docker.
    gritz login --key xat_...
    ```
 
-   This saves the key in `~/.config/gritz/.gritz.yml`, as the CLI’s [configuration](/pr/2124/using/cli/#configuration) does. On a server, pass it with `--key` or `GRITZ_API_KEY` instead.
+   This saves the key in `~/.config/gritz/.gritz.yml`; see [Logging in with an API key](/pr/2124/using/cli/#logging-in-with-an-api-key). On a server, pass it with `--key` or `GRITZ_API_KEY` instead.
 
 3. **Write a `workspaces.yaml`** in `~/.config/gritz/`. This one clones a sample repository and runs Claude Code on it with your Claude Code OAuth token:
 
@@ -2081,366 +2083,6 @@ Each proposal has one of three statuses:
 * **Draft**: under discussion or not yet built.
 * **Implemented**: built and shipped. The code may have moved on since.
 * **Rejected**: considered and not pursued. The proposal records why.
-
-# CLI OAuth tokens instead of API keys
-
-> Logging the CLI in means creating an API key in the web UI and pasting it into `gritz login --key`, and the key it stores never expires and isn't tied to the user who made it.
-
-Issue: <https://github.com/gritzapp/gritz/issues/2090>
-
-## Problem
-
-[Section titled “Problem”](#problem)
-
-[Multi-org CLI auth](/pr/2124/proposals/implemented/multi-org-cli-auth/) gave the CLI named org entries in `.gritz.yml`, but the only way to fill one is `gritz login --key <key>`: open `/ui/keys/new`, create a key, copy it, paste it. That is one key per org per machine, each living until someone deletes it in the web UI, and every action taken with it is audited as “(API key)” rather than as the person at the keyboard.
-
-The server already runs an OAuth 2.1 + PKCE authorization server for MCP clients ([MCP OAuth](/pr/2124/proposals/implemented/mcp-oauth/), [`internal/auth/oauthflow`](https://github.com/gritzapp/gritz/tree/master/internal/auth/oauthflow)). `gritz login` should use it: open a browser, approve, done. The issue’s first direction was to use OAuth only to mint an API key; the direction it settled on is for the CLI to store the OAuth tokens in its `.gritz.yml` entry and use them directly in place of a key. That leaves what the issue first set aside: refresh-token expiry, writing rotated tokens back, and long-running commands that need a refreshing token source.
-
-## Design
-
-[Section titled “Design”](#design)
-
-### Overview
-
-[Section titled “Overview”](#overview)
-
-* `gritz login` without `--key` runs the authorization code flow with PKCE against the entry’s server, with a loopback redirect. The org is the one approved on the approval page.
-* The entry stores the **refresh token** in a new `refresh_token` field, instead of `key`. Access tokens are never written down.
-* Every user-facing command builds an `oauth2.TokenSource` from the selected entry. For a `refresh_token` entry the source exchanges it for a 5-minute access token on first use and again whenever that expires, so long-running commands (`mcp`, `notify`, `runner`) keep working.
-* When a refresh returns a rotated refresh token and the stored one is more than a day old, the source writes the new one back into the file the entry came from. Using the CLI at least once every 30 days keeps the login alive indefinitely.
-* `key` entries, `gritz login --key` and `--key` / `GRITZ_API_KEY` are unchanged. Keys remain the credential for CI and deployed runners.
-* Server side: no new endpoints or proto changes. The approval page gets an org picker.
-
-### What the server already gives us
-
-[Section titled “What the server already gives us”](#what-the-server-already-gives-us)
-
-These properties of `oauthflow` shape the design, and none of them change:
-
-* `/oauth/authorize` (POST from the approval page) accepts any `client_id` and `redirect_uri`; it only binds them into the 60-second auth code JWT, which `/oauth/token` checks along with PKCE. There’s no client registry, so the CLI needs no `/oauth/register` call.
-* The access token is an ordinary app JWT (5 minutes, `authscope.Admin()` in the approved org), accepted by `apiauth.authenticate` as a Bearer on the Connect API, `/events` SSE and `/shell/attach`, exactly like a web UI session. `GetCaller` reads `apiauth.MustCaller(ctx).OrgID`, so it works with one.
-* The refresh token is a stateless JWT with a 30-day `exp`. Every refresh issues a new one with a fresh 30 days, after `ResolveOrg` re-checks that the user is still a member and the org isn’t archived.
-* **Old refresh tokens stay valid until their own `exp`.** There is no reuse detection. Two processes refreshing the same token both succeed, and a rotated token that is never saved costs nothing.
-
-The last point is what keeps refresh simple: write-back is an optimisation that slides the 30-day window, not a correctness requirement, so it needs no locking.
-
-### The entry
-
-[Section titled “The entry”](#the-entry)
-
-```yaml
-org: acme
-orgs:
-  acme:
-    id: 12
-    refresh_token: eyJhbGciOiJFZERTQSIs...
-  acme-ci:
-    id: 12
-    key: xat_...
-  local:
-    id: 1
-    server: http://localhost:8080
-    refresh_token: eyJhbGciOiJFZERTQSIs...
-```
-
-* `refresh_token`: an OAuth refresh token for the org, written by `gritz login`.
-* An entry has exactly one of `key` and `refresh_token`. `Entry.Validate` reports `no key or refresh_token` or `both key and refresh_token`, named with the file as today.
-* Merge and selection are unchanged: entries still replace whole by name, so a key from one file is never paired with a refresh token from another.
-* The `--key` / `GRITZ_API_KEY` override is unchanged: it skips every file, `refresh_token` entries included.
-
-Only the refresh token is stored. Persisting the 5-minute access token would save one round trip per command, but adds a second field that goes stale between any two commands more than five minutes apart and has to be rewritten on almost every run.
-
-### `gritz login`
-
-[Section titled “gritz login”](#gritz-login)
-
-```plaintext
-gritz login [--name <name>] [--server <url>]
-gritz login --key <key> [--name <name>] [--server <url>]
-```
-
-With `--key` (or `GRITZ_API_KEY`) set, `login` behaves exactly as today. `--key` loses `Required: true`; without it, `login` runs the browser flow:
-
-1. **Listen.** Bind `127.0.0.1:0` and serve `GET /callback`. The redirect URI is `http://127.0.0.1:<port>/callback` (a loopback IP literal, per RFC 8252 §7.3).
-
-2. **Build the authorize URL** with `oauth2.Config{ClientID: "gritz-cli", Endpoint: {AuthURL: <server>/ui/oauth/authorize, TokenURL: <server>/oauth/token}, RedirectURL: <redirect URI>}`, a random `state`, and `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`. If `--name` names an existing entry in `$CONFIG_DIR/.gritz.yml` for the same server, also add `org=<id>`, so re-logging in to an entry preselects its org (the web UI’s root route already switches to `?org=`).
-
-3. **Print the authorize URL and open the browser** with [`github.com/cli/browser`](https://github.com/cli/browser)’s `browser.OpenURL` (already in `go.mod` as an indirect dependency; it becomes direct). The URL is always printed; if opening fails, `login` carries on and the user opens the printed URL on the same machine:
-
-   ```plaintext
-   Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
-   ```
-
-4. **Wait** for a request to `/callback` and check its `state`; `error=access_denied` (the approval page’s Deny) fails with `login denied`. The callback answers with a short “Logged in, you can close this tab” page. Give up after 10 minutes.
-
-5. **Exchange** the code with `cfg.Exchange(ctx, code, oauth2.VerifierOption(v))`.
-
-6. **Identify the org** by calling `GetCaller` with the access token, exactly as the `--key` path does with the key, then name the entry (`--name`, else `configfile.Slug(org.name)`).
-
-7. **Write** `{id, refresh_token, server}` with `configfile.Login`, unchanged: same name for the same id and server replaces the entry’s credential (a `key` entry becomes a `refresh_token` entry and vice versa), a different org fails with `ErrNameTaken`, and the first entry becomes the file’s `org`.
-
-8. Print `Logged in to Acme Labs (org 12) as "acme-labs"`.
-
-The client id is the constant `gritz-cli`. The server only checks that the token request repeats it, so there’s nothing to register.
-
-**Which org.** The approval page decides: the token is minted for the org the user approves. Today the page shows the web UI’s current org and mints for it. It gets an org `<Select>` listing `GetProfile`’s orgs, defaulting to the current org (or the `?org=` preselected in step 2), and passes the selection to `auth.fetchToken(orgId)` on Approve. This also lets Claude.ai and other MCP clients be connected to a non-current org without switching the whole UI first. One login is one org; logging in to a second org is a second `gritz login`.
-
-### Headless machines
-
-[Section titled “Headless machines”](#headless-machines)
-
-The browser login only works where the browser runs on the same machine as `login`, because the redirect goes to its loopback listener. There is no pasted-redirect or device flow. Elsewhere:
-
-* **Use a key.** `gritz login --key`, or `GRITZ_API_KEY`, as today. This is the credential for CI, containers and deployed runners: one that dies after 30 idle days, and that rotates by rewriting a file, is the wrong fit for an image or a secret store.
-* **Copy an entry.** A refresh token isn’t bound to a machine, so an entry from a laptop’s `.gritz.yml` works when copied to another machine’s. Each copy then rotates on its own, and all of them stay valid because old refresh tokens are never invalidated.
-
-### Refresh and write-back
-
-[Section titled “Refresh and write-back”](#refresh-and-write-back)
-
-`Entry.TokenSource(ctx)` maps the entry (`Server`, `Key`, `RefreshToken`) onto `cliauth.TokenSource` and returns it. With a key (including `--key`), `cliauth.TokenSource` returns it as a static token.
-
-`internal/auth/cliauth` is the gritz CLI’s OAuth client. It knows nothing about `.gritz.yml`, but it knows the server: the `gritz-cli` client id, the endpoints, and that refresh tokens are JWTs with an `iat`. `cliauth.TokenSource` is an `oauth2.ReuseTokenSource` over a source that exchanges the refresh token in use at `<server>/oauth/token`. `ReuseTokenSource` caches the access token and refreshes only when it has expired (with `oauth2`’s 10-second early expiry), serialised by its own mutex, so one process never refreshes twice concurrently. Each refresh:
-
-1. On a 400 from the token endpoint (`*oauth2.RetrieveError`, the server’s `invalid refresh_token`: expired, signed by a rotated app key, user removed, org archived), returns `cliauth.ErrLoginExpired` with a re-login hint:
-
-   ```plaintext
-   login expired or revoked: run `gritz login`
-   ```
-
-   For a non-default server the hint includes `--server <url>`.
-
-2. On success, keeps the new refresh token in memory for the next refresh, and passes it to `OnRefreshToken` if the token last reported (initially the starting one) was issued more than 24 hours ago, read from its `iat` without verification.
-
-`Entry.TokenSource`’s `OnRefreshToken` **writes the new token back**. A write-back failure is logged with `slog.Warn` and otherwise ignored; the in-memory token keeps working.
-
-The write goes through `configfile.UpdateFile`, which `Login` also uses: it re-reads the file at `path`, lets a callback edit it, and writes it back the same way (temp file + rename via `atomicio.WriteFile`, mode kept). The rotation callback replaces `orgs[name].refresh_token` with the process’s token whatever the entry holds: old refresh tokens stay valid, so overwriting a token another process or a new `login` wrote loses nothing. It leaves the entry alone only if it is gone, so a deleted entry isn’t recreated with just a refresh token, or if it now holds a key, so it never ends up with both.
-
-**Where.** The file the entry came from: `Lookup` now fills `Entry.Name` and `Entry.Path` (from `Merged.OrgsFrom`). `login` only ever writes `$CONFIG_DIR/.gritz.yml`, but a refresh-token entry the user moved into another file keeps itself alive there too. Like `login`, the write-back re-marshals the file, dropping comments.
-
-**Concurrency.** Commands sharing an entry never coordinate:
-
-* All of them can refresh with the same stored token; the server accepts it each time.
-* Each process writes back at most once a day; when two do around the same time, the later rename wins. Every token written is valid.
-* The window that can lose an unrelated edit is a `login` or a hand edit to the same file landing between the write-back’s read and its rename. It is the same read-modify-rename window `login` already has, and it is not worth a lock file.
-
-**Expiry in practice.** A refresh-token entry expires only after 30 days in which nothing used it past the 24-hour threshold. A long-running `runner` or `mcp` refreshes every 5 minutes and so rewrites once a day while it runs.
-
-### Commands
-
-[Section titled “Commands”](#commands)
-
-Each user-facing command already calls `configfile.Resolve`. It now builds its clients from `cfg.TokenSource(ctx)` instead of `cfg.Key`:
-
-| Command                           | Change                                                                                                                                        |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `task list/create/update`, `logs` | `gritzclient.Options{TokenSource: ts}`                                                                                                        |
-| `shell`                           | client from `ts`; `shell.Attach` gets `ts`. The token is read once, when the WebSocket dials; the server doesn’t re-check an open connection. |
-| `mcp`, `notify`                   | client and `NotificationClient` from `ts`. Each SSE reconnect fetches a current token; an open stream isn’t re-checked.                       |
-| `runner`                          | `runner.ServeOptions.TokenSource` replaces `Token`; the client and the notification client share it.                                          |
-| `login`                           | unchanged on the `--key` path; uses the exchanged access token for `GetCaller`                                                                |
-
-`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` replace `Token` with a `TokenSource` field; a nil source means no authentication. `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key, pass `gritzclient.StaticToken` of it.
-
-A refresh failure surfaces from `AuthTransport.RoundTrip` as the request’s error. One-shot commands exit with the “run `gritz login`” message; `runner`, `mcp` and `notify` log it on every attempt, the same as any other server outage, until restarted after a new `login`.
-
-### Server-side changes
-
-[Section titled “Server-side changes”](#server-side-changes)
-
-* **Approval page org picker** (`webui/src/routes/oauth.authorize.tsx`), above.
-* Nothing else. No proto change: `GetCaller` already serves app JWTs. No `oauthflow` change: the redirect URI, client id, refresh rotation and 30-day TTL are already what the CLI needs.
-
-Behaviour that changes as a consequence, worth knowing rather than changing:
-
-* CLI actions are audited as the user (`UserInfo.AuditName` without “(API key)”).
-* The CLI acts with `authscope.Admin()` in the org, like the web UI and MCP connectors, rather than with the scopes of a key.
-* A refresh-token entry can’t be revoked individually. Removing the user from the org or archiving the org stops it at the next refresh (within 5 minutes); otherwise it lives as long as it keeps being used. This matches MCP connectors, and the trade-off in [MCP OAuth](/pr/2124/proposals/implemented/mcp-oauth/#refresh-tokens-are-not-revocable).
-
-### API
-
-[Section titled “API”](#api)
-
-```go
-package configfile // github.com/gritzapp/gritz/internal/configfile
-
-
-// Entry is one named org in a .gritz.yml file.
-type Entry struct {
-  // ID is the org id.
-  ID int64 `yaml:"id"`
-  // Key is an API key for the org.
-  Key string `yaml:"key,omitempty"` // changed: omitempty
-  // RefreshToken is an OAuth refresh token for the org.
-  RefreshToken string `yaml:"refresh_token,omitempty"` // new
-  // Server is the server URL; empty means the file's top-level server, else the default server.
-  Server string `yaml:"server,omitempty"`
-  // Name is the entry's name; set by Lookup.
-  Name string `yaml:"-"` // new
-  // Path is the file the entry came from; set by Lookup.
-  Path string `yaml:"-"` // new
-}
-
-
-// Validate checks that the entry has an id and exactly one of a key and a
-// refresh token.
-func (e Entry) Validate() error // changed
-
-
-// TokenSource returns the entry's credentials: the key as a static token, or
-// access tokens refreshed from RefreshToken, writing rotated refresh tokens
-// back to Path.
-func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
-
-
-// UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
-// to change it, and writes it back atomically unless fn returns an error,
-// keeping its mode or creating it 0600. f.Orgs is never nil when fn is called.
-func UpdateFile(path string, fn func(f *File) error) error // new
-
-
-// Lookup returns the entry named org, or m.Org when org is empty,
-// enforcing m.Allowed, with Name and Path set. Call Validate first.
-func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
-```
-
-```go
-package cliauth // github.com/gritzapp/gritz/internal/auth/cliauth — new
-
-
-// ClientID is the OAuth client id the gritz CLI uses.
-const ClientID = "gritz-cli"
-
-
-// Config returns the OAuth client config for the gritz server at server, with
-// redirectURL as the redirect URI (empty for refresh only).
-func Config(server, redirectURL string) *oauth2.Config
-
-
-// ErrLoginExpired is returned, with a hint to run `gritz login`, when the
-// server rejects the refresh token.
-var ErrLoginExpired = errors.New("login expired or revoked")
-
-
-// TokenSourceOptions configures TokenSource.
-type TokenSourceOptions struct {
-  // Server is the gritz server URL.
-  Server string
-  // Key is an API key. When set, the source returns it as a static token and
-  // the refresh fields are ignored.
-  Key string
-  // RefreshToken is the refresh token to start from.
-  RefreshToken string
-  // OnRefreshToken, if set, is called with a rotated refresh token once the
-  // one last reported (initially RefreshToken) is more than a day old, read
-  // from its iat. Calls are serialised.
-  OnRefreshToken func(token string)
-}
-
-
-// TokenSource returns a TokenSource that returns opts.Key, or else refreshes
-// access tokens from opts.RefreshToken, caching each until it expires.
-func TokenSource(ctx context.Context, opts TokenSourceOptions) oauth2.TokenSource
-
-
-// LoginOptions configures Login.
-type LoginOptions struct {
-  // Server is the gritz server URL.
-  Server string
-  // OrgID, when non-zero, preselects the org on the approval page.
-  OrgID int64
-  // OpenBrowser opens the authorize URL; gritz login sets it to
-  // browser.OpenURL. Login ignores its error, having already printed the URL.
-  OpenBrowser func(url string) error
-  // Prompt receives the authorize URL, always printed.
-  Prompt io.Writer
-}
-
-
-// Login runs the authorization code flow with PKCE over a loopback redirect
-// and returns the exchanged token.
-func Login(ctx context.Context, opts LoginOptions) (*oauth2.Token, error)
-```
-
-```go
-package gritzclient // github.com/gritzapp/gritz/internal/gritzclient
-
-
-type Options struct {
-  // ...
-  // TokenSource supplies the bearer token per request.
-  // If nil, no authentication is performed.
-  TokenSource oauth2.TokenSource // changed: was Token string
-}
-
-
-type NotificationClientOptions struct {
-  // ...
-  // TokenSource supplies the bearer token per connection.
-  // If nil, no authentication is performed.
-  TokenSource oauth2.TokenSource // changed: was Token string
-}
-
-
-// AuthTransport injects a Bearer token from Source into requests.
-type AuthTransport struct {
-  Transport http.RoundTripper
-  Source    oauth2.TokenSource // changed: was Token string
-  ClientID  string
-}
-
-
-// StaticToken returns a TokenSource that always returns token.
-func StaticToken(token string) oauth2.TokenSource // new
-```
-
-```go
-package shell // github.com/gritzapp/gritz/internal/shell
-
-
-type AttachOptions struct {
-  ServerURL   string
-  TokenSource oauth2.TokenSource // changed: was Token string
-  Session     string
-}
-```
-
-```go
-package runner // github.com/gritzapp/gritz/internal/runner
-
-
-type ServeOptions struct {
-  // ...
-  TokenSource oauth2.TokenSource // changed: was Token string
-}
-```
-
-**How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path` set; every command calls `TokenSource(ctx)` on it and hands the source to `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the source is a `cliauth.TokenSource` whose `OnRefreshToken` writes back through `UpdateFile`. `gritz login` without `--key` calls `cliauth.Login` with `browser.OpenURL`, then `GetCaller` with the returned access token, then `configfile.Login` with `{ID, RefreshToken, Server}`. `cliauth` knows nothing about `.gritz.yml`; `configfile` knows nothing about browsers, listeners or tokens’ contents.
-
-## Implementation Plan
-
-[Section titled “Implementation Plan”](#implementation-plan)
-
-1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
-2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields replacing `Token` on `gritzclient.Options` and `NotificationClientOptions`, `gritzclient.StaticToken`, `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing `StaticToken(cfg.Key)`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
-3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `UpdateFile`, `internal/auth/cliauth` (`ClientID`, `Config`, `ErrLoginExpired`, `TokenSource`), `Entry.TokenSource` with write-back; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither); `cliauth` tests against an `oauthflow` `httptest` server that the source refreshes once per access token expiry, reports a rotated token only when the last reported one’s `iat` is over 24h old, and maps an expired refresh token to `ErrLoginExpired` with the re-login hint; `configfile` tests that an entry writes the reported token back, but not into an entry that is gone or now holds a key.
-4. **`gritz login` browser flow** — Delivers: `cliauth.Login`, `github.com/cli/browser` as a direct dependency, `--key` no longer required, the `org=` preselect, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: a `cliauth.Login` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
-5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
-
-Slices 1 and 2 are independent and can land in either order.
-
-## Trade-offs
-
-[Section titled “Trade-offs”](#trade-offs)
-
-* **OAuth tokens in the entry vs. minting an API key with OAuth.** Minting a key (the issue’s first direction) keeps every command and the config format unchanged, but leaves the problems a key has: it never expires, it piles up one per machine in `/ui/keys`, it’s audited as “(API key)”, and a key needs a server-side `CreateKey` path for app-JWT callers. Storing the refresh token costs a token source and a write-back, both small because the server never invalidates an old refresh token.
-* **Writing back after 24 hours vs. on every refresh vs. never.** Never writing back means re-logging in every 30 days no matter how often the CLI is used. Writing on every refresh rewrites the file on every command and every 5 minutes from a runner, widening the window for clobbering a concurrent edit. A daily threshold slides the expiry for anyone who uses the CLI at least once a month, with one rewrite a day.
-* **No lock vs. a lock file.** A lock around the write-back and `Login` would close the read-modify-rename window. Because any of the refresh tokens involved is valid, the only thing a race can lose is a concurrent hand edit or `login` to the same file, which is rare enough not to justify a lock.
-* **Server-side changes: none vs. a CLI-specific refresh TTL.** A longer refresh TTL for the CLI would add a client distinction the server doesn’t have; the daily write-back already makes 30 days an idle timeout.
-* **Loopback only vs. a pasted redirect or a device flow for headless machines.** Pasting the failed redirect URL back into the terminal needs `login` to read stdin alongside the listener and a `--no-browser` flag. A device authorization grant (RFC 8628) needs server-side state for the device code, polling and a code-entry page, where the rest of `oauthflow` is stateless. Headless machines are already served by a key or a copied entry, so neither is worth its code path.
-* **A fixed `gritz-cli` client id vs. dynamic registration.** `/oauth/register` returns a fresh UUID that nothing records, so registering buys nothing.
-* **Storing the refresh token only vs. also the access token.** Covered under The entry: one network round trip per command is cheaper than a second field that is almost always stale.
-* **One org per login vs. a token for several orgs.** App JWTs carry one `org_id`, and entries name one org, so one login per org fits both. A multi-org token would be a change to `apiauth` for a saving of one browser approval per extra org.
 
 # Firecracker Backend for the Runner
 
@@ -3027,7 +2669,7 @@ Makes the named entry the current org.
 | -------- | ----------------------------------------- |
 | `name`   | An entry name from `list_orgs`. Required. |
 
-1. Select the entry with `configfile.Selector.Select(name)`: the same rules as `--org` at startup, so a name outside `allowed` or with no entry fails with the same error message.
+1. Look the entry up with `merged.Lookup(name)` on the `*configfile.Merged` loaded at startup: the same rules as `--org` at startup, so a name outside `allowed` or with no entry fails with the same error message.
 2. Build a `gritzclient` for it from `entry.TokenSource(ctx)` (see [Credentials](#credentials)) with the session’s client id, and call `GetCaller`. A failure (bad or expired key, unreachable server) is an error result, and the current org is unchanged.
 3. If `GetCallerResponse.org.id` differs from the entry’s `id`, fail without switching: `entry "acme" says org 12, but its key belongs to org 31`. This keeps a mis-pasted key from sending writes to an org the user didn’t name.
 4. Make the client current. With `--channel`, start following the org (see [Channel notifications](#channel-notifications)).
@@ -3057,7 +2699,7 @@ Clients are created **lazily, on switch**, and only the current one is kept. `gr
 
 [Section titled “Credentials”](#credentials)
 
-Every client and `NotificationClient` the session builds gets its credentials from the entry’s token source, `entry.TokenSource(ctx)`, as introduced by [CLI OAuth login](/pr/2124/proposals/draft/cli-oauth-login/), never from `entry.Key`. A `key` entry gives a static token, and a `refresh_token` entry exchanges and rotates its refresh token, so both kinds work for the startup org, for `switch_org` and for `Channel.Follow`. `--key` is a static token too.
+Every client and `NotificationClient` the session builds gets its credentials from the entry’s token source, `entry.TokenSource(ctx)`, as every command does since [CLI OAuth login](/pr/2124/proposals/implemented/cli-oauth-login/), never from `entry.Key`. A `key` entry gives a static token, and a `refresh_token` entry exchanges and rotates its refresh token, so both kinds work for the startup org, for `switch_org` and for `Channel.Follow`. `--key` is a static token too.
 
 `ctx` is the process context, not the tool call’s: the token source outlives the `switch_org` call that built it, and refreshes the access token on later calls and on each SSE reconnect.
 
@@ -3124,29 +2766,21 @@ The [MCP admin tools](/pr/2124/proposals/implemented/mcp-admin-tools/) are regis
 package configfile // github.com/gritzapp/gritz/internal/configfile
 
 
-// Selector selects entries from the merged .gritz.yml files.
-type Selector struct { // new
-  Merged *Merged
-}
+// Names returns the entry names Allowed permits, sorted.
+func (m *Merged) Names() []string // new
 
 
-// NewSelector loads and validates the merged files from the working directory.
-// It returns nil when --key is set, and fails when --server is set without it.
-func NewSelector(cmd *cli.Command) (*Selector, error) // new
+// Lookup returns the entry named org, or m.Org when org is empty, enforcing
+// m.Allowed, with Name and Path set, and Server set to DefaultServer when the
+// entry has none. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) // changed: fills in DefaultServer
 
 
-// Select returns the name and entry of org, or of the merged Org when org is
-// empty, enforcing Allowed. The entry's Server is its own, else DefaultServer.
-func (s *Selector) Select(org string) (string, *Entry, error) // new
-
-
-// Names returns the names Select accepts, sorted.
-func (s *Selector) Names() []string // new
-
-
-// Resolve returns the --key entry, or NewSelector and Select(--org).
-func Resolve(cmd *cli.Command) (*Entry, error) // changed: built on Selector, same behaviour
+// Resolve applies --key, --server and --org.
+func Resolve(cmd *cli.Command) (*Entry, error) // changed: no longer defaults Server; Lookup does
 ```
+
+`gritz mcp` loads the files as every command does, `configfile.Load(configfile.LoadOptions{})` (an empty `Dir` is the working directory) followed by `merged.Validate()`, and keeps the `*Merged` for the session. `--key` sessions skip loading entirely, as now.
 
 ```go
 package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
@@ -3182,10 +2816,10 @@ const OrgsInstructions = "..." // new
 type Orgs struct{ ... } // new
 
 
-// NewOrgs starts the session in the entry named name, calling follow for it
-// and for every org switched to later. Clients are built from
-// entry.TokenSource(ctx).
-func NewOrgs(ctx context.Context, sel *configfile.Selector, name string, entry *configfile.Entry, clientID string, follow func(name string, entry *configfile.Entry)) *Orgs // new
+// NewOrgs starts the session in entry, calling follow for it and for every
+// org switched to later. switch_org looks entries up in merged. Clients are
+// built from entry.TokenSource(ctx).
+func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *Orgs // new
 
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
@@ -3212,10 +2846,11 @@ type OrgKey struct { // new
 func NewChannel(sender ChannelSender, clientID string, current func() OrgKey) *Channel // changed: takes clientID and current
 
 
-// Follow starts forwarding entry's notifications, labelled with name (none
-// when empty), unless its org is already followed. The NotificationClient is
-// built from entry.TokenSource(ctx). The stream runs until ctx ends.
-func (c *Channel) Follow(ctx context.Context, name string, entry *configfile.Entry) // new
+// Follow starts forwarding entry's notifications, labelled with entry.Name
+// (none when empty, as for --key), unless its org is already followed. The
+// NotificationClient is built from entry.TokenSource(ctx). The stream runs
+// until ctx ends.
+func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 
 
 // Forward applies the summary gate and the org's mute set, then pushes the
@@ -3223,20 +2858,20 @@ func (c *Channel) Follow(ctx context.Context, name string, entry *configfile.Ent
 func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification) // changed: takes the org
 ```
 
-**How it fits:** `gritz mcp` calls `configfile.NewSelector`. With `--key` (nil selector) it calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, "", entry)`. Otherwise it calls `sel.Select(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `Orgs.switch_org` calls `Selector.Select`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools read `current()` to pick the mute set.
+**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` reads `merged.Names()` and `merged.Orgs`; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools read `current()` to pick the mute set.
 
 ## Implementation Plan
 
 [Section titled “Implementation Plan”](#implementation-plan)
 
-Depends on [CLI OAuth login](/pr/2124/proposals/draft/cli-oauth-login/), being implemented: slices 3 and 4 need `Entry.TokenSource` and the `TokenSource` fields on `gritzclient.Options` and `NotificationClientOptions`.
+Builds on [#2145](https://github.com/gritzapp/gritz/pull/2145), in progress, which makes an empty `LoadOptions.Dir` mean the working directory; slice 4 rebases onto it.
 
-1. **`configfile.Selector`** — Delivers: `Selector`, `NewSelector`, `Select`, `Names`; `Resolve` rebuilt on them. Nothing else changes. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; table tests for `Select` (merged `org`, `allowed`, missing entry, the entry’s own `server`, `DefaultServer` for an entry without one) and `Names` (filters by `allowed`, sorted).
+1. **`Merged.Names` and the `Lookup` server default** — Delivers: `(*Merged).Names`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Names` filters by `allowed` and sorts, and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
-3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same `OrgKey` under another name starts no stream, and that the mute tools edit the set `current` names. Depends on CLI OAuth’s `TokenSource` options.
+3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same `OrgKey` under another name starts no stream, and that the mute tools edit the set `current` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad key leaves the current org, id mismatch fails, `allowed` enforced, a `refresh_token` entry authenticates); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
 
-Slices 1 and 2 are independent, and of CLI OAuth.
+Slices 1 and 2 are independent.
 
 ## Trade-offs
 
@@ -7372,6 +7007,366 @@ The notify SSE stream is per-org: a bridge subscribes once and sees every notifi
 [Section titled “Future work: pushing into in-container agents”](#future-work-pushing-into-in-container-agents)
 
 The original framing — replacing the in-container `gritz mcp` process’s reliance on the agent polling `get_my_task` with pushed channel events — is still achievable on top of this work. The transport wrapper used by the local bridge is reusable as-is inside the agent server, since the agent already runs over stdio. The design question is which agent-side state changes (child completions, parent instructions, routed external events, child logs) deserve a push, and whether the agent should subscribe to its own per-task slice of `model.Notification`s or get a curated stream. That work is deferred to a follow-up proposal so this one can ship the local-developer use case first.
+
+# CLI OAuth tokens instead of API keys
+
+> Logging the CLI in means creating an API key in the web UI and pasting it into `gritz login --key`, and the key it stores never expires and isn't tied to the user who made it.
+
+Issue: <https://github.com/gritzapp/gritz/issues/2090>
+
+## Problem
+
+[Section titled “Problem”](#problem)
+
+[Multi-org CLI auth](/pr/2124/proposals/implemented/multi-org-cli-auth/) gave the CLI named org entries in `.gritz.yml`, but the only way to fill one is `gritz login --key <key>`: open `/ui/keys/new`, create a key, copy it, paste it. That is one key per org per machine, each living until someone deletes it in the web UI, and every action taken with it is audited as “(API key)” rather than as the person at the keyboard.
+
+The server already runs an OAuth 2.1 + PKCE authorization server for MCP clients ([MCP OAuth](/pr/2124/proposals/implemented/mcp-oauth/), [`internal/auth/oauthflow`](https://github.com/gritzapp/gritz/tree/master/internal/auth/oauthflow)). `gritz login` should use it: open a browser, approve, done. The issue’s first direction was to use OAuth only to mint an API key; the direction it settled on is for the CLI to store the OAuth tokens in its `.gritz.yml` entry and use them directly in place of a key. That leaves what the issue first set aside: refresh-token expiry, writing rotated tokens back, and long-running commands that need a refreshing token source.
+
+## Design
+
+[Section titled “Design”](#design)
+
+### Overview
+
+[Section titled “Overview”](#overview)
+
+* `gritz login` without `--key` runs the authorization code flow with PKCE against the entry’s server, with a loopback redirect. The org is the one approved on the approval page.
+* The entry stores the **refresh token** in a new `refresh_token` field, instead of `key`. Access tokens are never written down.
+* Every user-facing command builds an `oauth2.TokenSource` from the selected entry. For a `refresh_token` entry the source exchanges it for a 5-minute access token on first use and again whenever that expires, so long-running commands (`mcp`, `notify`, `runner`) keep working.
+* When a refresh returns a rotated refresh token and the stored one is more than a day old, the source writes the new one back into the file the entry came from. Using the CLI at least once every 30 days keeps the login alive indefinitely.
+* `key` entries, `gritz login --key` and `--key` / `GRITZ_API_KEY` are unchanged. Keys remain the credential for CI and deployed runners.
+* Server side: no new endpoints or proto changes. The approval page gets an org picker.
+
+### What the server already gives us
+
+[Section titled “What the server already gives us”](#what-the-server-already-gives-us)
+
+These properties of `oauthflow` shape the design, and none of them change:
+
+* `/oauth/authorize` (POST from the approval page) accepts any `client_id` and `redirect_uri`; it only binds them into the 60-second auth code JWT, which `/oauth/token` checks along with PKCE. There’s no client registry, so the CLI needs no `/oauth/register` call.
+* The access token is an ordinary app JWT (5 minutes, `authscope.Admin()` in the approved org), accepted by `apiauth.authenticate` as a Bearer on the Connect API, `/events` SSE and `/shell/attach`, exactly like a web UI session. `GetCaller` reads `apiauth.MustCaller(ctx).OrgID`, so it works with one.
+* The refresh token is a stateless JWT with a 30-day `exp`. Every refresh issues a new one with a fresh 30 days, after `ResolveOrg` re-checks that the user is still a member and the org isn’t archived.
+* **Old refresh tokens stay valid until their own `exp`.** There is no reuse detection. Two processes refreshing the same token both succeed, and a rotated token that is never saved costs nothing.
+
+The last point is what keeps refresh simple: write-back is an optimisation that slides the 30-day window, not a correctness requirement, so it needs no locking.
+
+### The entry
+
+[Section titled “The entry”](#the-entry)
+
+```yaml
+org: acme
+orgs:
+  acme:
+    id: 12
+    refresh_token: eyJhbGciOiJFZERTQSIs...
+  acme-ci:
+    id: 12
+    key: xat_...
+  local:
+    id: 1
+    server: http://localhost:8080
+    refresh_token: eyJhbGciOiJFZERTQSIs...
+```
+
+* `refresh_token`: an OAuth refresh token for the org, written by `gritz login`.
+* An entry has exactly one of `key` and `refresh_token`. `Entry.Validate` reports `no key or refresh_token` or `both key and refresh_token`, named with the file as today.
+* Merge and selection are unchanged: entries still replace whole by name, so a key from one file is never paired with a refresh token from another.
+* The `--key` / `GRITZ_API_KEY` override is unchanged: it skips every file, `refresh_token` entries included.
+
+Only the refresh token is stored. Persisting the 5-minute access token would save one round trip per command, but adds a second field that goes stale between any two commands more than five minutes apart and has to be rewritten on almost every run.
+
+### `gritz login`
+
+[Section titled “gritz login”](#gritz-login)
+
+```plaintext
+gritz login [--name <name>] [--server <url>]
+gritz login --key <key> [--name <name>] [--server <url>]
+```
+
+With `--key` (or `GRITZ_API_KEY`) set, `login` behaves exactly as today. `--key` loses `Required: true`; without it, `login` runs the browser flow:
+
+1. **Listen.** Bind `127.0.0.1:0` and serve `GET /callback`. The redirect URI is `http://127.0.0.1:<port>/callback` (a loopback IP literal, per RFC 8252 §7.3).
+
+2. **Build the authorize URL** with `oauth2.Config{ClientID: "gritz-cli", Endpoint: {AuthURL: <server>/ui/oauth/authorize, TokenURL: <server>/oauth/token}, RedirectURL: <redirect URI>}`, a random `state`, and `oauth2.S256ChallengeOption(oauth2.GenerateVerifier())`.
+
+3. **Print the authorize URL and open the browser** with [`github.com/cli/browser`](https://github.com/cli/browser)’s `browser.OpenURL` (already in `go.mod` as an indirect dependency; it becomes direct). The URL is always printed; if opening fails, `login` carries on and the user opens the printed URL on the same machine:
+
+   ```plaintext
+   Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
+   ```
+
+4. **Wait** for a request to `/callback` and check its `state`; `error=access_denied` (the approval page’s Deny) fails with `login denied`. The callback answers with a short “Logged in, you can close this tab” page. Give up after 10 minutes.
+
+5. **Exchange** the code with `cfg.Exchange(ctx, code, oauth2.VerifierOption(v))`.
+
+6. **Identify the org** by calling `GetCaller` with the access token, exactly as the `--key` path does with the key, then name the entry (`--name`, else `configfile.Slug(org.name)`).
+
+7. **Write** `{id, refresh_token, server}` with `configfile.Login`, unchanged: same name for the same id and server replaces the entry’s credential (a `key` entry becomes a `refresh_token` entry and vice versa), a different org fails with `ErrNameTaken`, and the first entry becomes the file’s `org`.
+
+8. Print `Logged in to Acme Labs (org 12) as "acme-labs"`.
+
+The client id is the constant `gritz-cli`. The server only checks that the token request repeats it, so there’s nothing to register.
+
+**Which org.** The approval page decides: the token is minted for the org the user approves. Today the page shows the web UI’s current org and mints for it. It gets an org `<Select>` listing `GetProfile`’s orgs, defaulting to the current org, and passes the selection to `auth.fetchToken(orgId)` on Approve. This also lets Claude.ai and other MCP clients be connected to a non-current org without switching the whole UI first. One login is one org; logging in to a second org is a second `gritz login`.
+
+### Headless machines
+
+[Section titled “Headless machines”](#headless-machines)
+
+The browser login only works where the browser runs on the same machine as `login`, because the redirect goes to its loopback listener. There is no pasted-redirect or device flow. Elsewhere:
+
+* **Use a key.** `gritz login --key`, or `GRITZ_API_KEY`, as today. This is the credential for CI, containers and deployed runners: one that dies after 30 idle days, and that rotates by rewriting a file, is the wrong fit for an image or a secret store.
+* **Copy an entry.** A refresh token isn’t bound to a machine, so an entry from a laptop’s `.gritz.yml` works when copied to another machine’s. Each copy then rotates on its own, and all of them stay valid because old refresh tokens are never invalidated.
+
+### Refresh and write-back
+
+[Section titled “Refresh and write-back”](#refresh-and-write-back)
+
+`Entry.TokenSource(ctx)` maps the entry (`Server`, `Key`, `RefreshToken`) onto `cliauth.TokenSource` and returns it. With a key (including `--key`), `cliauth.TokenSource` returns it as a static token.
+
+`internal/auth/cliauth` is the gritz CLI’s OAuth client. It knows nothing about `.gritz.yml`, but it knows the server: the `gritz-cli` client id, the endpoints, and that refresh tokens are JWTs with an `iat`. `cliauth.TokenSource` is an `oauth2.ReuseTokenSource` over a source that exchanges the refresh token in use at `<server>/oauth/token`. `ReuseTokenSource` caches the access token and refreshes only when it has expired (with `oauth2`’s 10-second early expiry), serialised by its own mutex, so one process never refreshes twice concurrently. Each refresh:
+
+1. On a 400 from the token endpoint (`*oauth2.RetrieveError`, the server’s `invalid refresh_token`: expired, signed by a rotated app key, user removed, org archived), returns `cliauth.ErrLoginExpired` with a re-login hint:
+
+   ```plaintext
+   login expired or revoked: run `gritz login`
+   ```
+
+   For a non-default server the hint includes `--server <url>`.
+
+2. On success, keeps the new refresh token in memory for the next refresh, and passes it to `OnRefreshToken` if the token last reported (initially the starting one) was issued more than 24 hours ago, read from its `iat` without verification.
+
+`Entry.TokenSource`’s `OnRefreshToken` **writes the new token back**. A write-back failure is logged with `slog.Warn` and otherwise ignored; the in-memory token keeps working.
+
+The write goes through `configfile.UpdateFile`, which `Login` also uses: it re-reads the file at `path`, lets a callback edit it, and writes it back the same way (temp file + rename via `atomicio.WriteFile`, mode kept). The rotation callback replaces `orgs[name].refresh_token` with the process’s token whatever the entry holds: old refresh tokens stay valid, so overwriting a token another process or a new `login` wrote loses nothing. It leaves the entry alone only if it is gone, so a deleted entry isn’t recreated with just a refresh token, or if it now holds a key, so it never ends up with both.
+
+**Where.** The file the entry came from: `Lookup` now fills `Entry.Name` and `Entry.Path` (from `Merged.OrgsFrom`). `login` only ever writes `$CONFIG_DIR/.gritz.yml`, but a refresh-token entry the user moved into another file keeps itself alive there too. Like `login`, the write-back re-marshals the file, dropping comments.
+
+**Concurrency.** Commands sharing an entry never coordinate:
+
+* All of them can refresh with the same stored token; the server accepts it each time.
+* Each process writes back at most once a day; when two do around the same time, the later rename wins. Every token written is valid.
+* The window that can lose an unrelated edit is a `login` or a hand edit to the same file landing between the write-back’s read and its rename. It is the same read-modify-rename window `login` already has, and it is not worth a lock file.
+
+**Expiry in practice.** A refresh-token entry expires only after 30 days in which nothing used it past the 24-hour threshold. A long-running `runner` or `mcp` refreshes every 5 minutes and so rewrites once a day while it runs.
+
+### Commands
+
+[Section titled “Commands”](#commands)
+
+Each user-facing command already calls `configfile.Resolve`. It now builds its clients from `cfg.TokenSource(ctx)` instead of `cfg.Key`:
+
+| Command                           | Change                                                                                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task list/create/update`, `logs` | `gritzclient.Options{TokenSource: ts}`                                                                                                        |
+| `shell`                           | client from `ts`; `shell.Attach` gets `ts`. The token is read once, when the WebSocket dials; the server doesn’t re-check an open connection. |
+| `mcp`, `notify`                   | client and `NotificationClient` from `ts`. Each SSE reconnect fetches a current token; an open stream isn’t re-checked.                       |
+| `runner`                          | `runner.ServeOptions.TokenSource` replaces `Token`; the client and the notification client share it.                                          |
+| `login`                           | unchanged on the `--key` path; uses the exchanged access token for `GetCaller`                                                                |
+
+`gritzclient.AuthTransport` gets its token from a `TokenSource` on every request. `gritzclient.Options` and `NotificationClientOptions` replace `Token` with a `TokenSource` field; a nil source means no authentication. `agent-mcp`, `github-mcp`, `git-credential`, the driver and e2e, which all hold a task JWT or key, pass `gritzclient.StaticToken` of it.
+
+A refresh failure surfaces from `AuthTransport.RoundTrip` as the request’s error. One-shot commands exit with the “run `gritz login`” message; `runner`, `mcp` and `notify` log it on every attempt, the same as any other server outage, until restarted after a new `login`.
+
+### Server-side changes
+
+[Section titled “Server-side changes”](#server-side-changes)
+
+* **Approval page org picker** (`webui/src/routes/oauth.authorize.tsx`), above.
+* Nothing else. No proto change: `GetCaller` already serves app JWTs. No `oauthflow` change: the redirect URI, client id, refresh rotation and 30-day TTL are already what the CLI needs.
+
+Behaviour that changes as a consequence, worth knowing rather than changing:
+
+* CLI actions are audited as the user (`UserInfo.AuditName` without “(API key)”).
+* The CLI acts with `authscope.Admin()` in the org, like the web UI and MCP connectors, rather than with the scopes of a key.
+* A refresh-token entry can’t be revoked individually. Removing the user from the org or archiving the org stops it at the next refresh (within 5 minutes); otherwise it lives as long as it keeps being used. This matches MCP connectors, and the trade-off in [MCP OAuth](/pr/2124/proposals/implemented/mcp-oauth/#refresh-tokens-are-not-revocable).
+
+### API
+
+[Section titled “API”](#api)
+
+```go
+package configfile // github.com/gritzapp/gritz/internal/configfile
+
+
+// Entry is one named org in a .gritz.yml file.
+type Entry struct {
+  // ID is the org id.
+  ID int64 `yaml:"id"`
+  // Key is an API key for the org.
+  Key string `yaml:"key,omitempty"` // changed: omitempty
+  // RefreshToken is an OAuth refresh token for the org.
+  RefreshToken string `yaml:"refresh_token,omitempty"` // new
+  // Server is the server URL; empty means the file's top-level server, else the default server.
+  Server string `yaml:"server,omitempty"`
+  // Name is the entry's name; set by Lookup.
+  Name string `yaml:"-"` // new
+  // Path is the file the entry came from; set by Lookup.
+  Path string `yaml:"-"` // new
+}
+
+
+// Validate checks that the entry has an id and exactly one of a key and a
+// refresh token.
+func (e Entry) Validate() error // changed
+
+
+// TokenSource returns the entry's credentials: the key as a static token, or
+// access tokens refreshed from RefreshToken, writing rotated refresh tokens
+// back to Path.
+func (e *Entry) TokenSource(ctx context.Context) oauth2.TokenSource // new
+
+
+// UpdateFile rereads the .gritz.yml file at path (empty if missing), calls fn
+// to change it, and writes it back atomically unless fn returns an error,
+// keeping its mode or creating it 0600. f.Orgs is never nil when fn is called.
+func UpdateFile(path string, fn func(f *File) error) error // new
+
+
+// Lookup returns the entry named org, or m.Org when org is empty,
+// enforcing m.Allowed, with Name and Path set. Call Validate first.
+func (m *Merged) Lookup(org string) (*Entry, error) // changed: sets Name, Path
+```
+
+```go
+package cliauth // github.com/gritzapp/gritz/internal/auth/cliauth — new
+
+
+// ClientID is the OAuth client id the gritz CLI uses.
+const ClientID = "gritz-cli"
+
+
+// Config returns the OAuth client config for the gritz server at server, with
+// redirectURL as the redirect URI (empty for refresh only).
+func Config(server, redirectURL string) *oauth2.Config
+
+
+// ErrLoginExpired is returned, with a hint to run `gritz login`, when the
+// server rejects the refresh token.
+var ErrLoginExpired = errors.New("login expired or revoked")
+
+
+// TokenSourceOptions configures TokenSource.
+type TokenSourceOptions struct {
+  // Server is the gritz server URL.
+  Server string
+  // Key is an API key. When set, the source returns it as a static token and
+  // the refresh fields are ignored.
+  Key string
+  // RefreshToken is the refresh token to start from.
+  RefreshToken string
+  // OnRefreshToken, if set, is called with a rotated refresh token once the
+  // one last reported (initially RefreshToken) is more than a day old, read
+  // from its iat. Calls are serialised.
+  OnRefreshToken func(token string)
+}
+
+
+// TokenSource returns a TokenSource that returns opts.Key, or else refreshes
+// access tokens from opts.RefreshToken, caching each until it expires.
+func TokenSource(ctx context.Context, opts TokenSourceOptions) oauth2.TokenSource
+
+
+// LoginOptions configures Login.
+type LoginOptions struct {
+  // Server is the gritz server URL.
+  Server string
+  // OpenBrowser opens the authorize URL; gritz login sets it to
+  // browser.OpenURL. Login ignores its error, having already printed the URL.
+  OpenBrowser func(url string) error
+  // Prompt receives the authorize URL, always printed.
+  Prompt io.Writer
+  // Timeout is how long Login waits for the browser to come back.
+  Timeout time.Duration
+}
+
+
+// Login runs the authorization code flow with PKCE over a loopback redirect
+// and returns the exchanged token.
+func Login(ctx context.Context, opts LoginOptions) (*oauth2.Token, error)
+```
+
+```go
+package gritzclient // github.com/gritzapp/gritz/internal/gritzclient
+
+
+type Options struct {
+  // ...
+  // TokenSource supplies the bearer token per request.
+  // If nil, no authentication is performed.
+  TokenSource oauth2.TokenSource // changed: was Token string
+}
+
+
+type NotificationClientOptions struct {
+  // ...
+  // TokenSource supplies the bearer token per connection.
+  // If nil, no authentication is performed.
+  TokenSource oauth2.TokenSource // changed: was Token string
+}
+
+
+// AuthTransport injects a Bearer token from Source into requests.
+type AuthTransport struct {
+  Transport http.RoundTripper
+  Source    oauth2.TokenSource // changed: was Token string
+  ClientID  string
+}
+
+
+// StaticToken returns a TokenSource that always returns token.
+func StaticToken(token string) oauth2.TokenSource // new
+```
+
+```go
+package shell // github.com/gritzapp/gritz/internal/shell
+
+
+type AttachOptions struct {
+  ServerURL   string
+  TokenSource oauth2.TokenSource // changed: was Token string
+  Session     string
+}
+```
+
+```go
+package runner // github.com/gritzapp/gritz/internal/runner
+
+
+type ServeOptions struct {
+  // ...
+  TokenSource oauth2.TokenSource // changed: was Token string
+}
+```
+
+**How it fits:** `configfile.Resolve` returns an `Entry` with `Name` and `Path` set; every command calls `TokenSource(ctx)` on it and hands the source to `gritzclient`, `shell.Attach` or `runner.Serve`. For a refresh-token entry the source is a `cliauth.TokenSource` whose `OnRefreshToken` writes back through `UpdateFile`. `gritz login` without `--key` calls `cliauth.Login` with `browser.OpenURL`, then `GetCaller` with the returned access token, then `configfile.Login` with `{ID, RefreshToken, Server}`. `cliauth` knows nothing about `.gritz.yml`; `configfile` knows nothing about browsers, listeners or tokens’ contents.
+
+## Implementation Plan
+
+[Section titled “Implementation Plan”](#implementation-plan)
+
+1. **Approval page org picker** — Delivers: an org `<Select>` on `/ui/oauth/authorize` defaulting to the current org, and Approve minting for the selection via `auth.fetchToken(orgId)`. Depends on: nothing. Verifiable by: a webui test that picks a non-current org and checks the `/auth/token?org_id=` request; connecting an MCP client to a second org by hand.
+2. **Token sources in clients** — Delivers: `AuthTransport.Source`, the `TokenSource` fields replacing `Token` on `gritzclient.Options` and `NotificationClientOptions`, `gritzclient.StaticToken`, `shell.AttachOptions` and `runner.ServeOptions` taking a source; every caller updated, the user-facing commands passing `StaticToken(cfg.Key)`. No behaviour change. Depends on: nothing. Verifiable by: unit test that `AuthTransport` asks the source on each request and returns its error; existing e2e tests pass.
+3. **`refresh_token` entries** — Delivers: `Entry.RefreshToken`, the new `Validate`, `Lookup` setting `Name`/`Path`, `UpdateFile`, `internal/auth/cliauth` (`ClientID`, `Config`, `ErrLoginExpired`, `TokenSource`), `Entry.TokenSource` with write-back; the commands switch from a static source of `cfg.Key` to `cfg.TokenSource(ctx)`. A hand-written entry works from here on. Depends on: (2). Verifiable by: unit tests for `Validate` (both, neither); `cliauth` tests against an `oauthflow` `httptest` server that the source refreshes once per access token expiry, reports a rotated token only when the last reported one’s `iat` is over 24h old, and maps an expired refresh token to `ErrLoginExpired` with the re-login hint; `configfile` tests that an entry writes the reported token back, but not into an entry that is gone or now holds a key.
+4. **`gritz login` browser flow** — Delivers: `cliauth.Login`, `github.com/cli/browser` as a direct dependency, `--key` no longer required, and `login` writing `refresh_token` entries. Depends on: (1), (3). Verifiable by: a `cliauth.Login` unit test driving the flow end to end against `oauthflow` handlers, with an `OpenBrowser` func that posts the approval the way the page does and follows the redirect, and one whose `OpenBrowser` fails and the test follows the URL printed to `Prompt` instead; a state mismatch and `error=access_denied` fail; an e2e test that logs in this way and then runs `gritz task list` with the entry.
+5. **Docs** — Delivers: `using/cli` (browser login first, re-login on expiry), `reference/cli` (`login` flags, `refresh_token` field), `concepts/orgs-members-keys` (keys for CI and runners, login for people). Depends on: (4). Verifiable by: `cd docs && pnpm build`.
+
+Slices 1 and 2 are independent and can land in either order.
+
+## Trade-offs
+
+[Section titled “Trade-offs”](#trade-offs)
+
+* **OAuth tokens in the entry vs. minting an API key with OAuth.** Minting a key (the issue’s first direction) keeps every command and the config format unchanged, but leaves the problems a key has: it never expires, it piles up one per machine in `/ui/keys`, it’s audited as “(API key)”, and a key needs a server-side `CreateKey` path for app-JWT callers. Storing the refresh token costs a token source and a write-back, both small because the server never invalidates an old refresh token.
+* **Writing back after 24 hours vs. on every refresh vs. never.** Never writing back means re-logging in every 30 days no matter how often the CLI is used. Writing on every refresh rewrites the file on every command and every 5 minutes from a runner, widening the window for clobbering a concurrent edit. A daily threshold slides the expiry for anyone who uses the CLI at least once a month, with one rewrite a day.
+* **No lock vs. a lock file.** A lock around the write-back and `Login` would close the read-modify-rename window. Because any of the refresh tokens involved is valid, the only thing a race can lose is a concurrent hand edit or `login` to the same file, which is rare enough not to justify a lock.
+* **Server-side changes: none vs. a CLI-specific refresh TTL.** A longer refresh TTL for the CLI would add a client distinction the server doesn’t have; the daily write-back already makes 30 days an idle timeout.
+* **Loopback only vs. a pasted redirect or a device flow for headless machines.** Pasting the failed redirect URL back into the terminal needs `login` to read stdin alongside the listener and a `--no-browser` flag. A device authorization grant (RFC 8628) needs server-side state for the device code, polling and a code-entry page, where the rest of `oauthflow` is stateless. Headless machines are already served by a key or a copied entry, so neither is worth its code path.
+* **A fixed `gritz-cli` client id vs. dynamic registration.** `/oauth/register` returns a fresh UUID that nothing records, so registering buys nothing.
+* **Storing the refresh token only vs. also the access token.** Covered under The entry: one network round trip per command is cheaper than a second field that is almost always stale.
+* **One org per login vs. a token for several orgs.** App JWTs carry one `org_id`, and entries name one org, so one login per org fits both. A multi-org token would be a change to `apiauth` for a saving of one browser approval per extra org.
 
 # Create empty task
 
@@ -31587,7 +31582,7 @@ gritz [--help] [--version] <command> [flags] [args]
 
 [Section titled “Authentication”](#authentication)
 
-`gritz task`, `gritz logs`, `gritz shell`, `gritz mcp`, `gritz notify` and `gritz runner` take these flags, which pick the organisation, API key and server:
+`gritz task`, `gritz logs`, `gritz shell`, `gritz mcp`, `gritz notify` and `gritz runner` take these flags, which pick the organisation, credential and server:
 
 | Flag             | Environment     |                                                                                         |
 | ---------------- | --------------- | --------------------------------------------------------------------------------------- |
@@ -31603,13 +31598,31 @@ The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the u
 
 [Section titled “gritz login”](#gritz-login)
 
-Asks the server which organisation an API key belongs to, and saves the key under a name in `.gritz.yml` in the config directory. Logging in again with a new key for the same organisation and server replaces the key. The server is always saved with the organisation. If the file has no `org`, the name becomes it.
+Logs in to an organisation and saves it under a name in `.gritz.yml` in the config directory. Without `--key`, it opens the browser to approve the login in the Web UI, for the organisation selected there, and saves a `refresh_token`; with `--key`, it asks the server which organisation the key belongs to and saves the `key`. Logging in again to the same organisation and server replaces the entry’s credential. The server is always saved with the organisation. If the file has no `org`, the name becomes it.
 
-| Flag             | Environment     | Default                                                                                         |                            |
-| ---------------- | --------------- | ----------------------------------------------------------------------------------------------- | -------------------------- |
-| `--key`, `-k`    | `GRITZ_API_KEY` |                                                                                                 | The API key. Required.     |
-| `--name`         |                 | the organisation’s name, in lowercase with dashes                                               | The name to save it under. |
-| `--server`, `-s` | `GRITZ_SERVER`  | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL.            |
+| Flag             | Environment     | Default                                                                                         |                                                            |
+| ---------------- | --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `--key`, `-k`    | `GRITZ_API_KEY` | log in with the browser                                                                         | An API key to save instead of logging in with the browser. |
+| `--name`         |                 | the organisation’s name, in lowercase with dashes                                               | The name to save it under.                                 |
+| `--server`, `-s` | `GRITZ_SERVER`  | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL.                                            |
+
+The browser has to run on the same machine as `gritz login`, which waits up to 10 minutes for the approval.
+
+### `.gritz.yml`
+
+[Section titled “.gritz.yml”](#gritzyml)
+
+| Field                       |                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `org`                       | The selected organisation’s name.                                                                                        |
+| `allowed`                   | The organisation names that can be used below the file.                                                                  |
+| `server`                    | The server `gritz login` uses without `--server`.                                                                        |
+| `orgs.<name>.id`            | The organisation’s ID.                                                                                                   |
+| `orgs.<name>.refresh_token` | A browser login, written by `gritz login`. It expires after 30 days unused; the CLI renews it in place while it is used. |
+| `orgs.<name>.key`           | An API key, written by `gritz login --key`.                                                                              |
+| `orgs.<name>.server`        | The organisation’s server URL. Defaults to `https://gritz.dev`.                                                          |
+
+An organisation has exactly one of `refresh_token` and `key`.
 
 ## Tasks
 
@@ -32243,30 +32256,63 @@ The `gritz` binary is the CLI as well as the runner and server. Release binaries
 
 [Section titled “Configuration”](#configuration)
 
-The CLI authenticates with an [API key](/pr/2124/concepts/orgs-members-keys/#api-keys), and acts in the organisation the key belongs to. Create one on the **Keys** page and log in with it:
+Log in with your browser:
 
 ```bash
-gritz login --key xat_...
+gritz login
 ```
 
 ```plaintext
+Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
 Logged in to Acme Labs (org 12) as "acme-labs"
 ```
 
-`gritz login` asks the server which organisation the key belongs to and saves the key under a name in `.gritz.yml` in the gritz config directory. The name is the organisation’s name in lowercase with dashes, unless `--name` gives another, and the first organisation you log in to becomes the selected `org`. Log in once for each organisation you work in:
+`gritz login` opens the gritz Web UI in your browser, signed in as you, and waits for you to approve. It logs in to the organisation selected in the Web UI at that moment; to log in to another, switch to it in the Web UI before you approve. If the browser doesn’t open, open the printed URL yourself, on the same machine: the browser hands the login back to `gritz login` there. It gives up after 10 minutes. The CLI then acts as you, with what a member can do in that organisation.
+
+`gritz login` saves the login under a name in `.gritz.yml` in the gritz config directory. The name is the organisation’s name in lowercase with dashes, unless `--name` gives another, and the first organisation you log in to becomes the selected `org`. Log in once for each organisation you work in:
 
 ```yaml
 org: acme-labs
 orgs:
   acme-labs:
     id: 12
-    key: xat_...
+    refresh_token: eyJhbGciOiJFZERTQSIs...
     server: https://gritz.dev
   personal:
     id: 3
+    refresh_token: eyJhbGciOiJFZERTQSIs...
+    server: https://gritz.dev
+```
+
+A login lasts as long as you keep using it: it expires after 30 days in which the CLI didn’t use it, and stops working once you are removed from the organisation or it is deleted. The CLI renews the saved `refresh_token` in the file it came from about once a day while you use it. When a login has expired, commands fail with:
+
+```plaintext
+login expired or revoked: run `gritz login`
+```
+
+Run `gritz login` again to replace it. A login isn’t tied to the machine, so an entry copied into another machine’s `.gritz.yml` works there too.
+
+### Logging in with an API key
+
+[Section titled “Logging in with an API key”](#logging-in-with-an-api-key)
+
+Where no browser can reach `gritz login`, such as a remote machine over SSH, or for a program rather than a person, log in with an [API key](/pr/2124/concepts/orgs-members-keys/#api-keys) instead. Create one on the **Keys** page and pass it with `--key` (`-k`):
+
+```bash
+gritz login --key xat_...
+```
+
+`gritz login` asks the server which organisation the key belongs to and saves the key in place of a `refresh_token`:
+
+```yaml
+orgs:
+  acme-ci:
+    id: 12
     key: xat_...
     server: https://gritz.dev
 ```
+
+A key doesn’t expire. Logging in again to the same organisation and server replaces the entry’s credential, key or browser login.
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under your user config directory: `~/.config/gritz` on Linux, `~/Library/Application Support/gritz` on macOS.
 
@@ -32280,7 +32326,7 @@ Every command acts in one organisation: the one `--org` (or `GRITZ_ORG`) names, 
 gritz task list --org personal
 ```
 
-A `.gritz.yml` file can also live in any directory, such as a repository or a folder of checkouts. A command reads every `.gritz.yml` from the directory it runs in up to `/`, on top of the one in the config directory, and the nearest file wins. Organisations of the same name replace each other whole. A repository can pick its organisation without holding a key:
+A `.gritz.yml` file can also live in any directory, such as a repository or a folder of checkouts. A command reads every `.gritz.yml` from the directory it runs in up to `/`, on top of the one in the config directory, and the nearest file wins. Organisations of the same name replace each other whole. A repository can pick its organisation without holding a login:
 
 ```yaml
 org: acme-labs
@@ -32296,7 +32342,7 @@ allowed: [acme-labs]
 Every command talks to the organisation’s `server`, or to `https://gritz.dev` if it has none. `gritz login` saves the server you give it with `--server` (`-s`) or the `GRITZ_SERVER` environment variable:
 
 ```bash
-gritz login --key xat_... --server https://gritz.example.com
+gritz login --server https://gritz.example.com
 ```
 
 Without `--server`, it uses the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev`, so a repository can name the server its organisation lives on:

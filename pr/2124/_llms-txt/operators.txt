@@ -124,7 +124,7 @@ A gritz deployment has one server and any number of runners. Each runner starts 
    ```bash
    gritz login --key xat_...
    ```
- This saves the key in `~/.config/gritz/.gritz.yml`, as the CLI’s [configuration](/pr/2124/using/cli/#configuration) does. On a server, pass it with `--key` or `GRITZ_API_KEY` instead. 3. **Write a `workspaces.yaml`** in `~/.config/gritz/`. This one clones a sample repository and runs Claude Code on it with your Claude Code OAuth token: 
+ This saves the key in `~/.config/gritz/.gritz.yml`; see [Logging in with an API key](/pr/2124/using/cli/#logging-in-with-an-api-key). On a server, pass it with `--key` or `GRITZ_API_KEY` instead. 3. **Write a `workspaces.yaml`** in `~/.config/gritz/`. This one clones a sample repository and runs Claude Code on it with your Claude Code OAuth token: 
    ```yaml
    workspaces:
      pets-workshop:
