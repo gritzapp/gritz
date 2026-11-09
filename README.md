@@ -4,12 +4,6 @@ Runs coding agents (Claude Code, Codex, Cursor, GitHub Copilot) inside remote sa
 
 Documentation: https://docs.gritz.dev
 
-Install the CLI on Linux or macOS:
-
-```bash
-curl -fsSL https://docs.gritz.dev/install.sh | sh
-```
-
 ## Features
 
 - **Self-hosted runners** - Run agents on your own infrastructure inside Docker containers
@@ -19,6 +13,14 @@ curl -fsSL https://docs.gritz.dev/install.sh | sh
 ## Web UI
 
 ![Web UI](images/webui.png)
+
+## Install
+
+Install the CLI on Linux or macOS:
+
+```bash
+curl -fsSL https://docs.gritz.dev/install.sh | sh
+```
 
 ## Setup
 
