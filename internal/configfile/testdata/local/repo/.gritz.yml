@@ -1,0 +1,4 @@
+org: acme
+orgs:
+  acme: {id: 12, key: k-repo}
+  ci: {id: 13, key: k-ci}

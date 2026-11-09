@@ -19,6 +19,10 @@ import (
 // Name is the file name used at every level.
 const Name = ".gritz.yml"
 
+// LocalName is the file name of a directory's local overrides, merged above
+// that directory's Name file. The base layer has none.
+const LocalName = ".gritz.local.yml"
+
 // Entry is one named org in a .gritz.yml file.
 type Entry struct {
 	// ID is the org id.
@@ -99,7 +103,8 @@ type LoadOptions struct {
 	Base string
 }
 
-// Load merges the base layer and every .gritz.yml from opts.Dir up to opts.Root.
+// Load merges the base layer and every .gritz.local.yml and .gritz.yml from
+// opts.Dir up to opts.Root.
 func Load(opts LoadOptions) (*Merged, error) {
 	if opts.Dir == "" {
 		wd, err := os.Getwd()
@@ -123,6 +128,9 @@ func Load(opts LoadOptions) (*Merged, error) {
 	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
 	for d := opts.Dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
+			if err := m.merge(filepath.Join(d, LocalName)); err != nil {
+				return nil, err
+			}
 			if err := m.merge(p); err != nil {
 				return nil, err
 			}

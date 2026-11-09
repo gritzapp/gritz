@@ -29,7 +29,8 @@ flag wins when both are set.
 | `--server`, `-s` | `GRITZ_SERVER` | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
 
 Without `--key`, a command merges `.gritz.yml` in the config directory with every
-`.gritz.yml` from the working directory up to `/`, the nearest winning, and uses
+`.gritz.local.yml` and `.gritz.yml` from the working directory up to `/`, the
+nearest winning and a directory's `.gritz.local.yml` above its `.gritz.yml`, and uses
 the organisation it selects, on that organisation's `server`, otherwise
 `https://gritz.dev`. See [Configuration](/using/cli/#configuration).
 
@@ -69,6 +70,8 @@ The browser has to run on the same machine as `gritz login`, which waits up to
 | `orgs.<name>.server` | The organisation's server URL. Defaults to `https://gritz.dev`. |
 
 An organisation has exactly one of `refresh_token` and `key`.
+
+`.gritz.local.yml` has the same fields.
 
 ## Tasks
 

@@ -82,6 +82,37 @@ func TestLoad(t *testing.T) {
 	})
 }
 
+func TestLoad_Local(t *testing.T) {
+	t.Parallel()
+	// Arrange - a repo whose .gritz.local.yml overrides its .gritz.yml
+	repo := filepath.FromSlash("testdata/local/repo/.gritz.yml")
+	local := filepath.FromSlash("testdata/local/repo/.gritz.local.yml")
+
+	// Act
+	m, err := Load(LoadOptions{
+		Dir:  filepath.FromSlash("testdata/local/repo"),
+		Root: filepath.FromSlash("testdata/local"),
+		Base: filepath.FromSlash("testdata/local/config/.gritz.yml"),
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, m, &Merged{
+		Org:     "local",
+		OrgFrom: local,
+		Orgs: map[string]Entry{
+			"acme":  {ID: 12, Key: "k-local"},
+			"ci":    {ID: 13, Key: "k-ci"},
+			"local": {ID: 2, Key: "kl", Server: "http://localhost:8080"},
+		},
+		OrgsFrom: map[string]string{
+			"acme":  local,
+			"ci":    repo,
+			"local": local,
+		},
+	})
+}
+
 func TestLoad_BaseOnly(t *testing.T) {
 	t.Parallel()
 	base := filepath.FromSlash("testdata/base-only/config/.gritz.yml")
