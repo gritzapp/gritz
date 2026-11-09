@@ -16696,7 +16696,7 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) // changed: takes the entry name
 ```
 
-**How it fits:** `gritz mcp` calls `Resolve` once, with or without `--key`, builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `OnSwitch` (unset without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}` and `OnSwitch`; `Channel`’s tools pick the mute set by their `org` argument.
+**How it fits:** `gritz mcp` calls `Resolve` once, with or without `--key`, builds `mcpbridge.NewOrgSwitcher` with an `OnSwitch` that calls `ch.Follow` (nothing without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}` and `OnSwitch`; `Channel`’s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
 
