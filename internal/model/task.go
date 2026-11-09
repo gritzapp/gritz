@@ -135,6 +135,7 @@ func (t *Task) Proto(baseURL string) *gritzv1.Task {
 		Version:      t.Version,
 		Archived:     t.Archived,
 		Url:          TaskURL(baseURL, t.ID, t.OrgID),
+		BadgeUrl:     TaskBadgeURL(baseURL, t.ID),
 		CreatedAt:    timestamppb.New(t.CreatedAt),
 		UpdatedAt:    timestamppb.New(t.UpdatedAt),
 		AutoArchive:  durationpb.New(t.AutoArchive),

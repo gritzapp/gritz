@@ -17,6 +17,15 @@ func TaskURL(baseURL string, taskID, orgID int64) string {
 	return fmt.Sprintf("%s/ui/tasks/%d?org=%d", baseURL, taskID, orgID)
 }
 
+// TaskBadgeURL returns the shields.io image URL rendering the task's badge,
+// which shields.io fills from the server's public /badge/{id}.json endpoint.
+func TaskBadgeURL(baseURL string, taskID int64) string {
+	if baseURL == "" {
+		return ""
+	}
+	return fmt.Sprintf("https://img.shields.io/endpoint?url=%s/badge/%d.json", baseURL, taskID)
+}
+
 // RoutingKey reduces a recognized resource URL to a stable routing key, so two
 // URLs that point at the same logical resource — a comment vs. its issue, or an
 // API URL vs. its web URL — produce the same key. Only recognized URLs (GitHub

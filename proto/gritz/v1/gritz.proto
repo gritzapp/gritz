@@ -158,6 +158,10 @@ message Task {
   // subscriptions. Empty is the default namespace. Set at creation and can't be
   // changed.
   string namespace = 17;
+
+  // The image URL of the task's shields.io badge. Agents sign what they post
+  // with it, linked to url.
+  string badge_url = 18;
 }
 
 message McpServer {
