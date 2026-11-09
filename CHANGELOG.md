@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.7.0](https://github.com/gritzapp/gritz/compare/v4.6.0...v4.7.0) (2026-11-09)
+
+
+### Features
+
+* publish release archives with GoReleaser ([#2188](https://github.com/gritzapp/gritz/issues/2188)) ([23498bb](https://github.com/gritzapp/gritz/commit/23498bb4889817db9b6ab96cb616ea6fa1465775))
+
 ## [4.6.0](https://github.com/gritzapp/gritz/compare/v4.5.0...v4.6.0) (2026-11-09)
 
 
