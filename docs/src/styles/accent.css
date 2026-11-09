@@ -4,7 +4,7 @@
    the dark one. */
 
 :root {
-	--sl-color-accent-low: oklch(0.269 0 0); /* --accent */
+	--sl-color-accent-low: oklch(0.341 0.016 269.7); /* --accent */
 	--sl-color-accent: oklch(0.556 0 0); /* --ring */
 	--sl-color-accent-high: oklch(0.922 0 0); /* --primary */
 }
