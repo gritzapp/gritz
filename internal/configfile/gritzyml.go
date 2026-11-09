@@ -101,11 +101,25 @@ type LoadOptions struct {
 	Root string
 	// Base is the base layer; empty means $CONFIG_DIR/.gritz.yml.
 	Base string
+	// File, when set, is the only file read: no walk, no base layer and no
+	// .gritz.local.yml. Dir, Root and Base are ignored.
+	File string
 }
 
 // Load merges the base layer and every .gritz.local.yml and .gritz.yml from
-// opts.Dir up to opts.Root.
+// opts.Dir up to opts.Root, or only opts.File. A missing opts.File is an
+// error.
 func Load(opts LoadOptions) (*Merged, error) {
+	// Merged nearest first, so the first file to set a value wins.
+	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
+	if opts.File != "" {
+		f, err := Read(opts.File)
+		if err != nil {
+			return nil, err
+		}
+		m.add(opts.File, f)
+		return m, nil
+	}
 	if opts.Dir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -124,8 +138,6 @@ func Load(opts LoadOptions) (*Merged, error) {
 		}
 		base = filepath.Join(configDir, Name)
 	}
-	// Merged nearest first, so the first file to set a value wins.
-	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
 	for d := opts.Dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
 			if err := m.merge(filepath.Join(d, LocalName)); err != nil {
@@ -142,18 +154,6 @@ func Load(opts LoadOptions) (*Merged, error) {
 	if err := m.merge(base); err != nil {
 		return nil, err
 	}
-	return m, nil
-}
-
-// LoadFile reads the single .gritz.yml file at path into a Merged, with no
-// walk, base layer or .gritz.local.yml.
-func LoadFile(path string) (*Merged, error) {
-	f, err := Read(path)
-	if err != nil {
-		return nil, err
-	}
-	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
-	m.add(path, f)
 	return m, nil
 }
 

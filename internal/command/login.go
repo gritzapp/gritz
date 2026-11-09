@@ -50,13 +50,7 @@ var LoginCommand = &cli.Command{
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		config := cmd.String("config")
 		if cmd.Bool("list") {
-			var merged *configfile.Merged
-			var err error
-			if config != "" {
-				merged, err = configfile.LoadFile(config)
-			} else {
-				merged, err = configfile.Load(configfile.LoadOptions{})
-			}
+			merged, err := configfile.Load(configfile.LoadOptions{File: config})
 			if err != nil {
 				return err
 			}

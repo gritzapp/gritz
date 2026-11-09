@@ -64,11 +64,7 @@ func Resolve(cmd *cli.Command) (*Merged, *Entry, error) {
 		return nil, nil, errors.New("--server requires --key: entries in .gritz.yml carry their own server")
 	default:
 		var err error
-		if config != "" {
-			m, err = LoadFile(config)
-		} else {
-			m, err = Load(LoadOptions{})
-		}
+		m, err = Load(LoadOptions{File: config})
 		if err != nil {
 			return nil, nil, err
 		}

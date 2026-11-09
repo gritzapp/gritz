@@ -405,11 +405,11 @@ func TestSlug(t *testing.T) {
 	}
 }
 
-func TestLoadFile(t *testing.T) {
+func TestLoad_File(t *testing.T) {
 	t.Parallel()
 	p := filepath.FromSlash("testdata/read/.gritz.yml")
 
-	m, err := LoadFile(p)
+	m, err := Load(LoadOptions{File: p})
 
 	assert.NilError(t, err)
 	assert.DeepEqual(t, m, &Merged{
@@ -426,10 +426,10 @@ func TestLoadFile(t *testing.T) {
 	})
 }
 
-func TestLoadFile_Missing(t *testing.T) {
+func TestLoad_FileMissing(t *testing.T) {
 	t.Parallel()
 
-	_, err := LoadFile(filepath.FromSlash("testdata/empty/missing.yml"))
+	_, err := Load(LoadOptions{File: filepath.FromSlash("testdata/empty/missing.yml")})
 
 	assert.ErrorIs(t, err, fs.ErrNotExist)
 }
