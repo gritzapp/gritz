@@ -11,8 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// OrgsInstructions is appended to the server instructions when the org tools
-// are registered.
+// OrgsInstructions is appended to gritz mcp's server instructions.
 const OrgsInstructions = "\nThis session acts in one gritz organisation at a time. " +
 	"list_orgs lists the organisations and marks the current one; switch_org changes it. " +
 	"Every other tool acts in the current organisation. " +
@@ -64,9 +63,8 @@ func (o *OrgSwitcher) Service() gritzv1connect.GritzServiceHandler {
 // AddTools registers list_orgs and switch_org.
 func (o *OrgSwitcher) AddTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_orgs",
-		Description: "List the gritz organisations this session can switch to, from the " +
-			".gritz.yml files. The current one, which every other tool acts in, has current=true.",
+		Name:        "list_orgs",
+		Description: "List the gritz organisations this session can switch to. The current one, which every other tool acts in, has current=true.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, o.listOrgsTool)
 

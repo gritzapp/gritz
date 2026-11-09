@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gritzapp/gritz/internal/configfile"
-	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/mcpbridge"
 	"github.com/gritzapp/gritz/internal/server/mcpserver"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
@@ -63,55 +62,27 @@ var McpCommand = &cli.Command{
 			follow = func(entry *configfile.Entry) { ch.Follow(ctx, entry) }
 		}
 
-		// --key (and --server, which requires it) selects one raw key with
-		// no entries to switch between; everything else is a .gritz.yml
-		// session with list_orgs and switch_org.
-		instructions := mcpserver.Instructions
-		var service mcpserver.ServiceFunc
-		var switcher *mcpbridge.OrgSwitcher
-		if cmd.String("key") != "" || cmd.String("server") != "" {
-			entry, err := configfile.Resolve(cmd)
-			if err != nil {
-				return err
-			}
-			service = mcpserver.Static(gritzclient.New(gritzclient.Options{
-				BaseURL:     entry.Server,
-				TokenSource: entry.TokenSource(ctx),
-				ClientID:    clientID,
-			}))
-			follow(entry)
-		} else {
-			merged, err := configfile.Load(configfile.LoadOptions{})
-			if err != nil {
-				return err
-			}
-			if err := merged.Validate(); err != nil {
-				return err
-			}
-			entry, err := merged.Lookup(cmd.String("org"))
-			if err != nil {
-				return err
-			}
-			switcher = mcpbridge.NewOrgSwitcher(ctx, merged, entry, clientID, follow)
-			service = switcher.Service
-			instructions += mcpbridge.OrgsInstructions
+		// A --key session is a one-entry config: list_orgs shows its one
+		// entry, named "".
+		merged, entry, err := configfile.Resolve(cmd)
+		if err != nil {
+			return err
 		}
+		switcher := mcpbridge.NewOrgSwitcher(ctx, merged, entry, clientID, follow)
 
 		server := mcp.NewServer(&mcp.Implementation{
 			Name:    "gritz",
 			Version: "1.0.0",
 		}, &mcp.ServerOptions{
-			Instructions: instructions,
+			Instructions: mcpserver.Instructions + mcpbridge.OrgsInstructions,
 			Capabilities: &capabilities,
 		})
 		var toolOpts []mcpserver.Option
 		if cmd.IsSet("auto-archive") {
 			toolOpts = append(toolOpts, mcpserver.WithDefaultAutoArchive(cmd.Duration("auto-archive")))
 		}
-		mcpserver.AddTools(server, service, toolOpts...)
-		if switcher != nil {
-			switcher.AddTools(server)
-		}
+		mcpserver.AddTools(server, switcher.Service, toolOpts...)
+		switcher.AddTools(server)
 		if ch != nil {
 			ch.AddTools(server)
 		}

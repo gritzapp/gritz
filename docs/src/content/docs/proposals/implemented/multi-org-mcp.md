@@ -29,8 +29,8 @@ caller (an OAuth token or an API key) is already bound to one org.
 
 ### Overview
 
-- Two new tools on `gritz mcp`, `list_orgs` and `switch_org`. They exist only
-  when the session was started from `.gritz.yml` files, not with `--key`.
+- Two new tools on `gritz mcp`, `list_orgs` and `switch_org`. A `--key`
+  session has them too: its config is one entry, named `""`.
 - The session has one **current org**. Every other tool, the existing task
   tools and the [MCP admin tools](/proposals/implemented/mcp-admin-tools/) alike, acts
   in it. `switch_org` replaces the current org's client with a new one.
@@ -104,8 +104,8 @@ it makes. Handlers that make several calls (`update_task` and its follow-up
 `GetTask`; the admin tools' read-modify-write `put_custom_event_type`,
 `update_schedule`, `set_routing_rules`) therefore stay in one org even if a
 `switch_org` runs concurrently. The server's `/mcp` handler passes
-`mcpserver.Static(apiServer)`, and `gritz mcp --key` passes
-`mcpserver.Static(client)`, so neither changes behaviour.
+`mcpserver.Static(apiServer)`, so it doesn't change behaviour; `gritz mcp`
+passes `OrgSwitcher.Service`.
 
 Clients are created **lazily, on switch**, and only the current one is kept.
 `gritzclient.New` builds an `http.Client` and a Connect client and makes no
@@ -191,21 +191,20 @@ resolve as in every other command. Every entry, at startup and on
   `--org`. A repo whose `.gritz.yml` pins `allowed: [acme]` gets a session
   that can't leave `acme`.
 - **`--key` / `GRITZ_API_KEY`** (with `--server`, which only applies to
-  `--key`) is a single raw key with no entries: `list_orgs` and `switch_org` aren't registered, as the channel tools aren't
-  without `--channel`. The session behaves as today, apart from the per-org
-  mute-set refactor being invisible with one org.
+  `--key`) is a single raw key: `Resolve` returns a one-entry config whose
+  entry is named `""`. `list_orgs` lists that entry and `switch_org` can only
+  switch to it, so the session stays in the key's org.
 
 ### Instructions
 
-When the org tools are registered, `gritz mcp` appends to
-`mcpserver.Instructions`:
+`gritz mcp` appends to `mcpserver.Instructions`:
 
 > This session acts in one gritz organisation at a time. list_orgs lists the
 > organisations and marks the current one; switch_org changes it. Every other
 > tool acts in the current organisation. Check it with list_orgs before
 > changing anything if you're not sure which organisation you're in.
 
-`/mcp` and `--key` sessions keep `mcpserver.Instructions` as is.
+`/mcp` keeps `mcpserver.Instructions` as is.
 
 ### Composing with the MCP admin tools
 
@@ -234,14 +233,14 @@ func (m *Merged) Entries() []Entry // new
 // entry has none. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) // changed: fills in DefaultServer
 
-// Resolve applies --key, --server and --org.
-func Resolve(cmd *cli.Command) (*Entry, error) // changed: no longer defaults Server; Lookup does
+// Resolve applies --key, --server and --org, and returns the config it
+// selected from and the entry to use. With --key, the config is a single
+// entry named "".
+func Resolve(cmd *cli.Command) (*Merged, *Entry, error) // changed: returns the config; no longer defaults Server; Lookup does
 ```
 
-`gritz mcp` loads the files as every command does,
-`configfile.Load(configfile.LoadOptions{})` (an empty `Dir` is the working
-directory) followed by `merged.Validate()`, and keeps the `*Merged` for the
-session. `--key` sessions skip loading entirely, as now.
+`gritz mcp` calls `Resolve` as every command does and keeps the `*Merged` for
+the session.
 
 ```go
 package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
@@ -263,8 +262,7 @@ func NewServer(service gritzv1connect.GritzServiceHandler, opts ...Option) *mcp.
 ```go
 package mcpbridge // github.com/gritzapp/gritz/internal/mcpbridge
 
-// OrgsInstructions is appended to the server instructions when the org tools
-// are registered.
+// OrgsInstructions is appended to gritz mcp's server instructions.
 const OrgsInstructions = "..." // new
 
 // OrgSwitcher holds the session's current org and its client.
@@ -296,10 +294,7 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) // changed: takes the entry name
 ```
 
-**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client
-from the entry's token source, passes `mcpserver.Static(client)` to `AddTools`,
-and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`).
-Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`,
+**How it fits:** `gritz mcp` calls `Resolve` once, with or without `--key`,
 builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without
 `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and
 appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
@@ -336,7 +331,7 @@ into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with n
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each
    switched-to org. Updates `integrations/mcp` (a section on orgs, the tool
-   table, the `--key` note). Depends on: (1), (2), (3). Verifiable by:
+   table). Depends on: (1), (2), (3). Verifiable by:
    `mcpbridge` tests for `switch_org` (the switched-to entry becomes current
    and is followed, `list_orgs` marks it; an unknown entry leaves the current
    org); an e2e
