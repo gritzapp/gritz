@@ -1630,7 +1630,7 @@ These steps run a runner against gritz.dev on a machine with Docker.
 | Flag                      | Environment variable          | Default                             |                                                                                                                                                                                               |
 | ------------------------- | ----------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--server`, `-s`          | `GRITZ_SERVER`                | `https://gritz.dev`                 | The server URL to use with `--key`, which it requires; without `--key`, the organisation’s `server` is used. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
-| `--key`, `-k`             | `GRITZ_API_KEY`               |                                     | The API key. Set, the runner reads no `.gritz.yml` files and ignores `--org`.                                                                                                                 |
+| `--key`, `-k`             | `GRITZ_API_KEY`               |                                     | The API key. Set, the runner reads no `.gritz.yml` files, and `--org` is an error.                                                                                                            |
 | `--org`                   | `GRITZ_ORG`                   | the `org` in the `.gritz.yml` files | The organisation to run tasks for, by its name in the `.gritz.yml` files.                                                                                                                     |
 | `--workspaces`, `-w`      |                               | `~/.config/gritz/workspaces.yaml`   | The [workspace config](/operators/workspaces-yaml/).                                                                                                                                          |
 | `--id`                    | `GRITZ_RUNNER_ID`             | the hostname                        | The runner’s ID, which users pick when they create a task. Letters and digits, no spaces.                                                                                                     |
@@ -16650,12 +16650,13 @@ func Flags() []cli.Flag // new
 const DefaultServer = "https://gritz.dev" // new
 
 
-// Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
-// files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server, and Server is --server, else
-// DefaultServer. --server requires --key. Without --key, Server is the
-// entry's server, else DefaultServer.
-func Resolve(cmd *cli.Command) (*Entry, error) // new
+// Resolve applies --key, --server and --org from cmd, and returns the config
+// it selected from and the entry to use. With --key, the config holds a single
+// entry for the key, named "" and selected by default, whose Server is
+// --server, else DefaultServer. --server requires --key. Without --key, the
+// config is the merged, validated .gritz.yml files from the working directory.
+// The entry is the config's Lookup of --org.
+func Resolve(cmd *cli.Command) (*Merged, *Entry, error) // new
 
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
@@ -31578,7 +31579,7 @@ gritz [--help] [--version] <command> [flags] [args]
 | Flag             | Environment     |                                                                                         |
 | ---------------- | --------------- | --------------------------------------------------------------------------------------- |
 | `--org`          | `GRITZ_ORG`     | The organisation’s name in the `.gritz.yml` files. Defaults to their `org`.             |
-| `--key`, `-k`    | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`.                        |
+| `--key`, `-k`    | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files. Can’t be combined with `--org`.    |
 | `--server`, `-s` | `GRITZ_SERVER`  | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
 
 Without `--key`, a command merges `.gritz.yml` in the config directory with every `.gritz.yml` from the working directory up to `/`, the nearest winning, and uses the organisation it selects, on that organisation’s `server`, otherwise `https://gritz.dev`. See [Configuration](/using/cli/#configuration).
@@ -32357,7 +32358,7 @@ The top-level `server` is read only by `gritz login`.
 
 [Section titled “Key without a config file”](#key-without-a-config-file)
 
-`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key directly, for CI and other places with no config file. The command then reads no `.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER` need a key this way, since an organisation in a `.gritz.yml` carries its own server:
+`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key directly, for CI and other places with no config file. The command then reads no `.gritz.yml` files, fails if `--org` is also given, and talks to `--server`, `GRITZ_SERVER` or `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER` need a key this way, since an organisation in a `.gritz.yml` carries its own server:
 
 ```bash
 GRITZ_API_KEY=xat_... gritz task list
