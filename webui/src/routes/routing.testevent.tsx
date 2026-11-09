@@ -33,7 +33,7 @@ function TestEventPage() {
       </p>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           <TestEventForm />
         </CardContent>
       </Card>

@@ -43,7 +43,7 @@ function NewSchedulePage() {
       <h1 className="text-2xl font-bold mb-6">New Schedule</h1>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           <ScheduleForm
             initialValues={emptyScheduleValues()}
             submitLabel={mutation.isPending ? 'Creating...' : 'Create Schedule'}

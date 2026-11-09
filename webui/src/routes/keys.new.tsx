@@ -46,7 +46,7 @@ function NewKeyPage() {
         <h1 className="text-2xl font-bold mb-6">API Key Created</h1>
 
         <Card>
-          <CardContent className="pt-6 space-y-4">
+          <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Your API key has been created. Copy the token below — it will not be shown again.
             </p>
@@ -88,7 +88,7 @@ function NewKeyPage() {
       <h1 className="text-2xl font-bold mb-6">Create API Key</h1>
 
       <Card>
-        <CardContent className="pt-6">
+        <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="name">Name</Label>

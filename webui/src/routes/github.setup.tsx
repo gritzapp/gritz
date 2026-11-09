@@ -58,7 +58,7 @@ function GitHubSetupPage() {
     return (
       <div className="container mx-auto py-8 px-4 max-w-md">
         <Card>
-          <CardContent className="pt-6">
+          <CardContent>
             <p className="text-destructive">Missing installation_id query parameter.</p>
           </CardContent>
         </Card>
@@ -73,7 +73,7 @@ function GitHubSetupPage() {
       <h1 className="text-2xl font-bold mb-6">Link GitHub App Installation</h1>
 
       <Card>
-        <CardContent className="pt-6 space-y-4">
+        <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Link this GitHub App installation to your organisation.
           </p>
