@@ -103,12 +103,7 @@ func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
 // until ctx is done. It reconnects automatically on disconnect.
 func (c *NotificationClient) Run(ctx context.Context) error {
 	for {
-		body, err := c.open(ctx)
-		if err == nil {
-			c.health(nil)
-			err = c.stream(body)
-			body.Close()
-		}
+		err := c.connect(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -132,12 +127,13 @@ func (c *NotificationClient) health(err error) {
 	}
 }
 
-// open requests the SSE endpoint and returns the body of the accepted
-// stream.
-func (c *NotificationClient) open(ctx context.Context) (io.ReadCloser, error) {
+// connect streams events to the handler until the connection ends,
+// reporting the stream as connected once the server accepts it. It returns
+// io.EOF on a clean end of stream.
+func (c *NotificationClient) connect(ctx context.Context) error {
 	u, err := url.Parse(strings.TrimRight(c.baseURL, "/") + "/events")
 	if err != nil {
-		return nil, fmt.Errorf("parse url: %w", err)
+		return fmt.Errorf("parse url: %w", err)
 	}
 	if c.runner != "" {
 		q := u.Query()
@@ -146,24 +142,19 @@ func (c *NotificationClient) open(ctx context.Context) (io.ReadCloser, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
-	return resp.Body, nil
-}
-
-// stream reads events from body and dispatches them to the handler until
-// the stream ends. It returns io.EOF on a clean end of stream.
-func (c *NotificationClient) stream(body io.Reader) error {
-	r := sse.NewReader(body)
+	c.health(nil)
+	r := sse.NewReader(resp.Body)
 	for {
 		ev, err := r.Read()
 		if err != nil {
