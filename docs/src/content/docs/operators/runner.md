@@ -13,9 +13,9 @@ every task created for it in a sandbox of its own: a Docker container by default
 
 These steps run a runner against gritz.dev on a machine with Docker.
 
-1. **Install `gritz`.** Release binaries for Linux (`gritz-linux-amd64` and
-   `gritz-linux-arm64`) are attached to each
-   [GitHub release](https://github.com/gritzapp/gritz/releases). To build it
+1. **Install `gritz`.** Each
+   [GitHub release](https://github.com/gritzapp/gritz/releases) has an archive
+   per platform, `gritz_<os>_<arch>.tar.gz`, holding the `gritz` binary. To build it
    from a checkout instead, run `mise run install`.
 
 2. **Create an API key** on the **Keys** page

@@ -1,7 +1,10 @@
 package prebuilt
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,10 +20,8 @@ import (
 
 const DefaultRepo = "gritzapp/gritz"
 
-var BinaryNames = []string{
-	"gritz-linux-amd64",
-	"gritz-linux-arm64",
-}
+// Arches lists the linux architectures Download fetches.
+var Arches = []string{"amd64", "arm64"}
 
 // Dir returns the directory where prebuilt binaries are stored.
 // It checks GRITZ_PREBUILT_DIR first, then GRITZ_CONFIG_DIR/prebuilt,
@@ -100,21 +101,21 @@ func Download(ctx context.Context, repo string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
-	for _, name := range BinaryNames {
+	for _, arch := range Arches {
+		name := fmt.Sprintf("gritz_linux_%s.tar.gz", arch)
 		asset := findAsset(release.Assets, name)
 		if asset == nil {
 			return fmt.Errorf("asset %s not found in release %s", name, release.GetTagName())
 		}
-		destPath := filepath.Join(dir, name)
 		rc, _, err := client.Repositories.DownloadReleaseAsset(ctx, owner, repoName, asset.GetID(), http.DefaultClient)
 		if err != nil {
 			return fmt.Errorf("failed to download %s: %w", name, err)
 		}
-		if err := writeFile(destPath, rc); err != nil {
-			rc.Close()
-			return fmt.Errorf("failed to save %s: %w", name, err)
-		}
+		err = extractBinary(rc, filepath.Join(dir, "gritz-linux-"+arch))
 		rc.Close()
+		if err != nil {
+			return fmt.Errorf("failed to extract %s: %w", name, err)
+		}
 	}
 	return nil
 }
@@ -139,6 +140,29 @@ func findAsset(assets []*github.ReleaseAsset, name string) *github.ReleaseAsset 
 		}
 	}
 	return nil
+}
+
+// extractBinary writes the gritz entry of the tar.gz archive read from r to
+// path.
+func extractBinary(r io.Reader, path string) error {
+	gz, err := gzip.NewReader(r)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return errors.New("archive has no gritz entry")
+		}
+		if err != nil {
+			return err
+		}
+		if hdr.Name == "gritz" && hdr.Typeflag == tar.TypeReg {
+			return writeFile(path, tr)
+		}
+	}
 }
 
 func writeFile(path string, r io.Reader) error {
