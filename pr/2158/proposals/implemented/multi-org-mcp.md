@@ -269,19 +269,19 @@ package mcpbridge // github.com/gritzapp/gritz/internal/mcpbridge
 // are registered.
 const OrgsInstructions = "..." // new
 
-// Orgs is the session's current org and its client.
-type Orgs struct{ ... } // new
+// OrgSwitcher holds the session's current org and its client.
+type OrgSwitcher struct{ ... } // new
 
-// NewOrgs starts the session in entry, calling follow for it and for every
+// NewOrgSwitcher starts the session in entry, calling follow for it and for every
 // org switched to later. switch_org looks entries up in merged. Clients are
 // built from entry.TokenSource(ctx).
-func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *Orgs // new
+func NewOrgSwitcher(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *OrgSwitcher // new
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
-func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
+func (o *OrgSwitcher) Service() gritzv1connect.GritzServiceHandler // new
 
 // AddTools registers list_orgs and switch_org.
-func (o *Orgs) AddTools(server *mcp.Server) // new
+func (o *OrgSwitcher) AddTools(server *mcp.Server) // new
 
 // NewChannel returns a Channel that forwards through sender and follows no
 // org yet.
@@ -302,8 +302,8 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 from the entry's token source, passes `mcpserver.Static(client)` to `AddTools`,
 and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`).
 Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`,
-builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without
-`--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and
+builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without
+`--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and
 appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
 into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup;
 `switch_org` calls `merged.Lookup`, `gritzclient.New` with
@@ -335,7 +335,7 @@ into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with n
    and is absent with an empty name, that a second `Follow` for the same
    entry starts no stream, and that the mute tools edit
    the set `org` names.
-4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two
+4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two
    tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each
    switched-to org. Updates `integrations/mcp` (a section on orgs, the tool
    table, the `--key` note). Depends on: (1), (2), (3). Verifiable by:

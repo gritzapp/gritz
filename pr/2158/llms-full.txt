@@ -16650,22 +16650,22 @@ package mcpbridge // github.com/gritzapp/gritz/internal/mcpbridge
 const OrgsInstructions = "..." // new
 
 
-// Orgs is the session's current org and its client.
-type Orgs struct{ ... } // new
+// OrgSwitcher holds the session's current org and its client.
+type OrgSwitcher struct{ ... } // new
 
 
-// NewOrgs starts the session in entry, calling follow for it and for every
+// NewOrgSwitcher starts the session in entry, calling follow for it and for every
 // org switched to later. switch_org looks entries up in merged. Clients are
 // built from entry.TokenSource(ctx).
-func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *Orgs // new
+func NewOrgSwitcher(ctx context.Context, merged *configfile.Merged, entry *configfile.Entry, clientID string, follow func(entry *configfile.Entry)) *OrgSwitcher // new
 
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
-func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
+func (o *OrgSwitcher) Service() gritzv1connect.GritzServiceHandler // new
 
 
 // AddTools registers list_orgs and switch_org.
-func (o *Orgs) AddTools(server *mcp.Server) // new
+func (o *OrgSwitcher) AddTools(server *mcp.Server) // new
 
 
 // NewChannel returns a Channel that forwards through sender and follows no
@@ -16685,7 +16685,7 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) // changed: takes the entry name
 ```
 
-**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
+**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
 
@@ -16694,7 +16694,7 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 1. **`Merged.Entries` and the `Lookup` server default** — Delivers: `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Entries` filters by `allowed`, sorts by name and returns each entry as `Lookup` would (`Name` set, `Server` defaulted), and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
 3. **Per-org channel** — Delivers: `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same entry starts no stream, and that the mute tools edit the set `org` names.
-4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad key leaves the current org, id mismatch fails, `allowed` enforced, a `refresh_token` entry authenticates); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
+4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad key leaves the current org, id mismatch fails, `allowed` enforced, a `refresh_token` entry authenticates); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
 
 Slices 1 and 2 are independent.
 
