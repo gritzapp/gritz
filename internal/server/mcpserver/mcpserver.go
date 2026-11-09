@@ -20,7 +20,8 @@ const Instructions = "gritz is an async agent orchestrator that runs AI coding a
 	"Each task runs an AI coding agent with access to the codebase and configured tools.\n" +
 	"Agents attach links to their tasks for external resources they create, such as GitHub PRs or Jira issues.\n" +
 	"The server also administers the organisation's events, custom event types, schedules and routing rules, and reads its members, API keys and settings.\n" +
-	"To send a custom event, fire it with test_event."
+	"To send a custom event, fire it with test_event.\n" +
+	"The gritz documentation is at https://docs.gritz.dev; https://docs.gritz.dev/llms.txt lists it for agents."
 
 // Option configures the behaviour of the registered tools.
 type Option func(*handlers)
