@@ -58,10 +58,5 @@ func Resolve(cmd *cli.Command) (*Entry, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
-	entry, err := m.Lookup(cmd.String("org"))
-	if err != nil {
-		return nil, err
-	}
-	entry.Server = cmp.Or(entry.Server, DefaultServer)
-	return entry, nil
+	return m.Lookup(cmd.String("org"))
 }

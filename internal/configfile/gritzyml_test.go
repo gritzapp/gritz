@@ -252,7 +252,7 @@ func TestLookup(t *testing.T) {
 		"local": {ID: 1, Key: "k2", Server: "http://localhost:8080"},
 	}
 	from := map[string]string{"acme": "/cfg/.gritz.yml", "local": "/repo/.gritz.yml"}
-	acme := Entry{ID: 12, Key: "k1", Name: "acme", Path: "/cfg/.gritz.yml"}
+	acme := Entry{ID: 12, Key: "k1", Server: DefaultServer, Name: "acme", Path: "/cfg/.gritz.yml"}
 	local := Entry{ID: 1, Key: "k2", Server: "http://localhost:8080", Name: "local", Path: "/repo/.gritz.yml"}
 	tests := []struct {
 		name   string
@@ -322,6 +322,26 @@ func TestLookup(t *testing.T) {
 			assert.DeepEqual(t, got, tt.want)
 		})
 	}
+}
+
+func TestEntries(t *testing.T) {
+	t.Parallel()
+	m := Merged{
+		Allowed: []string{"local", "acme"},
+		Orgs: map[string]Entry{
+			"local": {ID: 1, Key: "k2", Server: "http://localhost:8080"},
+			"labs":  {ID: 31, Key: "k3"},
+			"acme":  {ID: 12, Key: "k1"},
+		},
+		OrgsFrom: map[string]string{"local": "/repo/.gritz.yml", "labs": "/cfg/.gritz.yml", "acme": "/cfg/.gritz.yml"},
+	}
+
+	got := m.Entries()
+
+	assert.DeepEqual(t, got, []Entry{
+		{ID: 12, Key: "k1", Server: DefaultServer, Name: "acme", Path: "/cfg/.gritz.yml"},
+		{ID: 1, Key: "k2", Server: "http://localhost:8080", Name: "local", Path: "/repo/.gritz.yml"},
+	})
 }
 
 func TestSlug(t *testing.T) {
