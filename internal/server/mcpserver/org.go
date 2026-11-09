@@ -66,7 +66,8 @@ type member struct {
 }
 
 func (h *handlers) listMembers(ctx context.Context, req *mcp.CallToolRequest, input listMembersInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.ListOrgMembers(ctx, &gritzv1.ListOrgMembersRequest{})
+	service := h.service()
+	resp, err := service.ListOrgMembers(ctx, &gritzv1.ListOrgMembersRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list members: %v", err), nil, nil
 	}
@@ -88,7 +89,8 @@ func (h *handlers) listMembers(ctx context.Context, req *mcp.CallToolRequest, in
 type listKeysInput struct{}
 
 func (h *handlers) listKeys(ctx context.Context, req *mcp.CallToolRequest, input listKeysInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.ListKeys(ctx, &gritzv1.ListKeysRequest{})
+	service := h.service()
+	resp, err := service.ListKeys(ctx, &gritzv1.ListKeysRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list keys: %v", err), nil, nil
 	}
@@ -106,7 +108,8 @@ type orgSettings struct {
 }
 
 func (h *handlers) getOrgSettings(ctx context.Context, req *mcp.CallToolRequest, input getOrgSettingsInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetOrgSettings(ctx, &gritzv1.GetOrgSettingsRequest{})
+	service := h.service()
+	resp, err := service.GetOrgSettings(ctx, &gritzv1.GetOrgSettingsRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get org settings: %v", err), nil, nil
 	}
@@ -123,7 +126,8 @@ func (h *handlers) getOrgSettings(ctx context.Context, req *mcp.CallToolRequest,
 type getRoutingRulesInput struct{}
 
 func (h *handlers) getRoutingRules(ctx context.Context, req *mcp.CallToolRequest, input getRoutingRulesInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
+	service := h.service()
+	resp, err := service.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get routing rules: %v", err), nil, nil
 	}
@@ -135,6 +139,7 @@ type setRoutingRulesInput struct {
 }
 
 func (h *handlers) setRoutingRules(ctx context.Context, req *mcp.CallToolRequest, input setRoutingRulesInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	rules := make([]*gritzv1.RoutingRule, len(input.Rules))
 	for i, r := range input.Rules {
 		b, err := json.Marshal(r)
@@ -146,7 +151,7 @@ func (h *handlers) setRoutingRules(ctx context.Context, req *mcp.CallToolRequest
 			return mcpx.ErrorResult("invalid rule %d: %v", i+1, err), nil, nil
 		}
 	}
-	resp, err := h.service.SetRoutingRules(ctx, &gritzv1.SetRoutingRulesRequest{Rules: rules})
+	resp, err := service.SetRoutingRules(ctx, &gritzv1.SetRoutingRulesRequest{Rules: rules})
 	if err != nil {
 		return mcpx.ErrorResult("failed to set routing rules: %v", err), nil, nil
 	}

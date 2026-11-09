@@ -6,6 +6,7 @@ import (
 	"time"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
 	"github.com/gritzapp/gritz/internal/x/mcpx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -68,7 +69,8 @@ type listEventsInput struct {
 }
 
 func (h *handlers) listEvents(ctx context.Context, req *mcp.CallToolRequest, input listEventsInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.ListExternalEvents(ctx, &gritzv1.ListExternalEventsRequest{Limit: input.Limit})
+	service := h.service()
+	resp, err := service.ListExternalEvents(ctx, &gritzv1.ListExternalEventsRequest{Limit: input.Limit})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list events: %v", err), nil, nil
 	}
@@ -104,7 +106,8 @@ type eventIDInput struct {
 }
 
 func (h *handlers) getEvent(ctx context.Context, req *mcp.CallToolRequest, input eventIDInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetEvent(ctx, &gritzv1.GetEventRequest{Id: input.ID})
+	service := h.service()
+	resp, err := service.GetEvent(ctx, &gritzv1.GetEventRequest{Id: input.ID})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get event: %v", err), nil, nil
 	}
@@ -112,7 +115,8 @@ func (h *handlers) getEvent(ctx context.Context, req *mcp.CallToolRequest, input
 }
 
 func (h *handlers) deleteEvent(ctx context.Context, req *mcp.CallToolRequest, input eventIDInput) (*mcp.CallToolResult, any, error) {
-	if _, err := h.service.DeleteEvent(ctx, &gritzv1.DeleteEventRequest{Id: input.ID}); err != nil {
+	service := h.service()
+	if _, err := service.DeleteEvent(ctx, &gritzv1.DeleteEventRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to delete event: %v", err), nil, nil
 	}
 	type deleted struct {
@@ -124,7 +128,8 @@ func (h *handlers) deleteEvent(ctx context.Context, req *mcp.CallToolRequest, in
 type listEventTypesInput struct{}
 
 func (h *handlers) listEventTypes(ctx context.Context, req *mcp.CallToolRequest, input listEventTypesInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetEventTypes(ctx, &gritzv1.GetEventTypesRequest{})
+	service := h.service()
+	resp, err := service.GetEventTypes(ctx, &gritzv1.GetEventTypesRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to list event types: %v", err), nil, nil
 	}
@@ -145,7 +150,8 @@ type putCustomEventTypeInput struct {
 }
 
 func (h *handlers) putCustomEventType(ctx context.Context, req *mcp.CallToolRequest, input putCustomEventTypeInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetCustomEventTypes(ctx, &gritzv1.GetCustomEventTypesRequest{})
+	service := h.service()
+	resp, err := service.GetCustomEventTypes(ctx, &gritzv1.GetCustomEventTypesRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get custom event types: %v", err), nil, nil
 	}
@@ -168,7 +174,7 @@ func (h *handlers) putCustomEventType(ctx context.Context, req *mcp.CallToolRequ
 	} else {
 		defs = append(defs, def)
 	}
-	return h.setCustomEventTypes(ctx, defs), nil, nil
+	return setCustomEventTypes(ctx, service, defs), nil, nil
 }
 
 type deleteCustomEventTypeInput struct {
@@ -176,7 +182,8 @@ type deleteCustomEventTypeInput struct {
 }
 
 func (h *handlers) deleteCustomEventType(ctx context.Context, req *mcp.CallToolRequest, input deleteCustomEventTypeInput) (*mcp.CallToolResult, any, error) {
-	resp, err := h.service.GetCustomEventTypes(ctx, &gritzv1.GetCustomEventTypesRequest{})
+	service := h.service()
+	resp, err := service.GetCustomEventTypes(ctx, &gritzv1.GetCustomEventTypesRequest{})
 	if err != nil {
 		return mcpx.ErrorResult("failed to get custom event types: %v", err), nil, nil
 	}
@@ -184,13 +191,13 @@ func (h *handlers) deleteCustomEventType(ctx context.Context, req *mcp.CallToolR
 	if i < 0 {
 		return mcpx.ErrorResult("custom event type %q not found", input.Type), nil, nil
 	}
-	return h.setCustomEventTypes(ctx, slices.Delete(resp.EventTypes, i, i+1)), nil, nil
+	return setCustomEventTypes(ctx, service, slices.Delete(resp.EventTypes, i, i+1)), nil, nil
 }
 
 // setCustomEventTypes writes the org's whole custom event type set and renders
 // the set written.
-func (h *handlers) setCustomEventTypes(ctx context.Context, defs []*gritzv1.EventTypeDef) *mcp.CallToolResult {
-	resp, err := h.service.SetCustomEventTypes(ctx, &gritzv1.SetCustomEventTypesRequest{EventTypes: defs})
+func setCustomEventTypes(ctx context.Context, service gritzv1connect.GritzServiceHandler, defs []*gritzv1.EventTypeDef) *mcp.CallToolResult {
+	resp, err := service.SetCustomEventTypes(ctx, &gritzv1.SetCustomEventTypesRequest{EventTypes: defs})
 	if err != nil {
 		return mcpx.ErrorResult("failed to set custom event types: %v", err)
 	}
@@ -209,6 +216,7 @@ type testEventInput struct {
 }
 
 func (h *handlers) testEvent(ctx context.Context, req *mcp.CallToolRequest, input testEventInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
 	testReq := &gritzv1.TestEventRequest{
 		Source:      input.Source,
 		Type:        input.Type,
@@ -222,7 +230,7 @@ func (h *handlers) testEvent(ctx context.Context, req *mcp.CallToolRequest, inpu
 	for key, values := range input.Attrs {
 		testReq.Attrs[key] = &gritzv1.AttrValues{Values: values}
 	}
-	resp, err := h.service.TestEvent(ctx, testReq)
+	resp, err := service.TestEvent(ctx, testReq)
 	if err != nil {
 		return mcpx.ErrorResult("failed to test event: %v", err), nil, nil
 	}

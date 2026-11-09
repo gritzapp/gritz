@@ -73,7 +73,7 @@ var McpCommand = &cli.Command{
 		if cmd.IsSet("auto-archive") {
 			toolOpts = append(toolOpts, mcpserver.WithDefaultAutoArchive(cmd.Duration("auto-archive")))
 		}
-		mcpserver.AddTools(server, client, toolOpts...)
+		mcpserver.AddTools(server, mcpserver.Static(client), toolOpts...)
 
 		transport := mcpchannel.NewTransport(&mcp.StdioTransport{})
 
