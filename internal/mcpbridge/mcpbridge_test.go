@@ -456,25 +456,19 @@ func TestMuteTool_NamedOrg(t *testing.T) {
 	assert.Assert(t, !ch.filters["a"].Muted(42))
 }
 
-// TestMuteTool_OrgErrors checks that org must name a followed org, and can
-// only be omitted while one org is followed.
-func TestMuteTool_OrgErrors(t *testing.T) {
+// TestMuteTool_UnknownOrg checks that org must name a followed entry.
+func TestMuteTool_UnknownOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	ch := newTestChannel(&ChannelSenderMock{}, "a")
-	ch.filters["b"] = NewTaskFilter()
 
 	// Act
-	unknown, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "x", TaskIDs: []int64{42}})
-	assert.NilError(t, err)
-	omitted, _, err := ch.mutedTool(context.Background(), nil, mutedInput{})
-	assert.NilError(t, err)
+	res, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "x", TaskIDs: []int64{42}})
 
 	// Assert
-	assert.Assert(t, unknown.IsError)
-	assert.Assert(t, cmp.Contains(unknown.Content[0].(*mcp.TextContent).Text, `not following org "x"`))
-	assert.Assert(t, omitted.IsError)
-	assert.Assert(t, cmp.Contains(omitted.Content[0].(*mcp.TextContent).Text, "pass org"))
+	assert.NilError(t, err)
+	assert.Assert(t, res.IsError)
+	assert.Assert(t, cmp.Contains(res.Content[0].(*mcp.TextContent).Text, `not following org "x"`))
 }
 
 // TestFollow_Once checks that following an already followed entry again

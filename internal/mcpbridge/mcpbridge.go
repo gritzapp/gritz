@@ -82,24 +82,15 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
 	}()
 }
 
-// filter returns the filter of the followed entry named org, or of the only
-// followed entry when org is empty, with the entry's name.
-func (c *Channel) filter(org string) (string, *TaskFilter, error) {
+// filter returns the filter of the followed entry named org.
+func (c *Channel) filter(org string) (*TaskFilter, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if org == "" && len(c.filters) > 1 {
-		return "", nil, errors.New("following several orgs: pass org, as shown in the channel's org attribute")
-	}
-	if org == "" {
-		for name, f := range c.filters {
-			return name, f, nil
-		}
-	}
 	f, ok := c.filters[org]
 	if !ok {
-		return "", nil, fmt.Errorf("not following org %q", org)
+		return nil, fmt.Errorf("not following org %q", org)
 	}
-	return org, f, nil
+	return f, nil
 }
 
 // primaryTaskID returns the id of the first task resource in the
@@ -152,7 +143,7 @@ func (c *Channel) AddTools(server *mcp.Server) {
 			"all=true you can channel_unmute specific task_ids to keep just those " +
 			"delivering while the rest stay muted. Re-enable with channel_unmute. " +
 			"Muting is per organisation: pass org, as shown in the channel's org " +
-			"attribute, when notifications come from more than one. Muting is per " +
+			"attribute, unless the channel messages have none. Muting is per " +
 			"bridge session and resets when the session restarts. " +
 			"Distinct from create_link(subscribe=true), which routes external " +
 			"events INTO a task.",
@@ -165,13 +156,14 @@ func (c *Channel) AddTools(server *mcp.Server) {
 			"tasks, or all=true to clear the whole mute set and go back to the " +
 			"subscribe-all default. After channel_mute(all=true), unmuting specific " +
 			"task_ids keeps those tasks delivering while every other task stays " +
-			"muted.",
+			"muted. Pass org as for channel_mute.",
 	}, c.unmuteTool)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "channel_muted",
-		Description: "Report an organisation's mute state for this session; pass org when " +
-			"notifications come from more than one. When " +
+		Description: "Report an organisation's mute state for this session; pass org, as " +
+			"shown in the channel's org attribute, unless the channel messages " +
+			"have none. When " +
 			"all=false, the muted list holds the muted task ids and all other tasks " +
 			"are delivered. When all=true, every task is muted except the ids in the " +
 			"unmuted list.",
@@ -180,13 +172,13 @@ func (c *Channel) AddTools(server *mcp.Server) {
 }
 
 type muteInput struct {
-	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required when notifications come from more than one"`
+	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
 	TaskIDs []int64 `json:"task_ids,omitempty" jsonschema:"Task IDs to mute"`
 	All     bool    `json:"all,omitempty" jsonschema:"Mute every task; channel_unmute specific task_ids afterwards to keep just those delivering"`
 }
 
 func (c *Channel) muteTool(_ context.Context, _ *mcp.CallToolRequest, in muteInput) (*mcp.CallToolResult, any, error) {
-	name, f, err := c.filter(in.Org)
+	f, err := c.filter(in.Org)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
@@ -196,17 +188,17 @@ func (c *Channel) muteTool(_ context.Context, _ *mcp.CallToolRequest, in muteInp
 	for _, id := range in.TaskIDs {
 		f.Mute(id)
 	}
-	return mutedResult(name, f), nil, nil
+	return mutedResult(in.Org, f), nil, nil
 }
 
 type unmuteInput struct {
-	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required when notifications come from more than one"`
+	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
 	TaskIDs []int64 `json:"task_ids,omitempty" jsonschema:"Task IDs to unmute (kept delivering even under mute-all)"`
 	All     bool    `json:"all,omitempty" jsonschema:"Unmute every task, clearing the whole mute set"`
 }
 
 func (c *Channel) unmuteTool(_ context.Context, _ *mcp.CallToolRequest, in unmuteInput) (*mcp.CallToolResult, any, error) {
-	name, f, err := c.filter(in.Org)
+	f, err := c.filter(in.Org)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
@@ -216,19 +208,19 @@ func (c *Channel) unmuteTool(_ context.Context, _ *mcp.CallToolRequest, in unmut
 	for _, id := range in.TaskIDs {
 		f.Unmute(id)
 	}
-	return mutedResult(name, f), nil, nil
+	return mutedResult(in.Org, f), nil, nil
 }
 
 type mutedInput struct {
-	Org string `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required when notifications come from more than one"`
+	Org string `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
 }
 
 func (c *Channel) mutedTool(_ context.Context, _ *mcp.CallToolRequest, in mutedInput) (*mcp.CallToolResult, any, error) {
-	name, f, err := c.filter(in.Org)
+	f, err := c.filter(in.Org)
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
-	return mutedResult(name, f), nil, nil
+	return mutedResult(in.Org, f), nil, nil
 }
 
 // muteState is the wire representation of the current mute state a tool

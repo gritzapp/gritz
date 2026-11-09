@@ -171,12 +171,10 @@ format doesn't change mid-session.
 **Mute sets per org.** `Channel` keeps one `TaskFilter` per entry name.
 `Forward` checks the filter of the entry whose stream delivered the
 notification. `channel_mute`, `channel_unmute` and `channel_muted` take an
-optional `org` argument, an entry name as shown in the `org="..."` channel
-attribute, and act on that org's set, including `all=true`. Omitting `org`
-means the only followed org (always the case with `--key`, and before any
-switch); with more than one followed it is an error result asking for `org`,
-and an `org` that isn't followed is an error result
-(`not following org "x"`). Their results gain an `org` field naming it:
+`org` argument, an entry name as shown in the `org="..."` channel attribute,
+and act on that org's set, including `all=true`. `org` is required unless the
+session uses `--key`, whose stream has no name; an `org` that isn't followed
+is an error result (`not following org "x"`). Their results gain an `org` field naming it:
 
 ```json
 {"org": "acme", "all": false, "muted": [1234], "note": "..."}
