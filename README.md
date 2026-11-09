@@ -10,6 +10,15 @@ Documentation: https://docs.gritz.dev
 - **Third-party integrations** - Interact with agents via GitHub and Jira events
 - **MCP server** - Create and manage tasks from Claude Code, Cursor, or any MCP client
 
+## Setup
+
+```bash
+gritz login
+```
+
+Opens your browser to log you in, and saves the organisation to `.gritz.yml`.
+See https://docs.gritz.dev/using/cli/ for more.
+
 ## Web UI
 
 ![Web UI](images/webui.png)
