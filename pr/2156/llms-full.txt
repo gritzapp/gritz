@@ -1252,7 +1252,7 @@ With `--channel`, three more tools let your Claude choose which tasks it hears a
 | `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. |
 | `channel_muted`  | Shows which tasks are muted.                                                                                                                                    |
 
-Each result names the `.gritz.yml` entry in `org`. Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2156/concepts/events-and-links/#subscriptions), which route external events into tasks.
+Each tool takes an optional `org`, the `org` attribute of the messages to mute, and names it in its result. Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2156/concepts/events-and-links/#subscriptions), which route external events into tasks.
 
 # Backends
 
@@ -2725,13 +2725,13 @@ Orgs are identified by `orgKey{server, id}`, not by entry name. Two entries for 
 
 The name is that of the entry that started the stream. The message text is unchanged, and `--key` sessions send no `org` attribute (there’s only one org). The attribute is always set, not only once a second org is followed, so the format doesn’t change mid-session.
 
-**Mute sets per org.** `Channel` keeps one `TaskFilter` per `orgKey`. `Forward` checks the filter of the org whose stream delivered the notification. `channel_mute`, `channel_unmute` and `channel_muted` keep their arguments (no `org` argument) and act on the **current** org’s set, including `all=true`. Their results gain an `org` field naming it:
+**Mute sets per org.** `Channel` keeps one `TaskFilter` per `orgKey`. `Forward` checks the filter of the org whose stream delivered the notification. `channel_mute`, `channel_unmute` and `channel_muted` take an optional `org` argument, an entry name as shown in the `org="..."` channel attribute, and act on that org’s set, including `all=true`. Omitting `org` means the only followed org (always the case with `--key`, and before any switch); with more than one followed it is an error result asking for `org`, and an `org` that isn’t followed is an error result (`not following org "x"`). Their results gain an `org` field naming it:
 
 ```json
 {"org": "acme", "all": false, "muted": [1234], "note": "..."}
 ```
 
-To mute a task in another org, the agent switches to it first. Mute sets survive switching away and back, and still reset when the process exits.
+Muting doesn’t depend on the current org, so `switch_org` doesn’t change which tasks are muted. Mute sets reset when the process exits.
 
 ### Flags
 
@@ -2831,10 +2831,6 @@ func NewOrgs(ctx context.Context, merged *configfile.Merged, entry *configfile.E
 func (o *Orgs) Service() gritzv1connect.GritzServiceHandler // new
 
 
-// Current returns the current org's key.
-func (o *Orgs) Current() OrgKey // new
-
-
 // AddTools registers list_orgs and switch_org.
 func (o *Orgs) AddTools(server *mcp.Server) // new
 
@@ -2846,9 +2842,9 @@ type OrgKey struct { // new
 }
 
 
-// NewChannel returns a Channel that forwards through sender and whose tools
-// edit the mute set of the org current returns.
-func NewChannel(sender ChannelSender, clientID string, current func() OrgKey) *Channel // changed: takes clientID and current
+// NewChannel returns a Channel that forwards through sender and follows no
+// org yet.
+func NewChannel(sender ChannelSender, clientID string) *Channel // changed: takes clientID
 
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
@@ -2863,7 +2859,7 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification) // changed: takes the org
 ```
 
-**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools read `current()` to pick the mute set.
+**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
 
@@ -2871,7 +2867,7 @@ func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification)
 
 1. **`Merged.Entries` and the `Lookup` server default** — Delivers: `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Entries` filters by `allowed`, sorts by name and returns each entry as `Lookup` would (`Name` set, `Server` defaulted), and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
-3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same `OrgKey` under another name starts no stream, and that the mute tools edit the set `current` names.
+3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same `OrgKey` under another name starts no stream, and that the mute tools edit the set `org` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad key leaves the current org, id mismatch fails, `allowed` enforced, a `refresh_token` entry authenticates); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
 
 Slices 1 and 2 are independent.
@@ -2882,7 +2878,6 @@ Slices 1 and 2 are independent.
 
 * **Switch tools vs. an org argument on every tool.** Decided in the issue. An argument on 30-odd tools costs context on every call and has to be threaded through every handler; a current org costs one tool call per switch and the risk of acting in the wrong org, which `list_orgs`, the switch result, the instructions and the `?org=` in task URLs keep visible.
 * **Follow used orgs vs. only the current one vs. all.** See [Channel notifications](#channel-notifications): current-only loses completions of tasks the agent started; all-entries opens streams nobody asked for. Used orgs costs one stream per org switched to, never torn down.
-* **Mute tools act on the current org vs. take an `org` argument.** An argument would let the agent mute a task in another org without switching, but it’s the per-tool org argument the issue ruled out, in miniature. Muting is rare enough that a switch first is acceptable.
 * **`org` as a tag attribute vs. a prefix in the text.** `Meta` is what the channel protocol offers for structured context, and it leaves the message text and its tests unchanged.
 * **Fresh client per switch vs. a client cache.** Clients hold no connection state worth keeping; a cache would be a map with no benefit.
 * **`GetCaller` on switch vs. trusting the entry.** One round trip per switch catches a dead key before the first real call fails, and an id mismatch before a write lands in the wrong org.
@@ -31603,11 +31598,12 @@ The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under the u
 
 Logs in to an organisation and saves it under a name in `.gritz.yml` in the config directory. Without `--key`, it opens the browser to approve the login in the Web UI, for the organisation selected there, and saves a `refresh_token`; with `--key`, it asks the server which organisation the key belongs to and saves the `key`. Logging in again to the same organisation and server replaces the entry’s credential. The server is always saved with the organisation. If the file has no `org`, the name becomes it.
 
-| Flag             | Environment     | Default                                                                                         |                                                            |
-| ---------------- | --------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `--key`, `-k`    | `GRITZ_API_KEY` | log in with the browser                                                                         | An API key to save instead of logging in with the browser. |
-| `--name`         |                 | the organisation’s name, in lowercase with dashes                                               | The name to save it under.                                 |
-| `--server`, `-s` | `GRITZ_SERVER`  | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL.                                            |
+| Flag             | Environment     | Default                                                                                         |                                                                                                                                                                                                                                                               |
+| ---------------- | --------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--key`, `-k`    | `GRITZ_API_KEY` | log in with the browser                                                                         | An API key to save instead of logging in with the browser.                                                                                                                                                                                                    |
+| `--name`         |                 | the organisation’s name, in lowercase with dashes                                               | The name to save it under.                                                                                                                                                                                                                                    |
+| `--server`, `-s` | `GRITZ_SERVER`  | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL.                                                                                                                                                                                                                                               |
+| `--list`         |                 |                                                                                                 | Instead of logging in, list the organisations `--org` accepts in the current directory: name, ID, server, and `key` or `oauth` (a browser login), with `*` marking the selected `org`. It never prints a key or refresh token and doesn’t contact the server. |
 
 The browser has to run on the same machine as `gritz login`, which waits up to 10 minutes for the approval.
 
@@ -32337,6 +32333,14 @@ allowed: [acme-labs]
 ```
 
 `allowed` lists the organisations that can be used below the file; a command run there with any other `--org` fails, and so does every command if the `org` isn’t allowed. Every field is optional, and an unknown field is an error.
+
+`gritz login --list` shows the organisations you can pick from the current directory, with `*` marking the one selected by default:
+
+```plaintext
+   NAME      ID  SERVER             LOGIN
+   acme-ci   12  https://gritz.dev  key
+*  personal  3   https://gritz.dev  oauth
+```
 
 ### Server
 
