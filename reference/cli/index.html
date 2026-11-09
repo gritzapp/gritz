@@ -148,6 +148,12 @@ file has no <code dir="auto">org</code>, the name becomes it.</p>
 <td>the top-level <code dir="auto">server</code> of the nearest <code dir="auto">.gritz.yml</code> that sets one, otherwise <code dir="auto">https://gritz.dev</code></td>
 <td>The server URL.</td>
 </tr>
+<tr>
+<td><code dir="auto">--list</code></td>
+<td></td>
+<td></td>
+<td>Instead of logging in, list the organisations <code dir="auto">--org</code> accepts in the current directory: name, ID, server, and <code dir="auto">key</code> or <code dir="auto">oauth</code> (a browser login), with <code dir="auto">*</code> marking the selected <code dir="auto">org</code>. It never prints a key or refresh token and doesn’t contact the server.</td>
+</tr>
 </tbody>
 </table>
 <p>The browser has to run on the same machine as <code dir="auto">gritz login</code>, which waits up to
