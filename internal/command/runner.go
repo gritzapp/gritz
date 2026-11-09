@@ -109,7 +109,7 @@ var RunnerCommand = &cli.Command{
 			log = slog.New(handler)
 		}
 
-		cfg, err := configfile.Resolve(cmd)
+		_, cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}

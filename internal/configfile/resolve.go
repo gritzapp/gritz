@@ -25,7 +25,7 @@ func Flags() []cli.Flag {
 		&cli.StringFlag{
 			Name:    "key",
 			Aliases: []string{"k"},
-			Usage:   "API key; ignores --org and every .gritz.yml file",
+			Usage:   "API key; ignores every .gritz.yml file and can't be combined with --org",
 			Sources: cli.EnvVars("GRITZ_API_KEY"),
 		},
 		&cli.StringFlag{
@@ -37,26 +37,36 @@ func Flags() []cli.Flag {
 	}
 }
 
-// Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
-// files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server, and Server is --server, else
-// DefaultServer. --server requires --key. Without --key, Server is the
-// entry's server, else DefaultServer.
-func Resolve(cmd *cli.Command) (*Entry, error) {
+// Resolve applies --key, --server and --org from cmd, and returns the config
+// it selected from and the entry to use. With --key, the config holds a single
+// entry for the key, named "" and selected by default, whose Server is
+// --server, else DefaultServer. --server requires --key. Without --key, the
+// config is the merged, validated .gritz.yml files from the working directory.
+// The entry is the config's Lookup of --org.
+func Resolve(cmd *cli.Command) (*Merged, *Entry, error) {
 	server := cmd.String("server")
 	key := cmd.String("key")
-	if key != "" {
-		return &Entry{Key: key, Server: cmp.Or(server, DefaultServer)}, nil
+	var m *Merged
+	switch {
+	case key != "":
+		m = &Merged{Orgs: map[string]Entry{
+			"": {Key: key, Server: cmp.Or(server, DefaultServer)},
+		}}
+	case server != "":
+		return nil, nil, errors.New("--server requires --key: entries in .gritz.yml carry their own server")
+	default:
+		var err error
+		m, err = Load(LoadOptions{})
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := m.Validate(); err != nil {
+			return nil, nil, err
+		}
 	}
-	if server != "" {
-		return nil, errors.New("--server requires --key: entries in .gritz.yml carry their own server")
-	}
-	m, err := Load(LoadOptions{})
+	e, err := m.Lookup(cmd.String("org"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := m.Validate(); err != nil {
-		return nil, err
-	}
-	return m.Lookup(cmd.String("org"))
+	return m, e, nil
 }

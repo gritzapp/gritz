@@ -61,7 +61,7 @@ var TaskUpdateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		cfg, err := configfile.Resolve(cmd)
+		_, cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}

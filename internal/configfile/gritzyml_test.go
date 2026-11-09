@@ -282,6 +282,11 @@ func TestLookup(t *testing.T) {
 			want: &local,
 		},
 		{
+			name:   "unnamed entry",
+			merged: Merged{Orgs: map[string]Entry{"": {Key: "k3", Server: "http://localhost:8080"}}},
+			want:   &Entry{Key: "k3", Server: "http://localhost:8080"},
+		},
+		{
 			name:   "nothing selected",
 			merged: Merged{Orgs: orgs, OrgsFrom: from},
 			err:    "no org selected: pass --org or set org in a .gritz.yml file",

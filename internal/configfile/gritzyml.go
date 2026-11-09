@@ -202,7 +202,7 @@ func (m *Merged) Entries() []Entry {
 // entry has none. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) {
 	name := cmp.Or(org, m.Org)
-	if name == "" {
+	if _, ok := m.Orgs[name]; name == "" && !ok {
 		return nil, errors.New("no org selected: pass --org or set org in a .gritz.yml file")
 	}
 	if !m.IsAllowed(name) {
