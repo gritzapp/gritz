@@ -531,7 +531,7 @@ func TestFollow_Health(t *testing.T) {
 
 	// Assert
 	assert.DeepEqual(t, <-sent, mcpchannel.Params{
-		Content: `Lost the connection to org "acme": unexpected status: 502, retrying.`,
+		Content: `Lost the connection: unexpected status: 502, retrying.`,
 		Meta:    map[string]string{"org": "acme"},
 	})
 }

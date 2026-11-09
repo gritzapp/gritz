@@ -75,9 +75,9 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
 		ClientID:    c.clientID,
 		Handler:     func(n model.Notification) { c.Forward(ctx, entry.Name, n) },
 		OnHealth: func(h gritzclient.Health) {
-			msg := fmt.Sprintf("Lost the connection to org %q: %v, retrying.", entry.Name, h.Err)
+			msg := fmt.Sprintf("Lost the connection: %v, retrying.", h.Err)
 			if h.Connected {
-				msg = fmt.Sprintf("Reconnected to org %q (notifications sent while it was down were missed).", entry.Name)
+				msg = "Reconnected (notifications sent while it was down were missed)."
 			}
 			p := mcpchannel.Params{Content: msg, Meta: map[string]string{"org": entry.Name}}
 			if err := c.sender.SendChannel(ctx, p); err != nil {
