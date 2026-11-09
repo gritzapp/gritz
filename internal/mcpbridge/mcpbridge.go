@@ -1,7 +1,7 @@
 // Package mcpbridge implements the local stdio MCP bridge: it forwards
 // task-change notifications from the server's per-org SSE stream to the
 // host Claude Code session as channel events, subject to a per-process,
-// per-task mute set.
+// per-task mute set kept for each org it follows.
 //
 // The mute set is a blocklist: by default (empty set) every
 // channel-worthy notification is forwarded, exactly as the bridge did
@@ -21,8 +21,13 @@ package mcpbridge
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
+	"sync"
 
+	"github.com/gritzapp/gritz/internal/configfile"
+	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/gritzapp/gritz/internal/x/mcpx"
@@ -36,17 +41,56 @@ type ChannelSender interface {
 	SendChannel(ctx context.Context, p mcpchannel.Params) error
 }
 
-// Channel owns the mute-aware forwarding gate. The mute state itself lives
-// in filter. One Channel is created per `gritz mcp --channel` process.
+// Channel owns the mute-aware forwarding gate. The mute state lives in one
+// filter per followed entry, keyed by entry name ("" for --key). One Channel
+// is created per `gritz mcp --channel` process.
 type Channel struct {
-	sender ChannelSender
-	filter *TaskFilter
+	sender   ChannelSender
+	clientID string
+
+	mu      sync.Mutex
+	filters map[string]*TaskFilter
 }
 
-// NewChannel returns a Channel that forwards through sender with an empty
-// mute set (subscribe-all by default).
-func NewChannel(sender ChannelSender) *Channel {
-	return &Channel{sender: sender, filter: NewTaskFilter()}
+// NewChannel returns a Channel that forwards through sender and follows no
+// entry yet.
+func NewChannel(sender ChannelSender, clientID string) *Channel {
+	return &Channel{sender: sender, clientID: clientID, filters: map[string]*TaskFilter{}}
+}
+
+// Follow starts forwarding entry's notifications, labelled with entry.Name
+// (none when empty, as for --key), unless the entry is already followed. The
+// NotificationClient is built from entry.TokenSource(ctx). The stream runs
+// until ctx ends.
+func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.filters[entry.Name]; ok {
+		return
+	}
+	c.filters[entry.Name] = NewTaskFilter()
+	nc := gritzclient.NewNotificationClient(gritzclient.NotificationClientOptions{
+		BaseURL:     entry.Server,
+		TokenSource: entry.TokenSource(ctx),
+		ClientID:    c.clientID,
+		Handler:     func(n model.Notification) { c.Forward(ctx, entry.Name, n) },
+	})
+	go func() {
+		if err := nc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Warn("gritz channel: stream ended", "org", entry.Name, "err", err)
+		}
+	}()
+}
+
+// filter returns the filter of the followed entry named org.
+func (c *Channel) filter(org string) (*TaskFilter, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	f, ok := c.filters[org]
+	if !ok {
+		return nil, fmt.Errorf("not following org %q", org)
+	}
+	return f, nil
 }
 
 // primaryTaskID returns the id of the first task resource in the
@@ -60,22 +104,28 @@ func primaryTaskID(n model.Notification) (int64, bool) {
 	return 0, false
 }
 
-// Forward applies the summary gate and the mute set, then pushes the
-// channel notification. It is suitable as the gritzclient
-// NotificationClient handler.
+// Forward applies the summary gate and the org's mute set, then pushes the
+// channel notification, with the entry name as the org attribute.
 //
 // With an empty mute set this is identical to the bridge's original inline
 // handler: the same ChannelMessage gate and the same SendChannel call. A
 // notification naming a muted task is dropped; a notification with no task
 // resource is always forwarded (the mute set only ever holds task ids).
-func (c *Channel) Forward(ctx context.Context, n model.Notification) {
+func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) {
 	if n.ChannelMessage == "" {
 		return // summary gate: not channel-worthy
 	}
-	if id, ok := primaryTaskID(n); ok && c.filter.Muted(id) {
+	c.mu.Lock()
+	f := c.filters[name]
+	c.mu.Unlock()
+	if id, ok := primaryTaskID(n); ok && f.Muted(id) {
 		return // this task has been muted by the agent
 	}
-	if err := c.sender.SendChannel(ctx, mcpchannel.Params{Content: n.ChannelMessage}); err != nil {
+	p := mcpchannel.Params{Content: n.ChannelMessage}
+	if name != "" {
+		p.Meta = map[string]string{"org": name}
+	}
+	if err := c.sender.SendChannel(ctx, p); err != nil {
 		slog.Warn("gritz channel: failed to send", "err", err)
 	}
 }
@@ -92,7 +142,9 @@ func (c *Channel) AddTools(server *mcp.Server) {
 			"longer care about, or all=true to mute every task at once. After " +
 			"all=true you can channel_unmute specific task_ids to keep just those " +
 			"delivering while the rest stay muted. Re-enable with channel_unmute. " +
-			"Muting is per bridge session and resets when the session restarts. " +
+			"Muting is per organisation: pass org, as shown in the channel's org " +
+			"attribute, unless the channel messages have none. Muting is per " +
+			"bridge session and resets when the session restarts. " +
 			"Distinct from create_link(subscribe=true), which routes external " +
 			"events INTO a task.",
 	}, c.muteTool)
@@ -104,12 +156,14 @@ func (c *Channel) AddTools(server *mcp.Server) {
 			"tasks, or all=true to clear the whole mute set and go back to the " +
 			"subscribe-all default. After channel_mute(all=true), unmuting specific " +
 			"task_ids keeps those tasks delivering while every other task stays " +
-			"muted.",
+			"muted. Pass org as for channel_mute.",
 	}, c.unmuteTool)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "channel_muted",
-		Description: "Report the current mute state for this session. When " +
+		Description: "Report an organisation's mute state for this session; pass org, as " +
+			"shown in the channel's org attribute, unless the channel messages " +
+			"have none. When " +
 			"all=false, the muted list holds the muted task ids and all other tasks " +
 			"are delivered. When all=true, every task is muted except the ids in the " +
 			"unmuted list.",
@@ -118,46 +172,63 @@ func (c *Channel) AddTools(server *mcp.Server) {
 }
 
 type muteInput struct {
+	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
 	TaskIDs []int64 `json:"task_ids,omitempty" jsonschema:"Task IDs to mute"`
 	All     bool    `json:"all,omitempty" jsonschema:"Mute every task; channel_unmute specific task_ids afterwards to keep just those delivering"`
 }
 
 func (c *Channel) muteTool(_ context.Context, _ *mcp.CallToolRequest, in muteInput) (*mcp.CallToolResult, any, error) {
+	f, err := c.filter(in.Org)
+	if err != nil {
+		return mcpx.ErrorResult("%s", err), nil, nil
+	}
 	if in.All {
-		c.filter.MuteAll()
+		f.MuteAll()
 	}
 	for _, id := range in.TaskIDs {
-		c.filter.Mute(id)
+		f.Mute(id)
 	}
-	return c.mutedResult(), nil, nil
+	return mutedResult(in.Org, f), nil, nil
 }
 
 type unmuteInput struct {
+	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
 	TaskIDs []int64 `json:"task_ids,omitempty" jsonschema:"Task IDs to unmute (kept delivering even under mute-all)"`
 	All     bool    `json:"all,omitempty" jsonschema:"Unmute every task, clearing the whole mute set"`
 }
 
 func (c *Channel) unmuteTool(_ context.Context, _ *mcp.CallToolRequest, in unmuteInput) (*mcp.CallToolResult, any, error) {
+	f, err := c.filter(in.Org)
+	if err != nil {
+		return mcpx.ErrorResult("%s", err), nil, nil
+	}
 	if in.All {
-		c.filter.Clear()
+		f.Clear()
 	}
 	for _, id := range in.TaskIDs {
-		c.filter.Unmute(id)
+		f.Unmute(id)
 	}
-	return c.mutedResult(), nil, nil
+	return mutedResult(in.Org, f), nil, nil
 }
 
-type mutedInput struct{}
+type mutedInput struct {
+	Org string `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
+}
 
-func (c *Channel) mutedTool(_ context.Context, _ *mcp.CallToolRequest, _ mutedInput) (*mcp.CallToolResult, any, error) {
-	return c.mutedResult(), nil, nil
+func (c *Channel) mutedTool(_ context.Context, _ *mcp.CallToolRequest, in mutedInput) (*mcp.CallToolResult, any, error) {
+	f, err := c.filter(in.Org)
+	if err != nil {
+		return mcpx.ErrorResult("%s", err), nil, nil
+	}
+	return mutedResult(in.Org, f), nil, nil
 }
 
 // muteState is the wire representation of the current mute state a tool
-// handler returns. Under mute-all the exception set is reported in Unmuted
+// handler returns. Org names the org's entry and is empty with --key. Under mute-all the exception set is reported in Unmuted
 // (still-delivering tasks); otherwise it is reported in Muted. The omitempty
 // tags mean only the field relevant to the active mode is emitted.
 type muteState struct {
+	Org     string  `json:"org,omitempty"`
 	All     bool    `json:"all"`
 	Muted   []int64 `json:"muted,omitempty"`
 	Unmuted []int64 `json:"unmuted,omitempty"`
@@ -167,19 +238,21 @@ type muteState struct {
 // mutedResult renders the current mute state for a tool response. Under
 // mute-all the exception set is reported as the unmuted (still-delivering)
 // tasks; otherwise it is reported as the muted tasks.
-func (c *Channel) mutedResult() *mcp.CallToolResult {
-	if c.filter.All() {
+func mutedResult(name string, f *TaskFilter) *mcp.CallToolResult {
+	if f.All() {
 		return mcpx.JSONResult(muteState{
+			Org:     name,
 			All:     true,
-			Unmuted: c.filter.Exceptions(),
+			Unmuted: f.Exceptions(),
 			Note: "Every task is muted except those in unmuted. Keep more tasks " +
 				"delivering with channel_unmute(task_ids=...), or channel_unmute(all=true) " +
 				"to resume everything. Muting is per bridge session and resets on restart.",
 		})
 	}
 	return mcpx.JSONResult(muteState{
+		Org:   name,
 		All:   false,
-		Muted: c.filter.Exceptions(),
+		Muted: f.Exceptions(),
 		Note:  "Channel notifications for all tasks except these are delivered. Muting is per bridge session and resets on restart.",
 	})
 }
