@@ -14,12 +14,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { DEFAULT_CRON, browserTimezone, timezoneOptions } from '@/lib/schedule'
+import { AUTO_ARCHIVE_IMMEDIATE, AUTO_ARCHIVE_NEVER, formatCountdown } from '@/lib/duration'
 
 // ScheduleFormValues is the full editable state of a schedule template + spec.
 // It is intentionally UI-shaped: `instruction` is a single text block (the
 // common case, mirroring the Create Task form) and `autoArchive` is the
-// whole-hours string the auto-archive Select uses. The route maps this to the
-// proto request(s).
+// autoArchiveSelectValue string the auto-archive Select uses. The route maps
+// this to the proto request(s).
 export interface ScheduleFormValues {
   name: string
   runner: string
@@ -44,15 +45,18 @@ export function emptyScheduleValues(): ScheduleFormValues {
     cronExpr: DEFAULT_CRON,
     timezone: browserTimezone(),
     enabled: true,
-    autoArchive: 'never',
+    autoArchive: AUTO_ARCHIVE_NEVER,
   }
 }
 
+// The auto-archive presets offered in the Select. Positive values are keyed by
+// their whole-second count to match autoArchiveSelectValue's lossless encoding.
 const AUTO_ARCHIVE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'never', label: 'Never' },
-  { value: '1', label: '1 hour' },
-  { value: '24', label: '24 hours' },
-  { value: '168', label: '7 days' },
+  { value: AUTO_ARCHIVE_NEVER, label: 'Never' },
+  { value: AUTO_ARCHIVE_IMMEDIATE, label: 'Immediately' },
+  { value: String(60 * 60), label: '1 hour' },
+  { value: String(24 * 60 * 60), label: '24 hours' },
+  { value: String(7 * 24 * 60 * 60), label: '7 days' },
 ]
 
 interface ScheduleFormProps {
@@ -84,6 +88,21 @@ export function ScheduleForm({
   const timezoneChoices = timezones.includes(values.timezone)
     ? timezones
     : [values.timezone, ...timezones]
+
+  // A schedule's auto_archive can be any duration the API set, not just a
+  // preset (e.g. 30m). Keep the initial value selectable so editing the
+  // schedule shows and preserves it.
+  const autoArchiveOptions = AUTO_ARCHIVE_OPTIONS.some(
+    (opt) => opt.value === initialValues.autoArchive,
+  )
+    ? AUTO_ARCHIVE_OPTIONS
+    : [
+        ...AUTO_ARCHIVE_OPTIONS,
+        {
+          value: initialValues.autoArchive,
+          label: formatCountdown(Number(initialValues.autoArchive) * 1000),
+        },
+      ]
 
   const set = <K extends keyof ScheduleFormValues>(key: K, value: ScheduleFormValues[K]) =>
     setValues((prev) => ({ ...prev, [key]: value }))
@@ -237,7 +256,7 @@ export function ScheduleForm({
             <SelectValue placeholder="Never (default)" />
           </SelectTrigger>
           <SelectContent>
-            {AUTO_ARCHIVE_OPTIONS.map((opt) => (
+            {autoArchiveOptions.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label}
               </SelectItem>
