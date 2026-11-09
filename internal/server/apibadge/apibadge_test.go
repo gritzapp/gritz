@@ -7,6 +7,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/server/apibadge"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/golden"
 )
 
 func TestHandler(t *testing.T) {
@@ -22,7 +23,7 @@ func TestHandler(t *testing.T) {
 	// Assert
 	assert.Equal(t, rec.Code, http.StatusOK)
 	assert.Equal(t, rec.Header().Get("Content-Type"), "application/json")
-	assert.Equal(t, rec.Body.String(), `{"schemaVersion":1,"label":"","message":"2474","color":"black","labelColor":"black","logoSvg":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"#fff\"><rect x=\"8\" y=\"2\" width=\"16\" height=\"7\" rx=\"2\"/><rect x=\"2\" y=\"8\" width=\"7\" height=\"15\" rx=\"2\"/><rect x=\"17\" y=\"15\" width=\"13\" height=\"6\" rx=\"2\"/><rect x=\"8\" y=\"23\" width=\"9\" height=\"7\" rx=\"2\"/></svg>"}`+"\n")
+	golden.Assert(t, rec.Body.String(), "badge.golden")
 }
 
 func TestHandler_InvalidID(t *testing.T) {
