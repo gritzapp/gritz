@@ -20,7 +20,7 @@ flag wins when both are set.
 | Flag | Environment | |
 | --- | --- | --- |
 | `--org` | `GRITZ_ORG` | The organisation's name in the `.gritz.yml` files. Defaults to their `org`. |
-| `--key`, `-k` | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`. |
+| `--key`, `-k` | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files. Can't be combined with `--org`. |
 | `--server`, `-s` | `GRITZ_SERVER` | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
 
 Without `--key`, a command merges `.gritz.yml` in the config directory with every

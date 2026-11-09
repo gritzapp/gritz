@@ -373,12 +373,13 @@ func Flags() []cli.Flag // new
 // gritzclient.DefaultURL.
 const DefaultServer = "https://gritz.dev" // new
 
-// Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
-// files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server, and Server is --server, else
-// DefaultServer. --server requires --key. Without --key, Server is the
-// entry's server, else DefaultServer.
-func Resolve(cmd *cli.Command) (*Entry, error) // new
+// Resolve applies --key, --server and --org from cmd, and returns the config
+// it selected from and the entry to use. With --key, the config holds a single
+// entry for the key, named "" and selected by default, whose Server is
+// --server, else DefaultServer. --server requires --key. Without --key, the
+// config is the merged, validated .gritz.yml files from the working directory.
+// The entry is the config's Lookup of --org.
+func Resolve(cmd *cli.Command) (*Merged, *Entry, error) // new
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
 func Slug(orgName string) string // new

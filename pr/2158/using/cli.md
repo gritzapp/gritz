@@ -142,7 +142,7 @@ The top-level `server` is read only by `gritz login`.
 
 `--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key
 directly, for CI and other places with no config file. The command then reads no
-`.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or
+`.gritz.yml` files, fails if `--org` is also given, and talks to `--server`, `GRITZ_SERVER` or
 `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER`
 need a key this way, since an organisation in a `.gritz.yml` carries its own
 server:

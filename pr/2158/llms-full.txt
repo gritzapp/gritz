@@ -994,19 +994,19 @@ Or in a project’s `.mcp.json`:
 
 `gritz mcp` picks its organisation, login and server as every CLI command does, from the `.gritz.yml` files of the directory the client starts it in: a repository whose `.gritz.yml` sets `org` gets that organisation with no credential in the MCP config.
 
-| Flag             |                                                                                                                                                                      |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--org`          | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`.                                                             |
-| `--key`, `-k`    | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. The session stays in the key’s organisation, without `list_orgs` and `switch_org`. |
-| `--server`, `-s` | The server URL to use with `--key`, which it requires. Defaults to `GRITZ_SERVER`, otherwise `https://gritz.dev`.                                                    |
-| `--auto-archive` | The [auto-archive](/pr/2158/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`.                                  |
-| `--channel`      | Push task updates into the Claude Code session. See [Channels](#channels).                                                                                           |
+| Flag             |                                                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `--org`          | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`.                            |
+| `--key`, `-k`    | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. The session stays in the key’s organisation.      |
+| `--server`, `-s` | The server URL to use with `--key`, which it requires. Defaults to `GRITZ_SERVER`, otherwise `https://gritz.dev`.                   |
+| `--auto-archive` | The [auto-archive](/pr/2158/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
+| `--channel`      | Push task updates into the Claude Code session. See [Channels](#channels).                                                          |
 
 ### Organisations
 
 [Section titled “Organisations”](#organisations)
 
-A session started from the `.gritz.yml` files starts in the organisation `--org` picks, and can switch to any other entry in those files, within their `allowed` list. It acts in one organisation at a time, the current one, and every other tool acts in it. Two tools manage it:
+A session started from the `.gritz.yml` files starts in the organisation `--org` picks, and can switch to any other entry in those files, within their `allowed` list. A session started with `--key` has one entry, with an empty name, for the key’s organisation. A session acts in one organisation at a time, the current one, and every other tool acts in it. Two tools manage it:
 
 * `list_orgs` lists the entries: each one’s `name`, organisation `id`, `server`, and whether it is `current`. It doesn’t contact the server.
 * `switch_org` takes an entry’s `name` and makes it current. It returns the entry’s `name`, `id` and `server`. It doesn’t contact the server either: if the entry’s login doesn’t work, the first tool call after the switch fails.
@@ -1643,7 +1643,7 @@ These steps run a runner against gritz.dev on a machine with Docker.
 | Flag                      | Environment variable          | Default                             |                                                                                                                                                                                               |
 | ------------------------- | ----------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--server`, `-s`          | `GRITZ_SERVER`                | `https://gritz.dev`                 | The server URL to use with `--key`, which it requires; without `--key`, the organisation’s `server` is used. Sandboxes connect to the same URL, so it must be reachable from inside them too. |
-| `--key`, `-k`             | `GRITZ_API_KEY`               |                                     | The API key. Set, the runner reads no `.gritz.yml` files and ignores `--org`.                                                                                                                 |
+| `--key`, `-k`             | `GRITZ_API_KEY`               |                                     | The API key. Set, the runner reads no `.gritz.yml` files, and `--org` is an error.                                                                                                            |
 | `--org`                   | `GRITZ_ORG`                   | the `org` in the `.gritz.yml` files | The organisation to run tasks for, by its name in the `.gritz.yml` files.                                                                                                                     |
 | `--workspaces`, `-w`      |                               | `~/.config/gritz/workspaces.yaml`   | The [workspace config](/pr/2158/operators/workspaces-yaml/).                                                                                                                                  |
 | `--id`                    | `GRITZ_RUNNER_ID`             | the hostname                        | The runner’s ID, which users pick when they create a task. Letters and digits, no spaces.                                                                                                     |
@@ -16398,12 +16398,13 @@ func Flags() []cli.Flag // new
 const DefaultServer = "https://gritz.dev" // new
 
 
-// Resolve applies --key, --server and --org from cmd and the merged .gritz.yml
-// files from the working directory, and returns the entry to use. With --key,
-// the entry has only Key and Server, and Server is --server, else
-// DefaultServer. --server requires --key. Without --key, Server is the
-// entry's server, else DefaultServer.
-func Resolve(cmd *cli.Command) (*Entry, error) // new
+// Resolve applies --key, --server and --org from cmd, and returns the config
+// it selected from and the entry to use. With --key, the config holds a single
+// entry for the key, named "" and selected by default, whose Server is
+// --server, else DefaultServer. --server requires --key. Without --key, the
+// config is the merged, validated .gritz.yml files from the working directory.
+// The entry is the config's Lookup of --org.
+func Resolve(cmd *cli.Command) (*Merged, *Entry, error) // new
 
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
@@ -16470,7 +16471,7 @@ Decided in the issue: the session gets tools that list the available orgs and sw
 
 [Section titled “Overview”](#overview)
 
-* Two new tools on `gritz mcp`, `list_orgs` and `switch_org`. They exist only when the session was started from `.gritz.yml` files, not with `--key`.
+* Two new tools on `gritz mcp`, `list_orgs` and `switch_org`. A `--key` session has them too: its config is one entry, named `""`.
 * The session has one **current org**. Every other tool, the existing task tools and the [MCP admin tools](/pr/2158/proposals/implemented/mcp-admin-tools/) alike, acts in it. `switch_org` replaces the current org’s client with a new one.
 * With `--channel`, the session follows **every org it has used**: the startup org, plus each org it switches to. Each channel message carries the org’s entry name as a tag attribute, and mute sets are kept per org.
 
@@ -16527,7 +16528,7 @@ Switching to the current org replaces its client with an equivalent one and is o
 type ServiceFunc func() gritzv1connect.GritzServiceHandler
 ```
 
-Each handler calls it **once**, at its start, and uses that value for every RPC it makes. Handlers that make several calls (`update_task` and its follow-up `GetTask`; the admin tools’ read-modify-write `put_custom_event_type`, `update_schedule`, `set_routing_rules`) therefore stay in one org even if a `switch_org` runs concurrently. The server’s `/mcp` handler passes `mcpserver.Static(apiServer)`, and `gritz mcp --key` passes `mcpserver.Static(client)`, so neither changes behaviour.
+Each handler calls it **once**, at its start, and uses that value for every RPC it makes. Handlers that make several calls (`update_task` and its follow-up `GetTask`; the admin tools’ read-modify-write `put_custom_event_type`, `update_schedule`, `set_routing_rules`) therefore stay in one org even if a `switch_org` runs concurrently. The server’s `/mcp` handler passes `mcpserver.Static(apiServer)`, so it doesn’t change behaviour; `gritz mcp` passes `OrgSwitcher.Service`.
 
 Clients are created **lazily, on switch**, and only the current one is kept. `gritzclient.New` builds an `http.Client` and a Connect client and makes no connection, so there’s nothing worth caching or creating up front; switching back to an org builds a fresh one. One client id (`uuid.NewString()` at startup, as now) is shared by every client the session builds, so the notification streams filter out the session’s own changes in every org.
 
@@ -16573,17 +16574,17 @@ The startup selection is unchanged: `--key`, `--org` and their env vars resolve 
 
 * **`--org` / `GRITZ_ORG`** picks the startup current org; otherwise it’s the merged `org`, and with neither the command fails as now. `switch_org` can then move to any entry `list_orgs` shows.
 * **`allowed`** limits `list_orgs` and `switch_org` exactly as it limits `--org`. A repo whose `.gritz.yml` pins `allowed: [acme]` gets a session that can’t leave `acme`.
-* **`--key` / `GRITZ_API_KEY`** (with `--server`, which only applies to `--key`) is a single raw key with no entries: `list_orgs` and `switch_org` aren’t registered, as the channel tools aren’t without `--channel`. The session behaves as today, apart from the per-org mute-set refactor being invisible with one org.
+* **`--key` / `GRITZ_API_KEY`** (with `--server`, which only applies to `--key`) is a single raw key: `Resolve` returns a one-entry config whose entry is named `""`. `list_orgs` lists that entry and `switch_org` can only switch to it, so the session stays in the key’s org.
 
 ### Instructions
 
 [Section titled “Instructions”](#instructions)
 
-When the org tools are registered, `gritz mcp` appends to `mcpserver.Instructions`:
+`gritz mcp` appends to `mcpserver.Instructions`:
 
 > This session acts in one gritz organisation at a time. list_orgs lists the organisations and marks the current one; switch_org changes it. Every other tool acts in the current organisation. Check it with list_orgs before changing anything if you’re not sure which organisation you’re in.
 
-`/mcp` and `--key` sessions keep `mcpserver.Instructions` as is.
+`/mcp` keeps `mcpserver.Instructions` as is.
 
 ### Composing with the MCP admin tools
 
@@ -16613,11 +16614,13 @@ func (m *Merged) Entries() []Entry // new
 func (m *Merged) Lookup(org string) (*Entry, error) // changed: fills in DefaultServer
 
 
-// Resolve applies --key, --server and --org.
-func Resolve(cmd *cli.Command) (*Entry, error) // changed: no longer defaults Server; Lookup does
+// Resolve applies --key, --server and --org, and returns the config it
+// selected from and the entry to use. With --key, the config is a single
+// entry named "".
+func Resolve(cmd *cli.Command) (*Merged, *Entry, error) // changed: returns the config; no longer defaults Server; Lookup does
 ```
 
-`gritz mcp` loads the files as every command does, `configfile.Load(configfile.LoadOptions{})` (an empty `Dir` is the working directory) followed by `merged.Validate()`, and keeps the `*Merged` for the session. `--key` sessions skip loading entirely, as now.
+`gritz mcp` calls `Resolve` as every command does and keeps the `*Merged` for the session.
 
 ```go
 package mcpserver // github.com/gritzapp/gritz/internal/server/mcpserver
@@ -16644,8 +16647,7 @@ func NewServer(service gritzv1connect.GritzServiceHandler, opts ...Option) *mcp.
 package mcpbridge // github.com/gritzapp/gritz/internal/mcpbridge
 
 
-// OrgsInstructions is appended to the server instructions when the org tools
-// are registered.
+// OrgsInstructions is appended to gritz mcp's server instructions.
 const OrgsInstructions = "..." // new
 
 
@@ -16684,7 +16686,7 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, name string, n model.Notification) // changed: takes the entry name
 ```
 
-**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
+**How it fits:** `gritz mcp` calls `Resolve` once, with or without `--key`, builds `mcpbridge.NewOrgSwitcher` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `switcher.Service` to `AddTools`, calls `switcher.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}` and `follow`; `Channel`’s tools pick the mute set by their `org` argument.
 
 ## Implementation Plan
 
@@ -16693,7 +16695,7 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 1. **`Merged.Entries` and the `Lookup` server default** — Delivers: `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Entries` filters by `allowed`, sorts by name and returns each entry as `Lookup` would (`Name` set, `Server` defaulted), and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
 3. **Per-org channel** — Delivers: `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same entry starts no stream, and that the mute tools edit the set `org` names.
-4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests for `switch_org` (the switched-to entry becomes current and is followed, `list_orgs` marks it; an unknown entry leaves the current org); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
+4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests for `switch_org` (the switched-to entry becomes current and is followed, `list_orgs` marks it; an unknown entry leaves the current org); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
 
 Slices 1 and 2 are independent.
 
@@ -31590,7 +31592,7 @@ gritz [--help] [--version] <command> [flags] [args]
 | Flag             | Environment     |                                                                                         |
 | ---------------- | --------------- | --------------------------------------------------------------------------------------- |
 | `--org`          | `GRITZ_ORG`     | The organisation’s name in the `.gritz.yml` files. Defaults to their `org`.             |
-| `--key`, `-k`    | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files and `--org`.                        |
+| `--key`, `-k`    | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files. Can’t be combined with `--org`.    |
 | `--server`, `-s` | `GRITZ_SERVER`  | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
 
 Without `--key`, a command merges `.gritz.yml` in the config directory with every `.gritz.yml` from the working directory up to `/`, the nearest winning, and uses the organisation it selects, on that organisation’s `server`, otherwise `https://gritz.dev`. See [Configuration](/pr/2158/using/cli/#configuration).
@@ -32369,7 +32371,7 @@ The top-level `server` is read only by `gritz login`.
 
 [Section titled “Key without a config file”](#key-without-a-config-file)
 
-`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key directly, for CI and other places with no config file. The command then reads no `.gritz.yml` files and ignores `--org`, and talks to `--server`, `GRITZ_SERVER` or `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER` need a key this way, since an organisation in a `.gritz.yml` carries its own server:
+`--key` (`-k`) or the `GRITZ_API_KEY` environment variable gives a command its key directly, for CI and other places with no config file. The command then reads no `.gritz.yml` files, fails if `--org` is also given, and talks to `--server`, `GRITZ_SERVER` or `https://gritz.dev`. Other than in `gritz login`, `--server` and `GRITZ_SERVER` need a key this way, since an organisation in a `.gritz.yml` carries its own server:
 
 ```bash
 GRITZ_API_KEY=xat_... gritz task list
