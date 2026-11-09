@@ -120,7 +120,7 @@ directory, with `*` marking the one selected by default:
 ```
    NAME      ID  SERVER             LOGIN
    acme-ci   12  https://gritz.dev  key
-*  personal  3   https://gritz.dev  browser
+*  personal  3   https://gritz.dev  oauth
 ```
 
 ### Server

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"text/tabwriter"
 	"time"
 
 	"github.com/cli/browser"
 	"github.com/gritzapp/gritz/internal/auth/cliauth"
+	"github.com/gritzapp/gritz/internal/cliformat"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -44,7 +44,14 @@ var LoginCommand = &cli.Command{
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.Bool("list") {
-			return listEntries()
+			merged, err := configfile.Load(configfile.LoadOptions{})
+			if err != nil {
+				return err
+			}
+			if err := merged.Validate(); err != nil {
+				return err
+			}
+			return cliformat.WriteConfigEntries(os.Stdout, merged.Entries(), merged.Org)
 		}
 		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
 		if entry.Server == "" {
@@ -93,29 +100,4 @@ var LoginCommand = &cli.Command{
 		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)
 		return nil
 	},
-}
-
-// listEntries prints the org entries --org accepts from the working
-// directory, marking the default with *. It never prints credentials.
-func listEntries() error {
-	m, err := configfile.Load(configfile.LoadOptions{})
-	if err != nil {
-		return err
-	}
-	if err := m.Validate(); err != nil {
-		return err
-	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "\tNAME\tID\tSERVER\tLOGIN")
-	for _, e := range m.Entries() {
-		mark, login := "", "browser"
-		if e.Name == m.Org {
-			mark = "*"
-		}
-		if e.Key != "" {
-			login = "key"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", mark, e.Name, e.ID, e.Server, login)
-	}
-	return w.Flush()
 }
