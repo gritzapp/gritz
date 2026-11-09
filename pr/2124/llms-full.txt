@@ -2864,8 +2864,6 @@ func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification)
 
 [Section titled “Implementation Plan”](#implementation-plan)
 
-Builds on [#2145](https://github.com/gritzapp/gritz/pull/2145), in progress, which makes an empty `LoadOptions.Dir` mean the working directory; slice 4 rebases onto it.
-
 1. **`Merged.Names` and the `Lookup` server default** — Delivers: `(*Merged).Names`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Names` filters by `allowed` and sorts, and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
 3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same `OrgKey` under another name starts no stream, and that the mute tools edit the set `current` names.
@@ -16603,7 +16601,7 @@ type Merged struct { // new
 
 // LoadOptions configures Load.
 type LoadOptions struct { // new
-  Dir  string // where the walk starts
+  Dir  string // where the walk starts; empty means the working directory
   Root string // the last directory the walk visits; empty means /
   Base string // the base layer; empty means $CONFIG_DIR/.gritz.yml
 }

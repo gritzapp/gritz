@@ -316,10 +316,6 @@ into `Channel.Follow`. `list_orgs` reads `merged.Names()` and `merged.Orgs`;
 
 ## Implementation Plan
 
-Builds on [#2145](https://github.com/gritzapp/gritz/pull/2145), in progress,
-which makes an empty `LoadOptions.Dir` mean the working directory; slice 4
-rebases onto it.
-
 1. **`Merged.Names` and the `Lookup` server default** — Delivers:
    `(*Merged).Names`; `Lookup` sets `DefaultServer` on an entry without a
    server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by:
