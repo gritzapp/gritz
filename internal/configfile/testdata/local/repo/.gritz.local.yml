@@ -1,0 +1,4 @@
+org: local
+orgs:
+  acme: {id: 12, key: k-local}
+  local: {id: 2, key: kl, server: http://localhost:8080}
