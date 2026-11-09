@@ -90,7 +90,8 @@ type Merged struct {
 
 // LoadOptions configures Load.
 type LoadOptions struct {
-	// Dir is where the walk starts. It must be absolute unless Root is set.
+	// Dir is where the walk starts; empty means the working directory. It
+	// must be absolute unless Root is set.
 	Dir string
 	// Root is the last directory the walk visits; empty means /.
 	Root string
@@ -100,6 +101,13 @@ type LoadOptions struct {
 
 // Load merges the base layer and every .gritz.yml from opts.Dir up to opts.Root.
 func Load(opts LoadOptions) (*Merged, error) {
+	if opts.Dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		opts.Dir = wd
+	}
 	if opts.Root == "" && !filepath.IsAbs(opts.Dir) {
 		panic("configfile: Load walks to / from a relative Dir")
 	}

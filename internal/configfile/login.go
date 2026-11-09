@@ -19,11 +19,7 @@ var ErrNameTaken = errors.New("entry name in use")
 // given: the top-level server of the nearest .gritz.yml from the working
 // directory, else DefaultServer.
 func LoginServer() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	merged, err := Load(LoadOptions{Dir: cwd})
+	merged, err := Load(LoadOptions{})
 	if err != nil {
 		return "", err
 	}
