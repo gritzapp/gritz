@@ -1,5 +1,88 @@
 # Changelog
 
+## [4.5.0](https://github.com/gritzapp/gritz/compare/v4.4.0...v4.5.0) (2026-11-09)
+
+
+### Features
+
+* **api:** add GetCaller to report the caller's org ([#2096](https://github.com/gritzapp/gritz/issues/2096)) ([e997e68](https://github.com/gritzapp/gritz/commit/e997e683fa363e250e0ac83e40552a1ba23a93dc))
+* **cli:** add --config to use a single config file ([#2167](https://github.com/gritzapp/gritz/issues/2167)) ([f66122b](https://github.com/gritzapp/gritz/commit/f66122bb864e5f4610009b420ed4bf3bccf75425))
+* **cli:** add gritz login ([#2110](https://github.com/gritzapp/gritz/issues/2110)) ([93698f3](https://github.com/gritzapp/gritz/commit/93698f394c92aecefa349acd0c7527b9158beb5c))
+* **cli:** add Merged.Entries and default the server in Lookup ([#2152](https://github.com/gritzapp/gritz/issues/2152)) ([7614387](https://github.com/gritzapp/gritz/commit/761438705ef122ebd212017ff6d15427ab39f96c))
+* **cli:** gritz login --list ([#2155](https://github.com/gritzapp/gritz/issues/2155)) ([7fa7859](https://github.com/gritzapp/gritz/commit/7fa78596c4929d5b589f7903c105ca71990b732e))
+* **cli:** load, merge and select .gritz.yml files ([#2107](https://github.com/gritzapp/gritz/issues/2107)) ([bdcd40a](https://github.com/gritzapp/gritz/commit/bdcd40aca5d34c091a179826fb848d2db1c561de))
+* **cli:** log in with the browser ([#2143](https://github.com/gritzapp/gritz/issues/2143)) ([bcf567f](https://github.com/gritzapp/gritz/commit/bcf567f269d37f2e156f18ab619326989284e70e))
+* **cli:** refresh_token entries in .gritz.yml ([#2141](https://github.com/gritzapp/gritz/issues/2141)) ([0ad38d3](https://github.com/gritzapp/gritz/commit/0ad38d3735e62302446058908d4cd0d3b4aede2e))
+* **cli:** rename .gritz.yml default to org, default login server ([#2130](https://github.com/gritzapp/gritz/issues/2130)) ([53c2b71](https://github.com/gritzapp/gritz/commit/53c2b7179e5e106bafd4e9ba200d5054fb3921bd))
+* **cli:** require --key with --server ([#2140](https://github.com/gritzapp/gritz/issues/2140)) ([6656be4](https://github.com/gritzapp/gritz/commit/6656be4d5511592a87eaec00a671865698a3e0e0))
+* **cli:** select org from .gritz.yml in every command, drop config.json ([#2120](https://github.com/gritzapp/gritz/issues/2120)) ([bd41998](https://github.com/gritzapp/gritz/commit/bd41998a155b24f6b9ed72dbb890af297a8adeed))
+* **cli:** support .gritz.local.yml overrides ([#2164](https://github.com/gritzapp/gritz/issues/2164)) ([b4c5db2](https://github.com/gritzapp/gritz/commit/b4c5db2d7d917ce5ee58fff50f56d7d8fd6aaf6f))
+* **docs:** add a Diagrams sidebar group and hide the player overlay ([#2076](https://github.com/gritzapp/gritz/issues/2076)) ([448486a](https://github.com/gritzapp/gritz/commit/448486ace550a2d845e98ad62011fadcd85a0b70))
+* **docs:** add diagram embeds to docs pages ([#2073](https://github.com/gritzapp/gritz/issues/2073)) ([44771f8](https://github.com/gritzapp/gritz/commit/44771f823bfa488bf3ae246a8ec0fa71821495c9))
+* **docs:** build the diagrams into the docs site with an inline player ([#2075](https://github.com/gritzapp/gritz/issues/2075)) ([d8c439c](https://github.com/gritzapp/gritz/commit/d8c439cc9491be65202c63f27fa026a508386996))
+* **docs:** generate API reference pages for messages and enums ([#2109](https://github.com/gritzapp/gritz/issues/2109)) ([82e4f6c](https://github.com/gritzapp/gritz/commit/82e4f6c00fe9b297138b986955d08e28571ee3f5))
+* **docs:** scaffold the Starlight docs site ([0ef10ad](https://github.com/gritzapp/gritz/commit/0ef10ad1f14036986f11eb34c8cb42a6dcdc924f))
+* **docs:** serve Markdown and llms.txt for agents ([#2057](https://github.com/gritzapp/gritz/issues/2057)) ([6045056](https://github.com/gritzapp/gritz/commit/60450565675c07e212aa798f39a517a5c54bb97f))
+* **mcp:** describe the admin tools in the server instructions ([#2132](https://github.com/gritzapp/gritz/issues/2132)) ([5fcb23b](https://github.com/gritzapp/gritz/commit/5fcb23b733af88550a1bdf86476b5958392c4e28))
+* **mcp:** event and custom event type tools ([#2125](https://github.com/gritzapp/gritz/issues/2125)) ([cc98bb3](https://github.com/gritzapp/gritz/commit/cc98bb3ea17a4aaee5f3b3d9e43c966e4ba44b09))
+* **mcp:** fuller task management tools ([#2121](https://github.com/gritzapp/gritz/issues/2121)) ([7b1d486](https://github.com/gritzapp/gritz/commit/7b1d486e1daaf1dedefbea6c99dc27ca5f35b3f4))
+* **mcp:** org tools ([#2131](https://github.com/gritzapp/gritz/issues/2131)) ([3e52910](https://github.com/gritzapp/gritz/commit/3e5291073705f91ca94b22a32ed517883f267685))
+* **mcp:** per-org channel notifications ([#2156](https://github.com/gritzapp/gritz/issues/2156)) ([fbd664a](https://github.com/gritzapp/gritz/commit/fbd664a1ecb72328f667158699d9aa2f89ec69e7))
+* **mcp:** point MCP clients at the docs ([#2147](https://github.com/gritzapp/gritz/issues/2147)) ([f4e6e4a](https://github.com/gritzapp/gritz/commit/f4e6e4aad49d122060971ca6122f73ca89ec5a83))
+* **mcp:** report notification stream health on the channel ([#2174](https://github.com/gritzapp/gritz/issues/2174)) ([333fe57](https://github.com/gritzapp/gritz/commit/333fe57b5012b31649714fdd5fa2ec64b977ff33))
+* **mcp:** schedule tools ([#2128](https://github.com/gritzapp/gritz/issues/2128)) ([f556b0f](https://github.com/gritzapp/gritz/commit/f556b0fd8119305583d3ffe002003c97677b073e))
+* **mcp:** switch between orgs in gritz mcp ([#2158](https://github.com/gritzapp/gritz/issues/2158)) ([f7f259b](https://github.com/gritzapp/gritz/commit/f7f259b0e229bcf2462a7af6d7000bc2307f8b8c))
+* **webui:** use the docs site's grey scale in the dark theme ([#2172](https://github.com/gritzapp/gritz/issues/2172)) ([be6ce54](https://github.com/gritzapp/gritz/commit/be6ce549dd895574c1ca0fa0940cb9b8b0b8fed3))
+
+
+### Bug Fixes
+
+* **ci:** stop preview removal leaving CNAME and .nojekyll behind ([#2058](https://github.com/gritzapp/gritz/issues/2058)) ([475f330](https://github.com/gritzapp/gritz/commit/475f33068ecf817f903474d73530ef8a8e92733a))
+* **cli:** keep auto-archive on task update without --auto-archive ([#2080](https://github.com/gritzapp/gritz/issues/2080)) ([7d47613](https://github.com/gritzapp/gritz/commit/7d476138c95b13e3ba81bfdce04c1c7c03b1b234))
+* **eventrouter:** populate body with issue/PR descriptions and fix url help ([#2085](https://github.com/gritzapp/gritz/issues/2085)) ([7b65ac7](https://github.com/gritzapp/gritz/commit/7b65ac75443e520126d58ef350fd6357a8db1144))
+* **events:** route custom test events like the webhook ([#2127](https://github.com/gritzapp/gritz/issues/2127)) ([b0a1ed0](https://github.com/gritzapp/gritz/commit/b0a1ed07c73743cf05013616477f1968201d1f27))
+* **mcp:** return 401 with WWW-Authenticate on /mcp without a bearer token ([#2083](https://github.com/gritzapp/gritz/issues/2083)) ([3dfa022](https://github.com/gritzapp/gritz/commit/3dfa0221de9e9627d9b57c52204edf9091001392))
+* **runner:** repair stale network attachments when booting a docker sandbox ([#2171](https://github.com/gritzapp/gritz/issues/2171)) ([fced943](https://github.com/gritzapp/gritz/commit/fced94355e7bf1d212f14be76d2e43007b78a8d4))
+* **server:** correct the auth key flag usage strings ([#2078](https://github.com/gritzapp/gritz/issues/2078)) ([eb67e82](https://github.com/gritzapp/gritz/commit/eb67e829a0c7db53f618d1c5e1c4be94b55caac2))
+* stop auto-archiving drafts and correct routing/task form help ([#2086](https://github.com/gritzapp/gritz/issues/2086)) ([bc1b6f3](https://github.com/gritzapp/gritz/commit/bc1b6f36a48c9b79c2c637595f4f5f78da63f6c3))
+* **webui:** remove the doubled top padding from form cards ([#2173](https://github.com/gritzapp/gritz/issues/2173)) ([4f2c154](https://github.com/gritzapp/gritz/commit/4f2c1542963a54b4ace8ba4178dbfeb6469102b5))
+
+
+### Miscellaneous
+
+* add concepts and using-gritz pages ([#2063](https://github.com/gritzapp/gritz/issues/2063)) ([9ee0953](https://github.com/gritzapp/gritz/commit/9ee0953fcc2b6b0e14f9d79729ff54baf759e480))
+* add integrations and reference pages ([#2067](https://github.com/gritzapp/gritz/issues/2067)) ([71d416c](https://github.com/gritzapp/gritz/commit/71d416c614c9cfa3c0b1079f727b191e187cda4a))
+* add the docs-in-sync rule and link the docs site ([#2059](https://github.com/gritzapp/gritz/issues/2059)) ([03c446b](https://github.com/gritzapp/gritz/commit/03c446bd0aeaa5d80f913fe4c231bfcafd833649))
+* add the operators section ([#2060](https://github.com/gritzapp/gritz/issues/2060)) ([f19746e](https://github.com/gritzapp/gritz/commit/f19746e9e75c742e7190252bda56bbe18f46d821))
+* **cli:** default LoadOptions.Dir to the working directory ([#2146](https://github.com/gritzapp/gritz/issues/2146)) ([b89e981](https://github.com/gritzapp/gritz/commit/b89e9816125ab3a2269050a50a2f73f247729db5))
+* **client:** take bearer tokens from a token source ([#2138](https://github.com/gritzapp/gritz/issues/2138)) ([0cb9548](https://github.com/gritzapp/gritz/commit/0cb95488744802c77c9e33a4ee92c9808737eda3))
+* **cli:** remove gritz prune ([#2079](https://github.com/gritzapp/gritz/issues/2079)) ([d0a8186](https://github.com/gritzapp/gritz/commit/d0a8186322cf28ebe2ef43ddc926c9712da5bc8e)), closes [#2061](https://github.com/gritzapp/gritz/issues/2061)
+* **cli:** return the selected config from Resolve ([#2162](https://github.com/gritzapp/gritz/issues/2162)) ([f31879f](https://github.com/gritzapp/gritz/commit/f31879fb4f970473d59d6ebbaf0ca98c66ade3e0)), closes [#2161](https://github.com/gritzapp/gritz/issues/2161)
+* **diagrams:** publish diagrams under /diagrams/ ([95f3364](https://github.com/gritzapp/gritz/commit/95f3364baa54d327f4d8c33eb1bf7784272bb165))
+* **diagrams:** update the create-task diagram ([#2077](https://github.com/gritzapp/gritz/issues/2077)) ([dadb310](https://github.com/gritzapp/gritz/commit/dadb31046ca618835396ff635ada2cbd250b43cc))
+* **docs:** publish docs previews for PRs ([#2056](https://github.com/gritzapp/gritz/issues/2056)) ([642088f](https://github.com/gritzapp/gritz/commit/642088fe2690e73f672b58295137e613b7636cd0))
+* **docs:** publish the docs site to docs.gritz.dev ([d9ba2bc](https://github.com/gritzapp/gritz/commit/d9ba2bc9edf08a81834b14a9890ec693e81f453e))
+* document browser login ([#2144](https://github.com/gritzapp/gritz/issues/2144)) ([3f68594](https://github.com/gritzapp/gritz/commit/3f68594d35a99b289186745022f4b0dc5f8ab7a9))
+* document custom events ([#2055](https://github.com/gritzapp/gritz/issues/2055)) ([3329922](https://github.com/gritzapp/gritz/commit/332992244078508d738a59f8e7a98d13a78b1313))
+* events arrive by webhook, not polling ([a5a9d1b](https://github.com/gritzapp/gritz/commit/a5a9d1bbaf2b3205d5b1062d5340f939174a5179))
+* fix proposal statuses ([#2089](https://github.com/gritzapp/gritz/issues/2089)) ([da1b745](https://github.com/gritzapp/gritz/commit/da1b745de1d4acac934568522fae2f9884d00278))
+* mark the API reference docs proposal implemented ([#2112](https://github.com/gritzapp/gritz/issues/2112)) ([8c6bac6](https://github.com/gritzapp/gritz/commit/8c6bac6c939051b3c6aeed0c5ba002cd0e2f8b8d))
+* mark the multi-org CLI auth proposal implemented ([51cc8f1](https://github.com/gritzapp/gritz/commit/51cc8f1af2a08899268f82e2109499c7f1ea8cf8))
+* **mcp:** split mcpserver into per-domain files ([#2119](https://github.com/gritzapp/gritz/issues/2119)) ([91127f6](https://github.com/gritzapp/gritz/commit/91127f6670860f2397c980042f6995b321c6d69f))
+* **mcp:** tools take the service from a ServiceFunc ([#2154](https://github.com/gritzapp/gritz/issues/2154)) ([db07f6b](https://github.com/gritzapp/gritz/commit/db07f6b16c7d2ca8563556754f4ea2e250cbe116))
+* move docs site proposal to implemented ([b8289fd](https://github.com/gritzapp/gritz/commit/b8289fd2b1bb923969fe806834d01e5b97e6a1f9))
+* **proto:** clean up gritz.proto comments for the API reference ([#2108](https://github.com/gritzapp/gritz/issues/2108)) ([f535cd3](https://github.com/gritzapp/gritz/commit/f535cd33cce0256a5368d16d5a4b864efbd861f7))
+* publish design proposals in the docs site ([#2088](https://github.com/gritzapp/gritz/issues/2088)) ([0ab48d6](https://github.com/gritzapp/gritz/commit/0ab48d6476be72da562fce3326e0d072d8a14454))
+* reject the agent skills discovery proposal ([ea0fa3d](https://github.com/gritzapp/gritz/commit/ea0fa3d710473f1d191a880fe26670713a166a62))
+* reject the Ory Network auth proposal ([afed36e](https://github.com/gritzapp/gritz/commit/afed36ec6f1b1aa113e3fdb52dcb7941235916ab))
+* reject the provider-agnostic OIDC proposal ([713064c](https://github.com/gritzapp/gritz/commit/713064c292b395bfcb0a9d3969e7b34058a07a20))
+* replace generated API pages with an embedded gritz.proto ([#2111](https://github.com/gritzapp/gritz/issues/2111)) ([cbc3007](https://github.com/gritzapp/gritz/commit/cbc3007ecbdd07ebd07c78084f2e0e2cdb2ef8ea))
+* show the gritz logo on the docs site ([#2170](https://github.com/gritzapp/gritz/issues/2170)) ([56aa3f0](https://github.com/gritzapp/gritz/commit/56aa3f03223aeaf7ac16444f444ba43fa38ef9b3))
+* sweep docs previews in the master deploy and stop dropping gh-pages runs ([#2169](https://github.com/gritzapp/gritz/issues/2169)) ([699ef6c](https://github.com/gritzapp/gritz/commit/699ef6cf3feb9dfa79ad43780534289a010eb390))
+* tell agents what belongs in the user docs ([#2087](https://github.com/gritzapp/gritz/issues/2087)) ([11e6236](https://github.com/gritzapp/gritz/commit/11e6236dbc8cab556cd48e5b17afd5e9005c9acd))
+* trim the README and move the schema diagram to the docs ([#2071](https://github.com/gritzapp/gritz/issues/2071)) ([5009e52](https://github.com/gritzapp/gritz/commit/5009e52781f8b80059be544c3013da4551368c6f))
+* update the schema diagram to match schema.sql ([#2082](https://github.com/gritzapp/gritz/issues/2082)) ([37dd479](https://github.com/gritzapp/gritz/commit/37dd4792af1d3793db56e9c54c403a67b08b3fe6)), closes [#2072](https://github.com/gritzapp/gritz/issues/2072)
+
 ## [4.4.0](https://github.com/gritzapp/gritz/compare/v4.3.0...v4.4.0) (2026-11-07)
 
 
