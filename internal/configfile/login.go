@@ -30,7 +30,8 @@ func LoginServer() (string, error) {
 	return cmp.Or(merged.Server, DefaultServer), nil
 }
 
-// Login writes entry under name into the .gritz.yml file at path, replacing
+// Login writes entry under name into the .gritz.yml file at path (empty means
+// $CONFIG_DIR/.gritz.yml), replacing
 // the credential of an existing entry with the same id and server, and failing with
 // ErrNameTaken if name belongs to a different org or server. It sets org to
 // name when the file has none. The caller validates the credential and sets
@@ -38,6 +39,13 @@ func LoginServer() (string, error) {
 func Login(path, name string, entry Entry) error {
 	if entry.Server == "" {
 		panic("configfile: Login without a server")
+	}
+	if path == "" {
+		configDir, err := Dir()
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(configDir, Name)
 	}
 	return UpdateFile(path, func(f *File) error {
 		if old, ok := f.Orgs[name]; ok && (old.ID != entry.ID || old.Server != entry.Server) {

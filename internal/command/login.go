@@ -2,11 +2,8 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/cli/browser"
@@ -49,32 +46,11 @@ var LoginCommand = &cli.Command{
 			}
 			entry.Server = server
 		}
-		dir, err := configfile.Dir()
-		if err != nil {
-			return err
-		}
-		path := filepath.Join(dir, configfile.Name)
-		name := cmd.String("name")
 
 		token := entry.Key
 		if token == "" {
-			// Re-logging in to an entry preselects its org.
-			var orgID int64
-			if name != "" {
-				f, err := configfile.Read(path)
-				switch {
-				case errors.Is(err, fs.ErrNotExist):
-				case err != nil:
-					return err
-				default:
-					if old, ok := f.Orgs[name]; ok && old.Server == entry.Server {
-						orgID = old.ID
-					}
-				}
-			}
 			tok, err := cliauth.Login(ctx, cliauth.LoginOptions{
 				Server:      entry.Server,
-				OrgID:       orgID,
 				OpenBrowser: browser.OpenURL,
 				Prompt:      os.Stdout,
 				Timeout:     10 * time.Minute,
@@ -96,13 +72,14 @@ var LoginCommand = &cli.Command{
 		org := resp.GetOrg()
 		entry.ID = org.GetId()
 
+		name := cmd.String("name")
 		if name == "" {
 			name = configfile.Slug(org.GetName())
 			if name == "" {
 				return fmt.Errorf("org name %q has no characters usable as an entry name: pass --name", org.GetName())
 			}
 		}
-		if err := configfile.Login(path, name, entry); err != nil {
+		if err := configfile.Login("", name, entry); err != nil {
 			return err
 		}
 		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -17,8 +16,6 @@ import (
 type LoginOptions struct {
 	// Server is the gritz server URL.
 	Server string
-	// OrgID, when non-zero, preselects the org on the approval page.
-	OrgID int64
 	// OpenBrowser opens the authorize URL; gritz login sets it to
 	// browser.OpenURL. Login ignores its error, having already printed the URL.
 	OpenBrowser func(url string) error
@@ -40,11 +37,7 @@ func Login(ctx context.Context, opts LoginOptions) (*oauth2.Token, error) {
 	config := Config(opts.Server, "http://"+ln.Addr().String()+"/callback")
 	state := oauth2.GenerateVerifier()
 	verifier := oauth2.GenerateVerifier()
-	authOpts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
-	if opts.OrgID != 0 {
-		authOpts = append(authOpts, oauth2.SetAuthURLParam("org", strconv.FormatInt(opts.OrgID, 10)))
-	}
-	authURL := config.AuthCodeURL(state, authOpts...)
+	authURL := config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
 
 	type result struct {
 		token *oauth2.Token

@@ -23,7 +23,6 @@ func TestLogin(t *testing.T) {
 		u, err := url.Parse(authURL)
 		assert.NilError(t, err)
 		assert.Equal(t, u.Path, "/ui/oauth/authorize")
-		assert.Equal(t, u.Query().Get("org"), "12")
 		form := u.Query()
 		form.Set("token", appToken)
 		resp, err := http.PostForm(srv.URL+"/oauth/authorize", form)
@@ -43,7 +42,6 @@ func TestLogin(t *testing.T) {
 	// Act
 	tok, err := Login(t.Context(), LoginOptions{
 		Server:      srv.URL,
-		OrgID:       12,
 		OpenBrowser: openBrowser,
 		Prompt:      io.Discard,
 		Timeout:     time.Minute,
