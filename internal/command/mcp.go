@@ -56,10 +56,8 @@ var McpCommand = &cli.Command{
 		// before the session starts, so the mute tools always find the
 		// startup org.
 		var ch *mcpbridge.Channel
-		follow := func(*configfile.Entry) {}
 		if cmd.Bool("channel") {
 			ch = mcpbridge.NewChannel(transport, clientID)
-			follow = func(entry *configfile.Entry) { ch.Follow(ctx, entry) }
 		}
 
 		// A --key session is a one-entry config: list_orgs shows its one
@@ -68,7 +66,11 @@ var McpCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		switcher := mcpbridge.NewOrgSwitcher(ctx, merged, entry, clientID, follow)
+		switcher := mcpbridge.NewOrgSwitcher(ctx, merged, entry, clientID, func(entry *configfile.Entry) {
+			if ch != nil {
+				ch.Follow(ctx, entry)
+			}
+		})
 
 		server := mcp.NewServer(&mcp.Implementation{
 			Name:    "gritz",
