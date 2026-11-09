@@ -5,20 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
-
-func newInspectResponse(networks map[string]*network.EndpointSettings) container.InspectResponse {
-	return container.InspectResponse{
-		NetworkSettings: &container.NetworkSettings{
-			Networks: networks,
-		},
-	}
-}
 
 func TestRepairNetworks_NoNetworks(t *testing.T) {
 	// Arrange
@@ -30,25 +21,22 @@ func TestRepairNetworks_NoNetworks(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.Equal(t, len(repaired), 0)
-	assert.Assert(t, cmp.Len(m.ContainerInspectCalls(), 0))
+	assert.Assert(t, cmp.Len(m.NetworkInspectCalls(), 0))
 }
 
 func TestRepairNetworks_AllInSync(t *testing.T) {
 	// Arrange
 	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{
-				"net-a": {NetworkID: "id-a"},
-				"net-b": {NetworkID: "id-b"},
-			}), nil
-		},
 		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
 			return network.Inspect{Name: name, ID: "id-" + name[len(name)-1:]}, nil
 		},
 	}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"net-a", "net-b"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"net-a": {NetworkID: "id-a"},
+		"net-b": {NetworkID: "id-b"},
+	})
 
 	// Assert
 	assert.NilError(t, err)
@@ -60,11 +48,6 @@ func TestRepairNetworks_AllInSync(t *testing.T) {
 func TestRepairNetworks_StaleAttachment(t *testing.T) {
 	// Arrange
 	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{
-				"compose-default": {NetworkID: "old-id"},
-			}), nil
-		},
 		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
 			return network.Inspect{Name: name, ID: "new-id"}, nil
 		},
@@ -77,7 +60,9 @@ func TestRepairNetworks_StaleAttachment(t *testing.T) {
 	}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"compose-default"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"compose-default": {NetworkID: "old-id"},
+	})
 
 	// Assert
 	assert.NilError(t, err)
@@ -95,40 +80,24 @@ func TestRepairNetworks_StaleAttachment(t *testing.T) {
 	assert.Equal(t, conn[0].ContainerID, "c1")
 }
 
-func TestRepairNetworks_NotAttached(t *testing.T) {
-	// Arrange — workspace declares a network the container isn't attached to.
-	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{}), nil
-		},
-		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
-			return network.Inspect{Name: name, ID: "live-id"}, nil
-		},
-		NetworkConnectFunc: func(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error {
-			return nil
-		},
-	}
+func TestRepairNetworks_NeverStarted(t *testing.T) {
+	// Arrange — a created container's endpoints have no pinned network ID.
+	m := &NetworkRepairerMock{}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"new-net"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"net": {},
+	})
 
 	// Assert
 	assert.NilError(t, err)
-	assert.DeepEqual(t, repaired, []string{"new-net"})
-	// No disconnect when the container isn't attached.
-	assert.Assert(t, cmp.Len(m.NetworkDisconnectCalls(), 0))
-	assert.Assert(t, cmp.Len(m.NetworkConnectCalls(), 1))
+	assert.Equal(t, len(repaired), 0)
+	assert.Assert(t, cmp.Len(m.NetworkInspectCalls(), 0))
 }
 
 func TestRepairNetworks_MixedDriftAndHealthy(t *testing.T) {
 	// Arrange
 	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{
-				"healthy": {NetworkID: "id-healthy"},
-				"stale":   {NetworkID: "old-stale"},
-			}), nil
-		},
 		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
 			switch name {
 			case "healthy":
@@ -148,7 +117,10 @@ func TestRepairNetworks_MixedDriftAndHealthy(t *testing.T) {
 	}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"healthy", "stale"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"healthy": {NetworkID: "id-healthy"},
+		"stale":   {NetworkID: "old-stale"},
+	})
 
 	// Assert — only the stale one was touched.
 	assert.NilError(t, err)
@@ -166,11 +138,6 @@ func TestRepairNetworks_DisconnectNotConnectedIsSwallowed(t *testing.T) {
 	// can happen when the recreate dropped the endpoint mid-flight. The
 	// caller still wants the connect to run.
 	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{
-				"net": {NetworkID: "old"},
-			}), nil
-		},
 		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
 			return network.Inspect{Name: name, ID: "new"}, nil
 		},
@@ -183,7 +150,9 @@ func TestRepairNetworks_DisconnectNotConnectedIsSwallowed(t *testing.T) {
 	}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"net"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"net": {NetworkID: "old"},
+	})
 
 	// Assert
 	assert.NilError(t, err)
@@ -192,20 +161,17 @@ func TestRepairNetworks_DisconnectNotConnectedIsSwallowed(t *testing.T) {
 }
 
 func TestRepairNetworks_NetworkInspectError(t *testing.T) {
-	// Arrange — the declared network doesn't exist in the live registry.
+	// Arrange — the attached network doesn't exist in the live registry.
 	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{
-				"net": {NetworkID: "old"},
-			}), nil
-		},
 		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
 			return network.Inspect{}, errors.New("Error: No such network: net")
 		},
 	}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"net"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"net": {NetworkID: "old"},
+	})
 
 	// Assert — bail out before any disconnect/connect.
 	assert.ErrorContains(t, err, "inspect network \"net\"")
@@ -218,12 +184,6 @@ func TestRepairNetworks_PartialRepairReturnedOnError(t *testing.T) {
 	// Arrange — first network repaired OK, second one fails on connect.
 	// The returned slice should reflect what actually succeeded.
 	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return newInspectResponse(map[string]*network.EndpointSettings{
-				"first":  {NetworkID: "old1"},
-				"second": {NetworkID: "old2"},
-			}), nil
-		},
 		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
 			return network.Inspect{Name: name, ID: "new-" + name}, nil
 		},
@@ -239,49 +199,12 @@ func TestRepairNetworks_PartialRepairReturnedOnError(t *testing.T) {
 	}
 
 	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"first", "second"})
+	repaired, err := RepairNetworks(t.Context(), m, "c1", map[string]*network.EndpointSettings{
+		"first":  {NetworkID: "old1"},
+		"second": {NetworkID: "old2"},
+	})
 
 	// Assert
 	assert.ErrorContains(t, err, "connect \"second\"")
 	assert.DeepEqual(t, repaired, []string{"first"})
-}
-
-func TestRepairNetworks_ContainerInspectError(t *testing.T) {
-	// Arrange
-	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return container.InspectResponse{}, errors.New("no such container")
-		},
-	}
-
-	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"net"})
-
-	// Assert
-	assert.ErrorContains(t, err, "inspect container")
-	assert.Equal(t, len(repaired), 0)
-}
-
-func TestRepairNetworks_NilNetworkSettings(t *testing.T) {
-	// Arrange — container with no NetworkSettings (created but never inspected
-	// post-start). Behaves the same as "not attached".
-	m := &NetworkRepairerMock{
-		ContainerInspectFunc: func(ctx context.Context, id string) (container.InspectResponse, error) {
-			return container.InspectResponse{NetworkSettings: nil}, nil
-		},
-		NetworkInspectFunc: func(ctx context.Context, name string, _ network.InspectOptions) (network.Inspect, error) {
-			return network.Inspect{Name: name, ID: "live"}, nil
-		},
-		NetworkConnectFunc: func(ctx context.Context, networkID, containerID string, config *network.EndpointSettings) error {
-			return nil
-		},
-	}
-
-	// Act
-	repaired, err := RepairNetworks(t.Context(), m, "c1", []string{"net"})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.DeepEqual(t, repaired, []string{"net"})
-	assert.Assert(t, cmp.Len(m.NetworkDisconnectCalls(), 0))
 }

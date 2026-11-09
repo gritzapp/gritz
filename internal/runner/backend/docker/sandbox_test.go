@@ -14,6 +14,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	driverv1 "github.com/gritzapp/gritz/internal/proto/driver/v1"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -124,6 +125,41 @@ func TestSandbox_Reopen(t *testing.T) {
 	assert.DeepEqual(t, reopened.Handle(), sb.Handle())
 	assertStatus(t, reopened, backend.StatusUp)
 	dialReady(t, reopened)
+}
+
+// A stopped sandbox boots after its network is recreated under the same name,
+// as `docker compose down && up` does.
+func TestSandbox_BootRecreatedNetwork(t *testing.T) {
+	be := newTestBackend(t)
+	name := fmt.Sprintf("gritz-test-%d", rand.Int64N(1<<40))
+	_, err := be.docker.NetworkCreate(t.Context(), name, network.CreateOptions{})
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = be.docker.NetworkRemove(context.Background(), name) })
+
+	sb, err := be.Create(t.Context(), &backend.Spec{
+		TaskID: rand.Int64N(1 << 40),
+		Workspace: &workspace.Workspace{Container: workspace.Container{
+			Image:    "alpine:latest",
+			Networks: []string{name},
+		}},
+	})
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = be.docker.ContainerRemove(context.Background(), sb.Handle().ID, container.RemoveOptions{Force: true})
+	})
+	assert.NilError(t, sb.Boot(t.Context()))
+	assert.NilError(t, sb.Suspend(t.Context()))
+
+	assert.NilError(t, be.docker.NetworkRemove(t.Context(), name))
+	recreated, err := be.docker.NetworkCreate(t.Context(), name, network.CreateOptions{})
+	assert.NilError(t, err)
+
+	assert.NilError(t, sb.Boot(t.Context()))
+	assertStatus(t, sb, backend.StatusUp)
+	dialReady(t, sb)
+	info, err := be.docker.ContainerInspect(t.Context(), sb.Handle().ID)
+	assert.NilError(t, err)
+	assert.Equal(t, info.NetworkSettings.Networks[name].NetworkID, recreated.ID)
 }
 
 func TestOpen(t *testing.T) {
