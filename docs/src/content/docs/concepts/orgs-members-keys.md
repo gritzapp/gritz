@@ -1,6 +1,6 @@
 ---
 title: Organisations, members and API keys
-description: How organisations own tasks, runners and rules, what members and the owner can do, and what API keys and task tokens can access.
+description: How organisations own tasks, runners and rules, what members and the owner can do, and what CLI logins, API keys and task tokens can access.
 sidebar:
   label: Orgs, members and keys
   order: 8
@@ -54,9 +54,15 @@ Deleting it disables its schedules and stops its API keys from working.
 ## API keys
 
 An API key lets a program act for the organisation: a [runner](/concepts/runners/),
-the [CLI](/using/cli/), or a system sending
+the [CLI](/using/cli/) in CI, or a system sending
 [custom events](/integrations/custom-events/). Create one on the **Keys** page.
 The key, starting with `xat_`, is shown once, when it is created; store it then.
+
+People using the CLI on their own machine don't need a key:
+[`gritz login`](/using/cli/#configuration) logs them in with the browser, and
+the CLI then acts as them, like the Web UI. That login stops working when they
+leave the organisation, or after 30 days without use. Keys are for what runs
+unattended, such as CI and deployed runners.
 
 - A key belongs to the organisation it was created in, not to the member who
   created it, and keeps working if they leave.
@@ -68,8 +74,8 @@ The key, starting with `xat_`, is shown once, when it is created; store it then.
   revoke it.
 
 Send it as a bearer token, `Authorization: Bearer xat_…`. The CLI reads it from
-its [config file](/using/cli/#configuration); a program calling the
-[API](/reference/api/) sends it on every request.
+`--key`, `GRITZ_API_KEY` or its [config file](/using/cli/#logging-in-with-an-api-key);
+a program calling the [API](/reference/api/) sends it on every request.
 
 ## Task tokens
 
