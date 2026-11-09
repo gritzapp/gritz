@@ -1,0 +1,31 @@
+version: 2
+
+before:
+  hooks:
+    # The web UI must be built before the binary embeds it. The release job
+    # sets up pnpm and Node.
+    - sh -c "cd webui && pnpm install --frozen-lockfile && pnpm exec vite build"
+
+builds:
+  - id: gritz
+    main: ./cmd/gritz
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -X github.com/gritzapp/gritz/internal/version.Version={{ .Tag }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: gritz_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # release-please creates the release and writes its notes.
+  mode: keep-existing
+  replace_existing_artifacts: true
+
+changelog:
+  disable: true

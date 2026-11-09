@@ -1,6 +1,7 @@
 /gritz
 /dummymcp
 /prebuilt/
+/dist/
 /internal/server/webui/
 /webui/node_modules/
 .pnpm-store/

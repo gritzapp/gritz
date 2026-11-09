@@ -9,8 +9,10 @@ sidebar:
 
 Every gritz release publishes:
 
-- **Binaries** for Linux, `gritz-linux-amd64` and `gritz-linux-arm64`, attached
-  to the [GitHub release](https://github.com/gritzapp/gritz/releases).
+- **Archives** for Linux and macOS, `gritz_<os>_<arch>.tar.gz` for `linux` and
+  `darwin` on `amd64` and `arm64`, each holding the `gritz` binary, plus a
+  `checksums.txt`, attached to the
+  [GitHub release](https://github.com/gritzapp/gritz/releases).
 - **`ghcr.io/gritzapp/server`**, which runs `gritz server` and listens on port
   `6464`. The Web UI is built into the binary.
 - **`ghcr.io/gritzapp/runner`**, which runs `gritz runner`. It includes the
