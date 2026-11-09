@@ -59,7 +59,7 @@ func NewChannel(sender ChannelSender, clientID string) *Channel {
 }
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
-// (none when empty, as for --key), unless the entry is already followed. The
+// ("" for --key), unless the entry is already followed. The
 // NotificationClient is built from entry.TokenSource(ctx). The stream runs
 // until ctx ends.
 func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) {
@@ -121,10 +121,7 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 	if id, ok := primaryTaskID(n); ok && f.Muted(id) {
 		return // this task has been muted by the agent
 	}
-	p := mcpchannel.Params{Content: n.ChannelMessage}
-	if name != "" {
-		p.Meta = map[string]string{"org": name}
-	}
+	p := mcpchannel.Params{Content: n.ChannelMessage, Meta: map[string]string{"org": name}}
 	if err := c.sender.SendChannel(ctx, p); err != nil {
 		slog.Warn("gritz channel: failed to send", "err", err)
 	}
@@ -143,7 +140,7 @@ func (c *Channel) AddTools(server *mcp.Server) {
 			"all=true you can channel_unmute specific task_ids to keep just those " +
 			"delivering while the rest stay muted. Re-enable with channel_unmute. " +
 			"Muting is per organisation: pass org, as shown in the channel's org " +
-			"attribute, unless the channel messages have none. Muting is per " +
+			"attribute. Muting is per " +
 			"bridge session and resets when the session restarts. " +
 			"Distinct from create_link(subscribe=true), which routes external " +
 			"events INTO a task.",
@@ -162,8 +159,7 @@ func (c *Channel) AddTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "channel_muted",
 		Description: "Report an organisation's mute state for this session; pass org, as " +
-			"shown in the channel's org attribute, unless the channel messages " +
-			"have none. When " +
+			"shown in the channel's org attribute. When " +
 			"all=false, the muted list holds the muted task ids and all other tasks " +
 			"are delivered. When all=true, every task is muted except the ids in the " +
 			"unmuted list.",
@@ -172,7 +168,7 @@ func (c *Channel) AddTools(server *mcp.Server) {
 }
 
 type muteInput struct {
-	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
+	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute"`
 	TaskIDs []int64 `json:"task_ids,omitempty" jsonschema:"Task IDs to mute"`
 	All     bool    `json:"all,omitempty" jsonschema:"Mute every task; channel_unmute specific task_ids afterwards to keep just those delivering"`
 }
@@ -192,7 +188,7 @@ func (c *Channel) muteTool(_ context.Context, _ *mcp.CallToolRequest, in muteInp
 }
 
 type unmuteInput struct {
-	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
+	Org     string  `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute"`
 	TaskIDs []int64 `json:"task_ids,omitempty" jsonschema:"Task IDs to unmute (kept delivering even under mute-all)"`
 	All     bool    `json:"all,omitempty" jsonschema:"Unmute every task, clearing the whole mute set"`
 }
@@ -212,7 +208,7 @@ func (c *Channel) unmuteTool(_ context.Context, _ *mcp.CallToolRequest, in unmut
 }
 
 type mutedInput struct {
-	Org string `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute; required unless the channel messages have none"`
+	Org string `json:"org,omitempty" jsonschema:"The organisation, as shown in the channel's org attribute"`
 }
 
 func (c *Channel) mutedTool(_ context.Context, _ *mcp.CallToolRequest, in mutedInput) (*mcp.CallToolResult, any, error) {
@@ -224,11 +220,11 @@ func (c *Channel) mutedTool(_ context.Context, _ *mcp.CallToolRequest, in mutedI
 }
 
 // muteState is the wire representation of the current mute state a tool
-// handler returns. Org names the org's entry and is empty with --key. Under mute-all the exception set is reported in Unmuted
+// handler returns. Org names the org's entry and is "" with --key. Under mute-all the exception set is reported in Unmuted
 // (still-delivering tasks); otherwise it is reported in Muted. The omitempty
 // tags mean only the field relevant to the active mode is emitted.
 type muteState struct {
-	Org     string  `json:"org,omitempty"`
+	Org     string  `json:"org"`
 	All     bool    `json:"all"`
 	Muted   []int64 `json:"muted,omitempty"`
 	Unmuted []int64 `json:"unmuted,omitempty"`
