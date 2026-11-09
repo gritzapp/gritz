@@ -155,13 +155,15 @@ credential in the MCP config.
 | `get_org_settings` | Gets the organisation's integration URLs and its GitHub App installation. |
 | `get_routing_rules` | Gets the organisation's routing rules. |
 | `set_routing_rules` | Replaces every routing rule of the organisation. |
-| `list_docs` | Lists the pages of these docs. |
-| `read_doc` | Reads a page of these docs. |
 
 You don't call these yourself: ask your agent, for example "Create a gritz task
 in the pets-workshop workspace to add a `--json` flag, then tell me when it has
 opened a pull request." It calls `list_workspaces` to find the runner, then
 `create_task`.
+
+gritz also points your agent at these docs, through
+[`llms.txt`](https://docs.gritz.dev/llms.txt), so it can look up how gritz
+works.
 
 Each tool that changes a task returns the task's ID, name, workspace, runner,
 namespace, status, whether it is archived, its URL, and when it was created and
@@ -343,14 +345,6 @@ rule missing from the list is deleted. Your agent reads the rules, edits the
 list and writes it all back. A rule that names an unknown event type or
 attribute fails the call with the bad rule named, and no rule is changed. It
 returns the stored rules.
-
-### `list_docs`, `read_doc`
-
-`list_docs` returns the slug, title and description of every page of these
-docs, except the design proposals. `read_doc` takes a page's `slug`, such as
-`integrations/mcp`, and returns its Markdown, the same text as the page's URL
-with `.md` in place of the trailing slash. The docs are built into gritz: over
-HTTP they match the server's version, and with `gritz mcp` your `gritz` binary's.
 
 ## Channels
 
