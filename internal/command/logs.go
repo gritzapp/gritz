@@ -46,7 +46,7 @@ var LogsCommand = &cli.Command{
 		if err != nil {
 			return cli.Exit("invalid task ID: "+cmd.Args().First(), 1)
 		}
-		cfg, err := configfile.Resolve(cmd)
+		_, cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}

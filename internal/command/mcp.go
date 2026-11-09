@@ -38,7 +38,7 @@ var McpCommand = &cli.Command{
 		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		cfg, err := configfile.Resolve(cmd)
+		_, cfg, err := configfile.Resolve(cmd)
 		if err != nil {
 			return err
 		}
