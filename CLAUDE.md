@@ -27,6 +27,12 @@ mise run test -- -run=TestFoo -v                     # ./... filtered to TestFoo
 mise run test -- ./internal/e2e/... -run=TestFoo -v  # only ./internal/e2e/...
 ```
 
+## Local Dev Stack
+
+`mise run dev` starts a local server and runner in Docker at http://localhost:6464. The server runs with `--no-auth` and provisions the `xat_dev` key, which the `dev` org entry in `.gritz.yml` uses.
+
+To exercise a change against the running stack, use the `gritz` MCP tools: `switch_org` to `dev` (check with `list_orgs` first), then create tasks, fire events, and read logs directly. Switch back afterwards if you were in another org.
+
 ## Architecture
 
 GRITZ is an async agent orchestrator using a central control plane architecture to run multiple Claude Code instances in parallel inside Docker containers.

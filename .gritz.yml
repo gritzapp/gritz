@@ -1,1 +1,8 @@
 org: gritz
+orgs:
+  # The local stack started by `mise run dev`. The --no-auth server provisions
+  # the xat_dev key on startup; the key determines the org, so id is nominal.
+  dev:
+    id: 1
+    key: xat_dev
+    server: http://localhost:6464
