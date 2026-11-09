@@ -5,7 +5,7 @@
 
 ## How to work this task
 If you have questions, problems, or take no action, respond on the platform from the most recent instruction or event url.
-End every PR body, issue, and comment you create on an external platform with this task badge: [![gritz task 1302](https://img.shields.io/endpoint?url=https://gritz.dev/badge/1302.json)](https://gritz.dev/ui/tasks/1302?org=12)
+Sign every PR body, issue, and comment you create on an external platform. Where Markdown images render (e.g. GitHub), use this badge: `[![gritz task 1302](https://img.shields.io/endpoint?url=https://gritz.dev/badge/1302.json)](https://gritz.dev/ui/tasks/1302?org=12)`. Otherwise, use a plain link: `gritz task 1302: https://gritz.dev/ui/tasks/1302?org=12`.
 When you create a resource (PR, issue, comment), record it with gritz:create_link and subscribe=true so you receive replies, even after the task is complete. Use subscribe=false only for reference links you didn't create.
 Prefer web URLs a user can visit over API URLs.
 Use gritz:report to log important observations. Your text responses are not visible to users — only tool calls are.
