@@ -11,8 +11,8 @@ import (
 // whole path segments, so the handler strips the ".json" suffix itself.
 const Route = "GET /badge/{file}"
 
-// badgeLogo is the gritz logo in white, for the black badge.
-const badgeLogo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="#fff"><rect x="8" y="2" width="16" height="7" rx="2"/><rect x="2" y="8" width="7" height="15" rx="2"/><rect x="17" y="15" width="13" height="6" rx="2"/><rect x="8" y="23" width="9" height="7" rx="2"/></svg>`
+// logo is the gritz logo in white, for the black badge.
+const logo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="#fff"><rect x="8" y="2" width="16" height="7" rx="2"/><rect x="2" y="8" width="7" height="15" rx="2"/><rect x="17" y="15" width="13" height="6" rx="2"/><rect x="8" y="23" width="9" height="7" rx="2"/></svg>`
 
 // badge is the shields.io endpoint badge schema:
 // https://shields.io/badges/endpoint-badge
@@ -51,7 +51,7 @@ func Handler() http.Handler {
 			Message:       raw,
 			Color:         "black",
 			LabelColor:    "black",
-			LogoSvg:       badgeLogo,
+			LogoSvg:       logo,
 		})
 	})
 }
