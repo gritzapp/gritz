@@ -149,7 +149,7 @@ reconstruct the whole state by reading it.
    progress* is being built; the next layer sits in *Ready* under it. That is your resume
    point — the auto-archived gritz tasks don't matter.
 3. **Re-establish mute.** Mute state is per-session and does not survive a restart: run
-   `channel_mute(all=true)`, then `channel_unmute` any task still in flight for the active
+   `channel_mute(org=<org>, all=true)`, then `channel_unmute` any task still in flight for the active
    layer (there may be none — the task can have been archived; the board still tells you the
    state).
 4. **Don't double-delegate.** Before creating a task for the active layer, check whether its
@@ -226,14 +226,14 @@ You pick up a top-level issue the human has moved into **Ready**. Two cases:
 - **Move the parent to In progress**, and **create one sub-issue per layer** under it —
   titled `<proposal-slug> LN: <description>`, linked as a GitHub sub-issue, body `Part of
   #<parent>`. All layer sub-issues start in **Ready**.
-- **Set the mute baseline:** `channel_mute(all=true)`.
+- **Set the mute baseline:** `channel_mute(org=<org>, all=true)`.
 
 ### The per-layer loop (repeat once per layer, in order)
 
 1. **Delegate the current layer.** Create one gritz task for the layer with a lean
    instruction (see [Writing a layer's task
    instruction](#writing-a-layers-task-instruction)). Move the layer's sub-issue `Ready → In
-   progress`. Immediately `channel_unmute(task_ids=[<new id>])`, and show the user the task URL.
+   progress`. Immediately `channel_unmute(org=<org>, task_ids=[<new id>])`, and show the user the task URL.
 2. **Wait.** Because only this task is unmuted, its completion notification is your review
    signal.
 3. **PR opens → move the layer to In review.** Read the PR against the slice's intent and the
@@ -249,15 +249,19 @@ You pick up a top-level issue the human has moved into **Ready**. Two cases:
 7. **Track.** Tell the user which layers are done, which is in flight, and what's next.
 
 When the final layer is Done, **move the parent to Done and close it**, and report the plan
-complete. If the user wants normal notifications back afterward, `channel_unmute(all=true)`.
+complete. If the user wants normal notifications back afterward, `channel_unmute(org=<org>, all=true)`.
 
 ### Notification discipline
 
 During execution, mute everything and unmute only the tasks you create, so the channel stays
 quiet except for the layer in flight:
 
-- On entering execution, `channel_mute(all=true)`.
-- Every time you create a task, immediately `channel_unmute(task_ids=[<new id>])`.
+- On entering execution, `channel_mute(org=<org>, all=true)`.
+- Every time you create a task, immediately `channel_unmute(org=<org>, task_ids=[<new id>])`.
+
+Mute state is kept per org, so every `channel_mute`, `channel_unmute` and `channel_muted`
+call needs `org`: the org name shown in the channel's `org` attribute (also the entry name
+from `list_orgs`). Without it the call fails with `not following org ""`.
 
 The effect: the only channel notifications you receive are from the current layer — its wake
 and completion signals land for free, everything else stays silent. This sharpens the general
