@@ -2,11 +2,7 @@ package e2e
 
 import (
 	"cmp"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -210,36 +206,6 @@ type TaskToken struct {
 	Client gritzclient.Client
 	// Resp is the CreateTaskToken response the token was made from.
 	Resp *gritzv1.CreateTaskTokenResponse
-}
-
-// ApproveOAuth approves the OAuth authorization request at authURL as o's
-// owner acting in o, as the approval page does, and returns the URL the page
-// sends the browser to.
-func (o *Org) ApproveOAuth(authURL string) string {
-	t := o.server.t
-	t.Helper()
-	u, err := url.Parse(authURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	form := u.Query()
-	form.Set("token", o.server.userToken(o.Owner.UserID, o.ID))
-	resp, err := http.PostForm(o.server.URL+"/oauth/authorize", form)
-	if err != nil {
-		t.Fatalf("ApproveOAuth: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("ApproveOAuth: %s: %s", resp.Status, body)
-	}
-	var authz struct {
-		RedirectURI string `json:"redirect_uri"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&authz); err != nil {
-		t.Fatalf("ApproveOAuth: %v", err)
-	}
-	return authz.RedirectURI
 }
 
 // CreateTaskToken mints a task token, as the runner does.
