@@ -16,9 +16,20 @@ import (
 var ErrNameTaken = errors.New("entry name in use")
 
 // LoginServer returns the server `gritz login` uses when --server isn't
-// given: the top-level server of the nearest .gritz.yml from the working
-// directory, else DefaultServer.
-func LoginServer() (string, error) {
+// given: the top-level server of the .gritz.yml file at path, or with an
+// empty path, of the nearest .gritz.yml from the working directory; else
+// DefaultServer. A missing file at path has no server.
+func LoginServer(path string) (string, error) {
+	if path != "" {
+		f, err := Read(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return DefaultServer, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		return cmp.Or(f.Server, DefaultServer), nil
+	}
 	merged, err := Load(LoadOptions{})
 	if err != nil {
 		return "", err

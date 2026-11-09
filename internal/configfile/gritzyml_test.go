@@ -1,6 +1,7 @@
 package configfile
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -402,4 +403,33 @@ func TestSlug(t *testing.T) {
 			assert.Equal(t, Slug(tt.in), tt.want)
 		})
 	}
+}
+
+func TestLoadFile(t *testing.T) {
+	t.Parallel()
+	p := filepath.FromSlash("testdata/read/.gritz.yml")
+
+	m, err := LoadFile(p)
+
+	assert.NilError(t, err)
+	assert.DeepEqual(t, m, &Merged{
+		Org:         "acme",
+		OrgFrom:     p,
+		Server:      "https://gritz.example.com",
+		Allowed:     []string{"acme", "local"},
+		AllowedFrom: p,
+		Orgs: map[string]Entry{
+			"acme":  {ID: 12, Key: "k1"},
+			"local": {ID: 1, Key: "k2", Server: "http://localhost:8080"},
+		},
+		OrgsFrom: map[string]string{"acme": p, "local": p},
+	})
+}
+
+func TestLoadFile_Missing(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadFile(filepath.FromSlash("testdata/empty/missing.yml"))
+
+	assert.ErrorIs(t, err, fs.ErrNotExist)
 }

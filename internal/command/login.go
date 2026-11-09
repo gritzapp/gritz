@@ -15,7 +15,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// LoginCommand adds an org entry to $CONFIG_DIR/.gritz.yml, logging in with
+// LoginCommand adds an org entry to $CONFIG_DIR/.gritz.yml or --config, logging in with
 // the browser or an API key and learning the org from the server.
 var LoginCommand = &cli.Command{
 	Name:  "login",
@@ -37,14 +37,26 @@ var LoginCommand = &cli.Command{
 			Usage:   "server URL (default: the top-level server of the nearest .gritz.yml, else " + configfile.DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
+		&cli.StringFlag{
+			Name:    "config",
+			Usage:   "a single .gritz.yml file to write the entry to, take the default server from and --list, instead of $CONFIG_DIR/.gritz.yml and the files found from the working directory",
+			Sources: cli.EnvVars("GRITZ_CONFIG"),
+		},
 		&cli.BoolFlag{
 			Name:  "list",
-			Usage: "list the org entries --org accepts from the working directory instead of logging in; * marks the default",
+			Usage: "list the org entries --org accepts from the working directory, or --config, instead of logging in; * marks the default",
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		config := cmd.String("config")
 		if cmd.Bool("list") {
-			merged, err := configfile.Load(configfile.LoadOptions{})
+			var merged *configfile.Merged
+			var err error
+			if config != "" {
+				merged, err = configfile.LoadFile(config)
+			} else {
+				merged, err = configfile.Load(configfile.LoadOptions{})
+			}
 			if err != nil {
 				return err
 			}
@@ -55,7 +67,7 @@ var LoginCommand = &cli.Command{
 		}
 		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
 		if entry.Server == "" {
-			server, err := configfile.LoginServer()
+			server, err := configfile.LoginServer(config)
 			if err != nil {
 				return err
 			}
@@ -94,7 +106,7 @@ var LoginCommand = &cli.Command{
 				return fmt.Errorf("org name %q has no characters usable as an entry name: pass --name", org.GetName())
 			}
 		}
-		if err := configfile.Login("", name, entry); err != nil {
+		if err := configfile.Login(config, name, entry); err != nil {
 			return err
 		}
 		fmt.Printf("Logged in to %s (org %d) as %q\n", org.GetName(), org.GetId(), name)

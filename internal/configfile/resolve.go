@@ -12,8 +12,8 @@ import (
 // gritzclient.
 const DefaultServer = "https://gritz.dev"
 
-// Flags returns the --org, --key and --server flags (GRITZ_ORG, GRITZ_API_KEY,
-// GRITZ_SERVER) shared by user-facing commands. Each call returns new flags, so
+// Flags returns the --org, --key, --server and --config flags (GRITZ_ORG,
+// GRITZ_API_KEY, GRITZ_SERVER, GRITZ_CONFIG) shared by user-facing commands. Each call returns new flags, so
 // every command gets its own.
 func Flags() []cli.Flag {
 	return []cli.Flag{
@@ -34,6 +34,11 @@ func Flags() []cli.Flag {
 			Usage:   "server URL for --key, which it requires (default: " + DefaultServer + ")",
 			Sources: cli.EnvVars("GRITZ_SERVER"),
 		},
+		&cli.StringFlag{
+			Name:    "config",
+			Usage:   "the only .gritz.yml file to read, instead of finding them from the working directory; can't be combined with --key",
+			Sources: cli.EnvVars("GRITZ_CONFIG"),
+		},
 	}
 }
 
@@ -46,8 +51,11 @@ func Flags() []cli.Flag {
 func Resolve(cmd *cli.Command) (*Merged, *Entry, error) {
 	server := cmd.String("server")
 	key := cmd.String("key")
+	config := cmd.String("config")
 	var m *Merged
 	switch {
+	case key != "" && config != "":
+		return nil, nil, errors.New("--config can't be combined with --key")
 	case key != "":
 		m = &Merged{Orgs: map[string]Entry{
 			"": {Key: key, Server: cmp.Or(server, DefaultServer)},
@@ -56,7 +64,11 @@ func Resolve(cmd *cli.Command) (*Merged, *Entry, error) {
 		return nil, nil, errors.New("--server requires --key: entries in .gritz.yml carry their own server")
 	default:
 		var err error
-		m, err = Load(LoadOptions{})
+		if config != "" {
+			m, err = LoadFile(config)
+		} else {
+			m, err = Load(LoadOptions{})
+		}
 		if err != nil {
 			return nil, nil, err
 		}

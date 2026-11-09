@@ -145,8 +145,20 @@ func Load(opts LoadOptions) (*Merged, error) {
 	return m, nil
 }
 
-// merge reads the .gritz.yml file at path and layers it beneath m, filling
-// in only the values m doesn't have yet. A missing file is skipped.
+// LoadFile reads the single .gritz.yml file at path into a Merged, with no
+// walk, base layer or .gritz.local.yml.
+func LoadFile(path string) (*Merged, error) {
+	f, err := Read(path)
+	if err != nil {
+		return nil, err
+	}
+	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
+	m.add(path, f)
+	return m, nil
+}
+
+// merge reads the .gritz.yml file at path and layers it beneath m. A missing
+// file is skipped.
 func (m *Merged) merge(path string) error {
 	f, err := Read(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -155,6 +167,13 @@ func (m *Merged) merge(path string) error {
 	if err != nil {
 		return err
 	}
+	m.add(path, f)
+	return nil
+}
+
+// add layers f, read from path, beneath m, filling in only the values m
+// doesn't have yet.
+func (m *Merged) add(path string, f *File) {
 	if m.Org == "" && f.Org != "" {
 		m.Org, m.OrgFrom = f.Org, path
 	}
@@ -169,7 +188,6 @@ func (m *Merged) merge(path string) error {
 			m.Orgs[name], m.OrgsFrom[name] = e, path
 		}
 	}
-	return nil
 }
 
 // IsAllowed reports whether org may be selected: Allowed is unset or lists it.
