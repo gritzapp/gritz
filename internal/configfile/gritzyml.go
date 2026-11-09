@@ -240,7 +240,7 @@ func (m *Merged) Lookup(org string) (*Entry, error) {
 			name, m.Allowed, m.AllowedFrom)
 	}
 	if _, ok := m.Orgs[name]; !ok {
-		return nil, fmt.Errorf("no org entry named %q: run `gritz login --key <key> --name %s`", name, name)
+		return nil, fmt.Errorf("no org entry named %q: run `gritz login --name %s`", name, name)
 	}
 	e := m.entry(name)
 	return &e, nil

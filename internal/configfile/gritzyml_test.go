@@ -343,7 +343,7 @@ func TestLookup(t *testing.T) {
 			name:   "missing entry",
 			merged: Merged{Orgs: orgs, OrgsFrom: from},
 			org:    "labs",
-			err:    "no org entry named \"labs\": run `gritz login --key <key> --name labs`",
+			err:    "no org entry named \"labs\": run `gritz login --name labs`",
 		},
 	}
 	for _, tt := range tests {
