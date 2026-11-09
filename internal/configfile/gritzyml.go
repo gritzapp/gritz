@@ -184,8 +184,22 @@ func (m *Merged) Validate() error {
 	return nil
 }
 
-// Lookup returns the entry named org, or m.Org when org is empty,
-// enforcing m.Allowed, with Name and Path set. Call Validate first.
+// Entries returns the entries Lookup accepts (those Allowed permits), sorted
+// by name, each as Lookup returns it: Name and Path set, Server defaulted.
+// Call Validate first.
+func (m *Merged) Entries() []Entry {
+	var entries []Entry
+	for _, name := range slices.Sorted(maps.Keys(m.Orgs)) {
+		if m.IsAllowed(name) {
+			entries = append(entries, m.entry(name))
+		}
+	}
+	return entries
+}
+
+// Lookup returns the entry named org, or m.Org when org is empty, enforcing
+// m.Allowed, with Name and Path set, and Server set to DefaultServer when the
+// entry has none. Call Validate first.
 func (m *Merged) Lookup(org string) (*Entry, error) {
 	name := cmp.Or(org, m.Org)
 	if name == "" {
@@ -195,12 +209,20 @@ func (m *Merged) Lookup(org string) (*Entry, error) {
 		return nil, fmt.Errorf("org %q is not allowed here: allowed is %s (from %s)",
 			name, m.Allowed, m.AllowedFrom)
 	}
-	e, ok := m.Orgs[name]
-	if !ok {
+	if _, ok := m.Orgs[name]; !ok {
 		return nil, fmt.Errorf("no org entry named %q: run `gritz login --key <key> --name %s`", name, name)
 	}
-	e.Name, e.Path = name, m.OrgsFrom[name]
+	e := m.entry(name)
 	return &e, nil
+}
+
+// entry returns the entry named name with Name and Path set and Server
+// defaulted.
+func (m *Merged) entry(name string) Entry {
+	e := m.Orgs[name]
+	e.Name, e.Path = name, m.OrgsFrom[name]
+	e.Server = cmp.Or(e.Server, DefaultServer)
+	return e
 }
 
 // Slug turns an org name into an entry name, returning "" if nothing is left.
