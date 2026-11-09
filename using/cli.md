@@ -7,36 +7,79 @@ checkout, run `mise run install`.
 
 ## Configuration
 
-The CLI authenticates with an [API key](/concepts/orgs-members-keys/#api-keys),
-and acts in the organisation the key belongs to. Create one on the **Keys** page
-and log in with it:
+Log in with your browser:
 
 ```bash
-gritz login --key xat_...
+gritz login
 ```
 
 ```
+Opening https://gritz.dev/ui/oauth/authorize?... in your browser.
 Logged in to Acme Labs (org 12) as "acme-labs"
 ```
 
-`gritz login` asks the server which organisation the key belongs to and saves the
-key under a name in `.gritz.yml` in the gritz config directory. The name is the
-organisation's name in lowercase with dashes, unless `--name` gives another, and
-the first organisation you log in to becomes the selected `org`. Log in once for
-each organisation you work in:
+`gritz login` opens the gritz Web UI in your browser, signed in as you, and
+waits for you to approve. It logs in to the organisation selected in the Web UI
+at that moment; to log in to another, switch to it in the Web UI before you
+approve. If the browser doesn't open, open the printed URL yourself, on the same
+machine: the browser hands the login back to `gritz login` there. It gives up
+after 10 minutes. The CLI then acts as you, with what a member can do in that
+organisation.
+
+`gritz login` saves the login under a name in `.gritz.yml` in the gritz config
+directory. The name is the organisation's name in lowercase with dashes, unless
+`--name` gives another, and the first organisation you log in to becomes the
+selected `org`. Log in once for each organisation you work in:
 
 ```yaml
 org: acme-labs
 orgs:
   acme-labs:
     id: 12
-    key: xat_...
+    refresh_token: eyJhbGciOiJFZERTQSIs...
     server: https://gritz.dev
   personal:
     id: 3
+    refresh_token: eyJhbGciOiJFZERTQSIs...
+    server: https://gritz.dev
+```
+
+A login lasts as long as you keep using it: it expires after 30 days in which
+the CLI didn't use it, and stops working once you are removed from the
+organisation or it is deleted. The CLI renews the saved `refresh_token` in the file it came from
+about once a day while you use it. When a login has expired, commands fail with:
+
+```
+login expired or revoked: run `gritz login`
+```
+
+Run `gritz login` again to replace it. A login isn't tied to the machine, so an
+entry copied into another machine's `.gritz.yml` works there too.
+
+### Logging in with an API key
+
+Where no browser can reach `gritz login`, such as a remote machine over SSH, or
+for a program rather than a person, log in with an
+[API key](/concepts/orgs-members-keys/#api-keys) instead. Create one on the
+**Keys** page and pass it with `--key` (`-k`):
+
+```bash
+gritz login --key xat_...
+```
+
+`gritz login` asks the server which organisation the key belongs to and saves
+the key in place of a `refresh_token`:
+
+```yaml
+orgs:
+  acme-ci:
+    id: 12
     key: xat_...
     server: https://gritz.dev
 ```
+
+A key doesn't expire. Logging in again to the same organisation and server
+replaces the entry's credential, key or browser login.
 
 The config directory is `GRITZ_CONFIG_DIR` if set, otherwise `gritz` under your
 user config directory: `~/.config/gritz` on Linux,
@@ -55,7 +98,7 @@ A `.gritz.yml` file can also live in any directory, such as a repository or a
 folder of checkouts. A command reads every `.gritz.yml` from the directory it runs
 in up to `/`, on top of the one in the config directory, and the nearest file
 wins. Organisations of the same name replace each other whole. A repository can
-pick its organisation without holding a key:
+pick its organisation without holding a login:
 
 ```yaml
 org: acme-labs
@@ -73,13 +116,12 @@ it has none. `gritz login` saves the server you give it with `--server` (`-s`)
 or the `GRITZ_SERVER` environment variable:
 
 ```bash
-gritz login --key xat_... --server https://gritz.example.com
+gritz login --server https://gritz.example.com
 ```
 
- Without `--server`, it
-uses the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise
-`https://gritz.dev`, so a repository can name the server its organisation lives
-on:
+Without `--server`, it uses the top-level `server` of the nearest `.gritz.yml`
+that sets one, otherwise `https://gritz.dev`, so a repository can name the
+server its organisation lives on:
 
 ```yaml
 server: https://gritz.example.com

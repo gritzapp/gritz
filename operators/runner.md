@@ -21,8 +21,8 @@ These steps run a runner against gritz.dev on a machine with Docker.
    gritz login --key xat_...
    ```
 
-   This saves the key in `~/.config/gritz/.gritz.yml`, as the CLI's
-   [configuration](/using/cli/#configuration) does. On a server, pass it with
+   This saves the key in `~/.config/gritz/.gritz.yml`; see
+   [Logging in with an API key](/using/cli/#logging-in-with-an-api-key). On a server, pass it with
    `--key` or `GRITZ_API_KEY` instead.
 
 3. **Write a `workspaces.yaml`** in `~/.config/gritz/`. This one clones a sample
