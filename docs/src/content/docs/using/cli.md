@@ -165,6 +165,23 @@ server:
 GRITZ_API_KEY=xat_... gritz task list
 ```
 
+### A single config file
+
+`--config` or the `GRITZ_CONFIG` environment variable names the one `.gritz.yml`
+file a command reads, with the same format. No other `.gritz.yml` or
+`.gritz.local.yml` is read, from the config directory or the working directory.
+`--org` or the file's `org` picks the organisation, and `--key` can't be given
+with it:
+
+```bash
+gritz login --config ./ci.gritz.yml --key xat_...
+GRITZ_CONFIG=./ci.gritz.yml gritz task list
+```
+
+`gritz login --config` saves the organisation in that file, creating it if
+needed, takes its default server from the file's top-level `server`, and
+`--list` shows only that file's organisations.
+
 ## Tasks
 
 ### `gritz task create`

@@ -85,7 +85,7 @@ func Read(path string) (*File, error) {
 type Merged struct {
 	Org         string
 	OrgFrom     string // path of the file that set Org
-	Server      string // the nearest top-level server, used only by `gritz login`
+	Server      string // the nearest top-level server, else DefaultServer; used only by `gritz login`
 	Allowed     []string
 	AllowedFrom string // path of the file that set Allowed
 	Orgs        map[string]Entry
@@ -101,15 +101,35 @@ type LoadOptions struct {
 	Root string
 	// Base is the base layer; empty means $CONFIG_DIR/.gritz.yml.
 	Base string
+	// File, when set, is the only file read: no walk, no base layer and no
+	// .gritz.local.yml. Dir, Root and Base are ignored.
+	File string
 }
 
 // Load merges the base layer and every .gritz.local.yml and .gritz.yml from
-// opts.Dir up to opts.Root.
+// opts.Dir up to opts.Root, or only opts.File, skipping missing files. Server
+// defaults to DefaultServer.
 func Load(opts LoadOptions) (*Merged, error) {
+	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
+	var err error
+	if opts.File != "" {
+		err = m.merge(opts.File)
+	} else {
+		err = m.walk(opts)
+	}
+	if err != nil {
+		return nil, err
+	}
+	m.Server = cmp.Or(m.Server, DefaultServer)
+	return m, nil
+}
+
+// walk merges the files Load reads when opts.File is unset.
+func (m *Merged) walk(opts LoadOptions) error {
 	if opts.Dir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		opts.Dir = wd
 	}
@@ -120,33 +140,29 @@ func Load(opts LoadOptions) (*Merged, error) {
 	if base == "" {
 		configDir, err := Dir()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		base = filepath.Join(configDir, Name)
 	}
 	// Merged nearest first, so the first file to set a value wins.
-	m := &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}}
 	for d := opts.Dir; ; d = filepath.Dir(d) {
 		if p := filepath.Join(d, Name); p != base {
 			if err := m.merge(filepath.Join(d, LocalName)); err != nil {
-				return nil, err
+				return err
 			}
 			if err := m.merge(p); err != nil {
-				return nil, err
+				return err
 			}
 		}
 		if d == opts.Root || filepath.Dir(d) == d {
 			break
 		}
 	}
-	if err := m.merge(base); err != nil {
-		return nil, err
-	}
-	return m, nil
+	return m.merge(base)
 }
 
-// merge reads the .gritz.yml file at path and layers it beneath m, filling
-// in only the values m doesn't have yet. A missing file is skipped.
+// merge reads the .gritz.yml file at path and layers it beneath m. A missing
+// file is skipped.
 func (m *Merged) merge(path string) error {
 	f, err := Read(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -155,6 +171,13 @@ func (m *Merged) merge(path string) error {
 	if err != nil {
 		return err
 	}
+	m.add(path, f)
+	return nil
+}
+
+// add layers f, read from path, beneath m, filling in only the values m
+// doesn't have yet.
+func (m *Merged) add(path string, f *File) {
 	if m.Org == "" && f.Org != "" {
 		m.Org, m.OrgFrom = f.Org, path
 	}
@@ -169,7 +192,6 @@ func (m *Merged) merge(path string) error {
 			m.Orgs[name], m.OrgsFrom[name] = e, path
 		}
 	}
-	return nil
 }
 
 // IsAllowed reports whether org may be selected: Allowed is unset or lists it.

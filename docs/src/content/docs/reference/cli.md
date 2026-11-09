@@ -27,8 +27,10 @@ flag wins when both are set.
 | `--org` | `GRITZ_ORG` | The organisation's name in the `.gritz.yml` files. Defaults to their `org`. |
 | `--key`, `-k` | `GRITZ_API_KEY` | An API key to use instead of the `.gritz.yml` files. Can't be combined with `--org`. |
 | `--server`, `-s` | `GRITZ_SERVER` | The server URL to use with `--key`, which it requires. Defaults to `https://gritz.dev`. |
+| `--config` | `GRITZ_CONFIG` | A single `.gritz.yml` file to read instead of finding them. Can't be combined with `--key`. |
 
-Without `--key`, a command merges `.gritz.yml` in the config directory with every
+With `--config`, a command reads only that file: no `.gritz.yml` in the config
+directory or the working directory, and no `.gritz.local.yml`. Otherwise, without `--key`, a command merges `.gritz.yml` in the config directory with every
 `.gritz.local.yml` and `.gritz.yml` from the working directory up to `/`, the
 nearest winning and a directory's `.gritz.local.yml` above its `.gritz.yml`, and uses
 the organisation it selects, on that organisation's `server`, otherwise
@@ -40,7 +42,7 @@ user config directory (`~/.config/gritz` on Linux).
 ### `gritz login`
 
 Logs in to an organisation and saves it under a name in `.gritz.yml` in the
-config directory. Without `--key`, it opens the browser to approve the login in
+config directory, or in the `--config` file. Without `--key`, it opens the browser to approve the login in
 the Web UI, for the organisation selected there, and saves a `refresh_token`;
 with `--key`, it asks the server which organisation the key belongs to and saves
 the `key`. Logging in again to the same organisation and server replaces the
@@ -51,8 +53,9 @@ file has no `org`, the name becomes it.
 | --- | --- | --- | --- |
 | `--key`, `-k` | `GRITZ_API_KEY` | log in with the browser | An API key to save instead of logging in with the browser. |
 | `--name` | | the organisation's name, in lowercase with dashes | The name to save it under. |
-| `--server`, `-s` | `GRITZ_SERVER` | the top-level `server` of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL. |
-| `--list` | | | Instead of logging in, list the organisations `--org` accepts in the current directory: name, ID, server, and `key` or `oauth` (a browser login), with `*` marking the selected `org`. It never prints a key or refresh token and doesn't contact the server. |
+| `--server`, `-s` | `GRITZ_SERVER` | the top-level `server` of the `--config` file, or without it of the nearest `.gritz.yml` that sets one, otherwise `https://gritz.dev` | The server URL. |
+| `--config` | `GRITZ_CONFIG` | `.gritz.yml` in the config directory | The file to save the organisation in. It also replaces the `.gritz.yml` files found from the current directory for `--server` and `--list`. |
+| `--list` | | | Instead of logging in, list the organisations `--org` accepts in the current directory, or in the `--config` file: name, ID, server, and `key` or `oauth` (a browser login), with `*` marking the selected `org`. It never prints a key or refresh token and doesn't contact the server. |
 
 The browser has to run on the same machine as `gritz login`, which waits up to
 10 minutes for the approval.
