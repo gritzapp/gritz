@@ -72,6 +72,7 @@ type Config struct {
 	Copilot      *CopilotOptions      `json:"copilot,omitempty"`
 	Cursor       *CursorOptions       `json:"cursor,omitempty"`
 	Sloppy       *SloppyOptions       `json:"sloppy,omitempty"`
+	Process      *ProcessOptions      `json:"process,omitempty"`
 	Dummy        *DummyOptions        `json:"dummy,omitempty"`
 	Puppet       *puppet.Options      `json:"puppet,omitempty"`
 
