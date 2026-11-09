@@ -274,7 +274,7 @@ trip clearly isn't worth) — and even then, prefer relaying.
 
 **How it reaches the task.** The event system does the routing. When the agent opens the PR it
 subscribes to the PR link (`create_link(subscribe=true)`); commenting on or reviewing that PR
-emits a GitHub event the poller matches to that link and **wakes the task** — even though its
+delivers a GitHub App webhook, which the server routes to that link and which **wakes the task** — even though its
 sandbox has already exited — so it can push a fix. This is the same routing behind the `Task N
 woken by event …` notifications. During execution the task is already unmuted (you unmuted it at
 creation), so its wake and completion notifications land in your channel for free.

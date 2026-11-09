@@ -76,7 +76,7 @@ Tasks can be notified about external events through the event system:
 - **Links** created with `subscribe=true` route events to tasks when the event URL matches the link URL
 - When an event is processed, all tasks with matching subscribed links receive the event
 - Events appear in `get_my_task` output and provide additional context to agents
-- External pollers (GitHub, Jira) create events and process them to notify linked tasks
+- GitHub (the GitHub App's webhook, `internal/server/githubserver`) and Jira (`internal/server/atlassianserver`) deliver webhooks to the server, which turns them into events and routes them to linked tasks; custom events arrive at `/webhook/custom`. There is no poller
 
 Use `create_link` with `subscribe=true` for resources that may need follow-up (PRs awaiting review, issues awaiting response, etc.)
 
@@ -88,11 +88,14 @@ gritz runner     # Start container orchestrator
 gritz driver     # Driver server: runs agents inside the sandbox, started by the runner's backend
 gritz mcp        # Local user-facing stdio MCP server that proxies to the server
 gritz notify     # Subscribe to server notifications and emit system notifications
-gritz tool agent-mcp # In-container MCP server providing gritz tools to the agent
-gritz task       # Task CRUD (list, create, update, delete)
+gritz task       # Task list, create, update
+gritz login      # Add an org entry to .gritz.yml (browser login, or --key)
+gritz logs       # Show a task's driver log
+gritz shell      # Open a shell in a task's sandbox
+gritz workspaces # Validate and display workspace configuration
 gritz containers # List gritz containers
-gritz jira       # Poll Jira for issue comments
-gritz github     # GitHub integration
+gritz download   # Download prebuilt binaries
+gritz tool       # In-sandbox tools: agent-mcp, git-credential, github-mcp, proxy
 ```
 
 ### Protobuf
