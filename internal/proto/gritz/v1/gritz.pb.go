@@ -451,7 +451,10 @@ type Task struct {
 	// The task's namespace: only routing rules in the same namespace see its
 	// subscriptions. Empty is the default namespace. Set at creation and can't be
 	// changed.
-	Namespace     string `protobuf:"bytes,17,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Namespace string `protobuf:"bytes,17,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	// The image URL of the task's shields.io badge. Agents sign what they post
+	// with it, linked to url.
+	BadgeUrl      string `protobuf:"bytes,18,opt,name=badge_url,json=badgeUrl,proto3" json:"badge_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -587,6 +590,13 @@ func (x *Task) GetShellSession() string {
 func (x *Task) GetNamespace() string {
 	if x != nil {
 		return x.Namespace
+	}
+	return ""
+}
+
+func (x *Task) GetBadgeUrl() string {
+	if x != nil {
+		return x.BadgeUrl
 	}
 	return ""
 }
@@ -7949,7 +7959,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x06cancel\x18\x02 \x01(\bR\x06cancel\x12\x18\n" +
 	"\arestart\x18\x03 \x01(\bR\arestart\x12\x14\n" +
 	"\x05start\x18\x04 \x01(\bR\x05start\x12\x1c\n" +
-	"\tunarchive\x18\x05 \x01(\bR\tunarchive\"\xbb\x04\n" +
+	"\tunarchive\x18\x05 \x01(\bR\tunarchive\"\xd8\x04\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
@@ -7968,7 +7978,8 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x03url\x18\x0e \x01(\tR\x03url\x12<\n" +
 	"\fauto_archive\x18\x0f \x01(\v2\x19.google.protobuf.DurationR\vautoArchive\x12#\n" +
 	"\rshell_session\x18\x10 \x01(\tR\fshellSession\x12\x1c\n" +
-	"\tnamespace\x18\x11 \x01(\tR\tnamespaceJ\x04\b\x03\x10\x04J\x04\b\x06\x10\a\"\xb5\x01\n" +
+	"\tnamespace\x18\x11 \x01(\tR\tnamespace\x12\x1b\n" +
+	"\tbadge_url\x18\x12 \x01(\tR\bbadgeUrlJ\x04\b\x03\x10\x04J\x04\b\x06\x10\a\"\xb5\x01\n" +
 	"\tMcpServer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\acommand\x18\x02 \x01(\tR\acommand\x12\x12\n" +

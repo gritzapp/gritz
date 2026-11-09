@@ -37,6 +37,13 @@ func TestTaskURL(t *testing.T) {
 	}
 }
 
+func TestTaskBadgeURL(t *testing.T) {
+	assert.Equal(t,
+		TaskBadgeURL("https://gritz.dev", 2474),
+		"https://img.shields.io/endpoint?url=https://gritz.dev/badge/2474.json")
+	assert.Equal(t, TaskBadgeURL("", 2474), "")
+}
+
 func TestRoutingKey(t *testing.T) {
 	tests := []struct {
 		name string

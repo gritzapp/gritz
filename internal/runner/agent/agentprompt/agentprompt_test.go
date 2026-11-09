@@ -52,7 +52,8 @@ func TestRenderGolden(t *testing.T) {
 		Status:    gritzv1.TaskStatus_RUNNING,
 		Workspace: "gritz",
 		Namespace: "team-core",
-		Url:       "https://gritz.dev/ui/tasks/1302",
+		Url:       "https://gritz.dev/ui/tasks/1302?org=12",
+		BadgeUrl:  "https://img.shields.io/endpoint?url=https://gritz.dev/badge/1302.json",
 	}
 	// A field-complete brief: named task with url/namespace, an instruction event,
 	// an external event, and a link. Exercises every field the first-run brief
