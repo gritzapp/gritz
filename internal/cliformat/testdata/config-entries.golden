@@ -1,0 +1,3 @@
+   NAME      ID  SERVER                     LOGIN
+   acme-ci   12  https://gritz.dev          key
+*  personal  3   https://gritz.example.com  oauth
