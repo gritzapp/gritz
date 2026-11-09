@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -35,7 +36,12 @@ type NotificationClient struct {
 	reconnect time.Duration
 	handler   func(model.Notification)
 	onHealth  func(Health)
+	err       error // the last reported state, nil meaning connected
 }
+
+// errNotStarted is the state before Run's first report, so that report
+// always calls OnHealth the first time.
+var errNotStarted = errors.New("not started yet")
 
 // Health is the state of the notification stream, reported to
 // NotificationClientOptions.OnHealth.
@@ -95,42 +101,52 @@ func NewNotificationClient(opts NotificationClientOptions) *NotificationClient {
 		reconnect: cmp.Or(opts.ReconnectInterval, DefaultSSEReconnectInterval),
 		handler:   opts.Handler,
 		onHealth:  opts.OnHealth,
+		err:       errNotStarted,
 	}
 }
 
 // Run connects to the SSE endpoint and dispatches events to the handler
 // until ctx is done. It reconnects automatically on disconnect.
 func (c *NotificationClient) Run(ctx context.Context) error {
-	var reported, connected bool
-	report := func(h Health) {
-		if reported && connected == h.Connected {
-			return
-		}
-		reported, connected = true, h.Connected
-		if c.onHealth != nil {
-			c.onHealth(h)
-		}
-	}
 	for {
-		err := c.connect(ctx, func() { report(Health{Connected: true}) })
+		body, err := c.open(ctx)
+		if err == nil {
+			c.report(nil)
+			err = c.stream(body)
+			body.Close()
+		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// A clean end of stream returns nil, but the stream is down all the
+		// same.
+		err = cmp.Or(err, io.EOF)
 		c.log.Warn("SSE connection lost, reconnecting", "err", err)
-		report(Health{Err: err})
+		c.report(err)
 		if !common.SleepContext(ctx, c.reconnect) {
 			return ctx.Err()
 		}
 	}
 }
 
-// connect streams events until the connection ends, calling onConnected
-// once the server has accepted the stream. It always returns a non-nil
-// error.
-func (c *NotificationClient) connect(ctx context.Context, onConnected func()) error {
+// report records the stream's state, err nil meaning connected, and calls
+// OnHealth when it changes.
+func (c *NotificationClient) report(err error) {
+	if c.err != errNotStarted && (c.err == nil) == (err == nil) {
+		return
+	}
+	c.err = err
+	if c.onHealth != nil {
+		c.onHealth(Health{Connected: err == nil, Err: err})
+	}
+}
+
+// open requests the SSE endpoint and returns the body of the accepted
+// stream.
+func (c *NotificationClient) open(ctx context.Context) (io.ReadCloser, error) {
 	u, err := url.Parse(strings.TrimRight(c.baseURL, "/") + "/events")
 	if err != nil {
-		return fmt.Errorf("parse url: %w", err)
+		return nil, fmt.Errorf("parse url: %w", err)
 	}
 	if c.runner != "" {
 		q := u.Query()
@@ -139,19 +155,24 @@ func (c *NotificationClient) connect(ctx context.Context, onConnected func()) er
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		resp.Body.Close()
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
-	onConnected()
-	r := sse.NewReader(resp.Body)
+	return resp.Body, nil
+}
+
+// stream reads events from body and dispatches them to the handler until
+// the stream ends. It returns nil on a clean end of stream.
+func (c *NotificationClient) stream(body io.Reader) error {
+	r := sse.NewReader(body)
 	for {
 		ev, err := r.Read()
 		if err != nil {
@@ -160,7 +181,7 @@ func (c *NotificationClient) connect(ctx context.Context, onConnected func()) er
 		// The reader returns a zero Event with nil error on clean EOF.
 		// Real events always carry an Event type from the server.
 		if ev.Event == "" {
-			return errors.New("stream closed by server")
+			return nil
 		}
 		// Keep-alives exist only to put bytes on an idle stream. They carry
 		// no data, so drop them before decoding.
