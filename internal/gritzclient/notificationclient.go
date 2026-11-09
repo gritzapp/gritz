@@ -105,7 +105,7 @@ func (c *NotificationClient) Run(ctx context.Context) error {
 	for {
 		body, err := c.open(ctx)
 		if err == nil {
-			c.report(nil)
+			c.health(nil)
 			err = c.stream(body)
 			body.Close()
 		}
@@ -113,16 +113,16 @@ func (c *NotificationClient) Run(ctx context.Context) error {
 			return ctx.Err()
 		}
 		c.log.Warn("SSE connection lost, reconnecting", "err", err)
-		c.report(err)
+		c.health(err)
 		if !common.SleepContext(ctx, c.reconnect) {
 			return ctx.Err()
 		}
 	}
 }
 
-// report records the stream's state, err nil meaning connected, and calls
+// health records the stream's state, err nil meaning connected, and calls
 // OnHealth when it changes.
-func (c *NotificationClient) report(err error) {
+func (c *NotificationClient) health(err error) {
 	if (c.err == nil) == (err == nil) {
 		return
 	}
