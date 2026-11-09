@@ -81,12 +81,13 @@ the command line the driver logs carries the name, not the value.
 
 | Field | |
 | --- | --- |
-| `type` | `claude` (the default), `codex`, `cursor` or `copilot`. `dummy` is a stand-in that runs no model, for testing a runner. |
+| `type` | `claude` (the default), `codex`, `cursor`, `copilot` or `process`. `dummy` is a stand-in that runs no model, for testing a runner. |
 | `cwd` | The directory the agent starts in. `$VAR` references are expanded from the sandbox's environment. |
 | `prompt` | Text added to the agent's prompt on a task's first run, after gritz's own instructions: conventions for this repository, say. |
 | `verbose` | Log every raw line of the agent CLI's output instead of parsing it. Supported by `claude`, `codex` and `cursor`. See [Debugging](/operators/debugging/#raw-agent-output). |
 | `mcp_servers` | MCP servers for the agent, by name. |
 | `claude`, `codex`, `cursor`, `copilot` | Options for that agent: `model`, and `bin`, the CLI to run if not the default (`claude`, `codex` and so on). |
+| `process` | For `type: process`: `command`, the program to run and its arguments, as a list. See [Custom agent process](#custom-agent-process). |
 
 The agent CLI has to be installed in the image. Claude Code runs with
 `--model opus` unless `claude.model` is set; the other agents use their CLI's
@@ -98,6 +99,25 @@ agent:
   cwd: /root/pets-workshop
   claude:
     model: sonnet
+```
+
+### Custom agent process
+
+`type: process` runs your own program as the agent, for each prompt:
+
+- The prompt arrives on its standard input.
+- `GRITZ_RESUME` is `true` when the prompt continues an earlier session of the
+  task, such as a wake for a new event.
+- `mcp_servers` don't apply: the program gets no MCP configuration.
+- Its standard output and standard error go to the task's log.
+- A non-zero exit status fails the run.
+- Without a `command`, the run ends as soon as it starts.
+
+```yaml
+agent:
+  type: process
+  process:
+    command: [/usr/local/bin/my-agent, --fast]
 ```
 
 ### `mcp_servers`
