@@ -1041,6 +1041,8 @@ Or in a project’s `.mcp.json`:
 
 You don’t call these yourself: ask your agent, for example “Create a gritz task in the pets-workshop workspace to add a `--json` flag, then tell me when it has opened a pull request.” It calls `list_workspaces` to find the runner, then `create_task`.
 
+gritz also points your agent at these docs, through [`llms.txt`](https://docs.gritz.dev/llms.txt), so it can look up how gritz works.
+
 Each tool that changes a task returns the task’s ID, name, workspace, runner, namespace, status, whether it is archived, its URL, and when it was created and last updated. `list_tasks` returns the same for each task.
 
 ### `create_task`
@@ -2641,7 +2643,7 @@ Decided in the issue: the session gets tools that list the available orgs and sw
 
 [Section titled “list_orgs”](#list_orgs)
 
-Lists the entries the session can switch to: every name in the merged `orgs` that `allowed` permits, sorted by name. No arguments, `ReadOnlyHint`.
+Lists the entries the session can switch to: `merged.Entries()`, every entry in the merged `orgs` that `allowed` permits, sorted by name, each mapped to `{name, id, server, current}`. No arguments, `ReadOnlyHint`.
 
 ```json
 {
@@ -2766,8 +2768,9 @@ The [MCP admin tools](/pr/2124/proposals/implemented/mcp-admin-tools/) are regis
 package configfile // github.com/gritzapp/gritz/internal/configfile
 
 
-// Names returns the entry names Allowed permits, sorted.
-func (m *Merged) Names() []string // new
+// Entries returns the entries Lookup accepts (those Allowed permits), sorted
+// by name, each as Lookup returns it: Name and Path set, Server defaulted.
+func (m *Merged) Entries() []Entry // new
 
 
 // Lookup returns the entry named org, or m.Org when org is empty, enforcing
@@ -2858,13 +2861,13 @@ func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
 func (c *Channel) Forward(ctx context.Context, org OrgKey, n model.Notification) // changed: takes the org
 ```
 
-**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` reads `merged.Names()` and `merged.Orgs`; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools read `current()` to pick the mute set.
+**How it fits:** with `--key`, `gritz mcp` calls `Resolve`, builds one client from the entry’s token source, passes `mcpserver.Static(client)` to `AddTools`, and with `--channel` calls `ch.Follow(ctx, entry)` (the entry has no `Name`). Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`, builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go` into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup; `switch_org` calls `merged.Lookup`, `gritzclient.New` with `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`; `Channel`’s tools read `current()` to pick the mute set.
 
 ## Implementation Plan
 
 [Section titled “Implementation Plan”](#implementation-plan)
 
-1. **`Merged.Names` and the `Lookup` server default** — Delivers: `(*Merged).Names`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Names` filters by `allowed` and sorts, and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
+1. **`Merged.Entries` and the `Lookup` server default** — Delivers: `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Entries` filters by `allowed`, sorts by name and returns each entry as `Lookup` would (`Name` set, `Server` defaulted), and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
 3. **Per-org channel** — Delivers: `OrgKey`, `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same `OrgKey` under another name starts no stream, and that the mute tools edit the set `current` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.Orgs`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table, the `--key` note). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests with `httptest` servers for `switch_org` (success, bad key leaves the current org, id mismatch fails, `allowed` enforced, a `refresh_token` entry authenticates); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.

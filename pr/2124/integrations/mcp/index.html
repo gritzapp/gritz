@@ -296,6 +296,9 @@ credential in the MCP config.</p>
 in the pets-workshop workspace to add a <code dir="auto">--json</code> flag, then tell me when it has
 opened a pull request.” It calls <code dir="auto">list_workspaces</code> to find the runner, then
 <code dir="auto">create_task</code>.</p>
+<p>gritz also points your agent at these docs, through
+<a href="https://docs.gritz.dev/llms.txt"><code dir="auto">llms.txt</code></a>, so it can look up how gritz
+works.</p>
 <p>Each tool that changes a task returns the task’s ID, name, workspace, runner,
 namespace, status, whether it is archived, its URL, and when it was created and
 last updated. <code dir="auto">list_tasks</code> returns the same for each task.</p>

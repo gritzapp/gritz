@@ -37,8 +37,9 @@ caller (an OAuth token or an API key) is already bound to one org.
 
 ### `list_orgs`
 
-Lists the entries the session can switch to: every name in the merged `orgs`
-that `allowed` permits, sorted by name. No arguments, `ReadOnlyHint`.
+Lists the entries the session can switch to: `merged.Entries()`, every entry
+in the merged `orgs` that `allowed` permits, sorted by name, each mapped to
+`{name, id, server, current}`. No arguments, `ReadOnlyHint`.
 
 ```json
 {
@@ -223,8 +224,9 @@ schedules and events all act in the current org. Two consequences:
 ```go
 package configfile // github.com/gritzapp/gritz/internal/configfile
 
-// Names returns the entry names Allowed permits, sorted.
-func (m *Merged) Names() []string // new
+// Entries returns the entries Lookup accepts (those Allowed permits), sorted
+// by name, each as Lookup returns it: Name and Path set, Server defaulted.
+func (m *Merged) Entries() []Entry // new
 
 // Lookup returns the entry named org, or m.Org when org is empty, enforcing
 // m.Allowed, with Name and Path set, and Server set to DefaultServer when the
@@ -309,18 +311,19 @@ Otherwise it loads and validates the `*Merged`, calls `merged.Lookup(--org)`,
 builds `mcpbridge.NewOrgs` with `ch.Follow` as `follow` (a no-op without
 `--channel`), passes `orgs.Service` to `AddTools`, calls `orgs.AddTools`, and
 appends `OrgsInstructions`. The `NotificationClient` setup moves from `mcp.go`
-into `Channel.Follow`. `list_orgs` reads `merged.Names()` and `merged.Orgs`;
+into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with no second lookup;
 `switch_org` calls `merged.Lookup`, `gritzclient.New` with
 `Options{TokenSource: entry.TokenSource(ctx)}`, `GetCaller` and `follow`;
 `Channel`'s tools read `current()` to pick the mute set.
 
 ## Implementation Plan
 
-1. **`Merged.Names` and the `Lookup` server default** — Delivers:
-   `(*Merged).Names`; `Lookup` sets `DefaultServer` on an entry without a
+1. **`Merged.Entries` and the `Lookup` server default** — Delivers:
+   `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a
    server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by:
-   the existing `configfile` tests pass; tests that `Names` filters by
-   `allowed` and sorts, and that `Lookup` keeps an entry's own `server` and
+   the existing `configfile` tests pass; tests that `Entries` filters by
+   `allowed`, sorts by name and returns each entry as `Lookup` would (`Name`
+   set, `Server` defaulted), and that `Lookup` keeps an entry's own `server` and
    fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`,
    `AddTools` taking a `ServiceFunc`, every handler snapshotting the service

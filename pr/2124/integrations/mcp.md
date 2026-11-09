@@ -161,6 +161,10 @@ in the pets-workshop workspace to add a `--json` flag, then tell me when it has
 opened a pull request." It calls `list_workspaces` to find the runner, then
 `create_task`.
 
+gritz also points your agent at these docs, through
+[`llms.txt`](https://docs.gritz.dev/llms.txt), so it can look up how gritz
+works.
+
 Each tool that changes a task returns the task's ID, name, workspace, runner,
 namespace, status, whether it is archived, its URL, and when it was created and
 last updated. `list_tasks` returns the same for each task.
