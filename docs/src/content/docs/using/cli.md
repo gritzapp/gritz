@@ -5,10 +5,68 @@ sidebar:
   order: 2
 ---
 
-The `gritz` binary is the CLI as well as the runner and server. Release binaries
-for Linux are attached to each
-[GitHub release](https://github.com/gritzapp/gritz/releases); to build it from a
-checkout, run `mise run install`.
+The `gritz` binary is the CLI as well as the runner and server.
+
+## Install
+
+`gritz` runs on Linux and macOS, on amd64 and arm64. Install it in one of three
+ways.
+
+### Install script
+
+```bash
+curl -fsSL https://docs.gritz.dev/install.sh | sh
+```
+
+The script downloads the archive for your platform from the latest
+[GitHub release](https://github.com/gritzapp/gritz/releases), checks it against
+the release's `checksums.txt`, and installs `gritz` into `~/.local/bin`. Two
+environment variables change that:
+
+| Variable | Default | |
+| --- | --- | --- |
+| `GRITZ_VERSION` | the latest release | The release to install, such as `v4.7.0`. |
+| `GRITZ_INSTALL_DIR` | `~/.local/bin` | The directory to install into. |
+
+```bash
+curl -fsSL https://docs.gritz.dev/install.sh | GRITZ_VERSION=v4.7.0 GRITZ_INSTALL_DIR=/usr/local/bin sh
+```
+
+`~/.local/bin` isn't on your `PATH` by default on macOS, and on some Linux
+distributions. If it isn't on yours, the script says so; add it in your shell
+profile:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+To update, run the script again.
+
+### mise
+
+With [mise](https://mise.jdx.dev/):
+
+```bash
+mise use -g github:gritzapp/gritz
+```
+
+To update, run `mise upgrade github:gritzapp/gritz`.
+
+### Manual download
+
+Each [GitHub release](https://github.com/gritzapp/gritz/releases) has an
+archive per platform, `gritz_<os>_<arch>.tar.gz` (`os` is `linux` or `darwin`,
+`arch` is `amd64` or `arm64`), holding the `gritz` binary, and a
+`checksums.txt` with their SHA-256 sums. Download the archive for your
+platform, extract `gritz`, and put it in a directory on your `PATH`:
+
+```bash
+curl -fsSLO https://github.com/gritzapp/gritz/releases/latest/download/gritz_linux_amd64.tar.gz
+tar -xzf gritz_linux_amd64.tar.gz gritz
+mv gritz ~/.local/bin/
+```
+
+To update, download the new release's archive and replace the binary.
 
 ## Configuration
 

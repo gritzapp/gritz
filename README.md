@@ -14,6 +14,20 @@ Documentation: https://docs.gritz.dev
 
 ![Web UI](images/webui.png)
 
+## Install
+
+Install the CLI on Linux or macOS:
+
+```bash
+curl -fsSL https://docs.gritz.dev/install.sh | sh
+```
+
+Or with [mise](https://mise.jdx.dev/):
+
+```bash
+mise use -g github:gritzapp/gritz
+```
+
 ## Setup
 
 ```bash
