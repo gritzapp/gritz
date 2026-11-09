@@ -147,8 +147,8 @@ enough not to need deduplicating.
 
 **Telling tasks apart.** Task ids are a `BIGSERIAL` per server, so two orgs on
 one server never share an id, but the same id can exist on two servers
-(`acme` on gritz.dev and `local` on localhost). Every channel message from a
-`.gritz.yml` session carries the entry name in `mcpchannel.Params.Meta`, which
+(`acme` on gritz.dev and `local` on localhost). Every channel message carries
+the entry name in `mcpchannel.Params.Meta`, which
 Claude Code renders as a tag attribute:
 
 ```
@@ -156,7 +156,7 @@ Claude Code renders as a tag attribute:
 ```
 
 The message text is
-unchanged, and `--key` sessions send no `org` attribute (there's only one org).
+unchanged. A `--key` session's entry is named `""`, so it sends `org=""`.
 The attribute is always set, not only once a second org is followed, so the
 format doesn't change mid-session.
 
@@ -164,8 +164,8 @@ format doesn't change mid-session.
 `Forward` checks the filter of the entry whose stream delivered the
 notification. `channel_mute`, `channel_unmute` and `channel_muted` take an
 `org` argument, an entry name as shown in the `org="..."` channel attribute,
-and act on that org's set, including `all=true`. `org` is required unless the
-session uses `--key`, whose stream has no name; an `org` that isn't followed
+and act on that org's set, including `all=true`. `--key`'s entry is named `""`,
+so `org` can be left out there; an `org` that isn't followed
 is an error result (`not following org "x"`). Their results gain an `org` field naming it:
 
 ```json
@@ -290,7 +290,7 @@ func (o *OrgSwitcher) AddTools(server *mcp.Server) // new
 func NewChannel(sender ChannelSender, clientID string) *Channel // changed: takes clientID
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
-// (none when empty, as for --key), unless it is already followed. The
+// ("" for --key), unless it is already followed. The
 // NotificationClient is built from entry.TokenSource(ctx). The stream runs
 // until ctx ends.
 func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
@@ -330,8 +330,7 @@ into `Channel.Follow`. `list_orgs` maps `merged.Entries()` to its result, with n
    sessions, and the `org` field in the channel tools' results; `gritz mcp`
    follows only its startup org. Updates the Channels section of
    `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that
-   `Forward` uses the delivering org's mute set, that the meta carries the name
-   and is absent with an empty name, that a second `Follow` for the same
+   `Forward` uses the delivering org's mute set, that the meta carries the name, that a second `Follow` for the same
    entry starts no stream, and that the mute tools edit
    the set `org` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two

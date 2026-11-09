@@ -381,7 +381,7 @@ finishing without polling:
 ```
 
 The `org` attribute is the name of the `.gritz.yml` entry of the task's
-organisation; a session started with `--key` sends none.
+organisation; a session started with `--key` sends `org=""`.
 
 It sends a message when a task is created (by anyone, by a routing rule or by a
 schedule), when one is queued with new instructions, woken from a finished state
@@ -409,6 +409,7 @@ about. Every task is on by default.
 | `channel_muted` | Shows which tasks are muted. |
 
 Each tool takes `org`, the `org` attribute of the messages to mute, and names
-it in its result; leave it out only in a session started with `--key`. Muting lasts until `gritz mcp` exits. It is separate from
+it in its result; in a session started with `--key` it is empty and can be
+left out. Muting lasts until `gritz mcp` exits. It is separate from
 [subscribed links](/concepts/events-and-links/#subscriptions), which route
 external events into tasks.

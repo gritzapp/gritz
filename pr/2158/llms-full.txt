@@ -1243,7 +1243,7 @@ Returns the organisation’s MCP URL, custom event webhook URL, Atlassian webhoo
 <channel source="gritz" org="acme">Task 1234 completed.</channel>
 ```
 
-The `org` attribute is the name of the `.gritz.yml` entry of the task’s organisation; a session started with `--key` sends none.
+The `org` attribute is the name of the `.gritz.yml` entry of the task’s organisation; a session started with `--key` sends `org=""`.
 
 It sends a message when a task is created (by anyone, by a routing rule or by a schedule), when one is queued with new instructions, woken from a finished state by an event, given an event without being woken, completed, failed, cancelled, restarted or archived, and when a shell is opened in one. It leaves out the changes made through the same `gritz mcp` process, so your Claude isn’t told about the task it just created.
 
@@ -1265,7 +1265,7 @@ With `--channel`, three more tools let your Claude choose which tasks it hears a
 | `channel_unmute` | Resumes messages for the tasks in `task_ids`, or for every task with `all=true`. After `channel_mute` with `all=true`, unmuting some tasks keeps just those on. |
 | `channel_muted`  | Shows which tasks are muted.                                                                                                                                    |
 
-Each tool takes `org`, the `org` attribute of the messages to mute, and names it in its result; leave it out only in a session started with `--key`. Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2158/concepts/events-and-links/#subscriptions), which route external events into tasks.
+Each tool takes `org`, the `org` attribute of the messages to mute, and names it in its result; in a session started with `--key` it is empty and can be left out. Muting lasts until `gritz mcp` exits. It is separate from [subscribed links](/pr/2158/concepts/events-and-links/#subscriptions), which route external events into tasks.
 
 # Backends
 
@@ -16550,15 +16550,15 @@ Following only the current org would be simpler, but an agent that creates a tas
 
 Followed orgs are identified by entry name, `""` in `--key` mode. Two entries for the same org (`acme` and `acme-ci`) get separate streams and mute sets, so a session that switches between them hears each notification once per entry. That takes two entries for one org and a switch between them, which is rare enough not to need deduplicating.
 
-**Telling tasks apart.** Task ids are a `BIGSERIAL` per server, so two orgs on one server never share an id, but the same id can exist on two servers (`acme` on gritz.dev and `local` on localhost). Every channel message from a `.gritz.yml` session carries the entry name in `mcpchannel.Params.Meta`, which Claude Code renders as a tag attribute:
+**Telling tasks apart.** Task ids are a `BIGSERIAL` per server, so two orgs on one server never share an id, but the same id can exist on two servers (`acme` on gritz.dev and `local` on localhost). Every channel message carries the entry name in `mcpchannel.Params.Meta`, which Claude Code renders as a tag attribute:
 
 ```plaintext
 <channel source="gritz" org="acme">Task 1234 completed.</channel>
 ```
 
-The message text is unchanged, and `--key` sessions send no `org` attribute (there’s only one org). The attribute is always set, not only once a second org is followed, so the format doesn’t change mid-session.
+The message text is unchanged. A `--key` session’s entry is named `""`, so it sends `org=""`. The attribute is always set, not only once a second org is followed, so the format doesn’t change mid-session.
 
-**Mute sets per org.** `Channel` keeps one `TaskFilter` per entry name. `Forward` checks the filter of the entry whose stream delivered the notification. `channel_mute`, `channel_unmute` and `channel_muted` take an `org` argument, an entry name as shown in the `org="..."` channel attribute, and act on that org’s set, including `all=true`. `org` is required unless the session uses `--key`, whose stream has no name; an `org` that isn’t followed is an error result (`not following org "x"`). Their results gain an `org` field naming it:
+**Mute sets per org.** `Channel` keeps one `TaskFilter` per entry name. `Forward` checks the filter of the entry whose stream delivered the notification. `channel_mute`, `channel_unmute` and `channel_muted` take an `org` argument, an entry name as shown in the `org="..."` channel attribute, and act on that org’s set, including `all=true`. `--key`’s entry is named `""`, so `org` can be left out there; an `org` that isn’t followed is an error result (`not following org "x"`). Their results gain an `org` field naming it:
 
 ```json
 {"org": "acme", "all": false, "muted": [1234], "note": "..."}
@@ -16685,7 +16685,7 @@ func NewChannel(sender ChannelSender, clientID string) *Channel // changed: take
 
 
 // Follow starts forwarding entry's notifications, labelled with entry.Name
-// (none when empty, as for --key), unless it is already followed. The
+// ("" for --key), unless it is already followed. The
 // NotificationClient is built from entry.TokenSource(ctx). The stream runs
 // until ctx ends.
 func (c *Channel) Follow(ctx context.Context, entry *configfile.Entry) // new
@@ -16704,7 +16704,7 @@ func (c *Channel) Forward(ctx context.Context, name string, n model.Notification
 
 1. **`Merged.Entries` and the `Lookup` server default** — Delivers: `(*Merged).Entries`; `Lookup` sets `DefaultServer` on an entry without a server, and `Resolve` stops doing it. Depends on: nothing. Verifiable by: the existing `configfile` tests pass; tests that `Entries` filters by `allowed`, sorts by name and returns each entry as `Lookup` would (`Name` set, `Server` defaulted), and that `Lookup` keeps an entry’s own `server` and fills in `DefaultServer` when it has none.
 2. **`mcpserver.ServiceFunc`** — Delivers: `ServiceFunc`, `Static`, `AddTools` taking a `ServiceFunc`, every handler snapshotting the service once; `/mcp` and `gritz mcp` pass `Static`. No behaviour change. Depends on: nothing. Verifiable by: the existing `mcpserver` tests pass with `Static(mock)`; one test where the `ServiceFunc` returns a different mock on each call and `update_task` sends both its RPCs to the first. Admin-tool slices that land after this one follow the same rule.
-3. **Per-org channel** — Delivers: `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name and is absent with an empty name, that a second `Follow` for the same entry starts no stream, and that the mute tools edit the set `org` names.
+3. **Per-org channel** — Delivers: `Channel.Follow` owning the `NotificationClient`, per-org mute sets, the `org` meta attribute on `.gritz.yml` sessions, and the `org` field in the channel tools’ results; `gritz mcp` follows only its startup org. Updates the Channels section of `integrations/mcp`. Depends on: (1). Verifiable by: `mcpbridge` tests that `Forward` uses the delivering org’s mute set, that the meta carries the name, that a second `Follow` for the same entry starts no stream, and that the mute tools edit the set `org` names.
 4. **`list_orgs` and `switch_org`** — Delivers: `mcpbridge.OrgSwitcher`, the two tools, `OrgsInstructions`, the `gritz mcp` wiring, and following each switched-to org. Updates `integrations/mcp` (a section on orgs, the tool table). Depends on: (1), (2), (3). Verifiable by: `mcpbridge` tests for `switch_org` (the switched-to entry becomes current and is followed, `list_orgs` marks it; an unknown entry leaves the current org); an e2e test that logs in to two orgs, starts `gritz mcp --channel` in-process, creates a task in org A, switches to org B and creates a task there; then `list_tasks` shows only org B’s task, and cancelling the org A task from another client delivers its channel message with `org="a"`.
 
 Slices 1 and 2 are independent.
