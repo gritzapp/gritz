@@ -115,6 +115,7 @@ type Agent struct {
 	Copilot    *CopilotConfig             `yaml:"copilot,omitempty"`
 	Cursor     *CursorConfig              `yaml:"cursor,omitempty"`
 	Sloppy     *SloppyConfig              `yaml:"sloppy,omitempty"`
+	Process    *ProcessConfig             `yaml:"process,omitempty"`
 	Dummy      *DummyConfig               `yaml:"dummy,omitempty"`
 	Puppet     *PuppetConfig              `yaml:"puppet,omitempty"`
 }
@@ -146,6 +147,12 @@ type CursorConfig struct {
 // SloppyConfig contains Sloppy-specific agent configuration.
 type SloppyConfig struct {
 	Bin string `yaml:"bin"`
+}
+
+// ProcessConfig contains Process-specific agent configuration.
+type ProcessConfig struct {
+	// Command is the argv to run: the executable followed by its arguments.
+	Command []string `yaml:"command"`
 }
 
 // DummyConfig contains Dummy-specific agent configuration.
@@ -392,6 +399,11 @@ func (w *Workspace) AgentConfig() agent.Config {
 	if w.Agent.Sloppy != nil {
 		cfg.Sloppy = &agent.SloppyOptions{
 			Bin: w.Agent.Sloppy.Bin,
+		}
+	}
+	if w.Agent.Process != nil {
+		cfg.Process = &agent.ProcessOptions{
+			Command: w.Agent.Process.Command,
 		}
 	}
 	if w.Agent.Dummy != nil {

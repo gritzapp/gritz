@@ -26,6 +26,7 @@ const (
 	TypeCopilot = "copilot"
 	TypeCursor  = "cursor"
 	TypeSloppy  = "sloppy"
+	TypeProcess = "process"
 	TypeDummy   = "dummy"
 	TypePuppet  = "puppet"
 )
@@ -60,6 +61,7 @@ type Options struct {
 	Copilot    *CopilotOptions
 	Cursor     *CursorOptions
 	Sloppy     *SloppyOptions
+	Process    *ProcessOptions
 	Dummy      *DummyOptions
 	Puppet     *puppet.Options
 }
@@ -91,6 +93,12 @@ type CursorOptions struct {
 // SloppyOptions contains Sloppy-specific agent options.
 type SloppyOptions struct {
 	Bin string
+}
+
+// ProcessOptions contains Process-specific agent options.
+type ProcessOptions struct {
+	// Command is the argv to run: the executable followed by its arguments.
+	Command []string
 }
 
 // DummyOptions contains Dummy-specific agent options.
@@ -160,6 +168,13 @@ func NewAgent(opts Options) (Agent, error) {
 			env:        opts.Env,
 			mcpServers: opts.McpServers,
 			options:    opts.Sloppy,
+		}, nil
+	case TypeProcess:
+		return &ProcessAgent{
+			log:     log,
+			cwd:     cmp.Or(opts.Cwd, "."),
+			env:     opts.Env,
+			options: opts.Process,
 		}, nil
 	case TypeDummy:
 		return &DummyAgent{

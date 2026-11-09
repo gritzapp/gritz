@@ -235,6 +235,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 		Copilot:    cfg.Copilot,
 		Cursor:     cfg.Cursor,
 		Sloppy:     cfg.Sloppy,
+		Process:    cfg.Process,
 		Dummy:      cfg.Dummy,
 		Puppet:     cfg.Puppet,
 		Log:        d.Log,
