@@ -1,6 +1,7 @@
 package command
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -49,24 +50,17 @@ var LoginCommand = &cli.Command{
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		config := cmd.String("config")
+		merged, err := configfile.Load(configfile.LoadOptions{File: config})
+		if err != nil {
+			return err
+		}
 		if cmd.Bool("list") {
-			merged, err := configfile.Load(configfile.LoadOptions{File: config})
-			if err != nil {
-				return err
-			}
 			if err := merged.Validate(); err != nil {
 				return err
 			}
 			return cliformat.WriteConfigEntries(os.Stdout, merged)
 		}
-		entry := configfile.Entry{Key: cmd.String("key"), Server: cmd.String("server")}
-		if entry.Server == "" {
-			server, err := configfile.LoginServer(config)
-			if err != nil {
-				return err
-			}
-			entry.Server = server
-		}
+		entry := configfile.Entry{Key: cmd.String("key"), Server: cmp.Or(cmd.String("server"), merged.Server)}
 
 		token := entry.Key
 		if token == "" {

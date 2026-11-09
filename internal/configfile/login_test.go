@@ -144,25 +144,3 @@ func TestLogin_ExistingFileMode(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, info.Mode().Perm(), os.FileMode(0o640))
 }
-
-func TestLoginServer_Path(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		path string
-		want string
-	}{
-		{name: "top-level server", path: "testdata/read/.gritz.yml", want: "https://gritz.example.com"},
-		{name: "missing file", path: "testdata/empty/missing.yml", want: DefaultServer},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := LoginServer(filepath.FromSlash(tt.path))
-
-			assert.NilError(t, err)
-			assert.Equal(t, got, tt.want)
-		})
-	}
-}

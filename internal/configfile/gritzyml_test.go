@@ -1,7 +1,6 @@
 package configfile
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -101,6 +100,7 @@ func TestLoad_Local(t *testing.T) {
 	assert.DeepEqual(t, m, &Merged{
 		Org:     "local",
 		OrgFrom: local,
+		Server:  DefaultServer,
 		Orgs: map[string]Entry{
 			"acme":  {ID: 12, Key: "k-local"},
 			"ci":    {ID: 13, Key: "k-ci"},
@@ -128,6 +128,7 @@ func TestLoad_BaseOnly(t *testing.T) {
 	assert.DeepEqual(t, m, &Merged{
 		Org:      "acme",
 		OrgFrom:  base,
+		Server:   DefaultServer,
 		Orgs:     map[string]Entry{"acme": {ID: 12, Key: "k"}},
 		OrgsFrom: map[string]string{"acme": base},
 	})
@@ -140,7 +141,7 @@ func TestLoad_NoFiles(t *testing.T) {
 	m, err := Load(LoadOptions{Dir: dir, Root: dir, Base: filepath.Join(dir, Name)})
 
 	assert.NilError(t, err)
-	assert.DeepEqual(t, m, &Merged{Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
+	assert.DeepEqual(t, m, &Merged{Server: DefaultServer, Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
 }
 
 func TestLoad_Directory(t *testing.T) {
@@ -429,7 +430,8 @@ func TestLoad_File(t *testing.T) {
 func TestLoad_FileMissing(t *testing.T) {
 	t.Parallel()
 
-	_, err := Load(LoadOptions{File: filepath.FromSlash("testdata/empty/missing.yml")})
+	m, err := Load(LoadOptions{File: filepath.FromSlash("testdata/empty/missing.yml")})
 
-	assert.ErrorIs(t, err, fs.ErrNotExist)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, m, &Merged{Server: DefaultServer, Orgs: map[string]Entry{}, OrgsFrom: map[string]string{}})
 }
