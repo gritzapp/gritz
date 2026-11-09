@@ -77,16 +77,17 @@ every task created for it in a sandbox of its own: a Docker container by default
 <p>These steps run a runner against gritz.dev on a machine with Docker.</p>
 <ol>
 <li>
-<p><strong>Install <code dir="auto">gritz</code>.</strong> Each
-<a href="https://github.com/gritzapp/gritz/releases">GitHub release</a> has an archive
-per platform, <code dir="auto">gritz_&lt;os&gt;_&lt;arch&gt;.tar.gz</code>, holding the <code dir="auto">gritz</code> binary. To build it
-from a checkout instead, run <code dir="auto">mise run install</code>.</p>
+<p><strong>Install <code dir="auto">gritz</code>:</strong></p>
+<div class="expressive-code"><link rel="stylesheet" href="/_astro/ec.w36nc.css"><script type="module" src="/_astro/ec.0vx5m.js"></script><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="bash"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">curl</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">-fsSL</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">https://docs.gritz.dev/install.sh</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#7FDBCA;--1:#096E72">|</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">sh</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="curl -fsSL https://docs.gritz.dev/install.sh | sh"><div></div></button></div></figure></div>
+<p>This installs the latest release into <code dir="auto">~/.local/bin</code>. See
+<a href="/using/cli/#install">Install</a> for the other ways to install it, with mise
+or from a release archive, and for how to update.</p>
 </li>
 <li>
 <p><strong>Create an API key</strong> on the <strong>Keys</strong> page
 (<code dir="auto">https://gritz.dev/ui/keys/new</code>) and copy the <code dir="auto">xat_…</code> token: it is shown only
 once. Log in with it:</p>
-<div class="expressive-code"><link rel="stylesheet" href="/_astro/ec.w36nc.css"><script type="module" src="/_astro/ec.0vx5m.js"></script><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="bash"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">gritz</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">login</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">--key</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">xat_...</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="gritz login --key xat_..."><div></div></button></div></figure></div>
+<div class="expressive-code"><figure class="frame is-terminal not-content"><figcaption class="header"><span class="title"></span><span class="sr-only">Terminal window</span></figcaption><pre data-language="bash"><code><div class="ec-line"><div class="code"><span style="--0:#82AAFF;--1:#3B61B0">gritz</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">login</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#82AAFF;--1:#3B61B0">--key</span><span style="--0:#D6DEEB;--1:#403F53"> </span><span style="--0:#ECC48D;--1:#3B61B0">xat_...</span></div></div></code></pre><div class="copy"><div aria-live="polite"></div><button title="Copy to clipboard" data-copied="Copied!" data-code="gritz login --key xat_..."><div></div></button></div></figure></div>
 <p>This saves the key in <code dir="auto">~/.config/gritz/.gritz.yml</code>; see
 <a href="/using/cli/#logging-in-with-an-api-key">Logging in with an API key</a>. On a server, pass it with
 <code dir="auto">--key</code> or <code dir="auto">GRITZ_API_KEY</code> instead.</p>
@@ -208,7 +209,7 @@ ID; change <code dir="auto">workspaces.yaml</code> and restart the runner to cha
 driver, picking the one that matches the image’s architecture:</p>
 <ul>
 <li>When the runner itself is a static Linux binary for that architecture, which
-release binaries and <code dir="auto">mise run install</code> builds are, it copies itself.</li>
+the binary in the release archives is, it copies itself.</li>
 <li>Otherwise it reads <code dir="auto">gritz-linux-amd64</code> or <code dir="auto">gritz-linux-arm64</code> from the
 <code dir="auto">prebuilt</code> directory: <code dir="auto">GRITZ_PREBUILT_DIR</code> if set, otherwise <code dir="auto">prebuilt</code> in the
 config directory.</li>

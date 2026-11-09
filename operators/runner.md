@@ -8,10 +8,15 @@ every task created for it in a sandbox of its own: a Docker container by default
 
 These steps run a runner against gritz.dev on a machine with Docker.
 
-1. **Install `gritz`.** Each
-   [GitHub release](https://github.com/gritzapp/gritz/releases) has an archive
-   per platform, `gritz_<os>_<arch>.tar.gz`, holding the `gritz` binary. To build it
-   from a checkout instead, run `mise run install`.
+1. **Install `gritz`:**
+
+   ```bash
+   curl -fsSL https://docs.gritz.dev/install.sh | sh
+   ```
+
+   This installs the latest release into `~/.local/bin`. See
+   [Install](/using/cli/#install) for the other ways to install it, with mise
+   or from a release archive, and for how to update.
 
 2. **Create an API key** on the **Keys** page
    (`https://gritz.dev/ui/keys/new`) and copy the `xat_…` token: it is shown only
@@ -101,7 +106,7 @@ The Docker backend copies a `gritz` binary into every container to run as the
 driver, picking the one that matches the image's architecture:
 
 - When the runner itself is a static Linux binary for that architecture, which
-  release binaries and `mise run install` builds are, it copies itself.
+  the binary in the release archives is, it copies itself.
 - Otherwise it reads `gritz-linux-amd64` or `gritz-linux-arm64` from the
   `prebuilt` directory: `GRITZ_PREBUILT_DIR` if set, otherwise `prebuilt` in the
   config directory.
