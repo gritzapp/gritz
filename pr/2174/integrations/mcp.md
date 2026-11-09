@@ -389,18 +389,17 @@ by an event, given an event without being woken, completed, failed, cancelled,
 restarted or archived, and when a shell is opened in one. It leaves out the changes made through the same `gritz mcp` process, so
 your Claude isn't told about the task it just created.
 
-It also reports the state of each organisation's notification stream, so your
-Claude knows when it might be missing updates:
+It also tells your Claude when an organisation's notification stream goes down
+and comes back, since it misses updates in between:
 
 ```
-<channel source="gritz" org="acme">Connected to org "acme".</channel>
 <channel source="gritz" org="acme">Lost the connection to org "acme": unexpected status: 502, retrying.</channel>
 <channel source="gritz" org="acme">Reconnected to org "acme" (notifications sent while it was down were missed).</channel>
 ```
 
-A stream that can't connect in the first place reports `Can't connect to org
-"acme": …, retrying.` `gritz mcp` keeps retrying until it connects, and sends
-nothing more until the stream comes up or goes down again.
+A stream that can't connect in the first place is reported as lost too.
+`gritz mcp` keeps retrying until it connects, and sends nothing more until the
+stream comes back.
 
 Channels are a Claude Code research preview, and only work over stdio, so only
 with `gritz mcp`. gritz isn't on the preview's allowlist, so start Claude Code
