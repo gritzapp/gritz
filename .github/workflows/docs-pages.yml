@@ -2,7 +2,8 @@ name: Docs Pages
 
 # Publishes the Starlight docs site in docs/, with the Motion Canvas diagrams in
 # diagrams/ built into its /diagrams/, to the root of the gh-pages branch,
-# served at docs.gritz.dev. The docs previews under /pr/ are left alone.
+# served at docs.gritz.dev. In the same commit it removes the docs preview
+# under /pr/<number>/ of every PR that is no longer open.
 
 on:
   push:
@@ -15,10 +16,12 @@ on:
 
 permissions:
   contents: write
+  pull-requests: read
 
-# Shared by the two workflows that push to gh-pages.
+# Docs Preview pushes to gh-pages concurrently; the deploy action rebases and
+# retries instead (force: false).
 concurrency:
-  group: gh-pages
+  group: docs-pages
   cancel-in-progress: false
 
 jobs:
@@ -50,13 +53,29 @@ jobs:
         run: pnpm run build
         working-directory: docs
 
+      # The previews to keep, one rsync filter pattern per open PR.
+      - name: List open PRs
+        id: open-prs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo 'previews<<EOF'
+            gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 \
+              --json number --jq '.[] | "/pr/\(.number)/"'
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
         with:
           branch: gh-pages
           folder: docs/dist
-          # Cleans the whole branch root except the docs previews. .nojekyll
-          # comes from docs/public/. GitHub manages the root CNAME from the Pages
-          # settings, and the action never deletes it.
-          clean-exclude: pr/
+          # Cleans the whole branch root except the previews of open PRs.
+          # .nojekyll comes from docs/public/. GitHub manages the root CNAME
+          # from the Pages settings, and the action never deletes it.
+          clean-exclude: ${{ steps.open-prs.outputs.previews }}
+          # Rebase onto concurrent preview pushes instead of overwriting them.
+          force: false
+          attempt-limit: 10
           commit-message: 'docs: publish docs for ${{ github.sha }}'
