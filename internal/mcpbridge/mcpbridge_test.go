@@ -18,14 +18,6 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// newTestChannel returns a Channel following an entry named name without a
-// stream.
-func newTestChannel(sender ChannelSender, name string) *Channel {
-	ch := NewChannel(sender, "")
-	ch.filters[name] = NewTaskFilter()
-	return ch
-}
-
 // TestForward_DefaultForwardsEverything is the byte-for-byte default: an
 // empty mute set forwards every channel-worthy notification unchanged.
 func TestForward_DefaultForwardsEverything(t *testing.T) {
@@ -34,7 +26,8 @@ func TestForward_DefaultForwardsEverything(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 
 	// Act
 	ch.Forward(context.Background(), "", model.Notification{
@@ -58,7 +51,8 @@ func TestForward_EmptyChannelMessage(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 
 	// Act
 	ch.Forward(context.Background(), "", model.Notification{
@@ -78,7 +72,8 @@ func TestForward_MutedTaskDropped(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(42)
 
 	// Act
@@ -110,7 +105,8 @@ func TestForward_NonTaskScopedAlwaysForwarded(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(42)
 
 	// Act
@@ -131,7 +127,8 @@ func TestForward_Unmute(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(42)
 	ch.filters[""].Unmute(42)
 
@@ -154,7 +151,8 @@ func TestForward_MuteAllDropsEveryTask(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	_, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
 	assert.NilError(t, err)
 
@@ -183,7 +181,8 @@ func TestForward_MuteAllStillForwardsNonTaskScoped(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	_, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
 	assert.NilError(t, err)
 
@@ -206,7 +205,8 @@ func TestForward_MuteAllThenUnmuteAll(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	_, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
 	assert.NilError(t, err)
 	_, _, err = ch.unmuteTool(context.Background(), nil, unmuteInput{All: true})
@@ -226,7 +226,8 @@ func TestForward_MuteAllThenUnmuteAll(t *testing.T) {
 func TestMuteTool_All(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(7)
 
 	// Act
@@ -250,7 +251,8 @@ func TestForward_MuteAllThenUnmuteOne(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	_, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
 	assert.NilError(t, err)
 	_, _, err = ch.unmuteTool(context.Background(), nil, unmuteInput{TaskIDs: []int64{123}})
@@ -280,7 +282,8 @@ func TestForward_MuteAllThenUnmuteOne(t *testing.T) {
 func TestUnmuteTool_AfterMuteAll(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters[""] = NewTaskFilter()
 	_, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
 	assert.NilError(t, err)
 
@@ -303,7 +306,8 @@ func TestMuteTool_RemuteUnderMuteAll(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "")
+	ch := NewChannel(sender, "")
+	ch.filters[""] = NewTaskFilter()
 	_, _, err := ch.muteTool(context.Background(), nil, muteInput{All: true})
 	assert.NilError(t, err)
 	_, _, err = ch.unmuteTool(context.Background(), nil, unmuteInput{TaskIDs: []int64{123}})
@@ -327,7 +331,8 @@ func TestMuteTool_RemuteUnderMuteAll(t *testing.T) {
 func TestMuteTool(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters[""] = NewTaskFilter()
 
 	// Act
 	res, _, err := ch.muteTool(context.Background(), nil, muteInput{TaskIDs: []int64{9, 3, 3}})
@@ -342,7 +347,8 @@ func TestMuteTool(t *testing.T) {
 func TestUnmuteTool(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(1)
 	ch.filters[""].Mute(2)
 	ch.filters[""].Mute(3)
@@ -360,7 +366,8 @@ func TestUnmuteTool(t *testing.T) {
 func TestUnmuteTool_All(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(1)
 	ch.filters[""].Mute(2)
 
@@ -377,7 +384,8 @@ func TestUnmuteTool_All(t *testing.T) {
 func TestMutedTool(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters[""] = NewTaskFilter()
 	ch.filters[""].Mute(5)
 	ch.filters[""].Mute(1)
 
@@ -397,7 +405,8 @@ func TestForward_OrgMeta(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "acme")
+	ch := NewChannel(sender, "")
+	ch.filters["acme"] = NewTaskFilter()
 
 	// Act
 	ch.Forward(context.Background(), "acme", model.Notification{ChannelMessage: "Task 42 completed."})
@@ -417,7 +426,8 @@ func TestForward_PerOrgMuteSet(t *testing.T) {
 	sender := &ChannelSenderMock{
 		SendChannelFunc: func(context.Context, mcpchannel.Params) error { return nil },
 	}
-	ch := newTestChannel(sender, "a")
+	ch := NewChannel(sender, "")
+	ch.filters["a"] = NewTaskFilter()
 	ch.filters["b"] = NewTaskFilter()
 	ch.filters["a"].Mute(42)
 	n := model.Notification{
@@ -441,7 +451,8 @@ func TestForward_PerOrgMuteSet(t *testing.T) {
 func TestMuteTool_NamedOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "a")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters["a"] = NewTaskFilter()
 	ch.filters["b"] = NewTaskFilter()
 
 	// Act
@@ -460,7 +471,8 @@ func TestMuteTool_NamedOrg(t *testing.T) {
 func TestMuteTool_UnknownOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ch := newTestChannel(&ChannelSenderMock{}, "a")
+	ch := NewChannel(&ChannelSenderMock{}, "")
+	ch.filters["a"] = NewTaskFilter()
 
 	// Act
 	res, _, err := ch.muteTool(context.Background(), nil, muteInput{Org: "x", TaskIDs: []int64{42}})
