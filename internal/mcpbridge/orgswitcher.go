@@ -25,7 +25,8 @@ type OrgSwitcherOptions struct {
 	Entry *configfile.Entry
 	// ClientID is sent by every client the switcher builds.
 	ClientID string
-	// OnSwitch is called for Entry and for every org switched to later.
+	// OnSwitch, if set, is called for Entry and for every org switched to
+	// later.
 	OnSwitch func(entry *configfile.Entry)
 }
 
@@ -39,25 +40,28 @@ type OrgSwitcher struct {
 	client  gritzclient.Client
 }
 
-// NewOrgSwitcher starts the session in opts.Entry and calls OnSwitch for it. Clients are
-// built from the entry's TokenSource(ctx).
+// NewOrgSwitcher starts the session in opts.Entry.
 func NewOrgSwitcher(ctx context.Context, opts OrgSwitcherOptions) *OrgSwitcher {
-	o := &OrgSwitcher{
-		ctx:     ctx,
-		opts:    opts,
-		current: opts.Entry.Name,
-		client:  newClient(ctx, opts.Entry, opts.ClientID),
-	}
-	opts.OnSwitch(opts.Entry)
+	o := &OrgSwitcher{ctx: ctx, opts: opts}
+	o.onSwitch(opts.Entry)
 	return o
 }
 
-func newClient(ctx context.Context, entry *configfile.Entry, clientID string) gritzclient.Client {
-	return gritzclient.New(gritzclient.Options{
+// onSwitch makes entry the current org with a new client, built from
+// entry.TokenSource with the process context because it outlives the
+// switch_org call, and calls OnSwitch if it is set.
+func (o *OrgSwitcher) onSwitch(entry *configfile.Entry) {
+	client := gritzclient.New(gritzclient.Options{
 		BaseURL:     entry.Server,
-		TokenSource: entry.TokenSource(ctx),
-		ClientID:    clientID,
+		TokenSource: entry.TokenSource(o.ctx),
+		ClientID:    o.opts.ClientID,
 	})
+	o.mu.Lock()
+	o.current, o.client = entry.Name, client
+	o.mu.Unlock()
+	if o.opts.OnSwitch != nil {
+		o.opts.OnSwitch(entry)
+	}
 }
 
 // Service returns the current org's client; it is a mcpserver.ServiceFunc.
@@ -119,10 +123,6 @@ func (o *OrgSwitcher) switchOrgTool(_ context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return mcpx.ErrorResult("%s", err), nil, nil
 	}
-	o.mu.Lock()
-	// The token source outlives this call, so it takes the process context.
-	o.current, o.client = entry.Name, newClient(o.ctx, entry, o.opts.ClientID)
-	o.mu.Unlock()
-	o.opts.OnSwitch(entry)
+	o.onSwitch(entry)
 	return mcpx.JSONResult(switchOrgOutput{Name: entry.Name, ID: entry.ID, Server: entry.Server}), nil, nil
 }

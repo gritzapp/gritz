@@ -66,16 +66,11 @@ var McpCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		switcher := mcpbridge.NewOrgSwitcher(ctx, mcpbridge.OrgSwitcherOptions{
-			Merged:   merged,
-			Entry:    entry,
-			ClientID: clientID,
-			OnSwitch: func(entry *configfile.Entry) {
-				if ch != nil {
-					ch.Follow(ctx, entry)
-				}
-			},
-		})
+		opts := mcpbridge.OrgSwitcherOptions{Merged: merged, Entry: entry, ClientID: clientID}
+		if ch != nil {
+			opts.OnSwitch = func(entry *configfile.Entry) { ch.Follow(ctx, entry) }
+		}
+		switcher := mcpbridge.NewOrgSwitcher(ctx, opts)
 
 		server := mcp.NewServer(&mcp.Implementation{
 			Name:    "gritz",
