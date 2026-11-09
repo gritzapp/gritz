@@ -10,7 +10,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/model"
-	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"github.com/gritzapp/gritz/internal/x/mcpchannel"
 	"github.com/gritzapp/gritz/internal/x/mcptest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -36,10 +35,10 @@ func TestForward_DefaultForwardsEverything(t *testing.T) {
 		ChannelMessage: "Task 42 completed.",
 	})
 
-	// Assert: exactly one forward carrying the summary and no metadata.
+	// Assert: exactly one forward carrying the summary and the empty org name.
 	assert.DeepEqual(t,
 		sender.SentChannelParams(),
-		[]mcpchannel.Params{{Content: "Task 42 completed."}},
+		[]mcpchannel.Params{{Content: "Task 42 completed.", Meta: map[string]string{"org": ""}}},
 	)
 }
 
@@ -91,8 +90,7 @@ func TestForward_MutedTaskDropped(t *testing.T) {
 	// Assert: only the un-muted task's notification survived.
 	assert.DeepEqual(t,
 		sender.SentChannelParams(),
-		[]mcpchannel.Params{{Content: "Task 7 completed."}},
-		cmpx.OnlyFields("Content"),
+		[]mcpchannel.Params{{Content: "Task 7 completed.", Meta: map[string]string{"org": ""}}},
 	)
 }
 
@@ -115,8 +113,7 @@ func TestForward_NonTaskScopedAlwaysForwarded(t *testing.T) {
 	// Assert
 	assert.DeepEqual(t,
 		sender.SentChannelParams(),
-		[]mcpchannel.Params{{Content: "System notice."}},
-		cmpx.OnlyFields("Content"),
+		[]mcpchannel.Params{{Content: "System notice.", Meta: map[string]string{"org": ""}}},
 	)
 }
 
@@ -192,8 +189,7 @@ func TestForward_MuteAllStillForwardsNonTaskScoped(t *testing.T) {
 	// Assert
 	assert.DeepEqual(t,
 		sender.SentChannelParams(),
-		[]mcpchannel.Params{{Content: "System notice."}},
-		cmpx.OnlyFields("Content"),
+		[]mcpchannel.Params{{Content: "System notice.", Meta: map[string]string{"org": ""}}},
 	)
 }
 
@@ -273,8 +269,7 @@ func TestForward_MuteAllThenUnmuteOne(t *testing.T) {
 	// Assert: only the un-muted exception (123) kept delivering.
 	assert.DeepEqual(t,
 		sender.SentChannelParams(),
-		[]mcpchannel.Params{{Content: "Task 123 completed."}},
-		cmpx.OnlyFields("Content"),
+		[]mcpchannel.Params{{Content: "Task 123 completed.", Meta: map[string]string{"org": ""}}},
 	)
 }
 
