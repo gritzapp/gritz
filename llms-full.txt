@@ -1446,7 +1446,7 @@ The runner logs each sandbox it creates, boots, suspends and destroys; run it wi
 
 Every gritz release publishes:
 
-* **Binaries** for Linux, `gritz-linux-amd64` and `gritz-linux-arm64`, attached to the [GitHub release](https://github.com/gritzapp/gritz/releases).
+* **Archives** for Linux and macOS, `gritz_<os>_<arch>.tar.gz` for `linux` and `darwin` on `amd64` and `arm64`, each holding the `gritz` binary, plus a `checksums.txt`, attached to the [GitHub release](https://github.com/gritzapp/gritz/releases).
 * **`ghcr.io/gritzapp/server`**, which runs `gritz server` and listens on port `6464`. The Web UI is built into the binary.
 * **`ghcr.io/gritzapp/runner`**, which runs `gritz runner`. It includes the Docker CLI and both [driver binaries](/operators/runner/#driver-binaries) (`GRITZ_PREBUILT_DIR=/app/prebuilt`).
 
@@ -1607,7 +1607,7 @@ The server keeps its state in PostgreSQL. Everything belongs to an **org** (`org
 
 These steps run a runner against gritz.dev on a machine with Docker.
 
-1. **Install `gritz`.** Release binaries for Linux (`gritz-linux-amd64` and `gritz-linux-arm64`) are attached to each [GitHub release](https://github.com/gritzapp/gritz/releases). To build it from a checkout instead, run `mise run install`.
+1. **Install `gritz`.** Each [GitHub release](https://github.com/gritzapp/gritz/releases) has an archive per platform, `gritz_<os>_<arch>.tar.gz`, holding the `gritz` binary. To build it from a checkout instead, run `mise run install`.
 
 2. **Create an API key** on the **Keys** page (`https://gritz.dev/ui/keys/new`) and copy the `xat_…` token: it is shown only once. Log in with it:
 
