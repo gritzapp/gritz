@@ -23,6 +23,7 @@ What the model replaces:
 - The instance is the task's event bus. Agents publish to it with a new `emit` tool; the server publishes `system` events to it.
 - A **trigger** decides when an instance starts. Every trigger match publishes a `system` event `workflow.trigger` on the instance's bus. Agents start by subscribing to it, or to any other event.
 - **`start`** on a trigger or a subscription says whether a matching event may create an instance or a task, and which existing one handles it otherwise.
+- A **claim** is a name a link type gives its subscribed links. A trigger that lists it in `yield_to` creates no instance for a subject while a live task holds that claim on it.
 - `eventrouter.Router` is rewritten around one operation, `Publish`: resolve instances for the triggers that match, then start tasks for and deliver to the subscriptions that match. There is no rule order and no first match.
 - Subscriptions are materialised in a `subscriptions` table when an instance starts and when a task gets a subscribed link.
 - An instance is open until a person closes it. A closed instance receives no events.
@@ -48,6 +49,8 @@ triggers:                    # optional
     filter:
       label: build-it
     start: unique            # optional, default never
+    yield_to:                # optional claim names
+      - pr-owner
 agents:
   implementer:
     workspace: default
@@ -63,6 +66,7 @@ agents:
         wake: false          # optional, default true
     links:
       github.pr:
+        claim: pr-owner      # optional
         subscribe:
           - source: github   # a filter, plus:
             type: pull_request_review_comment
@@ -83,12 +87,13 @@ A filter has these keys:
 
 `PutWorkflow` validates the whole definition and rejects it with `InvalidArgument` naming the first offending key:
 
-- Workflow, agent and namespace names match `^[a-z][a-z0-9_-]{0,63}$`. Event types emitted by agents and link type names match `^[a-z][a-z0-9_.]{0,63}$`.
+- Workflow, agent, namespace and claim names match `^[a-z][a-z0-9_-]{0,63}$`. Event types emitted by agents and link type names match `^[a-z][a-z0-9_.]{0,63}$`.
 - A filter on `github`, `atlassian` or `custom` must name a `(source, type)` registered in `eventrouter.DefaultSchemaRegistry.With(orgCustomTypes...)`, and each condition's attr must be one the type declares. This is `SchemaRegistry.Validate` applied to filters instead of rules.
 - A filter on `system` must name `workflow.trigger`, `task.completed` or `task.failed`.
 - A filter on `task` has no schema; its type and conditions are not checked, on the instance bus or on a named namespace.
 - A trigger's filter is on `github`, `atlassian`, `custom` or `schedule`, or on `task` with a `namespace`. It cannot be on the instance bus or on `system`.
 - `start` is `never`, `once`, `unique` or `always`.
+- `yield_to` is only valid on a trigger whose `start` is `once`, `unique` or `always`. Its entries are claim names; they need not be declared by this workflow, since the link types that hold them usually belong to another.
 - A subscription's `link` must name an entry in the agent's `links`.
 - An export has no `source` other than `task` and must name a `namespace`.
 - `capabilities` entries must be `task_tools`.
@@ -111,6 +116,46 @@ A filter has these keys:
 - `always` stores no key (`NULL`), so no later lookup finds what it started.
 - An instance is live while it is not closed. A task is live while it is not archived. A lookup that finds nothing live starts a replacement (`once`, `unique`) or drops the event (`never`). A dropped event is not an error and is not recorded.
 - A lookup and the start that follows it are serialised by `pg_advisory_xact_lock` on a hash of the key, which closes the concurrent-duplicate window that `Router.create` documents as a v1 limitation. Unarchiving a task whose key has since been reused leaves two live tasks with one key; a lookup returns both and both receive the event.
+
+### Claims
+
+`start` keys de-duplicate inside one workflow. A claim is how a trigger stands down because a task in any workflow, its own included, is already handling the event's subject.
+
+```yaml
+# jira-feature: the implementer holds pr-owner on each pull request it links
+agents:
+  implementer:
+    links:
+      github.pr:
+        claim: pr-owner
+        subscribe:
+          - source: github
+            type: issue_comment
+            filter:
+              mention: gritz-bot
+
+# responder: a mention starts a responder unless the pull request has an owner
+workflow: responder
+triggers:
+  - source: github
+    type: issue_comment
+    filter:
+      mention: gritz-bot
+    start: unique
+    yield_to:
+      - pr-owner
+```
+
+- **Holding.** A link type entry may set `claim`. A subscribed link of that type holds the claim on its subject, whether it was created by `create_link` or by an entry's `link`; the name is stored on the link row. A link type with no `claim` holds nothing, and neither does an unsubscribed link.
+- **Liveness.** A claim on a subject is held while a link holding it belongs to an unarchived task in an open instance. Archiving the task or closing its instance releases it.
+- **Scope.** A claim is keyed by `(org, claim, subject)`. Workflows share a claim by using the same name.
+- **Yielding.** A trigger may set `yield_to` to a list of claim names. When the trigger is about to create an instance and any listed claim is held on the event's subject, it creates nothing, resolves no instance and publishes no `workflow.trigger`.
+- **Only creation yields.** The lookup for an existing instance comes first. A `once` or `unique` trigger that finds its open instance resolves to it whatever claims are held, so a responder started on a pull request before an implementer linked it keeps receiving mentions, alongside the implementer. An `always` trigger has no lookup and yields whenever a listed claim is held.
+- **Yielding delivers nothing.** The holder receives the event only when its own link type subscribes to it, as the implementer's `github.pr` entry does above. If it doesn't, the event reaches no one.
+- **No subject, no claim.** An event with no subject is never yielded.
+- A trigger with no `yield_to` ignores claims, and so do subscriptions: a claim never stops a task from starting in an instance that exists.
+
+The claim lookup runs after the trigger's key lock is taken and is not serialised against `CreateLink`. A link created while the event is being published either holds the claim for that event or doesn't.
 
 ### Storage
 
@@ -151,6 +196,7 @@ ALTER TABLE tasks ALTER COLUMN instance_id SET NOT NULL;
 CREATE INDEX idx_tasks_instance_agent ON tasks (instance_id, agent, start_key) WHERE archived = FALSE;
 
 ALTER TABLE task_links ADD COLUMN type TEXT NOT NULL DEFAULT 'url';
+ALTER TABLE task_links ADD COLUMN claim TEXT NOT NULL DEFAULT '';   -- '': the link holds no claim
 ALTER TABLE task_links RENAME COLUMN routing_key TO subject;
 ALTER INDEX idx_task_links_routing_key RENAME TO idx_task_links_subject;
 
@@ -186,7 +232,8 @@ Decisions behind this:
 
   Both are looked up by index at publish time. Triggers belong to definitions, and an org has few workflows, so `Publish` loads the org's `workflows.spec` rows and matches triggers in Go, as `Plan` does with `orgs.routing_rules` today.
 - **Liveness is a join.** The subscription lookup joins `workflow_instances` on `closed_at IS NULL`, and link subscriptions also join `task_links` and `tasks` on `archived = FALSE`. Closing an instance or archiving a task ends its subscriptions without rewriting rows, and unarchiving restores a link's.
-- **Keys are columns.** `workflow_instances.start_key` and `tasks.start_key` hold the key a `once` or `unique` start used. Nothing else de-duplicates: links carry no claim.
+- **Keys are columns.** `workflow_instances.start_key` and `tasks.start_key` hold the key a `once` or `unique` start used. Nothing else de-duplicates within a workflow.
+- **Claims are columns on the link.** `task_links.claim` holds the claim name of the link's type, resolved from the instance snapshot when a subscribed link is created. "Who holds one of these claims on subject S" is `task_links JOIN tasks JOIN workflow_instances WHERE subject = S AND claim = ANY($claims) AND subscribe AND NOT archived AND closed_at IS NULL`, over the existing index on `subject`.
 - **Plain tasks.** `CreateTask` and a draft task create an instance with `workflow = ''`, no key and a one-agent spec: the agent is named `task`, its `workspace` and `runner` come from the request, it has no `subscribe` entries, and its `links` are the org's default link types (below).
 
 A second migration, in the cutover slice, removes what the model replaces:
@@ -259,6 +306,7 @@ message TaskLink {
   reserved 4, 8;      // Previously: url, routing_key
   string subject = 9; // Normalised by the server.
   string type = 10;
+  string claim = 11;  // The claim the link holds; empty when it holds none.
 }
 ```
 
@@ -267,7 +315,7 @@ message TaskLink {
 1. With no `type`, `model.ResolveSubject` infers it: a built-in type, or `url` for any other URL. A subject that isn't a URL has no inferred type, and the call is rejected with `InvalidArgument`.
 2. With a built-in `type`, the subject is normalised by it and must be of that type. With a type the agent declares, the subject is stored as given.
 3. `subscribe: false` accepts any built-in type, `url`, and any type the agent declares. The link is a row and a `link` event, as today.
-4. `subscribe: true` requires an entry for the type in the agent's `links`, otherwise `FailedPrecondition`. In one transaction the handler inserts the link and one `subscriptions` row per filter in the entry's `subscribe`, each with `subject` set to the link's subject.
+4. `subscribe: true` requires an entry for the type in the agent's `links`, otherwise `FailedPrecondition`. In one transaction the handler inserts the link, with the entry's `claim` if it has one, and one `subscriptions` row per filter in the entry's `subscribe`, each with `subject` set to the link's subject.
 
 A subscription with `link: <type>` creates the same link from the router. Every task that receives an event through that entry, whether the entry started it or it was already running, gets a subscribed link of that type to the event's subject, unless it already holds one. `link` is best-effort and never affects whether the entry matches:
 
@@ -286,7 +334,7 @@ The web UI renders a subject as a hyperlink when it is a URL.
 `Router.Publish` runs in one transaction per org. Publishing on the bus of a closed instance does nothing.
 
 1. **Match triggers.** Skipped for an event on an instance bus. Otherwise load every workflow of the org and match each one's triggers in definition order.
-2. **Resolve instances.** Each matching trigger resolves an instance according to its `start` (see [Start](#start)), taking the key lock first for `once` and `unique`. An instance created earlier in the transaction is found by later lookups, so two triggers of one workflow that resolve to the same key give one instance. Creating an instance inserts the `workflow_instances` row with the snapshot and key, and one `subscriptions` row per `subscribe` entry of each agent.
+2. **Resolve instances.** Each matching trigger resolves an instance according to its `start` (see [Start](#start)), taking the key lock first for `once` and `unique`. An instance created earlier in the transaction is found by later lookups, so two triggers of one workflow that resolve to the same key give one instance. A trigger with `yield_to` that would create an instance first looks for holders of the listed claims on the event's subject, and resolves nothing when there is one (see [Claims](#claims)). Creating an instance inserts the `workflow_instances` row with the snapshot and key, and one `subscriptions` row per `subscribe` entry of each agent.
 3. **Publish `workflow.trigger`.** For each distinct instance resolved in step 2, publish `workflow.trigger` on its bus through a nested `Publish` in the same transaction. Several triggers resolving one event to one instance give one `workflow.trigger`.
 4. **Find subscriptions.** Select `subscriptions` by `(org_id, source, type, namespace)` joined to open instances, then filter in Go on `subject`, `from_agent`, `from_workflow`, `public` and `conditions`. An instance created in step 2 is included, so its agents' subscriptions on the event itself match too.
 5. **Resolve tasks.** A link subscription's task is the one holding the link. An agent entry's tasks are resolved by its `start`, per instance, taking the key lock first for `once` and `unique`. A task started earlier in the transaction is found by later lookups.
@@ -297,7 +345,7 @@ The web UI renders a subject as a hyperlink when it is a URL.
 
 Starting a task replaces `Router.create`. As `create` does today, it inserts the task (`Runner`, `Workspace` and `AutoArchive` from the agent in the snapshot, plus `InstanceID`, `Agent` and `StartKey`), the triggering `external` event, the `Created` lifecycle event, the command event, and an instruction event with the agent's `prompt`.
 
-`Publish` returns an `Outcome` listing the instances resolved (and whether each was created), the tasks started and the tasks delivered to. `Route` calls `Publish` per candidate org and passes each `Outcome` to `OnRouteOutcome`; `githubserver`'s reaction is a rocket when the outcome started a task and eyes when it woke one.
+`Publish` returns an `Outcome` listing the instances resolved (and whether each was created), the triggers that yielded, the tasks started and the tasks delivered to. `Route` calls `Publish` per candidate org and passes each `Outcome` to `OnRouteOutcome`; `githubserver`'s reaction is a rocket when the outcome started a task and eyes when it woke one.
 
 There are no limits on what an event may cause: no hop count, no budget on starts or wakes. Nested publishes within one transaction are bounded by the definitions (a trigger publishes `workflow.trigger`, an export publishes one copy). A loop across transactions, through `emit` or through GitHub, runs until a person closes the instance or cancels or archives the tasks involved.
 
@@ -386,6 +434,13 @@ message TestEventResponse {
   repeated TestEventInstance instances = 3; // Instances that triggers resolved the event to.
   repeated TestEventStart starts = 4;      // Tasks that would start, or started.
   repeated TestEventDelivery deliveries = 5;
+  repeated TestEventYield yields = 6;      // Triggers that created nothing because a claim is held.
+}
+
+message TestEventYield {
+  string workflow = 1;
+  string claim = 2;                        // The held claim the trigger yielded to.
+  repeated int64 holder_task_ids = 3;      // The live tasks holding it on the event's subject.
 }
 
 message TestEventInstance {
@@ -408,7 +463,7 @@ message TestEventDelivery {
 }
 ```
 
-`Plan` is the read half of `Publish`, so a dry run follows the `workflow.trigger` each trigger match would publish and reports the tasks it would start and deliver to, including in an instance that doesn't exist yet (matched against the snapshot it would take). It reads keys and subscriptions, so unlike today it reports what would happen to the instances and tasks that exist, not only what a rule says. `TestEventRequest` accepts `source: schedule` with a type and no URL. It does not accept `task` events.
+`Plan` is the read half of `Publish`, so a dry run follows the `workflow.trigger` each trigger match would publish and reports the tasks it would start and deliver to, including in an instance that doesn't exist yet (matched against the snapshot it would take). It reads keys, claims and subscriptions, so unlike today it reports what would happen to the instances and tasks that exist, not only what a rule says. `TestEventRequest` accepts `source: schedule` with a type and no URL. It does not accept `task` events.
 
 ### Agent tools
 
@@ -496,7 +551,8 @@ const (
 // Trigger is a filter that resolves an event to an instance of the workflow. // new
 type Trigger struct {
 	Filter
-	Start Start `json:"start"`
+	Start   Start    `json:"start"`
+	YieldTo []string `json:"yield_to,omitempty"`
 }
 
 // Subscription is a filter whose events are delivered to an agent's tasks. // new
@@ -513,8 +569,9 @@ type LinkSubscription struct {
 	Wake bool `json:"wake"`
 }
 
-// LinkType is what a subscribed link of one type subscribes its task to. // new
+// LinkType is the claim a subscribed link of one type holds and what it subscribes its task to. // new
 type LinkType struct {
+	Claim     string             `json:"claim,omitempty"`
 	Subscribe []LinkSubscription `json:"subscribe,omitempty"`
 }
 
@@ -560,6 +617,7 @@ type Event struct{ ... }
 // Plan is what publishing an event would do. // new
 type Plan struct {
 	Instances  []InstanceMatch
+	Yields     []Yield
 	Starts     []TaskStart
 	Deliveries []Delivery
 }
@@ -628,13 +686,16 @@ func (s *Store) FindSubscriptions(ctx context.Context, tx *sql.Tx, orgID int64, 
 // FindLiveTasks returns the agent's unarchived tasks in the instance; a non-nil key selects those started with it. // new
 func (s *Store) FindLiveTasks(ctx context.Context, tx *sql.Tx, instanceID int64, agent string, key *string) ([]*model.Task, error)
 
+// FindClaimHolders returns the live tasks holding any of claims on subject. // new
+func (s *Store) FindClaimHolders(ctx context.Context, tx *sql.Tx, orgID int64, claims []string, subject string) ([]int64, error)
+
 // LockStartKey serialises lookups and starts on one instance or task key for the transaction. // new
 func (s *Store) LockStartKey(ctx context.Context, tx *sql.Tx, scope string) error
 
 // FindSubscribedLinksForOrgs, ListRoutingRulesForEvent, GetOrgRoutingRules, SetOrgRoutingRules: removed
 ```
 
-**How it fits:** `githubserver`, `atlassianserver` and `customserver` build an `InputEvent` and call `Router.Route`, as today. `apiserver` calls `Router.Publish` directly from `EmitEvent` (a `task` event), `StartWorkflow` (`workflow.trigger` on the instance it just created), `SubmitRunnerEvents` (`task.completed`, `task.failed`) and `TestEvent`; `scheduler.Fire` calls it for `schedule` events. `Publish` calls itself for the `workflow.trigger` of each instance a trigger resolved and for each export copy. It reads definitions, keys and subscriptions through the store, and writes instances, tasks, events, links and subscriptions with the store methods `Router.create` and `Router.attach` already use. `CreateLink` and the router's `link` handling both expand a link type into `subscriptions` rows through one helper in `eventrouter`.
+**How it fits:** `githubserver`, `atlassianserver` and `customserver` build an `InputEvent` and call `Router.Route`, as today. `apiserver` calls `Router.Publish` directly from `EmitEvent` (a `task` event), `StartWorkflow` (`workflow.trigger` on the instance it just created), `SubmitRunnerEvents` (`task.completed`, `task.failed`) and `TestEvent`; `scheduler.Fire` calls it for `schedule` events. `Publish` calls itself for the `workflow.trigger` of each instance a trigger resolved and for each export copy. It reads definitions, keys, claims and subscriptions through the store, and writes instances, tasks, events, links and subscriptions with the store methods `Router.create` and `Router.attach` already use. `CreateLink` and the router's `link` handling both expand a link type into `subscriptions` rows through one helper in `eventrouter`.
 
 ## Implementation Plan
 
@@ -645,8 +706,8 @@ Each slice updates the docs pages its change makes wrong, per the table in `CLAU
 3. **Every task has an instance.** Delivers: `CreateTask`, `Router.create` and `scheduler.Fire` insert an instance for the task; `Task.instance_id` and `Task.agent` on the wire. Depends on: (2). Verifiable by: e2e tests asserting the instance on each creation path.
 4. **Workflow CRUD.** Delivers: `ListWorkflows`, `GetWorkflow`, `PutWorkflow`, `DeleteWorkflow`, `gritz workflow list/get/apply/delete`, the server MCP tools, and the Workflows page with its editor. Definitions are stored and validated but nothing reads them. Depends on: (1), (2). Verifiable by: applying the issue's examples and reading them back.
 5. **Typed links.** Delivers: `model.ResolveSubject` replacing `RoutingKey`, `CreateLinkRequest.subject` and `type`, the `create_link` tool change, link rendering in the web UI. Links don't expand to subscriptions yet; routing still reads `task_links.subject` as the key. Depends on: (2). Verifiable by: unit tests for inference and rejection; an e2e task linking a pull request and being woken by a rule.
-6. **Publish, unused.** Delivers: `Router.Plan` and `Router.Publish` over triggers, instance and task keys, `workflow.trigger`, subscriptions and entry links, with the link type expansion helper, beside the existing `Route`. No production caller. Depends on: (1), (2), (3), (5). Verifiable by: router tests covering each example in the issue, each `start` value on a trigger and on a subscription, shared keys across entries, and closed instances.
-7. **Cutover.** Delivers: `Route`, `TestEvent` and `CreateLink` switch to `Publish` and the expansion helper; routing rules, `tasks.namespace`, their RPCs, MCP tools and UI routes are deleted; `orgs.default_links` and its editor are added; the test event form renders the plan. Before it merges, our org's rules are rewritten as workflows by hand. Tasks live at the cutover keep their links as references and have no subscriptions. Depends on: (4), (6). Verifiable by: e2e tests for the "mention the bot" and reviewer examples against GitHub webhooks.
+6. **Publish, unused.** Delivers: `Router.Plan` and `Router.Publish` over triggers, instance and task keys, claims, `workflow.trigger`, subscriptions and entry links, with the link type expansion helper, beside the existing `Route`. No production caller. Depends on: (1), (2), (3), (5). Verifiable by: router tests covering each example in the issue, each `start` value on a trigger and on a subscription, shared keys across entries, yielding triggers, and closed instances.
+7. **Cutover.** Delivers: `Route`, `TestEvent` and `CreateLink` switch to `Publish` and the expansion helper; routing rules, `tasks.namespace`, their RPCs, MCP tools and UI routes are deleted; `orgs.default_links` and its editor are added; the test event form renders the plan. Before it merges, our org's rules are rewritten as workflows by hand. Tasks live at the cutover keep their links as references and have no subscriptions. Depends on: (4), (6). Verifiable by: e2e tests for the "mention the bot" and reviewer examples against GitHub webhooks, and for a mention on a pull request an implementer holds a claim on.
 8. **Emit, task system events and exports.** Delivers: `EmitEvent` and the `emit` tool, `task.completed` and `task.failed` from `SubmitRunnerEvents`, export republishing. Depends on: (7). Verifiable by: an e2e test of the fan-out example with a planner and two implementers.
 9. **Manual start and closing.** Delivers: `StartWorkflow`, `ListWorkflowInstances`, `CloseWorkflowInstance`, `gritz workflow start/instances/close`, the server MCP tools, the Start and Close buttons, and the instance list on the workflow page. Depends on: (7). Verifiable by: starting the fan-out example by hand and seeing `workflow.trigger` as the planner's first event; closing the instance and seeing a review comment no longer wake its implementer.
 10. **Schedules emit events.** Delivers: the schedule migration, `scheduler.Fire` publishing, the reduced schedule API, form and MCP tools. Before it merges, our schedules are paired with workflows by hand. Depends on: (7). Verifiable by: scheduler tests and the nightly example.
@@ -656,7 +717,10 @@ Each slice updates the docs pages its change makes wrong, per the table in `CLAU
 
 - **Triggers on the workflow instead of on agents.** With triggers on agents, one list did two jobs: creating instances from outside events and starting tasks inside an instance. Two agents matching one external event then needed a rule (two instances), and an agent's overlapping triggers needed another (alternatives). Triggers on the workflow only resolve instances, `workflow.trigger` hands the event to the instance, and starting tasks is left to subscriptions.
 - **Triggers don't put the matched event on the instance bus.** Republishing the event itself would make triggers a gate on which external events agents can subscribe to, and link subscriptions would bypass that gate. Publishing a `system` event keeps triggers and subscriptions independent. The cost is that an agent starting from a trigger subscribes to `workflow.trigger` and not to the original type, and tells triggers apart by attribute.
-- **`start` keys instead of claims.** A claim on a link held back triggers across agents and workflows, dropped the held event, and tied creation control to linking. `start` with a key on the instance and on the task separates the two: a link is only a subject and its subscriptions, and a repeated event reaches the task that already handles it. The cost is that nothing excludes one workflow because another is handling the same subject; overlapping workflows both run, and a claim at the workflow level is left for later.
+- **`start` keys and claims do separate jobs.** A claim on every subscribed link, checked by every trigger, would hold back triggers across agents and workflows by default and tie creation control to linking. Here keys on the instance and the task de-duplicate inside a workflow, and a repeated event reaches the task that already handles it. A claim covers only the case keys can't: one workflow standing down because a task elsewhere has the subject.
+- **Claims are opt-in on both sides.** A link type holds nothing unless it names a claim, and a trigger yields to nothing it doesn't list. A shared default claim would make every agent in the org hold back every yielding trigger, and subjects that agents make up would collide between instances. The cost is that the author of a yielding workflow has to know the claim names other workflows use.
+- **A yielding trigger only declines to create.** Yielding with an instance already open would cut a running task off from its trigger events the moment another task linked the subject. The cost is that both tasks then receive the event.
+- **Yielding doesn't redirect the event.** The trigger could hand the event to the claim's holder. That would deliver events the holder's link type never subscribed to, and make a second delivery path beside link subscriptions. The cost is that a trigger can yield to a holder that doesn't hear the event, and nothing records it.
 - **An explicit close instead of a derived end.** An instance could end when its last task is archived, or on an event the workflow names. Both make "is there an instance for this subject" depend on timing an author doesn't control. An instance that stays open until closed is predictable. The cost is that someone has to close it before the same subject can start a fresh one, and open instances accumulate.
 - **No limits.** A hop count stamped on events needs every emitted event to name its cause and is lost when a loop passes through GitHub. Budgets on starts and wakes bound every loop shape but also stop a legitimate burst, and a per-instance task budget conflicts with instances that stay open. This design has none: a loop runs until a person closes the instance or stops its tasks.
 - **No table of published events.** Storing every published event once, with its deliveries, would answer "what did this event do" after the fact, including for events that were dropped. It also stores every webhook an org receives and adds a second event table beside `events`. This design keeps today's rule (an event is stored on the tasks it reaches), puts the plan in the test-event report, and returns an emitted event's outcome from `emit`.
@@ -675,4 +739,5 @@ Each slice updates the docs pages its change makes wrong, per the table in `CLAU
 3. **A manual start that starts nothing.** `StartWorkflow` on a workflow where no agent subscribes to `workflow.trigger` with a `start` creates an open instance with no tasks. Should it be rejected with `FailedPrecondition`?
 4. **Closing a plain task's instance.** `CloseWorkflowInstance` accepts any instance, so a plain task's instance can be closed to stop its link events without archiving it. The web UI only offers Close on a workflow's page.
 5. **Instances are never deleted.** Closed instances and their `subscriptions` rows stay until the org is deleted. The lookup skips them by join, so they cost storage and not matching time.
-6. **Naming.** "Agent" also names `internal/runner/agent` (the CLI integrations); this design uses `model.WorkflowAgent` in Go and `agent` in YAML and on the wire. The `task_tools` capability and the `i/<id>` bus name are placeholders.
+6. **A yielded event that no one hears.** A trigger yields to a holder whose link type doesn't subscribe to the event, and nothing is stored. The test-event report shows the yield and the holders; is that enough, or should `PutWorkflow` or the report warn about it?
+7. **Naming.** "Agent" also names `internal/runner/agent` (the CLI integrations); this design uses `model.WorkflowAgent` in Go and `agent` in YAML and on the wire. The `task_tools` capability, the `yield_to` key and the `i/<id>` bus name are placeholders.
