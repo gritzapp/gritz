@@ -700,6 +700,14 @@ func (s *Store) LockStartKey(ctx context.Context, tx *sql.Tx, scope string) erro
 
 **How it fits:** `githubserver`, `atlassianserver` and `customserver` build an `InputEvent` and call `Router.Route`, as today. `apiserver` calls `Router.Publish` directly from `EmitEvent` (a `task` event), `StartWorkflow` (`workflow.trigger` on the instance it just created), `SubmitRunnerEvents` (`task.completed`, `task.failed`) and `TestEvent`; `scheduler.Fire` calls it for `schedule` events. `Publish` calls itself for the `workflow.trigger` of each instance a trigger resolved and for each export copy. It reads definitions, keys, claims and subscriptions through the store, and writes instances, tasks, events, links and subscriptions with the store methods `Router.create` and `Router.attach` already use. `CreateLink` and the router's `link` handling both expand a link type into `subscriptions` rows through one helper in `eventrouter`.
 
+### Visualization
+
+`diagrams/src/projects/proposals/event-workflows.ts`, on a new layout (`diagrams/src/layouts/workflows.tsx`) showing an external source, the server's `Router.Publish` with the workflow triggers, `workflow_instances`, `subscriptions` and `task_links` it reads and writes, and the tasks events reach. View it [on its diagram page](/diagrams/proposals/event-workflows/) or with `mise run motioncanvas`.
+
+- `workflows-trigger`: a Jira label resolves an instance. The trigger creates `i/7` and its subscription rows, `workflow.trigger` on its bus starts the planner, and the entry's `link` subscribes the task to the issue.
+- `workflows-emit`: tasks on the instance bus. The planner's `emit` starts an implementer keyed by the subject, the implementer links its pull request with a claim, a link subscription addresses that one implementer, and a `never` entry delivers its report to the planner.
+- `workflows-claim`: a bot mention on the pull request the implementer holds makes the responder's trigger yield, and the mention reaches the implementer through its link. A mention on an unowned pull request starts a responder, and closing its instance ends its routing.
+
 ## Implementation Plan
 
 Each slice updates the docs pages its change makes wrong, per the table in `CLAUDE.md`.
