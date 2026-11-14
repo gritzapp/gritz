@@ -54,9 +54,10 @@ var RunnerCommand = &cli.Command{
 			Value: 30 * time.Second,
 		},
 		&cli.IntFlag{
-			Name:  "concurrency",
-			Usage: "Maximum number of concurrent tasks (0 for unlimited)",
-			Value: 5,
+			Name:    "concurrency",
+			Usage:   "Maximum number of concurrent tasks (0 for unlimited)",
+			Value:   5,
+			Sources: cli.EnvVars("GRITZ_CONCURRENCY"),
 		},
 		&cli.StringFlag{
 			Name:    "id",
