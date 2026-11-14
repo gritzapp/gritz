@@ -1,5 +1,21 @@
 # Changelog
 
+## [4.9.0](https://github.com/gritzapp/gritz/compare/v4.8.0...v4.9.0) (2026-11-14)
+
+
+### Features
+
+* **runner:** read --concurrency from GRITZ_CONCURRENCY ([#2211](https://github.com/gritzapp/gritz/issues/2211)) ([7c15eb6](https://github.com/gritzapp/gritz/commit/7c15eb6ec78b6cdfda19339dc0dc4c451208c219))
+
+
+### Miscellaneous
+
+* **deps:** update dependency @bufbuild/protobuf to v2.16.0 ([#2196](https://github.com/gritzapp/gritz/issues/2196)) ([ebf15f0](https://github.com/gritzapp/gritz/commit/ebf15f00fa864fd94536a02887b275a497e2dc17))
+* **deps:** update dependency @bufbuild/protobuf to v2.17.0 ([#2207](https://github.com/gritzapp/gritz/issues/2207)) ([d5dd979](https://github.com/gritzapp/gritz/commit/d5dd9795b641bad7801b4882de67f0a79c3225cb))
+* **deps:** update dependency @bufbuild/protoc-gen-es to v2.16.0 ([#2200](https://github.com/gritzapp/gritz/issues/2200)) ([938f44e](https://github.com/gritzapp/gritz/commit/938f44ebfc33d91cc59d13e32ca5cd7c26bbc97e))
+* **deps:** update dependency @bufbuild/protoc-gen-es to v2.17.0 ([#2208](https://github.com/gritzapp/gritz/issues/2208)) ([29bb88a](https://github.com/gritzapp/gritz/commit/29bb88a492a0ac84927177b61cb83d11c242c6cc))
+* **deps:** update dependency @types/node to v24.19.2 ([#2195](https://github.com/gritzapp/gritz/issues/2195)) ([8deaccb](https://github.com/gritzapp/gritz/commit/8deaccb604be11eec3ded17acb5cf3efa2eb5888))
+
 ## [4.8.0](https://github.com/gritzapp/gritz/compare/v4.7.0...v4.8.0) (2026-11-09)
 
 
