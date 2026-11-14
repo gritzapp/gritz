@@ -75,7 +75,7 @@ These steps run a runner against gritz.dev on a machine with Docker.
 | `--workspaces`, `-w` | | `~/.config/gritz/workspaces.yaml` | The [workspace config](/operators/workspaces-yaml/). |
 | `--id` | `GRITZ_RUNNER_ID` | the hostname | The runner's ID, which users pick when they create a task. Letters and digits, no spaces. |
 | `--backend` | `GRITZ_BACKEND` | `docker` | The [sandbox backend](/operators/backends/): `docker` or `lambda-microvm`. |
-| `--concurrency` | | `5` | The most task runs at once; further runs wait for a slot. `0` means no limit. |
+| `--concurrency` | `GRITZ_CONCURRENCY` | `5` | The most task runs at once; further runs wait for a slot. `0` means no limit. |
 | `--state-db` | `GRITZ_STATE_DB` | `/var/lib/gritz/runner.db` | The runner's SQLite state. |
 | `--poll` | | `30s` | How often to poll the server when the notification stream is down. |
 | `--lambda-microvm-region` | `GRITZ_LAMBDA_MICROVM_REGION` | the AWS SDK's region | The AWS region for the `lambda-microvm` backend. |
