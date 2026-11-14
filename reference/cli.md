@@ -181,7 +181,7 @@ It also takes the [authentication](#authentication) flags.
 | `--workspaces`, `-w` | | `workspaces.yaml` in the config directory |
 | `--id` | `GRITZ_RUNNER_ID` | the hostname |
 | `--backend` | `GRITZ_BACKEND` | `docker` |
-| `--concurrency` | | `5` |
+| `--concurrency` | `GRITZ_CONCURRENCY` | `5` |
 | `--state-db` | `GRITZ_STATE_DB` | `/var/lib/gritz/runner.db` |
 | `--poll` | | `30s` |
 | `--lambda-microvm-region` | `GRITZ_LAMBDA_MICROVM_REGION` | the AWS SDK's region |
