@@ -27,7 +27,7 @@ const (
 type RunSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Passed to setup commands and the agent CLI. Not set on the driver
-	// process itself.
+	// process itself. Includes the task's variables, each as GRITZ_VAR_<NAME>.
 	Env map[string]string `protobuf:"bytes,5,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Workspace secrets. Added to the run's env and masked in shipped log
 	// chunks.

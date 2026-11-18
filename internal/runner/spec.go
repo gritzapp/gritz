@@ -11,6 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 // specInput is what a task's specs are built from.
@@ -23,6 +24,8 @@ type specInput struct {
 	RunnerID  string
 	// Token is the task token.
 	Token string
+	// Variables are the task's variables, from GetRunSpecInputs.
+	Variables map[string]string
 	// BinaryPath is the gritz binary in the sandbox; see
 	// backend.Backend.BinaryPath.
 	BinaryPath string
@@ -35,6 +38,8 @@ type specInput struct {
 // run's environment and secrets, and the agent config with the injected gritz
 // MCP server. It also builds the driver.v1 RunSpec the run is started with,
 // whose environment is in.RunEnv under the spec's Env.
+//
+// Each task variable X is added to the spec's Env as GRITZ_VAR_X.
 func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 	c, ws := in.Change, in.Workspace
 
@@ -84,6 +89,10 @@ func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 			// fallback for a directly-invoked driver).
 			{Path: path.Dir(agent.DefaultLogPath), Mode: 0777, Dir: true},
 		},
+	}
+
+	for name, value := range in.Variables {
+		spec.Env[taskvar.Env(name)] = value
 	}
 
 	env := maps.Clone(in.RunEnv)

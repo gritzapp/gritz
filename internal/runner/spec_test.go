@@ -126,3 +126,37 @@ func TestBuildSpecs_RunEnv(t *testing.T) {
 		"GRITZ_SERVER":  "http://localhost",
 	})
 }
+
+// TestBuildSpecs_Variables asserts each task variable reaches the spec's Env,
+// and so the run's, as GRITZ_VAR_<NAME>.
+func TestBuildSpecs_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	in := specInput{
+		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
+		Workspace: &workspace.Workspace{
+			Container: workspace.Container{Image: "alpine:latest"},
+			Agent:     workspace.Agent{Type: "dummy"},
+		},
+		ServerURL:  "http://localhost",
+		RunnerID:   "test-runner",
+		Token:      "t",
+		Variables:  map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "main"},
+		BinaryPath: "/gritz/bin/gritz",
+	}
+
+	// Act
+	spec, rs, err := buildSpecs(in)
+
+	// Assert
+	assert.NilError(t, err)
+	want := map[string]string{
+		"GRITZ_TASK_ID":        "1",
+		"GRITZ_TOKEN":          "t",
+		"GRITZ_SERVER":         "http://localhost",
+		"GRITZ_VAR_JIRA_ISSUE": "APP-142",
+		"GRITZ_VAR_BRANCH":     "main",
+	}
+	assert.DeepEqual(t, spec.Env, want)
+	assert.DeepEqual(t, rs.GetEnv(), want)
+}
