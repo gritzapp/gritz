@@ -62,45 +62,12 @@ The sandbox's run environment then carries `GRITZ_VAR_JIRA_ISSUE=APP-142`,
 `GRITZ_VAR_BRANCH=main` and no `GRITZ_VAR_LABEL` (not set, not required, no
 default).
 
-### Naming and collisions
+### Names
 
-A task's variables come from whoever can create it: org members, API keys,
-MCP clients, schedules and routing rules. That is a wider audience than
-whoever writes `workspaces.yaml`. Raw names would let a task set `PATH`,
-`LD_PRELOAD`, `NODE_OPTIONS`, `GIT_SSH_COMMAND` or `BASH_ENV`, or shadow a
-workspace's `environment:` or `secrets:` entry (`GH_TOKEN`), or the runner's
-own `GRITZ_TOKEN`. Each of those is code execution or credential substitution
-inside the sandbox.
-
-Three ways to close that, and the choice:
-
-| Option | Collision-free | Operator effort | Verdict |
-| --- | --- | --- | --- |
-| Raw names, reject a denylist (`PATH`, `LD_*`, ...) and anything colliding with the workspace's env/secrets | Only as good as the denylist; every runtime adds new loader variables | None | Rejected |
-| Workspace declares each variable and the environment variable it maps to (`env: JIRA_ISSUE`) | Yes, if load-time validation checks the mapping against env, secrets and the runner's `GRITZ_` variables | One line per variable | Rejected for v1 |
-| Fixed prefix: variable `NAME` is always `GRITZ_VAR_NAME` | Yes, by construction | None | **Chosen** |
-
-**Every task variable is the environment variable `GRITZ_VAR_<NAME>`.** No
-task variable can reach an environment variable outside that prefix, whatever
-the caller sends, so no denylist has to be complete. `Workspace.Validate`
-reserves the prefix: an `environment:` entry (either backend's) or a
-`secrets:` entry whose name starts with `GRITZ_VAR_` is a config error, so
-nothing else in the run environment can collide with a task variable either.
-`buildSpecs` asserts that invariant with a panic rather than resolving a
-collision.
-
-The mapping option is not wrong, just unnecessary for v1: a tool that insists
-on its own environment variable name can be wrapped
-(`env JIRA_ISSUE="$GRITZ_VAR_JIRA_ISSUE" story-agent` as the `process`
-command). It can be added later as an optional `env:` on the declaration
-without changing anything else here.
-
-**Names** match `^[A-Z][A-Z0-9_]{0,63}$`: uppercase, so the task variable's
-name and its environment variable's suffix are the same string and
-`foo`/`FOO` can't be two task variables that map to one environment variable;
-a leading letter, so the environment variable is a valid shell identifier. The
-rule is checked in one place (`taskvar.ValidName`), used by
-`Workspace.Validate` on the runner and by the server on every write path.
+**Task variable `NAME` is injected as the environment variable
+`GRITZ_VAR_NAME`.** Names match `^[A-Z][A-Z0-9_]{0,63}$`, checked in one place
+(`taskvar.ValidName`), used by `Workspace.Validate` on the runner and by the
+server on every write path.
 
 **Values** are at most 4 KiB, contain no NUL byte (the one byte an environment
 value can't hold), and a task has at most 32 variables. Values are otherwise
@@ -377,8 +344,7 @@ type Workspace struct {
 // VariableDecls returns the workspace's declarations, sorted by name.
 func (w *Workspace) VariableDecls() []taskvar.Decl // new
 
-// Validate also checks every declaration, and rejects environment: and
-// secrets: entries in the GRITZ_VAR_ namespace.
+// Validate also checks every declaration.
 func (w *Workspace) Validate() error // changed
 ```
 
@@ -434,8 +400,19 @@ on `model.Task`. `SetRoutingRules` and the schedule handlers validate against
 the same declarations on save. `TaskManager.specs` calls `GetRunSpecInputs` in
 place of `CreateTaskToken` and passes the token and variables to
 `buildSpecs`, which adds each variable to `Spec.Env` under
-`taskvar.Env(name)`, panicking if the key is already present. `buildSpecs`
-already copies `Spec.Env` into `RunSpec.env`.
+`taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into
+`RunSpec.env`.
+
+**When the workspace sets the same name, the workspace wins.** A
+`container.environment`, `lambda_microvm.environment` or `secrets:` entry named
+`GRITZ_VAR_X` collides with task variable `X`; `buildSpecs` skips the task
+variable, so the run sees the workspace's value. Only an operator can write a
+`GRITZ_VAR_` entry, and doing so pins that value for every task of the
+workspace, which a task creator can't override. It also matches the layering
+the driver already applies to secrets, which sit above `RunSpec.env`.
+`container.environment` sits below it (it is the container's own environment),
+so `buildSpecs` checks the workspace's maps rather than relying on layering.
+The task still stores the value it was created with.
 
 ## Implementation Plan
 
@@ -443,11 +420,10 @@ already copies `Spec.Env` into `RunSpec.env`.
    `Resolve`, `Error`. Depends on: nothing. Verifiable by: table tests over
    names, undeclared, missing-required, default and limit cases.
 2. **Workspace `variables:`** — Delivers: `VariableConfig`,
-   `Workspace.Variables`, `VariableDecls`, validation including the reserved
-   prefix in `environment:` and `secrets:`; `gritz workspaces` prints
-   declarations. Depends on: (1). Verifiable by: `workspace` config tests; a
-   config with a declared variable loads, one with a `GRITZ_VAR_` env entry
-   doesn't. Nothing reads variables yet.
+   `Workspace.Variables`, `VariableDecls`, validation of each declaration;
+   `gritz workspaces` prints declarations. Depends on: (1). Verifiable by:
+   `workspace` config tests; a config with a declared variable loads, one with
+   an invalid declaration doesn't. Nothing reads variables yet.
 3. **Migration, proto and store** — Delivers: the three columns, the proto
    messages and fields above (the `GetRunSpecInputs` handler comes in (4)),
    `model.Task.Variables`, the store read and write of `tasks.variables` and
@@ -464,9 +440,12 @@ already copies `Spec.Env` into `RunSpec.env`.
    `OpTaskTokenCreate`.
 5. **Runner injection** — Delivers: `TaskManager.specs` calling
    `GetRunSpecInputs`, `specInput.Variables`, `buildSpecs` adding variables to
-   `Spec.Env`, the `driver.proto` comment. Depends on: (4). Verifiable by:
-   `spec_test.go` cases; an e2e test with the dummy agent running `env` that
-   sees `GRITZ_VAR_X`.
+   `Spec.Env` and skipping one whose `GRITZ_VAR_` name the workspace's
+   `container.environment`, `lambda_microvm.environment` or `secrets:` sets,
+   the `driver.proto` comment. Depends on: (4). Verifiable by: `spec_test.go`
+   cases, including each of the three collisions keeping the workspace's
+   value; an e2e test with the dummy agent running `env` that sees
+   `GRITZ_VAR_X`.
 6. **CLI and MCP** — Delivers: `gritz task create --var` (with `@file` and
    `@-`), `variables` on the server MCP `create_task` tool, variables in
    `get_my_task` output. Depends on: (4). Verifiable by: command and MCP
@@ -488,9 +467,9 @@ already copies `Spec.Env` into `RunSpec.env`.
    dev stack creating a task with the variable set.
 10. **Docs** — each slice above updates its own pages; this lists them:
     - `operators/workspaces-yaml`: a `variables` section (saying credentials
-      belong in `secrets:`), the reserved prefix under "Environment", a
-      `commands:` example quoting `"$GRITZ_VAR_X"`, the custom agent process
-      reading one.
+      belong in `secrets:`), a workspace `GRITZ_VAR_` entry winning over the
+      task's value under "Environment", a `commands:` example quoting
+      `"$GRITZ_VAR_X"`, the custom agent process reading one.
     - `concepts/tasks`: a "Variables" section (set at creation, immutable,
       where they appear).
     - `concepts/workspaces`: declared variables in "Picking a workspace".
@@ -503,6 +482,13 @@ already copies `Spec.Env` into `RunSpec.env`.
     - `reference/api` picks up the proto comments on its own.
 
 ## Trade-offs
+
+**Raw names (rejected):** any task creator could set `PATH`, `LD_PRELOAD` or
+`GH_TOKEN`, and no denylist stays complete.
+
+**Per-variable `env:` mapping (rejected for v1):** wrapping the command
+(`env JIRA_ISSUE="$GRITZ_VAR_JIRA_ISSUE" story-agent`) covers it, and it can be
+added later.
 
 **`${param:name}` workspace templating (rejected here;
 [#2217](https://github.com/gritzapp/gritz/pull/2217) designs it).**
