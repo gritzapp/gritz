@@ -19,19 +19,19 @@ func (s *Store) DeleteWorkspacesByRunner(ctx context.Context, tx *sql.Tx, runner
 }
 
 // CreateWorkspace registers a runner's workspace with the task variables it
-// declares.
-func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name, description string, variables []taskvar.Decl, orgID int64) error {
+// declares. ID and UpdatedAt are ignored.
+func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, ws *model.Workspace) error {
 	// json/v2 encodes a nil slice as []: workspaces.variables holds an array
 	// even when the workspace declares none.
-	data, err := json.Marshal(variables)
+	data, err := json.Marshal(ws.Variables)
 	if err != nil {
 		return err
 	}
 	return s.q(tx).CreateWorkspace(ctx, sqlc.CreateWorkspaceParams{
-		RunnerID:    runnerID,
-		Name:        name,
-		Description: description,
-		OrgID:       orgID,
+		RunnerID:    ws.RunnerID,
+		Name:        ws.Name,
+		Description: ws.Description,
+		OrgID:       ws.OrgID,
 		Variables:   data,
 	})
 }

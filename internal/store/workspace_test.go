@@ -3,6 +3,7 @@ package store_test
 import (
 	"testing"
 
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"github.com/gritzapp/gritz/internal/taskvar"
 	"gotest.tools/v3/assert"
@@ -19,8 +20,8 @@ func TestCreateWorkspace_Variables(t *testing.T) {
 	}
 
 	// Act
-	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, "r", "a", "", decls, org.OrgID))
-	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, "r", "b", "", nil, org.OrgID))
+	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{RunnerID: "r", Name: "a", OrgID: org.OrgID, Variables: decls}))
+	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{RunnerID: "r", Name: "b", OrgID: org.OrgID}))
 
 	// Assert - a workspace without declarations reads back nil.
 	got, err := s.ListWorkspaces(t.Context(), nil, org.OrgID)

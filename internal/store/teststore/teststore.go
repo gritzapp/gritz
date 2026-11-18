@@ -164,13 +164,11 @@ func CreateOrg(t *testing.T, s *store.Store, opts *OrgOptions) *Org {
 	}
 	if opts != nil {
 		for _, ws := range opts.Workspaces {
-			if err := s.CreateWorkspace(ctx, nil,
-				cmp.Or(ws.RunnerID, "test-runner"),
-				cmp.Or(ws.Name, "default"),
-				"",
-				nil,
-				org.ID,
-			); err != nil {
+			if err := s.CreateWorkspace(ctx, nil, &model.Workspace{
+				RunnerID: cmp.Or(ws.RunnerID, "test-runner"),
+				Name:     cmp.Or(ws.Name, "default"),
+				OrgID:    org.ID,
+			}); err != nil {
 				t.Fatal(err)
 			}
 		}

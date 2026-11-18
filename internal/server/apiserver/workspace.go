@@ -33,7 +33,10 @@ func (s *Server) RegisterWorkspaces(ctx context.Context, req *gritzv1.RegisterWo
 			return err
 		}
 		for _, ws := range req.Workspaces {
-			if err := s.store.CreateWorkspace(ctx, tx, req.RunnerId, ws.Name, ws.Description, model.VariableDeclsFromProto(ws.Variables), caller.OrgID); err != nil {
+			w := model.WorkspaceFromProto(ws)
+			w.RunnerID = req.RunnerId
+			w.OrgID = caller.OrgID
+			if err := s.store.CreateWorkspace(ctx, tx, w); err != nil {
 				return err
 			}
 		}
