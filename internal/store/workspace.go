@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/gritzapp/gritz/internal/model"
@@ -21,10 +21,8 @@ func (s *Store) DeleteWorkspacesByRunner(ctx context.Context, tx *sql.Tx, runner
 // CreateWorkspace registers a runner's workspace with the task variables it
 // declares.
 func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name, description string, variables []taskvar.Decl, orgID int64) error {
-	// workspaces.variables holds an array even when the workspace declares none.
-	if variables == nil {
-		variables = []taskvar.Decl{}
-	}
+	// json/v2 encodes a nil slice as []: workspaces.variables holds an array
+	// even when the workspace declares none.
 	data, err := json.Marshal(variables)
 	if err != nil {
 		return err

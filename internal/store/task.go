@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -14,12 +14,9 @@ import (
 
 func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 	now := time.Now().UTC()
-	// tasks.variables holds an object even when the task has none.
-	vars := task.Variables
-	if vars == nil {
-		vars = map[string]string{}
-	}
-	variables, err := json.Marshal(vars)
+	// json/v2 encodes a nil map as {}: tasks.variables holds an object even
+	// when the task has none.
+	variables, err := json.Marshal(task.Variables)
 	if err != nil {
 		return err
 	}
