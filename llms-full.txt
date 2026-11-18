@@ -1962,6 +1962,7 @@ workspaces:
 | `agent`          | The [agent](#agent) and its MCP servers.                                                              |
 | `secrets`        | Environment variables whose values are masked in the shipped log. See [Secrets](/operators/secrets/). |
 | `capabilities`   | Extra [capabilities](#capabilities) for the task’s token.                                             |
+| `variables`      | Per-task [variables](#variables) a task can set when it is created.                                   |
 
 ## `container`
 
@@ -2064,6 +2065,33 @@ gritz passes header values to the agent as written, so a credential in a header 
 
 The runner adds an MCP server named `gritz` to every agent, with the tools an agent uses to work with its task (see the [overview](/operators/overview/#components)). Don’t define one with that name.
 
+## `variables`
+
+[Section titled “variables”](#variables)
+
+Variables are values a task sets when it is created, such as a branch or an issue key, declared by name. Names are upper case letters, digits and underscores, starting with a letter. Each run sees a variable `X` as the environment variable `GRITZ_VAR_X`; one the task doesn’t set and that has no default is left unset.
+
+| Field         |                                                                             |
+| ------------- | --------------------------------------------------------------------------- |
+| `description` | What the value is for.                                                      |
+| `required`    | A task must set it.                                                         |
+| `default`     | The value when the task doesn’t set it. Not allowed on a required variable. |
+
+```yaml
+workspaces:
+  story:
+    variables:
+      JIRA_ISSUE:
+        description: The story to implement
+        required: true
+      BRANCH:
+        default: main
+    commands:
+      - git clone --branch "$GRITZ_VAR_BRANCH" https://github.com/acme/app.git /work
+```
+
+Quote the reference, as `"$GRITZ_VAR_BRANCH"`, so the shell passes the value as one word. Values are readable by anyone who can read the task and appear unmasked in its log: put credentials under `secrets:`.
+
 ## `capabilities`
 
 [Section titled “capabilities”](#capabilities)
@@ -2111,7 +2139,7 @@ Any other namespace is an error. References without a namespace, such as `${GH_T
 The setup commands and the agent see, in order of precedence:
 
 1. The workspace’s `secrets`.
-2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`, the task’s own token. On Lambda MicroVMs, also `lambda_microvm.environment`.
+2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`, the task’s own token, and the task’s [variables](#variables) as `GRITZ_VAR_<NAME>`. On Lambda MicroVMs, also `lambda_microvm.environment`.
 3. The sandbox’s environment: the image’s, plus `container.environment` on Docker.
 
 ## Changing a workspace
@@ -31287,6 +31315,10 @@ service GritzService {
   // sandbox calls the API with. The token can read and update only that task,
   // plus the requested capabilities.
   rpc CreateTaskToken(CreateTaskTokenRequest) returns (CreateTaskTokenResponse);
+  // Called by the runner before it starts a task's run, to get what the run's
+  // spec needs from the server: the token the sandbox calls the API with, as
+  // CreateTaskToken returns it, and the task's variables.
+  rpc GetRunSpecInputs(GetRunSpecInputsRequest) returns (GetRunSpecInputsResponse);
   // Called by the runner when it starts, to register the workspaces it serves.
   // Replaces the workspaces registered before for the same runner.
   rpc RegisterWorkspaces(RegisterWorkspacesRequest) returns (RegisterWorkspacesResponse);
@@ -31414,6 +31446,12 @@ message Task {
   // The image URL of the task's shields.io badge. Agents sign what they post
   // with it, linked to url.
   string badge_url = 18;
+
+
+  // The task's variables, by name, each injected into its sandbox as the
+  // environment variable GRITZ_VAR_<name>. Set at creation and can't be
+  // changed.
+  map<string, string> variables = 19;
 }
 
 
@@ -31497,6 +31535,9 @@ message CreateTaskRequest {
   // start set, such as the first instruction sent from the task page, starts it.
   // False (the default) starts the task immediately.
   bool draft = 8;
+  // The task's variables, by name. Each must be declared by the workspace;
+  // declared defaults fill the rest.
+  map<string, string> variables = 9;
 }
 
 
@@ -31914,11 +31955,36 @@ message CreateTaskTokenResponse {
 }
 
 
+message GetRunSpecInputsRequest {
+  int64 task_id = 1;
+  // The workspace capabilities to grant the token, such as "github_token".
+  repeated string capabilities = 2;
+}
+
+
+message GetRunSpecInputsResponse {
+  string token = 1;
+  // The task's variables, by name, as in Task.variables.
+  map<string, string> variables = 2;
+}
+
+
+// VariableDecl is a variable a workspace declares; see workspaces.yaml variables:.
+message VariableDecl {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+  // Used when the task doesn't set it. Never set on a required variable.
+  string default = 4;
+}
+
+
 message RegisteredWorkspace {
   string name = 1;
   string runner_id = 2;
   google.protobuf.Timestamp updated_at = 3;
   string description = 4;
+  repeated VariableDecl variables = 5;
 }
 
 
@@ -32148,6 +32214,8 @@ message CreateTaskAction {
   // The auto-archive delay of the tasks the rule creates, as in
   // Task.auto_archive.
   google.protobuf.Duration auto_archive = 4;
+  // Variables of the tasks the rule creates.
+  map<string, string> variables = 5;
 }
 
 
@@ -32296,6 +32364,8 @@ message Schedule {
   string created_by = 14;                   // Who created it; grants no permissions.
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
+  // Variables of the tasks it creates.
+  map<string, string> variables = 17;
 }
 
 
@@ -32311,6 +32381,8 @@ message CreateScheduleRequest {
   // never runs until SetScheduleEnabled enables it.
   bool enabled = 8;
   google.protobuf.Duration auto_archive = 9;
+  // Variables of the tasks it creates.
+  map<string, string> variables = 10;
 }
 
 
@@ -32350,6 +32422,8 @@ message UpdateScheduleRequest {
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; empty defaults to "UTC".
   google.protobuf.Duration auto_archive = 9;
+  // Variables of the tasks it creates.
+  map<string, string> variables = 10;
 }
 
 
