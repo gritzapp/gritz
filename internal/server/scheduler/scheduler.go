@@ -35,6 +35,7 @@ import (
 type Store interface {
 	WithTx(ctx context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) error
 	ClaimDueSchedules(ctx context.Context, tx *sql.Tx, limit int) ([]*model.Schedule, error)
+	HasWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) (bool, error)
 	CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error
 	CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event) error
 	AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64, adv store.ScheduleAdvance) error
@@ -151,22 +152,32 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 // (RunSchedule) records nothing on the schedule at all. Sharing this function is
 // what makes a manual run and a scheduled run produce a byte-for-byte identical
 // task.
+//
+// An occurrence that can't run (see failure) still creates its task, FAILED
+// with the reason on its timeline, and Fire returns no error: an error would
+// roll back the scheduler's whole batch, and a failed task is how the schedule's
+// owner finds out.
 func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Task, model.Notification, error) {
+	reason, err := failure(ctx, tx, st, sched)
+	if err != nil {
+		return nil, model.Notification{}, err
+	}
 	// The schedule owns the template -> task/events mapping. Insert the task, then
 	// seed its events (Events needs the assigned task.ID), so a scheduled task is
 	// indistinguishable from a hand-created one downstream.
-	task := sched.Task()
+	task := sched.Task(reason)
 	if err := st.CreateTask(ctx, tx, task); err != nil {
 		return nil, model.Notification{}, err
 	}
-	for _, ev := range sched.Events(task) {
+	for _, ev := range sched.Events(task, reason) {
 		if err := st.CreateEvent(ctx, tx, ev); err != nil {
 			return nil, model.Notification{}, err
 		}
 	}
 	// The same "change" notification the manual create path emits: task created +
 	// task_events appended, with the runner set so its wake channel picks the new
-	// task up immediately. There is no user, so UserID / ClientID are left empty.
+	// task up immediately (none for a failed task, which no runner runs). There is
+	// no user, so UserID / ClientID are left empty.
 	return task, model.Notification{
 		Type: "change",
 		Resources: []model.NotificationResource{
@@ -178,6 +189,20 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*mo
 		Time:           time.Now(),
 		ChannelMessage: fmt.Sprintf("Task %d created on %s/%s.", task.ID, task.Runner, task.Workspace),
 	}, nil
+}
+
+// failure returns why sched's occurrence can't run, or "" when it can. Fire
+// creates the task of an occurrence that can't run FAILED, with this reason. A
+// store error is returned as an error, not as a reason.
+func failure(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (string, error) {
+	ok, err := st.HasWorkspace(ctx, tx, sched.Runner, sched.Workspace, sched.OrgID)
+	if err != nil {
+		return "", fmt.Errorf("check workspace: %w", err)
+	}
+	if !ok {
+		return fmt.Sprintf("workspace %q is not registered on runner %q", sched.Workspace, sched.Runner), nil
+	}
+	return "", nil
 }
 
 // fire materializes one schedule occurrence via Fire, then advances the schedule

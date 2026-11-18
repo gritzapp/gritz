@@ -499,6 +499,51 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	)
 }
 
+// A manual run of a schedule whose workspace is no longer registered on its
+// runner succeeds and creates the same task a scheduled fire would: FAILED, with
+// the reason on its timeline, and never provisioned.
+func TestRunSchedule_UnregisteredWorkspace(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
+		Name:         "orphan",
+		Instructions: []*gritzv1.Instruction{{Text: "bump deps"}},
+		CronExpr:     "0 9 * * *",
+		Enabled:      true,
+	})
+	assert.NilError(t, h.Server.Store.DeleteWorkspacesByRunner(t.Context(), nil, e2e.DefaultRunner, h.Org.ID))
+
+	// Act
+	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Equal(t, resp.Task.Status, gritzv1.TaskStatus_FAILED)
+	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
+	want := []*gritzv1.Event{
+		{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+			Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
+			Actor:    &gritzv1.Actor{Kind: model.ActorKindSchedule},
+			ToStatus: model.TaskStatusFailed.Label(),
+		}}},
+		{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+			Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_FAILED,
+			Actor:    &gritzv1.Actor{Kind: model.ActorKindSchedule},
+			ToStatus: model.TaskStatusFailed.Label(),
+			Message:  `workspace "` + e2e.DefaultWorkspace + `" is not registered on runner "` + e2e.DefaultRunner + `"`,
+		}}},
+		{
+			Wake: true,
+			Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: "bump deps",
+			}},
+		},
+	}
+	assert.DeepEqual(t, events, want, protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"))
+}
+
 // A manual run materializes a real task on the schedule's target, so it demands
 // the same task-create scope CreateSchedule/UpdateSchedule require — the
 // task-write mutation tier (enough to enable/disable) is not sufficient. The

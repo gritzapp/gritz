@@ -33,6 +33,9 @@ var _ Store = &StoreMock{}
 //			CreateTaskFunc: func(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 //				panic("mock out the CreateTask method")
 //			},
+//			HasWorkspaceFunc: func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) (bool, error) {
+//				panic("mock out the HasWorkspace method")
+//			},
 //			UpdateScheduleFunc: func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
 //				panic("mock out the UpdateSchedule method")
 //			},
@@ -57,6 +60,9 @@ type StoreMock struct {
 
 	// CreateTaskFunc mocks the CreateTask method.
 	CreateTaskFunc func(ctx context.Context, tx *sql.Tx, task *model.Task) error
+
+	// HasWorkspaceFunc mocks the HasWorkspace method.
+	HasWorkspaceFunc func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) (bool, error)
 
 	// UpdateScheduleFunc mocks the UpdateSchedule method.
 	UpdateScheduleFunc func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
@@ -106,6 +112,19 @@ type StoreMock struct {
 			// Task is the task argument value.
 			Task *model.Task
 		}
+		// HasWorkspace holds details about calls to the HasWorkspace method.
+		HasWorkspace []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx *sql.Tx
+			// RunnerID is the runnerID argument value.
+			RunnerID string
+			// Name is the name argument value.
+			Name string
+			// OrgID is the orgID argument value.
+			OrgID int64
+		}
 		// UpdateSchedule holds details about calls to the UpdateSchedule method.
 		UpdateSchedule []struct {
 			// Ctx is the ctx argument value.
@@ -129,6 +148,7 @@ type StoreMock struct {
 	lockClaimDueSchedules sync.RWMutex
 	lockCreateEvent       sync.RWMutex
 	lockCreateTask        sync.RWMutex
+	lockHasWorkspace      sync.RWMutex
 	lockUpdateSchedule    sync.RWMutex
 	lockWithTx            sync.RWMutex
 }
@@ -298,6 +318,54 @@ func (mock *StoreMock) CreateTaskCalls() []struct {
 	mock.lockCreateTask.RLock()
 	calls = mock.calls.CreateTask
 	mock.lockCreateTask.RUnlock()
+	return calls
+}
+
+// HasWorkspace calls HasWorkspaceFunc.
+func (mock *StoreMock) HasWorkspace(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) (bool, error) {
+	if mock.HasWorkspaceFunc == nil {
+		panic("StoreMock.HasWorkspaceFunc: method is nil but Store.HasWorkspace was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Tx       *sql.Tx
+		RunnerID string
+		Name     string
+		OrgID    int64
+	}{
+		Ctx:      ctx,
+		Tx:       tx,
+		RunnerID: runnerID,
+		Name:     name,
+		OrgID:    orgID,
+	}
+	mock.lockHasWorkspace.Lock()
+	mock.calls.HasWorkspace = append(mock.calls.HasWorkspace, callInfo)
+	mock.lockHasWorkspace.Unlock()
+	return mock.HasWorkspaceFunc(ctx, tx, runnerID, name, orgID)
+}
+
+// HasWorkspaceCalls gets all the calls that were made to HasWorkspace.
+// Check the length with:
+//
+//	len(mockedStore.HasWorkspaceCalls())
+func (mock *StoreMock) HasWorkspaceCalls() []struct {
+	Ctx      context.Context
+	Tx       *sql.Tx
+	RunnerID string
+	Name     string
+	OrgID    int64
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Tx       *sql.Tx
+		RunnerID string
+		Name     string
+		OrgID    int64
+	}
+	mock.lockHasWorkspace.RLock()
+	calls = mock.calls.HasWorkspace
+	mock.lockHasWorkspace.RUnlock()
 	return calls
 }
 

@@ -111,8 +111,9 @@ function hostname(url: string): string {
 
 // lifecycleSummary turns a lifecycle event into a readable activity line, e.g.
 // "Created by icholy", "Created by routing rule", "Cancelled", "Sandbox exited",
-// "Sandbox failed: <message>". It mirrors the Go-side LifecyclePayload.Summary,
-// minus the status transition the Go side appends to "Sandbox exited".
+// "Sandbox failed: <message>", "Failed: <message>". It mirrors the Go-side
+// LifecyclePayload.Summary, minus the status transition the Go side appends to
+// "Sandbox exited".
 export function lifecycleSummary(p: LifecyclePayload): string {
   let s: string
   switch (p.kind) {
@@ -148,6 +149,10 @@ export function lifecycleSummary(p: LifecyclePayload): string {
       s = 'Sandbox failed'
       if (p.message) s += `: ${p.message}`
       break
+    case LifecycleKind.FAILED:
+      s = 'Failed'
+      if (p.message) s += `: ${p.message}`
+      break
     default:
       s = 'Lifecycle event'
   }
@@ -168,6 +173,7 @@ function lifecycleCategory(p: LifecyclePayload): LifecycleCategory {
     case LifecycleKind.SANDBOX_EXITED:
       return p.toStatus === 'failed' ? 'failed' : 'completed'
     case LifecycleKind.SANDBOX_FAILED:
+    case LifecycleKind.FAILED:
       return 'failed'
     case LifecycleKind.CANCELLED:
       return 'cancelled'

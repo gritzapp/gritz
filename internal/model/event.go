@@ -208,6 +208,7 @@ const (
 	LifecycleKindSandboxStarted = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED)
 	LifecycleKindSandboxExited  = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED)
 	LifecycleKindSandboxFailed  = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
+	LifecycleKindFailed         = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_FAILED)
 )
 
 // LifecyclePayload is the body of a lifecycle event — an about-task record of a
@@ -215,8 +216,8 @@ const (
 // replacement for the old logs rows with type='audit'/'info' and the
 // type='error' container-failure rows. Lifecycle events sit beside the existing
 // status mutation in the same transaction; status stays a materialized
-// projection. Message carries the failure detail for SANDBOX_FAILED and is
-// empty for kinds that don't need it.
+// projection. Message carries the failure detail for SANDBOX_FAILED and FAILED
+// and is empty for kinds that don't need it.
 type LifecyclePayload struct {
 	Kind       LifecycleKind `json:"kind"`
 	Actor      Actor         `json:"actor"`
@@ -244,9 +245,9 @@ func (p *LifecyclePayload) SetPayloadProto(pb *gritzv1.Event) {
 
 // Summary renders a lifecycle event as a human-readable timeline line — e.g.
 // "Created by icholy", "Created by routing rule", "Cancelled", "Sandbox exited
-// (Running -> Completed)", "Sandbox failed: <message>". It is the Go-side
-// renderer (used by the local MCP get_my_task tool); the web UI timeline has a
-// parallel renderer in TypeScript.
+// (Running -> Completed)", "Sandbox failed: <message>", "Failed: <message>". It
+// is the Go-side renderer (used by the local MCP get_my_task tool); the web UI
+// timeline has a parallel renderer in TypeScript.
 func (p *LifecyclePayload) Summary() string {
 	var s string
 	switch p.Kind {
@@ -276,6 +277,11 @@ func (p *LifecyclePayload) Summary() string {
 		}
 	case LifecycleKindSandboxFailed:
 		s = "Sandbox failed"
+		if p.Message != "" {
+			s += ": " + p.Message
+		}
+	case LifecycleKindFailed:
+		s = "Failed"
 		if p.Message != "" {
 			s += ": " + p.Message
 		}

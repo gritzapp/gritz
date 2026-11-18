@@ -88,6 +88,15 @@ func TestLifecyclePayload_Summary(t *testing.T) {
 			want: "Sandbox failed: boom",
 		},
 		{
+			name: "failed with message",
+			payload: LifecyclePayload{
+				Kind:    LifecycleKindFailed,
+				Actor:   ScheduleActor,
+				Message: `workspace "w" is not registered on runner "r"`,
+			},
+			want: `Failed: workspace "w" is not registered on runner "r"`,
+		},
+		{
 			name: "updated with fields by user",
 			payload: LifecyclePayload{
 				Kind:   LifecycleKindUpdated,

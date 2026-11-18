@@ -57,6 +57,10 @@ the previous one, so if the last run is still going, the two run side by side.
 The **Schedules** list shows each schedule's next run, and links to the task it
 created the last time it fired.
 
+If the schedule's workspace is no longer registered on its runner, the task is
+created failed instead of started, and its timeline says why. The schedule
+carries on firing; restart the task once the workspace is back.
+
 ## Run now
 
 The run button on a schedule's row creates a task from the schedule straight

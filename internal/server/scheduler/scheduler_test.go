@@ -53,6 +53,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
+		HasWorkspaceFunc: hasWorkspace,
 		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, task *model.Task) error {
 			task.ID = 42 // the store assigns the id the events and advance then reference
 			return nil
@@ -166,6 +167,7 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
+		HasWorkspaceFunc: hasWorkspace,
 		CreateTaskFunc:     func(_ context.Context, _ *sql.Tx, task *model.Task) error { task.ID = 99; return nil },
 		CreateEventFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
 		UpdateScheduleFunc: func(_ context.Context, _ *sql.Tx, _ *model.Schedule) error { return nil },
@@ -217,6 +219,7 @@ func TestScheduler_Tick_ErrorPropagatesWithoutPublishing(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
+		HasWorkspaceFunc: hasWorkspace,
 		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
 	}
 	pub := &pubsub.PublisherMock{
@@ -227,6 +230,110 @@ func TestScheduler_Tick_ErrorPropagatesWithoutPublishing(t *testing.T) {
 	err := sc.Tick(ctx)
 	assert.ErrorIs(t, err, boom)
 	assert.Assert(t, cmp.Len(pub.PublishCalls(), 0), "a failed tick must not publish")
+}
+
+// TestScheduler_Tick_UnregisteredWorkspace covers a schedule whose workspace
+// is no longer registered on its runner: the fire creates the task FAILED with
+// the reason on its timeline, the schedule advances as usual, and the tick
+// succeeds, so the rest of the batch commits.
+func TestScheduler_Tick_UnregisteredWorkspace(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	before := time.Now()
+	past := before.Add(-time.Hour)
+	gone := &model.Schedule{
+		ID:        1,
+		OrgID:     7,
+		Name:      "nightly",
+		Workspace: "gone",
+		Runner:    "r",
+		CronExpr:  "0 9 * * *",
+		Timezone:  "UTC",
+		Enabled:   true,
+		NextRunAt: &past,
+	}
+	ok := &model.Schedule{
+		ID:        2,
+		OrgID:     7,
+		Name:      "hourly",
+		Workspace: "w",
+		Runner:    "r",
+		CronExpr:  "0 * * * *",
+		Timezone:  "UTC",
+		Enabled:   true,
+		NextRunAt: &past,
+	}
+	var nextID int64
+	st := &StoreMock{
+		WithTxFunc: passthroughTx,
+		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
+			return []*model.Schedule{gone, ok}, nil
+		},
+		HasWorkspaceFunc: func(_ context.Context, _ *sql.Tx, _, name string, _ int64) (bool, error) {
+			return name != "gone", nil
+		},
+		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, task *model.Task) error {
+			nextID++
+			task.ID = nextID
+			return nil
+		},
+		CreateEventFunc:     func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
+		AdvanceScheduleFunc: func(_ context.Context, _ *sql.Tx, _, _ int64, _ store.ScheduleAdvance) error { return nil },
+	}
+	pub := &pubsub.PublisherMock{
+		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
+	}
+
+	sc := New(Options{Store: st, Publisher: pub})
+	assert.NilError(t, sc.Tick(ctx))
+
+	// The unregistered schedule's task is FAILED and never provisioned; the
+	// other schedule's task is pending as usual.
+	taskCalls := st.CreateTaskCalls()
+	assert.Assert(t, cmp.Len(taskCalls, 2))
+	assert.DeepEqual(t, taskCalls[0].Task, &model.Task{
+		ID:        1,
+		Name:      "nightly",
+		Runner:    "r",
+		Workspace: "gone",
+		Status:    model.TaskStatusFailed,
+		Command:   model.TaskCommandNone,
+		OrgID:     7,
+	})
+	assert.Equal(t, taskCalls[1].Task.Status, model.TaskStatusPending)
+
+	// The reason is on the failed task's timeline.
+	events := eventPayloads(st.CreateEventCalls())
+	assert.DeepEqual(t, events[1], &model.Event{
+		TaskID: 1,
+		OrgID:  7,
+		Payload: &model.LifecyclePayload{
+			Kind:     model.LifecycleKindFailed,
+			Actor:    model.ScheduleActor,
+			ToStatus: model.TaskStatusFailed.Label(),
+			Message:  `workspace "gone" is not registered on runner "r"`,
+		},
+	})
+
+	// Both schedules advance; the failed one records its failed task.
+	advCalls := st.AdvanceScheduleCalls()
+	assert.Assert(t, cmp.Len(advCalls, 2))
+	assert.Equal(t, advCalls[0].ID, int64(1))
+	assert.Assert(t, advCalls[0].Adv.NextRunAt.After(before))
+	assert.Equal(t, *advCalls[0].Adv.LastTaskID, int64(1))
+
+	// A failed task has no runner to wake.
+	pubCalls := pub.PublishCalls()
+	assert.Assert(t, cmp.Len(pubCalls, 2))
+	assert.Equal(t, pubCalls[0].N.Runner, "")
+	assert.Equal(t, pubCalls[1].N.Runner, "r")
+}
+
+// hasWorkspace is the HasWorkspace mock for schedules whose workspace is
+// registered.
+func hasWorkspace(_ context.Context, _ *sql.Tx, _, _ string, _ int64) (bool, error) {
+	return true, nil
 }
 
 // eventPayloads pulls the *model.Event from each recorded CreateEvent call, in

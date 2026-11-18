@@ -157,6 +157,9 @@ const (
 	LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED LifecycleKind = 8
 	LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED  LifecycleKind = 9
 	LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED  LifecycleKind = 10
+	// The task failed before it could run, so no sandbox was started; message
+	// says why.
+	LifecycleKind_LIFECYCLE_KIND_FAILED LifecycleKind = 11
 )
 
 // Enum value maps for LifecycleKind.
@@ -173,6 +176,7 @@ var (
 		8:  "LIFECYCLE_KIND_SANDBOX_STARTED",
 		9:  "LIFECYCLE_KIND_SANDBOX_EXITED",
 		10: "LIFECYCLE_KIND_SANDBOX_FAILED",
+		11: "LIFECYCLE_KIND_FAILED",
 	}
 	LifecycleKind_value = map[string]int32{
 		"LIFECYCLE_KIND_UNSPECIFIED":     0,
@@ -186,6 +190,7 @@ var (
 		"LIFECYCLE_KIND_SANDBOX_STARTED": 8,
 		"LIFECYCLE_KIND_SANDBOX_EXITED":  9,
 		"LIFECYCLE_KIND_SANDBOX_FAILED":  10,
+		"LIFECYCLE_KIND_FAILED":          11,
 	}
 )
 
@@ -3228,7 +3233,7 @@ type LifecyclePayload struct {
 	Actor      *Actor                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
 	FromStatus string                 `protobuf:"bytes,3,opt,name=from_status,json=fromStatus,proto3" json:"from_status,omitempty"`
 	ToStatus   string                 `protobuf:"bytes,4,opt,name=to_status,json=toStatus,proto3" json:"to_status,omitempty"`
-	Message    string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"` // The failure detail for SANDBOX_FAILED; empty for other kinds.
+	Message    string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"` // The failure detail for SANDBOX_FAILED and FAILED; empty for other kinds.
 	// The task fields that changed, such as "name" or "status", for UPDATED;
 	// empty for other kinds.
 	Fields        []string `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
@@ -8757,7 +8762,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x04NONE\x10\x00\x12\v\n" +
 	"\aRESTART\x10\x01\x12\b\n" +
 	"\x04STOP\x10\x02\x12\t\n" +
-	"\x05START\x10\x03*\xeb\x02\n" +
+	"\x05START\x10\x03*\x86\x03\n" +
 	"\rLifecycleKind\x12\x1e\n" +
 	"\x1aLIFECYCLE_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16LIFECYCLE_KIND_CREATED\x10\x01\x12\x1a\n" +
@@ -8770,7 +8775,8 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x1eLIFECYCLE_KIND_SANDBOX_STARTED\x10\b\x12!\n" +
 	"\x1dLIFECYCLE_KIND_SANDBOX_EXITED\x10\t\x12!\n" +
 	"\x1dLIFECYCLE_KIND_SANDBOX_FAILED\x10\n" +
-	"2\xa9$\n" +
+	"\x12\x19\n" +
+	"\x15LIFECYCLE_KIND_FAILED\x10\v2\xa9$\n" +
 	"\fGritzService\x125\n" +
 	"\x04Ping\x12\x15.gritz.v1.PingRequest\x1a\x16.gritz.v1.PingResponse\x12G\n" +
 	"\n" +
