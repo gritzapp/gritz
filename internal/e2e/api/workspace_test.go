@@ -16,16 +16,15 @@ func TestRegisterWorkspaces(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	variables := []*gritzv1.VariableDecl{
-		{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
-		{Name: "JIRA_ISSUE", Required: true},
-	}
 
 	// Act
 	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
-			{Name: "workspace-a", Description: "First workspace", Variables: variables},
+			{Name: "workspace-a", Description: "First workspace", Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
+				{Name: "JIRA_ISSUE", Required: true},
+			}},
 			{Name: "workspace-b"},
 		},
 	})
@@ -35,7 +34,10 @@ func TestRegisterWorkspaces(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t, h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), []*gritzv1.RegisteredWorkspace{
 		{Name: e2e.DefaultWorkspace, RunnerId: e2e.DefaultRunner},
-		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace", Variables: variables},
+		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace", Variables: []*gritzv1.VariableDecl{
+			{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
+			{Name: "JIRA_ISSUE", Required: true},
+		}},
 		{Name: "workspace-b", RunnerId: "runner-1"},
 	}, protocmp.Transform(), protocmp.IgnoreFields(&gritzv1.RegisteredWorkspace{}, "updated_at"))
 }
