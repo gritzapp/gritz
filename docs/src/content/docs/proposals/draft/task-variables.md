@@ -146,8 +146,8 @@ Variables do **not** reach:
 - The sandbox's own process environment: the driver process, the container's
   entrypoint, and `gritz shell` sessions, which today don't get the run
   environment either (secrets included).
-- The prompt. The agent finds its variables in its environment and in
-  `get_my_task`'s output; the rendered prompt doesn't change.
+- The prompt. The agent finds its variables in its environment; the rendered
+  prompt doesn't change, and `get_my_task`'s output doesn't list them.
 
 ### Who sets variables
 
@@ -159,7 +159,7 @@ declarations.
 | --- | --- |
 | `CreateTask` RPC | `variables` (field 9). |
 | MCP `create_task` (`gritz mcp`, server MCP) | `variables`, an object of string to string. |
-| `gritz task create` | `--var NAME=VALUE`, repeatable. `--var NAME=@file` reads the value from a file (`@-` for stdin), for long or multi-line values. |
+| `gritz task create` | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`. |
 | Web UI new-task page | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
 | Schedules | `Schedule.variables`, fixed values. |
 | Routing rules | `CreateTaskAction.variables`, fixed values. |
@@ -403,15 +403,19 @@ place of `CreateTaskToken` and passes the token and variables to
 `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into
 `RunSpec.env`.
 
-**When the workspace sets the same name, the workspace wins.** A
-`container.environment`, `lambda_microvm.environment` or `secrets:` entry named
-`GRITZ_VAR_X` collides with task variable `X`; `buildSpecs` skips the task
-variable, so the run sees the workspace's value. Only an operator can write a
-`GRITZ_VAR_` entry, and doing so pins that value for every task of the
-workspace, which a task creator can't override. It also matches the layering
-the driver already applies to secrets, which sit above `RunSpec.env`.
-`container.environment` sits below it (it is the container's own environment),
-so `buildSpecs` checks the workspace's maps rather than relying on layering.
+**When the workspace sets the same name.** `buildSpecs` sets every task
+variable in `Spec.Env` without checking the workspace's maps, so the outcome of
+a `GRITZ_VAR_X` entry in the workspace follows the layering the run environment
+already has:
+
+- A `secrets:` entry named `GRITZ_VAR_X` wins: the driver layers
+  `RunSpec.secrets` over `RunSpec.env`, so the run sees the workspace's value.
+- A `container.environment` or `lambda_microvm.environment` entry named
+  `GRITZ_VAR_X` loses to the task's value. `container.environment` is the
+  container's own environment, below `RunSpec.env`, and `buildSpecs` builds
+  `RunSpec.env` from the backend's `RunEnv` (`lambda_microvm.environment`) with
+  `Spec.Env` copied over it.
+
 The task still stores the value it was created with.
 
 ## Implementation Plan
@@ -440,16 +444,12 @@ The task still stores the value it was created with.
    `OpTaskTokenCreate`.
 5. **Runner injection** — Delivers: `TaskManager.specs` calling
    `GetRunSpecInputs`, `specInput.Variables`, `buildSpecs` adding variables to
-   `Spec.Env` and skipping one whose `GRITZ_VAR_` name the workspace's
-   `container.environment`, `lambda_microvm.environment` or `secrets:` sets,
-   the `driver.proto` comment. Depends on: (4). Verifiable by: `spec_test.go`
-   cases, including each of the three collisions keeping the workspace's
-   value; an e2e test with the dummy agent running `env` that sees
-   `GRITZ_VAR_X`.
-6. **CLI and MCP** — Delivers: `gritz task create --var` (with `@file` and
-   `@-`), `variables` on the server MCP `create_task` tool, variables in
-   `get_my_task` output. Depends on: (4). Verifiable by: command and MCP
-   handler tests.
+   `Spec.Env`, the `driver.proto` comment. Depends on: (4). Verifiable by:
+   `spec_test.go` cases; an e2e test with the dummy agent running `env` that
+   sees `GRITZ_VAR_X`.
+6. **CLI and MCP** — Delivers: `gritz task create --var`, `variables` on the
+   server MCP `create_task` tool. Depends on: (4).
+   Verifiable by: command and MCP handler tests.
 7. **Web UI: new task and task page** — Delivers: variable fields on
    `tasks.new.tsx` from the selected workspace's declarations; variables shown
    on the task page. Depends on: (4). Verifiable by: creating a task against
@@ -467,15 +467,14 @@ The task still stores the value it was created with.
    dev stack creating a task with the variable set.
 10. **Docs** — each slice above updates its own pages; this lists them:
     - `operators/workspaces-yaml`: a `variables` section (saying credentials
-      belong in `secrets:`), a workspace `GRITZ_VAR_` entry winning over the
-      task's value under "Environment", a `commands:` example quoting
+      belong in `secrets:`), the task's value sitting between the workspace's
+      `secrets:` and its environment under "Environment", a `commands:` example quoting
       `"$GRITZ_VAR_X"`, the custom agent process reading one.
     - `concepts/tasks`: a "Variables" section (set at creation, immutable,
       where they appear).
     - `concepts/workspaces`: declared variables in "Picking a workspace".
     - `reference/cli`, `using/cli`: `--var`.
     - `integrations/mcp`: `create_task`'s `variables`.
-    - `using/agent-tools`: variables in `get_my_task`.
     - `using/web-ui`: variable fields on the new-task page.
     - `concepts/schedules`: variables on a schedule.
     - `concepts/routing-rules` ("Creating tasks"): variables on a rule.

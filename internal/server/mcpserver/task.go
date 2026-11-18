@@ -115,13 +115,14 @@ func (h *handlers) listWorkspaces(ctx context.Context, req *mcp.CallToolRequest,
 }
 
 type createTaskInput struct {
-	Name        string `json:"name,omitempty" jsonschema:"A short name for the task"`
-	Workspace   string `json:"workspace" jsonschema:"The workspace to run the task in"`
-	Instruction string `json:"instruction,omitempty" jsonschema:"The instruction text for the task. Required unless draft is set."`
-	Runner      string `json:"runner" jsonschema:"Runner ID to target"`
-	AutoArchive string `json:"auto_archive,omitempty" jsonschema:"Auto-archive the task this long after it reaches a terminal status, as a Go duration string (e.g. \"30m\", \"1h\"). \"0\" = never, a negative value like \"-1s\" = archive immediately on terminal status, positive = delay. When omitted, the server default is used."`
-	Namespace   string `json:"namespace,omitempty" jsonschema:"The task's namespace: only routing rules in the same namespace see its subscriptions. Empty is the default namespace. It can't be changed later."`
-	Draft       bool   `json:"draft,omitempty" jsonschema:"Create the task as a draft, which doesn't run until update_task starts it"`
+	Name        string            `json:"name,omitempty" jsonschema:"A short name for the task"`
+	Workspace   string            `json:"workspace" jsonschema:"The workspace to run the task in"`
+	Instruction string            `json:"instruction,omitempty" jsonschema:"The instruction text for the task. Required unless draft is set."`
+	Runner      string            `json:"runner" jsonschema:"Runner ID to target"`
+	AutoArchive string            `json:"auto_archive,omitempty" jsonschema:"Auto-archive the task this long after it reaches a terminal status, as a Go duration string (e.g. \"30m\", \"1h\"). \"0\" = never, a negative value like \"-1s\" = archive immediately on terminal status, positive = delay. When omitted, the server default is used."`
+	Namespace   string            `json:"namespace,omitempty" jsonschema:"The task's namespace: only routing rules in the same namespace see its subscriptions. Empty is the default namespace. It can't be changed later."`
+	Draft       bool              `json:"draft,omitempty" jsonschema:"Create the task as a draft, which doesn't run until update_task starts it"`
+	Variables   map[string]string `json:"variables,omitempty" jsonschema:"The task's variables, by name. Each must be declared by the workspace; declared defaults fill the rest. The task's sandbox sees variable NAME as the environment variable GRITZ_VAR_NAME. They can't be changed later."`
 }
 
 func (h *handlers) createTask(ctx context.Context, _ *mcp.CallToolRequest, input createTaskInput) (*mcp.CallToolResult, any, error) {
@@ -136,6 +137,7 @@ func (h *handlers) createTask(ctx context.Context, _ *mcp.CallToolRequest, input
 		Namespace:   input.Namespace,
 		Draft:       input.Draft,
 		AutoArchive: h.defaultAutoArchive,
+		Variables:   input.Variables,
 	}
 	if input.Instruction != "" {
 		req.Instructions = []*gritzv1.Instruction{{Text: input.Instruction}}

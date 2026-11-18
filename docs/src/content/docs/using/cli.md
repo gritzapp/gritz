@@ -257,9 +257,22 @@ gritz task create -r my-runner -w pets-workshop \
 | `--workspace`, `-w` | The [workspace](/concepts/workspaces/). Defaults to `default`. |
 | `--instruction`, `-i` | An instruction. Repeat it for several. |
 | `--name`, `-n` | The task's name. The agent names it if you don't. |
+| `--var` | A [variable](/operators/workspaces-yaml/#variables) the workspace declares, as `NAME=VALUE`. Repeat it for several. |
 | `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `1h` or `24h`. `0`, the default, is never; a negative value archives the task as soon as it finishes. |
 
 The **Workspaces** page in the Web UI lists runner IDs and their workspaces.
+
+A workspace can declare variables, values each task sets when it is created,
+such as the issue to work on. Its sandbox sees `--var JIRA_ISSUE=APP-142` as the
+environment variable `GRITZ_VAR_JIRA_ISSUE`. Setting a variable the workspace
+doesn't declare, or leaving out a required one, is an error. The value is the
+text after the first `=`, as is:
+
+```bash
+gritz task create -r my-runner -w story-agent \
+  --var JIRA_ISSUE=APP-142 --var BRANCH=release/2.4 \
+  -i "Implement the story."
+```
 
 ### `gritz task list`
 

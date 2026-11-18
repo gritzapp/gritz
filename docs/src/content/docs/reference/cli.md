@@ -88,6 +88,7 @@ Creates a task and starts it, then prints it as JSON. It also takes the [authent
 | `--workspace`, `-w` | | `default` | The workspace. |
 | `--instruction`, `-i` | | | An instruction. Repeat it for several. |
 | `--name`, `-n` | | | The task's name. |
+| `--var` | | | A [variable](/operators/workspaces-yaml/#variables) as `NAME=VALUE`. Repeat it for several. |
 | `--auto-archive` | | `0` | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
 
 ### `gritz task list`

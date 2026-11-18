@@ -131,3 +131,24 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+// ParseFlags parses NAME=VALUE assignments, as a command line takes
+// them. A value is the literal text after the first "=". It doesn't validate
+// names or values: Resolve does.
+func ParseFlags(args []string) (map[string]string, error) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	vars := map[string]string{}
+	for _, arg := range args {
+		name, value, ok := strings.Cut(arg, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("%q: want NAME=VALUE", arg)
+		}
+		if _, dup := vars[name]; dup {
+			return nil, fmt.Errorf("%s: set more than once", name)
+		}
+		vars[name] = value
+	}
+	return vars, nil
+}

@@ -312,6 +312,33 @@ func TestCreateTask_Draft(t *testing.T) {
 	assert.Equal(t, summary["namespace"], "ns")
 }
 
+func TestCreateTask_Variables(t *testing.T) {
+	var got *gritzv1.CreateTaskRequest
+	client := &gritzclient.ClientMock{
+		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
+			got = req
+			return &gritzv1.CreateTaskResponse{
+				Task: &gritzv1.Task{Id: 1, Workspace: "ws", Status: gritzv1.TaskStatus_PENDING},
+			}, nil
+		},
+	}
+	session := setupSession(t, client)
+
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+		Name: "create_task",
+		Arguments: map[string]any{
+			"workspace":   "ws",
+			"runner":      "r1",
+			"instruction": "do it",
+			"variables":   map[string]any{"JIRA_ISSUE": "APP-142", "EMPTY": ""},
+		},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
+	assert.DeepEqual(t, got.Variables, map[string]string{"JIRA_ISSUE": "APP-142", "EMPTY": ""})
+}
+
 func TestCreateTask_InstructionRequired(t *testing.T) {
 	session := setupSession(t, &gritzclient.ClientMock{})
 

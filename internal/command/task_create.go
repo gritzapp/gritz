@@ -10,6 +10,7 @@ import (
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -17,6 +18,8 @@ import (
 var TaskCreateCommand = &cli.Command{
 	Name:  "create",
 	Usage: "Create a new task",
+	// --instruction and --var values are free text: don't split them on commas.
+	DisableSliceFlagSeparator: true,
 	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
 			Name:    "name",
@@ -40,6 +43,10 @@ var TaskCreateCommand = &cli.Command{
 			Aliases: []string{"i"},
 			Usage:   "Instruction to execute (can be specified multiple times)",
 		},
+		&cli.StringSliceFlag{
+			Name:  "var",
+			Usage: "Task variable as `NAME=VALUE` (can be specified multiple times)",
+		},
 		&cli.DurationFlag{
 			Name:  "auto-archive",
 			Usage: "Auto-archive the task this long after it reaches a terminal status. 0 = never (default), negative = archive immediately, positive = delay (e.g. 1h, 24h).",
@@ -61,12 +68,18 @@ var TaskCreateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
+		variables, err := taskvar.ParseFlags(cmd.StringSlice("var"))
+		if err != nil {
+			return fmt.Errorf("--var: %w", err)
+		}
+
 		resp, err := client.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 			Name:         cmd.String("name"),
 			Runner:       cmd.String("runner"),
 			Workspace:    cmd.String("workspace"),
 			Instructions: instructions,
 			AutoArchive:  durationpb.New(cmd.Duration("auto-archive")),
+			Variables:    variables,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create task: %w", err)

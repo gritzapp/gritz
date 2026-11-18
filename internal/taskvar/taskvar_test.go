@@ -211,3 +211,42 @@ func TestResolve(t *testing.T) {
 		})
 	}
 }
+
+func TestParseFlags(t *testing.T) {
+	t.Parallel()
+	// Act
+	got, err := ParseFlags([]string{
+		"JIRA_ISSUE=APP-142",
+		"LABEL=a,b=c",
+		"EMPTY=",
+		"NOTES=@notes.md",
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got, map[string]string{
+		"JIRA_ISSUE": "APP-142",
+		"LABEL":      "a,b=c",
+		"EMPTY":      "",
+		"NOTES":      "@notes.md",
+	})
+}
+
+func TestParseFlags_Invalid(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		err  string
+	}{
+		{"no equals", []string{"JIRA_ISSUE"}, "want NAME=VALUE"},
+		{"no name", []string{"=APP-142"}, "want NAME=VALUE"},
+		{"duplicate", []string{"A=1", "A=2"}, "set more than once"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseFlags(tt.args)
+			assert.ErrorContains(t, err, tt.err)
+		})
+	}
+}
