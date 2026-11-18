@@ -339,10 +339,7 @@ surrounding whitespace trimmed. A failing command fails the load.</li>
 <li>The workspace’s <code dir="auto">secrets</code>.</li>
 <li>The variables gritz sets: <code dir="auto">GRITZ_TASK_ID</code>, <code dir="auto">GRITZ_SERVER</code> and <code dir="auto">GRITZ_TOKEN</code>,
 the task’s own token, and the task’s <a href="#variables">variables</a> as
-<code dir="auto">GRITZ_VAR_&lt;NAME&gt;</code>. On Lambda MicroVMs, also <code dir="auto">lambda_microvm.environment</code>.
-A <code dir="auto">GRITZ_VAR_</code> entry in <code dir="auto">secrets</code>, <code dir="auto">container.environment</code> or
-<code dir="auto">lambda_microvm.environment</code> wins over the task’s value for every task of
-the workspace.</li>
+<code dir="auto">GRITZ_VAR_&lt;NAME&gt;</code>. On Lambda MicroVMs, also <code dir="auto">lambda_microvm.environment</code>.</li>
 <li>The sandbox’s environment: the image’s, plus <code dir="auto">container.environment</code> on
 Docker.</li>
 </ol>
