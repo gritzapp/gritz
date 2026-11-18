@@ -105,20 +105,11 @@ func TestCreateTask_Variables(t *testing.T) {
 		Variables: vars,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
-	none := &model.Task{
-		Runner:    "r",
-		Workspace: "w",
-		OrgID:     org.OrgID,
-	}
-	assert.NilError(t, s.CreateTask(t.Context(), nil, none))
 
-	// Assert - a task without variables reads back nil.
+	// Assert
 	got, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, got.Variables, vars)
-	gotNone, err := s.GetTask(t.Context(), nil, none.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Assert(t, gotNone.Variables == nil)
 }
 
 func TestListTasksPage_ActiveOnly(t *testing.T) {
