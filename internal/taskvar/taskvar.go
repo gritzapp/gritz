@@ -80,8 +80,11 @@ func (d Decl) Validate() error {
 	if d.Required && d.Default != "" {
 		return &Error{Name: d.Name, Reason: "a required variable can't have a default"}
 	}
-	if reason := checkValue(d.Default); reason != "" {
-		return &Error{Name: d.Name, Reason: "default " + reason}
+	if len(d.Default) > MaxValueBytes {
+		return &Error{Name: d.Name, Reason: fmt.Sprintf("default value is %d bytes, more than the limit of %d", len(d.Default), MaxValueBytes)}
+	}
+	if strings.IndexByte(d.Default, 0) >= 0 {
+		return &Error{Name: d.Name, Reason: "default value contains a NUL byte"}
 	}
 	return nil
 }
@@ -104,8 +107,12 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 		if _, ok := declared[name]; !ok {
 			return nil, &Error{Name: name, Reason: "not declared by the workspace"}
 		}
-		if reason := checkValue(given[name]); reason != "" {
-			return nil, &Error{Name: name, Reason: reason}
+		v := given[name]
+		if len(v) > MaxValueBytes {
+			return nil, &Error{Name: name, Reason: fmt.Sprintf("value is %d bytes, more than the limit of %d", len(v), MaxValueBytes)}
+		}
+		if strings.IndexByte(v, 0) >= 0 {
+			return nil, &Error{Name: name, Reason: "value contains a NUL byte"}
 		}
 	}
 	out := make(map[string]string, len(decls))
@@ -123,15 +130,4 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 		return nil, fmt.Errorf("%d variables, more than the limit of %d", len(out), MaxVariables)
 	}
 	return out, nil
-}
-
-// checkValue returns why v can't be a variable's value, or "" if it can.
-func checkValue(v string) string {
-	if len(v) > MaxValueBytes {
-		return fmt.Sprintf("value is %d bytes, more than the limit of %d", len(v), MaxValueBytes)
-	}
-	if strings.IndexByte(v, 0) >= 0 {
-		return "value contains a NUL byte"
-	}
-	return ""
 }
