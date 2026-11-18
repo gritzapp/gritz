@@ -71,9 +71,6 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
 	}
-	if len(variables) == 0 {
-		variables = nil
-	}
 	task := &model.Task{
 		Name:      req.Name,
 		Runner:    req.Runner,
