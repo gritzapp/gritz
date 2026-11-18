@@ -94,7 +94,7 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 	// Checked up front too, so an oversized request is rejected without
 	// sorting it.
 	if len(given) > MaxVariables {
-		return nil, tooMany(len(given))
+		return nil, fmt.Errorf("%d variables, more than the limit of %d", len(given), MaxVariables)
 	}
 	declared := make(map[string]Decl, len(decls))
 	for _, d := range decls {
@@ -120,7 +120,7 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 		}
 	}
 	if len(out) > MaxVariables {
-		return nil, tooMany(len(out))
+		return nil, fmt.Errorf("%d variables, more than the limit of %d", len(out), MaxVariables)
 	}
 	return out, nil
 }
@@ -134,8 +134,4 @@ func checkValue(v string) string {
 		return "value contains a NUL byte"
 	}
 	return ""
-}
-
-func tooMany(n int) error {
-	return fmt.Errorf("%d variables, more than the limit of %d", n, MaxVariables)
 }
