@@ -218,27 +218,6 @@ func (w *Workspace) Validate() error {
 			return fmt.Errorf("variables: %w", err)
 		}
 	}
-	// Task variables own the GRITZ_VAR_ namespace, so nothing else in the run
-	// environment can collide with one.
-	if err := checkReserved("container.environment", w.Container.Environment); err != nil {
-		return err
-	}
-	if w.LambdaMicroVM != nil {
-		if err := checkReserved("lambda_microvm.environment", w.LambdaMicroVM.Environment); err != nil {
-			return err
-		}
-	}
-	return checkReserved("secrets", w.Secrets)
-}
-
-// checkReserved rejects an entry of env whose name is in the task variables'
-// namespace.
-func checkReserved(field string, env map[string]string) error {
-	for _, name := range slices.Sorted(maps.Keys(env)) {
-		if strings.HasPrefix(name, taskvar.EnvPrefix) {
-			return fmt.Errorf("%s.%s: the %s prefix is reserved for task variables", field, name, taskvar.EnvPrefix)
-		}
-	}
 	return nil
 }
 

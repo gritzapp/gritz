@@ -75,29 +75,6 @@ func TestLoadConfig_InvalidVariables(t *testing.T) {
         default: main`,
 			err: `workspace "ws": variables: variable "BRANCH": a required variable can't have a default`,
 		},
-		{
-			name: "reserved container environment",
-			yaml: `
-    container:
-      environment:
-        GRITZ_VAR_BRANCH: main`,
-			err: `workspace "ws": container.environment.GRITZ_VAR_BRANCH: the GRITZ_VAR_ prefix is reserved for task variables`,
-		},
-		{
-			name: "reserved lambda_microvm environment",
-			yaml: `
-    lambda_microvm:
-      environment:
-        GRITZ_VAR_BRANCH: main`,
-			err: `workspace "ws": lambda_microvm.environment.GRITZ_VAR_BRANCH: the GRITZ_VAR_ prefix is reserved for task variables`,
-		},
-		{
-			name: "reserved secret",
-			yaml: `
-    secrets:
-      GRITZ_VAR_TOKEN: x`,
-			err: `workspace "ws": secrets.GRITZ_VAR_TOKEN: the GRITZ_VAR_ prefix is reserved for task variables`,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,21 +85,4 @@ func TestLoadConfig_InvalidVariables(t *testing.T) {
 			assert.ErrorContains(t, err, tt.err)
 		})
 	}
-}
-
-func TestLoadConfig_GritzPrefixAllowed(t *testing.T) {
-	t.Parallel()
-
-	_, err := loadYAML(t, `workspaces:
-  ws:
-    container:
-      environment:
-        GRITZ_VARIANT: a
-    secrets:
-      GRITZ_VAR: b
-    agent:
-      type: claude
-`)
-
-	assert.NilError(t, err)
 }
