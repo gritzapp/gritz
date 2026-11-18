@@ -1,0 +1,6 @@
+workspaces:
+  ws:
+    variables:
+      jira: {}
+    agent:
+      type: claude

@@ -1,0 +1,8 @@
+workspaces:
+  ws:
+    variables:
+      BRANCH:
+        required: true
+        default: main
+    agent:
+      type: claude
