@@ -29,7 +29,7 @@ service DriverService {
 // environment today.
 message RunSpec {
   // Passed to setup commands and the agent CLI. Not set on the driver
-  // process itself.
+  // process itself. Includes the task's variables, each as GRITZ_VAR_<NAME>.
   map<string, string> env = 5;
   // Workspace secrets. Added to the run's env and masked in shipped log
   // chunks.

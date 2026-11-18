@@ -8,6 +8,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -31,6 +32,36 @@ func TestEnv(t *testing.T) {
 	dir := h.Backend.Dir(task.ID)
 	home := testx.FindFunc(t, env, func(kv string, _ int) bool { return strings.HasPrefix(kv, "HOME=") })
 	assert.Assert(t, strings.HasPrefix(strings.TrimPrefix(home, "HOME="), dir+string(filepath.Separator)), home)
+}
+
+func TestEnv_Variables(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+		Variables: map[string]workspace.VariableConfig{
+			"JIRA_ISSUE": {Required: true},
+			"BRANCH":     {Default: "main"},
+			"PINNED":     {},
+			"LABEL":      {},
+		},
+		// The workspace sets GRITZ_VAR_PINNED itself, so the task's value is
+		// skipped.
+		Secrets:  map[string]string{"GRITZ_VAR_PINNED": "workspace"},
+		Commands: []string{"env > env"},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+		Variables:    map[string]string{"JIRA_ISSUE": "APP-142", "PINNED": "task"},
+	})
+	h.Agent.WaitRun(task.ID).Complete()
+	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
+
+	env := strings.Split(strings.TrimSpace(h.Backend.ReadFile(task.ID, "env")), "\n")
+	assert.Assert(t, cmp.Contains(env, "GRITZ_VAR_JIRA_ISSUE=APP-142"))
+	assert.Assert(t, cmp.Contains(env, "GRITZ_VAR_BRANCH=main"))
+	assert.Assert(t, cmp.Contains(env, "GRITZ_VAR_PINNED=workspace"))
+	for _, kv := range env {
+		assert.Assert(t, !strings.HasPrefix(kv, "GRITZ_VAR_LABEL="), kv)
+	}
 }
 
 func TestSecretsMasked(t *testing.T) {

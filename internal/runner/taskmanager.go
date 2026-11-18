@@ -357,8 +357,8 @@ func (m *TaskManager) newRunner(taskID int64) *TaskRunner {
 
 // specs builds the sandbox spec of the task's run c, and the driver.v1
 // RunSpec its run is started with; see TaskRunnerOptions.Spec. It looks up
-// and validates the workspace and mints the task token, and leaves the rest
-// to buildSpecs.
+// and validates the workspace, fetches the task token and variables, and
+// leaves the rest to buildSpecs.
 func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error) {
 	ws, err := m.workspaces.Get(c.Workspace)
 	if err != nil {
@@ -372,12 +372,12 @@ func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*bac
 	// supplies only the task id and capability flags and the server derives the
 	// task's workspace/runner/org from the row and signs a narrow app JWT. The
 	// driver and injected MCP server present it directly to the server.
-	tokenResp, err := m.client.CreateTaskToken(ctx, &gritzv1.CreateTaskTokenRequest{
+	inputs, err := m.client.GetRunSpecInputs(ctx, &gritzv1.GetRunSpecInputsRequest{
 		TaskId:       c.ID,
 		Capabilities: ws.Capabilities,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create task token: %w", err)
+		return nil, nil, fmt.Errorf("failed to get run spec inputs: %w", err)
 	}
 	var runEnv map[string]string
 	if be, ok := m.backend.(backend.RunEnver); ok {
@@ -388,7 +388,8 @@ func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*bac
 		Workspace:  ws,
 		ServerURL:  m.serverURL,
 		RunnerID:   m.runnerID,
-		Token:      tokenResp.Token,
+		Token:      inputs.Token,
+		Variables:  inputs.Variables,
 		BinaryPath: m.backend.BinaryPath(),
 		RunEnv:     runEnv,
 	})
