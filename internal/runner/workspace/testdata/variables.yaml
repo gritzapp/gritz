@@ -1,5 +1,5 @@
 workspaces:
-  story-agent:
+  ws:
     variables:
       JIRA_ISSUE:
         description: The Jira story this task is for
