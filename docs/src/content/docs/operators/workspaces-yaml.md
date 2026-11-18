@@ -215,6 +215,9 @@ The setup commands and the agent see, in order of precedence:
 3. The sandbox's environment: the image's, plus `container.environment` on
    Docker.
 
+Names starting with `GRITZ_VAR_` are reserved for gritz. An `environment` or
+`secrets` entry with one fails the load.
+
 ## Changing a workspace
 
 A task's sandbox is set up from its workspace once, when it is first created

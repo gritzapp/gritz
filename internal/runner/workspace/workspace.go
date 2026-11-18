@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/docker/docker/api/types/network"
@@ -13,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/agent/puppet"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"github.com/gritzapp/gritz/internal/x/expandvar"
 	"gopkg.in/yaml.v3"
 )
@@ -102,6 +104,31 @@ type Workspace struct {
 	// Reference them from commands: by variable (${GH_TOKEN}) so the command
 	// string itself carries the name, not the value.
 	Secrets map[string]string `yaml:"secrets,omitempty"`
+	// Variables declares the per-task values a task may set, injected as
+	// GRITZ_VAR_<NAME>.
+	Variables map[string]VariableConfig `yaml:"variables,omitempty"`
+}
+
+// VariableConfig is a variables: entry; the map key is the variable's name.
+type VariableConfig struct {
+	Description string `yaml:"description"`
+	Required    bool   `yaml:"required"`
+	Default     string `yaml:"default"`
+}
+
+// VariableDecls returns the workspace's declarations, sorted by name.
+func (w *Workspace) VariableDecls() []taskvar.Decl {
+	var decls []taskvar.Decl
+	for _, name := range slices.Sorted(maps.Keys(w.Variables)) {
+		v := w.Variables[name]
+		decls = append(decls, taskvar.Decl{
+			Name:        name,
+			Description: v.Description,
+			Required:    v.Required,
+			Default:     v.Default,
+		})
+	}
+	return decls
 }
 
 type Agent struct {
@@ -184,6 +211,32 @@ func (w *Workspace) Validate() error {
 	for _, capability := range w.Capabilities {
 		if !agentauth.ValidCapability(capability) {
 			return fmt.Errorf("unknown capability %q", capability)
+		}
+	}
+	for _, d := range w.VariableDecls() {
+		if err := d.Validate(); err != nil {
+			return fmt.Errorf("variables: %w", err)
+		}
+	}
+	// Task variables own the GRITZ_VAR_ namespace, so nothing else in the run
+	// environment can collide with one.
+	if err := checkReserved("container.environment", w.Container.Environment); err != nil {
+		return err
+	}
+	if w.LambdaMicroVM != nil {
+		if err := checkReserved("lambda_microvm.environment", w.LambdaMicroVM.Environment); err != nil {
+			return err
+		}
+	}
+	return checkReserved("secrets", w.Secrets)
+}
+
+// checkReserved rejects an entry of env whose name is in the task variables'
+// namespace.
+func checkReserved(field string, env map[string]string) error {
+	for _, name := range slices.Sorted(maps.Keys(env)) {
+		if strings.HasPrefix(name, taskvar.EnvPrefix) {
+			return fmt.Errorf("%s.%s: the %s prefix is reserved for task variables", field, name, taskvar.EnvPrefix)
 		}
 	}
 	return nil
