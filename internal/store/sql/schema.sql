@@ -172,7 +172,8 @@ CREATE TABLE public.schedules (
     last_run_at timestamp without time zone,
     last_task_id bigint,
     created_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
-    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
+    variables jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -257,7 +258,8 @@ CREATE TABLE public.tasks (
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     auto_archive bigint DEFAULT 0 CONSTRAINT tasks_archive_after_not_null NOT NULL,
     shell_session text DEFAULT ''::text NOT NULL,
-    namespace text DEFAULT ''::text NOT NULL
+    namespace text DEFAULT ''::text NOT NULL,
+    variables jsonb DEFAULT '{}'::jsonb NOT NULL
 );
 
 
@@ -308,7 +310,8 @@ CREATE TABLE public.workspaces (
     name text NOT NULL,
     org_id bigint NOT NULL,
     description text DEFAULT ''::text NOT NULL,
-    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    variables jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -799,4 +802,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260718000002'),
     ('20260906000001'),
     ('20261101000001'),
-    ('20261107000001');
+    ('20261107000001'),
+    ('20261118000001');

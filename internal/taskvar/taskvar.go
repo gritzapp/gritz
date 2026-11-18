@@ -28,10 +28,10 @@ const maxNameBytes = 64
 
 // Decl is a variable a workspace declares.
 type Decl struct {
-	Name        string
-	Description string
-	Required    bool
-	Default     string
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Default     string `json:"default,omitempty"`
 }
 
 // Error is a variable that fails resolution; callers map it to InvalidArgument.

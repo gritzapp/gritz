@@ -92,6 +92,9 @@ const (
 	// GritzServiceCreateTaskTokenProcedure is the fully-qualified name of the GritzService's
 	// CreateTaskToken RPC.
 	GritzServiceCreateTaskTokenProcedure = "/gritz.v1.GritzService/CreateTaskToken"
+	// GritzServiceGetRunSpecInputsProcedure is the fully-qualified name of the GritzService's
+	// GetRunSpecInputs RPC.
+	GritzServiceGetRunSpecInputsProcedure = "/gritz.v1.GritzService/GetRunSpecInputs"
 	// GritzServiceRegisterWorkspacesProcedure is the fully-qualified name of the GritzService's
 	// RegisterWorkspaces RPC.
 	GritzServiceRegisterWorkspacesProcedure = "/gritz.v1.GritzService/RegisterWorkspaces"
@@ -218,6 +221,10 @@ type GritzServiceClient interface {
 	// sandbox calls the API with. The token can read and update only that task,
 	// plus the requested capabilities.
 	CreateTaskToken(context.Context, *v1.CreateTaskTokenRequest) (*v1.CreateTaskTokenResponse, error)
+	// Called by the runner before it starts a task's run, to get what the run's
+	// spec needs from the server: the token the sandbox calls the API with, as
+	// CreateTaskToken returns it, and the task's variables.
+	GetRunSpecInputs(context.Context, *v1.GetRunSpecInputsRequest) (*v1.GetRunSpecInputsResponse, error)
 	// Called by the runner when it starts, to register the workspaces it serves.
 	// Replaces the workspaces registered before for the same runner.
 	RegisterWorkspaces(context.Context, *v1.RegisterWorkspacesRequest) (*v1.RegisterWorkspacesResponse, error)
@@ -408,6 +415,12 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+GritzServiceCreateTaskTokenProcedure,
 			connect.WithSchema(gritzServiceMethods.ByName("CreateTaskToken")),
+			connect.WithClientOptions(opts...),
+		),
+		getRunSpecInputs: connect.NewClient[v1.GetRunSpecInputsRequest, v1.GetRunSpecInputsResponse](
+			httpClient,
+			baseURL+GritzServiceGetRunSpecInputsProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("GetRunSpecInputs")),
 			connect.WithClientOptions(opts...),
 		),
 		registerWorkspaces: connect.NewClient[v1.RegisterWorkspacesRequest, v1.RegisterWorkspacesResponse](
@@ -625,6 +638,7 @@ type gritzServiceClient struct {
 	listEventsByTask               *connect.Client[v1.ListEventsByTaskRequest, v1.ListEventsByTaskResponse]
 	submitRunnerEvents             *connect.Client[v1.SubmitRunnerEventsRequest, v1.SubmitRunnerEventsResponse]
 	createTaskToken                *connect.Client[v1.CreateTaskTokenRequest, v1.CreateTaskTokenResponse]
+	getRunSpecInputs               *connect.Client[v1.GetRunSpecInputsRequest, v1.GetRunSpecInputsResponse]
 	registerWorkspaces             *connect.Client[v1.RegisterWorkspacesRequest, v1.RegisterWorkspacesResponse]
 	listWorkspaces                 *connect.Client[v1.ListWorkspacesRequest, v1.ListWorkspacesResponse]
 	clearWorkspaces                *connect.Client[v1.ClearWorkspacesRequest, v1.ClearWorkspacesResponse]
@@ -868,6 +882,15 @@ func (c *gritzServiceClient) SubmitRunnerEvents(ctx context.Context, req *v1.Sub
 // CreateTaskToken calls gritz.v1.GritzService.CreateTaskToken.
 func (c *gritzServiceClient) CreateTaskToken(ctx context.Context, req *v1.CreateTaskTokenRequest) (*v1.CreateTaskTokenResponse, error) {
 	response, err := c.createTaskToken.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// GetRunSpecInputs calls gritz.v1.GritzService.GetRunSpecInputs.
+func (c *gritzServiceClient) GetRunSpecInputs(ctx context.Context, req *v1.GetRunSpecInputsRequest) (*v1.GetRunSpecInputsResponse, error) {
+	response, err := c.getRunSpecInputs.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -1191,6 +1214,10 @@ type GritzServiceHandler interface {
 	// sandbox calls the API with. The token can read and update only that task,
 	// plus the requested capabilities.
 	CreateTaskToken(context.Context, *v1.CreateTaskTokenRequest) (*v1.CreateTaskTokenResponse, error)
+	// Called by the runner before it starts a task's run, to get what the run's
+	// spec needs from the server: the token the sandbox calls the API with, as
+	// CreateTaskToken returns it, and the task's variables.
+	GetRunSpecInputs(context.Context, *v1.GetRunSpecInputsRequest) (*v1.GetRunSpecInputsResponse, error)
 	// Called by the runner when it starts, to register the workspaces it serves.
 	// Replaces the workspaces registered before for the same runner.
 	RegisterWorkspaces(context.Context, *v1.RegisterWorkspacesRequest) (*v1.RegisterWorkspacesResponse, error)
@@ -1377,6 +1404,12 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		GritzServiceCreateTaskTokenProcedure,
 		svc.CreateTaskToken,
 		connect.WithSchema(gritzServiceMethods.ByName("CreateTaskToken")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceGetRunSpecInputsHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceGetRunSpecInputsProcedure,
+		svc.GetRunSpecInputs,
+		connect.WithSchema(gritzServiceMethods.ByName("GetRunSpecInputs")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gritzServiceRegisterWorkspacesHandler := connect.NewUnaryHandlerSimple(
@@ -1615,6 +1648,8 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceSubmitRunnerEventsHandler.ServeHTTP(w, r)
 		case GritzServiceCreateTaskTokenProcedure:
 			gritzServiceCreateTaskTokenHandler.ServeHTTP(w, r)
+		case GritzServiceGetRunSpecInputsProcedure:
+			gritzServiceGetRunSpecInputsHandler.ServeHTTP(w, r)
 		case GritzServiceRegisterWorkspacesProcedure:
 			gritzServiceRegisterWorkspacesHandler.ServeHTTP(w, r)
 		case GritzServiceListWorkspacesProcedure:
@@ -1780,6 +1815,10 @@ func (UnimplementedGritzServiceHandler) SubmitRunnerEvents(context.Context, *v1.
 
 func (UnimplementedGritzServiceHandler) CreateTaskToken(context.Context, *v1.CreateTaskTokenRequest) (*v1.CreateTaskTokenResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.CreateTaskToken is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) GetRunSpecInputs(context.Context, *v1.GetRunSpecInputsRequest) (*v1.GetRunSpecInputsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetRunSpecInputs is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) RegisterWorkspaces(context.Context, *v1.RegisterWorkspacesRequest) (*v1.RegisterWorkspacesResponse, error) {

@@ -90,6 +90,28 @@ func TestCreateTask_Namespace(t *testing.T) {
 	assert.Equal(t, gotDef.Namespace, "")
 }
 
+func TestCreateTask_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	vars := map[string]string{"JIRA_ISSUE": "APP-142", "EMPTY": ""}
+
+	// Act
+	task := &model.Task{
+		Runner:    "r",
+		Workspace: "w",
+		OrgID:     org.OrgID,
+		Variables: vars,
+	}
+	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
+
+	// Assert
+	got, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got.Variables, vars)
+}
+
 func TestListTasksPage_ActiveOnly(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)

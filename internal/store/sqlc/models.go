@@ -78,6 +78,7 @@ type Schedule struct {
 	LastTaskID   sql.NullInt64   `json:"last_task_id"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	Variables    json.RawMessage `json:"variables"`
 }
 
 type SchemaMigration struct {
@@ -85,20 +86,21 @@ type SchemaMigration struct {
 }
 
 type Task struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Runner       string    `json:"runner"`
-	Workspace    string    `json:"workspace"`
-	Status       int32     `json:"status"`
-	Command      int32     `json:"command"`
-	Version      int64     `json:"version"`
-	OrgID        int64     `json:"org_id"`
-	Archived     bool      `json:"archived"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	AutoArchive  int64     `json:"auto_archive"`
-	ShellSession string    `json:"shell_session"`
-	Namespace    string    `json:"namespace"`
+	ID           int64           `json:"id"`
+	Name         string          `json:"name"`
+	Runner       string          `json:"runner"`
+	Workspace    string          `json:"workspace"`
+	Status       int32           `json:"status"`
+	Command      int32           `json:"command"`
+	Version      int64           `json:"version"`
+	OrgID        int64           `json:"org_id"`
+	Archived     bool            `json:"archived"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	AutoArchive  int64           `json:"auto_archive"`
+	ShellSession string          `json:"shell_session"`
+	Namespace    string          `json:"namespace"`
+	Variables    json.RawMessage `json:"variables"`
 }
 
 type TaskLink struct {
@@ -126,10 +128,11 @@ type User struct {
 }
 
 type Workspace struct {
-	ID          int64     `json:"id"`
-	RunnerID    string    `json:"runner_id"`
-	Name        string    `json:"name"`
-	OrgID       int64     `json:"org_id"`
-	Description string    `json:"description"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          int64           `json:"id"`
+	RunnerID    string          `json:"runner_id"`
+	Name        string          `json:"name"`
+	OrgID       int64           `json:"org_id"`
+	Description string          `json:"description"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	Variables   json.RawMessage `json:"variables"`
 }

@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json/v2"
+	"fmt"
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/sqlc"
+	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 func (s *Store) DeleteWorkspacesByRunner(ctx context.Context, tx *sql.Tx, runnerID string, orgID int64) error {
@@ -15,12 +18,21 @@ func (s *Store) DeleteWorkspacesByRunner(ctx context.Context, tx *sql.Tx, runner
 	})
 }
 
-func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name, description string, orgID int64) error {
+// CreateWorkspace registers a runner's workspace with the task variables it
+// declares. ID and UpdatedAt are ignored.
+func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, ws *model.Workspace) error {
+	// json/v2 encodes a nil slice as []: workspaces.variables holds an array
+	// even when the workspace declares none.
+	data, err := json.Marshal(ws.Variables)
+	if err != nil {
+		return err
+	}
 	return s.q(tx).CreateWorkspace(ctx, sqlc.CreateWorkspaceParams{
-		RunnerID:    runnerID,
-		Name:        name,
-		Description: description,
-		OrgID:       orgID,
+		RunnerID:    ws.RunnerID,
+		Name:        ws.Name,
+		Description: ws.Description,
+		OrgID:       ws.OrgID,
+		Variables:   data,
 	})
 }
 
@@ -31,6 +43,13 @@ func (s *Store) ListWorkspaces(ctx context.Context, tx *sql.Tx, orgID int64) ([]
 	}
 	workspaces := make([]*model.Workspace, len(rows))
 	for i, row := range rows {
+		var variables []taskvar.Decl
+		if err := json.Unmarshal(row.Variables, &variables); err != nil {
+			return nil, fmt.Errorf("decode workspace %q variables: %w", row.Name, err)
+		}
+		if len(variables) == 0 {
+			variables = nil
+		}
 		workspaces[i] = &model.Workspace{
 			ID:          row.ID,
 			RunnerID:    row.RunnerID,
@@ -38,6 +57,7 @@ func (s *Store) ListWorkspaces(ctx context.Context, tx *sql.Tx, orgID int64) ([]
 			Description: row.Description,
 			OrgID:       row.OrgID,
 			UpdatedAt:   row.UpdatedAt,
+			Variables:   variables,
 		}
 	}
 	return workspaces, nil

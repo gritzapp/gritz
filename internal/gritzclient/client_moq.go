@@ -91,6 +91,9 @@ var _ Client = &ClientMock{}
 //			GetRoutingRulesFunc: func(contextMoqParam context.Context, getRoutingRulesRequest *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error) {
 //				panic("mock out the GetRoutingRules method")
 //			},
+//			GetRunSpecInputsFunc: func(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
+//				panic("mock out the GetRunSpecInputs method")
+//			},
 //			GetScheduleFunc: func(contextMoqParam context.Context, getScheduleRequest *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error) {
 //				panic("mock out the GetSchedule method")
 //			},
@@ -262,6 +265,9 @@ type ClientMock struct {
 
 	// GetRoutingRulesFunc mocks the GetRoutingRules method.
 	GetRoutingRulesFunc func(contextMoqParam context.Context, getRoutingRulesRequest *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error)
+
+	// GetRunSpecInputsFunc mocks the GetRunSpecInputs method.
+	GetRunSpecInputsFunc func(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error)
 
 	// GetScheduleFunc mocks the GetSchedule method.
 	GetScheduleFunc func(contextMoqParam context.Context, getScheduleRequest *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error)
@@ -526,6 +532,13 @@ type ClientMock struct {
 			// GetRoutingRulesRequest is the getRoutingRulesRequest argument value.
 			GetRoutingRulesRequest *gritzv1.GetRoutingRulesRequest
 		}
+		// GetRunSpecInputs holds details about calls to the GetRunSpecInputs method.
+		GetRunSpecInputs []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// GetRunSpecInputsRequest is the getRunSpecInputsRequest argument value.
+			GetRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest
+		}
 		// GetSchedule holds details about calls to the GetSchedule method.
 		GetSchedule []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -768,6 +781,7 @@ type ClientMock struct {
 	lockGetOrgSettings                 sync.RWMutex
 	lockGetProfile                     sync.RWMutex
 	lockGetRoutingRules                sync.RWMutex
+	lockGetRunSpecInputs               sync.RWMutex
 	lockGetSchedule                    sync.RWMutex
 	lockGetTask                        sync.RWMutex
 	lockLinkGitHubInstallation         sync.RWMutex
@@ -1662,6 +1676,42 @@ func (mock *ClientMock) GetRoutingRulesCalls() []struct {
 	mock.lockGetRoutingRules.RLock()
 	calls = mock.calls.GetRoutingRules
 	mock.lockGetRoutingRules.RUnlock()
+	return calls
+}
+
+// GetRunSpecInputs calls GetRunSpecInputsFunc.
+func (mock *ClientMock) GetRunSpecInputs(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
+	if mock.GetRunSpecInputsFunc == nil {
+		panic("ClientMock.GetRunSpecInputsFunc: method is nil but Client.GetRunSpecInputs was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam         context.Context
+		GetRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest
+	}{
+		ContextMoqParam:         contextMoqParam,
+		GetRunSpecInputsRequest: getRunSpecInputsRequest,
+	}
+	mock.lockGetRunSpecInputs.Lock()
+	mock.calls.GetRunSpecInputs = append(mock.calls.GetRunSpecInputs, callInfo)
+	mock.lockGetRunSpecInputs.Unlock()
+	return mock.GetRunSpecInputsFunc(contextMoqParam, getRunSpecInputsRequest)
+}
+
+// GetRunSpecInputsCalls gets all the calls that were made to GetRunSpecInputs.
+// Check the length with:
+//
+//	len(mockedClient.GetRunSpecInputsCalls())
+func (mock *ClientMock) GetRunSpecInputsCalls() []struct {
+	ContextMoqParam         context.Context
+	GetRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest
+} {
+	var calls []struct {
+		ContextMoqParam         context.Context
+		GetRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest
+	}
+	mock.lockGetRunSpecInputs.RLock()
+	calls = mock.calls.GetRunSpecInputs
+	mock.lockGetRunSpecInputs.RUnlock()
 	return calls
 }
 

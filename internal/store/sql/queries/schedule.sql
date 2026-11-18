@@ -4,18 +4,18 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING id;
 
 -- name: GetSchedule :one
-SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
+SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE id = $1 AND org_id = $2;
 
 -- name: GetScheduleForUpdate :one
-SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
+SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE id = $1 AND org_id = $2
 FOR UPDATE;
 
 -- name: ListSchedules :many
-SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
+SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE org_id = $1
 ORDER BY created_at DESC;
@@ -41,7 +41,7 @@ WHERE org_id = $1;
 -- point next_run_at has been advanced past now, so the row is no longer due.
 SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions,
        auto_archive, cron_expr, timezone, enabled,
-       next_run_at, last_run_at, last_task_id, created_at, updated_at
+       next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE enabled = TRUE
   AND next_run_at IS NOT NULL

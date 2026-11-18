@@ -16,7 +16,9 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 // TestDoubling checks the backoff matches the schedule the hand-rolled loops
@@ -71,6 +73,58 @@ func TestTaskManagerLoad_Slot(t *testing.T) {
 
 	// Assert - the reattached run holds the only slot.
 	assert.Assert(t, !m.slots.sem.TryAcquire(1))
+}
+
+// TestTaskManagerRegisterWorkspaces checks that the runner registers each
+// workspace with the task variables it declares.
+func TestTaskManagerRegisterWorkspaces(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
+	client := &gritzclient.ClientMock{
+		RegisterWorkspacesFunc: func(context.Context, *gritzv1.RegisterWorkspacesRequest) (*gritzv1.RegisterWorkspacesResponse, error) {
+			return &gritzv1.RegisterWorkspacesResponse{}, nil
+		},
+	}
+	m, err := NewTaskManager(TaskManagerOptions{
+		Client:  client,
+		Backend: &backend.BackendMock{},
+		Workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{
+			"story-agent": {
+				Description: "Stories",
+				Variables: map[string]workspace.VariableConfig{
+					"JIRA_ISSUE": {Description: "The Jira story", Required: true},
+					"BRANCH":     {Default: "main"},
+				},
+			},
+		}},
+		Concurrency: 1,
+		RunnerID:    "r",
+		Queue:       NewRunnerEventOutbox(RunnerEventOutboxOptions{Store: store, Client: client, Backoff: backoff.NewConstantBackOff(0), Log: slog.Default()}),
+		TaskLog:     taskevents.New(taskevents.Options{Store: store, Client: client}),
+		RunnerStore: store,
+	})
+	assert.NilError(t, err)
+
+	// Act
+	assert.NilError(t, m.RegisterWorkspaces(t.Context()))
+
+	// Assert - the declarations, sorted by name.
+	calls := client.RegisterWorkspacesCalls()
+	assert.Assert(t, cmp.Len(calls, 1))
+	assert.DeepEqual(t, calls[0].RegisterWorkspacesRequest, &gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "r",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name:        "story-agent",
+			Description: "Stories",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_ISSUE", Description: "The Jira story", Required: true},
+			},
+		}},
+	}, protocmp.Transform())
 }
 
 // TestTaskManagerRun_Fatal covers a durable write failure in a RunLoop. A
