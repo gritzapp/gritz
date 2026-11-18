@@ -647,9 +647,10 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	)
 }
 
-// registerStoryWorkspace registers runner-1's workspace "story", which
-// declares a required, a defaulted and an optional variable.
-func registerStoryWorkspace(h *e2e.Harness) {
+func TestCreateTask_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -661,13 +662,6 @@ func registerStoryWorkspace(h *e2e.Harness) {
 			},
 		}},
 	})
-}
-
-func TestCreateTask_Variables(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := e2e.New(t, nil)
-	registerStoryWorkspace(h)
 
 	// Act
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
@@ -688,7 +682,17 @@ func TestCreateTask_VariablesOverrideDefault(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	registerStoryWorkspace(h)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name: "story",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_ISSUE", Required: true},
+				{Name: "LABEL"},
+			},
+		}},
+	})
 
 	// Act - an explicit empty string is a value too.
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
@@ -733,7 +737,17 @@ func TestCreateTask_InvalidVariables(t *testing.T) {
 			t.Parallel()
 			// Arrange
 			h := e2e.New(t, nil)
-			registerStoryWorkspace(h)
+			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+				RunnerId: "runner-1",
+				Workspaces: []*gritzv1.RegisteredWorkspace{{
+					Name: "story",
+					Variables: []*gritzv1.VariableDecl{
+						{Name: "BRANCH", Default: "main"},
+						{Name: "JIRA_ISSUE", Required: true},
+						{Name: "LABEL"},
+					},
+				}},
+			})
 
 			// Act
 			_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{

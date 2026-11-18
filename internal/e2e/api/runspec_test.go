@@ -15,7 +15,16 @@ func TestGetRunSpecInputs(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
-	registerStoryWorkspace(h)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name: "story",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_ISSUE", Required: true},
+			},
+		}},
+	})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Runner:    "runner-1",
 		Workspace: "story",
