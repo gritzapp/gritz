@@ -9,7 +9,9 @@ package taskvar
 
 import (
 	"fmt"
+	"io"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 )
@@ -130,4 +132,43 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 		return nil, fmt.Errorf("%d variables, more than the limit of %d", len(out), MaxVariables)
 	}
 	return out, nil
+}
+
+// ParseAssignments parses NAME=VALUE assignments, as a command line takes
+// them. A value of @file is read from the file, and @- from stdin, which only
+// one assignment can use. It doesn't validate names or values: Resolve does.
+func ParseAssignments(args []string, stdin io.Reader) (map[string]string, error) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	vars := map[string]string{}
+	usedStdin := false
+	for _, arg := range args {
+		name, value, ok := strings.Cut(arg, "=")
+		if !ok || name == "" {
+			return nil, fmt.Errorf("%q: want NAME=VALUE", arg)
+		}
+		if _, dup := vars[name]; dup {
+			return nil, fmt.Errorf("%s: set more than once", name)
+		}
+		if path, ok := strings.CutPrefix(value, "@"); ok {
+			var data []byte
+			var err error
+			if path == "-" {
+				if usedStdin {
+					return nil, fmt.Errorf("%s: only one variable can read stdin", name)
+				}
+				usedStdin = true
+				data, err = io.ReadAll(stdin)
+			} else {
+				data, err = os.ReadFile(path)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", name, err)
+			}
+			value = string(data)
+		}
+		vars[name] = value
+	}
+	return vars, nil
 }

@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"github.com/urfave/cli/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
@@ -69,9 +68,9 @@ var TaskCreateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		variables, err := parseVars(cmd.StringSlice("var"), os.Stdin)
+		variables, err := taskvar.ParseAssignments(cmd.StringSlice("var"), os.Stdin)
 		if err != nil {
-			return err
+			return fmt.Errorf("--var: %w", err)
 		}
 
 		resp, err := client.CreateTask(ctx, &gritzv1.CreateTaskRequest{
@@ -90,42 +89,4 @@ var TaskCreateCommand = &cli.Command{
 		enc.SetIndent("", "  ")
 		return enc.Encode(resp.Task)
 	},
-}
-
-// parseVars parses --var values, NAME=VALUE each. A value of @file is read
-// from the file, and @- from stdin, which only one variable can use.
-func parseVars(args []string, stdin io.Reader) (map[string]string, error) {
-	if len(args) == 0 {
-		return nil, nil
-	}
-	vars := map[string]string{}
-	usedStdin := false
-	for _, arg := range args {
-		name, value, ok := strings.Cut(arg, "=")
-		if !ok || name == "" {
-			return nil, fmt.Errorf("--var %q: want NAME=VALUE", arg)
-		}
-		if _, dup := vars[name]; dup {
-			return nil, fmt.Errorf("--var %s: set more than once", name)
-		}
-		if path, ok := strings.CutPrefix(value, "@"); ok {
-			var data []byte
-			var err error
-			if path == "-" {
-				if usedStdin {
-					return nil, fmt.Errorf("--var %s: only one variable can read stdin", name)
-				}
-				usedStdin = true
-				data, err = io.ReadAll(stdin)
-			} else {
-				data, err = os.ReadFile(path)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("--var %s: %w", name, err)
-			}
-			value = string(data)
-		}
-		vars[name] = value
-	}
-	return vars, nil
 }
