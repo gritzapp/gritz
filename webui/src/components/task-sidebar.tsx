@@ -190,6 +190,8 @@ export function TaskSidebar({
               )}
             </dl>
 
+            <TaskVariables variables={task.variables} />
+
             <div className="my-4 h-px bg-border" />
 
             {/* links */}
@@ -312,6 +314,35 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
         {children}
       </dd>
     </div>
+  )
+}
+
+// TaskVariables lists the task's variables, set when it was created. A value
+// may be long or span lines, so each one gets its own row under its name
+// rather than sharing a line like the details above.
+function TaskVariables({ variables }: { variables: { [name: string]: string } }) {
+  const names = Object.keys(variables).sort()
+  if (names.length === 0) return null
+
+  return (
+    <>
+      <div className="my-4 h-px bg-border" />
+      <div className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Variables
+      </div>
+      <dl className="flex flex-col gap-2">
+        {names.map((name) => (
+          <div key={name} className="min-w-0 text-sm">
+            <dt className="truncate font-mono text-xs text-muted-foreground" title={name}>
+              {name}
+            </dt>
+            <dd className="whitespace-pre-wrap break-all font-mono font-medium">
+              {variables[name]}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </>
   )
 }
 

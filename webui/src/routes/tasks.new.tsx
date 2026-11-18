@@ -15,7 +15,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { VariableFields } from '@/components/variable-fields'
 import { durationFromHours } from '@/lib/duration'
+import { variablesToSet } from '@/lib/variables'
 
 export const Route = createFileRoute('/tasks/new')({
   component: NewTaskPage,
@@ -30,6 +32,7 @@ function NewTaskPage() {
   const [workspace, setWorkspace] = useOrgLocalStorage('gritz-last-workspace', '')
   const [namespace, setNamespace] = useState('')
   const [autoArchive, setAutoArchive] = useState<string>('') // empty = never
+  const [variables, setVariables] = useState<Record<string, string>>({})
 
   const { data: workspacesData } = useQuery(listWorkspaces, {})
 
@@ -38,10 +41,17 @@ function NewTaskPage() {
 
   // Filter workspaces by selected runner
   const workspaces = workspacesData?.workspaces.filter((ws) => ws.runnerId === runner) ?? []
+  const variableDecls = workspaces.find((ws) => ws.name === workspace)?.variables ?? []
 
   const handleRunnerChange = (newRunner: string) => {
     setRunner(newRunner)
     setWorkspace('')
+    setVariables({})
+  }
+
+  const handleWorkspaceChange = (newWorkspace: string) => {
+    setWorkspace(newWorkspace)
+    setVariables({})
   }
 
   const mutation = useMutation(createTask, {
@@ -72,6 +82,7 @@ function NewTaskPage() {
       namespace: namespace.trim(),
       draft: true,
       autoArchive: durationFromHours(autoArchive),
+      variables: variablesToSet(variables),
     })
   }
 
@@ -110,7 +121,12 @@ function NewTaskPage() {
 
             <div className="space-y-2">
               <Label htmlFor="workspace">Workspace</Label>
-              <Select value={workspace} onValueChange={setWorkspace} required disabled={!runner}>
+              <Select
+                value={workspace}
+                onValueChange={handleWorkspaceChange}
+                required
+                disabled={!runner}
+              >
                 <SelectTrigger id="workspace">
                   <SelectValue
                     placeholder={runner ? 'Select a workspace' : 'Select a runner first'}
@@ -128,6 +144,8 @@ function NewTaskPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <VariableFields decls={variableDecls} values={variables} onChange={setVariables} />
 
             <div className="space-y-2">
               <Label htmlFor="namespace">Namespace (optional)</Label>
