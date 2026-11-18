@@ -14,7 +14,12 @@ import (
 
 func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 	now := time.Now().UTC()
-	variables, err := encodeTaskVariables(task.Variables)
+	// tasks.variables holds an object even when the task has none.
+	vars := task.Variables
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	variables, err := json.Marshal(vars)
 	if err != nil {
 		return err
 	}
@@ -207,15 +212,6 @@ func (s *Store) ClearShellSession(ctx context.Context, tx *sql.Tx, session strin
 		ShellSession: session,
 		OrgID:        orgID,
 	})
-}
-
-// encodeTaskVariables encodes a task's variables for tasks.variables, which
-// holds an object even when the task has none.
-func encodeTaskVariables(vars map[string]string) ([]byte, error) {
-	if vars == nil {
-		vars = map[string]string{}
-	}
-	return json.Marshal(vars)
 }
 
 func toModelTask(row sqlc.Task) (*model.Task, error) {
