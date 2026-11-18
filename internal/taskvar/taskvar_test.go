@@ -2,8 +2,6 @@ package taskvar
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -216,18 +214,13 @@ func TestResolve(t *testing.T) {
 
 func TestParseAssignments(t *testing.T) {
 	t.Parallel()
-	// Arrange
-	path := filepath.Join(t.TempDir(), "notes.txt")
-	assert.NilError(t, os.WriteFile(path, []byte("line 1\nline 2\n"), 0o600))
-
 	// Act
 	got, err := ParseAssignments([]string{
 		"JIRA_ISSUE=APP-142",
 		"LABEL=a,b=c",
 		"EMPTY=",
-		"NOTES=@" + path,
-		"STDIN=@-",
-	}, strings.NewReader("from stdin"))
+		"NOTES=@notes.md",
+	})
 
 	// Assert
 	assert.NilError(t, err)
@@ -235,8 +228,7 @@ func TestParseAssignments(t *testing.T) {
 		"JIRA_ISSUE": "APP-142",
 		"LABEL":      "a,b=c",
 		"EMPTY":      "",
-		"NOTES":      "line 1\nline 2\n",
-		"STDIN":      "from stdin",
+		"NOTES":      "@notes.md",
 	})
 }
 
@@ -250,12 +242,10 @@ func TestParseAssignments_Invalid(t *testing.T) {
 		{"no equals", []string{"JIRA_ISSUE"}, "want NAME=VALUE"},
 		{"no name", []string{"=APP-142"}, "want NAME=VALUE"},
 		{"duplicate", []string{"A=1", "A=2"}, "set more than once"},
-		{"stdin twice", []string{"A=@-", "B=@-"}, "only one variable can read stdin"},
-		{"missing file", []string{"A=@" + filepath.Join(t.TempDir(), "missing")}, "no such file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseAssignments(tt.args, strings.NewReader(""))
+			_, err := ParseAssignments(tt.args)
 			assert.ErrorContains(t, err, tt.err)
 		})
 	}

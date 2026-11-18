@@ -45,7 +45,7 @@ var TaskCreateCommand = &cli.Command{
 		},
 		&cli.StringSliceFlag{
 			Name:  "var",
-			Usage: "Task variable as `NAME=VALUE` (can be specified multiple times). NAME=@file reads the value from a file, NAME=@- from stdin.",
+			Usage: "Task variable as `NAME=VALUE` (can be specified multiple times)",
 		},
 		&cli.DurationFlag{
 			Name:  "auto-archive",
@@ -68,7 +68,7 @@ var TaskCreateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		variables, err := taskvar.ParseAssignments(cmd.StringSlice("var"), os.Stdin)
+		variables, err := taskvar.ParseAssignments(cmd.StringSlice("var"))
 		if err != nil {
 			return fmt.Errorf("--var: %w", err)
 		}
