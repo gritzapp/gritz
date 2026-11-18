@@ -85,13 +85,16 @@ archived</strong> to include archived tasks, and archive or unarchive a task fro
 row.</p>
 <p><strong>+ Task</strong> creates a task. Pick a runner, then one of its workspaces; the name,
 <a href="/concepts/namespaces/">namespace</a> and
-<a href="/concepts/tasks/#auto-archive">auto-archive</a> delay are optional. The form
-remembers the last runner and workspace you used. The task is created as a
+<a href="/concepts/tasks/#auto-archive">auto-archive</a> delay are optional. If the
+workspace declares <a href="/operators/workspaces-yaml/#variables">variables</a>, the form
+shows a field for each, with its description below it and its default as the
+placeholder; a required one is marked with <code dir="auto">*</code>. Leave an optional field empty
+to use the default. The form remembers the last runner and workspace you used. The task is created as a
 draft, and starts when you send its first instruction.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="the-task-page">The task page</h2><a class="sl-anchor-link" href="#the-task-page"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “The task page”</span></a></div>
 <p>The sidebar on the left holds the task’s status and name, its three views, its
-details (runner, workspace, namespace, created and updated times), its links, and
-its actions:</p>
+details (runner, workspace, namespace, created and updated times), its
+variables, its links, and its actions:</p>
 <ul>
 <li><strong>Archive</strong> or <strong>Unarchive</strong>. When an auto-archive delay is counting down, the
 time left shows next to it.</li>
