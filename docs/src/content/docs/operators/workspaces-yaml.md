@@ -245,9 +245,6 @@ The setup commands and the agent see, in order of precedence:
 2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`,
    the task's own token, and the task's [variables](#variables) as
    `GRITZ_VAR_<NAME>`. On Lambda MicroVMs, also `lambda_microvm.environment`.
-   A `GRITZ_VAR_` entry in `secrets`, `container.environment` or
-   `lambda_microvm.environment` wins over the task's value for every task of
-   the workspace.
 3. The sandbox's environment: the image's, plus `container.environment` on
    Docker.
 

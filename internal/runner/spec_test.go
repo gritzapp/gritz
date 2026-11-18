@@ -2,13 +2,11 @@ package runner
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
-	"github.com/gritzapp/gritz/internal/taskvar"
 	"gotest.tools/v3/assert"
 )
 
@@ -130,79 +128,35 @@ func TestBuildSpecs_RunEnv(t *testing.T) {
 }
 
 // TestBuildSpecs_Variables asserts each task variable reaches the spec's Env,
-// and so the run's, as GRITZ_VAR_<NAME>, and that a workspace setting the
-// same name keeps its own value: the task variable is skipped.
+// and so the run's, as GRITZ_VAR_<NAME>.
 func TestBuildSpecs_Variables(t *testing.T) {
 	t.Parallel()
-	variables := map[string]string{"JIRA_ISSUE": "APP-142", "PINNED": "task"}
-	tests := []struct {
-		name string
-		ws   workspace.Workspace
-		// env is the spec's expected GRITZ_VAR_ entries.
-		env map[string]string
-		// runEnv is the run's expected GRITZ_VAR_PINNED, "" if unset.
-		runEnv string
-	}{
-		{
-			name:   "no collision",
-			env:    map[string]string{"GRITZ_VAR_JIRA_ISSUE": "APP-142", "GRITZ_VAR_PINNED": "task"},
-			runEnv: "task",
+	// Arrange
+	in := specInput{
+		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
+		Workspace: &workspace.Workspace{
+			Container: workspace.Container{Image: "alpine:latest"},
+			Agent:     workspace.Agent{Type: "dummy"},
 		},
-		{
-			name: "container environment",
-			ws: workspace.Workspace{Container: workspace.Container{
-				Environment: map[string]string{"GRITZ_VAR_PINNED": "workspace"},
-			}},
-			env: map[string]string{"GRITZ_VAR_JIRA_ISSUE": "APP-142"},
-		},
-		{
-			name: "lambda_microvm environment",
-			ws: workspace.Workspace{LambdaMicroVM: &workspace.LambdaMicroVM{
-				Environment: map[string]string{"GRITZ_VAR_PINNED": "workspace"},
-			}},
-			env:    map[string]string{"GRITZ_VAR_JIRA_ISSUE": "APP-142"},
-			runEnv: "workspace",
-		},
-		{
-			name: "secrets",
-			ws:   workspace.Workspace{Secrets: map[string]string{"GRITZ_VAR_PINNED": "workspace"}},
-			env:  map[string]string{"GRITZ_VAR_JIRA_ISSUE": "APP-142"},
-		},
+		ServerURL:  "http://localhost",
+		RunnerID:   "test-runner",
+		Token:      "t",
+		Variables:  map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "main"},
+		BinaryPath: "/gritz/bin/gritz",
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange
-			ws := tt.ws
-			ws.Agent = workspace.Agent{Type: "dummy"}
-			var runEnv map[string]string
-			if ws.LambdaMicroVM != nil {
-				runEnv = ws.LambdaMicroVM.Environment
-			}
-			in := specInput{
-				Change:     runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
-				Workspace:  &ws,
-				ServerURL:  "http://localhost",
-				RunnerID:   "test-runner",
-				Token:      "t",
-				Variables:  variables,
-				BinaryPath: "/gritz/bin/gritz",
-				RunEnv:     runEnv,
-			}
 
-			// Act
-			spec, rs, err := buildSpecs(in)
+	// Act
+	spec, rs, err := buildSpecs(in)
 
-			// Assert
-			assert.NilError(t, err)
-			env := map[string]string{}
-			for k, v := range spec.Env {
-				if strings.HasPrefix(k, taskvar.EnvPrefix) {
-					env[k] = v
-				}
-			}
-			assert.DeepEqual(t, env, tt.env)
-			assert.Equal(t, rs.GetEnv()["GRITZ_VAR_PINNED"], tt.runEnv)
-		})
+	// Assert
+	assert.NilError(t, err)
+	want := map[string]string{
+		"GRITZ_TASK_ID":        "1",
+		"GRITZ_TOKEN":          "t",
+		"GRITZ_SERVER":         "http://localhost",
+		"GRITZ_VAR_JIRA_ISSUE": "APP-142",
+		"GRITZ_VAR_BRANCH":     "main",
 	}
+	assert.DeepEqual(t, spec.Env, want)
+	assert.DeepEqual(t, rs.GetEnv(), want)
 }

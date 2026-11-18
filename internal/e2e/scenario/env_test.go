@@ -40,17 +40,13 @@ func TestEnv_Variables(t *testing.T) {
 		Variables: map[string]workspace.VariableConfig{
 			"JIRA_ISSUE": {Required: true},
 			"BRANCH":     {Default: "main"},
-			"PINNED":     {},
 			"LABEL":      {},
 		},
-		// The workspace sets GRITZ_VAR_PINNED itself, so the task's value is
-		// skipped.
-		Secrets:  map[string]string{"GRITZ_VAR_PINNED": "workspace"},
 		Commands: []string{"env > env"},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
-		Variables:    map[string]string{"JIRA_ISSUE": "APP-142", "PINNED": "task"},
+		Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
@@ -58,7 +54,6 @@ func TestEnv_Variables(t *testing.T) {
 	env := strings.Split(strings.TrimSpace(h.Backend.ReadFile(task.ID, "env")), "\n")
 	assert.Assert(t, cmp.Contains(env, "GRITZ_VAR_JIRA_ISSUE=APP-142"))
 	assert.Assert(t, cmp.Contains(env, "GRITZ_VAR_BRANCH=main"))
-	assert.Assert(t, cmp.Contains(env, "GRITZ_VAR_PINNED=workspace"))
 	for _, kv := range env {
 		assert.Assert(t, !strings.HasPrefix(kv, "GRITZ_VAR_LABEL="), kv)
 	}

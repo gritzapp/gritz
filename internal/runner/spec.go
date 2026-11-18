@@ -39,9 +39,7 @@ type specInput struct {
 // MCP server. It also builds the driver.v1 RunSpec the run is started with,
 // whose environment is in.RunEnv under the spec's Env.
 //
-// Each task variable X is added to the spec's Env as GRITZ_VAR_X, unless the
-// workspace's container.environment, lambda_microvm.environment or secrets:
-// sets that name: the workspace's value wins.
+// Each task variable X is added to the spec's Env as GRITZ_VAR_X.
 func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 	c, ws := in.Change, in.Workspace
 
@@ -94,11 +92,7 @@ func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 	}
 
 	for name, value := range in.Variables {
-		key := taskvar.Env(name)
-		if workspaceSets(ws, key) {
-			continue
-		}
-		spec.Env[key] = value
+		spec.Env[taskvar.Env(name)] = value
 	}
 
 	env := maps.Clone(in.RunEnv)
@@ -122,19 +116,4 @@ func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 		})
 	}
 	return spec, rs, nil
-}
-
-// workspaceSets reports whether the workspace's own config sets the
-// environment variable key.
-func workspaceSets(ws *workspace.Workspace, key string) bool {
-	if _, ok := ws.Container.Environment[key]; ok {
-		return true
-	}
-	if ws.LambdaMicroVM != nil {
-		if _, ok := ws.LambdaMicroVM.Environment[key]; ok {
-			return true
-		}
-	}
-	_, ok := ws.Secrets[key]
-	return ok
 }
