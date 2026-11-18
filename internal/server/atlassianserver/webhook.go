@@ -122,6 +122,7 @@ type AtlassianMeta struct {
 // dispatches on InputEvent.Type.
 const (
 	EventTypeCommentCreated = "comment_created"
+	EventTypeIssueCreated   = "issue_created"
 	EventTypeLabelAdded     = "label_added"
 	EventTypeIssueAssigned  = "issue_assigned"
 )
@@ -169,6 +170,43 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error)
 			Attrs: eventrouter.Attrs{
 				"mention": atlassian.Mentions(commentBody),
 				"user":    {accountID},
+			},
+		}}, AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName}, nil
+
+	case atlassian.WebhookEventIssueCreated:
+		if payload.Issue == nil || payload.User == nil {
+			return nil, AtlassianMeta{}, nil
+		}
+
+		accountID := payload.User.AccountID
+		displayName := payload.User.DisplayName
+		if accountID == "" {
+			return nil, AtlassianMeta{}, nil
+		}
+
+		url := payload.Issue.BrowseURL()
+		if url == "" {
+			return nil, AtlassianMeta{}, nil
+		}
+
+		// A label or assignee set at creation arrives here, with no
+		// changelog, rather than as label_added or issue_assigned, so this
+		// event carries them as attrs. The "assignee" attr is the account id,
+		// as for issue_assigned.
+		var assignee []string
+		if a := payload.Issue.Fields.Assignee; a != nil {
+			assignee = []string{a.AccountID}
+		}
+		return []eventrouter.InputEvent{{
+			Source:      "atlassian",
+			Type:        EventTypeIssueCreated,
+			Description: fmt.Sprintf("%s created %s", displayName, payload.Issue.Key),
+			Data:        strings.TrimSpace(payload.Issue.Fields.Description),
+			URL:         url,
+			Attrs: eventrouter.Attrs{
+				"label":    payload.Issue.Fields.Labels,
+				"assignee": assignee,
+				"user":     {accountID},
 			},
 		}}, AtlassianMeta{AuthorAccountID: accountID, AuthorDisplayName: displayName}, nil
 

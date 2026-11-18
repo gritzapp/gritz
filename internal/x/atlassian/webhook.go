@@ -13,6 +13,7 @@ import (
 // WebhookPayload.WebhookEvent.
 const (
 	WebhookEventCommentCreated = "comment_created"
+	WebhookEventIssueCreated   = "jira:issue_created"
 	WebhookEventIssueUpdated   = "jira:issue_updated"
 )
 
@@ -110,8 +111,11 @@ type Issue struct {
 
 // IssueFields represents the fields of a Jira issue.
 type IssueFields struct {
-	Summary     string `json:"summary"`
-	Description string `json:"description"`
+	Summary     string   `json:"summary"`
+	Description string   `json:"description"`
+	Labels      []string `json:"labels"`
+	// Assignee is nil when the issue is unassigned.
+	Assignee *User `json:"assignee"`
 }
 
 // ParseWebhook parses a Jira webhook payload from JSON.

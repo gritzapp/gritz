@@ -52,6 +52,43 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 	})
 	reg.MustRegister(model.EventTypeDef{
 		Source: "atlassian",
+		Type:   EventTypeIssueCreated,
+		Label:  "Jira: Issue Created",
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Issue Description",
+				Placeholder: "gritz:",
+				Help:        "Matched against the description of the new issue.",
+			},
+			{
+				Key:         "url",
+				Label:       "Issue URL",
+				Placeholder: "https://your-domain.atlassian.net/browse/PROJ-",
+				Help:        "Matched against the new issue URL, e.g. to scope a rule to a single project.",
+			},
+			{
+				Key:         "label",
+				Label:       "Label",
+				Placeholder: "gritz",
+				Help:        "A label the issue was created with.",
+			},
+			{
+				Key:         "assignee",
+				Label:       "Assignee",
+				Placeholder: "5b10ac8d82e05b22cc7d4ef5",
+				Help:        "Atlassian account id of the user the issue was created assigned to. Enter the bare id (no [~accountid:…] wrapper).",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "5b10ac8d82e05b22cc7d4ef5",
+				Help:        "Atlassian account id of the user who created the issue. Enter the bare id (no [~accountid:…] wrapper).",
+			},
+		},
+	})
+	reg.MustRegister(model.EventTypeDef{
+		Source: "atlassian",
 		Type:   EventTypeLabelAdded,
 		Label:  "Jira: Label Added",
 		Attrs: []model.AttrDef{

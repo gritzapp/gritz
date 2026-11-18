@@ -348,6 +348,71 @@ func TestToAtlassianInputEvents(t *testing.T) {
 			},
 			expected: nil,
 		},
+		{
+			name: "IssueCreatedLabelledAndAssigned",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_created",
+				User:         &atlassian.User{AccountID: "scanner1", DisplayName: "Scanner"},
+				Issue: &atlassian.Issue{
+					Key:  "SEC-7",
+					Self: "https://mycompany.atlassian.net/rest/api/2/issue/7",
+					Fields: atlassian.IssueFields{
+						Description: "  CVE-2026-0001 in libfoo  ",
+						Labels:      []string{"gritz", "sec"},
+						Assignee:    &atlassian.User{AccountID: "bot456", DisplayName: "Gritz Bot"},
+					},
+				},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "atlassian",
+				Type:        "issue_created",
+				Description: "Scanner created SEC-7",
+				Data:        "CVE-2026-0001 in libfoo",
+				URL:         "https://mycompany.atlassian.net/browse/SEC-7",
+				Attrs: eventrouter.Attrs{
+					"label":    {"gritz", "sec"},
+					"assignee": {"bot456"},
+					"user":     {"scanner1"},
+				},
+			}},
+			meta: AtlassianMeta{AuthorAccountID: "scanner1", AuthorDisplayName: "Scanner"},
+		},
+		{
+			name: "IssueCreatedUnlabelledAndUnassigned",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_created",
+				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
+				Issue: &atlassian.Issue{
+					Key:    "PROJ-8",
+					Self:   "https://mycompany.atlassian.net/rest/api/2/issue/8",
+					Fields: atlassian.IssueFields{Description: "a new issue"},
+				},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "atlassian",
+				Type:        "issue_created",
+				Description: "Test User created PROJ-8",
+				Data:        "a new issue",
+				URL:         "https://mycompany.atlassian.net/browse/PROJ-8",
+				Attrs: eventrouter.Attrs{
+					"label":    nil,
+					"assignee": nil,
+					"user":     {"abc123"},
+				},
+			}},
+			meta: AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+		},
+		{
+			name: "IssueCreatedNilUser",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_created",
+				Issue: &atlassian.Issue{
+					Key:  "PROJ-8",
+					Self: "https://mycompany.atlassian.net/rest/api/2/issue/8",
+				},
+			},
+			expected: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -619,6 +684,52 @@ func TestHandleAtlassianWebhookUnlinkedActorRoutesViaOrg(t *testing.T) {
 	// on that org can fire.
 	inputs := router.RoutedInputs()
 	assert.Assert(t, cmp.Len(inputs, 1))
+	assert.Equal(t, inputs[0].UserID, "")
+	assert.DeepEqual(t, inputs[0].Orgs, []int64{1})
+}
+
+// An issue filed by an unlinked integration user, such as a scanner, routes
+// via the org, so only Public rules act on it.
+func TestHandleAtlassianWebhookIssueCreatedUnlinkedCreator(t *testing.T) {
+	// Arrange
+	secret := "test-webhook-secret"
+	router := &RouterMock{
+		RouteFunc: func(ctx context.Context, input eventrouter.InputEvent) (int, error) {
+			return 1, nil
+		},
+	}
+	h := &WebhookHandler{
+		Router: router,
+		Store: &StoreMock{
+			GetOrgAtlassianWebhookSecretFunc: func(ctx context.Context, tx *sql.Tx, orgID int64) (string, error) {
+				return secret, nil
+			},
+			GetUserByAtlassianAccountIDFunc: func(ctx context.Context, tx *sql.Tx, id string) (*model.User, error) {
+				return nil, sql.ErrNoRows
+			},
+		},
+	}
+	payload := atlassian.WebhookPayload{
+		WebhookEvent: "jira:issue_created",
+		User:         &atlassian.User{AccountID: "scanner1", DisplayName: "Scanner"},
+		Issue: &atlassian.Issue{
+			Key:    "SEC-7",
+			Self:   "https://mycompany.atlassian.net/rest/api/2/issue/7",
+			Fields: atlassian.IssueFields{Description: "CVE-2026-0001 in libfoo"},
+		},
+	}
+	req := makeAtlassianWebhookRequest(t, 1, payload, secret)
+	rec := httptest.NewRecorder()
+
+	// Act
+	h.ServeHTTP(rec, req)
+
+	// Assert
+	assert.Equal(t, rec.Code, http.StatusOK)
+	assert.Equal(t, rec.Body.String(), "processed")
+	inputs := router.RoutedInputs()
+	assert.Assert(t, cmp.Len(inputs, 1))
+	assert.Equal(t, inputs[0].Type, EventTypeIssueCreated)
 	assert.Equal(t, inputs[0].UserID, "")
 	assert.DeepEqual(t, inputs[0].Orgs, []int64{1})
 }

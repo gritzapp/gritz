@@ -198,6 +198,43 @@ func TestParseWebhookAssigneeChange(t *testing.T) {
 	assert.DeepEqual(t, payload.NewAssignee(), &User{AccountID: "bot456", DisplayName: "Gritz Bot"})
 }
 
+func TestParseWebhookIssueCreated(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		expected IssueFields
+	}{
+		{
+			name: "LabelledAndAssigned",
+			body: `{"webhookEvent":"jira:issue_created","issue":{"key":"PROJ-1","fields":{"summary":"S","description":"D","labels":["gritz","sec"],"assignee":{"accountId":"bot456","displayName":"Gritz Bot"}}}}`,
+			expected: IssueFields{
+				Summary:     "S",
+				Description: "D",
+				Labels:      []string{"gritz", "sec"},
+				Assignee:    &User{AccountID: "bot456", DisplayName: "Gritz Bot"},
+			},
+		},
+		{
+			name: "UnlabelledAndUnassigned",
+			body: `{"webhookEvent":"jira:issue_created","issue":{"key":"PROJ-1","fields":{"summary":"S","description":"D","labels":[],"assignee":null}}}`,
+			expected: IssueFields{
+				Summary:     "S",
+				Description: "D",
+				Labels:      []string{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, err := ParseWebhook([]byte(tt.body))
+
+			assert.NilError(t, err)
+			assert.Equal(t, payload.WebhookEvent, WebhookEventIssueCreated)
+			assert.DeepEqual(t, payload.Issue.Fields, tt.expected)
+		})
+	}
+}
+
 func TestIssueBrowseURL(t *testing.T) {
 	tests := []struct {
 		name     string
