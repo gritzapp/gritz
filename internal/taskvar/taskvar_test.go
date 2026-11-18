@@ -212,10 +212,10 @@ func TestResolve(t *testing.T) {
 	}
 }
 
-func TestParseAssignments(t *testing.T) {
+func TestParseFlags(t *testing.T) {
 	t.Parallel()
 	// Act
-	got, err := ParseAssignments([]string{
+	got, err := ParseFlags([]string{
 		"JIRA_ISSUE=APP-142",
 		"LABEL=a,b=c",
 		"EMPTY=",
@@ -232,7 +232,7 @@ func TestParseAssignments(t *testing.T) {
 	})
 }
 
-func TestParseAssignments_Invalid(t *testing.T) {
+func TestParseFlags_Invalid(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -245,7 +245,7 @@ func TestParseAssignments_Invalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseAssignments(tt.args)
+			_, err := ParseFlags(tt.args)
 			assert.ErrorContains(t, err, tt.err)
 		})
 	}

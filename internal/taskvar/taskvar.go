@@ -132,10 +132,10 @@ func Resolve(decls []Decl, given map[string]string) (map[string]string, error) {
 	return out, nil
 }
 
-// ParseAssignments parses NAME=VALUE assignments, as a command line takes
+// ParseFlags parses NAME=VALUE assignments, as a command line takes
 // them. A value is the literal text after the first "=". It doesn't validate
 // names or values: Resolve does.
-func ParseAssignments(args []string) (map[string]string, error) {
+func ParseFlags(args []string) (map[string]string, error) {
 	if len(args) == 0 {
 		return nil, nil
 	}

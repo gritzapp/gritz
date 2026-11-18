@@ -68,7 +68,7 @@ var TaskCreateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		variables, err := taskvar.ParseAssignments(cmd.StringSlice("var"))
+		variables, err := taskvar.ParseFlags(cmd.StringSlice("var"))
 		if err != nil {
 			return fmt.Errorf("--var: %w", err)
 		}
