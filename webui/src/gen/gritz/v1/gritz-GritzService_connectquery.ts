@@ -142,6 +142,15 @@ export const submitRunnerEvents = GritzService.method.submitRunnerEvents;
 export const createTaskToken = GritzService.method.createTaskToken;
 
 /**
+ * Called by the runner before it starts a task's run, to get what the run's
+ * spec needs from the server: the token the sandbox calls the API with, as
+ * CreateTaskToken returns it, and the task's variables.
+ *
+ * @generated from rpc gritz.v1.GritzService.GetRunSpecInputs
+ */
+export const getRunSpecInputs = GritzService.method.getRunSpecInputs;
+
+/**
  * Called by the runner when it starts, to register the workspaces it serves.
  * Replaces the workspaces registered before for the same runner.
  *

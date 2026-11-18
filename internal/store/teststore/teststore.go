@@ -168,6 +168,7 @@ func CreateOrg(t *testing.T, s *store.Store, opts *OrgOptions) *Org {
 				cmp.Or(ws.RunnerID, "test-runner"),
 				cmp.Or(ws.Name, "default"),
 				"",
+				nil,
 				org.ID,
 			); err != nil {
 				t.Fatal(err)

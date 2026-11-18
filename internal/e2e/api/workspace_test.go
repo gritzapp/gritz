@@ -3,6 +3,7 @@ package api_test
 import (
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -15,23 +16,50 @@ func TestRegisterWorkspaces(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := e2e.New(t, nil)
+	variables := []*gritzv1.VariableDecl{
+		{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
+		{Name: "JIRA_ISSUE", Required: true},
+	}
 
 	// Act
 	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
-			{Name: "workspace-a", Description: "First workspace"},
+			{Name: "workspace-a", Description: "First workspace", Variables: variables},
 			{Name: "workspace-b"},
 		},
 	})
 
-	// Assert - runner-1's workspaces beside the harness's own.
+	// Assert - runner-1's workspaces, with their variables, beside the
+	// harness's own.
 	assert.NilError(t, err)
 	assert.DeepEqual(t, h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), []*gritzv1.RegisteredWorkspace{
 		{Name: e2e.DefaultWorkspace, RunnerId: e2e.DefaultRunner},
-		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace"},
+		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace", Variables: variables},
 		{Name: "workspace-b", RunnerId: "runner-1"},
 	}, protocmp.Transform(), protocmp.IgnoreFields(&gritzv1.RegisteredWorkspace{}, "updated_at"))
+}
+
+func TestRegisterWorkspaces_InvalidVariable(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+
+	// Act - a required variable with a default.
+	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name:      "workspace-a",
+			Variables: []*gritzv1.VariableDecl{{Name: "BRANCH", Required: true, Default: "main"}},
+		}},
+	})
+
+	// Assert - rejected, and nothing registered.
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.DeepEqual(t,
+		testx.ExtractField(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
+		[]string{e2e.DefaultWorkspace},
+	)
 }
 
 func TestRegisterWorkspaces_Permissions(t *testing.T) {

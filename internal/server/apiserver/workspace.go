@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
@@ -18,12 +19,21 @@ func (s *Server) RegisterWorkspaces(ctx context.Context, req *gritzv1.RegisterWo
 	if !caller.Scopes.Allow(authscope.OpWorkspaceWrite) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot register workspaces"))
 	}
+	// Resolving a task's variables relies on its workspace's declarations
+	// being valid.
+	for _, ws := range req.Workspaces {
+		for _, d := range model.VariableDeclsFromProto(ws.Variables) {
+			if err := d.Validate(); err != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", ws.Name, err))
+			}
+		}
+	}
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		if err := s.store.DeleteWorkspacesByRunner(ctx, tx, req.RunnerId, caller.OrgID); err != nil {
 			return err
 		}
 		for _, ws := range req.Workspaces {
-			if err := s.store.CreateWorkspace(ctx, tx, req.RunnerId, ws.Name, ws.Description, caller.OrgID); err != nil {
+			if err := s.store.CreateWorkspace(ctx, tx, req.RunnerId, ws.Name, ws.Description, model.VariableDeclsFromProto(ws.Variables), caller.OrgID); err != nil {
 				return err
 			}
 		}

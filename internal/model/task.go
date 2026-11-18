@@ -87,11 +87,16 @@ type Task struct {
 	// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md).
 	// Inert for now — no consumers yet.
 	ShellSession string `json:"shell_session,omitempty"`
+	// Variables are the task's resolved variables, by name, each injected into
+	// its sandbox as GRITZ_VAR_<NAME>. Set at creation and never changed. Nil
+	// when the task has none.
+	Variables map[string]string `json:"variables,omitempty"`
 }
 
-// Clone returns an independent copy of the task. Every field is value-typed,
-// so a shallow struct copy is a complete snapshot — callers can retain it
-// across in-place mutations (e.g. the ApplyRunnerEvent fold).
+// Clone returns an independent copy of the task. Every field but Variables is
+// value-typed, and Variables is never mutated, so a shallow struct copy is a
+// complete snapshot — callers can retain it across in-place mutations (e.g.
+// the ApplyRunnerEvent fold).
 func (t *Task) Clone() *Task {
 	c := *t
 	return &c

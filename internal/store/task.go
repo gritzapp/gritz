@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 
 func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 	now := time.Now().UTC()
+	variables, err := encodeTaskVariables(task.Variables)
+	if err != nil {
+		return err
+	}
 	id, err := s.q(tx).CreateTask(ctx, sqlc.CreateTaskParams{
 		Name:         task.Name,
 		Runner:       task.Runner,
@@ -27,6 +32,7 @@ func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 		AutoArchive:  task.AutoArchive.Microseconds(),
 		ShellSession: task.ShellSession,
 		Namespace:    task.Namespace,
+		Variables:    variables,
 	})
 	if err != nil {
 		return err
@@ -203,7 +209,23 @@ func (s *Store) ClearShellSession(ctx context.Context, tx *sql.Tx, session strin
 	})
 }
 
+// encodeTaskVariables encodes a task's variables for tasks.variables, which
+// holds an object even when the task has none.
+func encodeTaskVariables(vars map[string]string) ([]byte, error) {
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	return json.Marshal(vars)
+}
+
 func toModelTask(row sqlc.Task) (*model.Task, error) {
+	var variables map[string]string
+	if err := json.Unmarshal(row.Variables, &variables); err != nil {
+		return nil, fmt.Errorf("decode task %d variables: %w", row.ID, err)
+	}
+	if len(variables) == 0 {
+		variables = nil
+	}
 	return &model.Task{
 		ID:           row.ID,
 		Name:         row.Name,
@@ -219,6 +241,7 @@ func toModelTask(row sqlc.Task) (*model.Task, error) {
 		AutoArchive:  time.Duration(row.AutoArchive) * time.Microsecond,
 		ShellSession: row.ShellSession,
 		Namespace:    row.Namespace,
+		Variables:    variables,
 	}, nil
 }
 

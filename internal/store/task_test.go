@@ -90,6 +90,55 @@ func TestCreateTask_Namespace(t *testing.T) {
 	assert.Equal(t, gotDef.Namespace, "")
 }
 
+func TestCreateTask_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	vars := map[string]string{"JIRA_ISSUE": "APP-142", "EMPTY": ""}
+
+	// Act
+	task := &model.Task{
+		Runner:    "r",
+		Workspace: "w",
+		OrgID:     org.OrgID,
+		Variables: vars,
+	}
+	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
+	none := &model.Task{
+		Runner:    "r",
+		Workspace: "w",
+		OrgID:     org.OrgID,
+	}
+	assert.NilError(t, s.CreateTask(t.Context(), nil, none))
+
+	// Assert - every read path returns the variables; a task without any reads
+	// back nil.
+	got, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got.Variables, vars)
+	locked, err := s.GetTaskForUpdate(t.Context(), nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, locked.Variables, vars)
+	gotNone, err := s.GetTask(t.Context(), nil, none.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Assert(t, gotNone.Variables == nil)
+	byID := func(tasks []*model.Task) map[int64]map[string]string {
+		m := map[int64]map[string]string{}
+		for _, tk := range tasks {
+			m[tk.ID] = tk.Variables
+		}
+		return m
+	}
+	want := map[int64]map[string]string{task.ID: vars, none.ID: nil}
+	list, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, byID(list), want)
+	page, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{OrgID: org.OrgID})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, byID(page.Items), want)
+}
+
 func TestListTasksPage_ActiveOnly(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)

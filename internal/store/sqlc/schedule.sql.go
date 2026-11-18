@@ -41,7 +41,7 @@ func (q *Queries) AdvanceSchedule(ctx context.Context, arg AdvanceScheduleParams
 const claimDueSchedules = `-- name: ClaimDueSchedules :many
 SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions,
        auto_archive, cron_expr, timezone, enabled,
-       next_run_at, last_run_at, last_task_id, created_at, updated_at
+       next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE enabled = TRUE
   AND next_run_at IS NOT NULL
@@ -83,6 +83,7 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 			&i.LastTaskID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Variables,
 		); err != nil {
 			return nil, err
 		}
@@ -172,7 +173,7 @@ func (q *Queries) DisableSchedules(ctx context.Context, orgID int64) error {
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
+SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE id = $1 AND org_id = $2
 `
@@ -203,12 +204,13 @@ func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (Sched
 		&i.LastTaskID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Variables,
 	)
 	return i, err
 }
 
 const getScheduleForUpdate = `-- name: GetScheduleForUpdate :one
-SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
+SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
@@ -240,12 +242,13 @@ func (q *Queries) GetScheduleForUpdate(ctx context.Context, arg GetScheduleForUp
 		&i.LastTaskID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Variables,
 	)
 	return i, err
 }
 
 const listSchedules = `-- name: ListSchedules :many
-SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at
+SELECT id, org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables
 FROM schedules
 WHERE org_id = $1
 ORDER BY created_at DESC
@@ -278,6 +281,7 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 			&i.LastTaskID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Variables,
 		); err != nil {
 			return nil, err
 		}

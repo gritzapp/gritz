@@ -47,6 +47,10 @@ service GritzService {
   // sandbox calls the API with. The token can read and update only that task,
   // plus the requested capabilities.
   rpc CreateTaskToken(CreateTaskTokenRequest) returns (CreateTaskTokenResponse);
+  // Called by the runner before it starts a task's run, to get what the run's
+  // spec needs from the server: the token the sandbox calls the API with, as
+  // CreateTaskToken returns it, and the task's variables.
+  rpc GetRunSpecInputs(GetRunSpecInputsRequest) returns (GetRunSpecInputsResponse);
   // Called by the runner when it starts, to register the workspaces it serves.
   // Replaces the workspaces registered before for the same runner.
   rpc RegisterWorkspaces(RegisterWorkspacesRequest) returns (RegisterWorkspacesResponse);
@@ -162,6 +166,11 @@ message Task {
   // The image URL of the task's shields.io badge. Agents sign what they post
   // with it, linked to url.
   string badge_url = 18;
+
+  // The task's variables, by name, each injected into its sandbox as the
+  // environment variable GRITZ_VAR_<name>. Set at creation and can't be
+  // changed.
+  map<string, string> variables = 19;
 }
 
 message McpServer {
@@ -234,6 +243,9 @@ message CreateTaskRequest {
   // start set, such as the first instruction sent from the task page, starts it.
   // False (the default) starts the task immediately.
   bool draft = 8;
+  // The task's variables, by name. Each must be declared by the workspace;
+  // declared defaults fill the rest.
+  map<string, string> variables = 9;
 }
 
 message CreateTaskResponse {
@@ -589,11 +601,33 @@ message CreateTaskTokenResponse {
   string token = 1;
 }
 
+message GetRunSpecInputsRequest {
+  int64 task_id = 1;
+  // The workspace capabilities to grant the token, such as "github_token".
+  repeated string capabilities = 2;
+}
+
+message GetRunSpecInputsResponse {
+  string token = 1;
+  // The task's variables, by name, as in Task.variables.
+  map<string, string> variables = 2;
+}
+
+// VariableDecl is a variable a workspace declares; see workspaces.yaml variables:.
+message VariableDecl {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+  // Used when the task doesn't set it. Never set on a required variable.
+  string default = 4;
+}
+
 message RegisteredWorkspace {
   string name = 1;
   string runner_id = 2;
   google.protobuf.Timestamp updated_at = 3;
   string description = 4;
+  repeated VariableDecl variables = 5;
 }
 
 message RegisterWorkspacesRequest {
@@ -781,6 +815,8 @@ message CreateTaskAction {
   // The auto-archive delay of the tasks the rule creates, as in
   // Task.auto_archive.
   google.protobuf.Duration auto_archive = 4;
+  // Variables of the tasks the rule creates.
+  map<string, string> variables = 5;
 }
 
 message GetRoutingRulesRequest {}
@@ -908,6 +944,8 @@ message Schedule {
   string created_by = 14;                   // Who created it; grants no permissions.
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
+  // Variables of the tasks it creates.
+  map<string, string> variables = 17;
 }
 
 message CreateScheduleRequest {
@@ -922,6 +960,8 @@ message CreateScheduleRequest {
   // never runs until SetScheduleEnabled enables it.
   bool enabled = 8;
   google.protobuf.Duration auto_archive = 9;
+  // Variables of the tasks it creates.
+  map<string, string> variables = 10;
 }
 
 message CreateScheduleResponse {
@@ -955,6 +995,8 @@ message UpdateScheduleRequest {
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; empty defaults to "UTC".
   google.protobuf.Duration auto_archive = 9;
+  // Variables of the tasks it creates.
+  map<string, string> variables = 10;
 }
 
 message UpdateScheduleResponse {
