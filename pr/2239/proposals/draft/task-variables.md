@@ -156,7 +156,7 @@ declarations.
 | --- | --- |
 | `CreateTask` RPC | `variables` (field 9). |
 | MCP `create_task` (`gritz mcp`, server MCP) | `variables`, an object of string to string. |
-| `gritz task create` | `--var NAME=VALUE`, repeatable. `--var NAME=@file` reads the value from a file (`@-` for stdin), for long or multi-line values. |
+| `gritz task create` | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`. |
 | Web UI new-task page | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
 | Schedules | `Schedule.variables`, fixed values. |
 | Routing rules | `CreateTaskAction.variables`, fixed values. |
@@ -444,8 +444,8 @@ The task still stores the value it was created with.
    `Spec.Env`, the `driver.proto` comment. Depends on: (4). Verifiable by:
    `spec_test.go` cases; an e2e test with the dummy agent running `env` that
    sees `GRITZ_VAR_X`.
-6. **CLI and MCP** — Delivers: `gritz task create --var` (with `@file` and
-   `@-`), `variables` on the server MCP `create_task` tool. Depends on: (4).
+6. **CLI and MCP** — Delivers: `gritz task create --var`, `variables` on the
+   server MCP `create_task` tool. Depends on: (4).
    Verifiable by: command and MCP handler tests.
 7. **Web UI: new task and task page** — Delivers: variable fields on
    `tasks.new.tsx` from the selected workspace's declarations; variables shown

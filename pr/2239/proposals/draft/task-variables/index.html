@@ -210,7 +210,7 @@ declarations.</p>
 </tr>
 <tr>
 <td><code dir="auto">gritz task create</code></td>
-<td><code dir="auto">--var NAME=VALUE</code>, repeatable. <code dir="auto">--var NAME=@file</code> reads the value from a file (<code dir="auto">@-</code> for stdin), for long or multi-line values.</td>
+<td><code dir="auto">--var NAME=VALUE</code>, repeatable. The value is the literal text after the first <code dir="auto">=</code>.</td>
 </tr>
 <tr>
 <td>Web UI new-task page</td>
@@ -347,8 +347,8 @@ token and the stored variables, and refusing a caller without
 <code dir="auto">Spec.Env</code>, the <code dir="auto">driver.proto</code> comment. Depends on: (4). Verifiable by:
 <code dir="auto">spec_test.go</code> cases; an e2e test with the dummy agent running <code dir="auto">env</code> that
 sees <code dir="auto">GRITZ_VAR_X</code>.</li>
-<li><strong>CLI and MCP</strong> — Delivers: <code dir="auto">gritz task create --var</code> (with <code dir="auto">@file</code> and
-<code dir="auto">@-</code>), <code dir="auto">variables</code> on the server MCP <code dir="auto">create_task</code> tool. Depends on: (4).
+<li><strong>CLI and MCP</strong> — Delivers: <code dir="auto">gritz task create --var</code>, <code dir="auto">variables</code> on the
+server MCP <code dir="auto">create_task</code> tool. Depends on: (4).
 Verifiable by: command and MCP handler tests.</li>
 <li><strong>Web UI: new task and task page</strong> — Delivers: variable fields on
 <code dir="auto">tasks.new.tsx</code> from the selected workspace’s declarations; variables shown
