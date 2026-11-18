@@ -646,3 +646,137 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "archived", "auto_archive"),
 	)
 }
+
+func TestCreateTask_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name: "story",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_ISSUE", Required: true},
+				{Name: "LABEL"},
+			},
+		}},
+	})
+
+	// Act
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Runner:    "runner-1",
+		Workspace: "story",
+		Draft:     true,
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+	})
+
+	// Assert - the default fills BRANCH, and the unset optional LABEL is
+	// absent, in the response and read back.
+	want := map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "main"}
+	assert.DeepEqual(t, task.Resp.Task.Variables, want)
+	assert.DeepEqual(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Variables, want)
+}
+
+func TestCreateTask_VariablesOverrideDefault(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name: "story",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_ISSUE", Required: true},
+				{Name: "LABEL"},
+			},
+		}},
+	})
+
+	// Act - an explicit empty string is a value too.
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		Runner:    "runner-1",
+		Workspace: "story",
+		Draft:     true,
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "dev", "LABEL": ""},
+	})
+
+	// Assert
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Variables,
+		map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "dev", "LABEL": ""},
+	)
+}
+
+func TestCreateTask_InvalidVariables(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		variables map[string]string
+		want      string
+	}{
+		{
+			name:      "undeclared",
+			variables: map[string]string{"JIRA_ISSUE": "APP-142", "JIRA": "APP-142"},
+			want:      `workspace "story": variable "JIRA": not declared by the workspace`,
+		},
+		{
+			name:      "missing required",
+			variables: map[string]string{"BRANCH": "dev"},
+			want:      `workspace "story": variable "JIRA_ISSUE": required`,
+		},
+		{
+			name:      "NUL byte",
+			variables: map[string]string{"JIRA_ISSUE": "APP\x00142"},
+			want:      `workspace "story": variable "JIRA_ISSUE": value contains a NUL byte`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			h := e2e.New(t, nil)
+			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+				RunnerId: "runner-1",
+				Workspaces: []*gritzv1.RegisteredWorkspace{{
+					Name: "story",
+					Variables: []*gritzv1.VariableDecl{
+						{Name: "BRANCH", Default: "main"},
+						{Name: "JIRA_ISSUE", Required: true},
+						{Name: "LABEL"},
+					},
+				}},
+			})
+
+			// Act
+			_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+				Runner:    "runner-1",
+				Workspace: "story",
+				Draft:     true,
+				Variables: tt.variables,
+			})
+
+			// Assert
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func TestCreateTask_NoVariablesDeclared(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+
+	// Act - the harness workspace declares no variables, so accepts none.
+	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+		Runner:    e2e.DefaultRunner,
+		Workspace: e2e.DefaultWorkspace,
+		Draft:     true,
+		Variables: map[string]string{"BRANCH": "main"},
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+}

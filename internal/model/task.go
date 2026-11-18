@@ -146,6 +146,7 @@ func (t *Task) Proto(baseURL string) *gritzv1.Task {
 		AutoArchive:  durationpb.New(t.AutoArchive),
 		ShellSession: t.ShellSession,
 		Namespace:    t.Namespace,
+		Variables:    t.Variables,
 		Actions: &gritzv1.TaskActions{
 			Archive:   t.CanArchive(),
 			Unarchive: t.CanUnarchive(),
@@ -179,6 +180,7 @@ func TaskFromProto(pb *gritzv1.Task) *Task {
 		AutoArchive:  pb.AutoArchive.AsDuration(),
 		ShellSession: pb.ShellSession,
 		Namespace:    pb.Namespace,
+		Variables:    pb.Variables,
 	}
 }
 

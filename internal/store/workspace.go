@@ -71,6 +71,24 @@ func (s *Store) HasWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
 	})
 }
 
+// GetWorkspaceVariables returns the variable declarations of a runner's
+// registered workspace, or sql.ErrNoRows when it isn't registered.
+func (s *Store) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error) {
+	data, err := s.q(tx).GetWorkspaceVariables(ctx, sqlc.GetWorkspaceVariablesParams{
+		RunnerID: runnerID,
+		Name:     name,
+		OrgID:    orgID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var variables []taskvar.Decl
+	if err := json.Unmarshal(data, &variables); err != nil {
+		return nil, fmt.Errorf("decode workspace %q variables: %w", name, err)
+	}
+	return variables, nil
+}
+
 func (s *Store) ClearWorkspaces(ctx context.Context, tx *sql.Tx, orgID int64) error {
 	return s.q(tx).ClearWorkspacesByOrgID(ctx, orgID)
 }

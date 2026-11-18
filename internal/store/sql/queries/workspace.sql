@@ -18,6 +18,10 @@ SELECT EXISTS(
     WHERE runner_id = $1 AND name = $2 AND org_id = $3
 );
 
+-- name: GetWorkspaceVariables :one
+SELECT variables FROM workspaces
+WHERE runner_id = $1 AND name = $2 AND org_id = $3;
+
 -- name: ClearWorkspacesByOrgID :exec
 DELETE FROM workspaces
 WHERE org_id = $1;
