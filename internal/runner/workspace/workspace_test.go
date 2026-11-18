@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,29 +8,10 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func loadYAML(t *testing.T, data string) (*Config, error) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "workspaces.yaml")
-	assert.NilError(t, os.WriteFile(path, []byte(data), 0o644))
-	return LoadConfig(path, nil)
-}
-
 func TestLoadConfig_Variables(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := loadYAML(t, `workspaces:
-  story-agent:
-    variables:
-      JIRA_ISSUE:
-        description: The Jira story this task is for
-        required: true
-      BRANCH:
-        description: Branch to check out
-        default: main
-      LABEL: {}
-    agent:
-      type: claude
-`)
+	cfg, err := LoadConfig(filepath.Join("testdata", "variables.yaml"), nil)
 
 	assert.NilError(t, err)
 	ws, err := cfg.Get("story-agent")
@@ -55,32 +35,17 @@ func TestVariableDecls_None(t *testing.T) {
 func TestLoadConfig_InvalidVariables(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name string
-		yaml string
+		file string
 		err  string
 	}{
-		{
-			name: "lowercase name",
-			yaml: `
-    variables:
-      jira: {}`,
-			err: `workspace "ws": variables: variable "jira": name must be`,
-		},
-		{
-			name: "required with default",
-			yaml: `
-    variables:
-      BRANCH:
-        required: true
-        default: main`,
-			err: `workspace "ws": variables: variable "BRANCH": a required variable can't have a default`,
-		},
+		{"variables-lowercase-name.yaml", `workspace "ws": variables: variable "jira": name must be`},
+		{"variables-required-with-default.yaml", `workspace "ws": variables: variable "BRANCH": a required variable can't have a default`},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.file, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := loadYAML(t, "workspaces:\n  ws:"+tt.yaml+"\n    agent:\n      type: claude\n")
+			_, err := LoadConfig(filepath.Join("testdata", tt.file), nil)
 
 			assert.ErrorContains(t, err, tt.err)
 		})
