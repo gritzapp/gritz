@@ -60,6 +60,24 @@ func (q *Queries) DeleteWorkspacesByRunner(ctx context.Context, arg DeleteWorksp
 	return err
 }
 
+const getWorkspaceVariables = `-- name: GetWorkspaceVariables :one
+SELECT variables FROM workspaces
+WHERE runner_id = $1 AND name = $2 AND org_id = $3
+`
+
+type GetWorkspaceVariablesParams struct {
+	RunnerID string `json:"runner_id"`
+	Name     string `json:"name"`
+	OrgID    int64  `json:"org_id"`
+}
+
+func (q *Queries) GetWorkspaceVariables(ctx context.Context, arg GetWorkspaceVariablesParams) (json.RawMessage, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceVariables, arg.RunnerID, arg.Name, arg.OrgID)
+	var variables json.RawMessage
+	err := row.Scan(&variables)
+	return variables, err
+}
+
 const hasWorkspace = `-- name: HasWorkspace :one
 SELECT EXISTS(
     SELECT 1 FROM workspaces

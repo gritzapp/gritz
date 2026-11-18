@@ -14,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"github.com/gritzapp/gritz/internal/x/pagination"
 )
 
@@ -59,13 +60,19 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 	) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create task"))
 	}
-	// Verify runner and workspace exist
-	ok, err := s.store.HasWorkspace(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
+	decls, err := s.store.GetWorkspaceVariables(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if !ok {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
+	variables, err := taskvar.Resolve(decls, req.Variables)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
+	}
+	if len(variables) == 0 {
+		variables = nil
 	}
 	task := &model.Task{
 		Name:      req.Name,
@@ -76,6 +83,7 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		Command:   model.TaskCommandStart,
 		Version:   1,
 		OrgID:     caller.OrgID,
+		Variables: variables,
 	}
 	// A draft has no command and no run — no runner picks it up and nothing is
 	// launched. Version 0 is "never provisioned", so its first start is run 1.

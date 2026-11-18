@@ -39,9 +39,6 @@ func TestAllMethodsScopeChecked(t *testing.T) {
 		// CreateGitHubToken is intentionally Unimplemented on the API server; only
 		// the runner proxy serves it (#806).
 		"CreateGitHubToken": "API server leaves it Unimplemented; served by the runner proxy",
-		// GetRunSpecInputs is declared but not yet implemented; its handler gates
-		// on OpTaskTokenCreate (task-variables proposal, slice 4).
-		"GetRunSpecInputs": "not yet implemented",
 	}
 	srv := New(Options{})
 	// A present-but-scopeless caller: tenancy is satisfied (a caller exists) so
