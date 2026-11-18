@@ -201,6 +201,7 @@ last updated. `list_tasks` returns the same for each task.
 | `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
 | `namespace` | The task's [namespace](/concepts/namespaces/). Empty is the default namespace. It can't be changed later. |
 | `draft` | Create the task as a draft, which doesn't run until `update_task` starts it. |
+| `variables` | The task's [variables](/operators/workspaces-yaml/#variables), an object of name to string value, such as `{"JIRA_ISSUE": "APP-142"}`. Each must be declared by the workspace. They can't be changed later. |
 
 ### `update_task`
 

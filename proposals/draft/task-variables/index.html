@@ -185,8 +185,8 @@ workspace. That is the “no templating” line.</li>
 <li>The sandbox’s own process environment: the driver process, the container’s
 entrypoint, and <code dir="auto">gritz shell</code> sessions, which today don’t get the run
 environment either (secrets included).</li>
-<li>The prompt. The agent finds its variables in its environment and in
-<code dir="auto">get_my_task</code>’s output; the rendered prompt doesn’t change.</li>
+<li>The prompt. The agent finds its variables in its environment; the rendered
+prompt doesn’t change, and <code dir="auto">get_my_task</code>’s output doesn’t list them.</li>
 </ul>
 <div class="sl-heading-wrapper level-h3"><h3 id="who-sets-variables">Who sets variables</h3><a class="sl-anchor-link" href="#who-sets-variables"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Who sets variables”</span></a></div>
 <p>Every path that creates a task resolves variables through the same
@@ -210,7 +210,7 @@ declarations.</p>
 </tr>
 <tr>
 <td><code dir="auto">gritz task create</code></td>
-<td><code dir="auto">--var NAME=VALUE</code>, repeatable. <code dir="auto">--var NAME=@file</code> reads the value from a file (<code dir="auto">@-</code> for stdin), for long or multi-line values.</td>
+<td><code dir="auto">--var NAME=VALUE</code>, repeatable. The value is the literal text after the first <code dir="auto">=</code>.</td>
 </tr>
 <tr>
 <td>Web UI new-task page</td>
@@ -304,16 +304,20 @@ place of <code dir="auto">CreateTaskToken</code> and passes the token and variab
 <code dir="auto">buildSpecs</code>, which adds each variable to <code dir="auto">Spec.Env</code> under
 <code dir="auto">taskvar.Env(name)</code>. <code dir="auto">buildSpecs</code> already copies <code dir="auto">Spec.Env</code> into
 <code dir="auto">RunSpec.env</code>.</p>
-<p><strong>When the workspace sets the same name, the workspace wins.</strong> A
-<code dir="auto">container.environment</code>, <code dir="auto">lambda_microvm.environment</code> or <code dir="auto">secrets:</code> entry named
-<code dir="auto">GRITZ_VAR_X</code> collides with task variable <code dir="auto">X</code>; <code dir="auto">buildSpecs</code> skips the task
-variable, so the run sees the workspace’s value. Only an operator can write a
-<code dir="auto">GRITZ_VAR_</code> entry, and doing so pins that value for every task of the
-workspace, which a task creator can’t override. It also matches the layering
-the driver already applies to secrets, which sit above <code dir="auto">RunSpec.env</code>.
-<code dir="auto">container.environment</code> sits below it (it is the container’s own environment),
-so <code dir="auto">buildSpecs</code> checks the workspace’s maps rather than relying on layering.
-The task still stores the value it was created with.</p>
+<p><strong>When the workspace sets the same name.</strong> <code dir="auto">buildSpecs</code> sets every task
+variable in <code dir="auto">Spec.Env</code> without checking the workspace’s maps, so the outcome of
+a <code dir="auto">GRITZ_VAR_X</code> entry in the workspace follows the layering the run environment
+already has:</p>
+<ul>
+<li>A <code dir="auto">secrets:</code> entry named <code dir="auto">GRITZ_VAR_X</code> wins: the driver layers
+<code dir="auto">RunSpec.secrets</code> over <code dir="auto">RunSpec.env</code>, so the run sees the workspace’s value.</li>
+<li>A <code dir="auto">container.environment</code> or <code dir="auto">lambda_microvm.environment</code> entry named
+<code dir="auto">GRITZ_VAR_X</code> loses to the task’s value. <code dir="auto">container.environment</code> is the
+container’s own environment, below <code dir="auto">RunSpec.env</code>, and <code dir="auto">buildSpecs</code> builds
+<code dir="auto">RunSpec.env</code> from the backend’s <code dir="auto">RunEnv</code> (<code dir="auto">lambda_microvm.environment</code>) with
+<code dir="auto">Spec.Env</code> copied over it.</li>
+</ul>
+<p>The task still stores the value it was created with.</p>
 <div class="sl-heading-wrapper level-h2"><h2 id="implementation-plan">Implementation Plan</h2><a class="sl-anchor-link" href="#implementation-plan"><span aria-hidden="true" class="sl-anchor-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="m12.11 15.39-3.88 3.88a2.52 2.52 0 0 1-3.5 0 2.47 2.47 0 0 1 0-3.5l3.88-3.88a1 1 0 1 0-1.42-1.42l-3.88 3.89a4.48 4.48 0 0 0 6.33 6.33l3.89-3.88a1 1 0 0 0-1.42-1.42m8.58-12.08a4.49 4.49 0 0 0-6.33 0l-3.89 3.88a1 1 0 1 0 1.42 1.42l3.88-3.88a2.52 2.52 0 0 1 3.5 0 2.47 2.47 0 0 1 0 3.5l-3.88 3.88a1 1 0 0 0 0 1.42 1 1 0 0 0 1.42 0l3.88-3.89a4.49 4.49 0 0 0 0-6.33M8.83 15.17a1 1 0 0 0 .71.29 1 1 0 0 0 .71-.29l4.92-4.92a1 1 0 1 0-1.42-1.42l-4.92 4.92a1 1 0 0 0 0 1.42"></path></svg></span><span class="sr-only" data-pagefind-ignore>Section titled “Implementation Plan”</span></a></div>
 <ol>
 <li><strong><code dir="auto">taskvar</code> package</strong> — Delivers: <code dir="auto">ValidName</code>, <code dir="auto">Env</code>, <code dir="auto">Decl.Validate</code>,
@@ -340,16 +344,12 @@ token and the stored variables, and refusing a caller without
 <code dir="auto">OpTaskTokenCreate</code>.</li>
 <li><strong>Runner injection</strong> — Delivers: <code dir="auto">TaskManager.specs</code> calling
 <code dir="auto">GetRunSpecInputs</code>, <code dir="auto">specInput.Variables</code>, <code dir="auto">buildSpecs</code> adding variables to
-<code dir="auto">Spec.Env</code> and skipping one whose <code dir="auto">GRITZ_VAR_</code> name the workspace’s
-<code dir="auto">container.environment</code>, <code dir="auto">lambda_microvm.environment</code> or <code dir="auto">secrets:</code> sets,
-the <code dir="auto">driver.proto</code> comment. Depends on: (4). Verifiable by: <code dir="auto">spec_test.go</code>
-cases, including each of the three collisions keeping the workspace’s
-value; an e2e test with the dummy agent running <code dir="auto">env</code> that sees
-<code dir="auto">GRITZ_VAR_X</code>.</li>
-<li><strong>CLI and MCP</strong> — Delivers: <code dir="auto">gritz task create --var</code> (with <code dir="auto">@file</code> and
-<code dir="auto">@-</code>), <code dir="auto">variables</code> on the server MCP <code dir="auto">create_task</code> tool, variables in
-<code dir="auto">get_my_task</code> output. Depends on: (4). Verifiable by: command and MCP
-handler tests.</li>
+<code dir="auto">Spec.Env</code>, the <code dir="auto">driver.proto</code> comment. Depends on: (4). Verifiable by:
+<code dir="auto">spec_test.go</code> cases; an e2e test with the dummy agent running <code dir="auto">env</code> that
+sees <code dir="auto">GRITZ_VAR_X</code>.</li>
+<li><strong>CLI and MCP</strong> — Delivers: <code dir="auto">gritz task create --var</code>, <code dir="auto">variables</code> on the
+server MCP <code dir="auto">create_task</code> tool. Depends on: (4).
+Verifiable by: command and MCP handler tests.</li>
 <li><strong>Web UI: new task and task page</strong> — Delivers: variable fields on
 <code dir="auto">tasks.new.tsx</code> from the selected workspace’s declarations; variables shown
 on the task page. Depends on: (4). Verifiable by: creating a task against
@@ -368,15 +368,14 @@ dev stack creating a task with the variable set.</li>
 <li><strong>Docs</strong> — each slice above updates its own pages; this lists them:
 <ul>
 <li><code dir="auto">operators/workspaces-yaml</code>: a <code dir="auto">variables</code> section (saying credentials
-belong in <code dir="auto">secrets:</code>), a workspace <code dir="auto">GRITZ_VAR_</code> entry winning over the
-task’s value under “Environment”, a <code dir="auto">commands:</code> example quoting
+belong in <code dir="auto">secrets:</code>), the task’s value sitting between the workspace’s
+<code dir="auto">secrets:</code> and its environment under “Environment”, a <code dir="auto">commands:</code> example quoting
 <code dir="auto">"$GRITZ_VAR_X"</code>, the custom agent process reading one.</li>
 <li><code dir="auto">concepts/tasks</code>: a “Variables” section (set at creation, immutable,
 where they appear).</li>
 <li><code dir="auto">concepts/workspaces</code>: declared variables in “Picking a workspace”.</li>
 <li><code dir="auto">reference/cli</code>, <code dir="auto">using/cli</code>: <code dir="auto">--var</code>.</li>
 <li><code dir="auto">integrations/mcp</code>: <code dir="auto">create_task</code>’s <code dir="auto">variables</code>.</li>
-<li><code dir="auto">using/agent-tools</code>: variables in <code dir="auto">get_my_task</code>.</li>
 <li><code dir="auto">using/web-ui</code>: variable fields on the new-task page.</li>
 <li><code dir="auto">concepts/schedules</code>: variables on a schedule.</li>
 <li><code dir="auto">concepts/routing-rules</code> (“Creating tasks”): variables on a rule.</li>

@@ -1072,15 +1072,16 @@ Each tool that changes a task returns the task’s ID, name, workspace, runner, 
 
 [Section titled “create_task”](#create_task)
 
-| Argument       |                                                                                                                                          |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace`    | The [workspace](/concepts/workspaces/). Required.                                                                                        |
-| `runner`       | The [runner](/concepts/runners/) that offers it. Required.                                                                               |
-| `instruction`  | The task’s instruction. Required unless `draft` is set.                                                                                  |
-| `name`         | A name for the task. The task’s agent names it if this is empty.                                                                         |
-| `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
-| `namespace`    | The task’s [namespace](/concepts/namespaces/). Empty is the default namespace. It can’t be changed later.                                |
-| `draft`        | Create the task as a draft, which doesn’t run until `update_task` starts it.                                                             |
+| Argument       |                                                                                                                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`    | The [workspace](/concepts/workspaces/). Required.                                                                                                                                                           |
+| `runner`       | The [runner](/concepts/runners/) that offers it. Required.                                                                                                                                                  |
+| `instruction`  | The task’s instruction. Required unless `draft` is set.                                                                                                                                                     |
+| `name`         | A name for the task. The task’s agent names it if this is empty.                                                                                                                                            |
+| `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes.                                                                    |
+| `namespace`    | The task’s [namespace](/concepts/namespaces/). Empty is the default namespace. It can’t be changed later.                                                                                                   |
+| `draft`        | Create the task as a draft, which doesn’t run until `update_task` starts it.                                                                                                                                |
+| `variables`    | The task’s [variables](/operators/workspaces-yaml/#variables), an object of name to string value, such as `{"JIRA_ISSUE": "APP-142"}`. Each must be declared by the workspace. They can’t be changed later. |
 
 ### `update_task`
 
@@ -4312,7 +4313,7 @@ Variables do **not** reach:
 
 * Anything the runner expands when it loads `workspaces.yaml`: `${env:}` and `${sh:}` run on the runner host before any task exists, and the image, volumes, `mcp_servers` entries and other config fields are fixed per workspace. That is the “no templating” line.
 * The sandbox’s own process environment: the driver process, the container’s entrypoint, and `gritz shell` sessions, which today don’t get the run environment either (secrets included).
-* The prompt. The agent finds its variables in its environment and in `get_my_task`’s output; the rendered prompt doesn’t change.
+* The prompt. The agent finds its variables in its environment; the rendered prompt doesn’t change, and `get_my_task`’s output doesn’t list them.
 
 ### Who sets variables
 
@@ -4324,7 +4325,7 @@ Every path that creates a task resolves variables through the same server-side f
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CreateTask` RPC                            | `variables` (field 9).                                                                                                                               |
 | MCP `create_task` (`gritz mcp`, server MCP) | `variables`, an object of string to string.                                                                                                          |
-| `gritz task create`                         | `--var NAME=VALUE`, repeatable. `--var NAME=@file` reads the value from a file (`@-` for stdin), for long or multi-line values.                      |
+| `gritz task create`                         | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`.                                                                   |
 | Web UI new-task page                        | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
 | Schedules                                   | `Schedule.variables`, fixed values.                                                                                                                  |
 | Routing rules                               | `CreateTaskAction.variables`, fixed values.                                                                                                          |
@@ -4574,7 +4575,12 @@ type specInput struct {
 
 **How it fits:** the runner’s `RegisterWorkspaces` sends each workspace’s `VariableDecls`; the server stores them. `CreateTask`, the MCP `create_task` tool (through the RPC), `scheduler.Fire` and `eventrouter.Router.create` each call `store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on `model.Task`. `SetRoutingRules` and the schedule handlers validate against the same declarations on save. `TaskManager.specs` calls `GetRunSpecInputs` in place of `CreateTaskToken` and passes the token and variables to `buildSpecs`, which adds each variable to `Spec.Env` under `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into `RunSpec.env`.
 
-**When the workspace sets the same name, the workspace wins.** A `container.environment`, `lambda_microvm.environment` or `secrets:` entry named `GRITZ_VAR_X` collides with task variable `X`; `buildSpecs` skips the task variable, so the run sees the workspace’s value. Only an operator can write a `GRITZ_VAR_` entry, and doing so pins that value for every task of the workspace, which a task creator can’t override. It also matches the layering the driver already applies to secrets, which sit above `RunSpec.env`. `container.environment` sits below it (it is the container’s own environment), so `buildSpecs` checks the workspace’s maps rather than relying on layering. The task still stores the value it was created with.
+**When the workspace sets the same name.** `buildSpecs` sets every task variable in `Spec.Env` without checking the workspace’s maps, so the outcome of a `GRITZ_VAR_X` entry in the workspace follows the layering the run environment already has:
+
+* A `secrets:` entry named `GRITZ_VAR_X` wins: the driver layers `RunSpec.secrets` over `RunSpec.env`, so the run sees the workspace’s value.
+* A `container.environment` or `lambda_microvm.environment` entry named `GRITZ_VAR_X` loses to the task’s value. `container.environment` is the container’s own environment, below `RunSpec.env`, and `buildSpecs` builds `RunSpec.env` from the backend’s `RunEnv` (`lambda_microvm.environment`) with `Spec.Env` copied over it.
+
+The task still stores the value it was created with.
 
 ## Implementation Plan
 
@@ -4588,9 +4594,9 @@ type specInput struct {
 
 4. **`CreateTask` and `GetRunSpecInputs`** — Delivers: `GetWorkspaceVariables` replacing `HasWorkspace` in `CreateTask`, resolution, variables on `Task` in responses, and the `GetRunSpecInputs` handler. Depends on: (3). Verifiable by: `apiserver` tests for each rejection and for defaults; a `GetRunSpecInputs` test returning a working token and the stored variables, and refusing a caller without `OpTaskTokenCreate`.
 
-5. **Runner injection** — Delivers: `TaskManager.specs` calling `GetRunSpecInputs`, `specInput.Variables`, `buildSpecs` adding variables to `Spec.Env` and skipping one whose `GRITZ_VAR_` name the workspace’s `container.environment`, `lambda_microvm.environment` or `secrets:` sets, the `driver.proto` comment. Depends on: (4). Verifiable by: `spec_test.go` cases, including each of the three collisions keeping the workspace’s value; an e2e test with the dummy agent running `env` that sees `GRITZ_VAR_X`.
+5. **Runner injection** — Delivers: `TaskManager.specs` calling `GetRunSpecInputs`, `specInput.Variables`, `buildSpecs` adding variables to `Spec.Env`, the `driver.proto` comment. Depends on: (4). Verifiable by: `spec_test.go` cases; an e2e test with the dummy agent running `env` that sees `GRITZ_VAR_X`.
 
-6. **CLI and MCP** — Delivers: `gritz task create --var` (with `@file` and `@-`), `variables` on the server MCP `create_task` tool, variables in `get_my_task` output. Depends on: (4). Verifiable by: command and MCP handler tests.
+6. **CLI and MCP** — Delivers: `gritz task create --var`, `variables` on the server MCP `create_task` tool. Depends on: (4). Verifiable by: command and MCP handler tests.
 
 7. **Web UI: new task and task page** — Delivers: variable fields on `tasks.new.tsx` from the selected workspace’s declarations; variables shown on the task page. Depends on: (4). Verifiable by: creating a task against the dev stack.
 
@@ -4600,12 +4606,11 @@ type specInput struct {
 
 10. **Docs** — each slice above updates its own pages; this lists them:
 
-    * `operators/workspaces-yaml`: a `variables` section (saying credentials belong in `secrets:`), a workspace `GRITZ_VAR_` entry winning over the task’s value under “Environment”, a `commands:` example quoting `"$GRITZ_VAR_X"`, the custom agent process reading one.
+    * `operators/workspaces-yaml`: a `variables` section (saying credentials belong in `secrets:`), the task’s value sitting between the workspace’s `secrets:` and its environment under “Environment”, a `commands:` example quoting `"$GRITZ_VAR_X"`, the custom agent process reading one.
     * `concepts/tasks`: a “Variables” section (set at creation, immutable, where they appear).
     * `concepts/workspaces`: declared variables in “Picking a workspace”.
     * `reference/cli`, `using/cli`: `--var`.
     * `integrations/mcp`: `create_task`’s `variables`.
-    * `using/agent-tools`: variables in `get_my_task`.
     * `using/web-ui`: variable fields on the new-task page.
     * `concepts/schedules`: variables on a schedule.
     * `concepts/routing-rules` (“Creating tasks”): variables on a rule.
@@ -32546,6 +32551,7 @@ Creates a task and starts it, then prints it as JSON. It also takes the [authent
 | `--workspace`, `-w`   |             | `default` | The workspace.                                                                                                                                   |
 | `--instruction`, `-i` |             |           | An instruction. Repeat it for several.                                                                                                           |
 | `--name`, `-n`        |             |           | The task’s name.                                                                                                                                 |
+| `--var`               |             |           | A [variable](/operators/workspaces-yaml/#variables) as `NAME=VALUE`. Repeat it for several.                                                      |
 | `--auto-archive`      |             | `0`       | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
 
 ### `gritz task list`
@@ -33390,9 +33396,18 @@ gritz task create -r my-runner -w pets-workshop \
 | `--workspace`, `-w`   | The [workspace](/concepts/workspaces/). Defaults to `default`.                                                                                                         |
 | `--instruction`, `-i` | An instruction. Repeat it for several.                                                                                                                                 |
 | `--name`, `-n`        | The task’s name. The agent names it if you don’t.                                                                                                                      |
+| `--var`               | A [variable](/operators/workspaces-yaml/#variables) the workspace declares, as `NAME=VALUE`. Repeat it for several.                                                    |
 | `--auto-archive`      | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `1h` or `24h`. `0`, the default, is never; a negative value archives the task as soon as it finishes. |
 
 The **Workspaces** page in the Web UI lists runner IDs and their workspaces.
+
+A workspace can declare variables, values each task sets when it is created, such as the issue to work on. Its sandbox sees `--var JIRA_ISSUE=APP-142` as the environment variable `GRITZ_VAR_JIRA_ISSUE`. Setting a variable the workspace doesn’t declare, or leaving out a required one, is an error. The value is the text after the first `=`, as is:
+
+```bash
+gritz task create -r my-runner -w story-agent \
+  --var JIRA_ISSUE=APP-142 --var BRANCH=release/2.4 \
+  -i "Implement the story."
+```
 
 ### `gritz task list`
 
