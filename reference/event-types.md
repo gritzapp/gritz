@@ -140,6 +140,19 @@ Jira uses in comment text.
 | `mention` | Mention | The account ID of each person @-mentioned in the comment. |
 | `user` | User | The account ID of the commenter. |
 
+### `issue_created`
+
+**Jira: Issue Created.** An issue is created. Labels and an assignee set at
+creation are on this event, not on `label_added` or `issue_assigned`.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Issue Description | The issue's description. |
+| `url` | Issue URL | The issue's URL. |
+| `label` | Label | Each label the issue was created with. |
+| `assignee` | Assignee | The account ID of the assignee it was created with. |
+| `user` | User | The account ID of who created it. |
+
 ### `label_added`
 
 **Jira: Label Added.** One or more labels are added to an issue. Adding several

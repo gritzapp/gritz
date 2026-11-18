@@ -790,9 +790,9 @@ A workspace can also ask for GitHub App installation tokens with the `github_tok
 
 # Jira
 
-> Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, labels and assignments to tasks.
+> Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, new issues, labels and assignments to tasks.
 
-The Jira integration turns activity on Jira Cloud issues into [events](/concepts/events-and-links/): new comments, added labels and new assignees. [Routing rules](/concepts/routing-rules/) then decide what each event does: wake the task working on the issue, create a new task for it, or nothing.
+The Jira integration turns activity on Jira Cloud issues into [events](/concepts/events-and-links/): new comments, new issues, added labels and new assignees. [Routing rules](/concepts/routing-rules/) then decide what each event does: wake the task working on the issue, create a new task for it, or nothing.
 
 It has two halves:
 
@@ -833,7 +833,9 @@ As a Jira administrator, open **Settings → System → WebHooks** and create a 
 
 * **URL**: the webhook URL from the card, including `?org=`.
 * **Secret**: the secret from the card.
-* **Events**: under **Comment**, **created**; under **Issue**, **updated**. Add a JQL filter if you only want some projects’ issues.
+* **Events**: under **Comment**, **created**; under **Issue**, **created** and **updated**. Add a JQL filter if you only want some projects’ issues.
+
+A webhook’s JQL filter applies to every event it sends. To narrow one event without narrowing the others, such as only the new issues in one project, create a second webhook with the same URL and secret, only that event, and its own JQL filter.
 
 Jira signs each delivery with the secret, and gritz checks the signature before it reads the event, so a delivery with a missing or wrong signature is refused with `403`.
 
@@ -855,16 +857,17 @@ Every event sent to your organisation’s webhook belongs to your organisation, 
 | Jira webhook                       | Event type           | Its URL                                                    |
 | ---------------------------------- | -------------------- | ---------------------------------------------------------- |
 | Comment created                    | Jira: Issue Comment  | the comment, as `…/browse/PROJ-123?focusedCommentId=10001` |
-| Issue updated, with labels added   | Jira: Label Added    | the issue, as `…/browse/PROJ-123`                          |
+| Issue created                      | Jira: Issue Created  | the issue, as `…/browse/PROJ-123`                          |
+| Issue updated, with labels added   | Jira: Label Added    | the issue                                                  |
 | Issue updated, with a new assignee | Jira: Issue Assigned | the issue                                                  |
 
-Other updates, such as a status change or an edited description, are ignored. One update can send two events: assigning an issue and adding a label in the same edit sends both. Adding several labels at once sends one Label Added event with all of them, and a `label` condition holds if any of them matches. Unassigning an issue sends nothing.
+Labels and an assignee set when an issue is created arrive on Issue Created, in its `label` and `assignee` attributes, not as Label Added or Issue Assigned. Other updates, such as a status change or an edited description, are ignored. One update can send two events: assigning an issue and adding a label in the same edit sends both. Adding several labels at once sends one Label Added event with all of them, and a `label` condition holds if any of them matches. Unassigning an issue sends nothing.
 
 A comment’s URL points at the comment, but gritz matches it to its issue. So a task with a [subscribed link](/concepts/events-and-links/#subscriptions) to `https://your-domain.atlassian.net/browse/PROJ-123` gets every comment on `PROJ-123`.
 
 Jira identifies people by account ID rather than by name, and so do the `user`, `mention` and `assignee` attributes. Enter the bare ID, such as `5b10ac8d82e05b22cc7d4ef5`, not the `[~accountid:…]` form Jira uses in comment text. The account ID is at the end of the URL of the person’s Jira profile. See [Event types](/reference/event-types/#jira) for every attribute.
 
-Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and its text: the comment’s text, or the issue’s description for label and assignment events. gritz doesn’t post anything back to Jira.
+Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and its text: the comment’s text, or the issue’s description for the other events. gritz doesn’t post anything back to Jira.
 
 ## Examples
 
@@ -888,6 +891,13 @@ Start a task when an issue is assigned to a bot account, whoever assigns it:
 * **Conditions**: `assignee equals <the bot's account ID>`
 * **Create a task**: on
 * **Public**: on
+
+Start a task for every issue an integration, such as a security scanner, files in one project:
+
+* **Event type**: Jira: Issue Created
+* **Conditions**: `user equals <the integration's account ID>`, `url prefix https://your-domain.atlassian.net/browse/SEC-`
+* **Create a task**: on
+* **Public**: on, since the integration’s account isn’t linked to a member
 
 The agent needs its own Jira credentials, from its [workspace](/concepts/workspaces/), to read the issue or reply to it.
 
@@ -2397,168 +2407,6 @@ The orchestrator (`runner.go`), `EventQueue`, proto definitions, database schema
 3. **Kernel provenance.** Pinning the Firecracker project’s CI kernels is convenient but depends on their artifact bucket. Should the release pipeline eventually build and publish a vmlinux alongside the prebuilt binaries?
 4. **Base image GC.** `images/*.ext4` accumulates one file per (digest, gritz version). Prune by LRU when unreferenced by any task directory, or leave it to the operator?
 5. **Snapshot/restore.** Firecracker snapshots could cut boot+setup latency dramatically for hot workspaces. Out of scope here, but does the state layout need anything now to keep that door open?
-
-# Jira: Issue Created Event
-
-> gritz ignores the jira:issue_created webhook, so a newly filed Jira issue can't start a task until someone labels, assigns or comments on it.
-
-Issue: <https://github.com/gritzapp/gritz/issues/2219>
-
-## Problem
-
-[Section titled “Problem”](#problem)
-
-Some Jira issues are filed by automation rather than people: a security scanner opening one ticket per finding, an alerting tool opening one per incident. Each new ticket should be able to start a gritz task.
-
-gritz can’t see a new issue today. `toInputEvents` in [`internal/server/atlassianserver/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/webhook.go) handles two `webhookEvent` values:
-
-* `comment_created` → Jira: Issue Comment
-* `jira:issue_updated` → Jira: Label Added and/or Jira: Issue Assigned, derived from the payload’s `changelog`
-
-Every other `webhookEvent`, including `jira:issue_created`, falls through to `return nil, AtlassianMeta{}, nil` and the handler answers `ignored`.
-
-Setting a label or assignee while creating the issue doesn’t help. Jira sends that as a single `jira:issue_created` with the fields already set and no `changelog`, so `AddedLabels` and `NewAssignee` both return nil and neither existing event fires. A person has to touch the ticket afterwards before gritz sees it.
-
-## Design
-
-[Section titled “Design”](#design)
-
-A new built-in event type, **Jira: Issue Created** (`source: atlassian`, `type: issue_created`), emitted once per `jira:issue_created` webhook. Routing rules narrow it with conditions as usual; an event that matches no rule creates no task.
-
-The existing Jira events are unchanged. No polling, and nothing is posted back to Jira.
-
-### Payload parsing
-
-[Section titled “Payload parsing”](#payload-parsing)
-
-[`internal/x/atlassian/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/x/atlassian/webhook.go) gains the `jira:issue_created` constant, and `IssueFields` gains the two fields the event reads at creation time:
-
-* `Labels []string` (`json:"labels"`): the labels the issue was created with.
-* `Assignee *User` (`json:"assignee"`): the assignee it was created with. Jira sends `"assignee": null` for an unassigned issue, which decodes to `nil`.
-
-`payload.user` is already parsed (`WebhookPayload.User`) and, for this webhook, is the issue’s creator.
-
-### The event
-
-[Section titled “The event”](#the-event)
-
-A new `case atlassian.WebhookEventIssueCreated` in `toInputEvents`, built the same way as the `jira:issue_updated` branch:
-
-* **Ignored** (no events) when `payload.Issue` or `payload.User` is nil, the account ID is empty, or `Issue.BrowseURL()` is empty, matching the other branches.
-* **Description:** `"<creator display name> created <ISSUE-KEY>"`.
-* **Data:** the issue’s description, trimmed.
-* **URL:** `Issue.BrowseURL()`.
-* **Meta:** `AtlassianMeta{AuthorAccountID, AuthorDisplayName}` from the creator.
-
-Attributes, beside the derived `body` and `url`:
-
-| Attr       | Label             | Value                                                                  |
-| ---------- | ----------------- | ---------------------------------------------------------------------- |
-| `body`     | Issue Description | The issue’s description (derived).                                     |
-| `url`      | Issue URL         | The issue’s URL (derived).                                             |
-| `label`    | Label             | Every label the issue was created with; empty when none.               |
-| `assignee` | Assignee          | Account ID of the assignee it was created with; empty when unassigned. |
-| `user`     | User              | Account ID of who created it.                                          |
-
-`label` and `assignee` cover the “created already labelled or assigned” case that Label Added and Issue Assigned can’t see, so one rule (`label equals gritz`) can be paired with a second on Issue Created to catch both paths.
-
-### Routing an unlinked creator
-
-[Section titled “Routing an unlinked creator”](#routing-an-unlinked-creator)
-
-Automation files issues as an integration user, which has no linked gritz account. The handler already handles this: `GetUserByAtlassianAccountID` returns `sql.ErrNoRows`, `UserID` stays empty, and the event routes on `Orgs: [orgID]`, so only [public rules](/concepts/routing-rules/#public-rules) act on it. No handler change is needed; a test pins the behaviour for this event type.
-
-### Filtering
-
-[Section titled “Filtering”](#filtering)
-
-The event fires for every new issue the webhook carries, so narrowing happens in two places:
-
-1. **Jira’s webhook JQL filter.** The filter applies to every event a webhook sends, so narrowing an existing webhook to one project’s new issues would also drop that webhook’s comments and updates. The operator instead creates a second webhook with the same URL and secret, subscribed only to **Issue → created**, with its own JQL (e.g. `project = SEC AND reporter = "<integration user>"`).
-2. **Routing rule conditions.** e.g. `url prefix …/browse/SEC-` and `user equals <integration user's account ID>`, with **Public** on. Rules are ordered and the first match wins, so it goes before broader Jira rules.
-
-### Schema
-
-[Section titled “Schema”](#schema)
-
-[`internal/server/atlassianserver/schema.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/schema.go) registers “Jira: Issue Created” with attrs ordered `body`, `url`, `label`, `assignee`, `user`, each `AttrDef` written inline with copy for this event, as the file does for the others. The webui reads event types from the schema registry, so no frontend change.
-
-### Docs
-
-[Section titled “Docs”](#docs)
-
-* `reference/event-types`: an `issue_created` section under **Jira** with the attribute table.
-
-* `integrations/jira`:
-
-  * Mention new issues in the intro.
-  * Webhook setup subscribes **Issue → created** as well as **updated**.
-  * A short paragraph on narrowing one event with a second webhook (same URL and secret, its own events and JQL).
-  * Events table row: `Issue created | Jira: Issue Created | the issue`.
-  * Labels or an assignee set at creation arrive on Issue Created, not as Label Added or Issue Assigned.
-  * Example: a public rule that starts a task for issues an integration user files in one project.
-
-### API
-
-[Section titled “API”](#api)
-
-```go
-package atlassian // github.com/gritzapp/gritz/internal/x/atlassian
-
-
-// WebhookEventIssueCreated is the webhook event Jira sends when an issue is created. // new
-const WebhookEventIssueCreated = "jira:issue_created"
-
-
-// IssueFields represents the fields of a Jira issue.
-type IssueFields struct {
-  Summary     string   `json:"summary"`
-  Description string   `json:"description"`
-  Labels      []string `json:"labels"`   // new
-  Assignee    *User    `json:"assignee"` // new
-}
-```
-
-```go
-package atlassianserver // github.com/gritzapp/gritz/internal/server/atlassianserver
-
-
-// EventTypeIssueCreated is the event type emitted for a newly created issue. // new
-const EventTypeIssueCreated = "issue_created"
-```
-
-**How it fits:** `WebhookHandler.ServeHTTP` calls `toInputEvents`, whose new case reads `Issue.Fields.Labels` and `Issue.Fields.Assignee` and returns one `issue_created` event; the handler routes it exactly like the others. `RegisterSchemas` registers its schema on the default registry at `init`.
-
-## Implementation Plan
-
-[Section titled “Implementation Plan”](#implementation-plan)
-
-One feature PR is enough; the change is a few dozen lines. If split:
-
-1. **Parse creation fields** — Delivers: `WebhookEventIssueCreated`, `IssueFields.Labels` and `IssueFields.Assignee`. Depends on: nothing. Verifiable by: a `internal/x/atlassian` test that parses raw `jira:issue_created` JSON once with `"assignee": null` and once with an assignee object, checking `Labels` and `Assignee`.
-
-2. **Emit and register Jira: Issue Created, with docs** — Delivers: the `toInputEvents` case, the schema, and the docs pages above. Depends on: (1). Verifiable by:
-
-   * `TestToAtlassianInputEvents` cases: created labelled and assigned; created unlabelled and unassigned (both attrs empty); no user (ignored).
-   * A handler test: an issue created by an unlinked account routes with an empty `UserID` and `Orgs: [org]`.
-   * `TestSchemaRegistration`: the new type registers with exactly `body`, `url`, `label`, `assignee`, `user`.
-
-PR title: `feat(atlassian): add Jira issue created event`.
-
-## Trade-offs
-
-[Section titled “Trade-offs”](#trade-offs)
-
-* **Fire Label Added / Issue Assigned from `jira:issue_created`** instead of a new type. Rejected: those events mean “changed”, and a rule like “start a task when labelled `gritz`” would then also fire for issues created with that label, a behaviour change for existing rules. A separate type keeps creation opt-in; a rule on each type covers both paths.
-* **One event per created issue, not one per label or assignee.** Creation is one fact; `label` and `assignee` are conditions on it.
-* **Filter only in gritz rules** instead of a second Jira webhook. Works, but every new issue on the site then crosses the wire and is routed for nothing. The second webhook is optional and documented, not required.
-
-## Open Questions
-
-[Section titled “Open Questions”](#open-questions)
-
-* **Creator vs reporter for `user`.** `payload.user` is who triggered the webhook. An integration can create an issue with a different `reporter`. Proposed: `user` is the creator, consistent with the other Jira events where `user` is the actor. A `reporter` attr can follow if someone needs it.
-* **Summary in Data.** The other issue events carry only the description. Automation often puts the useful line in the summary. Keep Data as the description for consistency (the agent reads the full issue anyway), or prepend the summary?
 
 # Maximum Orgs Per User
 
@@ -15383,6 +15231,168 @@ The alternative — leave the token filter-agnostic and just document “reset p
 1. **Archived-only view.** This proposal intentionally omits “archived **only**.” If it turns out users want to browse *just* the archive (not active + archived interleaved), is that a third UI state (a tri-state select instead of a switch) plus widening the bool to an enum — or is “show archived + eyeball the badges” enough?
 2. **Row styling depth.** Muting the row text + the existing `ArchivedBadge` is the proposed minimum. Is that sufficient contrast, or should archived rows also get a distinct background / be visually grouped below active ones? (Grouping fights the single `created_at DESC` keyset ordering, so interleaved-with-badge is the low-friction default.)
 3. **Default page size when archived included.** With archived rows included, an org’s list is much longer. The default page size (20 in the UI, 50 in the RPC) is unchanged here — do we want a different default when the toggle is on, or is prev/next paging enough?
+
+# Jira: Issue Created Event
+
+> gritz ignores the jira:issue_created webhook, so a newly filed Jira issue can't start a task until someone labels, assigns or comments on it.
+
+Issue: <https://github.com/gritzapp/gritz/issues/2219>
+
+## Problem
+
+[Section titled “Problem”](#problem)
+
+Some Jira issues are filed by automation rather than people: a security scanner opening one ticket per finding, an alerting tool opening one per incident. Each new ticket should be able to start a gritz task.
+
+gritz can’t see a new issue today. `toInputEvents` in [`internal/server/atlassianserver/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/webhook.go) handles two `webhookEvent` values:
+
+* `comment_created` → Jira: Issue Comment
+* `jira:issue_updated` → Jira: Label Added and/or Jira: Issue Assigned, derived from the payload’s `changelog`
+
+Every other `webhookEvent`, including `jira:issue_created`, falls through to `return nil, AtlassianMeta{}, nil` and the handler answers `ignored`.
+
+Setting a label or assignee while creating the issue doesn’t help. Jira sends that as a single `jira:issue_created` with the fields already set and no `changelog`, so `AddedLabels` and `NewAssignee` both return nil and neither existing event fires. A person has to touch the ticket afterwards before gritz sees it.
+
+## Design
+
+[Section titled “Design”](#design)
+
+A new built-in event type, **Jira: Issue Created** (`source: atlassian`, `type: issue_created`), emitted once per `jira:issue_created` webhook. Routing rules narrow it with conditions as usual; an event that matches no rule creates no task.
+
+The existing Jira events are unchanged. No polling, and nothing is posted back to Jira.
+
+### Payload parsing
+
+[Section titled “Payload parsing”](#payload-parsing)
+
+[`internal/x/atlassian/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/x/atlassian/webhook.go) gains the `jira:issue_created` constant, and `IssueFields` gains the two fields the event reads at creation time:
+
+* `Labels []string` (`json:"labels"`): the labels the issue was created with.
+* `Assignee *User` (`json:"assignee"`): the assignee it was created with. Jira sends `"assignee": null` for an unassigned issue, which decodes to `nil`.
+
+`payload.user` is already parsed (`WebhookPayload.User`) and, for this webhook, is the issue’s creator.
+
+### The event
+
+[Section titled “The event”](#the-event)
+
+A new `case atlassian.WebhookEventIssueCreated` in `toInputEvents`, built the same way as the `jira:issue_updated` branch:
+
+* **Ignored** (no events) when `payload.Issue` or `payload.User` is nil, the account ID is empty, or `Issue.BrowseURL()` is empty, matching the other branches.
+* **Description:** `"<creator display name> created <ISSUE-KEY>"`.
+* **Data:** the issue’s description, trimmed.
+* **URL:** `Issue.BrowseURL()`.
+* **Meta:** `AtlassianMeta{AuthorAccountID, AuthorDisplayName}` from the creator.
+
+Attributes, beside the derived `body` and `url`:
+
+| Attr       | Label             | Value                                                                  |
+| ---------- | ----------------- | ---------------------------------------------------------------------- |
+| `body`     | Issue Description | The issue’s description (derived).                                     |
+| `url`      | Issue URL         | The issue’s URL (derived).                                             |
+| `label`    | Label             | Every label the issue was created with; empty when none.               |
+| `assignee` | Assignee          | Account ID of the assignee it was created with; empty when unassigned. |
+| `user`     | User              | Account ID of who created it.                                          |
+
+`label` and `assignee` cover the “created already labelled or assigned” case that Label Added and Issue Assigned can’t see, so one rule (`label equals gritz`) can be paired with a second on Issue Created to catch both paths.
+
+### Routing an unlinked creator
+
+[Section titled “Routing an unlinked creator”](#routing-an-unlinked-creator)
+
+Automation files issues as an integration user, which has no linked gritz account. The handler already handles this: `GetUserByAtlassianAccountID` returns `sql.ErrNoRows`, `UserID` stays empty, and the event routes on `Orgs: [orgID]`, so only [public rules](/concepts/routing-rules/#public-rules) act on it. No handler change is needed; a test pins the behaviour for this event type.
+
+### Filtering
+
+[Section titled “Filtering”](#filtering)
+
+The event fires for every new issue the webhook carries, so narrowing happens in two places:
+
+1. **Jira’s webhook JQL filter.** The filter applies to every event a webhook sends, so narrowing an existing webhook to one project’s new issues would also drop that webhook’s comments and updates. The operator instead creates a second webhook with the same URL and secret, subscribed only to **Issue → created**, with its own JQL (e.g. `project = SEC AND reporter = "<integration user>"`).
+2. **Routing rule conditions.** e.g. `url prefix …/browse/SEC-` and `user equals <integration user's account ID>`, with **Public** on. Rules are ordered and the first match wins, so it goes before broader Jira rules.
+
+### Schema
+
+[Section titled “Schema”](#schema)
+
+[`internal/server/atlassianserver/schema.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/schema.go) registers “Jira: Issue Created” with attrs ordered `body`, `url`, `label`, `assignee`, `user`, each `AttrDef` written inline with copy for this event, as the file does for the others. The webui reads event types from the schema registry, so no frontend change.
+
+### Docs
+
+[Section titled “Docs”](#docs)
+
+* `reference/event-types`: an `issue_created` section under **Jira** with the attribute table.
+
+* `integrations/jira`:
+
+  * Mention new issues in the intro.
+  * Webhook setup subscribes **Issue → created** as well as **updated**.
+  * A short paragraph on narrowing one event with a second webhook (same URL and secret, its own events and JQL).
+  * Events table row: `Issue created | Jira: Issue Created | the issue`.
+  * Labels or an assignee set at creation arrive on Issue Created, not as Label Added or Issue Assigned.
+  * Example: a public rule that starts a task for issues an integration user files in one project.
+
+### API
+
+[Section titled “API”](#api)
+
+```go
+package atlassian // github.com/gritzapp/gritz/internal/x/atlassian
+
+
+// WebhookEventIssueCreated is the webhook event Jira sends when an issue is created. // new
+const WebhookEventIssueCreated = "jira:issue_created"
+
+
+// IssueFields represents the fields of a Jira issue.
+type IssueFields struct {
+  Summary     string   `json:"summary"`
+  Description string   `json:"description"`
+  Labels      []string `json:"labels"`   // new
+  Assignee    *User    `json:"assignee"` // new
+}
+```
+
+```go
+package atlassianserver // github.com/gritzapp/gritz/internal/server/atlassianserver
+
+
+// EventTypeIssueCreated is the event type emitted for a newly created issue. // new
+const EventTypeIssueCreated = "issue_created"
+```
+
+**How it fits:** `WebhookHandler.ServeHTTP` calls `toInputEvents`, whose new case reads `Issue.Fields.Labels` and `Issue.Fields.Assignee` and returns one `issue_created` event; the handler routes it exactly like the others. `RegisterSchemas` registers its schema on the default registry at `init`.
+
+## Implementation Plan
+
+[Section titled “Implementation Plan”](#implementation-plan)
+
+One feature PR is enough; the change is a few dozen lines. If split:
+
+1. **Parse creation fields** — Delivers: `WebhookEventIssueCreated`, `IssueFields.Labels` and `IssueFields.Assignee`. Depends on: nothing. Verifiable by: a `internal/x/atlassian` test that parses raw `jira:issue_created` JSON once with `"assignee": null` and once with an assignee object, checking `Labels` and `Assignee`.
+
+2. **Emit and register Jira: Issue Created, with docs** — Delivers: the `toInputEvents` case, the schema, and the docs pages above. Depends on: (1). Verifiable by:
+
+   * `TestToAtlassianInputEvents` cases: created labelled and assigned; created unlabelled and unassigned (both attrs empty); no user (ignored).
+   * A handler test: an issue created by an unlinked account routes with an empty `UserID` and `Orgs: [org]`.
+   * `TestSchemaRegistration`: the new type registers with exactly `body`, `url`, `label`, `assignee`, `user`.
+
+PR title: `feat(atlassian): add Jira issue created event`.
+
+## Trade-offs
+
+[Section titled “Trade-offs”](#trade-offs)
+
+* **Fire Label Added / Issue Assigned from `jira:issue_created`** instead of a new type. Rejected: those events mean “changed”, and a rule like “start a task when labelled `gritz`” would then also fire for issues created with that label, a behaviour change for existing rules. A separate type keeps creation opt-in; a rule on each type covers both paths.
+* **One event per created issue, not one per label or assignee.** Creation is one fact; `label` and `assignee` are conditions on it.
+* **Filter only in gritz rules** instead of a second Jira webhook. Works, but every new issue on the site then crosses the wire and is routed for nothing. The second webhook is optional and documented, not required.
+
+## Open Questions
+
+[Section titled “Open Questions”](#open-questions)
+
+* **Creator vs reporter for `user`.** `payload.user` is who triggered the webhook. An integration can create an issue with a different `reporter`. Proposed: `user` is the creator, consistent with the other Jira events where `user` is the actor. A `reporter` attr can follow if someone needs it.
+* **Summary in Data.** The other issue events carry only the description. Automation often puts the useful line in the summary. Keep Data as the description for consistency (the agent reads the full issue anyway), or prepend the summary?
 
 # AWS Lambda MicroVMs Backend for the Runner
 
@@ -32954,6 +32964,20 @@ Source `atlassian`. People are identified by their Atlassian account ID, such as
 | `url`     | Comment URL  | The comment’s URL, such as `https://your-domain.atlassian.net/browse/PROJ-123?focusedCommentId=10001`. |
 | `mention` | Mention      | The account ID of each person @-mentioned in the comment.                                              |
 | `user`    | User         | The account ID of the commenter.                                                                       |
+
+### `issue_created`
+
+[Section titled “issue_created”](#issue_created)
+
+**Jira: Issue Created.** An issue is created. Labels and an assignee set at creation are on this event, not on `label_added` or `issue_assigned`.
+
+| Attribute  | Label             | Value                                               |
+| ---------- | ----------------- | --------------------------------------------------- |
+| `body`     | Issue Description | The issue’s description.                            |
+| `url`      | Issue URL         | The issue’s URL.                                    |
+| `label`    | Label             | Each label the issue was created with.              |
+| `assignee` | Assignee          | The account ID of the assignee it was created with. |
+| `user`     | User              | The account ID of who created it.                   |
 
 ### `label_added`
 

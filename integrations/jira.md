@@ -1,8 +1,8 @@
 # Jira
 
 The Jira integration turns activity on Jira Cloud issues into
-[events](/concepts/events-and-links/): new comments, added labels and new
-assignees. [Routing rules](/concepts/routing-rules/) then decide what each event
+[events](/concepts/events-and-links/): new comments, new issues, added labels
+and new assignees. [Routing rules](/concepts/routing-rules/) then decide what each event
 does: wake the task working on the issue, create a new task for it, or nothing.
 
 It has two halves:
@@ -46,8 +46,13 @@ webhook:
 
 - **URL**: the webhook URL from the card, including `?org=`.
 - **Secret**: the secret from the card.
-- **Events**: under **Comment**, **created**; under **Issue**, **updated**. Add
-  a JQL filter if you only want some projects' issues.
+- **Events**: under **Comment**, **created**; under **Issue**, **created** and
+  **updated**. Add a JQL filter if you only want some projects' issues.
+
+A webhook's JQL filter applies to every event it sends. To narrow one event
+without narrowing the others, such as only the new issues in one project,
+create a second webhook with the same URL and secret, only that event, and its
+own JQL filter.
 
 Jira signs each delivery with the secret, and gritz checks the signature before
 it reads the event, so a delivery with a missing or wrong signature is refused
@@ -72,9 +77,12 @@ whoever caused it:
 | Jira webhook | Event type | Its URL |
 | --- | --- | --- |
 | Comment created | Jira: Issue Comment | the comment, as `…/browse/PROJ-123?focusedCommentId=10001` |
-| Issue updated, with labels added | Jira: Label Added | the issue, as `…/browse/PROJ-123` |
+| Issue created | Jira: Issue Created | the issue, as `…/browse/PROJ-123` |
+| Issue updated, with labels added | Jira: Label Added | the issue |
 | Issue updated, with a new assignee | Jira: Issue Assigned | the issue |
 
+Labels and an assignee set when an issue is created arrive on Issue Created, in
+its `label` and `assignee` attributes, not as Label Added or Issue Assigned.
 Other updates, such as a status change or an edited description, are ignored. One
 update can send two events: assigning an issue and adding a label in the same
 edit sends both. Adding several labels at once sends one Label Added event with
@@ -94,7 +102,7 @@ text. The account ID is at the end of the URL of the person's Jira profile. See
 
 Each event on a task's timeline has a description, such as
 `Ada Lovelace commented on PROJ-123`, its URL and its text: the comment's
-text, or the issue's description for label and assignment events. gritz doesn't post anything back to Jira.
+text, or the issue's description for the other events. gritz doesn't post anything back to Jira.
 
 ## Examples
 
@@ -117,6 +125,15 @@ Start a task when an issue is assigned to a bot account, whoever assigns it:
 - **Conditions**: `assignee equals <the bot's account ID>`
 - **Create a task**: on
 - **Public**: on
+
+Start a task for every issue an integration, such as a security scanner, files
+in one project:
+
+- **Event type**: Jira: Issue Created
+- **Conditions**: `user equals <the integration's account ID>`,
+  `url prefix https://your-domain.atlassian.net/browse/SEC-`
+- **Create a task**: on
+- **Public**: on, since the integration's account isn't linked to a member
 
 The agent needs its own Jira credentials, from its
 [workspace](/concepts/workspaces/), to read the issue or reply to it.
