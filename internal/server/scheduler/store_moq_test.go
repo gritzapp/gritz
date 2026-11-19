@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"sync"
 )
 
@@ -33,6 +34,9 @@ var _ Store = &StoreMock{}
 //			CreateTaskFunc: func(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 //				panic("mock out the CreateTask method")
 //			},
+//			GetWorkspaceVariablesFunc: func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error) {
+//				panic("mock out the GetWorkspaceVariables method")
+//			},
 //			UpdateScheduleFunc: func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
 //				panic("mock out the UpdateSchedule method")
 //			},
@@ -57,6 +61,9 @@ type StoreMock struct {
 
 	// CreateTaskFunc mocks the CreateTask method.
 	CreateTaskFunc func(ctx context.Context, tx *sql.Tx, task *model.Task) error
+
+	// GetWorkspaceVariablesFunc mocks the GetWorkspaceVariables method.
+	GetWorkspaceVariablesFunc func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error)
 
 	// UpdateScheduleFunc mocks the UpdateSchedule method.
 	UpdateScheduleFunc func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
@@ -106,6 +113,19 @@ type StoreMock struct {
 			// Task is the task argument value.
 			Task *model.Task
 		}
+		// GetWorkspaceVariables holds details about calls to the GetWorkspaceVariables method.
+		GetWorkspaceVariables []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx *sql.Tx
+			// RunnerID is the runnerID argument value.
+			RunnerID string
+			// Name is the name argument value.
+			Name string
+			// OrgID is the orgID argument value.
+			OrgID int64
+		}
 		// UpdateSchedule holds details about calls to the UpdateSchedule method.
 		UpdateSchedule []struct {
 			// Ctx is the ctx argument value.
@@ -125,12 +145,13 @@ type StoreMock struct {
 			F func(tx *sql.Tx) error
 		}
 	}
-	lockAdvanceSchedule   sync.RWMutex
-	lockClaimDueSchedules sync.RWMutex
-	lockCreateEvent       sync.RWMutex
-	lockCreateTask        sync.RWMutex
-	lockUpdateSchedule    sync.RWMutex
-	lockWithTx            sync.RWMutex
+	lockAdvanceSchedule       sync.RWMutex
+	lockClaimDueSchedules     sync.RWMutex
+	lockCreateEvent           sync.RWMutex
+	lockCreateTask            sync.RWMutex
+	lockGetWorkspaceVariables sync.RWMutex
+	lockUpdateSchedule        sync.RWMutex
+	lockWithTx                sync.RWMutex
 }
 
 // AdvanceSchedule calls AdvanceScheduleFunc.
@@ -298,6 +319,54 @@ func (mock *StoreMock) CreateTaskCalls() []struct {
 	mock.lockCreateTask.RLock()
 	calls = mock.calls.CreateTask
 	mock.lockCreateTask.RUnlock()
+	return calls
+}
+
+// GetWorkspaceVariables calls GetWorkspaceVariablesFunc.
+func (mock *StoreMock) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error) {
+	if mock.GetWorkspaceVariablesFunc == nil {
+		panic("StoreMock.GetWorkspaceVariablesFunc: method is nil but Store.GetWorkspaceVariables was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Tx       *sql.Tx
+		RunnerID string
+		Name     string
+		OrgID    int64
+	}{
+		Ctx:      ctx,
+		Tx:       tx,
+		RunnerID: runnerID,
+		Name:     name,
+		OrgID:    orgID,
+	}
+	mock.lockGetWorkspaceVariables.Lock()
+	mock.calls.GetWorkspaceVariables = append(mock.calls.GetWorkspaceVariables, callInfo)
+	mock.lockGetWorkspaceVariables.Unlock()
+	return mock.GetWorkspaceVariablesFunc(ctx, tx, runnerID, name, orgID)
+}
+
+// GetWorkspaceVariablesCalls gets all the calls that were made to GetWorkspaceVariables.
+// Check the length with:
+//
+//	len(mockedStore.GetWorkspaceVariablesCalls())
+func (mock *StoreMock) GetWorkspaceVariablesCalls() []struct {
+	Ctx      context.Context
+	Tx       *sql.Tx
+	RunnerID string
+	Name     string
+	OrgID    int64
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Tx       *sql.Tx
+		RunnerID string
+		Name     string
+		OrgID    int64
+	}
+	mock.lockGetWorkspaceVariables.RLock()
+	calls = mock.calls.GetWorkspaceVariables
+	mock.lockGetWorkspaceVariables.RUnlock()
 	return calls
 }
 

@@ -59,6 +59,34 @@ func TestEnv_Variables(t *testing.T) {
 	}
 }
 
+func TestEnv_VariablesStaleSchedule(t *testing.T) {
+	t.Parallel()
+	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+		Variables: map[string]workspace.VariableConfig{
+			"JIRA_ISSUE": {Required: true},
+		},
+	}})
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId:   e2e.DefaultRunner,
+		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: e2e.DefaultWorkspace}},
+	})
+	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
+		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
+		CronExpr:     "@daily",
+	})
+
+	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
+	assert.NilError(t, err)
+
+	id := resp.Task.Id
+	h.Org.WaitTask(id, func(task *gritzv1.Task) bool { return task.Status == gritzv1.TaskStatus_FAILED })
+	failed := h.Org.WaitEvent(id, func(e *gritzv1.Event) bool {
+		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
+	})
+	assert.Assert(t, cmp.Contains(failed.GetLifecycle().Message, `variable "JIRA_ISSUE": required`))
+	assert.Assert(t, cmp.Len(h.Agent.Runs(id), 0))
+}
+
 func TestSecretsMasked(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{

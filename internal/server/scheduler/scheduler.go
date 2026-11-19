@@ -25,6 +25,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 //go:generate go tool moq -out store_moq_test.go . Store
@@ -39,6 +40,7 @@ type Store interface {
 	CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event) error
 	AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64, adv store.ScheduleAdvance) error
 	UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
+	GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error)
 }
 
 // DefaultInterval is how often the scheduler tick fires when no override is set.
@@ -137,6 +139,43 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	}
 	if len(notifications) > 0 {
 		s.log.Info("scheduler fired schedules", "count", len(notifications))
+	}
+	return nil
+}
+
+// invalidError is a schedule Validate rejects: an invalid cron expression,
+// timezone or variable, or a workspace that isn't registered on its runner.
+type invalidError struct {
+	err error
+}
+
+func (e *invalidError) Error() string { return e.err.Error() }
+
+func (e *invalidError) Unwrap() error { return e.err }
+
+// IsInvalidError reports whether err is Validate rejecting the schedule, as
+// opposed to failing to check it.
+func IsInvalidError(err error) bool {
+	_, ok := errors.AsType[*invalidError](err)
+	return ok
+}
+
+// Validate checks a schedule before it is saved: its cron expression and
+// timezone, that its workspace is registered, and its variables against the
+// workspace's declarations. IsInvalidError tells a rejection from a store error.
+func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) error {
+	if err := sched.Validate(); err != nil {
+		return &invalidError{err: err}
+	}
+	decls, err := st.GetWorkspaceVariables(ctx, tx, sched.Runner, sched.Workspace, sched.OrgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &invalidError{err: fmt.Errorf("workspace %q not found on runner %q", sched.Workspace, sched.Runner)}
+		}
+		return err
+	}
+	if _, err := taskvar.Resolve(decls, sched.Variables); err != nil {
+		return &invalidError{err: fmt.Errorf("workspace %q: %w", sched.Workspace, err)}
 	}
 	return nil
 }

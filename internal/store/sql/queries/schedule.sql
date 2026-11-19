@@ -1,6 +1,6 @@
 -- name: CreateSchedule :one
-INSERT INTO schedules (org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+INSERT INTO schedules (org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 RETURNING id;
 
 -- name: GetSchedule :one
@@ -22,8 +22,8 @@ ORDER BY created_at DESC;
 
 -- name: UpdateSchedule :exec
 UPDATE schedules
-SET name = $1, workspace = $2, runner = $3, namespace = $4, instructions = $5, auto_archive = $6, cron_expr = $7, timezone = $8, enabled = $9, next_run_at = $10, last_run_at = $11, last_task_id = $12, updated_at = $13
-WHERE id = $14 AND org_id = $15;
+SET name = $1, workspace = $2, runner = $3, namespace = $4, instructions = $5, auto_archive = $6, cron_expr = $7, timezone = $8, enabled = $9, next_run_at = $10, last_run_at = $11, last_task_id = $12, updated_at = $13, variables = $14
+WHERE id = $15 AND org_id = $16;
 
 -- name: DeleteSchedule :exec
 DELETE FROM schedules WHERE id = $1 AND org_id = $2;

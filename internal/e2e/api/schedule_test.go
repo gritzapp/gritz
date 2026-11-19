@@ -376,6 +376,117 @@ func TestUpdateSchedule_InvalidCron(t *testing.T) {
 	assert.Equal(t, got.CronExpr, "0 9 * * *")
 }
 
+func TestSchedule_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name: "story",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_ISSUE", Required: true},
+				{Name: "LABEL"},
+			},
+		}},
+	})
+	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
+		Runner:    "runner-1",
+		Workspace: "story",
+		CronExpr:  "@daily",
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+	})
+	updated, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
+		Id:        sched.Id,
+		Runner:    "runner-1",
+		Workspace: "story",
+		CronExpr:  "@daily",
+		Variables: map[string]string{"JIRA_ISSUE": "APP-143", "LABEL": ""},
+	})
+	assert.NilError(t, err)
+
+	// Act
+	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
+
+	// Assert
+	assert.NilError(t, err)
+	want := map[string]string{"JIRA_ISSUE": "APP-143", "LABEL": ""}
+	assert.DeepEqual(t, sched.Variables, map[string]string{"JIRA_ISSUE": "APP-142"})
+	assert.DeepEqual(t, updated.Schedule.Variables, want)
+	assert.DeepEqual(t, h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}).Variables, want)
+	assert.DeepEqual(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id}).Variables, want)
+}
+
+func TestSchedule_InvalidVariables(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		variables map[string]string
+		want      string
+	}{
+		{
+			name:      "undeclared",
+			variables: map[string]string{"JIRA_ISSUE": "APP-142", "JIRA": "APP-142"},
+			want:      `workspace "story": variable "JIRA": not declared by the workspace`,
+		},
+		{
+			name:      "missing required",
+			variables: map[string]string{"BRANCH": "dev"},
+			want:      `workspace "story": variable "JIRA_ISSUE": required`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			h := e2e.New(t, nil)
+			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+				RunnerId: "runner-1",
+				Workspaces: []*gritzv1.RegisteredWorkspace{{
+					Name: "story",
+					Variables: []*gritzv1.VariableDecl{
+						{Name: "BRANCH", Default: "main"},
+						{Name: "JIRA_ISSUE", Required: true},
+						{Name: "LABEL"},
+					},
+				}},
+			})
+			sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
+				Runner:    "runner-1",
+				Workspace: "story",
+				CronExpr:  "@daily",
+				Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+			})
+
+			// Act
+			_, createErr := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+				Runner:    "runner-1",
+				Workspace: "story",
+				CronExpr:  "@daily",
+				Variables: tt.variables,
+			})
+			_, updateErr := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
+				Id:        sched.Id,
+				Runner:    "runner-1",
+				Workspace: "story",
+				CronExpr:  "@daily",
+				Variables: tt.variables,
+			})
+
+			// Assert
+			assert.Equal(t, connect.CodeOf(createErr), connect.CodeInvalidArgument)
+			assert.ErrorContains(t, createErr, tt.want)
+			assert.Equal(t, connect.CodeOf(updateErr), connect.CodeInvalidArgument)
+			assert.ErrorContains(t, updateErr, tt.want)
+			assert.DeepEqual(t,
+				h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}).Variables,
+				map[string]string{"JIRA_ISSUE": "APP-142"},
+			)
+		})
+	}
+}
+
 // A manual run fires the schedule as a one-off: it creates exactly one task
 // carrying the template, seeds the ScheduleActor created-event + one instruction
 // event per instruction (byte-for-byte what the scheduler worker fires), and

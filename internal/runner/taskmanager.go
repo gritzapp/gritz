@@ -16,6 +16,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 // TaskManager orchestrates the runner's tasks: it replicates their event log,
@@ -357,8 +358,9 @@ func (m *TaskManager) newRunner(taskID int64) *TaskRunner {
 
 // specs builds the sandbox spec of the task's run c, and the driver.v1
 // RunSpec its run is started with; see TaskRunnerOptions.Spec. It looks up
-// and validates the workspace, fetches the task token and variables, and
-// leaves the rest to buildSpecs.
+// and validates the workspace, fetches the task token and variables, resolves
+// the variables against the workspace's declarations, and leaves the rest to
+// buildSpecs.
 func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error) {
 	ws, err := m.workspaces.Get(c.Workspace)
 	if err != nil {
@@ -379,6 +381,10 @@ func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*bac
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get run spec inputs: %w", err)
 	}
+	variables, err := taskvar.Resolve(ws.VariableDecls(), inputs.Variables)
+	if err != nil {
+		return nil, nil, fmt.Errorf("workspace %q: %w", c.Workspace, err)
+	}
 	var runEnv map[string]string
 	if be, ok := m.backend.(backend.RunEnver); ok {
 		runEnv = be.RunEnv(ws)
@@ -389,7 +395,7 @@ func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*bac
 		ServerURL:  m.serverURL,
 		RunnerID:   m.runnerID,
 		Token:      inputs.Token,
-		Variables:  inputs.Variables,
+		Variables:  variables,
 		BinaryPath: m.backend.BinaryPath(),
 		RunEnv:     runEnv,
 	})

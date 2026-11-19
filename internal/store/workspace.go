@@ -63,14 +63,6 @@ func (s *Store) ListWorkspaces(ctx context.Context, tx *sql.Tx, orgID int64) ([]
 	return workspaces, nil
 }
 
-func (s *Store) HasWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) (bool, error) {
-	return s.q(tx).HasWorkspace(ctx, sqlc.HasWorkspaceParams{
-		RunnerID: runnerID,
-		Name:     name,
-		OrgID:    orgID,
-	})
-}
-
 // GetWorkspaceVariables returns the variable declarations of a runner's
 // registered workspace, or sql.ErrNoRows when it isn't registered.
 func (s *Store) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error) {

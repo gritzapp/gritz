@@ -87,8 +87,8 @@ type Task struct {
 	// docs/src/content/docs/proposals/implemented/driver-reverse-shell.md).
 	// Inert for now — no consumers yet.
 	ShellSession string `json:"shell_session,omitempty"`
-	// Variables are the task's resolved variables, by name, each injected into
-	// its sandbox as GRITZ_VAR_<NAME>. Set at creation and never changed. Nil
+	// Variables are the task's variables, by name, each injected into its
+	// sandbox as GRITZ_VAR_<NAME>. Set at creation and never changed. Nil
 	// when the task has none.
 	Variables map[string]string `json:"variables,omitempty"`
 }

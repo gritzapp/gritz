@@ -41,6 +41,7 @@ func TestScheduleCRUD(t *testing.T) {
 		Timezone:    "America/Toronto",
 		Enabled:     true,
 		NextRunAt:   &next,
+		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
 	assert.Assert(t, sched.ID != 0)
@@ -62,6 +63,7 @@ func TestScheduleCRUD(t *testing.T) {
 	sched.Enabled = false
 	sched.NextRunAt = nil
 	sched.Instructions = []model.ScheduleInstruction{{Text: "only this"}}
+	sched.Variables = map[string]string{"JIRA_ISSUE": "APP-143", "LABEL": ""}
 	assert.NilError(t, s.UpdateSchedule(ctx, nil, sched))
 
 	got, err = s.GetSchedule(ctx, nil, sched.ID, org.OrgID)

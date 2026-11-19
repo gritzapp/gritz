@@ -10,6 +10,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -47,6 +48,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		Timezone:  "UTC",
 		Enabled:   true,
 		NextRunAt: &stale,
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	st := &StoreMock{
 		WithTxFunc: passthroughTx,
@@ -79,6 +81,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   1,
 		OrgID:     7,
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 
 	// The created event first (ScheduleActor) and the start command, then one
@@ -241,4 +244,65 @@ func eventPayloads(calls []struct {
 		events[i] = c.Event
 	}
 	return events
+}
+
+func TestValidate(t *testing.T) {
+	t.Parallel()
+	storeErr := errors.New("db down")
+	tests := []struct {
+		name  string
+		sched *model.Schedule
+		decls []taskvar.Decl
+		err   error
+		check func(t *testing.T, err error)
+	}{
+		{
+			name:  "valid",
+			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Variables: map[string]string{"JIRA_ISSUE": "APP-142"}},
+			decls: []taskvar.Decl{{Name: "JIRA_ISSUE", Required: true}},
+			check: func(t *testing.T, err error) { assert.NilError(t, err) },
+		},
+		{
+			name:  "invalid cron",
+			sched: &model.Schedule{CronExpr: "nonsense", Timezone: "UTC"},
+			check: func(t *testing.T, err error) { assert.Assert(t, IsInvalidError(err), err) },
+		},
+		{
+			name:  "invalid variable",
+			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Variables: map[string]string{"JIRA": "APP-142"}},
+			check: func(t *testing.T, err error) {
+				assert.Assert(t, IsInvalidError(err), err)
+				assert.ErrorContains(t, err, `variable "JIRA": not declared by the workspace`)
+			},
+		},
+		{
+			name:  "unregistered workspace",
+			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Runner: "r", Workspace: "w"},
+			err:   sql.ErrNoRows,
+			check: func(t *testing.T, err error) {
+				assert.Assert(t, IsInvalidError(err), err)
+				assert.Error(t, err, `workspace "w" not found on runner "r"`)
+			},
+		},
+		{
+			name:  "store error",
+			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC"},
+			err:   storeErr,
+			check: func(t *testing.T, err error) {
+				assert.ErrorIs(t, err, storeErr)
+				assert.Assert(t, !IsInvalidError(err))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := &StoreMock{
+				GetWorkspaceVariablesFunc: func(context.Context, *sql.Tx, string, string, int64) ([]taskvar.Decl, error) {
+					return tt.decls, tt.err
+				},
+			}
+			tt.check(t, Validate(t.Context(), nil, st, tt.sched))
+		})
+	}
 }

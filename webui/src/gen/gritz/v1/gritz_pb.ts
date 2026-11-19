@@ -3349,7 +3349,9 @@ export type Schedule = Message<"gritz.v1.Schedule"> & {
   updatedAt?: Timestamp | undefined;
 
   /**
-   * Variables of the tasks it creates.
+   * Variables of the tasks it creates, by name, as saved. Each task gets them
+   * as they are; the runner fills in the workspace's defaults, and fails the
+   * task if the workspace no longer accepts them, when it starts it.
    *
    * @generated from field: map<string, string> variables = 17;
    */
@@ -3418,7 +3420,8 @@ export type CreateScheduleRequest = Message<"gritz.v1.CreateScheduleRequest"> & 
   autoArchive?: Duration | undefined;
 
   /**
-   * Variables of the tasks it creates.
+   * Variables of the tasks it creates, by name. Each must be declared by the
+   * workspace, and every required one set.
    *
    * @generated from field: map<string, string> variables = 10;
    */
@@ -3569,7 +3572,8 @@ export type UpdateScheduleRequest = Message<"gritz.v1.UpdateScheduleRequest"> & 
   autoArchive?: Duration | undefined;
 
   /**
-   * Variables of the tasks it creates.
+   * Variables of the tasks it creates, by name. Each must be declared by the
+   * workspace, and every required one set.
    *
    * @generated from field: map<string, string> variables = 10;
    */

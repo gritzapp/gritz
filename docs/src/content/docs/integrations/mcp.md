@@ -338,6 +338,7 @@ webhook: firing a custom event is how to send one.
 | `namespace` | Its tasks' namespace. |
 | `auto_archive` | Its tasks' auto-archive delay, as in `create_task`. |
 | `enabled` | Whether the schedule runs. Without it, the schedule is created disabled. |
+| `variables` | The [variables](/concepts/schedules/#variables) of every task it creates, as in `create_task`. |
 
 It returns the [schedule](/concepts/schedules/). `list_schedules`,
 `get_schedule`, `update_schedule` and `set_schedule_enabled` return schedules
@@ -347,7 +348,8 @@ in the same shape.
 
 Takes the schedule's `id` and any of `create_schedule`'s arguments except
 `enabled`. The arguments left out keep their current values. `instruction`
-replaces every instruction of the schedule.
+replaces every instruction of the schedule, and `variables` replaces all of
+its variables: `{}` removes them.
 
 ### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
 

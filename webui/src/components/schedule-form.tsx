@@ -13,7 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { VariableFields } from '@/components/variable-fields'
 import { DEFAULT_CRON, browserTimezone, timezoneOptions } from '@/lib/schedule'
+import { variablesToSet } from '@/lib/variables'
 import { AUTO_ARCHIVE_IMMEDIATE, AUTO_ARCHIVE_NEVER, formatCountdown } from '@/lib/duration'
 
 // ScheduleFormValues is the full editable state of a schedule template + spec.
@@ -31,6 +33,7 @@ export interface ScheduleFormValues {
   timezone: string
   enabled: boolean
   autoArchive: string
+  variables: Record<string, string>
 }
 
 // emptyScheduleValues seeds a fresh create form: a valid daily cron, the
@@ -46,6 +49,7 @@ export function emptyScheduleValues(): ScheduleFormValues {
     timezone: browserTimezone(),
     enabled: true,
     autoArchive: AUTO_ARCHIVE_NEVER,
+    variables: {},
   }
 }
 
@@ -82,6 +86,7 @@ export function ScheduleForm({
   const { data: workspacesData } = useQuery(listWorkspaces, {})
   const runners = [...new Set(workspacesData?.workspaces.map((ws) => ws.runnerId) ?? [])]
   const workspaces = workspacesData?.workspaces.filter((ws) => ws.runnerId === values.runner) ?? []
+  const variableDecls = workspaces.find((ws) => ws.name === values.workspace)?.variables ?? []
 
   // Keep the initial timezone selectable even if it isn't in the offered list
   // (a zone the server accepts but this browser's Intl doesn't enumerate).
@@ -108,10 +113,15 @@ export function ScheduleForm({
     setValues((prev) => ({ ...prev, [key]: value }))
 
   const handleRunnerChange = (runner: string) => {
-    setValues((prev) => ({ ...prev, runner, workspace: '' }))
+    setValues((prev) => ({ ...prev, runner, workspace: '', variables: {} }))
+  }
+
+  const handleWorkspaceChange = (workspace: string) => {
+    setValues((prev) => ({ ...prev, workspace, variables: {} }))
   }
 
   const isValid =
+    workspacesData &&
     values.runner.trim() &&
     values.workspace.trim() &&
     values.instruction.trim() &&
@@ -130,6 +140,11 @@ export function ScheduleForm({
       instruction: values.instruction.trim(),
       cronExpr: values.cronExpr.trim(),
       timezone: values.timezone.trim(),
+      variables: variablesToSet(
+        Object.fromEntries(
+          variableDecls.map((decl) => [decl.name, values.variables[decl.name] ?? '']),
+        ),
+      ),
     })
   }
 
@@ -165,7 +180,7 @@ export function ScheduleForm({
         <Label htmlFor="workspace">Workspace</Label>
         <Select
           value={values.workspace}
-          onValueChange={(v) => set('workspace', v)}
+          onValueChange={handleWorkspaceChange}
           required
           disabled={!values.runner}
         >
@@ -186,6 +201,12 @@ export function ScheduleForm({
           </SelectContent>
         </Select>
       </div>
+
+      <VariableFields
+        decls={variableDecls}
+        values={values.variables}
+        onChange={(variables) => set('variables', variables)}
+      />
 
       <div className="space-y-2">
         <Label htmlFor="instruction">Instructions</Label>
