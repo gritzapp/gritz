@@ -280,7 +280,7 @@ func TestValidate(t *testing.T) {
 			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Runner: "r", Workspace: "w"},
 			err:   sql.ErrNoRows,
 			check: func(t *testing.T, err error) {
-				assert.Assert(t, errors.As(err, new(*WorkspaceNotFoundError)), err)
+				assert.Assert(t, errors.As(err, new(*InvalidError)), err)
 				assert.Error(t, err, `workspace "w" not found on runner "r"`)
 			},
 		},

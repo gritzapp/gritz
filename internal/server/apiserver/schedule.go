@@ -56,7 +56,10 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	}
 	// Validate before the write so an invalid schedule can never be stored.
 	if err := scheduler.Validate(ctx, nil, s.store, sched); err != nil {
-		return nil, scheduleValidateError(err)
+		if errors.As(err, new(*scheduler.InvalidError)) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	// An enabled schedule needs its first fire time; a disabled one stays out of
 	// the claim query with next_run_at = NULL.
@@ -84,17 +87,6 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 		Time:     time.Now(),
 	})
 	return &gritzv1.CreateScheduleResponse{Schedule: sched.Proto()}, nil
-}
-
-// scheduleValidateError maps a scheduler.Validate error to its connect code.
-func scheduleValidateError(err error) error {
-	if errors.As(err, new(*scheduler.InvalidError)) {
-		return connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if errors.As(err, new(*scheduler.WorkspaceNotFoundError)) {
-		return connect.NewError(connect.CodeNotFound, err)
-	}
-	return connect.NewError(connect.CodeInternal, err)
 }
 
 func (s *Server) GetSchedule(ctx context.Context, req *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error) {
@@ -157,7 +149,10 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 		existing.AutoArchive = req.AutoArchive.AsDuration()
 		existing.Variables = req.Variables
 		if err := scheduler.Validate(ctx, tx, s.store, existing); err != nil {
-			return scheduleValidateError(err)
+			if errors.As(err, new(*scheduler.InvalidError)) {
+				return connect.NewError(connect.CodeInvalidArgument, err)
+			}
+			return err
 		}
 		// An enabled schedule re-aligns to its cron grid from now on every update,
 		// so a spec edit takes effect immediately; a disabled one keeps
