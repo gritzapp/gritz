@@ -10,6 +10,8 @@ const commandStyles: Record<TaskCommand, string> = {
     'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-900',
   [TaskCommand.START]:
     'bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-900',
+  [TaskCommand.RESET]:
+    'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900',
 }
 
 const commandLabels: Record<TaskCommand, string> = {
@@ -17,6 +19,7 @@ const commandLabels: Record<TaskCommand, string> = {
   [TaskCommand.RESTART]: 'restart',
   [TaskCommand.STOP]: 'stop',
   [TaskCommand.START]: 'start',
+  [TaskCommand.RESET]: 'reset',
 }
 
 function getCommandStyle(task: Task): string {

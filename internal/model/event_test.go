@@ -88,6 +88,16 @@ func TestLifecyclePayload_Summary(t *testing.T) {
 			want: "Sandbox failed: boom",
 		},
 		{
+			name:    "reset requested by user",
+			payload: LifecyclePayload{Kind: LifecycleKindResetRequested, Actor: UserActor("icholy")},
+			want:    "Sandbox reset requested by icholy",
+		},
+		{
+			name:    "sandbox reset",
+			payload: LifecyclePayload{Kind: LifecycleKindSandboxReset, Actor: RunnerActor},
+			want:    "Sandbox reset",
+		},
+		{
 			name: "updated with fields by user",
 			payload: LifecyclePayload{
 				Kind:   LifecycleKindUpdated,
