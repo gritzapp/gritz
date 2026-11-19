@@ -17,10 +17,11 @@ SELECT id, email, name, github_user_id, github_username, atlassian_account_id, a
 FROM users
 WHERE id = $1;
 
--- name: GetUserByEmail :one
+-- name: GetUsersByEmail :many
 SELECT id, email, name, github_user_id, github_username, atlassian_account_id, atlassian_username, default_org_id, created_at, updated_at
 FROM users
-WHERE email = $1;
+WHERE lower(email) = lower(sqlc.arg(email))
+ORDER BY id;
 
 -- name: GetUserByGitHubUserID :one
 SELECT id, email, name, github_user_id, github_username, atlassian_account_id, atlassian_username, default_org_id, created_at, updated_at

@@ -13,6 +13,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/store"
 )
 
 func (s *Server) CreateOrg(ctx context.Context, req *gritzv1.CreateOrgRequest) (*gritzv1.CreateOrgResponse, error) {
@@ -129,6 +130,9 @@ func (s *Server) AddOrgMember(ctx context.Context, req *gritzv1.AddOrgMemberRequ
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no user found with email %q", req.Email))
+		}
+		if errors.Is(err, store.ErrAmbiguousEmail) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%w: enter %q with the exact casing of the user's email", err, req.Email))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
