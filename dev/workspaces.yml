@@ -35,3 +35,26 @@ workspaces:
       dummy:
         # Return an error so the agent reports a failure.
         error: dummy agent failed on purpose
+  dummy-variables:
+    description: Dummy workspace with task variables — exercises setting them on a task
+    variables:
+      JIRA_ISSUE:
+        description: The Jira issue the task is for
+        required: true
+      BRANCH:
+        description: Branch to check out
+        default: main
+      LABEL:
+        description: An optional label
+    commands:
+      - "env | grep '^GRITZ_VAR_' | sort"
+    container:
+      image: alpine:3.21
+      # Join the dev compose network so the task container can reach the
+      # server by its service name (see docker-compose.dev.yml).
+      networks:
+        - gritz-dev
+    agent:
+      type: dummy
+      dummy:
+        sleep: 2
