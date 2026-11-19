@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -14,7 +14,7 @@ import (
 func TestGetRoutingRules_Default(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.GetRoutingRules(t.Context(), &gritzv1.GetRoutingRulesRequest{})
@@ -27,7 +27,7 @@ func TestGetRoutingRules_Default(t *testing.T) {
 func TestSetAndGetRoutingRules(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	rules := []*gritzv1.RoutingRule{
 		{
 			Source: "github",
@@ -65,7 +65,7 @@ func TestSetAndGetRoutingRules(t *testing.T) {
 func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	rules := []*gritzv1.RoutingRule{
 		{
 			Source: "github",
@@ -103,7 +103,7 @@ func TestSetAndGetRoutingRules_Namespace(t *testing.T) {
 func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
@@ -128,7 +128,7 @@ func TestSetRoutingRules_OrgIsolation(t *testing.T) {
 func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	cases := map[string]*gritzv1.RoutingRule{
 		"empty type":   {Source: "github"},
 		"unknown type": {Source: "github", Type: "not_a_type"},
@@ -173,7 +173,7 @@ func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 func TestSetRoutingRules_CustomTypeRequiresDefinition(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	rules := []*gritzv1.RoutingRule{
 		{
 			Source: "github",
@@ -234,7 +234,7 @@ func TestSetRoutingRules_CustomTypeRequiresDefinition(t *testing.T) {
 func TestSetRoutingRules_RejectsNonPublicCustom(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -274,7 +274,7 @@ func TestSetRoutingRules_RejectsNonPublicCustom(t *testing.T) {
 func TestSetRoutingRules_Variables(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -343,7 +343,7 @@ func TestSetRoutingRules_InvalidVariables(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			h := e2e.New(t, nil)
+			h := harness.New(t, nil)
 			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 				RunnerId: "runner-1",
 				Workspaces: []*gritzv1.RegisteredWorkspace{{

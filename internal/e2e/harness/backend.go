@@ -1,4 +1,4 @@
-package e2e
+package harness
 
 import (
 	"context"
@@ -49,7 +49,7 @@ var _ backend.Backend = (*Backend)(nil)
 func newBackend(t *testing.T, timeout time.Duration, log *slog.Logger) *Backend {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
-	binary := filepath.Join(filepath.Dir(file), "..", "..", "prebuilt", "gritz-linux-"+runtime.GOARCH)
+	binary := filepath.Join(filepath.Dir(file), "..", "..", "..", "prebuilt", "gritz-linux-"+runtime.GOARCH)
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("prebuilt driver: %v; run mise run build", err)
 	}

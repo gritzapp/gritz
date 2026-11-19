@@ -5,7 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
@@ -19,7 +19,7 @@ import (
 func TestTestEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
 			{
@@ -66,7 +66,7 @@ func TestTestEvent(t *testing.T) {
 func TestTestEventFireCreatesTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
 		Rules: []*gritzv1.RoutingRule{
 			{
@@ -76,8 +76,8 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 					{Attr: "body", Op: "prefix", Value: "gritz:"},
 				},
 				Create: &gritzv1.CreateTaskAction{
-					Workspace: e2e.DefaultWorkspace,
-					Runner:    e2e.DefaultRunner,
+					Workspace: harness.DefaultWorkspace,
+					Runner:    harness.DefaultRunner,
 					Prompt:    "Do it.",
 				},
 			},
@@ -157,7 +157,7 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 	t.Parallel()
 	// Arrange: a completed task subscribed to the issue.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/o/r/issues/1"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -251,7 +251,7 @@ func TestTestEventFireWakesSubscribedTask(t *testing.T) {
 func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 	t.Parallel()
 	// Arrange: a read-only caller, OpOrgRead only, no write.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	key := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(
 			authscope.OpOrgRead,
@@ -281,7 +281,7 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -297,7 +297,7 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 		},
 	})
 	assert.NilError(t, err)
-	create := &model.CreateTaskAction{Workspace: e2e.DefaultWorkspace, Runner: e2e.DefaultRunner}
+	create := &model.CreateTaskAction{Workspace: harness.DefaultWorkspace, Runner: harness.DefaultRunner}
 	// SetRoutingRules rejects a member-only custom rule, so it is stored
 	// directly: the test needs one to show the caller's membership is ignored.
 	err = h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
@@ -360,7 +360,7 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -411,7 +411,7 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 // the custom event webhook would reject it.
 func TestTestEventCustomInvalid(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -489,7 +489,7 @@ func TestTestEventCustomInvalid(t *testing.T) {
 // against its type like a custom one.
 func TestTestEventBuiltinInvalid(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	tests := []struct {
 		name   string
 		source string

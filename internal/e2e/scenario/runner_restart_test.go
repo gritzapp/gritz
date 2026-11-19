@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
@@ -20,7 +20,7 @@ import (
 
 func TestRunnerRestart_MidRun(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -44,7 +44,7 @@ func TestRunnerRestart_MidRun(t *testing.T) {
 
 func TestRunnerRestart_PendingWake(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -80,7 +80,7 @@ func TestRunnerRestart_PendingWake(t *testing.T) {
 
 func TestRunnerRestart_SandboxGone(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -102,7 +102,7 @@ func TestRunnerRestart_SandboxGone(t *testing.T) {
 
 func TestRunnerRestart_DriverKilled(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -129,7 +129,7 @@ func TestRunnerRestart_DriverKilled(t *testing.T) {
 
 func TestRunnerRestart_Archived(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -159,7 +159,7 @@ func TestRunnerRestart_Archived(t *testing.T) {
 
 func TestRunnerRestart_Completed(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
 		Commands: []string{"echo setup >> setup"},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
@@ -187,7 +187,7 @@ func TestRunnerRestart_Completed(t *testing.T) {
 
 func TestRunnerRestart_CancelledSandboxGone(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -209,7 +209,7 @@ func TestRunnerRestart_CancelledSandboxGone(t *testing.T) {
 
 func TestRunnerRestart_RestartCancelled(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -232,7 +232,7 @@ func TestRunnerRestart_RestartCancelled(t *testing.T) {
 
 func TestRunnerRestart_RestartCancelledAfterRun(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -254,7 +254,7 @@ func TestRunnerRestart_RestartCancelledAfterRun(t *testing.T) {
 
 func TestRunnerRestart_DriverNeverRan(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 		Draft:        true,

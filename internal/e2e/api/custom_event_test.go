@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/customserver"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -17,7 +17,7 @@ import (
 func TestPostCustomEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -40,8 +40,8 @@ func TestPostCustomEvent(t *testing.T) {
 				Type:       "problem",
 				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
 				Create: &gritzv1.CreateTaskAction{
-					Workspace: e2e.DefaultWorkspace,
-					Runner:    e2e.DefaultRunner,
+					Workspace: harness.DefaultWorkspace,
+					Runner:    harness.DefaultRunner,
 					Prompt:    "Investigate the problem.",
 				},
 				Public: true,
@@ -64,13 +64,13 @@ func TestPostCustomEvent(t *testing.T) {
 	// Assert
 	assert.DeepEqual(t,
 		resp,
-		&e2e.WebhookResponse{StatusCode: http.StatusOK, Body: "{\"routed\":1}\n"},
+		&harness.WebhookResponse{StatusCode: http.StatusOK, Body: "{\"routed\":1}\n"},
 	)
 	assert.DeepEqual(t,
 		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
 		[]*gritzv1.Task{{
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
+			Workspace:   harness.DefaultWorkspace,
+			Runner:      harness.DefaultRunner,
 			Status:      gritzv1.TaskStatus_PENDING,
 			Command:     gritzv1.TaskCommand_START,
 			Version:     1,
@@ -102,7 +102,7 @@ func TestPostCustomEvent(t *testing.T) {
 func TestPostCustomEventDescription(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -120,8 +120,8 @@ func TestPostCustomEventDescription(t *testing.T) {
 				Source: "custom",
 				Type:   "problem",
 				Create: &gritzv1.CreateTaskAction{
-					Workspace: e2e.DefaultWorkspace,
-					Runner:    e2e.DefaultRunner,
+					Workspace: harness.DefaultWorkspace,
+					Runner:    harness.DefaultRunner,
 				},
 				Public: true,
 			},
@@ -140,7 +140,7 @@ func TestPostCustomEventDescription(t *testing.T) {
 	// Assert
 	assert.DeepEqual(t,
 		resp,
-		&e2e.WebhookResponse{StatusCode: http.StatusOK, Body: "{\"routed\":1}\n"},
+		&harness.WebhookResponse{StatusCode: http.StatusOK, Body: "{\"routed\":1}\n"},
 	)
 	assert.DeepEqual(t,
 		h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{}),

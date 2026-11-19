@@ -13,13 +13,13 @@ Use the **Arrange, Act, Assert** pattern. Separate each phase with a blank line 
 func TestTaskScope_CreateTask_Denied(t *testing.T) {
     t.Parallel()
     // Arrange
-    h := e2e.New(t, nil)
+    h := harness.New(t, nil)
     a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A"})
     token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
     // Act - a task token tries to create a task
     _, err := token.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-        Runner: e2e.DefaultRunner, Workspace: e2e.DefaultWorkspace,
+        Runner: harness.DefaultRunner, Workspace: harness.DefaultWorkspace,
     })
 
     // Assert
@@ -76,15 +76,15 @@ Store-level tests and tests inside internal packages that need a database use `i
 
 ### API tests: the e2e harness
 
-API tests go through the e2e harness in `internal/e2e`:
+API tests go through the e2e harness in `internal/e2e/harness`:
 
-- `h := e2e.New(t, opts)` stands up a real server on a `teststore` database, one harness per test. `opts` may be `nil`.
+- `h := harness.New(t, opts)` stands up a real server on a `teststore` database, one harness per test. `opts` may be `nil`.
 - `h.Server` is the server (`h.Server.CreateOrg()` for more orgs, `h.Server.Mock(...)` to inject failures).
-- `h.Org` is the default org, with an owner and a client, registered with `e2e.DefaultRunner` / `e2e.DefaultWorkspace`. Its methods (`CreateTask`, `CreateTaskToken`, `CreateKey`, `AddOrgMember`, `WaitTask`, ...) arrange and assert; the call under test goes through a client (`org.Client`, `token.Client`, ...).
+- `h.Org` is the default org, with an owner and a client, registered with `harness.DefaultRunner` / `harness.DefaultWorkspace`. Its methods (`CreateTask`, `CreateTaskToken`, `CreateKey`, `AddOrgMember`, `WaitTask`, ...) arrange and assert; the call under test goes through a client (`org.Client`, `token.Client`, ...).
 
 Follow `internal/e2e/RULES.md` for how to use and extend the harness.
 
-API tests on the harness live in `internal/e2e/api` (`package api_test`), one file per area (see `taskscope_test.go`). Runner scenarios live in `internal/e2e/scenario` (`package scenario_test`), also one file per area. `internal/e2e` itself holds only the harness and its own tests.
+API tests on the harness live in `internal/e2e/api` (`package api_test`), one file per area (see `taskscope_test.go`). Runner scenarios live in `internal/e2e/scenario` (`package scenario_test`), also one file per area. `internal/e2e/harness` holds only the harness and its own tests.
 
 ## Interface Test Doubles
 

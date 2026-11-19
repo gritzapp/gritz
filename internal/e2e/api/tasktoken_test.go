@@ -9,7 +9,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
 )
@@ -17,7 +17,7 @@ import (
 func TestCreateTaskToken(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
@@ -54,7 +54,7 @@ func TestCreateTaskToken(t *testing.T) {
 func TestCreateTaskToken_InvalidCapability(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
@@ -70,7 +70,7 @@ func TestCreateTaskToken_InvalidCapability(t *testing.T) {
 func TestCreateTaskToken_Denied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	// A present-but-scopeless caller lacks the task_token.create capability.
 	key := h.Org.CreateScopedKey(authscope.Scopes{})
@@ -85,7 +85,7 @@ func TestCreateTaskToken_Denied(t *testing.T) {
 func TestCreateTaskToken_CrossOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 

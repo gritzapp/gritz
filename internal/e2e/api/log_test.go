@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -20,7 +20,7 @@ import (
 func TestUploadLogs_NonReportIgnored(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Logs", Draft: true})
 
 	// Act
@@ -43,7 +43,7 @@ func TestUploadLogs_NonReportIgnored(t *testing.T) {
 func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with report", Draft: true})
 
 	// Act - the agent's report tool uploads an `llm` entry.
@@ -70,7 +70,7 @@ func TestUploadLogs_ReportBecomesEvent(t *testing.T) {
 func TestUploadLogs_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	other := h.Server.CreateOrg()
 
@@ -93,7 +93,7 @@ func TestUploadLogs_Permissions(t *testing.T) {
 func TestAppendLogChunk_RoundTrip(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 
@@ -130,7 +130,7 @@ func TestAppendLogChunk_RoundTrip(t *testing.T) {
 func TestAppendLogChunk_Bounds(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	const maxLogChunkSize = 1 << 20 // the handler's 1 MiB ceiling
 
@@ -171,7 +171,7 @@ func TestAppendLogChunk_Bounds(t *testing.T) {
 func TestAppendLogChunk_Version(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
@@ -194,7 +194,7 @@ func TestAppendLogChunk_Version(t *testing.T) {
 func TestAppendLogChunk_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
 		TaskId:  task.ID,
@@ -224,7 +224,7 @@ func TestAppendLogChunk_Permissions(t *testing.T) {
 func TestListLogChunksByTask_TaskToken(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: task.ID})
 	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
@@ -254,7 +254,7 @@ func TestListLogChunksByTask_TaskToken(t *testing.T) {
 func TestListLogChunksByTask_Paged(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	var want []byte
 	for i := range 5 {
@@ -311,7 +311,7 @@ func TestListLogChunksByTask_Paged(t *testing.T) {
 func TestListLogChunksByTask_Follow(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.AppendLogChunk(&gritzv1.AppendLogChunkRequest{
 		TaskId:  task.ID,
@@ -361,7 +361,7 @@ func TestListLogChunksByTask_Follow(t *testing.T) {
 func TestListLogChunksByTask_BadRequest(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	tests := []struct {

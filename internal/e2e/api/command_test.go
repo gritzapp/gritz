@@ -3,7 +3,7 @@ package api_test
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -15,12 +15,12 @@ import (
 func TestCreateTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 	})
 
 	// Assert
@@ -34,8 +34,8 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }
@@ -43,12 +43,12 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 		Draft:     true,
 	})
 
@@ -64,7 +64,7 @@ func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 func TestUpdateTask_StartCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange - run 1 starts and completes.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -88,20 +88,20 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_NONE,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   2,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }
@@ -109,7 +109,7 @@ func TestUpdateTask_StartCommandEvent(t *testing.T) {
 func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
@@ -127,7 +127,7 @@ func TestUpdateTask_UnchangedCommandNoEvent(t *testing.T) {
 func TestRestartTask_CommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange - run 1 starts and fails.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -151,20 +151,20 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_NONE,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_RESTART,
 			Version:   2,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }
@@ -172,7 +172,7 @@ func TestRestartTask_CommandEvent(t *testing.T) {
 func TestCancelTask_PendingCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
@@ -190,14 +190,14 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_NONE,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }
@@ -205,7 +205,7 @@ func TestCancelTask_PendingCommandEvent(t *testing.T) {
 func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -226,14 +226,14 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_NONE,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }
@@ -244,7 +244,7 @@ func TestSubmitRunnerEvents_ClearCommandEvent(t *testing.T) {
 func TestSubmitRunnerEvents_RunBoundaryCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange - run 1 is running, and a start is queued behind it.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -270,26 +270,26 @@ func TestSubmitRunnerEvents_RunBoundaryCommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_NONE,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   2,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }
@@ -297,7 +297,7 @@ func TestSubmitRunnerEvents_RunBoundaryCommandEvent(t *testing.T) {
 func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -320,20 +320,20 @@ func TestSubmitRunnerEvents_ServerIssuedStopCommandEvent(t *testing.T) {
 		{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_NONE,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 		{
 			Command:   gritzv1.TaskCommand_STOP,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		},
 	}, protocmp.Transform())
 }

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -15,7 +15,7 @@ func TestOpenShell(t *testing.T) {
 	t.Parallel()
 	// Arrange: drive a task to a terminal (completed) status so it can be
 	// shelled. Runner events use version 0 to bypass the version check.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -50,7 +50,7 @@ func TestOpenShell(t *testing.T) {
 func TestOpenShell_RejectsPending(t *testing.T) {
 	t.Parallel()
 	// Arrange: a started task is PENDING (non-terminal).
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
@@ -67,7 +67,7 @@ func TestOpenShell_RejectsRunning(t *testing.T) {
 	t.Parallel()
 	// Arrange: drive the task to RUNNING; opening a shell must not displace a
 	// live run.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -86,7 +86,7 @@ func TestOpenShell_RejectsRunning(t *testing.T) {
 func TestOpenShell_CrossOrgDenied(t *testing.T) {
 	t.Parallel()
 	// Arrange: a completed task owned by the default org.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})

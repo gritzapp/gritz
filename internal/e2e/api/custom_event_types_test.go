@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -13,7 +13,7 @@ import (
 func TestSetAndGetCustomEventTypes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	defs := []*gritzv1.EventTypeDef{
 		{
 			Source: "custom",
@@ -51,7 +51,7 @@ func TestSetAndGetCustomEventTypes(t *testing.T) {
 func TestSetCustomEventTypes_RejectsMalformed(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act: the def lacks the required "url" attr.
 	_, err := h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
@@ -76,7 +76,7 @@ func TestSetCustomEventTypes_RejectsMalformed(t *testing.T) {
 func TestSetCustomEventTypes_RejectsDeletingTypeInUse(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	problem := &gritzv1.EventTypeDef{
 		Source: "custom",
 		Type:   "problem",
@@ -123,7 +123,7 @@ func TestSetCustomEventTypes_RejectsDeletingTypeInUse(t *testing.T) {
 func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	problem := &gritzv1.EventTypeDef{
 		Source: "custom",
 		Type:   "problem",

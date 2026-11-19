@@ -1,4 +1,4 @@
-package e2e
+package harness
 
 import (
 	"crypto/ed25519"

@@ -6,7 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
@@ -28,7 +28,7 @@ import (
 func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B", Draft: true})
 	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
@@ -45,7 +45,7 @@ func TestTaskScope_GetTask_OwnAllowed_OtherDenied(t *testing.T) {
 func TestTaskScope_UpdateTask_OwnAllowed_OtherDenied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B", Draft: true})
 	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
@@ -61,13 +61,13 @@ func TestTaskScope_UpdateTask_OwnAllowed_OtherDenied(t *testing.T) {
 func TestTaskScope_CreateTask_Denied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	token := h.Org.CreateTaskToken(&gritzv1.CreateTaskTokenRequest{TaskId: a.ID})
 
 	// Act
 	_, err := token.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner: e2e.DefaultRunner, Workspace: e2e.DefaultWorkspace,
+		Runner: harness.DefaultRunner, Workspace: harness.DefaultWorkspace,
 	})
 
 	// Assert
@@ -84,7 +84,7 @@ func TestTaskScope_CreateTask_Denied(t *testing.T) {
 func TestTaskScope_ArchivedGating_ActiveReadAllowed(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	key := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(
@@ -106,7 +106,7 @@ func TestTaskScope_ArchivedGating_ActiveReadAllowed(t *testing.T) {
 func TestTaskScope_ArchivedGating_ArchivedReadDenied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 	key := h.Org.CreateScopedKey(authscope.Scopes{
@@ -128,7 +128,7 @@ func TestTaskScope_ArchivedGating_ArchivedReadDenied(t *testing.T) {
 func TestTaskScope_ArchivedGating_ArchivedWriteDenied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 	key := h.Org.CreateScopedKey(authscope.Scopes{
@@ -150,7 +150,7 @@ func TestTaskScope_ArchivedGating_ArchivedWriteDenied(t *testing.T) {
 
 func TestTaskScope_WrongInstanceDenied(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B", Draft: true})
 	// Scoped to task A only (read+write on its id).
@@ -241,7 +241,7 @@ func TestTaskScope_WrongInstanceDenied(t *testing.T) {
 func TestTaskScope_SubmitRunnerEvents_PartialBatch(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "A", Draft: true})
 	b := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "B", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: a.ID, Start: true})

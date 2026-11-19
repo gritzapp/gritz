@@ -6,7 +6,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
 )
@@ -14,7 +14,7 @@ import (
 func TestGetRunSpecInputs(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -49,7 +49,7 @@ func TestGetRunSpecInputs(t *testing.T) {
 func TestGetRunSpecInputs_InvalidCapability(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act
@@ -65,7 +65,7 @@ func TestGetRunSpecInputs_InvalidCapability(t *testing.T) {
 func TestGetRunSpecInputs_Denied(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	// A caller that can read the task but not mint its token.
 	key := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpTaskRead)})
@@ -80,7 +80,7 @@ func TestGetRunSpecInputs_Denied(t *testing.T) {
 func TestGetRunSpecInputs_CrossOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/atlassian"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -17,7 +17,7 @@ import (
 func TestCreateOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateOrg(t.Context(), &gritzv1.CreateOrgRequest{
@@ -38,7 +38,7 @@ func TestCreateOrg(t *testing.T) {
 func TestListOrgs(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "org-1"})
 	h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "org-2"})
 
@@ -53,7 +53,7 @@ func TestListOrgs(t *testing.T) {
 func TestDeleteOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "to-delete"})
 
 	// Act
@@ -67,7 +67,7 @@ func TestDeleteOrg(t *testing.T) {
 func TestDeleteOrg_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "user-a-org"})
 
@@ -81,7 +81,7 @@ func TestDeleteOrg_Permissions(t *testing.T) {
 func TestDeleteOrg_DefaultOrg(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: h.Org.ID})
@@ -93,7 +93,7 @@ func TestDeleteOrg_DefaultOrg(t *testing.T) {
 func TestAddAndListOrgMembers(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 
 	// Act
@@ -110,7 +110,7 @@ func TestAddAndListOrgMembers(t *testing.T) {
 func TestAddOrgMember_EmailIgnoresCase(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 
 	// Act
@@ -127,7 +127,7 @@ func TestAddOrgMember_EmailIgnoresCase(t *testing.T) {
 func TestDeleteOrg_RefusedWhileTasksUnarchived(t *testing.T) {
 	t.Parallel()
 	// Arrange - a stopped task, not yet archived.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-tasks"})
 	task := created.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	created.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -154,7 +154,7 @@ func TestDeleteOrg_RefusedWhileTasksUnarchived(t *testing.T) {
 func TestDeleteOrg_DisablesSchedules(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-schedules"})
 	sched := created.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: true})
 
@@ -172,7 +172,7 @@ func TestDeleteOrg_DisablesSchedules(t *testing.T) {
 func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-webhook"})
 	webhook := created.GenerateAtlassianWebhookSecret(&gritzv1.GenerateAtlassianWebhookSecretRequest{})
 	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
@@ -184,14 +184,14 @@ func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {
 	// Assert
 	assert.DeepEqual(t,
 		resp,
-		&e2e.WebhookResponse{StatusCode: http.StatusForbidden, Body: "webhook not configured\n"},
+		&harness.WebhookResponse{StatusCode: http.StatusForbidden, Body: "webhook not configured\n"},
 	)
 }
 
 func TestDeleteOrg_RejectsKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-key"})
 	key := created.CreateKey(&gritzv1.CreateKeyRequest{Name: "k"})
 	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
@@ -207,7 +207,7 @@ func TestDeleteOrg_RejectsKey(t *testing.T) {
 func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	// SetOrgGitHubInstallation verifies the installation with GitHub, which the
 	// harness has no client for, so the installation is written to the store.
 	err := h.Server.Store.SetOrgGitHubInstallation(t.Context(), nil, h.Org.ID, 12345)
@@ -224,7 +224,7 @@ func TestGetOrgSettings_GitHubInstallationID(t *testing.T) {
 func TestGetOrgSettings_NoGitHubInstallation(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.GetOrgSettings(t.Context(), &gritzv1.GetOrgSettingsRequest{})
@@ -237,7 +237,7 @@ func TestGetOrgSettings_NoGitHubInstallation(t *testing.T) {
 func TestRemoveOrgMember(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	member := h.Org.AddOrgMember(&gritzv1.AddOrgMemberRequest{Email: other.Owner.Email})
 

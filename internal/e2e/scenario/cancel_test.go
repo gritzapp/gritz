@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
@@ -13,7 +13,7 @@ import (
 
 func TestCancel_MidRun(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})

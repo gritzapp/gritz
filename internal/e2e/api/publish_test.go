@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
@@ -17,14 +17,14 @@ import (
 func TestCreateTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	notifications := h.Org.Subscribe()
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "test",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 	})
 	assert.NilError(t, err)
 
@@ -36,7 +36,7 @@ func TestCreateTask_Publishes(t *testing.T) {
 			{Action: "appended", Type: "task_events", ID: resp.Task.Id},
 		},
 		OrgID:  h.Org.ID,
-		Runner: e2e.DefaultRunner,
+		Runner: harness.DefaultRunner,
 		UserID: h.Org.Owner.UserID,
 	}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
 }
@@ -46,14 +46,14 @@ func TestCreateTask_Publishes(t *testing.T) {
 func TestCreateTask_Draft_PublishesWithoutRunner(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	notifications := h.Org.Subscribe()
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "test",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 		Draft:     true,
 	})
 	assert.NilError(t, err)
@@ -73,7 +73,7 @@ func TestCreateTask_Draft_PublishesWithoutRunner(t *testing.T) {
 func TestUpdateTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	notifications := h.Org.Subscribe()
@@ -93,7 +93,7 @@ func TestUpdateTask_Publishes(t *testing.T) {
 			{Action: "appended", Type: "task_events", ID: task.ID},
 		},
 		OrgID:  h.Org.ID,
-		Runner: e2e.DefaultRunner,
+		Runner: harness.DefaultRunner,
 		UserID: h.Org.Owner.UserID,
 	}, cmpopts.IgnoreFields(model.Notification{}, "Time", "ChannelMessage"))
 }
@@ -101,7 +101,7 @@ func TestUpdateTask_Publishes(t *testing.T) {
 func TestCancelTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	notifications := h.Org.Subscribe()
@@ -125,7 +125,7 @@ func TestCancelTask_Publishes(t *testing.T) {
 func TestArchiveTask_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange - a draft can be archived directly.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	notifications := h.Org.Subscribe()
 
@@ -150,7 +150,7 @@ func TestArchiveTask_Publishes(t *testing.T) {
 func TestUploadLogs_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	notifications := h.Org.Subscribe()
 
@@ -177,7 +177,7 @@ func TestUploadLogs_Publishes(t *testing.T) {
 func TestCreateLink_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	notifications := h.Org.Subscribe()
 
@@ -205,7 +205,7 @@ func TestUpdateTask_ChannelMessage_QueuedOnStart(t *testing.T) {
 	t.Parallel()
 	// Arrange - run the task to a stop, so the start under test re-queues a
 	// task that isn't already queued.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	version := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Version
@@ -233,7 +233,7 @@ func TestUpdateTask_NoChannelMessage_NameOnly(t *testing.T) {
 	t.Parallel()
 	// Arrange - a running task has no pending runner, so a name-only update
 	// stays silent on the channel.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	version := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Version
@@ -258,7 +258,7 @@ func TestUpdateTask_NoChannelMessage_NameOnly(t *testing.T) {
 func TestSubmitRunnerEvents_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	version := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Version
@@ -287,7 +287,7 @@ func TestSubmitRunnerEvents_Publishes(t *testing.T) {
 func TestSubmitRunnerEvents_NotApplied_DoesNotPublish(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	notifications := h.Org.Subscribe()
