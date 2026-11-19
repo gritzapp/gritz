@@ -90,20 +90,24 @@ workspace with no `variables:` accepts none.
 
 The runner already sends the server its workspaces with `RegisterWorkspaces`;
 `RegisteredWorkspace` gains the declarations, and the server stores them in a
-new `workspaces.variables` column. **The server resolves variables once, when
-the task is created**: it rejects undeclared and missing-required variables,
-fills in defaults, and stores the result. The stored set is complete, so the
-runner injects exactly what the task carries and never consults its own
-declarations at run time.
+new `workspaces.variables` column. **`CreateTask` resolves variables on the
+server**: it rejects undeclared and missing-required variables, fills in
+defaults, and stores the result, so a manual create gets the error at once.
 
-That makes the creation-time declaration authoritative for a task's life. A
-runner restarted with a changed `variables:` affects new tasks only: an
-existing task keeps its variables, including one the workspace no longer
-declares, and a task created before a new required variable was added runs
-without it. Variables are immutable after creation, like `namespace`:
-`UpdateTask` can't change them, and a restart reruns with the same values.
-Rechecking at run time would turn a config edit into failed restarts of
-existing tasks for no gain.
+**The runner resolves them again at every run start**, against its own
+declarations: `TaskManager.specs` calls
+`taskvar.Resolve(ws.VariableDecls(), inputs.Variables)` on what
+`GetRunSpecInputs` returns, and injects the result. A missing required
+variable or an undeclared one fails the spec, and `TaskRunner` fails the run
+through its existing spec-failure path, with the message on the timeline. A
+runner's `workspaces.yaml` is therefore authoritative for every run: a runner
+restarted with a changed `variables:` fails the next start of an existing task
+whose variables it no longer accepts, and fills in a default it newly
+declares. This is also what catches a schedule whose stored values went stale
+(see [Who sets variables](#who-sets-variables)).
+
+Variables are immutable after creation, like `namespace`: `UpdateTask` can't
+change them, and a restart reruns with the same stored values.
 
 **Missing variables.** A declared, non-required variable without a default
 that the caller didn't set is absent from the task, and its environment
@@ -148,9 +152,8 @@ Variables do **not** reach:
 
 ### Who sets variables
 
-Every path that creates a task resolves variables through the same
-server-side function, `taskvar.Resolve`, against the workspace's stored
-declarations.
+Every path that creates a task validates variables with the same function,
+`taskvar.Resolve`, against the workspace's stored declarations.
 
 | Path | How |
 | --- | --- |
@@ -158,19 +161,25 @@ declarations.
 | MCP `create_task` (`gritz mcp`, server MCP) | `variables`, an object of string to string. |
 | `gritz task create` | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`. |
 | Web UI new-task page | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
-| Schedules | `Schedule.variables`, fixed values. |
+| Schedules | `Schedule.variables`, fixed values, copied onto each task unresolved. |
 | Routing rules | `CreateTaskAction.variables`, fixed values. |
 
 **Schedules and routing rules set fixed values**: a `map<string, string>`
 saved with the schedule or rule, the same for every task it creates. Nothing
 from a triggering event is copied into a variable. Both are validated against
 the workspace's declarations when they are saved (`InvalidArgument` for an
-undeclared variable or a missing required one), and resolved again when they
-create a task, since the runner may have re-registered the workspace with
-different declarations in between. A schedule or rule whose values no longer
-resolve creates no task: `scheduler.Fire` returns the error as it does for a
-store failure, and `Router.create` returns it to `Route`, which its callers
-log as they log other routing failures.
+undeclared variable or a missing required one), and the literal values are
+stored, not the resolved set.
+
+**`scheduler.Fire` copies a schedule's values onto the task without resolving
+them.** The runner may have re-registered the workspace with different
+declarations since the schedule was saved, and `scheduler.Tick` fires a whole
+batch in one transaction, so an error from one stale schedule would roll back
+every fire in the batch and leave them all due. Instead the stale schedule
+creates its task, and the runner, which resolves every task's variables when it
+starts it, fails that task with the reason on its timeline. Defaults are filled
+in by the runner the same way. The schedule keeps firing, failing each task,
+until someone edits it.
 
 ### Storage
 
@@ -186,12 +195,13 @@ ALTER TABLE workspaces DROP COLUMN IF EXISTS variables;
 ALTER TABLE tasks DROP COLUMN IF EXISTS variables;
 ```
 
-- `tasks.variables`: the resolved `{name: value}`. Added to the `CreateTask`
+- `tasks.variables`: the task's `{name: value}`, resolved for a task from
+  `CreateTask`, as given for one from a schedule. Added to the `CreateTask`
   insert and the `GetTask`, `GetTaskForUpdate`, `ListTasks` and
   `ListTasksPage` selects. Never updated.
 - `workspaces.variables`: the declarations as registered, written by
   `RegisterWorkspaces` (which already replaces a runner's rows wholesale).
-- `schedules.variables`: the schedule's `{name: value}` as saved.
+- `schedules.variables`: the schedule's `{name: value}` as saved, unresolved.
 - Routing rules are stored as JSON already; `CreateTaskAction` gains a field
   and needs no migration.
 
@@ -391,11 +401,13 @@ type specInput struct {
 
 **How it fits:** the runner's `RegisterWorkspaces` sends each workspace's
 `VariableDecls`; the server stores them. `CreateTask`, the MCP `create_task`
-tool (through the RPC), `scheduler.Fire` and `eventrouter.Router.create` each
-call `store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result
-on `model.Task`. `SetRoutingRules` and the schedule handlers validate against
-the same declarations on save. `TaskManager.specs` calls `GetRunSpecInputs` in
-place of `CreateTaskToken` and passes the token and variables to
+tool (through the RPC) and `eventrouter.Router.create` each call
+`store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on
+`model.Task`. `SetRoutingRules` and the schedule handlers validate against the
+same declarations on save; `scheduler.Fire` copies the schedule's values onto
+`model.Task` as they are. `TaskManager.specs` calls `GetRunSpecInputs` in
+place of `CreateTaskToken`, resolves the variables against
+`ws.VariableDecls()`, and passes the token and the resolved variables to
 `buildSpecs`, which adds each variable to `Spec.Env` under
 `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into
 `RunSpec.env`.
@@ -452,10 +464,13 @@ The task still stores the value it was created with.
    on the task page. Depends on: (4). Verifiable by: creating a task against
    the dev stack.
 8. **Schedules** — Delivers: `schedules.variables` read and write, validation
-   on save and in `scheduler.Fire`, the schedule form's variable fields.
-   Depends on: (4), and (7) for the shared form fields. Verifiable by:
-   scheduler tests firing a schedule with variables, and one whose values no
-   longer resolve; `RunSchedule` against the dev stack.
+   on save, `scheduler.Fire` copying the values onto the task unresolved,
+   `TaskManager.specs` resolving every task's variables against the runner's
+   declarations, the MCP schedule tools' `variables`, the schedule form's
+   variable fields. Depends on: (4), and (7) for the shared form fields.
+   Verifiable by: a scheduler test firing a schedule with variables; e2e tests
+   for saving, rejecting and running a schedule with variables, and for a
+   schedule whose values no longer resolve failing its task on the runner.
 9. **Routing rules** — Delivers: `CreateTaskAction.variables`, validation in
    `SetRoutingRules`, resolution in `Router.create`, the rule form's variable
    fields. Depends on: (4), and (7) for the shared form fields. Verifiable by:
@@ -510,11 +525,17 @@ their own field and apply the prefix itself. Putting them in `env` reuses the
 driver's existing layering unchanged, keeps the prefix rule in one place on
 the runner side, and ships with no driver change.
 
-**Resolve at run time on the runner.** The runner could apply defaults and
-check required variables from its own config at each start, making
-`workspaces.yaml` authoritative for every run. It would turn a config edit
-into failures of existing tasks and leave the server unable to reject a bad
-request at `CreateTask`.
+**Resolve only at run time on the runner.** The runner could be the only place
+that checks variables. It would leave the server unable to reject a bad
+request at `CreateTask`. Resolving on both sides costs a config edit failing
+the next start of existing tasks, and in exchange catches stale schedules
+without failing the scheduler's batch.
+
+**Resolve in `scheduler.Fire`.** A schedule whose values no longer resolve
+would create no task, but `Fire` runs inside `Tick`'s batch transaction, so its
+error would roll back every schedule in the batch and keep them all due,
+failing again each tick. Failing the one task on the runner puts the error
+where the schedule's owner sees it.
 
 **Variables as an event.** Storing variables as an event in the task's stream
 would put them in the timeline and in the runner's replica for free, but they
