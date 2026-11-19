@@ -1,19 +1,19 @@
 services:
   postgres:
     image: postgres:18-alpine
+    # Test data is disposable: skip durability so Postgres doesn't keep the
+    # disk busy flushing while the Docker backend tests create containers.
+    command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
     environment:
       POSTGRES_USER: gritz
       POSTGRES_PASSWORD: gritz
       POSTGRES_DB: gritz
       PGPORT: "5433"
     network_mode: host
-    volumes:
-      - postgres_data:/var/lib/postgresql
+    tmpfs:
+      - /var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gritz -p 5433"]
       interval: 5s
       timeout: 5s
       retries: 5
-
-volumes:
-  postgres_data:
