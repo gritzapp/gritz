@@ -219,7 +219,12 @@ A rule that creates tasks sets their:
 * **Runner** and **Workspace**.
 * **Prompt**: the created task’s instruction. Left blank, the instruction is a fixed one that only says a routing rule created the task in response to the event’s source and type. The task’s first event is the one that created it, so the agent gets the event’s text either way.
 * **Auto-archive**: the created task’s [auto-archive](/concepts/tasks/#auto-archive) delay.
+* **Variables**: one field per [variable](/operators/workspaces-yaml/#variables) the workspace declares.
 * **Namespace**: the rule’s namespace.
+
+Variables are fixed values saved with the rule: every task the rule creates gets the same ones, and nothing from the event is copied into them. They are checked against the workspace when you save the rules, as when you create a task by hand, and the rules aren’t saved if the workspace isn’t registered on the runner. Leave an optional variable empty to use the workspace’s default when each task starts.
+
+The runner checks a task’s variables again when it starts the task. If the workspace’s `variables:` changed after you saved the rule, and no longer accepts its values (a new required variable, or one the rule sets that the workspace no longer declares), the rule still creates the task, and the task fails with the reason on its timeline. Edit the rule to fix it.
 
 ## Public rules
 
@@ -1250,7 +1255,7 @@ Returns the organisation’s MCP URL, custom event webhook URL, Atlassian webhoo
 
 [Section titled “get_routing_rules, set_routing_rules”](#get_routing_rules-set_routing_rules)
 
-`get_routing_rules` returns the organisation’s [routing rules](/concepts/routing-rules/) in order. `set_routing_rules` takes `rules`, the whole list in the same shape, and replaces every rule with it: a rule missing from the list is deleted. Your agent reads the rules, edits the list and writes it all back. A rule that names an unknown event type or attribute fails the call with the bad rule named, and no rule is changed. It returns the stored rules.
+`get_routing_rules` returns the organisation’s [routing rules](/concepts/routing-rules/) in order. `set_routing_rules` takes `rules`, the whole list in the same shape, and replaces every rule with it: a rule missing from the list is deleted. Your agent reads the rules, edits the list and writes it all back. A rule that names an unknown event type or attribute, or that creates tasks in a workspace that isn’t registered or with [variables](/concepts/routing-rules/#creating-tasks) the workspace doesn’t accept, fails the call with the bad rule named, and no rule is changed. It returns the stored rules.
 
 ## Channels
 
@@ -2103,7 +2108,7 @@ workspaces:
 
 Quote the reference, as `"$GRITZ_VAR_BRANCH"`, so the shell passes the value as one word. Values are readable by anyone who can read the task and appear unmasked in its log: put credentials under `secrets:`.
 
-Each time it starts a task, the runner checks the task’s variables against its own `variables:` and fills in defaults. A task this config no longer accepts, because it sets a variable that isn’t declared or lacks a required one, fails with the reason on its timeline. So a change to `variables:` can fail the next start of a task created earlier, and of every task a [schedule](/concepts/schedules/#variables) saved before it creates.
+Each time it starts a task, the runner checks the task’s variables against its own `variables:` and fills in defaults. A task this config no longer accepts, because it sets a variable that isn’t declared or lacks a required one, fails with the reason on its timeline. So a change to `variables:` can fail the next start of a task created earlier, and of every task a [schedule](/concepts/schedules/#variables) or a [routing rule](/concepts/routing-rules/#creating-tasks) saved before it creates.
 
 ## `capabilities`
 
@@ -4342,11 +4347,13 @@ Every path that creates a task validates variables with the same function, `task
 | `gritz task create`                         | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`.                                                                   |
 | Web UI new-task page                        | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
 | Schedules                                   | `Schedule.variables`, fixed values, copied onto each task unresolved.                                                                                |
-| Routing rules                               | `CreateTaskAction.variables`, fixed values.                                                                                                          |
+| Routing rules                               | `CreateTaskAction.variables`, fixed values, copied onto each task unresolved.                                                                        |
 
-**Schedules and routing rules set fixed values**: a `map<string, string>` saved with the schedule or rule, the same for every task it creates. Nothing from a triggering event is copied into a variable. Both are validated against the workspace’s declarations when they are saved (`InvalidArgument` for an undeclared variable or a missing required one), and the literal values are stored, not the resolved set.
+**Schedules and routing rules set fixed values**: a `map<string, string>` saved with the schedule or rule, the same for every task it creates. Nothing from a triggering event is copied into a variable. Both are validated against the workspace’s declarations when they are saved (`InvalidArgument` for an undeclared variable or a missing required one), and the literal values are stored, not the resolved set. A routing rule’s workspace must be registered on its runner when the rules are saved, as a schedule’s must.
 
 **`scheduler.Fire` copies a schedule’s values onto the task without resolving them.** The runner may have re-registered the workspace with different declarations since the schedule was saved, and `scheduler.Tick` fires a whole batch in one transaction, so an error from one stale schedule would roll back every fire in the batch and leave them all due. Instead the stale schedule creates its task, and the runner, which resolves every task’s variables when it starts it, fails that task with the reason on its timeline. Defaults are filled in by the runner the same way. The schedule keeps firing, failing each task, until someone edits it.
+
+**`Router.create` copies a rule’s values onto the task the same way**, for the same reason: a rule saved before the workspace’s declarations changed creates its task, and the runner fails it. Validation on save is `eventrouter.ValidateRule`, shaped like `scheduler.Validate`: it checks the rule against the event-type registry, then a create action’s workspace and variables, and `eventrouter.IsInvalidError` lets `SetRoutingRules` map a rejection to `InvalidArgument` and anything else to `Internal`.
 
 ### Storage
 
@@ -4365,7 +4372,7 @@ ALTER TABLE workspaces DROP COLUMN IF EXISTS variables;
 ALTER TABLE tasks DROP COLUMN IF EXISTS variables;
 ```
 
-* `tasks.variables`: the task’s `{name: value}`, resolved for a task from `CreateTask`, as given for one from a schedule. Added to the `CreateTask` insert and the `GetTask`, `GetTaskForUpdate`, `ListTasks` and `ListTasksPage` selects. Never updated.
+* `tasks.variables`: the task’s `{name: value}`, resolved for a task from `CreateTask`, as given for one from a schedule or a routing rule. Added to the `CreateTask` insert and the `GetTask`, `GetTaskForUpdate`, `ListTasks` and `ListTasksPage` selects. Never updated.
 * `workspaces.variables`: the declarations as registered, written by `RegisterWorkspaces` (which already replaces a runner’s rows wholesale).
 * `schedules.variables`: the schedule’s `{name: value}` as saved, unresolved.
 * Routing rules are stored as JSON already; `CreateTaskAction` gains a field and needs no migration.
@@ -4445,7 +4452,8 @@ message Schedule {
 
 message CreateTaskAction {
   // ... fields 1-4 unchanged
-  // Variables of the tasks the rule creates.
+  // Variables of the tasks the rule creates, by name, as saved. Each must be
+  // declared by the workspace, and every required one set.
   map<string, string> variables = 5;  // new
 }
 ```
@@ -4589,7 +4597,7 @@ type specInput struct {
 }
 ```
 
-**How it fits:** the runner’s `RegisterWorkspaces` sends each workspace’s `VariableDecls`; the server stores them. `CreateTask`, the MCP `create_task` tool (through the RPC) and `eventrouter.Router.create` each call `store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on `model.Task`. `SetRoutingRules` and the schedule handlers validate against the same declarations on save; `scheduler.Fire` copies the schedule’s values onto `model.Task` as they are. `TaskManager.specs` calls `GetRunSpecInputs` in place of `CreateTaskToken`, resolves the variables against `ws.VariableDecls()`, and passes the token and the resolved variables to `buildSpecs`, which adds each variable to `Spec.Env` under `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into `RunSpec.env`.
+**How it fits:** the runner’s `RegisterWorkspaces` sends each workspace’s `VariableDecls`; the server stores them. `CreateTask` and the MCP `create_task` tool (through the RPC) call `store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on `model.Task`. `SetRoutingRules` and the schedule handlers validate against the same declarations on save; `scheduler.Fire` and `eventrouter.Router.create` copy the schedule’s or rule’s values onto `model.Task` as they are. `TaskManager.specs` calls `GetRunSpecInputs` in place of `CreateTaskToken`, resolves the variables against `ws.VariableDecls()`, and passes the token and the resolved variables to `buildSpecs`, which adds each variable to `Spec.Env` under `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into `RunSpec.env`.
 
 **When the workspace sets the same name.** `buildSpecs` sets every task variable in `Spec.Env` without checking the workspace’s maps, so the outcome of a `GRITZ_VAR_X` entry in the workspace follows the layering the run environment already has:
 
@@ -4618,7 +4626,7 @@ The task still stores the value it was created with.
 
 8. **Schedules** — Delivers: `schedules.variables` read and write, validation on save, `scheduler.Fire` copying the values onto the task unresolved, `TaskManager.specs` resolving every task’s variables against the runner’s declarations, the MCP schedule tools’ `variables`, the schedule form’s variable fields. Depends on: (4), and (7) for the shared form fields. Verifiable by: a scheduler test firing a schedule with variables; e2e tests for saving, rejecting and running a schedule with variables, and for a schedule whose values no longer resolve failing its task on the runner.
 
-9. **Routing rules** — Delivers: `CreateTaskAction.variables`, validation in `SetRoutingRules`, resolution in `Router.create`, the rule form’s variable fields. Depends on: (4), and (7) for the shared form fields. Verifiable by: `eventrouter` tests for a rule’s variables reaching the created task and for a rule whose values no longer resolve; a custom event posted to the dev stack creating a task with the variable set.
+9. **Routing rules** — Delivers: `CreateTaskAction.variables`, `eventrouter.ValidateRule` validating them in `SetRoutingRules`, `Router.create` copying them onto the task unresolved, the rule form’s variable fields. Depends on: (8), for the runner resolving every task’s variables, and (7) for the shared form fields. Verifiable by: an `eventrouter` test for a rule’s variables reaching the created task unresolved; e2e tests for saving a rule with variables and for `SetRoutingRules` rejecting bad ones.
 
 10. **Docs** — each slice above updates its own pages; this lists them:
 
@@ -32237,7 +32245,10 @@ message CreateTaskAction {
   // The auto-archive delay of the tasks the rule creates, as in
   // Task.auto_archive.
   google.protobuf.Duration auto_archive = 4;
-  // Variables of the tasks the rule creates.
+  // Variables of the tasks the rule creates, by name, as saved. Each must be
+  // declared by the workspace, and every required one set. Each task gets
+  // them as they are; the runner fills in the workspace's defaults, and fails
+  // the task if the workspace no longer accepts them, when it starts it.
   map<string, string> variables = 5;
 }
 
