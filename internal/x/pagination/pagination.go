@@ -21,7 +21,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -105,7 +105,7 @@ type StreamPage[T any] struct {
 // nil at the start of a walk, and for History the walk to resume.
 type token[C any] struct {
 	Cursor *C   `json:"c,omitempty"`
-	Follow bool `json:"f,omitempty"` // History only: walk Newer instead of Older
+	Follow bool `json:"f,omitzero"` // History only: walk Newer instead of Older
 }
 
 // List runs one page of a one-direction walk over src. An empty token is the

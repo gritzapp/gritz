@@ -2,7 +2,7 @@ package atlassian
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 )
 
@@ -24,7 +24,7 @@ func FetchMe(ctx context.Context, accessToken string) (*Me, error) {
 	}
 	defer resp.Body.Close()
 	var me Me
-	if err := json.NewDecoder(resp.Body).Decode(&me); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &me); err != nil {
 		return nil, err
 	}
 	return &me, nil

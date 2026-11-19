@@ -83,12 +83,12 @@ func (s *Store) HasUnarchivedTasks(ctx context.Context, tx *sql.Tx, orgID int64)
 // taskCursor is the keyset a task page token encodes. created_at is not
 // unique, so id is the tiebreaker. Archived binds the token to the filter it
 // was minted under so a cursor can't be silently replayed across filters; the
-// omitempty tag keeps the common (false) token byte-compatible with tokens
+// omitzero tag keeps the common (false) token byte-compatible with tokens
 // minted before the archived filter existed.
 type taskCursor struct {
 	CreatedAt time.Time `json:"c"`
 	ID        int64     `json:"i"`
-	Archived  bool      `json:"a,omitempty"`
+	Archived  bool      `json:"a,omitzero"`
 }
 
 // ListTasksPageParams mirrors the RPC's pagination fields as plain values so

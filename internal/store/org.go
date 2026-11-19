@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -203,7 +203,7 @@ func DecodeRoutingRules(data []byte) ([]model.RoutingRule, error) {
 		return nil, nil
 	}
 	var rules []model.RoutingRule
-	if err := json.Unmarshal(data, &rules); err != nil {
+	if err := json.Unmarshal(data, &rules, model.DurationNanos); err != nil {
 		return nil, err
 	}
 	return rules, nil
@@ -218,7 +218,7 @@ func (s *Store) GetOrgRoutingRules(ctx context.Context, tx *sql.Tx, orgID int64)
 }
 
 func (s *Store) SetOrgRoutingRules(ctx context.Context, tx *sql.Tx, orgID int64, rules []model.RoutingRule) error {
-	data, err := json.Marshal(rules)
+	data, err := json.Marshal(rules, model.DurationNanos)
 	if err != nil {
 		return err
 	}

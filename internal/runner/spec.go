@@ -1,7 +1,8 @@
 package runner
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"path"
@@ -61,7 +62,7 @@ func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 		Command: in.BinaryPath,
 		Args:    mcpArgs,
 	}
-	cfgData, err := json.MarshalIndent(cfg, "", "  ")
+	cfgData, err := json.Marshal(cfg, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal config: %w", err)
 	}

@@ -14,7 +14,7 @@
 // It is a dependency-free leaf: stdlib only.
 package outbox
 
-import "encoding/json"
+import "encoding/json/jsontext"
 
 // Record is one persisted, undelivered message. Seq is a per-outbox monotonic
 // sequence number that defines delivery (FIFO) order; it is an implementation
@@ -22,8 +22,8 @@ import "encoding/json"
 // record by it. Payload is the opaque, JSON-encoded T; the store never decodes
 // it.
 type Record struct {
-	Seq     uint64          `json:"seq"`
-	Payload json.RawMessage `json:"payload"`
+	Seq     uint64         `json:"seq"`
+	Payload jsontext.Value `json:"payload"`
 }
 
 // Store is the durable, crash-safe backing store for an outbox: a strict FIFO
@@ -35,7 +35,7 @@ type Record struct {
 type Store interface {
 	// Append durably appends payload to the tail. It must not return until the
 	// record is durable.
-	Append(payload json.RawMessage) error
+	Append(payload jsontext.Value) error
 	// Peek returns the head record without removing it. ok is false when the
 	// queue is empty.
 	Peek() (rec Record, ok bool, err error)

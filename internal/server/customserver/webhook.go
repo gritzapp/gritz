@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -60,10 +61,16 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Callers built against encoding/json's decoding keep working: member
+	// names match case-insensitively, a duplicate name takes the last value,
+	// invalid UTF-8 becomes U+FFFD, and anything after the envelope is ignored.
 	var env Envelope
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEnvelopeBytes))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&env); err != nil {
+	dec := jsontext.NewDecoder(
+		http.MaxBytesReader(w, r.Body, maxEnvelopeBytes),
+		jsontext.AllowDuplicateNames(true),
+		jsontext.AllowInvalidUTF8(true),
+	)
+	if err := json.UnmarshalDecode(dec, &env, json.RejectUnknownMembers(true), json.MatchCaseInsensitiveNames(true)); err != nil {
 		http.Error(w, fmt.Sprintf("invalid envelope: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -108,7 +115,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	slog.Info("custom event processed", "org_id", caller.OrgID, "url", input.URL, "type", input.Type, "tasks_routed", routed)
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]int{"routed": routed}); err != nil {
+	if err := json.MarshalEncode(jsontext.NewEncoder(w), map[string]int{"routed": routed}); err != nil {
 		slog.Error("failed to write response", "err", err)
 	}
 }

@@ -2,7 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
@@ -116,7 +117,7 @@ func (a *SloppyAgent) writeMcpConfig() (string, error) {
 		config.McpServers[name] = server
 	}
 
-	data, err := json.MarshalIndent(config, "", "  ")
+	data, err := json.Marshal(config, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return "", err
 	}

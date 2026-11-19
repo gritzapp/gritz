@@ -2,7 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"os"
@@ -140,7 +141,7 @@ func (a *CursorAgent) writeMcpConfig() error {
 		"mcpServers": mcpServers,
 	}
 
-	data, err := json.MarshalIndent(config, "", "  ")
+	data, err := json.Marshal(config, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return err
 	}
@@ -185,10 +186,10 @@ func (a *CursorAgent) handleStreamEvent(data []byte) bool {
 		// tool_call fields
 		CallID   string `json:"call_id"`
 		ToolCall struct {
-			ReadToolCall  *json.RawMessage `json:"readToolCall"`
-			WriteToolCall *json.RawMessage `json:"writeToolCall"`
-			EditToolCall  *json.RawMessage `json:"editToolCall"`
-			BashToolCall  *json.RawMessage `json:"bashToolCall"`
+			ReadToolCall  *jsontext.Value `json:"readToolCall"`
+			WriteToolCall *jsontext.Value `json:"writeToolCall"`
+			EditToolCall  *jsontext.Value `json:"editToolCall"`
+			BashToolCall  *jsontext.Value `json:"bashToolCall"`
 		} `json:"tool_call"`
 		// result fields
 		IsError bool `json:"is_error"`
@@ -209,7 +210,7 @@ func (a *CursorAgent) handleStreamEvent(data []byte) bool {
 	case "tool_call":
 		// Determine tool name from whichever field is set
 		toolName := "unknown"
-		var raw *json.RawMessage
+		var raw *jsontext.Value
 		switch {
 		case event.ToolCall.ReadToolCall != nil:
 			toolName, raw = "read", event.ToolCall.ReadToolCall

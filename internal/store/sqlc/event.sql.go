@@ -7,9 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
+	"encoding/json/jsontext"
 	"github.com/lib/pq"
 )
 
@@ -20,12 +20,12 @@ RETURNING id, xid
 `
 
 type CreateEventParams struct {
-	TaskID    int64           `json:"task_id"`
-	OrgID     int64           `json:"org_id"`
-	Type      string          `json:"type"`
-	Wake      bool            `json:"wake"`
-	Payload   json.RawMessage `json:"payload"`
-	CreatedAt time.Time       `json:"created_at"`
+	TaskID    int64          `json:"task_id"`
+	OrgID     int64          `json:"org_id"`
+	Type      string         `json:"type"`
+	Wake      bool           `json:"wake"`
+	Payload   jsontext.Value `json:"payload"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 type CreateEventRow struct {

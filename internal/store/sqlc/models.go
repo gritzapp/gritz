@@ -6,19 +6,20 @@ package sqlc
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
+
+	"encoding/json/jsontext"
 )
 
 type Event struct {
-	ID        int64           `json:"id"`
-	OrgID     int64           `json:"org_id"`
-	CreatedAt time.Time       `json:"created_at"`
-	TaskID    int64           `json:"task_id"`
-	Type      string          `json:"type"`
-	Wake      bool            `json:"wake"`
-	Payload   json.RawMessage `json:"payload"`
-	Xid       uint64          `json:"xid"`
+	ID        int64          `json:"id"`
+	OrgID     int64          `json:"org_id"`
+	CreatedAt time.Time      `json:"created_at"`
+	TaskID    int64          `json:"task_id"`
+	Type      string         `json:"type"`
+	Wake      bool           `json:"wake"`
+	Payload   jsontext.Value `json:"payload"`
+	Xid       uint64         `json:"xid"`
 }
 
 type Key struct {
@@ -41,16 +42,16 @@ type LogChunk struct {
 }
 
 type Org struct {
-	ID                     int64           `json:"id"`
-	Name                   string          `json:"name"`
-	Owner                  string          `json:"owner"`
-	Archived               bool            `json:"archived"`
-	AtlassianWebhookSecret string          `json:"atlassian_webhook_secret"`
-	RoutingRules           json.RawMessage `json:"routing_rules"`
-	CreatedAt              time.Time       `json:"created_at"`
-	UpdatedAt              time.Time       `json:"updated_at"`
-	GithubInstallationID   sql.NullInt64   `json:"github_installation_id"`
-	CustomEventTypes       json.RawMessage `json:"custom_event_types"`
+	ID                     int64          `json:"id"`
+	Name                   string         `json:"name"`
+	Owner                  string         `json:"owner"`
+	Archived               bool           `json:"archived"`
+	AtlassianWebhookSecret string         `json:"atlassian_webhook_secret"`
+	RoutingRules           jsontext.Value `json:"routing_rules"`
+	CreatedAt              time.Time      `json:"created_at"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+	GithubInstallationID   sql.NullInt64  `json:"github_installation_id"`
+	CustomEventTypes       jsontext.Value `json:"custom_event_types"`
 }
 
 type OrgMember struct {
@@ -61,24 +62,24 @@ type OrgMember struct {
 }
 
 type Schedule struct {
-	ID           int64           `json:"id"`
-	OrgID        int64           `json:"org_id"`
-	CreatedBy    string          `json:"created_by"`
-	Name         string          `json:"name"`
-	Workspace    string          `json:"workspace"`
-	Runner       string          `json:"runner"`
-	Namespace    string          `json:"namespace"`
-	Instructions json.RawMessage `json:"instructions"`
-	AutoArchive  int64           `json:"auto_archive"`
-	CronExpr     string          `json:"cron_expr"`
-	Timezone     string          `json:"timezone"`
-	Enabled      bool            `json:"enabled"`
-	NextRunAt    sql.NullTime    `json:"next_run_at"`
-	LastRunAt    sql.NullTime    `json:"last_run_at"`
-	LastTaskID   sql.NullInt64   `json:"last_task_id"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	Variables    json.RawMessage `json:"variables"`
+	ID           int64          `json:"id"`
+	OrgID        int64          `json:"org_id"`
+	CreatedBy    string         `json:"created_by"`
+	Name         string         `json:"name"`
+	Workspace    string         `json:"workspace"`
+	Runner       string         `json:"runner"`
+	Namespace    string         `json:"namespace"`
+	Instructions jsontext.Value `json:"instructions"`
+	AutoArchive  int64          `json:"auto_archive"`
+	CronExpr     string         `json:"cron_expr"`
+	Timezone     string         `json:"timezone"`
+	Enabled      bool           `json:"enabled"`
+	NextRunAt    sql.NullTime   `json:"next_run_at"`
+	LastRunAt    sql.NullTime   `json:"last_run_at"`
+	LastTaskID   sql.NullInt64  `json:"last_task_id"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	Variables    jsontext.Value `json:"variables"`
 }
 
 type SchemaMigration struct {
@@ -86,21 +87,21 @@ type SchemaMigration struct {
 }
 
 type Task struct {
-	ID           int64           `json:"id"`
-	Name         string          `json:"name"`
-	Runner       string          `json:"runner"`
-	Workspace    string          `json:"workspace"`
-	Status       int32           `json:"status"`
-	Command      int32           `json:"command"`
-	Version      int64           `json:"version"`
-	OrgID        int64           `json:"org_id"`
-	Archived     bool            `json:"archived"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	AutoArchive  int64           `json:"auto_archive"`
-	ShellSession string          `json:"shell_session"`
-	Namespace    string          `json:"namespace"`
-	Variables    json.RawMessage `json:"variables"`
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	Runner       string         `json:"runner"`
+	Workspace    string         `json:"workspace"`
+	Status       int32          `json:"status"`
+	Command      int32          `json:"command"`
+	Version      int64          `json:"version"`
+	OrgID        int64          `json:"org_id"`
+	Archived     bool           `json:"archived"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	AutoArchive  int64          `json:"auto_archive"`
+	ShellSession string         `json:"shell_session"`
+	Namespace    string         `json:"namespace"`
+	Variables    jsontext.Value `json:"variables"`
 }
 
 type TaskLink struct {
@@ -128,11 +129,11 @@ type User struct {
 }
 
 type Workspace struct {
-	ID          int64           `json:"id"`
-	RunnerID    string          `json:"runner_id"`
-	Name        string          `json:"name"`
-	OrgID       int64           `json:"org_id"`
-	Description string          `json:"description"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	Variables   json.RawMessage `json:"variables"`
+	ID          int64          `json:"id"`
+	RunnerID    string         `json:"runner_id"`
+	Name        string         `json:"name"`
+	OrgID       int64          `json:"org_id"`
+	Description string         `json:"description"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Variables   jsontext.Value `json:"variables"`
 }

@@ -1,7 +1,7 @@
 package authscope
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -54,7 +54,9 @@ func ParseScopes(scopes []string) (Scopes, error) {
 
 // MarshalJSON encodes the scopes as an array of their wire-grammar strings, so
 // the on-wire form is a plain []string and stays back-compatible with tokens
-// minted before Scopes was a first-class type.
+// minted before Scopes was a first-class type. Scopes keeps the v1 method
+// signatures, not MarshalJSONTo/UnmarshalJSONFrom, because the JWT library
+// encodes claims with encoding/json, which only sees these.
 func (scopes Scopes) MarshalJSON() ([]byte, error) {
 	strs := make([]string, len(scopes))
 	for i, s := range scopes {
@@ -92,13 +94,9 @@ func parseOp(opRaw string) ([]string, error) {
 // object whose values are all strings; unmarshalling into map[string]string
 // rejects any non-string value.
 func parsePreds(s string) (map[string]string, error) {
-	dec := json.NewDecoder(strings.NewReader(s))
 	var preds map[string]string
-	if err := dec.Decode(&preds); err != nil {
+	if err := json.Unmarshal([]byte(s), &preds); err != nil {
 		return nil, fmt.Errorf("predicates: %w", err)
-	}
-	if dec.More() {
-		return nil, fmt.Errorf("predicates: trailing data")
 	}
 	if preds == nil {
 		return nil, fmt.Errorf("predicates must be a JSON object")
@@ -114,7 +112,7 @@ func (s Scope) String() string {
 	if len(s.Preds) == 0 {
 		return path
 	}
-	b, _ := json.Marshal(s.Preds)
+	b, _ := json.Marshal(s.Preds, json.Deterministic(true))
 	return path + ":" + string(b)
 }
 

@@ -9,7 +9,7 @@
 package runrecord
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -37,7 +37,7 @@ type Record struct {
 	// When the run finished. Zero while running.
 	FinishedAt time.Time `json:"finished_at,omitzero"`
 	// True if the server acknowledged the run's terminal runner event.
-	Reported bool `json:"reported,omitempty"`
+	Reported bool `json:"reported,omitzero"`
 }
 
 // Read returns the record at path. ok is false (with a nil error) when no

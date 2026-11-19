@@ -3,7 +3,7 @@ package outbox
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 
 	"github.com/cenkalti/backoff/v5"

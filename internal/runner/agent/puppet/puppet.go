@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -73,7 +73,7 @@ func (a *Agent) Prompt(ctx context.Context, prompt string, resume bool) error {
 		return fmt.Errorf("puppet request: unexpected status %s", resp.Status)
 	}
 	var answer Response
-	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &answer); err != nil {
 		return fmt.Errorf("puppet response: %w", err)
 	}
 	if answer.Error != "" {

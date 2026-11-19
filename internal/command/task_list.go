@@ -2,7 +2,8 @@ package command
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 
@@ -35,7 +36,7 @@ var TaskListCommand = &cli.Command{
 		// ListTasks already returns the fat Task per row, so render the header
 		// straight from the response — no per-task detail fetch.
 		marshalOpts := protojson.MarshalOptions{Indent: "  "}
-		result := make([]json.RawMessage, len(resp.Tasks))
+		result := make([]jsontext.Value, len(resp.Tasks))
 		for i, task := range resp.Tasks {
 			result[i], err = marshalOpts.Marshal(task)
 			if err != nil {
@@ -43,8 +44,6 @@ var TaskListCommand = &cli.Command{
 			}
 		}
 
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return json.MarshalEncode(jsontext.NewEncoder(os.Stdout, jsontext.WithIndent("  ")), result)
 	},
 }

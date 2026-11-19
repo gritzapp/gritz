@@ -2,9 +2,7 @@ package command
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 
 	"github.com/gritzapp/gritz/internal/configfile"
@@ -12,6 +10,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/taskvar"
 	"github.com/urfave/cli/v3"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -85,8 +84,12 @@ var TaskCreateCommand = &cli.Command{
 			return fmt.Errorf("failed to create task: %w", err)
 		}
 
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(resp.Task)
+		// Print the task as protobuf JSON, like task list.
+		out, err := protojson.MarshalOptions{Indent: "  "}.Marshal(resp.Task)
+		if err != nil {
+			return fmt.Errorf("failed to marshal task: %w", err)
+		}
+		fmt.Println(string(out))
+		return nil
 	},
 }

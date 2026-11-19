@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
+
+	"encoding/json/jsontext"
 )
 
 const clearShellSession = `-- name: ClearShellSession :exec
@@ -34,20 +35,20 @@ RETURNING id
 `
 
 type CreateTaskParams struct {
-	Name         string          `json:"name"`
-	Runner       string          `json:"runner"`
-	Workspace    string          `json:"workspace"`
-	Status       int32           `json:"status"`
-	Command      int32           `json:"command"`
-	Version      int64           `json:"version"`
-	OrgID        int64           `json:"org_id"`
-	Archived     bool            `json:"archived"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	AutoArchive  int64           `json:"auto_archive"`
-	ShellSession string          `json:"shell_session"`
-	Namespace    string          `json:"namespace"`
-	Variables    json.RawMessage `json:"variables"`
+	Name         string         `json:"name"`
+	Runner       string         `json:"runner"`
+	Workspace    string         `json:"workspace"`
+	Status       int32          `json:"status"`
+	Command      int32          `json:"command"`
+	Version      int64          `json:"version"`
+	OrgID        int64          `json:"org_id"`
+	Archived     bool           `json:"archived"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	AutoArchive  int64          `json:"auto_archive"`
+	ShellSession string         `json:"shell_session"`
+	Namespace    string         `json:"namespace"`
+	Variables    jsontext.Value `json:"variables"`
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (int64, error) {

@@ -3,7 +3,8 @@ package oauthflow
 import (
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -22,7 +23,7 @@ func (a *Auth) HandleMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
 		"issuer":                           a.baseURL.String(),
 		"authorization_endpoint":           a.baseURL.JoinPath("/ui/oauth/authorize").String(),
 		"token_endpoint":                   a.baseURL.JoinPath("/oauth/token").String(),
@@ -41,7 +42,7 @@ func (a *Auth) HandleResourceMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
 		"resource":              a.baseURL.String(),
 		"authorization_servers": []string{a.baseURL.String()},
 	})
@@ -58,13 +59,13 @@ func (a *Auth) HandleRegister(w http.ResponseWriter, r *http.Request) {
 		ClientName   string   `json:"client_name"`
 		RedirectURIs []string `json:"redirect_uris"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
 		"client_id":     uuid.New().String(),
 		"client_name":   req.ClientName,
 		"redirect_uris": req.RedirectURIs,
@@ -147,7 +148,7 @@ func (a *Auth) HandleAuthorize(w http.ResponseWriter, r *http.Request) {
 	redirectURL.RawQuery = q.Encode()
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]string{
 		"redirect_uri": redirectURL.String(),
 	})
 }
@@ -279,7 +280,7 @@ func (a *Auth) issueTokens(w http.ResponseWriter, subject, email, name string, o
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
 		"access_token":  accessToken,
 		"token_type":    "Bearer",
 		"expires_in":    int(apiauth.AppTokenTTL.Seconds()),

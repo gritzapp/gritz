@@ -1,7 +1,8 @@
 package apibadge
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -44,9 +45,7 @@ func Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		// The body is a function of the id alone, so it never changes.
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		enc := json.NewEncoder(w)
-		enc.SetEscapeHTML(false)
-		_ = enc.Encode(badge{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), badge{
 			SchemaVersion: 1,
 			Message:       raw,
 			Color:         "black",

@@ -30,7 +30,7 @@ const maxNameBytes = 64
 type Decl struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required,omitempty"`
+	Required    bool   `json:"required,omitzero"`
 	Default     string `json:"default,omitempty"`
 }
 

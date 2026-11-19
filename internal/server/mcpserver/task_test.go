@@ -415,8 +415,8 @@ func TestGetTask(t *testing.T) {
 			"start":     false,
 			"unarchive": true,
 		},
-		"links":  nil,
-		"events": nil,
+		"links":  []any{},
+		"events": []any{},
 	})
 }
 

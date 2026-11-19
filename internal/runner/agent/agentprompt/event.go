@@ -1,7 +1,8 @@
 package agentprompt
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -87,10 +88,9 @@ func formatEventTime(ts *timestamppb.Timestamp) string {
 
 // renderDetails marshals an external event's opaque details map as one
 // indented-JSON block. The map is source-defined and opaque, so it is rendered
-// untouched — json.MarshalIndent sorts the keys and the renderer promotes none
-// of them. map[string]string never fails to marshal.
+// untouched — sorted by key, and the renderer promotes none of them.
 func renderDetails(details map[string]string) string {
-	out, err := json.MarshalIndent(details, "", "  ")
+	out, err := json.Marshal(details, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return "{}"
 	}

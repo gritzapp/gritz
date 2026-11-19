@@ -14,6 +14,10 @@ sql:
             go_type: "string"
           - db_type: "xid8"
             go_type: "uint64"
+          - db_type: "jsonb"
+            go_type:
+              import: "encoding/json/jsontext"
+              type: "Value"
   - engine: "sqlite"
     queries: "internal/runner/runnerstore/sql/queries/"
     schema: "internal/runner/runnerstore/sql/migrations/"

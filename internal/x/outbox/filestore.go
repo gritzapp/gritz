@@ -3,7 +3,8 @@ package outbox
 import (
 	"cmp"
 	"container/list"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -107,7 +108,7 @@ func (s *FileStore) deadPath(seq uint64) string {
 // file in the same directory, fsync'd, and renamed over the target, so a crash
 // never leaves a half-written record. The record is then appended to the
 // in-memory FIFO.
-func (s *FileStore) Append(payload json.RawMessage) error {
+func (s *FileStore) Append(payload jsontext.Value) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

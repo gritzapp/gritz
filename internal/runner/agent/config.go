@@ -1,7 +1,8 @@
 package agent
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -51,7 +52,7 @@ func (s ConfigStore) Save(taskID int64, cfg *Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.Marshal(cfg, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return err
 	}
@@ -63,7 +64,7 @@ type Config struct {
 	Type         string               `json:"type,omitempty"`
 	Cwd          string               `json:"cwd,omitempty"`
 	Prompt       string               `json:"prompt,omitempty"`
-	Verbose      bool                 `json:"verbose,omitempty"`
+	Verbose      bool                 `json:"verbose,omitzero"`
 	McpServers   map[string]McpServer `json:"mcp_servers,omitempty"`
 	Commands     []string             `json:"commands,omitempty"`
 	Capabilities []string             `json:"capabilities,omitempty"`
@@ -77,9 +78,9 @@ type Config struct {
 	Puppet       *puppet.Options      `json:"puppet,omitempty"`
 
 	// Agent-managed state
-	SetupCommandsCompleted int   `json:"setup_commands_completed,omitempty"`
-	Started                bool  `json:"started,omitempty"`
-	PromptedEventID        int64 `json:"prompted_event_id,omitempty"` // id of the last event-file event already delivered to the agent
+	SetupCommandsCompleted int   `json:"setup_commands_completed,omitzero"`
+	Started                bool  `json:"started,omitzero"`
+	PromptedEventID        int64 `json:"prompted_event_id,omitzero"` // id of the last event-file event already delivered to the agent
 }
 
 type McpServer struct {

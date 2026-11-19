@@ -2,7 +2,8 @@ package puppet
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -90,7 +91,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func writeResponse(w http.ResponseWriter, resp Response) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w), resp)
 }
 
 // Next returns the task's next run, the first one no earlier Next returned,

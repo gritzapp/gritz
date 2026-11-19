@@ -7,8 +7,9 @@ package sqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
+
+	"encoding/json/jsontext"
 )
 
 const clearWorkspacesByOrgID = `-- name: ClearWorkspacesByOrgID :exec
@@ -27,11 +28,11 @@ VALUES ($1, $2, $3, $4, $5)
 `
 
 type CreateWorkspaceParams struct {
-	RunnerID    string          `json:"runner_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	OrgID       int64           `json:"org_id"`
-	Variables   json.RawMessage `json:"variables"`
+	RunnerID    string         `json:"runner_id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	OrgID       int64          `json:"org_id"`
+	Variables   jsontext.Value `json:"variables"`
 }
 
 func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) error {
@@ -71,9 +72,9 @@ type GetWorkspaceVariablesParams struct {
 	OrgID    int64  `json:"org_id"`
 }
 
-func (q *Queries) GetWorkspaceVariables(ctx context.Context, arg GetWorkspaceVariablesParams) (json.RawMessage, error) {
+func (q *Queries) GetWorkspaceVariables(ctx context.Context, arg GetWorkspaceVariablesParams) (jsontext.Value, error) {
 	row := q.db.QueryRowContext(ctx, getWorkspaceVariables, arg.RunnerID, arg.Name, arg.OrgID)
-	var variables json.RawMessage
+	var variables jsontext.Value
 	err := row.Scan(&variables)
 	return variables, err
 }
@@ -86,13 +87,13 @@ ORDER BY name ASC
 `
 
 type ListWorkspacesByOrgIDRow struct {
-	ID          int64           `json:"id"`
-	RunnerID    string          `json:"runner_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	UpdatedAt   time.Time       `json:"updated_at"`
-	OrgID       int64           `json:"org_id"`
-	Variables   json.RawMessage `json:"variables"`
+	ID          int64          `json:"id"`
+	RunnerID    string         `json:"runner_id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	OrgID       int64          `json:"org_id"`
+	Variables   jsontext.Value `json:"variables"`
 }
 
 func (q *Queries) ListWorkspacesByOrgID(ctx context.Context, orgID int64) ([]ListWorkspacesByOrgIDRow, error) {

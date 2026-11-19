@@ -76,6 +76,46 @@ func TestWebhookHandler(t *testing.T) {
 	}})
 }
 
+func TestWebhookHandler_LenientEnvelope(t *testing.T) {
+	// Arrange
+	router := &RouterMock{
+		RouteFunc: func(ctx context.Context, input eventrouter.InputEvent) (int, error) {
+			return 1, nil
+		},
+	}
+	store := &StoreMock{
+		GetOrgCustomEventTypesFunc: func(ctx context.Context, tx *sql.Tx, orgID int64) ([]model.EventTypeDef, error) {
+			return []model.EventTypeDef{{Source: eventrouter.SourceCustom, Type: "problem", Label: "Problem"}}, nil
+		},
+	}
+	h := &WebhookHandler{Router: router, Store: store}
+	// Mixed-case names, a duplicate name (the last wins), invalid UTF-8 and
+	// trailing data all decode as they always have.
+	body := "{\"Type\": \"problem\", \"URL\": \"https://example.com/p/1\", \"body\": \"first\", \"body\": \"cpu \xff\"} trailing"
+	req := httptest.NewRequest(http.MethodPost, "/webhook/custom", strings.NewReader(body))
+	req = req.WithContext(apiauth.WithUser(req.Context(), &apiauth.UserInfo{
+		ID:     "user-1",
+		OrgID:  7,
+		Type:   apiauth.AuthTypeKey,
+		Scopes: authscope.Admin(),
+	}))
+	rec := httptest.NewRecorder()
+
+	// Act
+	h.ServeHTTP(rec, req)
+
+	// Assert
+	assert.Equal(t, rec.Code, http.StatusOK, rec.Body.String())
+	assert.DeepEqual(t, router.RoutedInputs(), []eventrouter.InputEvent{{
+		Source:      "custom",
+		Type:        "problem",
+		Description: "Problem",
+		Data:        "cpu \uFFFD",
+		URL:         "https://example.com/p/1",
+		Orgs:        []int64{7},
+	}})
+}
+
 func TestWebhookHandler_MissingScope(t *testing.T) {
 	// Arrange
 	h := &WebhookHandler{}
@@ -113,7 +153,7 @@ func TestWebhookHandler_MalformedBody(t *testing.T) {
 		{
 			name: "UnknownField",
 			body: `{"type": "problem", "url": "https://example.com/p/1", "summary": "x"}`,
-			err:  `unknown field "summary"`,
+			err:  `unknown object member name "summary"`,
 		},
 	}
 	for _, tt := range tests {

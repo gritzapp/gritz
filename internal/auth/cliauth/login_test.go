@@ -1,7 +1,7 @@
 package cliauth
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -31,7 +31,7 @@ func TestLogin(t *testing.T) {
 		var authz struct {
 			RedirectURI string `json:"redirect_uri"`
 		}
-		assert.NilError(t, json.NewDecoder(resp.Body).Decode(&authz))
+		assert.NilError(t, json.UnmarshalRead(resp.Body, &authz))
 		callback, err := http.Get(authz.RedirectURI)
 		assert.NilError(t, err)
 		defer callback.Body.Close()

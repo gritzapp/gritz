@@ -13,7 +13,7 @@ package backend
 //go:generate go tool moq -out backend_moq.go . Backend Sandbox
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"maps"
 	"slices"
@@ -38,9 +38,9 @@ const BinaryPath = "/usr/local/bin/gritz"
 type Handle struct {
 	// Type is the backend that produced this handle ("docker", ...).
 	// Informational only: persisted into the record, never read for logic.
-	Type string          `json:"type"`
-	ID   string          `json:"id"`
-	Data json.RawMessage `json:"data,omitempty"`
+	Type string         `json:"type"`
+	ID   string         `json:"id"`
+	Data jsontext.Value `json:"data,omitempty"`
 }
 
 // File is a file provisioned into the sandbox before it starts.

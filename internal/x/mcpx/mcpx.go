@@ -4,7 +4,8 @@
 package mcpx
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,7 +27,7 @@ func ErrorResult(format string, args ...any) *mcp.CallToolResult {
 // JSONResult marshals v as indented JSON and wraps it in an *mcp.CallToolResult
 // with a single text content. On marshal error it returns an ErrorResult.
 func JSONResult(v any) *mcp.CallToolResult {
-	data, err := json.MarshalIndent(v, "", "  ")
+	data, err := json.Marshal(v, jsontext.WithIndent("  "), json.Deterministic(true))
 	if err != nil {
 		return ErrorResult("failed to format response: %v", err)
 	}

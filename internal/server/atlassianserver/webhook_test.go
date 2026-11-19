@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -395,7 +395,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				Data:        "a new issue",
 				URL:         "https://mycompany.atlassian.net/browse/PROJ-8",
 				Attrs: eventrouter.Attrs{
-					"label":    nil,
+					"label":    {},
 					"assignee": nil,
 					"user":     {"abc123"},
 				},

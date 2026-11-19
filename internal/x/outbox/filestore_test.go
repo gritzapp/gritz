@@ -1,7 +1,7 @@
 package outbox
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,9 +16,9 @@ func TestAppendPeekDrop(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":3}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":3}`)))
 
 	// Assert: records come off the head in FIFO (append) order. Peek is
 	// non-destructive; Drop advances the head.
@@ -60,8 +60,8 @@ func TestLen(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, n, 0)
 
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 	n, err = s.Len()
 	assert.NilError(t, err)
 	assert.Equal(t, n, 2)
@@ -77,8 +77,8 @@ func TestDrop_Durable(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 
 	// Act: drop the head, then restart.
 	assert.NilError(t, s.Drop(false))
@@ -107,8 +107,8 @@ func TestDrop_DeadLetter(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 
 	// Peek the head so we know its Seq for the on-disk assertion.
 	head, ok, err := s.Peek()
@@ -147,13 +147,13 @@ func TestSeqMonotonicAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 
 	// Act: re-Open the same directory (simulating a restart) and append again.
 	s2, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s2.Append(json.RawMessage(`{"n":3}`)))
+	assert.NilError(t, s2.Append(jsontext.Value(`{"n":3}`)))
 
 	// Assert: the new record's Seq continues past the highest existing one, so a
 	// restart never reuses a Seq. The head is still the oldest record.
@@ -172,15 +172,15 @@ func TestSeqMonotonicAcrossDeadLetterAndRestart(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 	assert.NilError(t, s.Drop(false)) // discards Seq 1
 	assert.NilError(t, s.Drop(true))  // dead-letters Seq 2
 
 	// Act: re-Open with no live records remaining.
 	s2, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s2.Append(json.RawMessage(`{"n":3}`)))
+	assert.NilError(t, s2.Append(jsontext.Value(`{"n":3}`)))
 
 	// Assert: seeding scans the dead dir too, so Seq never repeats.
 	assert.Equal(t, s2.next, uint64(4))
@@ -195,8 +195,8 @@ func TestOpen_LoadsRecords(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 
 	// Act: re-Open the same directory (simulating a restart).
 	s2, err := Open(dir)
@@ -222,7 +222,7 @@ func TestOpen_CorruptRecordFails(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
 	head, ok, err := s.Peek()
 	assert.NilError(t, err)
 	assert.Assert(t, ok)
@@ -240,8 +240,8 @@ func TestOpen_IgnoresGarbage(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	assert.NilError(t, err)
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":1}`)))
-	assert.NilError(t, s.Append(json.RawMessage(`{"n":2}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":1}`)))
+	assert.NilError(t, s.Append(jsontext.Value(`{"n":2}`)))
 
 	// Drop stray files that must be ignored on load.
 	assert.NilError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("ignore me"), 0o644))
@@ -272,7 +272,7 @@ func TestAppend_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			assert.NilError(t, s.Append(json.RawMessage(`{}`)))
+			assert.NilError(t, s.Append(jsontext.Value(`{}`)))
 		}()
 	}
 	wg.Wait()

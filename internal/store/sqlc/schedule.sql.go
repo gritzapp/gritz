@@ -8,8 +8,9 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
+
+	"encoding/json/jsontext"
 )
 
 const advanceSchedule = `-- name: AdvanceSchedule :exec
@@ -105,23 +106,23 @@ RETURNING id
 `
 
 type CreateScheduleParams struct {
-	OrgID        int64           `json:"org_id"`
-	CreatedBy    string          `json:"created_by"`
-	Name         string          `json:"name"`
-	Workspace    string          `json:"workspace"`
-	Runner       string          `json:"runner"`
-	Namespace    string          `json:"namespace"`
-	Instructions json.RawMessage `json:"instructions"`
-	AutoArchive  int64           `json:"auto_archive"`
-	CronExpr     string          `json:"cron_expr"`
-	Timezone     string          `json:"timezone"`
-	Enabled      bool            `json:"enabled"`
-	NextRunAt    sql.NullTime    `json:"next_run_at"`
-	LastRunAt    sql.NullTime    `json:"last_run_at"`
-	LastTaskID   sql.NullInt64   `json:"last_task_id"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	Variables    json.RawMessage `json:"variables"`
+	OrgID        int64          `json:"org_id"`
+	CreatedBy    string         `json:"created_by"`
+	Name         string         `json:"name"`
+	Workspace    string         `json:"workspace"`
+	Runner       string         `json:"runner"`
+	Namespace    string         `json:"namespace"`
+	Instructions jsontext.Value `json:"instructions"`
+	AutoArchive  int64          `json:"auto_archive"`
+	CronExpr     string         `json:"cron_expr"`
+	Timezone     string         `json:"timezone"`
+	Enabled      bool           `json:"enabled"`
+	NextRunAt    sql.NullTime   `json:"next_run_at"`
+	LastRunAt    sql.NullTime   `json:"last_run_at"`
+	LastTaskID   sql.NullInt64  `json:"last_task_id"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	Variables    jsontext.Value `json:"variables"`
 }
 
 func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) (int64, error) {
@@ -305,22 +306,22 @@ WHERE id = $15 AND org_id = $16
 `
 
 type UpdateScheduleParams struct {
-	Name         string          `json:"name"`
-	Workspace    string          `json:"workspace"`
-	Runner       string          `json:"runner"`
-	Namespace    string          `json:"namespace"`
-	Instructions json.RawMessage `json:"instructions"`
-	AutoArchive  int64           `json:"auto_archive"`
-	CronExpr     string          `json:"cron_expr"`
-	Timezone     string          `json:"timezone"`
-	Enabled      bool            `json:"enabled"`
-	NextRunAt    sql.NullTime    `json:"next_run_at"`
-	LastRunAt    sql.NullTime    `json:"last_run_at"`
-	LastTaskID   sql.NullInt64   `json:"last_task_id"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	Variables    json.RawMessage `json:"variables"`
-	ID           int64           `json:"id"`
-	OrgID        int64           `json:"org_id"`
+	Name         string         `json:"name"`
+	Workspace    string         `json:"workspace"`
+	Runner       string         `json:"runner"`
+	Namespace    string         `json:"namespace"`
+	Instructions jsontext.Value `json:"instructions"`
+	AutoArchive  int64          `json:"auto_archive"`
+	CronExpr     string         `json:"cron_expr"`
+	Timezone     string         `json:"timezone"`
+	Enabled      bool           `json:"enabled"`
+	NextRunAt    sql.NullTime   `json:"next_run_at"`
+	LastRunAt    sql.NullTime   `json:"last_run_at"`
+	LastTaskID   sql.NullInt64  `json:"last_task_id"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	Variables    jsontext.Value `json:"variables"`
+	ID           int64          `json:"id"`
+	OrgID        int64          `json:"org_id"`
 }
 
 func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error {

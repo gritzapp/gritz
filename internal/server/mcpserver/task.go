@@ -2,7 +2,7 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"strings"
 
@@ -207,10 +207,10 @@ func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input 
 	}
 	type taskDetails struct {
 		taskSummary
-		AutoArchive string            `json:"auto_archive,omitempty"`
-		Actions     actions           `json:"actions"`
-		Links       []taskLink        `json:"links"`
-		Events      []json.RawMessage `json:"events"`
+		AutoArchive string           `json:"auto_archive,omitempty"`
+		Actions     actions          `json:"actions"`
+		Links       []taskLink       `json:"links"`
+		Events      []jsontext.Value `json:"events"`
 	}
 	task := taskResp.Task
 	a := task.GetActions()

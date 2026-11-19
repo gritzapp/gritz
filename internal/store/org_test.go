@@ -1,8 +1,10 @@
 package store_test
 
 import (
+	"encoding/json/v2"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
@@ -55,6 +57,27 @@ func TestSetAndGetOrgRoutingRules(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.DeepEqual(t, got, rules)
+}
+
+func TestDecodeRoutingRulesStoredForm(t *testing.T) {
+	t.Parallel()
+	// Arrange: a rule as routing_rules stores it, auto_archive in nanoseconds.
+	stored := `[{"source":"github","conditions":[{"attr":"body","op":"prefix","value":"gritz:"}],"create":{"workspace":"ws","runner":"r1","auto_archive":3600000000000},"wakeup":true}]`
+
+	// Act
+	rules, err := store.DecodeRoutingRules([]byte(stored))
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, rules, []model.RoutingRule{{
+		Source:     "github",
+		Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
+		Create:     &model.CreateTaskAction{Workspace: "ws", Runner: "r1", AutoArchive: time.Hour},
+		Wakeup:     true,
+	}})
+	encoded, err := json.Marshal(rules, model.DurationNanos)
+	assert.NilError(t, err)
+	assert.Equal(t, string(encoded), stored)
 }
 
 func TestGetRoutingRulesByOrgs(t *testing.T) {

@@ -3,7 +3,7 @@
 package mcptest
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"

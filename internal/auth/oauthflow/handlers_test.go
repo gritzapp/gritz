@@ -2,7 +2,7 @@ package oauthflow_test
 
 import (
 	"crypto/ed25519"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -45,7 +45,7 @@ func authorize(t *testing.T, st *store.Store, org *teststore.Org) (*oauth2.Confi
 	defer resp.Body.Close()
 	assert.Equal(t, resp.StatusCode, http.StatusCreated)
 	var regResp map[string]any
-	assert.NilError(t, json.NewDecoder(resp.Body).Decode(&regResp))
+	assert.NilError(t, json.UnmarshalRead(resp.Body, &regResp))
 	clientID := regResp["client_id"].(string)
 
 	// Configure oauth2 client
@@ -87,7 +87,7 @@ func authorize(t *testing.T, st *store.Store, org *teststore.Org) (*oauth2.Confi
 	defer resp.Body.Close()
 	assert.Equal(t, resp.StatusCode, http.StatusOK)
 	var authResp map[string]string
-	assert.NilError(t, json.NewDecoder(resp.Body).Decode(&authResp))
+	assert.NilError(t, json.UnmarshalRead(resp.Body, &authResp))
 	redirectURL, err := url.Parse(authResp["redirect_uri"])
 	assert.NilError(t, err)
 	code := redirectURL.Query().Get("code")

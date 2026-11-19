@@ -19,7 +19,7 @@ type Notification struct {
 	// can surface task outcomes without re-fetching the task. The zero
 	// value (unspecified) means this notification isn't a terminal task
 	// transition.
-	TaskStatus TaskStatus `json:"task_status,omitempty"`
+	TaskStatus TaskStatus `json:"task_status,omitzero"`
 	// ChannelMessage is the human-readable line forwarded to the agent
 	// channel by mcpserver.ForwardNotification. Empty means silent (the
 	// channel forwarder gates on this field). Consumed only by the channel

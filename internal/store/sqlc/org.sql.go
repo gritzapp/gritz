@@ -8,9 +8,9 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
 
+	"encoding/json/jsontext"
 	"github.com/lib/pq"
 )
 
@@ -140,9 +140,9 @@ const getOrgCustomEventTypes = `-- name: GetOrgCustomEventTypes :one
 SELECT custom_event_types FROM orgs WHERE id = $1
 `
 
-func (q *Queries) GetOrgCustomEventTypes(ctx context.Context, id int64) (json.RawMessage, error) {
+func (q *Queries) GetOrgCustomEventTypes(ctx context.Context, id int64) (jsontext.Value, error) {
 	row := q.db.QueryRowContext(ctx, getOrgCustomEventTypes, id)
-	var custom_event_types json.RawMessage
+	var custom_event_types jsontext.Value
 	err := row.Scan(&custom_event_types)
 	return custom_event_types, err
 }
@@ -151,9 +151,9 @@ const getOrgRoutingRules = `-- name: GetOrgRoutingRules :one
 SELECT routing_rules FROM orgs WHERE id = $1
 `
 
-func (q *Queries) GetOrgRoutingRules(ctx context.Context, id int64) (json.RawMessage, error) {
+func (q *Queries) GetOrgRoutingRules(ctx context.Context, id int64) (jsontext.Value, error) {
 	row := q.db.QueryRowContext(ctx, getOrgRoutingRules, id)
-	var routing_rules json.RawMessage
+	var routing_rules jsontext.Value
 	err := row.Scan(&routing_rules)
 	return routing_rules, err
 }
@@ -163,8 +163,8 @@ SELECT id, routing_rules FROM orgs WHERE id = ANY($1::BIGINT[])
 `
 
 type GetRoutingRulesByOrgsRow struct {
-	ID           int64           `json:"id"`
-	RoutingRules json.RawMessage `json:"routing_rules"`
+	ID           int64          `json:"id"`
+	RoutingRules jsontext.Value `json:"routing_rules"`
 }
 
 func (q *Queries) GetRoutingRulesByOrgs(ctx context.Context, dollar_1 []int64) ([]GetRoutingRulesByOrgsRow, error) {
@@ -395,9 +395,9 @@ type ListRoutingRulesForEventParams struct {
 }
 
 type ListRoutingRulesForEventRow struct {
-	ID           int64           `json:"id"`
-	RoutingRules json.RawMessage `json:"routing_rules"`
-	IsMember     bool            `json:"is_member"`
+	ID           int64          `json:"id"`
+	RoutingRules jsontext.Value `json:"routing_rules"`
+	IsMember     bool           `json:"is_member"`
 }
 
 // Member orgs (joined via org_members) are returned with is_member = TRUE and
@@ -476,8 +476,8 @@ WHERE id = $1
 `
 
 type SetOrgCustomEventTypesParams struct {
-	ID               int64           `json:"id"`
-	CustomEventTypes json.RawMessage `json:"custom_event_types"`
+	ID               int64          `json:"id"`
+	CustomEventTypes jsontext.Value `json:"custom_event_types"`
 }
 
 func (q *Queries) SetOrgCustomEventTypes(ctx context.Context, arg SetOrgCustomEventTypesParams) error {
@@ -510,8 +510,8 @@ WHERE id = $1
 `
 
 type SetOrgRoutingRulesParams struct {
-	ID           int64           `json:"id"`
-	RoutingRules json.RawMessage `json:"routing_rules"`
+	ID           int64          `json:"id"`
+	RoutingRules jsontext.Value `json:"routing_rules"`
 }
 
 func (q *Queries) SetOrgRoutingRules(ctx context.Context, arg SetOrgRoutingRulesParams) error {

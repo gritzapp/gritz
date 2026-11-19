@@ -2,7 +2,8 @@ package dockerx
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/distribution/reference"
@@ -38,10 +39,10 @@ func ImageEnsure(ctx context.Context, docker *client.Client, opts ImageEnsureOpt
 		return image.InspectResponse{}, fmt.Errorf("failed to pull image: %w", err)
 	}
 	defer reader.Close()
-	dec := json.NewDecoder(reader)
+	dec := jsontext.NewDecoder(reader)
 	for {
 		var msg PullProgress
-		if err := dec.Decode(&msg); err != nil {
+		if err := json.UnmarshalDecode(dec, &msg); err != nil {
 			break
 		}
 		if opts.PullProgress != nil {

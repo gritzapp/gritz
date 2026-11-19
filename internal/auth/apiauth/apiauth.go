@@ -3,7 +3,8 @@ package apiauth
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -462,7 +463,7 @@ func (a *Auth) HandleToken() http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
 			"token":      token,
 			"org_id":     user.OrgID,
 			"expires_at": claims.ExpiresAt.Unix(),

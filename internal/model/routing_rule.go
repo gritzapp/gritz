@@ -1,10 +1,25 @@
 package model
 
 import (
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/types/known/durationpb"
+)
+
+// DurationNanos encodes a time.Duration as a JSON integer of nanoseconds, the
+// form stored routing rules hold CreateTaskAction.AutoArchive in. json/v2 has
+// no default time.Duration representation, so encoding or decoding a
+// RoutingRule requires it.
+var DurationNanos = json.JoinOptions(
+	json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Encoder, d time.Duration) error {
+		return enc.WriteToken(jsontext.Int(int64(d)))
+	})),
+	json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, d *time.Duration) error {
+		return json.UnmarshalDecode(dec, (*int64)(d))
+	})),
 )
 
 // RoutingRule defines a routing rule that determines whether an event should be
@@ -17,11 +32,11 @@ type RoutingRule struct {
 	Type       string            `json:"type,omitempty"`
 	Conditions []Condition       `json:"conditions,omitempty"`
 	Create     *CreateTaskAction `json:"create,omitempty"`
-	Wakeup     bool              `json:"wakeup,omitempty"`
+	Wakeup     bool              `json:"wakeup,omitzero"`
 	// Public lets this rule fire for actors who are not members of the org (and
 	// need not be oauth-linked). Defaults false — rules are member-only unless
 	// explicitly opted in.
-	Public bool `json:"public,omitempty"`
+	Public bool `json:"public,omitzero"`
 	// Namespace partitions subscription matching. The router scopes this rule's
 	// wake-vs-create decision to subscribers whose task shares this namespace,
 	// and a created task is stamped with it. Empty is the default namespace —
@@ -51,7 +66,7 @@ type CreateTaskAction struct {
 	// AutoArchive is applied to the created task's auto-archive timeout.
 	// See Task.AutoArchive for the value semantics (0 = never, <0 =
 	// immediate, >0 = delay).
-	AutoArchive time.Duration `json:"auto_archive,omitempty"`
+	AutoArchive time.Duration `json:"auto_archive,omitzero"`
 	// Variables are the created task's variables, by name, as saved. The task
 	// gets them as they are; the runner resolves them when it starts it.
 	Variables map[string]string `json:"variables,omitempty"`

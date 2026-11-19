@@ -342,7 +342,7 @@ func TestListTasksPage_DefaultTokenWireCompatible(t *testing.T) {
 	assert.Assert(t, page.NextToken != "")
 
 	// The default (archived=false) cursor omits the Archived field entirely
-	// (json omitempty), so tokens minted before the archived filter existed stay
+	// (json omitzero), so tokens minted before the archived filter existed stay
 	// byte-compatible.
 	raw, err := base64.URLEncoding.DecodeString(page.NextToken)
 	assert.NilError(t, err)

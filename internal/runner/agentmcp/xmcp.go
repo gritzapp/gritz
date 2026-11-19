@@ -2,7 +2,7 @@ package agentmcp
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 
@@ -171,12 +171,12 @@ func textResult(format string, args ...any) *mcp.CallToolResult {
 func taskDetailsToMap(task *gritzv1.Task, taskEvents []*gritzv1.Event, taskLinks []*gritzv1.TaskLink) map[string]any {
 	marshalOpts := protojson.MarshalOptions{Indent: "  "}
 
-	links := make([]json.RawMessage, len(taskLinks))
+	links := make([]jsontext.Value, len(taskLinks))
 	for i, link := range taskLinks {
 		links[i], _ = marshalOpts.Marshal(link)
 	}
 
-	events := make([]json.RawMessage, len(taskEvents))
+	events := make([]jsontext.Value, len(taskEvents))
 	for i, event := range taskEvents {
 		events[i], _ = marshalOpts.Marshal(event)
 	}

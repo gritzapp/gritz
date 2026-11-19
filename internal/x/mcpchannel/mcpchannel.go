@@ -13,7 +13,7 @@ package mcpchannel
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sync"
 
@@ -34,8 +34,10 @@ const Method = "notifications/claude/channel"
 // identifiers (letters, digits, underscores) — non-identifier keys are
 // silently dropped by Claude Code.
 type Params struct {
-	Content string            `json:"content"`
-	Meta    map[string]string `json:"meta"`
+	Content string `json:"content"`
+	// Meta encodes as an object even when nil: Claude Code validates
+	// params.meta as a record and drops a notification whose meta is null.
+	Meta map[string]string `json:"meta"`
 }
 
 // Experimental returns the experimental capabilities map that
@@ -85,12 +87,6 @@ func (t *Transport) Connect(ctx context.Context) (mcp.Connection, error) {
 // own writes. Returns an error if the transport has not been
 // connected.
 func (t *Transport) SendChannel(ctx context.Context, p Params) error {
-	// Claude Code validates params.meta as a record, so a nil map (which
-	// marshals to "meta":null) is rejected with a type error and the whole
-	// notification is dropped. Always emit an object, even when empty.
-	if p.Meta == nil {
-		p.Meta = map[string]string{}
-	}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Errorf("marshal params: %w", err)

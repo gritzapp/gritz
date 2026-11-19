@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -950,7 +950,7 @@ func TestHandleGitHubWebhookRoutesToTask(t *testing.T) {
 		Issue: &github.Issue{
 			Number:           github.Ptr(10),
 			HTMLURL:          github.Ptr("https://github.com/owner/repo/pull/10"),
-			PullRequestLinks: &github.PullRequestLinks{},
+			PullRequestLinks: &github.PullRequestLinks{URL: github.Ptr("https://api.github.com/repos/owner/repo/pulls/10")},
 		},
 	}
 	req := makeWebhookRequest(t, "issue_comment", payload)

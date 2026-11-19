@@ -1,7 +1,7 @@
 package runnerstore_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -24,7 +24,7 @@ func TestWriteSandbox(t *testing.T) {
 		Handle: backend.Handle{
 			Type: "docker",
 			ID:   "container-abc",
-			Data: json.RawMessage(`{"image_arn":"arn:x","nested":{"k":1}}`),
+			Data: jsontext.Value(`{"image_arn":"arn:x","nested":{"k":1}}`),
 		},
 	}
 
@@ -65,7 +65,7 @@ func TestWriteSandbox_Overwrite(t *testing.T) {
 	assert.NilError(t, store.WriteSandbox(t.Context(), runnerstore.SandboxRecord{
 		TaskID:  7,
 		Version: 1,
-		Handle:  backend.Handle{Type: "docker", ID: "old", Data: json.RawMessage(`{"a":1}`)},
+		Handle:  backend.Handle{Type: "docker", ID: "old", Data: jsontext.Value(`{"a":1}`)},
 	}))
 	rec := runnerstore.SandboxRecord{
 		TaskID:  7,
@@ -171,7 +171,7 @@ func TestSandboxes_SurviveReopen(t *testing.T) {
 	rec := runnerstore.SandboxRecord{
 		TaskID:  4,
 		Version: 3,
-		Handle:  backend.Handle{Type: "docker", ID: "c4", Data: json.RawMessage(`{"k":"v"}`)},
+		Handle:  backend.Handle{Type: "docker", ID: "c4", Data: jsontext.Value(`{"k":"v"}`)},
 	}
 	assert.NilError(t, store.WriteSandbox(t.Context(), rec))
 	assert.NilError(t, store.Close())

@@ -2,7 +2,7 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -104,7 +104,7 @@ type orgSettings struct {
 	CustomWebhookURL     string `json:"custom_webhook_url,omitempty"`
 	AtlassianWebhookURL  string `json:"atlassian_webhook_url,omitempty"`
 	GitHubAppURL         string `json:"github_app_url,omitempty"`
-	GitHubInstallationID int64  `json:"github_installation_id,omitempty"`
+	GitHubInstallationID int64  `json:"github_installation_id,omitzero"`
 }
 
 func (h *handlers) getOrgSettings(ctx context.Context, req *mcp.CallToolRequest, input getOrgSettingsInput) (*mcp.CallToolResult, any, error) {

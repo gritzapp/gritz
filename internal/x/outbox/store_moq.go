@@ -4,7 +4,7 @@
 package outbox
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"sync"
 )
 
@@ -18,7 +18,7 @@ var _ Store = &StoreMock{}
 //
 //		// make and configure a mocked Store
 //		mockedStore := &StoreMock{
-//			AppendFunc: func(payload json.RawMessage) error {
+//			AppendFunc: func(payload jsontext.Value) error {
 //				panic("mock out the Append method")
 //			},
 //			DropFunc: func(dead bool) error {
@@ -38,7 +38,7 @@ var _ Store = &StoreMock{}
 //	}
 type StoreMock struct {
 	// AppendFunc mocks the Append method.
-	AppendFunc func(payload json.RawMessage) error
+	AppendFunc func(payload jsontext.Value) error
 
 	// DropFunc mocks the Drop method.
 	DropFunc func(dead bool) error
@@ -54,7 +54,7 @@ type StoreMock struct {
 		// Append holds details about calls to the Append method.
 		Append []struct {
 			// Payload is the payload argument value.
-			Payload json.RawMessage
+			Payload jsontext.Value
 		}
 		// Drop holds details about calls to the Drop method.
 		Drop []struct {
@@ -75,12 +75,12 @@ type StoreMock struct {
 }
 
 // Append calls AppendFunc.
-func (mock *StoreMock) Append(payload json.RawMessage) error {
+func (mock *StoreMock) Append(payload jsontext.Value) error {
 	if mock.AppendFunc == nil {
 		panic("StoreMock.AppendFunc: method is nil but Store.Append was just called")
 	}
 	callInfo := struct {
-		Payload json.RawMessage
+		Payload jsontext.Value
 	}{
 		Payload: payload,
 	}
@@ -95,10 +95,10 @@ func (mock *StoreMock) Append(payload json.RawMessage) error {
 //
 //	len(mockedStore.AppendCalls())
 func (mock *StoreMock) AppendCalls() []struct {
-	Payload json.RawMessage
+	Payload jsontext.Value
 } {
 	var calls []struct {
-		Payload json.RawMessage
+		Payload jsontext.Value
 	}
 	mock.lockAppend.RLock()
 	calls = mock.calls.Append
