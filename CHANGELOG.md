@@ -1,5 +1,38 @@
 # Changelog
 
+## [4.9.0](https://github.com/gritzapp/gritz/compare/v4.8.0...v4.9.0) (2026-11-19)
+
+
+### Features
+
+* **apiserver:** resolve task variables in CreateTask and add GetRunSpecInputs ([#2237](https://github.com/gritzapp/gritz/issues/2237)) ([1711220](https://github.com/gritzapp/gritz/commit/17112206e40587b6502eb68be205b9761f3ee723))
+* **atlassian:** add Jira issue created event ([#2236](https://github.com/gritzapp/gritz/issues/2236)) ([7fb6fb2](https://github.com/gritzapp/gritz/commit/7fb6fb2acddab7736199fd6eb96b4baaf4448ca6)), closes [#2219](https://github.com/gritzapp/gritz/issues/2219)
+* **cli:** set task variables with gritz task create --var and MCP create_task ([#2239](https://github.com/gritzapp/gritz/issues/2239)) ([aad3494](https://github.com/gritzapp/gritz/commit/aad34945f4caa9d6f5ec9fe4c1198a99cc581383))
+* **routing:** set task variables on routing rules ([#2245](https://github.com/gritzapp/gritz/issues/2245)) ([1b41e91](https://github.com/gritzapp/gritz/commit/1b41e917e825593ef92d0e27958194179ae33fc6))
+* **runner:** inject task variables into the run environment ([#2238](https://github.com/gritzapp/gritz/issues/2238)) ([cf6d8b3](https://github.com/gritzapp/gritz/commit/cf6d8b32ea74ec2a7367167ce3ab227e2e18bf7b))
+* **runner:** read --concurrency from GRITZ_CONCURRENCY ([#2211](https://github.com/gritzapp/gritz/issues/2211)) ([7c15eb6](https://github.com/gritzapp/gritz/commit/7c15eb6ec78b6cdfda19339dc0dc4c451208c219))
+* **schedules:** set task variables on schedules and resolve them on the runner ([#2243](https://github.com/gritzapp/gritz/issues/2243)) ([7da75b5](https://github.com/gritzapp/gritz/commit/7da75b5f2758a1e7c710a004a0075a7063d1788e))
+* **store:** store task variables and workspace declarations ([#2234](https://github.com/gritzapp/gritz/issues/2234)) ([0489250](https://github.com/gritzapp/gritz/commit/0489250ee0deec269c467a2edfb96172868e4065))
+* **taskvar:** add task variable validation and resolution ([#2232](https://github.com/gritzapp/gritz/issues/2232)) ([bfecde8](https://github.com/gritzapp/gritz/commit/bfecde876da717722ac7c6a3941a62c310e6c2a3))
+* **webui:** set task variables on the new-task page and show them on the task page ([#2240](https://github.com/gritzapp/gritz/issues/2240)) ([3635f75](https://github.com/gritzapp/gritz/commit/3635f757227714727346e9296b6a1fe8de477fb6))
+* **workspace:** declare task variables in workspaces.yaml ([#2233](https://github.com/gritzapp/gritz/issues/2233)) ([1d3eff9](https://github.com/gritzapp/gritz/commit/1d3eff9a99954a2c382950d706f38b11fd87102f))
+
+
+### Bug Fixes
+
+* look up org members by email case-insensitively ([#2253](https://github.com/gritzapp/gritz/issues/2253)) ([48ecb01](https://github.com/gritzapp/gritz/commit/48ecb0189a63315af1522fde4d266e8bb622e177))
+
+
+### Miscellaneous
+
+* **deps:** update dependency @bufbuild/protobuf to v2.16.0 ([#2196](https://github.com/gritzapp/gritz/issues/2196)) ([ebf15f0](https://github.com/gritzapp/gritz/commit/ebf15f00fa864fd94536a02887b275a497e2dc17))
+* **deps:** update dependency @bufbuild/protobuf to v2.17.0 ([#2207](https://github.com/gritzapp/gritz/issues/2207)) ([d5dd979](https://github.com/gritzapp/gritz/commit/d5dd9795b641bad7801b4882de67f0a79c3225cb))
+* **deps:** update dependency @bufbuild/protoc-gen-es to v2.16.0 ([#2200](https://github.com/gritzapp/gritz/issues/2200)) ([938f44e](https://github.com/gritzapp/gritz/commit/938f44ebfc33d91cc59d13e32ca5cd7c26bbc97e))
+* **deps:** update dependency @bufbuild/protoc-gen-es to v2.17.0 ([#2208](https://github.com/gritzapp/gritz/issues/2208)) ([29bb88a](https://github.com/gritzapp/gritz/commit/29bb88a492a0ac84927177b61cb83d11c242c6cc))
+* **deps:** update dependency @types/node to v24.19.2 ([#2195](https://github.com/gritzapp/gritz/issues/2195)) ([8deaccb](https://github.com/gritzapp/gritz/commit/8deaccb604be11eec3ded17acb5cf3efa2eb5888))
+* **deps:** update tanstack-router monorepo ([#2212](https://github.com/gritzapp/gritz/issues/2212)) ([6e5cd97](https://github.com/gritzapp/gritz/commit/6e5cd97e40ba90afdf0d4a984c3c73ba0e2606a9))
+* **dev:** add a dev workspace with task variables ([e191ab1](https://github.com/gritzapp/gritz/commit/e191ab141ea04938197f90db21874bbf0f1d23ca))
+
 ## [4.8.0](https://github.com/gritzapp/gritz/compare/v4.7.0...v4.8.0) (2026-11-09)
 
 
