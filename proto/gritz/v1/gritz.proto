@@ -815,7 +815,10 @@ message CreateTaskAction {
   // The auto-archive delay of the tasks the rule creates, as in
   // Task.auto_archive.
   google.protobuf.Duration auto_archive = 4;
-  // Variables of the tasks the rule creates.
+  // Variables of the tasks the rule creates, by name, as saved. Each must be
+  // declared by the workspace, and every required one set. Each task gets
+  // them as they are; the runner fills in the workspace's defaults, and fails
+  // the task if the workspace no longer accepts them, when it starts it.
   map<string, string> variables = 5;
 }
 

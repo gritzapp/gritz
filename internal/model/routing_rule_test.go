@@ -27,6 +27,7 @@ func TestRoutingRuleProtoRoundTrip(t *testing.T) {
 					Runner:      "runner-1",
 					Prompt:      "do the thing",
 					AutoArchive: time.Hour,
+					Variables:   map[string]string{"REPO": "gritz"},
 				},
 				Wakeup: true,
 				Public: true,

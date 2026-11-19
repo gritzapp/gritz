@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { VariableFields } from '@/components/variable-fields'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
 import {
   CONDITION_OPS,
@@ -24,6 +25,7 @@ import {
   type ConditionDraft,
   type RoutingRuleFormValues,
 } from '@/lib/routing-rules'
+import { variablesToSet } from '@/lib/variables'
 
 export { emptyRoutingRule, type RoutingRuleFormValues }
 
@@ -56,7 +58,6 @@ export function RoutingRuleForm({
 
   const selectedId = selectedType ? eventTypeId(selectedType.source, selectedType.type) : ''
   const availableAttrs = selectedType?.attrs ?? []
-  const canSubmit = isRoutingRuleFormValid(values, selectedId !== '')
 
   const { data: workspacesData } = useQuery(listWorkspaces, {}, { enabled: values.createTask })
   const runners = useMemo(
@@ -67,6 +68,9 @@ export function RoutingRuleForm({
     () => workspacesData?.workspaces.filter((ws) => ws.runnerId === values.createRunner) ?? [],
     [workspacesData, values.createRunner],
   )
+  const variableDecls = workspaces.find((ws) => ws.name === values.createWorkspace)?.variables ?? []
+  const canSubmit =
+    isRoutingRuleFormValid(values, selectedId !== '') && (!values.createTask || !!workspacesData)
 
   const handleEventTypeChange = (id: string) => {
     const target = eventTypes.find((t) => eventTypeId(t.source, t.type) === id)
@@ -102,13 +106,24 @@ export function RoutingRuleForm({
   const handleCreateRunnerChange = (newRunner: string) => {
     // Clear the workspace when the runner changes — workspaces are filtered
     // per-runner and the previous selection likely won't apply.
-    setValues({ ...values, createRunner: newRunner, createWorkspace: '' })
+    setValues({ ...values, createRunner: newRunner, createWorkspace: '', createVariables: {} })
+  }
+
+  const handleCreateWorkspaceChange = (createWorkspace: string) => {
+    setValues({ ...values, createWorkspace, createVariables: {} })
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
-    void onSubmit(values)
+    void onSubmit({
+      ...values,
+      createVariables: variablesToSet(
+        Object.fromEntries(
+          variableDecls.map((decl) => [decl.name, values.createVariables[decl.name] ?? '']),
+        ),
+      ),
+    })
   }
 
   return (
@@ -323,7 +338,7 @@ export function RoutingRuleForm({
               <Label htmlFor="create-workspace">Workspace</Label>
               <Select
                 value={values.createWorkspace}
-                onValueChange={(v) => setValues({ ...values, createWorkspace: v })}
+                onValueChange={handleCreateWorkspaceChange}
                 required
                 disabled={!values.createRunner}
               >
@@ -346,6 +361,12 @@ export function RoutingRuleForm({
                 </SelectContent>
               </Select>
             </div>
+
+            <VariableFields
+              decls={variableDecls}
+              values={values.createVariables}
+              onChange={(createVariables) => setValues({ ...values, createVariables })}
+            />
 
             <div className="space-y-2">
               <Label htmlFor="create-prompt">Prompt (optional)</Label>

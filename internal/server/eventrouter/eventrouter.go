@@ -414,6 +414,7 @@ func (r *Router) create(ctx context.Context, input InputEvent, orgID int64, rule
 			OrgID:       orgID,
 			Namespace:   rule.Namespace,
 			AutoArchive: rule.Create.AutoArchive,
+			Variables:   rule.Create.Variables,
 		}
 		if err := r.Store.CreateTask(ctx, tx, task); err != nil {
 			return err

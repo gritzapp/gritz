@@ -163,7 +163,7 @@ func TestSetRoutingRules(t *testing.T) {
 				"type":      "alert",
 				"public":    true,
 				"namespace": "ops",
-				"create":    map[string]any{"workspace": "ws", "runner": "r1", "prompt": "triage", "autoArchive": "3600s"},
+				"create":    map[string]any{"workspace": "ws", "runner": "r1", "prompt": "triage", "autoArchive": "3600s", "variables": map[string]any{"SERVICE": "api"}},
 			},
 		}},
 	})
@@ -184,7 +184,7 @@ func TestSetRoutingRules(t *testing.T) {
 			Type:      "alert",
 			Public:    true,
 			Namespace: "ops",
-			Create:    &gritzv1.CreateTaskAction{Workspace: "ws", Runner: "r1", Prompt: "triage", AutoArchive: durationpb.New(time.Hour)},
+			Create:    &gritzv1.CreateTaskAction{Workspace: "ws", Runner: "r1", Prompt: "triage", AutoArchive: durationpb.New(time.Hour), Variables: map[string]string{"SERVICE": "api"}},
 		},
 	}}, protocmp.Transform())
 	var got map[string]any

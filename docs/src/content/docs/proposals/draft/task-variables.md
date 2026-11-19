@@ -165,14 +165,15 @@ Every path that creates a task validates variables with the same function,
 | `gritz task create` | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`. |
 | Web UI new-task page | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
 | Schedules | `Schedule.variables`, fixed values, copied onto each task unresolved. |
-| Routing rules | `CreateTaskAction.variables`, fixed values. |
+| Routing rules | `CreateTaskAction.variables`, fixed values, copied onto each task unresolved. |
 
 **Schedules and routing rules set fixed values**: a `map<string, string>`
 saved with the schedule or rule, the same for every task it creates. Nothing
 from a triggering event is copied into a variable. Both are validated against
 the workspace's declarations when they are saved (`InvalidArgument` for an
 undeclared variable or a missing required one), and the literal values are
-stored, not the resolved set.
+stored, not the resolved set. A routing rule's workspace must be registered
+on its runner when the rules are saved, as a schedule's must.
 
 **`scheduler.Fire` copies a schedule's values onto the task without resolving
 them.** The runner may have re-registered the workspace with different
@@ -183,6 +184,14 @@ creates its task, and the runner, which resolves every task's variables when it
 starts it, fails that task with the reason on its timeline. Defaults are filled
 in by the runner the same way. The schedule keeps firing, failing each task,
 until someone edits it.
+
+**`Router.create` copies a rule's values onto the task the same way**, for the
+same reason: a rule saved before the workspace's declarations changed creates
+its task, and the runner fails it. Validation on save is
+`eventrouter.ValidateRule`, shaped like `scheduler.Validate`: it checks the
+rule against the event-type registry, then a create action's workspace and
+variables, and `eventrouter.IsInvalidError` lets `SetRoutingRules` map a
+rejection to `InvalidArgument` and anything else to `Internal`.
 
 ### Storage
 
@@ -199,7 +208,7 @@ ALTER TABLE tasks DROP COLUMN IF EXISTS variables;
 ```
 
 - `tasks.variables`: the task's `{name: value}`, resolved for a task from
-  `CreateTask`, as given for one from a schedule. Added to the `CreateTask`
+  `CreateTask`, as given for one from a schedule or a routing rule. Added to the `CreateTask`
   insert and the `GetTask`, `GetTaskForUpdate`, `ListTasks` and
   `ListTasksPage` selects. Never updated.
 - `workspaces.variables`: the declarations as registered, written by
@@ -274,7 +283,8 @@ message Schedule {
 
 message CreateTaskAction {
   // ... fields 1-4 unchanged
-  // Variables of the tasks the rule creates.
+  // Variables of the tasks the rule creates, by name, as saved. Each must be
+  // declared by the workspace, and every required one set.
   map<string, string> variables = 5;  // new
 }
 ```
@@ -403,12 +413,12 @@ type specInput struct {
 ```
 
 **How it fits:** the runner's `RegisterWorkspaces` sends each workspace's
-`VariableDecls`; the server stores them. `CreateTask`, the MCP `create_task`
-tool (through the RPC) and `eventrouter.Router.create` each call
-`store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on
-`model.Task`. `SetRoutingRules` and the schedule handlers validate against the
-same declarations on save; `scheduler.Fire` copies the schedule's values onto
-`model.Task` as they are. `TaskManager.specs` calls `GetRunSpecInputs` in
+`VariableDecls`; the server stores them. `CreateTask` and the MCP
+`create_task` tool (through the RPC) call `store.GetWorkspaceVariables` and
+`taskvar.Resolve` and store the result on `model.Task`. `SetRoutingRules` and
+the schedule handlers validate against the same declarations on save;
+`scheduler.Fire` and `eventrouter.Router.create` copy the schedule's or rule's
+values onto `model.Task` as they are. `TaskManager.specs` calls `GetRunSpecInputs` in
 place of `CreateTaskToken`, resolves the variables against
 `ws.VariableDecls()`, and passes the token and the resolved variables to
 `buildSpecs`, which adds each variable to `Spec.Env` under
@@ -474,12 +484,14 @@ The task still stores the value it was created with.
    Verifiable by: a scheduler test firing a schedule with variables; e2e tests
    for saving, rejecting and running a schedule with variables, and for a
    schedule whose values no longer resolve failing its task on the runner.
-9. **Routing rules** — Delivers: `CreateTaskAction.variables`, validation in
-   `SetRoutingRules`, resolution in `Router.create`, the rule form's variable
-   fields. Depends on: (4), and (7) for the shared form fields. Verifiable by:
-   `eventrouter` tests for a rule's variables reaching the created task and
-   for a rule whose values no longer resolve; a custom event posted to the
-   dev stack creating a task with the variable set.
+9. **Routing rules** — Delivers: `CreateTaskAction.variables`,
+   `eventrouter.ValidateRule` validating them in `SetRoutingRules`,
+   `Router.create` copying them onto the task unresolved, the rule form's
+   variable fields. Depends on: (8), for the runner resolving every task's
+   variables, and (7) for the shared form fields. Verifiable by: an
+   `eventrouter` test for a rule's variables reaching the created task
+   unresolved; e2e tests for saving a rule with variables and for
+   `SetRoutingRules` rejecting bad ones.
 10. **Docs** — each slice above updates its own pages; this lists them:
     - `operators/workspaces-yaml`: a `variables` section (saying credentials
       belong in `secrets:`), the task's value sitting between the workspace's

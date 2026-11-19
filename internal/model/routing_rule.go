@@ -52,6 +52,9 @@ type CreateTaskAction struct {
 	// See Task.AutoArchive for the value semantics (0 = never, <0 =
 	// immediate, >0 = delay).
 	AutoArchive time.Duration `json:"auto_archive,omitempty"`
+	// Variables are the created task's variables, by name, as saved. The task
+	// gets them as they are; the runner resolves them when it starts it.
+	Variables map[string]string `json:"variables,omitempty"`
 }
 
 // Proto converts a CreateTaskAction to its protobuf representation.
@@ -61,6 +64,7 @@ func (a *CreateTaskAction) Proto() *gritzv1.CreateTaskAction {
 		Runner:      a.Runner,
 		Prompt:      a.Prompt,
 		AutoArchive: durationpb.New(a.AutoArchive),
+		Variables:   a.Variables,
 	}
 }
 
@@ -74,6 +78,7 @@ func CreateTaskActionFromProto(pb *gritzv1.CreateTaskAction) *CreateTaskAction {
 		Runner:      pb.Runner,
 		Prompt:      pb.Prompt,
 		AutoArchive: pb.AutoArchive.AsDuration(),
+		Variables:   pb.Variables,
 	}
 }
 
