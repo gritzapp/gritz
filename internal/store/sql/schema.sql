@@ -619,13 +619,6 @@ CREATE UNIQUE INDEX idx_users_github_user_id ON public.users USING btree (github
 
 
 --
--- Name: idx_users_lower_email; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_users_lower_email ON public.users USING btree (lower(email));
-
-
---
 -- Name: idx_workspaces_org_id; Type: INDEX; Schema: public; Owner: -
 --
 

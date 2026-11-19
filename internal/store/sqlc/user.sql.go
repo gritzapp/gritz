@@ -98,6 +98,30 @@ func (q *Queries) GetUserByAtlassianAccountID(ctx context.Context, atlassianAcco
 	return i, err
 }
 
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, email, name, github_user_id, github_username, atlassian_account_id, atlassian_username, default_org_id, created_at, updated_at
+FROM users
+WHERE email = $1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.GithubUserID,
+		&i.GithubUsername,
+		&i.AtlassianAccountID,
+		&i.AtlassianUsername,
+		&i.DefaultOrgID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getUserByGitHubUserID = `-- name: GetUserByGitHubUserID :one
 SELECT id, email, name, github_user_id, github_username, atlassian_account_id, atlassian_username, default_org_id, created_at, updated_at
 FROM users
@@ -120,47 +144,6 @@ func (q *Queries) GetUserByGitHubUserID(ctx context.Context, githubUserID sql.Nu
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const getUsersByEmail = `-- name: GetUsersByEmail :many
-SELECT id, email, name, github_user_id, github_username, atlassian_account_id, atlassian_username, default_org_id, created_at, updated_at
-FROM users
-WHERE lower(email) = lower($1)
-ORDER BY id
-`
-
-func (q *Queries) GetUsersByEmail(ctx context.Context, email string) ([]User, error) {
-	rows, err := q.db.QueryContext(ctx, getUsersByEmail, email)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []User{}
-	for rows.Next() {
-		var i User
-		if err := rows.Scan(
-			&i.ID,
-			&i.Email,
-			&i.Name,
-			&i.GithubUserID,
-			&i.GithubUsername,
-			&i.AtlassianAccountID,
-			&i.AtlassianUsername,
-			&i.DefaultOrgID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const linkAtlassianAccount = `-- name: LinkAtlassianAccount :exec

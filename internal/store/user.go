@@ -3,14 +3,16 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"slices"
+	"strings"
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/sqlc"
 )
 
+// UpsertUser creates or updates the user by ID. The email is stored
+// lower-cased, and user.Email is updated to match.
 func (s *Store) UpsertUser(ctx context.Context, tx *sql.Tx, user *model.User) error {
+	user.Email = strings.ToLower(user.Email)
 	row, err := s.q(tx).UpsertUser(ctx, sqlc.UpsertUserParams{
 		ID:    user.ID,
 		Email: user.Email,
@@ -25,7 +27,10 @@ func (s *Store) UpsertUser(ctx context.Context, tx *sql.Tx, user *model.User) er
 	return nil
 }
 
+// CreateUser creates the user. The email is stored lower-cased, and
+// user.Email is updated to match.
 func (s *Store) CreateUser(ctx context.Context, tx *sql.Tx, user *model.User) error {
+	user.Email = strings.ToLower(user.Email)
 	row, err := s.q(tx).CreateUser(ctx, sqlc.CreateUserParams{
 		ID:    user.ID,
 		Email: user.Email,
@@ -71,30 +76,11 @@ func (s *Store) GetUser(ctx context.Context, tx *sql.Tx, id string) (*model.User
 	}, nil
 }
 
-// ErrAmbiguousEmail is returned by GetUserByEmail when the email matches
-// several users that differ only in case, none of them exactly.
-var ErrAmbiguousEmail = errors.New("email matches several users that differ only in case")
-
-// GetUserByEmail returns the user with the given email, ignoring case. When
-// several users match, the one whose email matches exactly wins; if none does,
-// it returns ErrAmbiguousEmail. It returns sql.ErrNoRows when none matches.
+// GetUserByEmail returns the user with the given email, ignoring case.
 func (s *Store) GetUserByEmail(ctx context.Context, tx *sql.Tx, email string) (*model.User, error) {
-	rows, err := s.q(tx).GetUsersByEmail(ctx, email)
+	row, err := s.q(tx).GetUserByEmail(ctx, strings.ToLower(email))
 	if err != nil {
 		return nil, err
-	}
-	var row sqlc.User
-	switch len(rows) {
-	case 0:
-		return nil, sql.ErrNoRows
-	case 1:
-		row = rows[0]
-	default:
-		i := slices.IndexFunc(rows, func(r sqlc.User) bool { return r.Email == email })
-		if i < 0 {
-			return nil, ErrAmbiguousEmail
-		}
-		row = rows[i]
 	}
 	return &model.User{
 		ID:                 row.ID,
