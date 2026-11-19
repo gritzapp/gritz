@@ -118,7 +118,7 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 		},
 	}
 
-	task := sched.Task("")
+	task := sched.Task()
 	assert.DeepEqual(t, task, &model.Task{
 		Name:        "nightly",
 		Runner:      "r",
@@ -133,7 +133,7 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 
 	// Events reference the inserted task; simulate the id the store would assign.
 	task.ID = 42
-	assert.DeepEqual(t, sched.Events(task, ""), []*model.Event{
+	assert.DeepEqual(t, sched.Events(task), []*model.Event{
 		{
 			TaskID: 42,
 			OrgID:  7,
@@ -164,62 +164,6 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 			OrgID:   7,
 			Wake:    true,
 			Payload: &model.InstructionPayload{Text: "groom changelog"},
-		},
-	})
-}
-
-// TestScheduleTaskAndEvents_Failure pins a failed occurrence: the task is
-// created FAILED with no command at version 0, and a FAILED lifecycle event
-// carrying the reason follows the created event, with no command event. The
-// instructions are still seeded.
-func TestScheduleTaskAndEvents_Failure(t *testing.T) {
-	t.Parallel()
-
-	sched := &model.Schedule{
-		OrgID:        7,
-		Name:         "nightly",
-		Runner:       "r",
-		Workspace:    "w",
-		Instructions: []model.ScheduleInstruction{{Text: "bump deps"}},
-	}
-
-	task := sched.Task("gone")
-	assert.DeepEqual(t, task, &model.Task{
-		Name:      "nightly",
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusFailed,
-		Command:   model.TaskCommandNone,
-		Version:   0,
-		OrgID:     7,
-	})
-
-	task.ID = 42
-	assert.DeepEqual(t, sched.Events(task, "gone"), []*model.Event{
-		{
-			TaskID: 42,
-			OrgID:  7,
-			Payload: &model.LifecyclePayload{
-				Kind:     model.LifecycleKindCreated,
-				Actor:    model.ScheduleActor,
-				ToStatus: model.TaskStatusFailed.Label(),
-			},
-		},
-		{
-			TaskID: 42,
-			OrgID:  7,
-			Payload: &model.LifecyclePayload{
-				Kind:     model.LifecycleKindFailed,
-				Actor:    model.ScheduleActor,
-				ToStatus: model.TaskStatusFailed.Label(),
-				Message:  "gone",
-			},
-		},
-		{
-			TaskID:  42,
-			OrgID:   7,
-			Wake:    true,
-			Payload: &model.InstructionPayload{Text: "bump deps"},
 		},
 	})
 }

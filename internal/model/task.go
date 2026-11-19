@@ -535,6 +535,28 @@ func (t *Task) Start() bool {
 	return true
 }
 
+// Fail marks the task failed before it ever ran: status failed, no command, and
+// version 0 ("never provisioned", as for a draft), so no runner picks it up and a
+// later Start/Restart begins run 1. It returns the LifecycleKindFailed event
+// attributed to actor and carrying reason, for the caller to record. The event
+// takes t.ID as it is now, so a caller failing a task it has not inserted yet
+// sets the event's TaskID once the store assigns one.
+func (t *Task) Fail(actor Actor, reason string) *Event {
+	t.Status = TaskStatusFailed
+	t.Command = TaskCommandNone
+	t.Version = 0
+	return &Event{
+		TaskID: t.ID,
+		OrgID:  t.OrgID,
+		Payload: &LifecyclePayload{
+			Kind:     LifecycleKindFailed,
+			Actor:    actor,
+			ToStatus: t.Status.Label(),
+			Message:  reason,
+		},
+	}
+}
+
 // PendingRunner returns the runner that has pending work for this task, or ""
 // if no runner action is needed. A runner has work when the task has a command
 // and is not archived.

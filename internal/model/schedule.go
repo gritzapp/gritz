@@ -67,16 +67,10 @@ type Schedule struct {
 // Task builds the occurrence task from the schedule's template: a fresh
 // pending/start task carrying the template's runner/workspace/namespace and
 // auto-archive. It is the schedule -> task half of a fire; the scheduler inserts
-// it, then seeds Events(task, failure). The result is byte-for-byte the shape
-// CreateTask produces, so a scheduled task is indistinguishable from a
-// hand-created one.
-//
-// A non-empty failure is why the occurrence can't run (its workspace isn't
-// registered, say). The task is then created FAILED instead, with no command
-// and never provisioned (version 0, as for a draft), so no runner picks it up
-// and a restart starts run 1.
-func (s *Schedule) Task(failure string) *Task {
-	task := &Task{
+// it, then seeds Events(task). The result is byte-for-byte the shape CreateTask
+// produces, so a scheduled task is indistinguishable from a hand-created one.
+func (s *Schedule) Task() *Task {
+	return &Task{
 		Name:        s.Name,
 		Runner:      s.Runner,
 		Workspace:   s.Workspace,
@@ -87,23 +81,15 @@ func (s *Schedule) Task(failure string) *Task {
 		OrgID:       s.OrgID,
 		AutoArchive: s.AutoArchive,
 	}
-	if failure != "" {
-		task.Status = TaskStatusFailed
-		task.Command = TaskCommandNone
-		task.Version = 0
-	}
-	return task
 }
 
 // Events returns the events to seed onto task for one occurrence: a
-// LifecycleKindCreated event attributed to ScheduleActor, then, for a failed
-// occurrence, a LifecycleKindFailed event carrying failure, then the task's
-// start command event (none for a failed task), then one wake-carrying
-// InstructionPayload event per template instruction (created event first, so
-// the timeline ordered by event id shows "Created" first). The instructions are
-// seeded even on a failed task, so a restart runs them. Call it after the task
-// has been inserted so task.ID is populated.
-func (s *Schedule) Events(task *Task, failure string) []*Event {
+// LifecycleKindCreated event attributed to ScheduleActor and the task's start
+// command event, then one wake-carrying InstructionPayload event per template
+// instruction (created event first, so the timeline ordered by event id shows
+// "Created" first). Call it after the task has been inserted so task.ID is
+// populated.
+func (s *Schedule) Events(task *Task) []*Event {
 	var events []*Event
 	events = append(events, &Event{
 		TaskID: task.ID,
@@ -114,18 +100,6 @@ func (s *Schedule) Events(task *Task, failure string) []*Event {
 			ToStatus: task.Status.Label(),
 		},
 	})
-	if failure != "" {
-		events = append(events, &Event{
-			TaskID: task.ID,
-			OrgID:  task.OrgID,
-			Payload: &LifecyclePayload{
-				Kind:     LifecycleKindFailed,
-				Actor:    ScheduleActor,
-				ToStatus: task.Status.Label(),
-				Message:  failure,
-			},
-		})
-	}
 	if ev, ok := task.CommandEvent(nil); ok {
 		events = append(events, ev)
 	}

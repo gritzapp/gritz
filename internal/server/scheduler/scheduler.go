@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
@@ -165,11 +166,24 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*mo
 	// The schedule owns the template -> task/events mapping. Insert the task, then
 	// seed its events (Events needs the assigned task.ID), so a scheduled task is
 	// indistinguishable from a hand-created one downstream.
-	task := sched.Task(reason)
+	task := sched.Task()
+	var failed *model.Event
+	if reason != "" {
+		failed = task.Fail(model.ScheduleActor, reason)
+	}
 	if err := st.CreateTask(ctx, tx, task); err != nil {
 		return nil, model.Notification{}, err
 	}
-	for _, ev := range sched.Events(task, reason) {
+	events := sched.Events(task)
+	if failed != nil {
+		// The FAILED event goes right after Created, before the instructions, so
+		// the timeline reads in order. Events skips the start command event, since
+		// the failed task has none, and still seeds the instructions so a restart
+		// runs them.
+		failed.TaskID = task.ID
+		events = slices.Insert(events, 1, failed)
+	}
+	for _, ev := range events {
 		if err := st.CreateEvent(ctx, tx, ev); err != nil {
 			return nil, model.Notification{}, err
 		}

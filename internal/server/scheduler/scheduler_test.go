@@ -167,7 +167,7 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
-		HasWorkspaceFunc: hasWorkspace,
+		HasWorkspaceFunc:   hasWorkspace,
 		CreateTaskFunc:     func(_ context.Context, _ *sql.Tx, task *model.Task) error { task.ID = 99; return nil },
 		CreateEventFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
 		UpdateScheduleFunc: func(_ context.Context, _ *sql.Tx, _ *model.Schedule) error { return nil },
@@ -220,7 +220,7 @@ func TestScheduler_Tick_ErrorPropagatesWithoutPublishing(t *testing.T) {
 			return []*model.Schedule{sched}, nil
 		},
 		HasWorkspaceFunc: hasWorkspace,
-		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
+		CreateTaskFunc:   func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
 	}
 	pub := &pubsub.PublisherMock{
 		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },

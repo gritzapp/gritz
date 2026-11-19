@@ -869,3 +869,23 @@ func TestTask_Start(t *testing.T) {
 		})
 	}
 }
+
+// TestTask_Fail pins a task failed before it ran: failed, no command, never
+// provisioned, and a FAILED lifecycle event carrying the reason.
+func TestTask_Fail(t *testing.T) {
+	t.Parallel()
+	task := Task{ID: 42, OrgID: 7, Status: TaskStatusPending, Command: TaskCommandStart, Version: 1}
+
+	ev := task.Fail(ScheduleActor, "gone")
+	assert.DeepEqual(t, task, Task{ID: 42, OrgID: 7, Status: TaskStatusFailed, Command: TaskCommandNone, Version: 0})
+	assert.DeepEqual(t, ev, &Event{
+		TaskID: 42,
+		OrgID:  7,
+		Payload: &LifecyclePayload{
+			Kind:     LifecycleKindFailed,
+			Actor:    ScheduleActor,
+			ToStatus: TaskStatusFailed.Label(),
+			Message:  "gone",
+		},
+	})
+}
