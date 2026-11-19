@@ -13958,8 +13958,6 @@ enum LifecycleKind {
   LIFECYCLE_KIND_SANDBOX_STARTED = 8;
   LIFECYCLE_KIND_SANDBOX_EXITED = 9;
   LIFECYCLE_KIND_SANDBOX_FAILED = 10;
-  // The task failed before it could run, so no sandbox was started; message
-  // says why.
   LIFECYCLE_KIND_FAILED = 11;
 }
 
