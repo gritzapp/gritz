@@ -6236,7 +6236,10 @@ type CreateTaskAction struct {
 	// The auto-archive delay of the tasks the rule creates, as in
 	// Task.auto_archive.
 	AutoArchive *durationpb.Duration `protobuf:"bytes,4,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
-	// Variables of the tasks the rule creates.
+	// Variables of the tasks the rule creates, by name, as saved. Each must be
+	// declared by the workspace, and every required one set. Each task gets
+	// them as they are; the runner fills in the workspace's defaults, and fails
+	// the task if the workspace no longer accepts them, when it starts it.
 	Variables     map[string]string `protobuf:"bytes,5,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

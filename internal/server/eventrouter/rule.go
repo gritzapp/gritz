@@ -1,9 +1,15 @@
 package eventrouter
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/store"
+	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 // Match reports whether the rule matches the event. The matcher is generic: it
@@ -51,4 +57,46 @@ func conditionMatch(c model.Condition, values []string) bool {
 		}
 	}
 	return false
+}
+
+// invalidError is a rule ValidateRule rejects: one its event-type registry
+// rejects, or a create action whose workspace isn't registered on its runner
+// or whose variables the workspace doesn't accept.
+type invalidError struct {
+	err error
+}
+
+func (e *invalidError) Error() string { return e.err.Error() }
+
+func (e *invalidError) Unwrap() error { return e.err }
+
+// IsInvalidError reports whether err is ValidateRule rejecting the rule, as
+// opposed to failing to check it.
+func IsInvalidError(err error) bool {
+	_, ok := errors.AsType[*invalidError](err)
+	return ok
+}
+
+// ValidateRule checks a rule of org orgID before it is saved: against reg, and,
+// for a rule that creates tasks, that its workspace is registered and its
+// variables against the workspace's declarations. IsInvalidError tells a
+// rejection from a store error.
+func ValidateRule(ctx context.Context, tx *sql.Tx, st *store.Store, reg *SchemaRegistry, orgID int64, rule model.RoutingRule) error {
+	if err := reg.Validate(rule); err != nil {
+		return &invalidError{err: err}
+	}
+	if rule.Create == nil {
+		return nil
+	}
+	decls, err := st.GetWorkspaceVariables(ctx, tx, rule.Create.Runner, rule.Create.Workspace, orgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &invalidError{err: fmt.Errorf("workspace %q not found on runner %q", rule.Create.Workspace, rule.Create.Runner)}
+		}
+		return err
+	}
+	if _, err := taskvar.Resolve(decls, rule.Create.Variables); err != nil {
+		return &invalidError{err: fmt.Errorf("workspace %q: %w", rule.Create.Workspace, err)}
+	}
+	return nil
 }

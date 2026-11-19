@@ -372,7 +372,9 @@ Atlassian webhook secret; read it in the Web UI, as in
 `rules`, the whole list in the same shape, and replaces every rule with it: a
 rule missing from the list is deleted. Your agent reads the rules, edits the
 list and writes it all back. A rule that names an unknown event type or
-attribute fails the call with the bad rule named, and no rule is changed. It
+attribute, or that creates tasks in a workspace that isn't registered or with
+[variables](/concepts/routing-rules/#creating-tasks) the workspace doesn't
+accept, fails the call with the bad rule named, and no rule is changed. It
 returns the stored rules.
 
 ## Channels

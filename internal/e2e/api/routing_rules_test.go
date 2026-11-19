@@ -7,6 +7,7 @@ import (
 	"github.com/gritzapp/gritz/internal/e2e"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -268,4 +269,112 @@ func TestSetRoutingRules_RejectsNonPublicCustom(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 	assert.ErrorContains(t, err, "routing rule 1: custom event rules must be public")
 	assert.Equal(t, len(h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{})), 0)
+}
+
+func TestSetRoutingRules_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name: "story",
+			Variables: []*gritzv1.VariableDecl{
+				{Name: "BRANCH", Default: "main"},
+				{Name: "JIRA_PROJECT", Required: true},
+			},
+		}},
+	})
+	rules := []*gritzv1.RoutingRule{{
+		Source: "github",
+		Type:   "issue_comment",
+		Create: &gritzv1.CreateTaskAction{
+			Workspace:   "story",
+			Runner:      "runner-1",
+			AutoArchive: durationpb.New(0),
+			Variables:   map[string]string{"JIRA_PROJECT": "APP"},
+		},
+	}}
+
+	// Act
+	setResp, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{Rules: rules})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, setResp.Rules, rules, protocmp.Transform())
+	assert.DeepEqual(t, h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{}), rules, protocmp.Transform())
+}
+
+func TestSetRoutingRules_InvalidVariables(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		create *gritzv1.CreateTaskAction
+		want   string
+	}{
+		{
+			name: "undeclared",
+			create: &gritzv1.CreateTaskAction{
+				Workspace: "story",
+				Runner:    "runner-1",
+				Variables: map[string]string{"JIRA_PROJECT": "APP", "JIRA": "APP"},
+			},
+			want: `routing rule 2: workspace "story": variable "JIRA": not declared by the workspace`,
+		},
+		{
+			name: "missing required",
+			create: &gritzv1.CreateTaskAction{
+				Workspace: "story",
+				Runner:    "runner-1",
+				Variables: map[string]string{"BRANCH": "dev"},
+			},
+			want: `routing rule 2: workspace "story": variable "JIRA_PROJECT": required`,
+		},
+		{
+			name: "unregistered workspace",
+			create: &gritzv1.CreateTaskAction{
+				Workspace: "story",
+				Runner:    "runner-2",
+			},
+			want: `routing rule 2: workspace "story" not found on runner "runner-2"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			h := e2e.New(t, nil)
+			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+				RunnerId: "runner-1",
+				Workspaces: []*gritzv1.RegisteredWorkspace{{
+					Name: "story",
+					Variables: []*gritzv1.VariableDecl{
+						{Name: "BRANCH", Default: "main"},
+						{Name: "JIRA_PROJECT", Required: true},
+					},
+				}},
+			})
+			valid := &gritzv1.RoutingRule{
+				Source: "github",
+				Type:   "issue_comment",
+				Create: &gritzv1.CreateTaskAction{
+					Workspace:   "story",
+					Runner:      "runner-1",
+					AutoArchive: durationpb.New(0),
+					Variables:   map[string]string{"JIRA_PROJECT": "APP"},
+				},
+			}
+			h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{Rules: []*gritzv1.RoutingRule{valid}})
+
+			// Act
+			_, err := h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
+				Rules: []*gritzv1.RoutingRule{valid, {Source: "github", Type: "issue_comment", Create: tt.create}},
+			})
+
+			// Assert
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+			assert.ErrorContains(t, err, tt.want)
+			assert.DeepEqual(t, h.Org.GetRoutingRules(&gritzv1.GetRoutingRulesRequest{}), []*gritzv1.RoutingRule{valid}, protocmp.Transform())
+		})
+	}
 }

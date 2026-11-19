@@ -11,6 +11,7 @@ import (
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/taskvar"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -728,6 +729,49 @@ func TestRouteCreateRuleSpawnsTask(t *testing.T) {
 			},
 		},
 	)
+}
+
+func TestRouteCreateRuleCopiesVariablesUnresolved(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{
+		RunnerID: "r",
+		Name:     "default",
+		OrgID:    org.OrgID,
+		Variables: []taskvar.Decl{
+			{Name: "REPO", Required: true},
+			{Name: "BRANCH", Default: "main"},
+		},
+	}))
+	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
+		Source: "github",
+		Create: &model.CreateTaskAction{
+			Workspace: "default",
+			Runner:    "r",
+			Variables: map[string]string{"REPO": "gritz"},
+		},
+	}})
+	assert.NilError(t, err)
+	r := &eventrouter.Router{Log: slog.Default(), Store: s}
+
+	// Act
+	n, err := r.Route(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		URL:    "https://github.com/owner/repo/issues/1",
+		UserID: org.UserID,
+	})
+
+	// Assert - the rule's values as saved, without BRANCH's default.
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(tasks), 1)
+	assert.DeepEqual(t, tasks[0].Variables, map[string]string{"REPO": "gritz"})
 }
 
 func TestRouteCreateRuleWithoutPromptUsesDefaultPreamble(t *testing.T) {
