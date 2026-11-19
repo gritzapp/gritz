@@ -91,12 +91,8 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	return &gritzv1.CreateScheduleResponse{Schedule: sched.Proto()}, nil
 }
 
-// checkScheduleVariables checks a schedule's variables against the
-// declarations of its workspace as registered now, so a save gets the same
-// errors CreateTask would give. The schedule stores them as given: the
-// scheduler copies them onto each task unresolved, and the runner resolves
-// them when it starts the task, against declarations that may have changed by
-// then.
+// checkScheduleVariables checks a schedule's variables against its workspace's
+// declarations.
 func (s *Server) checkScheduleVariables(ctx context.Context, orgID int64, runner, workspace string, variables map[string]string) error {
 	decls, err := s.store.GetWorkspaceVariables(ctx, nil, runner, workspace, orgID)
 	if err != nil {

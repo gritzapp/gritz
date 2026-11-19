@@ -409,8 +409,7 @@ func TestSchedule_Variables(t *testing.T) {
 	// Act
 	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
 
-	// Assert - the schedule keeps its variables as given, and its task gets
-	// them unresolved: the default for BRANCH is the runner's to fill.
+	// Assert
 	assert.NilError(t, err)
 	want := map[string]string{"JIRA_ISSUE": "APP-143", "LABEL": ""}
 	assert.DeepEqual(t, sched.Variables, map[string]string{"JIRA_ISSUE": "APP-142"})

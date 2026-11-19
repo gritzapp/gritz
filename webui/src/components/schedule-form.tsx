@@ -21,9 +21,8 @@ import { AUTO_ARCHIVE_IMMEDIATE, AUTO_ARCHIVE_NEVER, formatCountdown } from '@/l
 // ScheduleFormValues is the full editable state of a schedule template + spec.
 // It is intentionally UI-shaped: `instruction` is a single text block (the
 // common case, mirroring the Create Task form) and `autoArchive` is the
-// autoArchiveSelectValue string the auto-archive Select uses. `variables` holds
-// the variable fields by name; on submit it carries only the filled-in fields
-// the workspace declares. The route maps this to the proto request(s).
+// autoArchiveSelectValue string the auto-archive Select uses. The route maps
+// this to the proto request(s).
 export interface ScheduleFormValues {
   name: string
   runner: string
@@ -121,8 +120,6 @@ export function ScheduleForm({
     setValues((prev) => ({ ...prev, workspace, variables: {} }))
   }
 
-  // The workspaces must have loaded: submitting keeps only the variables the
-  // workspace declares.
   const isValid =
     workspacesData &&
     values.runner.trim() &&
@@ -143,8 +140,6 @@ export function ScheduleForm({
       instruction: values.instruction.trim(),
       cronExpr: values.cronExpr.trim(),
       timezone: values.timezone.trim(),
-      // Only the declared variables have fields, so a value the workspace no
-      // longer declares is dropped rather than sent unseen.
       variables: variablesToSet(
         Object.fromEntries(
           variableDecls.map((decl) => [decl.name, values.variables[decl.name] ?? '']),

@@ -49,10 +49,7 @@ type Schedule struct {
 	Namespace    string                `json:"namespace,omitempty"`
 	Instructions []ScheduleInstruction `json:"instructions"`
 	AutoArchive  time.Duration         `json:"auto_archive,omitempty"`
-	// Variables are copied as given onto every task it creates, unresolved:
-	// the runner resolves them against the workspace's declarations when it
-	// starts the task. Nil when the schedule has none.
-	Variables map[string]string `json:"variables,omitempty"`
+	Variables    map[string]string     `json:"variables,omitempty"`
 
 	// Schedule spec.
 	CronExpr string `json:"cron_expr"`

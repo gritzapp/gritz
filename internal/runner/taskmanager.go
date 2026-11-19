@@ -381,9 +381,6 @@ func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*bac
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get run spec inputs: %w", err)
 	}
-	// The task's variables are checked against this runner's declarations, not
-	// the ones the server saw: a schedule copies its variables onto the task
-	// unresolved, and the workspace may have changed since the task was created.
 	variables, err := taskvar.Resolve(ws.VariableDecls(), inputs.Variables)
 	if err != nil {
 		return nil, nil, fmt.Errorf("workspace %q: %w", c.Workspace, err)

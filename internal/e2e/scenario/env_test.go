@@ -59,10 +59,6 @@ func TestEnv_Variables(t *testing.T) {
 	}
 }
 
-// A schedule's variables reach the task unresolved, so the runner checks them
-// against its own declarations: here the server's registration of the
-// workspace is stale and lacks the required variable, so the schedule saves
-// and fires, and the runner fails the task.
 func TestEnv_VariablesStaleSchedule(t *testing.T) {
 	t.Parallel()
 	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
