@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -104,6 +105,23 @@ func TestAddAndListOrgMembers(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Member.Role, "member")
 	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 2))
+}
+
+func TestAddOrgMember_EmailIgnoresCase(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
+	other := h.Server.CreateOrg()
+
+	// Act
+	resp, err := h.Org.Client.AddOrgMember(t.Context(), &gritzv1.AddOrgMemberRequest{
+		Email: strings.ToUpper(other.Owner.Email),
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Equal(t, resp.Member.UserId, other.Owner.UserID)
+	assert.Equal(t, resp.Member.Email, other.Owner.Email)
 }
 
 func TestDeleteOrg_RefusedWhileTasksUnarchived(t *testing.T) {

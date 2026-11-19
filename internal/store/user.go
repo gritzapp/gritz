@@ -3,12 +3,16 @@ package store
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/sqlc"
 )
 
+// UpsertUser creates or updates the user by ID. The email is stored
+// lower-cased, and user.Email is updated to match.
 func (s *Store) UpsertUser(ctx context.Context, tx *sql.Tx, user *model.User) error {
+	user.Email = strings.ToLower(user.Email)
 	row, err := s.q(tx).UpsertUser(ctx, sqlc.UpsertUserParams{
 		ID:    user.ID,
 		Email: user.Email,
@@ -23,7 +27,10 @@ func (s *Store) UpsertUser(ctx context.Context, tx *sql.Tx, user *model.User) er
 	return nil
 }
 
+// CreateUser creates the user. The email is stored lower-cased, and
+// user.Email is updated to match.
 func (s *Store) CreateUser(ctx context.Context, tx *sql.Tx, user *model.User) error {
+	user.Email = strings.ToLower(user.Email)
 	row, err := s.q(tx).CreateUser(ctx, sqlc.CreateUserParams{
 		ID:    user.ID,
 		Email: user.Email,
@@ -69,8 +76,9 @@ func (s *Store) GetUser(ctx context.Context, tx *sql.Tx, id string) (*model.User
 	}, nil
 }
 
+// GetUserByEmail returns the user with the given email, ignoring case.
 func (s *Store) GetUserByEmail(ctx context.Context, tx *sql.Tx, email string) (*model.User, error) {
-	row, err := s.q(tx).GetUserByEmail(ctx, email)
+	row, err := s.q(tx).GetUserByEmail(ctx, strings.ToLower(email))
 	if err != nil {
 		return nil, err
 	}
