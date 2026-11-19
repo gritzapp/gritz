@@ -63,6 +63,9 @@ const (
 	GritzServiceRestartTaskProcedure = "/gritz.v1.GritzService/RestartTask"
 	// GritzServiceOpenShellProcedure is the fully-qualified name of the GritzService's OpenShell RPC.
 	GritzServiceOpenShellProcedure = "/gritz.v1.GritzService/OpenShell"
+	// GritzServiceResetSandboxProcedure is the fully-qualified name of the GritzService's ResetSandbox
+	// RPC.
+	GritzServiceResetSandboxProcedure = "/gritz.v1.GritzService/ResetSandbox"
 	// GritzServiceUploadLogsProcedure is the fully-qualified name of the GritzService's UploadLogs RPC.
 	GritzServiceUploadLogsProcedure = "/gritz.v1.GritzService/UploadLogs"
 	// GritzServiceAppendLogChunkProcedure is the fully-qualified name of the GritzService's
@@ -201,6 +204,7 @@ type GritzServiceClient interface {
 	CancelTask(context.Context, *v1.CancelTaskRequest) (*v1.CancelTaskResponse, error)
 	RestartTask(context.Context, *v1.RestartTaskRequest) (*v1.RestartTaskResponse, error)
 	OpenShell(context.Context, *v1.OpenShellRequest) (*v1.OpenShellResponse, error)
+	ResetSandbox(context.Context, *v1.ResetSandboxRequest) (*v1.ResetSandboxResponse, error)
 	// Called by the agent's `report` tool in a task's sandbox. Each entry of type
 	// `llm` is added to the task as a report event; entries of other types are
 	// ignored.
@@ -349,6 +353,12 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+GritzServiceOpenShellProcedure,
 			connect.WithSchema(gritzServiceMethods.ByName("OpenShell")),
+			connect.WithClientOptions(opts...),
+		),
+		resetSandbox: connect.NewClient[v1.ResetSandboxRequest, v1.ResetSandboxResponse](
+			httpClient,
+			baseURL+GritzServiceResetSandboxProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("ResetSandbox")),
 			connect.WithClientOptions(opts...),
 		),
 		uploadLogs: connect.NewClient[v1.UploadLogsRequest, v1.UploadLogsResponse](
@@ -627,6 +637,7 @@ type gritzServiceClient struct {
 	cancelTask                     *connect.Client[v1.CancelTaskRequest, v1.CancelTaskResponse]
 	restartTask                    *connect.Client[v1.RestartTaskRequest, v1.RestartTaskResponse]
 	openShell                      *connect.Client[v1.OpenShellRequest, v1.OpenShellResponse]
+	resetSandbox                   *connect.Client[v1.ResetSandboxRequest, v1.ResetSandboxResponse]
 	uploadLogs                     *connect.Client[v1.UploadLogsRequest, v1.UploadLogsResponse]
 	appendLogChunk                 *connect.Client[v1.AppendLogChunkRequest, v1.AppendLogChunkResponse]
 	listLogChunksByTask            *connect.Client[v1.ListLogChunksByTaskRequest, v1.ListLogChunksByTaskResponse]
@@ -783,6 +794,15 @@ func (c *gritzServiceClient) RestartTask(ctx context.Context, req *v1.RestartTas
 // OpenShell calls gritz.v1.GritzService.OpenShell.
 func (c *gritzServiceClient) OpenShell(ctx context.Context, req *v1.OpenShellRequest) (*v1.OpenShellResponse, error) {
 	response, err := c.openShell.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// ResetSandbox calls gritz.v1.GritzService.ResetSandbox.
+func (c *gritzServiceClient) ResetSandbox(ctx context.Context, req *v1.ResetSandboxRequest) (*v1.ResetSandboxResponse, error) {
+	response, err := c.resetSandbox.CallUnary(ctx, connect.NewRequest(req))
 	if response != nil {
 		return response.Msg, err
 	}
@@ -1194,6 +1214,7 @@ type GritzServiceHandler interface {
 	CancelTask(context.Context, *v1.CancelTaskRequest) (*v1.CancelTaskResponse, error)
 	RestartTask(context.Context, *v1.RestartTaskRequest) (*v1.RestartTaskResponse, error)
 	OpenShell(context.Context, *v1.OpenShellRequest) (*v1.OpenShellResponse, error)
+	ResetSandbox(context.Context, *v1.ResetSandboxRequest) (*v1.ResetSandboxResponse, error)
 	// Called by the agent's `report` tool in a task's sandbox. Each entry of type
 	// `llm` is added to the task as a report event; entries of other types are
 	// ignored.
@@ -1338,6 +1359,12 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		GritzServiceOpenShellProcedure,
 		svc.OpenShell,
 		connect.WithSchema(gritzServiceMethods.ByName("OpenShell")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceResetSandboxHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceResetSandboxProcedure,
+		svc.ResetSandbox,
+		connect.WithSchema(gritzServiceMethods.ByName("ResetSandbox")),
 		connect.WithHandlerOptions(opts...),
 	)
 	gritzServiceUploadLogsHandler := connect.NewUnaryHandlerSimple(
@@ -1626,6 +1653,8 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceRestartTaskHandler.ServeHTTP(w, r)
 		case GritzServiceOpenShellProcedure:
 			gritzServiceOpenShellHandler.ServeHTTP(w, r)
+		case GritzServiceResetSandboxProcedure:
+			gritzServiceResetSandboxHandler.ServeHTTP(w, r)
 		case GritzServiceUploadLogsProcedure:
 			gritzServiceUploadLogsHandler.ServeHTTP(w, r)
 		case GritzServiceAppendLogChunkProcedure:
@@ -1771,6 +1800,10 @@ func (UnimplementedGritzServiceHandler) RestartTask(context.Context, *v1.Restart
 
 func (UnimplementedGritzServiceHandler) OpenShell(context.Context, *v1.OpenShellRequest) (*v1.OpenShellResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.OpenShell is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) ResetSandbox(context.Context, *v1.ResetSandboxRequest) (*v1.ResetSandboxResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.ResetSandbox is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) UploadLogs(context.Context, *v1.UploadLogsRequest) (*v1.UploadLogsResponse, error) {

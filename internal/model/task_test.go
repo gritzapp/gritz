@@ -365,6 +365,50 @@ func TestTask_ApplyRunnerEvent(t *testing.T) {
 			changed: false,
 		},
 
+		// Reset events
+		{
+			name: "reset: clears reset command without touching status or version",
+			before: Task{
+				Status:  TaskStatusFailed,
+				Command: TaskCommandReset,
+				Version: 3,
+			},
+			after: Task{
+				Status:  TaskStatusFailed,
+				Version: 3,
+			},
+			event: RunnerEvent{
+				Event:   RunnerEventReset,
+				Version: 3,
+			},
+			changed: true,
+		},
+		{
+			name: "reset: stale version is rejected",
+			before: Task{
+				Status:  TaskStatusFailed,
+				Command: TaskCommandReset,
+				Version: 4,
+			},
+			event: RunnerEvent{
+				Event:   RunnerEventReset,
+				Version: 3,
+			},
+			changed: false,
+		},
+		{
+			name: "reset: redelivery with no reset pending is a no-op",
+			before: Task{
+				Status:  TaskStatusCompleted,
+				Version: 3,
+			},
+			event: RunnerEvent{
+				Event:   RunnerEventReset,
+				Version: 3,
+			},
+			changed: false,
+		},
+
 		// Unknown event type
 		{
 			name: "unknown event type returns false",
@@ -864,6 +908,86 @@ func TestTask_Start(t *testing.T) {
 			task := tt.before
 			assert.Equal(t, task.CanStart(), tt.want)
 			got := task.Start()
+			assert.Equal(t, got, tt.want)
+			assert.DeepEqual(t, task, tt.after)
+		})
+	}
+}
+
+func TestTask_Reset(t *testing.T) {
+	tests := []struct {
+		name   string
+		before Task
+		after  Task
+		want   bool
+	}{
+		{
+			name:   "from completed succeeds without changing status or version",
+			before: Task{Status: TaskStatusCompleted, Version: 2},
+			after:  Task{Status: TaskStatusCompleted, Command: TaskCommandReset, Version: 2},
+			want:   true,
+		},
+		{
+			name:   "from failed succeeds without changing status or version",
+			before: Task{Status: TaskStatusFailed, Version: 2},
+			after:  Task{Status: TaskStatusFailed, Command: TaskCommandReset, Version: 2},
+			want:   true,
+		},
+		{
+			name:   "from cancelled succeeds without changing status or version",
+			before: Task{Status: TaskStatusCancelled, Version: 2},
+			after:  Task{Status: TaskStatusCancelled, Command: TaskCommandReset, Version: 2},
+			want:   true,
+		},
+		{
+			name:   "from running fails",
+			before: Task{Status: TaskStatusRunning},
+			after:  Task{Status: TaskStatusRunning},
+			want:   false,
+		},
+		{
+			name:   "from pending fails",
+			before: Task{Status: TaskStatusPending, Command: TaskCommandStart},
+			after:  Task{Status: TaskStatusPending, Command: TaskCommandStart},
+			want:   false,
+		},
+		{
+			name:   "from restarting fails",
+			before: Task{Status: TaskStatusRestarting, Command: TaskCommandRestart},
+			after:  Task{Status: TaskStatusRestarting, Command: TaskCommandRestart},
+			want:   false,
+		},
+		{
+			name:   "from cancelling fails",
+			before: Task{Status: TaskStatusCancelling, Command: TaskCommandStop},
+			after:  Task{Status: TaskStatusCancelling, Command: TaskCommandStop},
+			want:   false,
+		},
+		{
+			name:   "from draft fails",
+			before: Task{Status: TaskStatusDraft},
+			after:  Task{Status: TaskStatusDraft},
+			want:   false,
+		},
+		{
+			name:   "archived fails",
+			before: Task{Status: TaskStatusCompleted, Archived: true},
+			after:  Task{Status: TaskStatusCompleted, Archived: true},
+			want:   false,
+		},
+		{
+			name:   "reset in flight fails",
+			before: Task{Status: TaskStatusFailed, Command: TaskCommandReset},
+			after:  Task{Status: TaskStatusFailed, Command: TaskCommandReset},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := tt.before
+			assert.Equal(t, task.CanReset(), tt.want)
+			got := task.Reset()
 			assert.Equal(t, got, tt.want)
 			assert.DeepEqual(t, task, tt.after)
 		})

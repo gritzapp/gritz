@@ -74,6 +74,11 @@ export const restartTask = GritzService.method.restartTask;
 export const openShell = GritzService.method.openShell;
 
 /**
+ * @generated from rpc gritz.v1.GritzService.ResetSandbox
+ */
+export const resetSandbox = GritzService.method.resetSandbox;
+
+/**
  * Called by the agent's `report` tool in a task's sandbox. Each entry of type
  * `llm` is added to the task as a report event; entries of other types are
  * ignored.

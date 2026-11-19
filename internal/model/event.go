@@ -208,6 +208,8 @@ const (
 	LifecycleKindSandboxStarted = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED)
 	LifecycleKindSandboxExited  = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED)
 	LifecycleKindSandboxFailed  = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED)
+	LifecycleKindResetRequested = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_RESET_REQUESTED)
+	LifecycleKindSandboxReset   = LifecycleKind(gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET)
 )
 
 // LifecyclePayload is the body of a lifecycle event — an about-task record of a
@@ -279,6 +281,10 @@ func (p *LifecyclePayload) Summary() string {
 		if p.Message != "" {
 			s += ": " + p.Message
 		}
+	case LifecycleKindResetRequested:
+		s = "Sandbox reset requested"
+	case LifecycleKindSandboxReset:
+		s = "Sandbox reset"
 	default:
 		s = "Lifecycle event"
 	}
