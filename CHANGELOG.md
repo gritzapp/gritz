@@ -1,5 +1,15 @@
 # Changelog
 
+## [4.9.1](https://github.com/gritzapp/gritz/compare/v4.9.0...v4.9.1) (2026-11-19)
+
+
+### Miscellaneous
+
+* **docker:** remove test containers with a live context ([#2254](https://github.com/gritzapp/gritz/issues/2254)) ([d546bc2](https://github.com/gritzapp/gritz/commit/d546bc2154bb7bff94cdd643eabb61b3d926b48e))
+* **docker:** run sandbox tests in parallel ([#2256](https://github.com/gritzapp/gritz/issues/2256)) ([54f4aaa](https://github.com/gritzapp/gritz/commit/54f4aaaff14a322f888a4b7599a56e2b74f12816))
+* **e2e:** move the harness into internal/e2e/harness ([#2258](https://github.com/gritzapp/gritz/issues/2258)) ([62d45a1](https://github.com/gritzapp/gritz/commit/62d45a1806886ab924d1bd1a75e1278606f3cc66))
+* **test:** run test Postgres without durability ([#2257](https://github.com/gritzapp/gritz/issues/2257)) ([8bef76b](https://github.com/gritzapp/gritz/commit/8bef76b173bc2eb7b442d5f1f52dfa15dff4a1d8))
+
 ## [4.9.0](https://github.com/gritzapp/gritz/compare/v4.8.0...v4.9.0) (2026-11-19)
 
 
