@@ -143,32 +143,39 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	return nil
 }
 
-// InvalidError is a schedule Validate rejects: an invalid cron expression,
+// invalidError is a schedule Validate rejects: an invalid cron expression,
 // timezone or variable, or a workspace that isn't registered on its runner.
-type InvalidError struct {
-	Err error
+type invalidError struct {
+	err error
 }
 
-func (e *InvalidError) Error() string { return e.Err.Error() }
+func (e *invalidError) Error() string { return e.err.Error() }
 
-func (e *InvalidError) Unwrap() error { return e.Err }
+func (e *invalidError) Unwrap() error { return e.err }
+
+// IsInvalidError reports whether err is Validate rejecting the schedule, as
+// opposed to failing to check it.
+func IsInvalidError(err error) bool {
+	_, ok := errors.AsType[*invalidError](err)
+	return ok
+}
 
 // Validate checks a schedule before it is saved: its cron expression and
 // timezone, that its workspace is registered, and its variables against the
-// workspace's declarations. It returns an *InvalidError or the store's error.
+// workspace's declarations. IsInvalidError tells a rejection from a store error.
 func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) error {
 	if err := sched.Validate(); err != nil {
-		return &InvalidError{Err: err}
+		return &invalidError{err: err}
 	}
 	decls, err := st.GetWorkspaceVariables(ctx, tx, sched.Runner, sched.Workspace, sched.OrgID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return &InvalidError{Err: fmt.Errorf("workspace %q not found on runner %q", sched.Workspace, sched.Runner)}
+			return &invalidError{err: fmt.Errorf("workspace %q not found on runner %q", sched.Workspace, sched.Runner)}
 		}
 		return err
 	}
 	if _, err := taskvar.Resolve(decls, sched.Variables); err != nil {
-		return &InvalidError{Err: fmt.Errorf("workspace %q: %w", sched.Workspace, err)}
+		return &invalidError{err: fmt.Errorf("workspace %q: %w", sched.Workspace, err)}
 	}
 	return nil
 }

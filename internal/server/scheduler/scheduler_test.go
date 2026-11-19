@@ -265,17 +265,13 @@ func TestValidate(t *testing.T) {
 		{
 			name:  "invalid cron",
 			sched: &model.Schedule{CronExpr: "nonsense", Timezone: "UTC"},
-			check: func(t *testing.T, err error) {
-				_, ok := errors.AsType[*InvalidError](err)
-				assert.Assert(t, ok, err)
-			},
+			check: func(t *testing.T, err error) { assert.Assert(t, IsInvalidError(err), err) },
 		},
 		{
 			name:  "invalid variable",
 			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Variables: map[string]string{"JIRA": "APP-142"}},
 			check: func(t *testing.T, err error) {
-				_, ok := errors.AsType[*InvalidError](err)
-				assert.Assert(t, ok, err)
+				assert.Assert(t, IsInvalidError(err), err)
 				assert.ErrorContains(t, err, `variable "JIRA": not declared by the workspace`)
 			},
 		},
@@ -284,8 +280,7 @@ func TestValidate(t *testing.T) {
 			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Runner: "r", Workspace: "w"},
 			err:   sql.ErrNoRows,
 			check: func(t *testing.T, err error) {
-				_, ok := errors.AsType[*InvalidError](err)
-				assert.Assert(t, ok, err)
+				assert.Assert(t, IsInvalidError(err), err)
 				assert.Error(t, err, `workspace "w" not found on runner "r"`)
 			},
 		},
@@ -293,7 +288,10 @@ func TestValidate(t *testing.T) {
 			name:  "store error",
 			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC"},
 			err:   storeErr,
-			check: func(t *testing.T, err error) { assert.ErrorIs(t, err, storeErr) },
+			check: func(t *testing.T, err error) {
+				assert.ErrorIs(t, err, storeErr)
+				assert.Assert(t, !IsInvalidError(err))
+			},
 		},
 	}
 	for _, tt := range tests {
