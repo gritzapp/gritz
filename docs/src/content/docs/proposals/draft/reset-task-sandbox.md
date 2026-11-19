@@ -353,15 +353,8 @@ failure is visible in the run's `SANDBOX_FAILED` message.
 - `webui/src/lib/task.ts`: `canResetTask(task) => task.actions?.reset ?? false`.
 - `webui/src/components/task-sidebar.tsx`: a `SidebarAction` row after Restart, icon
   `Trash2`, label **"Reset sandbox"**, `destructive`, shown when `canResetTask` — so a
-  running task does not offer it.
-- **Confirmation.** No task action confirms today, but reset is the first one that
-  discards data the user cannot get back (the clone, uncommitted work, the agent's
-  session): archive can be undone, and cancel and restart keep the sandbox. So
-  clicking it opens a small `Dialog` (`components/ui/dialog.tsx`) saying that the
-  sandbox and everything in it is deleted, that the task, its history and its links are
-  kept, and that the next run builds a fresh sandbox from the workspace image, with
-  **Cancel** and a destructive **Reset sandbox** button. Destructive styling alone is
-  not enough for an irreversible action one row away from Restart.
+  running task does not offer it. Clicking it resets the task directly, with no
+  confirmation dialog, like every other task action.
 - `webui/src/routes/tasks.$id.tsx`: `useMutation(resetSandbox, { onSuccess: refetchAll })`,
   passed to the sidebar as `onReset` / `resetPending`.
 - `webui/src/components/command-badge.tsx`: `commandStyles` and `commandLabels` are
@@ -384,6 +377,15 @@ restarts.
 
 No CLI subcommand and no `gritz mcp` tool: the wedge is diagnosed from the task page,
 and the RPC is there for either to call later.
+
+### Future work: auto-reset
+
+When a task's sandbox vanishes on its own — a Lambda microVM expiring after 8 hours,
+for example — the task should get a new sandbox automatically. The runner would
+destroy the stale record and create a new sandbox itself, without going through
+`ResetSandbox` or the `RESET` command, so the clobber window does not apply. Nothing
+here blocks it: the runner side of reset is `TaskRunner.destroy` followed by the
+existing create-on-boot path, both of which auto-reset can use without the command.
 
 ## Implementation Plan
 
@@ -417,8 +419,8 @@ and the RPC is there for either to call later.
    command cleared with the task still `failed`, then restarts it into a newly created
    sandbox.
 
-4. **Web UI** — Delivers: the "Reset sandbox" sidebar action with its confirmation
-   dialog, and the timeline labels. Depends on: (3). Verifiable by: resetting a failed
+4. **Web UI** — Delivers: the "Reset sandbox" sidebar action and the timeline
+   labels. Depends on: (3). Verifiable by: resetting a failed
    task on the dev stack (`mise run dev`), seeing its container disappear from
    `gritz containers` with the task still `failed`, then restarting it into a fresh
    container.
@@ -436,7 +438,7 @@ and the RPC is there for either to call later.
 - **Naming.** "Reset sandbox" over "recreate" (implies a start), "destroy/delete
   sandbox" (accurate but reads like it might delete the task's history), and
   "ResetTask" (implies the task's own state is reset). The noun is the sandbox in every
-  surface: RPC, button, dialog and timeline entries.
+  surface: RPC, button and timeline entries.
 - **The runner reports the completion, not the driver.** The driver owns run events
   because it owns runs; reset has no run and no driver to speak of (the sandbox is
   suspended, and then gone). Booting the driver only to have it report its own
