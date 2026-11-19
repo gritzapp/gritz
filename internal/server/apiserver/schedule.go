@@ -14,7 +14,6 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/scheduler"
-	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 // Schedules are org-owned objects; permissions gate the API surface, not the
@@ -39,16 +38,6 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create schedule"))
 	}
-	decls, err := s.store.GetWorkspaceVariables(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	if _, err := taskvar.Resolve(decls, req.Variables); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
-	}
 	sched := &model.Schedule{
 		OrgID:        caller.OrgID,
 		CreatedBy:    caller.ID,
@@ -65,10 +54,9 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	if req.AutoArchive != nil {
 		sched.AutoArchive = req.AutoArchive.AsDuration()
 	}
-	// Validate cron/timezone before the write so an invalid schedule can never be
-	// stored; a parse error surfaces as InvalidArgument.
-	if err := sched.Validate(); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	// Validate before the write so an invalid schedule can never be stored.
+	if err := scheduler.Validate(ctx, nil, s.store, sched); err != nil {
+		return nil, err
 	}
 	// An enabled schedule needs its first fire time; a disabled one stays out of
 	// the claim query with next_run_at = NULL.
@@ -141,19 +129,9 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 	) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot update schedule"))
 	}
-	decls, err := s.store.GetWorkspaceVariables(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	if _, err := taskvar.Resolve(decls, req.Variables); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
-	}
 	timezone := cmp.Or(req.Timezone, "UTC")
 	var sched *model.Schedule
-	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		existing, err := s.store.GetScheduleForUpdate(ctx, tx, req.Id, caller.OrgID)
 		if err != nil {
 			return err
@@ -167,8 +145,8 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 		existing.Timezone = timezone
 		existing.AutoArchive = req.AutoArchive.AsDuration()
 		existing.Variables = req.Variables
-		if err := existing.Validate(); err != nil {
-			return connect.NewError(connect.CodeInvalidArgument, err)
+		if err := scheduler.Validate(ctx, tx, s.store, existing); err != nil {
+			return err
 		}
 		// An enabled schedule re-aligns to its cron grid from now on every update,
 		// so a spec edit takes effect immediately; a disabled one keeps
