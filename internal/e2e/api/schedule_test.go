@@ -376,9 +376,10 @@ func TestUpdateSchedule_InvalidCron(t *testing.T) {
 	assert.Equal(t, got.CronExpr, "0 9 * * *")
 }
 
-// registerStory registers a workspace declaring a required, a defaulted and an
-// optional variable on runner-1.
-func registerStory(h *e2e.Harness) {
+func TestSchedule_Variables(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := e2e.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -390,13 +391,6 @@ func registerStory(h *e2e.Harness) {
 			},
 		}},
 	})
-}
-
-func TestSchedule_Variables(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := e2e.New(t, nil)
-	registerStory(h)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
 		Runner:    "runner-1",
 		Workspace: "story",
@@ -448,7 +442,17 @@ func TestSchedule_InvalidVariables(t *testing.T) {
 			t.Parallel()
 			// Arrange
 			h := e2e.New(t, nil)
-			registerStory(h)
+			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+				RunnerId: "runner-1",
+				Workspaces: []*gritzv1.RegisteredWorkspace{{
+					Name: "story",
+					Variables: []*gritzv1.VariableDecl{
+						{Name: "BRANCH", Default: "main"},
+						{Name: "JIRA_ISSUE", Required: true},
+						{Name: "LABEL"},
+					},
+				}},
+			})
 			sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
 				Runner:    "runner-1",
 				Workspace: "story",
