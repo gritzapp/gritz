@@ -68,7 +68,7 @@ func startContainer(t *testing.T, cmd []string) (*dockerclient.Client, string) {
 		&container.Config{Image: "alpine:latest", Cmd: cmd},
 		&container.HostConfig{}, nil, nil, "")
 	assert.NilError(t, err)
-	t.Cleanup(func() { _ = docker.ContainerRemove(t.Context(), resp.ID, container.RemoveOptions{Force: true}) })
+	t.Cleanup(func() { _ = docker.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true}) })
 	assert.NilError(t, docker.ContainerStart(t.Context(), resp.ID, container.StartOptions{}))
 	return docker, resp.ID
 }
