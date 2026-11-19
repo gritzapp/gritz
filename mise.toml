@@ -90,22 +90,14 @@ depends = ["migrate"]
 env = { TEST_DATABASE_URL = "postgres://gritz:gritz@localhost:5433/gritz?sslmode=disable" }
 # Extra args are appended to the bash -c below as its "$@". Package patterns
 # replace ./...; flags alone still run every package.
-#
-# The packages are compiled and flushed to disk first: the first Docker
-# ContainerCreate syncs the filesystem backing /var/lib/docker, and stalls
-# while the freshly written GOCACHE is still dirty. The real run reports any
-# build failure, so the compile pass stays quiet.
 run = '''
 bash -c '
-pkgs=./...
 for arg in "$@"; do
 	case $arg in
-		.|..|./*|../*|/*|github.com/*) pkgs= ;;
+		.|..|./*|../*|/*|github.com/*) exec go test "$@" ;;
 	esac
 done
-go test "$@" $pkgs -count=1 -run "^$" -bench "^$" >/dev/null 2>&1
-sync
-exec go test "$@" $pkgs
+exec go test "$@" ./...
 ' --
 '''
 
