@@ -56,7 +56,7 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	}
 	// Validate before the write so an invalid schedule can never be stored.
 	if err := scheduler.Validate(ctx, nil, s.store, sched); err != nil {
-		if errors.As(err, new(*scheduler.InvalidError)) {
+		if _, ok := errors.AsType[*scheduler.InvalidError](err); ok {
 			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -149,7 +149,7 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 		existing.AutoArchive = req.AutoArchive.AsDuration()
 		existing.Variables = req.Variables
 		if err := scheduler.Validate(ctx, tx, s.store, existing); err != nil {
-			if errors.As(err, new(*scheduler.InvalidError)) {
+			if _, ok := errors.AsType[*scheduler.InvalidError](err); ok {
 				return connect.NewError(connect.CodeInvalidArgument, err)
 			}
 			return err
