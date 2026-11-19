@@ -79,7 +79,22 @@ A rule that creates tasks sets their:
   is the one that created it, so the agent gets the event's text either way.
 - **Auto-archive**: the created task's [auto-archive](/concepts/tasks/#auto-archive)
   delay.
+- **Variables**: one field per [variable](/operators/workspaces-yaml/#variables)
+  the workspace declares.
 - **Namespace**: the rule's namespace.
+
+Variables are fixed values saved with the rule: every task the rule creates gets
+the same ones, and nothing from the event is copied into them. They are checked
+against the workspace when you save the rules, as when you create a task by
+hand, and the rules aren't saved if the workspace isn't registered on the
+runner. Leave an optional variable empty to use the workspace's default when
+each task starts.
+
+The runner checks a task's variables again when it starts the task. If the
+workspace's `variables:` changed after you saved the rule, and no longer accepts
+its values (a new required variable, or one the rule sets that the workspace no
+longer declares), the rule still creates the task, and the task fails with the
+reason on its timeline. Edit the rule to fix it.
 
 ## Public rules
 

@@ -13,6 +13,7 @@ are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
 
 - **Name**: the name of every task it creates. Optional.
 - **Runner** and **Workspace** for its tasks.
+- **Variables**: one field per [variable](#variables) the workspace declares.
 - **Instructions**: the instruction every task starts with.
 - **Cron expression**: when to fire. See below.
 - **Timezone**: the timezone the cron expression is read in. Defaults to your
@@ -22,6 +23,20 @@ are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
   delay. Scheduled tasks often have no one watching them, so a short delay keeps
   them from piling up.
 - **Enabled**: a disabled schedule is saved but doesn't fire.
+
+## Variables
+
+If the workspace declares [variables](/operators/workspaces-yaml/#variables), a
+schedule sets the same values on every task it creates. They are checked against
+the workspace when you save the schedule, as when you create a task by hand.
+Leave an optional variable empty to use the workspace's default when each task
+starts.
+
+The runner checks a task's variables again when it starts the task. If the
+workspace's `variables:` changed after you saved the schedule, and no longer
+accepts its values (a new required variable, or one the schedule sets that the
+workspace no longer declares), the schedule still fires, and the task fails with
+the reason on its timeline. Edit the schedule to fix it.
 
 ## Cron expressions
 

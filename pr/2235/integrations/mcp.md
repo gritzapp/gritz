@@ -201,6 +201,7 @@ last updated. `list_tasks` returns the same for each task.
 | `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
 | `namespace` | The task's [namespace](/concepts/namespaces/). Empty is the default namespace. It can't be changed later. |
 | `draft` | Create the task as a draft, which doesn't run until `update_task` starts it. |
+| `variables` | The task's [variables](/operators/workspaces-yaml/#variables), an object of name to string value, such as `{"JIRA_ISSUE": "APP-142"}`. Each must be declared by the workspace. They can't be changed later. |
 
 ### `update_task`
 
@@ -332,6 +333,7 @@ webhook: firing a custom event is how to send one.
 | `namespace` | Its tasks' namespace. |
 | `auto_archive` | Its tasks' auto-archive delay, as in `create_task`. |
 | `enabled` | Whether the schedule runs. Without it, the schedule is created disabled. |
+| `variables` | The [variables](/concepts/schedules/#variables) of every task it creates, as in `create_task`. |
 
 It returns the [schedule](/concepts/schedules/). `list_schedules`,
 `get_schedule`, `update_schedule` and `set_schedule_enabled` return schedules
@@ -341,7 +343,8 @@ in the same shape.
 
 Takes the schedule's `id` and any of `create_schedule`'s arguments except
 `enabled`. The arguments left out keep their current values. `instruction`
-replaces every instruction of the schedule.
+replaces every instruction of the schedule, and `variables` replaces all of
+its variables: `{}` removes them.
 
 ### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
 
@@ -364,7 +367,9 @@ Atlassian webhook secret; read it in the Web UI, as in
 `rules`, the whole list in the same shape, and replaces every rule with it: a
 rule missing from the list is deleted. Your agent reads the rules, edits the
 list and writes it all back. A rule that names an unknown event type or
-attribute fails the call with the bad rule named, and no rule is changed. It
+attribute, or that creates tasks in a workspace that isn't registered or with
+[variables](/concepts/routing-rules/#creating-tasks) the workspace doesn't
+accept, fails the call with the bad rule named, and no rule is changed. It
 returns the stored rules.
 
 ## Channels

@@ -19,15 +19,18 @@ row.
 
 **+ Task** creates a task. Pick a runner, then one of its workspaces; the name,
 [namespace](/concepts/namespaces/) and
-[auto-archive](/concepts/tasks/#auto-archive) delay are optional. The form
-remembers the last runner and workspace you used. The task is created as a
+[auto-archive](/concepts/tasks/#auto-archive) delay are optional. If the
+workspace declares [variables](/operators/workspaces-yaml/#variables), the form
+shows a field for each, with its description below it and its default as the
+placeholder; a required one is marked with `*`. Leave an optional field empty
+to use the default. The form remembers the last runner and workspace you used. The task is created as a
 draft, and starts when you send its first instruction.
 
 ## The task page
 
 The sidebar on the left holds the task's status and name, its three views, its
-details (runner, workspace, namespace, created and updated times), its links, and
-its actions:
+details (runner, workspace, namespace, created and updated times), its
+variables, its links, and its actions:
 
 - **Archive** or **Unarchive**. When an auto-archive delay is counting down, the
   time left shows next to it.
@@ -67,7 +70,8 @@ with a shell in place of the agent.
 **Schedules** lists the organisation's [schedules](/concepts/schedules/) with
 their cron expression, timezone, next run and workspace, and the task each
 created last. From each row you can turn a schedule on or off, run it now,
-edit it or delete it. **+ Schedule** creates one.
+edit it or delete it. **+ Schedule** creates one; like **+ Task**, its form has
+a field for each variable the workspace declares.
 
 ## Events
 

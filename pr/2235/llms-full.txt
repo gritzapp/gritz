@@ -219,7 +219,12 @@ A rule that creates tasks sets their:
 * **Runner** and **Workspace**.
 * **Prompt**: the created task’s instruction. Left blank, the instruction is a fixed one that only says a routing rule created the task in response to the event’s source and type. The task’s first event is the one that created it, so the agent gets the event’s text either way.
 * **Auto-archive**: the created task’s [auto-archive](/pr/2235/concepts/tasks/#auto-archive) delay.
+* **Variables**: one field per [variable](/pr/2235/operators/workspaces-yaml/#variables) the workspace declares.
 * **Namespace**: the rule’s namespace.
+
+Variables are fixed values saved with the rule: every task the rule creates gets the same ones, and nothing from the event is copied into them. They are checked against the workspace when you save the rules, as when you create a task by hand, and the rules aren’t saved if the workspace isn’t registered on the runner. Leave an optional variable empty to use the workspace’s default when each task starts.
+
+The runner checks a task’s variables again when it starts the task. If the workspace’s `variables:` changed after you saved the rule, and no longer accepts its values (a new required variable, or one the rule sets that the workspace no longer declares), the rule still creates the task, and the task fails with the reason on its timeline. Edit the rule to fix it.
 
 ## Public rules
 
@@ -294,12 +299,21 @@ Schedules belong to the organisation, not to the member who created them. They a
 
 * **Name**: the name of every task it creates. Optional.
 * **Runner** and **Workspace** for its tasks.
+* **Variables**: one field per [variable](#variables) the workspace declares.
 * **Instructions**: the instruction every task starts with.
 * **Cron expression**: when to fire. See below.
 * **Timezone**: the timezone the cron expression is read in. Defaults to your browser’s.
 * **Namespace**: the [namespace](/pr/2235/concepts/namespaces/) of its tasks. Optional.
 * **Auto-archive**: its tasks’ [auto-archive](/pr/2235/concepts/tasks/#auto-archive) delay. Scheduled tasks often have no one watching them, so a short delay keeps them from piling up.
 * **Enabled**: a disabled schedule is saved but doesn’t fire.
+
+## Variables
+
+[Section titled “Variables”](#variables)
+
+If the workspace declares [variables](/pr/2235/operators/workspaces-yaml/#variables), a schedule sets the same values on every task it creates. They are checked against the workspace when you save the schedule, as when you create a task by hand. Leave an optional variable empty to use the workspace’s default when each task starts.
+
+The runner checks a task’s variables again when it starts the task. If the workspace’s `variables:` changed after you saved the schedule, and no longer accepts its values (a new required variable, or one the schedule sets that the workspace no longer declares), the schedule still fires, and the task fails with the reason on its timeline. Edit the schedule to fix it.
 
 ## Cron expressions
 
@@ -790,9 +804,9 @@ A workspace can also ask for GitHub App installation tokens with the `github_tok
 
 # Jira
 
-> Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, labels and assignments to tasks.
+> Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, new issues, labels and assignments to tasks.
 
-The Jira integration turns activity on Jira Cloud issues into [events](/pr/2235/concepts/events-and-links/): new comments, added labels and new assignees. [Routing rules](/pr/2235/concepts/routing-rules/) then decide what each event does: wake the task working on the issue, create a new task for it, or nothing.
+The Jira integration turns activity on Jira Cloud issues into [events](/pr/2235/concepts/events-and-links/): new comments, new issues, added labels and new assignees. [Routing rules](/pr/2235/concepts/routing-rules/) then decide what each event does: wake the task working on the issue, create a new task for it, or nothing.
 
 It has two halves:
 
@@ -833,7 +847,9 @@ As a Jira administrator, open **Settings → System → WebHooks** and create a 
 
 * **URL**: the webhook URL from the card, including `?org=`.
 * **Secret**: the secret from the card.
-* **Events**: under **Comment**, **created**; under **Issue**, **updated**. Add a JQL filter if you only want some projects’ issues.
+* **Events**: under **Comment**, **created**; under **Issue**, **created** and **updated**. Add a JQL filter if you only want some projects’ issues.
+
+A webhook’s JQL filter applies to every event it sends. To narrow one event without narrowing the others, such as only the new issues in one project, create a second webhook with the same URL and secret, only that event, and its own JQL filter.
 
 Jira signs each delivery with the secret, and gritz checks the signature before it reads the event, so a delivery with a missing or wrong signature is refused with `403`.
 
@@ -855,16 +871,17 @@ Every event sent to your organisation’s webhook belongs to your organisation, 
 | Jira webhook                       | Event type           | Its URL                                                    |
 | ---------------------------------- | -------------------- | ---------------------------------------------------------- |
 | Comment created                    | Jira: Issue Comment  | the comment, as `…/browse/PROJ-123?focusedCommentId=10001` |
-| Issue updated, with labels added   | Jira: Label Added    | the issue, as `…/browse/PROJ-123`                          |
+| Issue created                      | Jira: Issue Created  | the issue, as `…/browse/PROJ-123`                          |
+| Issue updated, with labels added   | Jira: Label Added    | the issue                                                  |
 | Issue updated, with a new assignee | Jira: Issue Assigned | the issue                                                  |
 
-Other updates, such as a status change or an edited description, are ignored. One update can send two events: assigning an issue and adding a label in the same edit sends both. Adding several labels at once sends one Label Added event with all of them, and a `label` condition holds if any of them matches. Unassigning an issue sends nothing.
+Labels and an assignee set when an issue is created arrive on Issue Created, in its `label` and `assignee` attributes, not as Label Added or Issue Assigned. Other updates, such as a status change or an edited description, are ignored. One update can send two events: assigning an issue and adding a label in the same edit sends both. Adding several labels at once sends one Label Added event with all of them, and a `label` condition holds if any of them matches. Unassigning an issue sends nothing.
 
 A comment’s URL points at the comment, but gritz matches it to its issue. So a task with a [subscribed link](/pr/2235/concepts/events-and-links/#subscriptions) to `https://your-domain.atlassian.net/browse/PROJ-123` gets every comment on `PROJ-123`.
 
 Jira identifies people by account ID rather than by name, and so do the `user`, `mention` and `assignee` attributes. Enter the bare ID, such as `5b10ac8d82e05b22cc7d4ef5`, not the `[~accountid:…]` form Jira uses in comment text. The account ID is at the end of the URL of the person’s Jira profile. See [Event types](/pr/2235/reference/event-types/#jira) for every attribute.
 
-Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and its text: the comment’s text, or the issue’s description for label and assignment events. gritz doesn’t post anything back to Jira.
+Each event on a task’s timeline has a description, such as `Ada Lovelace commented on PROJ-123`, its URL and its text: the comment’s text, or the issue’s description for the other events. gritz doesn’t post anything back to Jira.
 
 ## Examples
 
@@ -888,6 +905,13 @@ Start a task when an issue is assigned to a bot account, whoever assigns it:
 * **Conditions**: `assignee equals <the bot's account ID>`
 * **Create a task**: on
 * **Public**: on
+
+Start a task for every issue an integration, such as a security scanner, files in one project:
+
+* **Event type**: Jira: Issue Created
+* **Conditions**: `user equals <the integration's account ID>`, `url prefix https://your-domain.atlassian.net/browse/SEC-`
+* **Create a task**: on
+* **Public**: on, since the integration’s account isn’t linked to a member
 
 The agent needs its own Jira credentials, from its [workspace](/pr/2235/concepts/workspaces/), to read the issue or reply to it.
 
@@ -1062,15 +1086,16 @@ Each tool that changes a task returns the task’s ID, name, workspace, runner, 
 
 [Section titled “create_task”](#create_task)
 
-| Argument       |                                                                                                                                          |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace`    | The [workspace](/pr/2235/concepts/workspaces/). Required.                                                                                |
-| `runner`       | The [runner](/pr/2235/concepts/runners/) that offers it. Required.                                                                       |
-| `instruction`  | The task’s instruction. Required unless `draft` is set.                                                                                  |
-| `name`         | A name for the task. The task’s agent names it if this is empty.                                                                         |
-| `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
-| `namespace`    | The task’s [namespace](/pr/2235/concepts/namespaces/). Empty is the default namespace. It can’t be changed later.                        |
-| `draft`        | Create the task as a draft, which doesn’t run until `update_task` starts it.                                                             |
+| Argument       |                                                                                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`    | The [workspace](/pr/2235/concepts/workspaces/). Required.                                                                                                                                                           |
+| `runner`       | The [runner](/pr/2235/concepts/runners/) that offers it. Required.                                                                                                                                                  |
+| `instruction`  | The task’s instruction. Required unless `draft` is set.                                                                                                                                                             |
+| `name`         | A name for the task. The task’s agent names it if this is empty.                                                                                                                                                    |
+| `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes.                                                                            |
+| `namespace`    | The task’s [namespace](/pr/2235/concepts/namespaces/). Empty is the default namespace. It can’t be changed later.                                                                                                   |
+| `draft`        | Create the task as a draft, which doesn’t run until `update_task` starts it.                                                                                                                                        |
+| `variables`    | The task’s [variables](/pr/2235/operators/workspaces-yaml/#variables), an object of name to string value, such as `{"JIRA_ISSUE": "APP-142"}`. Each must be declared by the workspace. They can’t be changed later. |
 
 ### `update_task`
 
@@ -1204,6 +1229,7 @@ The event is checked against its type as the [custom events webhook](/pr/2235/in
 | `namespace`    | Its tasks’ namespace.                                                                                                                           |
 | `auto_archive` | Its tasks’ auto-archive delay, as in `create_task`.                                                                                             |
 | `enabled`      | Whether the schedule runs. Without it, the schedule is created disabled.                                                                        |
+| `variables`    | The [variables](/pr/2235/concepts/schedules/#variables) of every task it creates, as in `create_task`.                                          |
 
 It returns the [schedule](/pr/2235/concepts/schedules/). `list_schedules`, `get_schedule`, `update_schedule` and `set_schedule_enabled` return schedules in the same shape.
 
@@ -1211,7 +1237,7 @@ It returns the [schedule](/pr/2235/concepts/schedules/). `list_schedules`, `get_
 
 [Section titled “update_schedule”](#update_schedule)
 
-Takes the schedule’s `id` and any of `create_schedule`’s arguments except `enabled`. The arguments left out keep their current values. `instruction` replaces every instruction of the schedule.
+Takes the schedule’s `id` and any of `create_schedule`’s arguments except `enabled`. The arguments left out keep their current values. `instruction` replaces every instruction of the schedule, and `variables` replaces all of its variables: `{}` removes them.
 
 ### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
 
@@ -1229,7 +1255,7 @@ Returns the organisation’s MCP URL, custom event webhook URL, Atlassian webhoo
 
 [Section titled “get_routing_rules, set_routing_rules”](#get_routing_rules-set_routing_rules)
 
-`get_routing_rules` returns the organisation’s [routing rules](/pr/2235/concepts/routing-rules/) in order. `set_routing_rules` takes `rules`, the whole list in the same shape, and replaces every rule with it: a rule missing from the list is deleted. Your agent reads the rules, edits the list and writes it all back. A rule that names an unknown event type or attribute fails the call with the bad rule named, and no rule is changed. It returns the stored rules.
+`get_routing_rules` returns the organisation’s [routing rules](/pr/2235/concepts/routing-rules/) in order. `set_routing_rules` takes `rules`, the whole list in the same shape, and replaces every rule with it: a rule missing from the list is deleted. Your agent reads the rules, edits the list and writes it all back. A rule that names an unknown event type or attribute, or that creates tasks in a workspace that isn’t registered or with [variables](/pr/2235/concepts/routing-rules/#creating-tasks) the workspace doesn’t accept, fails the call with the bad rule named, and no rule is changed. It returns the stored rules.
 
 ## Channels
 
@@ -1952,6 +1978,7 @@ workspaces:
 | `agent`          | The [agent](#agent) and its MCP servers.                                                                      |
 | `secrets`        | Environment variables whose values are masked in the shipped log. See [Secrets](/pr/2235/operators/secrets/). |
 | `capabilities`   | Extra [capabilities](#capabilities) for the task’s token.                                                     |
+| `variables`      | Per-task [variables](#variables) a task can set when it is created.                                           |
 
 ## `container`
 
@@ -2054,6 +2081,35 @@ gritz passes header values to the agent as written, so a credential in a header 
 
 The runner adds an MCP server named `gritz` to every agent, with the tools an agent uses to work with its task (see the [overview](/pr/2235/operators/overview/#components)). Don’t define one with that name.
 
+## `variables`
+
+[Section titled “variables”](#variables)
+
+Variables are values a task sets when it is created, such as a branch or an issue key, declared by name. Names are upper case letters, digits and underscores, starting with a letter. Each run sees a variable `X` as the environment variable `GRITZ_VAR_X`; one the task doesn’t set and that has no default is left unset.
+
+| Field         |                                                                             |
+| ------------- | --------------------------------------------------------------------------- |
+| `description` | What the value is for.                                                      |
+| `required`    | A task must set it.                                                         |
+| `default`     | The value when the task doesn’t set it. Not allowed on a required variable. |
+
+```yaml
+workspaces:
+  story:
+    variables:
+      JIRA_ISSUE:
+        description: The story to implement
+        required: true
+      BRANCH:
+        default: main
+    commands:
+      - git clone --branch "$GRITZ_VAR_BRANCH" https://github.com/acme/app.git /work
+```
+
+Quote the reference, as `"$GRITZ_VAR_BRANCH"`, so the shell passes the value as one word. Values are readable by anyone who can read the task and appear unmasked in its log: put credentials under `secrets:`.
+
+Each time it starts a task, the runner checks the task’s variables against its own `variables:` and fills in defaults. A task this config no longer accepts, because it sets a variable that isn’t declared or lacks a required one, fails with the reason on its timeline. So a change to `variables:` can fail the next start of a task created earlier, and of every task a [schedule](/pr/2235/concepts/schedules/#variables) or a [routing rule](/pr/2235/concepts/routing-rules/#creating-tasks) saved before it creates.
+
 ## `capabilities`
 
 [Section titled “capabilities”](#capabilities)
@@ -2101,7 +2157,7 @@ Any other namespace is an error. References without a namespace, such as `${GH_T
 The setup commands and the agent see, in order of precedence:
 
 1. The workspace’s `secrets`.
-2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`, the task’s own token. On Lambda MicroVMs, also `lambda_microvm.environment`.
+2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`, the task’s own token, and the task’s [variables](#variables) as `GRITZ_VAR_<NAME>`. On Lambda MicroVMs, also `lambda_microvm.environment`.
 3. The sandbox’s environment: the image’s, plus `container.environment` on Docker.
 
 ## Changing a workspace
@@ -2397,168 +2453,6 @@ The orchestrator (`runner.go`), `EventQueue`, proto definitions, database schema
 3. **Kernel provenance.** Pinning the Firecracker project’s CI kernels is convenient but depends on their artifact bucket. Should the release pipeline eventually build and publish a vmlinux alongside the prebuilt binaries?
 4. **Base image GC.** `images/*.ext4` accumulates one file per (digest, gritz version). Prune by LRU when unreferenced by any task directory, or leave it to the operator?
 5. **Snapshot/restore.** Firecracker snapshots could cut boot+setup latency dramatically for hot workspaces. Out of scope here, but does the state layout need anything now to keep that door open?
-
-# Jira: Issue Created Event
-
-> gritz ignores the jira:issue_created webhook, so a newly filed Jira issue can't start a task until someone labels, assigns or comments on it.
-
-Issue: <https://github.com/gritzapp/gritz/issues/2219>
-
-## Problem
-
-[Section titled “Problem”](#problem)
-
-Some Jira issues are filed by automation rather than people: a security scanner opening one ticket per finding, an alerting tool opening one per incident. Each new ticket should be able to start a gritz task.
-
-gritz can’t see a new issue today. `toInputEvents` in [`internal/server/atlassianserver/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/webhook.go) handles two `webhookEvent` values:
-
-* `comment_created` → Jira: Issue Comment
-* `jira:issue_updated` → Jira: Label Added and/or Jira: Issue Assigned, derived from the payload’s `changelog`
-
-Every other `webhookEvent`, including `jira:issue_created`, falls through to `return nil, AtlassianMeta{}, nil` and the handler answers `ignored`.
-
-Setting a label or assignee while creating the issue doesn’t help. Jira sends that as a single `jira:issue_created` with the fields already set and no `changelog`, so `AddedLabels` and `NewAssignee` both return nil and neither existing event fires. A person has to touch the ticket afterwards before gritz sees it.
-
-## Design
-
-[Section titled “Design”](#design)
-
-A new built-in event type, **Jira: Issue Created** (`source: atlassian`, `type: issue_created`), emitted once per `jira:issue_created` webhook. Routing rules narrow it with conditions as usual; an event that matches no rule creates no task.
-
-The existing Jira events are unchanged. No polling, and nothing is posted back to Jira.
-
-### Payload parsing
-
-[Section titled “Payload parsing”](#payload-parsing)
-
-[`internal/x/atlassian/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/x/atlassian/webhook.go) gains the `jira:issue_created` constant, and `IssueFields` gains the two fields the event reads at creation time:
-
-* `Labels []string` (`json:"labels"`): the labels the issue was created with.
-* `Assignee *User` (`json:"assignee"`): the assignee it was created with. Jira sends `"assignee": null` for an unassigned issue, which decodes to `nil`.
-
-`payload.user` is already parsed (`WebhookPayload.User`) and, for this webhook, is the issue’s creator.
-
-### The event
-
-[Section titled “The event”](#the-event)
-
-A new `case atlassian.WebhookEventIssueCreated` in `toInputEvents`, built the same way as the `jira:issue_updated` branch:
-
-* **Ignored** (no events) when `payload.Issue` or `payload.User` is nil, the account ID is empty, or `Issue.BrowseURL()` is empty, matching the other branches.
-* **Description:** `"<creator display name> created <ISSUE-KEY>"`.
-* **Data:** the issue’s description, trimmed.
-* **URL:** `Issue.BrowseURL()`.
-* **Meta:** `AtlassianMeta{AuthorAccountID, AuthorDisplayName}` from the creator.
-
-Attributes, beside the derived `body` and `url`:
-
-| Attr       | Label             | Value                                                                  |
-| ---------- | ----------------- | ---------------------------------------------------------------------- |
-| `body`     | Issue Description | The issue’s description (derived).                                     |
-| `url`      | Issue URL         | The issue’s URL (derived).                                             |
-| `label`    | Label             | Every label the issue was created with; empty when none.               |
-| `assignee` | Assignee          | Account ID of the assignee it was created with; empty when unassigned. |
-| `user`     | User              | Account ID of who created it.                                          |
-
-`label` and `assignee` cover the “created already labelled or assigned” case that Label Added and Issue Assigned can’t see, so one rule (`label equals gritz`) can be paired with a second on Issue Created to catch both paths.
-
-### Routing an unlinked creator
-
-[Section titled “Routing an unlinked creator”](#routing-an-unlinked-creator)
-
-Automation files issues as an integration user, which has no linked gritz account. The handler already handles this: `GetUserByAtlassianAccountID` returns `sql.ErrNoRows`, `UserID` stays empty, and the event routes on `Orgs: [orgID]`, so only [public rules](/pr/2235/concepts/routing-rules/#public-rules) act on it. No handler change is needed; a test pins the behaviour for this event type.
-
-### Filtering
-
-[Section titled “Filtering”](#filtering)
-
-The event fires for every new issue the webhook carries, so narrowing happens in two places:
-
-1. **Jira’s webhook JQL filter.** The filter applies to every event a webhook sends, so narrowing an existing webhook to one project’s new issues would also drop that webhook’s comments and updates. The operator instead creates a second webhook with the same URL and secret, subscribed only to **Issue → created**, with its own JQL (e.g. `project = SEC AND reporter = "<integration user>"`).
-2. **Routing rule conditions.** e.g. `url prefix …/browse/SEC-` and `user equals <integration user's account ID>`, with **Public** on. Rules are ordered and the first match wins, so it goes before broader Jira rules.
-
-### Schema
-
-[Section titled “Schema”](#schema)
-
-[`internal/server/atlassianserver/schema.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/schema.go) registers “Jira: Issue Created” with attrs ordered `body`, `url`, `label`, `assignee`, `user`, each `AttrDef` written inline with copy for this event, as the file does for the others. The webui reads event types from the schema registry, so no frontend change.
-
-### Docs
-
-[Section titled “Docs”](#docs)
-
-* `reference/event-types`: an `issue_created` section under **Jira** with the attribute table.
-
-* `integrations/jira`:
-
-  * Mention new issues in the intro.
-  * Webhook setup subscribes **Issue → created** as well as **updated**.
-  * A short paragraph on narrowing one event with a second webhook (same URL and secret, its own events and JQL).
-  * Events table row: `Issue created | Jira: Issue Created | the issue`.
-  * Labels or an assignee set at creation arrive on Issue Created, not as Label Added or Issue Assigned.
-  * Example: a public rule that starts a task for issues an integration user files in one project.
-
-### API
-
-[Section titled “API”](#api)
-
-```go
-package atlassian // github.com/gritzapp/gritz/internal/x/atlassian
-
-
-// WebhookEventIssueCreated is the webhook event Jira sends when an issue is created. // new
-const WebhookEventIssueCreated = "jira:issue_created"
-
-
-// IssueFields represents the fields of a Jira issue.
-type IssueFields struct {
-  Summary     string   `json:"summary"`
-  Description string   `json:"description"`
-  Labels      []string `json:"labels"`   // new
-  Assignee    *User    `json:"assignee"` // new
-}
-```
-
-```go
-package atlassianserver // github.com/gritzapp/gritz/internal/server/atlassianserver
-
-
-// EventTypeIssueCreated is the event type emitted for a newly created issue. // new
-const EventTypeIssueCreated = "issue_created"
-```
-
-**How it fits:** `WebhookHandler.ServeHTTP` calls `toInputEvents`, whose new case reads `Issue.Fields.Labels` and `Issue.Fields.Assignee` and returns one `issue_created` event; the handler routes it exactly like the others. `RegisterSchemas` registers its schema on the default registry at `init`.
-
-## Implementation Plan
-
-[Section titled “Implementation Plan”](#implementation-plan)
-
-One feature PR is enough; the change is a few dozen lines. If split:
-
-1. **Parse creation fields** — Delivers: `WebhookEventIssueCreated`, `IssueFields.Labels` and `IssueFields.Assignee`. Depends on: nothing. Verifiable by: a `internal/x/atlassian` test that parses raw `jira:issue_created` JSON once with `"assignee": null` and once with an assignee object, checking `Labels` and `Assignee`.
-
-2. **Emit and register Jira: Issue Created, with docs** — Delivers: the `toInputEvents` case, the schema, and the docs pages above. Depends on: (1). Verifiable by:
-
-   * `TestToAtlassianInputEvents` cases: created labelled and assigned; created unlabelled and unassigned (both attrs empty); no user (ignored).
-   * A handler test: an issue created by an unlinked account routes with an empty `UserID` and `Orgs: [org]`.
-   * `TestSchemaRegistration`: the new type registers with exactly `body`, `url`, `label`, `assignee`, `user`.
-
-PR title: `feat(atlassian): add Jira issue created event`.
-
-## Trade-offs
-
-[Section titled “Trade-offs”](#trade-offs)
-
-* **Fire Label Added / Issue Assigned from `jira:issue_created`** instead of a new type. Rejected: those events mean “changed”, and a rule like “start a task when labelled `gritz`” would then also fire for issues created with that label, a behaviour change for existing rules. A separate type keeps creation opt-in; a rule on each type covers both paths.
-* **One event per created issue, not one per label or assignee.** Creation is one fact; `label` and `assignee` are conditions on it.
-* **Filter only in gritz rules** instead of a second Jira webhook. Works, but every new issue on the site then crosses the wire and is routed for nothing. The second webhook is optional and documented, not required.
-
-## Open Questions
-
-[Section titled “Open Questions”](#open-questions)
-
-* **Creator vs reporter for `user`.** `payload.user` is who triggered the webhook. An integration can create an issue with a different `reporter`. Proposed: `user` is the creator, consistent with the other Jira events where `user` is the actor. A `reporter` attr can follow if someone needs it.
-* **Summary in Data.** The other issue events carry only the description. Automation often puts the useful line in the summary. Keep Data as the description for consistency (the agent reads the full issue anyway), or prepend the summary?
 
 # Maximum Orgs Per User
 
@@ -3529,8 +3423,7 @@ Either way the outcome is visible, not silent: the timeline shows “Sandbox res
 [Section titled “Web UI”](#web-ui)
 
 * `webui/src/lib/task.ts`: `canResetTask(task) => task.actions?.reset ?? false`.
-* `webui/src/components/task-sidebar.tsx`: a `SidebarAction` row after Restart, icon `Trash2`, label **“Reset sandbox”**, `destructive`, shown when `canResetTask` — so a running task does not offer it.
-* **Confirmation.** No task action confirms today, but reset is the first one that discards data the user cannot get back (the clone, uncommitted work, the agent’s session): archive can be undone, and cancel and restart keep the sandbox. So clicking it opens a small `Dialog` (`components/ui/dialog.tsx`) saying that the sandbox and everything in it is deleted, that the task, its history and its links are kept, and that the next run builds a fresh sandbox from the workspace image, with **Cancel** and a destructive **Reset sandbox** button. Destructive styling alone is not enough for an irreversible action one row away from Restart.
+* `webui/src/components/task-sidebar.tsx`: a `SidebarAction` row after Restart, icon `Trash2`, label **“Reset sandbox”**, `destructive`, shown when `canResetTask` — so a running task does not offer it. Clicking it resets the task directly, with no confirmation dialog, like every other task action.
 * `webui/src/routes/tasks.$id.tsx`: `useMutation(resetSandbox, { onSuccess: refetchAll })`, passed to the sidebar as `onReset` / `resetPending`.
 * `webui/src/components/command-badge.tsx`: `commandStyles` and `commandLabels` are exhaustive `Record<TaskCommand, string>` maps, so both gain a `RESET` entry (`'reset'`, amber).
 * `webui/src/lib/timeline.ts`: `lifecycleSummary` renders `RESET_REQUESTED` as “Sandbox reset requested” and `SANDBOX_RESET` as “Sandbox reset”; `lifecycleCategory` falls through to `'updated'` for both.
@@ -3547,6 +3440,12 @@ Reset is not offered on a running task, combined or otherwise. The user cancels,
 
 No CLI subcommand and no `gritz mcp` tool: the wedge is diagnosed from the task page, and the RPC is there for either to call later.
 
+### Future work: auto-reset
+
+[Section titled “Future work: auto-reset”](#future-work-auto-reset)
+
+When a task’s sandbox vanishes on its own — a Lambda microVM expiring after 8 hours, for example — the task should get a new sandbox automatically. The runner would destroy the stale record and create a new sandbox itself, without going through `ResetSandbox` or the `RESET` command, so the clobber window does not apply. Nothing here blocks it: the runner side of reset is `TaskRunner.destroy` followed by the existing create-on-boot path, both of which auto-reset can use without the command.
+
 ## Implementation Plan
 
 [Section titled “Implementation Plan”](#implementation-plan)
@@ -3557,14 +3456,14 @@ No CLI subcommand and no `gritz mcp` tool: the wedge is diagnosed from the task 
 
 3. **`ResetSandbox` RPC** — Delivers: the server handler, its lifecycle and command events, the notification, and the status-changed guard on `SubmitRunnerEvents`’ channel message. Depends on: (1), and (2) for the end-to-end path. Verifiable by: `internal/e2e/api` tests asserting the command is set with status and version unchanged, the `RESET_REQUESTED` and command events, the `FailedPrecondition` (running task, command in flight, archived) and `PermissionDenied` paths; and an `internal/e2e/scenario` test that fails a run, resets, sees `SANDBOX_RESET` and the command cleared with the task still `failed`, then restarts it into a newly created sandbox.
 
-4. **Web UI** — Delivers: the “Reset sandbox” sidebar action with its confirmation dialog, and the timeline labels. Depends on: (3). Verifiable by: resetting a failed task on the dev stack (`mise run dev`), seeing its container disappear from `gritz containers` with the task still `failed`, then restarting it into a fresh container.
+4. **Web UI** — Delivers: the “Reset sandbox” sidebar action and the timeline labels. Depends on: (3). Verifiable by: resetting a failed task on the dev stack (`mise run dev`), seeing its container disappear from `gritz containers` with the task still `failed`, then restarting it into a fresh container.
 
 ## Trade-offs
 
 [Section titled “Trade-offs”](#trade-offs)
 
 * **Reset (destroy-only) vs. recreate (destroy + start).** An earlier draft bundled the start, so the command was consumed by the new run’s `started` and no new runner event was needed. It was rejected in review: the name doesn’t say whether the task starts, and bundling means you cannot clear a wedged sandbox without also committing to a run. Splitting them keeps each operation’s name honest — reset deletes, restart runs — and the cost is one string-valued runner event the runner reports itself. Terminal-only also removes the kill-the-live-run and orphan-its-events complexity the recreate design carried.
-* **Naming.** “Reset sandbox” over “recreate” (implies a start), “destroy/delete sandbox” (accurate but reads like it might delete the task’s history), and “ResetTask” (implies the task’s own state is reset). The noun is the sandbox in every surface: RPC, button, dialog and timeline entries.
+* **Naming.** “Reset sandbox” over “recreate” (implies a start), “destroy/delete sandbox” (accurate but reads like it might delete the task’s history), and “ResetTask” (implies the task’s own state is reset). The noun is the sandbox in every surface: RPC, button and timeline entries.
 * **The runner reports the completion, not the driver.** The driver owns run events because it owns runs; reset has no run and no driver to speak of (the sandbox is suspended, and then gone). Booting the driver only to have it report its own deletion would cost a boot — impossible for exactly the wedged sandbox this exists for.
 * **A command-slot value vs. a `sandbox_reset` column.** See [The clobber window](#the-clobber-window): the slot needs no migration and no change to replication, and its failure mode is a visibly lost intent rather than a stuck task.
 * **Making `boot` recreate on a failed boot.** Would fix this class of wedge with no new API, but it silently discards a sandbox’s disk on any transient boot error — exactly the state reuse exists to protect — and does nothing for a sandbox that boots but whose contents have gone bad. Deleting a filesystem should be explicit and user-initiated.
@@ -4445,9 +4344,11 @@ A workspace declares its variables under `variables:`, keyed by name:
 
 **An undeclared variable is an error** (`InvalidArgument: workspace "story-agent" declares no variable "JIRA"`), as is a missing required one. Allowing undeclared variables was considered and rejected: a typo (`JIRA_ISUE`) would silently produce a task whose agent sees nothing, and the web UI couldn’t render a form. Declaring a variable costs one config line; a workspace with no `variables:` accepts none.
 
-The runner already sends the server its workspaces with `RegisterWorkspaces`; `RegisteredWorkspace` gains the declarations, and the server stores them in a new `workspaces.variables` column. **The server resolves variables once, when the task is created**: it rejects undeclared and missing-required variables, fills in defaults, and stores the result. The stored set is complete, so the runner injects exactly what the task carries and never consults its own declarations at run time.
+The runner already sends the server its workspaces with `RegisterWorkspaces`; `RegisteredWorkspace` gains the declarations, and the server stores them in a new `workspaces.variables` column. **`CreateTask` resolves variables on the server**: it rejects undeclared and missing-required variables, fills in defaults, and stores the result, so a manual create gets the error at once.
 
-That makes the creation-time declaration authoritative for a task’s life. A runner restarted with a changed `variables:` affects new tasks only: an existing task keeps its variables, including one the workspace no longer declares, and a task created before a new required variable was added runs without it. Variables are immutable after creation, like `namespace`: `UpdateTask` can’t change them, and a restart reruns with the same values. Rechecking at run time would turn a config edit into failed restarts of existing tasks for no gain.
+**The runner resolves them again at every run start**, against its own declarations: `TaskManager.specs` calls `taskvar.Resolve(ws.VariableDecls(), inputs.Variables)` on what `GetRunSpecInputs` returns, and injects the result. A missing required variable or an undeclared one fails the spec, and `TaskRunner` fails the run through its existing spec-failure path, with the message on the timeline. A runner’s `workspaces.yaml` is therefore authoritative for every run: a runner restarted with a changed `variables:` fails the next start of an existing task whose variables it no longer accepts, and fills in a default it newly declares. This is also what catches a schedule whose stored values went stale (see [Who sets variables](#who-sets-variables)).
+
+Variables are immutable after creation, like `namespace`: `UpdateTask` can’t change them, and a restart reruns with the same stored values.
 
 **Missing variables.** A declared, non-required variable without a default that the caller didn’t set is absent from the task, and its environment variable is unset in the sandbox (not set to the empty string), so `${GRITZ_VAR_X:-fallback}` and `[ -n "${GRITZ_VAR_X+x}" ]` behave as a reader expects. An explicit empty string is a value, kept as such.
 
@@ -4465,24 +4366,28 @@ Variables do **not** reach:
 
 * Anything the runner expands when it loads `workspaces.yaml`: `${env:}` and `${sh:}` run on the runner host before any task exists, and the image, volumes, `mcp_servers` entries and other config fields are fixed per workspace. That is the “no templating” line.
 * The sandbox’s own process environment: the driver process, the container’s entrypoint, and `gritz shell` sessions, which today don’t get the run environment either (secrets included).
-* The prompt. The agent finds its variables in its environment and in `get_my_task`’s output; the rendered prompt doesn’t change.
+* The prompt. The agent finds its variables in its environment; the rendered prompt doesn’t change, and `get_my_task`’s output doesn’t list them.
 
 ### Who sets variables
 
 [Section titled “Who sets variables”](#who-sets-variables)
 
-Every path that creates a task resolves variables through the same server-side function, `taskvar.Resolve`, against the workspace’s stored declarations.
+Every path that creates a task validates variables with the same function, `taskvar.Resolve`, against the workspace’s stored declarations.
 
 | Path                                        | How                                                                                                                                                  |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CreateTask` RPC                            | `variables` (field 9).                                                                                                                               |
 | MCP `create_task` (`gritz mcp`, server MCP) | `variables`, an object of string to string.                                                                                                          |
-| `gritz task create`                         | `--var NAME=VALUE`, repeatable. `--var NAME=@file` reads the value from a file (`@-` for stdin), for long or multi-line values.                      |
+| `gritz task create`                         | `--var NAME=VALUE`, repeatable. The value is the literal text after the first `=`.                                                                   |
 | Web UI new-task page                        | One field per declared variable of the selected workspace, from `ListWorkspaces`: description as help text, required marked, default as placeholder. |
-| Schedules                                   | `Schedule.variables`, fixed values.                                                                                                                  |
-| Routing rules                               | `CreateTaskAction.variables`, fixed values.                                                                                                          |
+| Schedules                                   | `Schedule.variables`, fixed values, copied onto each task unresolved.                                                                                |
+| Routing rules                               | `CreateTaskAction.variables`, fixed values, copied onto each task unresolved.                                                                        |
 
-**Schedules and routing rules set fixed values**: a `map<string, string>` saved with the schedule or rule, the same for every task it creates. Nothing from a triggering event is copied into a variable. Both are validated against the workspace’s declarations when they are saved (`InvalidArgument` for an undeclared variable or a missing required one), and resolved again when they create a task, since the runner may have re-registered the workspace with different declarations in between. A schedule or rule whose values no longer resolve creates no task: `scheduler.Fire` returns the error as it does for a store failure, and `Router.create` returns it to `Route`, which its callers log as they log other routing failures.
+**Schedules and routing rules set fixed values**: a `map<string, string>` saved with the schedule or rule, the same for every task it creates. Nothing from a triggering event is copied into a variable. Both are validated against the workspace’s declarations when they are saved (`InvalidArgument` for an undeclared variable or a missing required one), and the literal values are stored, not the resolved set. A routing rule’s workspace must be registered on its runner when the rules are saved, as a schedule’s must.
+
+**`scheduler.Fire` copies a schedule’s values onto the task without resolving them.** The runner may have re-registered the workspace with different declarations since the schedule was saved, and `scheduler.Tick` fires a whole batch in one transaction, so an error from one stale schedule would roll back every fire in the batch and leave them all due. Instead the stale schedule creates its task, and the runner, which resolves every task’s variables when it starts it, fails that task with the reason on its timeline. Defaults are filled in by the runner the same way. The schedule keeps firing, failing each task, until someone edits it.
+
+**`Router.create` copies a rule’s values onto the task the same way**, for the same reason: a rule saved before the workspace’s declarations changed creates its task, and the runner fails it. Validation on save is `eventrouter.ValidateRule`, shaped like `scheduler.Validate`: it checks the rule against the event-type registry, then a create action’s workspace and variables, and `eventrouter.IsInvalidError` lets `SetRoutingRules` map a rejection to `InvalidArgument` and anything else to `Internal`.
 
 ### Storage
 
@@ -4501,9 +4406,9 @@ ALTER TABLE workspaces DROP COLUMN IF EXISTS variables;
 ALTER TABLE tasks DROP COLUMN IF EXISTS variables;
 ```
 
-* `tasks.variables`: the resolved `{name: value}`. Added to the `CreateTask` insert and the `GetTask`, `GetTaskForUpdate`, `ListTasks` and `ListTasksPage` selects. Never updated.
+* `tasks.variables`: the task’s `{name: value}`, resolved for a task from `CreateTask`, as given for one from a schedule or a routing rule. Added to the `CreateTask` insert and the `GetTask`, `GetTaskForUpdate`, `ListTasks` and `ListTasksPage` selects. Never updated.
 * `workspaces.variables`: the declarations as registered, written by `RegisterWorkspaces` (which already replaces a runner’s rows wholesale).
-* `schedules.variables`: the schedule’s `{name: value}` as saved.
+* `schedules.variables`: the schedule’s `{name: value}` as saved, unresolved.
 * Routing rules are stored as JSON already; `CreateTaskAction` gains a field and needs no migration.
 
 A variable is never queried by name, so a JSON column beats a `task_variables` table.
@@ -4581,7 +4486,8 @@ message Schedule {
 
 message CreateTaskAction {
   // ... fields 1-4 unchanged
-  // Variables of the tasks the rule creates.
+  // Variables of the tasks the rule creates, by name, as saved. Each must be
+  // declared by the workspace, and every required one set.
   map<string, string> variables = 5;  // new
 }
 ```
@@ -4725,9 +4631,14 @@ type specInput struct {
 }
 ```
 
-**How it fits:** the runner’s `RegisterWorkspaces` sends each workspace’s `VariableDecls`; the server stores them. `CreateTask`, the MCP `create_task` tool (through the RPC), `scheduler.Fire` and `eventrouter.Router.create` each call `store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on `model.Task`. `SetRoutingRules` and the schedule handlers validate against the same declarations on save. `TaskManager.specs` calls `GetRunSpecInputs` in place of `CreateTaskToken` and passes the token and variables to `buildSpecs`, which adds each variable to `Spec.Env` under `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into `RunSpec.env`.
+**How it fits:** the runner’s `RegisterWorkspaces` sends each workspace’s `VariableDecls`; the server stores them. `CreateTask` and the MCP `create_task` tool (through the RPC) call `store.GetWorkspaceVariables` and `taskvar.Resolve` and store the result on `model.Task`. `SetRoutingRules` and the schedule handlers validate against the same declarations on save; `scheduler.Fire` and `eventrouter.Router.create` copy the schedule’s or rule’s values onto `model.Task` as they are. `TaskManager.specs` calls `GetRunSpecInputs` in place of `CreateTaskToken`, resolves the variables against `ws.VariableDecls()`, and passes the token and the resolved variables to `buildSpecs`, which adds each variable to `Spec.Env` under `taskvar.Env(name)`. `buildSpecs` already copies `Spec.Env` into `RunSpec.env`.
 
-**When the workspace sets the same name, the workspace wins.** A `container.environment`, `lambda_microvm.environment` or `secrets:` entry named `GRITZ_VAR_X` collides with task variable `X`; `buildSpecs` skips the task variable, so the run sees the workspace’s value. Only an operator can write a `GRITZ_VAR_` entry, and doing so pins that value for every task of the workspace, which a task creator can’t override. It also matches the layering the driver already applies to secrets, which sit above `RunSpec.env`. `container.environment` sits below it (it is the container’s own environment), so `buildSpecs` checks the workspace’s maps rather than relying on layering. The task still stores the value it was created with.
+**When the workspace sets the same name.** `buildSpecs` sets every task variable in `Spec.Env` without checking the workspace’s maps, so the outcome of a `GRITZ_VAR_X` entry in the workspace follows the layering the run environment already has:
+
+* A `secrets:` entry named `GRITZ_VAR_X` wins: the driver layers `RunSpec.secrets` over `RunSpec.env`, so the run sees the workspace’s value.
+* A `container.environment` or `lambda_microvm.environment` entry named `GRITZ_VAR_X` loses to the task’s value. `container.environment` is the container’s own environment, below `RunSpec.env`, and `buildSpecs` builds `RunSpec.env` from the backend’s `RunEnv` (`lambda_microvm.environment`) with `Spec.Env` copied over it.
+
+The task still stores the value it was created with.
 
 ## Implementation Plan
 
@@ -4741,24 +4652,23 @@ type specInput struct {
 
 4. **`CreateTask` and `GetRunSpecInputs`** — Delivers: `GetWorkspaceVariables` replacing `HasWorkspace` in `CreateTask`, resolution, variables on `Task` in responses, and the `GetRunSpecInputs` handler. Depends on: (3). Verifiable by: `apiserver` tests for each rejection and for defaults; a `GetRunSpecInputs` test returning a working token and the stored variables, and refusing a caller without `OpTaskTokenCreate`.
 
-5. **Runner injection** — Delivers: `TaskManager.specs` calling `GetRunSpecInputs`, `specInput.Variables`, `buildSpecs` adding variables to `Spec.Env` and skipping one whose `GRITZ_VAR_` name the workspace’s `container.environment`, `lambda_microvm.environment` or `secrets:` sets, the `driver.proto` comment. Depends on: (4). Verifiable by: `spec_test.go` cases, including each of the three collisions keeping the workspace’s value; an e2e test with the dummy agent running `env` that sees `GRITZ_VAR_X`.
+5. **Runner injection** — Delivers: `TaskManager.specs` calling `GetRunSpecInputs`, `specInput.Variables`, `buildSpecs` adding variables to `Spec.Env`, the `driver.proto` comment. Depends on: (4). Verifiable by: `spec_test.go` cases; an e2e test with the dummy agent running `env` that sees `GRITZ_VAR_X`.
 
-6. **CLI and MCP** — Delivers: `gritz task create --var` (with `@file` and `@-`), `variables` on the server MCP `create_task` tool, variables in `get_my_task` output. Depends on: (4). Verifiable by: command and MCP handler tests.
+6. **CLI and MCP** — Delivers: `gritz task create --var`, `variables` on the server MCP `create_task` tool. Depends on: (4). Verifiable by: command and MCP handler tests.
 
 7. **Web UI: new task and task page** — Delivers: variable fields on `tasks.new.tsx` from the selected workspace’s declarations; variables shown on the task page. Depends on: (4). Verifiable by: creating a task against the dev stack.
 
-8. **Schedules** — Delivers: `schedules.variables` read and write, validation on save and in `scheduler.Fire`, the schedule form’s variable fields. Depends on: (4), and (7) for the shared form fields. Verifiable by: scheduler tests firing a schedule with variables, and one whose values no longer resolve; `RunSchedule` against the dev stack.
+8. **Schedules** — Delivers: `schedules.variables` read and write, validation on save, `scheduler.Fire` copying the values onto the task unresolved, `TaskManager.specs` resolving every task’s variables against the runner’s declarations, the MCP schedule tools’ `variables`, the schedule form’s variable fields. Depends on: (4), and (7) for the shared form fields. Verifiable by: a scheduler test firing a schedule with variables; e2e tests for saving, rejecting and running a schedule with variables, and for a schedule whose values no longer resolve failing its task on the runner.
 
-9. **Routing rules** — Delivers: `CreateTaskAction.variables`, validation in `SetRoutingRules`, resolution in `Router.create`, the rule form’s variable fields. Depends on: (4), and (7) for the shared form fields. Verifiable by: `eventrouter` tests for a rule’s variables reaching the created task and for a rule whose values no longer resolve; a custom event posted to the dev stack creating a task with the variable set.
+9. **Routing rules** — Delivers: `CreateTaskAction.variables`, `eventrouter.ValidateRule` validating them in `SetRoutingRules`, `Router.create` copying them onto the task unresolved, the rule form’s variable fields. Depends on: (8), for the runner resolving every task’s variables, and (7) for the shared form fields. Verifiable by: an `eventrouter` test for a rule’s variables reaching the created task unresolved; e2e tests for saving a rule with variables and for `SetRoutingRules` rejecting bad ones.
 
 10. **Docs** — each slice above updates its own pages; this lists them:
 
-    * `operators/workspaces-yaml`: a `variables` section (saying credentials belong in `secrets:`), a workspace `GRITZ_VAR_` entry winning over the task’s value under “Environment”, a `commands:` example quoting `"$GRITZ_VAR_X"`, the custom agent process reading one.
+    * `operators/workspaces-yaml`: a `variables` section (saying credentials belong in `secrets:`), the task’s value sitting between the workspace’s `secrets:` and its environment under “Environment”, a `commands:` example quoting `"$GRITZ_VAR_X"`, the custom agent process reading one.
     * `concepts/tasks`: a “Variables” section (set at creation, immutable, where they appear).
     * `concepts/workspaces`: declared variables in “Picking a workspace”.
     * `reference/cli`, `using/cli`: `--var`.
     * `integrations/mcp`: `create_task`’s `variables`.
-    * `using/agent-tools`: variables in `get_my_task`.
     * `using/web-ui`: variable fields on the new-task page.
     * `concepts/schedules`: variables on a schedule.
     * `concepts/routing-rules` (“Creating tasks”): variables on a rule.
@@ -4778,7 +4688,9 @@ type specInput struct {
 
 **Separate `RunSpec.variables` field.** The driver could get variables in their own field and apply the prefix itself. Putting them in `env` reuses the driver’s existing layering unchanged, keeps the prefix rule in one place on the runner side, and ships with no driver change.
 
-**Resolve at run time on the runner.** The runner could apply defaults and check required variables from its own config at each start, making `workspaces.yaml` authoritative for every run. It would turn a config edit into failures of existing tasks and leave the server unable to reject a bad request at `CreateTask`.
+**Resolve only at run time on the runner.** The runner could be the only place that checks variables. It would leave the server unable to reject a bad request at `CreateTask`. Resolving on both sides costs a config edit failing the next start of existing tasks, and in exchange catches stale schedules without failing the scheduler’s batch.
+
+**Resolve in `scheduler.Fire`.** A schedule whose values no longer resolve would create no task, but `Fire` runs inside `Tick`’s batch transaction, so its error would roll back every schedule in the batch and keep them all due, failing again each tick. Failing the one task on the runner puts the error where the schedule’s owner sees it.
 
 **Variables as an event.** Storing variables as an event in the task’s stream would put them in the timeline and in the runner’s replica for free, but they are an attribute of the task fixed at creation, not something that happens to it, and the runner would have to fold them out of the stream.
 
@@ -15412,6 +15324,168 @@ The alternative — leave the token filter-agnostic and just document “reset p
 1. **Archived-only view.** This proposal intentionally omits “archived **only**.” If it turns out users want to browse *just* the archive (not active + archived interleaved), is that a third UI state (a tri-state select instead of a switch) plus widening the bool to an enum — or is “show archived + eyeball the badges” enough?
 2. **Row styling depth.** Muting the row text + the existing `ArchivedBadge` is the proposed minimum. Is that sufficient contrast, or should archived rows also get a distinct background / be visually grouped below active ones? (Grouping fights the single `created_at DESC` keyset ordering, so interleaved-with-badge is the low-friction default.)
 3. **Default page size when archived included.** With archived rows included, an org’s list is much longer. The default page size (20 in the UI, 50 in the RPC) is unchanged here — do we want a different default when the toggle is on, or is prev/next paging enough?
+
+# Jira: Issue Created Event
+
+> gritz ignores the jira:issue_created webhook, so a newly filed Jira issue can't start a task until someone labels, assigns or comments on it.
+
+Issue: <https://github.com/gritzapp/gritz/issues/2219>
+
+## Problem
+
+[Section titled “Problem”](#problem)
+
+Some Jira issues are filed by automation rather than people: a security scanner opening one ticket per finding, an alerting tool opening one per incident. Each new ticket should be able to start a gritz task.
+
+gritz can’t see a new issue today. `toInputEvents` in [`internal/server/atlassianserver/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/webhook.go) handles two `webhookEvent` values:
+
+* `comment_created` → Jira: Issue Comment
+* `jira:issue_updated` → Jira: Label Added and/or Jira: Issue Assigned, derived from the payload’s `changelog`
+
+Every other `webhookEvent`, including `jira:issue_created`, falls through to `return nil, AtlassianMeta{}, nil` and the handler answers `ignored`.
+
+Setting a label or assignee while creating the issue doesn’t help. Jira sends that as a single `jira:issue_created` with the fields already set and no `changelog`, so `AddedLabels` and `NewAssignee` both return nil and neither existing event fires. A person has to touch the ticket afterwards before gritz sees it.
+
+## Design
+
+[Section titled “Design”](#design)
+
+A new built-in event type, **Jira: Issue Created** (`source: atlassian`, `type: issue_created`), emitted once per `jira:issue_created` webhook. Routing rules narrow it with conditions as usual; an event that matches no rule creates no task.
+
+The existing Jira events are unchanged. No polling, and nothing is posted back to Jira.
+
+### Payload parsing
+
+[Section titled “Payload parsing”](#payload-parsing)
+
+[`internal/x/atlassian/webhook.go`](https://github.com/gritzapp/gritz/blob/master/internal/x/atlassian/webhook.go) gains the `jira:issue_created` constant, and `IssueFields` gains the two fields the event reads at creation time:
+
+* `Labels []string` (`json:"labels"`): the labels the issue was created with.
+* `Assignee *User` (`json:"assignee"`): the assignee it was created with. Jira sends `"assignee": null` for an unassigned issue, which decodes to `nil`.
+
+`payload.user` is already parsed (`WebhookPayload.User`) and, for this webhook, is the issue’s creator.
+
+### The event
+
+[Section titled “The event”](#the-event)
+
+A new `case atlassian.WebhookEventIssueCreated` in `toInputEvents`, built the same way as the `jira:issue_updated` branch:
+
+* **Ignored** (no events) when `payload.Issue` or `payload.User` is nil, the account ID is empty, or `Issue.BrowseURL()` is empty, matching the other branches.
+* **Description:** `"<creator display name> created <ISSUE-KEY>"`.
+* **Data:** the issue’s description, trimmed.
+* **URL:** `Issue.BrowseURL()`.
+* **Meta:** `AtlassianMeta{AuthorAccountID, AuthorDisplayName}` from the creator.
+
+Attributes, beside the derived `body` and `url`:
+
+| Attr       | Label             | Value                                                                  |
+| ---------- | ----------------- | ---------------------------------------------------------------------- |
+| `body`     | Issue Description | The issue’s description (derived).                                     |
+| `url`      | Issue URL         | The issue’s URL (derived).                                             |
+| `label`    | Label             | Every label the issue was created with; empty when none.               |
+| `assignee` | Assignee          | Account ID of the assignee it was created with; empty when unassigned. |
+| `user`     | User              | Account ID of who created it.                                          |
+
+`label` and `assignee` cover the “created already labelled or assigned” case that Label Added and Issue Assigned can’t see, so one rule (`label equals gritz`) can be paired with a second on Issue Created to catch both paths.
+
+### Routing an unlinked creator
+
+[Section titled “Routing an unlinked creator”](#routing-an-unlinked-creator)
+
+Automation files issues as an integration user, which has no linked gritz account. The handler already handles this: `GetUserByAtlassianAccountID` returns `sql.ErrNoRows`, `UserID` stays empty, and the event routes on `Orgs: [orgID]`, so only [public rules](/pr/2235/concepts/routing-rules/#public-rules) act on it. No handler change is needed; a test pins the behaviour for this event type.
+
+### Filtering
+
+[Section titled “Filtering”](#filtering)
+
+The event fires for every new issue the webhook carries, so narrowing happens in two places:
+
+1. **Jira’s webhook JQL filter.** The filter applies to every event a webhook sends, so narrowing an existing webhook to one project’s new issues would also drop that webhook’s comments and updates. The operator instead creates a second webhook with the same URL and secret, subscribed only to **Issue → created**, with its own JQL (e.g. `project = SEC AND reporter = "<integration user>"`).
+2. **Routing rule conditions.** e.g. `url prefix …/browse/SEC-` and `user equals <integration user's account ID>`, with **Public** on. Rules are ordered and the first match wins, so it goes before broader Jira rules.
+
+### Schema
+
+[Section titled “Schema”](#schema)
+
+[`internal/server/atlassianserver/schema.go`](https://github.com/gritzapp/gritz/blob/master/internal/server/atlassianserver/schema.go) registers “Jira: Issue Created” with attrs ordered `body`, `url`, `label`, `assignee`, `user`, each `AttrDef` written inline with copy for this event, as the file does for the others. The webui reads event types from the schema registry, so no frontend change.
+
+### Docs
+
+[Section titled “Docs”](#docs)
+
+* `reference/event-types`: an `issue_created` section under **Jira** with the attribute table.
+
+* `integrations/jira`:
+
+  * Mention new issues in the intro.
+  * Webhook setup subscribes **Issue → created** as well as **updated**.
+  * A short paragraph on narrowing one event with a second webhook (same URL and secret, its own events and JQL).
+  * Events table row: `Issue created | Jira: Issue Created | the issue`.
+  * Labels or an assignee set at creation arrive on Issue Created, not as Label Added or Issue Assigned.
+  * Example: a public rule that starts a task for issues an integration user files in one project.
+
+### API
+
+[Section titled “API”](#api)
+
+```go
+package atlassian // github.com/gritzapp/gritz/internal/x/atlassian
+
+
+// WebhookEventIssueCreated is the webhook event Jira sends when an issue is created. // new
+const WebhookEventIssueCreated = "jira:issue_created"
+
+
+// IssueFields represents the fields of a Jira issue.
+type IssueFields struct {
+  Summary     string   `json:"summary"`
+  Description string   `json:"description"`
+  Labels      []string `json:"labels"`   // new
+  Assignee    *User    `json:"assignee"` // new
+}
+```
+
+```go
+package atlassianserver // github.com/gritzapp/gritz/internal/server/atlassianserver
+
+
+// EventTypeIssueCreated is the event type emitted for a newly created issue. // new
+const EventTypeIssueCreated = "issue_created"
+```
+
+**How it fits:** `WebhookHandler.ServeHTTP` calls `toInputEvents`, whose new case reads `Issue.Fields.Labels` and `Issue.Fields.Assignee` and returns one `issue_created` event; the handler routes it exactly like the others. `RegisterSchemas` registers its schema on the default registry at `init`.
+
+## Implementation Plan
+
+[Section titled “Implementation Plan”](#implementation-plan)
+
+One feature PR is enough; the change is a few dozen lines. If split:
+
+1. **Parse creation fields** — Delivers: `WebhookEventIssueCreated`, `IssueFields.Labels` and `IssueFields.Assignee`. Depends on: nothing. Verifiable by: a `internal/x/atlassian` test that parses raw `jira:issue_created` JSON once with `"assignee": null` and once with an assignee object, checking `Labels` and `Assignee`.
+
+2. **Emit and register Jira: Issue Created, with docs** — Delivers: the `toInputEvents` case, the schema, and the docs pages above. Depends on: (1). Verifiable by:
+
+   * `TestToAtlassianInputEvents` cases: created labelled and assigned; created unlabelled and unassigned (both attrs empty); no user (ignored).
+   * A handler test: an issue created by an unlinked account routes with an empty `UserID` and `Orgs: [org]`.
+   * `TestSchemaRegistration`: the new type registers with exactly `body`, `url`, `label`, `assignee`, `user`.
+
+PR title: `feat(atlassian): add Jira issue created event`.
+
+## Trade-offs
+
+[Section titled “Trade-offs”](#trade-offs)
+
+* **Fire Label Added / Issue Assigned from `jira:issue_created`** instead of a new type. Rejected: those events mean “changed”, and a rule like “start a task when labelled `gritz`” would then also fire for issues created with that label, a behaviour change for existing rules. A separate type keeps creation opt-in; a rule on each type covers both paths.
+* **One event per created issue, not one per label or assignee.** Creation is one fact; `label` and `assignee` are conditions on it.
+* **Filter only in gritz rules** instead of a second Jira webhook. Works, but every new issue on the site then crosses the wire and is routed for nothing. The second webhook is optional and documented, not required.
+
+## Open Questions
+
+[Section titled “Open Questions”](#open-questions)
+
+* **Creator vs reporter for `user`.** `payload.user` is who triggered the webhook. An integration can create an issue with a different `reporter`. Proposed: `user` is the creator, consistent with the other Jira events where `user` is the actor. A `reporter` attr can follow if someone needs it.
+* **Summary in Data.** The other issue events carry only the description. Automation often puts the useful line in the summary. Keep Data as the description for consistency (the agent reads the full issue anyway), or prepend the summary?
 
 # AWS Lambda MicroVMs Backend for the Runner
 
@@ -31306,6 +31380,10 @@ service GritzService {
   // sandbox calls the API with. The token can read and update only that task,
   // plus the requested capabilities.
   rpc CreateTaskToken(CreateTaskTokenRequest) returns (CreateTaskTokenResponse);
+  // Called by the runner before it starts a task's run, to get what the run's
+  // spec needs from the server: the token the sandbox calls the API with, as
+  // CreateTaskToken returns it, and the task's variables.
+  rpc GetRunSpecInputs(GetRunSpecInputsRequest) returns (GetRunSpecInputsResponse);
   // Called by the runner when it starts, to register the workspaces it serves.
   // Replaces the workspaces registered before for the same runner.
   rpc RegisterWorkspaces(RegisterWorkspacesRequest) returns (RegisterWorkspacesResponse);
@@ -31433,6 +31511,12 @@ message Task {
   // The image URL of the task's shields.io badge. Agents sign what they post
   // with it, linked to url.
   string badge_url = 18;
+
+
+  // The task's variables, by name, each injected into its sandbox as the
+  // environment variable GRITZ_VAR_<name>. Set at creation and can't be
+  // changed.
+  map<string, string> variables = 19;
 }
 
 
@@ -31516,6 +31600,9 @@ message CreateTaskRequest {
   // start set, such as the first instruction sent from the task page, starts it.
   // False (the default) starts the task immediately.
   bool draft = 8;
+  // The task's variables, by name. Each must be declared by the workspace;
+  // declared defaults fill the rest.
+  map<string, string> variables = 9;
 }
 
 
@@ -31933,11 +32020,36 @@ message CreateTaskTokenResponse {
 }
 
 
+message GetRunSpecInputsRequest {
+  int64 task_id = 1;
+  // The workspace capabilities to grant the token, such as "github_token".
+  repeated string capabilities = 2;
+}
+
+
+message GetRunSpecInputsResponse {
+  string token = 1;
+  // The task's variables, by name, as in Task.variables.
+  map<string, string> variables = 2;
+}
+
+
+// VariableDecl is a variable a workspace declares; see workspaces.yaml variables:.
+message VariableDecl {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+  // Used when the task doesn't set it. Never set on a required variable.
+  string default = 4;
+}
+
+
 message RegisteredWorkspace {
   string name = 1;
   string runner_id = 2;
   google.protobuf.Timestamp updated_at = 3;
   string description = 4;
+  repeated VariableDecl variables = 5;
 }
 
 
@@ -32167,6 +32279,11 @@ message CreateTaskAction {
   // The auto-archive delay of the tasks the rule creates, as in
   // Task.auto_archive.
   google.protobuf.Duration auto_archive = 4;
+  // Variables of the tasks the rule creates, by name, as saved. Each must be
+  // declared by the workspace, and every required one set. Each task gets
+  // them as they are; the runner fills in the workspace's defaults, and fails
+  // the task if the workspace no longer accepts them, when it starts it.
+  map<string, string> variables = 5;
 }
 
 
@@ -32315,6 +32432,10 @@ message Schedule {
   string created_by = 14;                   // Who created it; grants no permissions.
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
+  // Variables of the tasks it creates, by name, as saved. Each task gets them
+  // as they are; the runner fills in the workspace's defaults, and fails the
+  // task if the workspace no longer accepts them, when it starts it.
+  map<string, string> variables = 17;
 }
 
 
@@ -32330,6 +32451,9 @@ message CreateScheduleRequest {
   // never runs until SetScheduleEnabled enables it.
   bool enabled = 8;
   google.protobuf.Duration auto_archive = 9;
+  // Variables of the tasks it creates, by name. Each must be declared by the
+  // workspace, and every required one set.
+  map<string, string> variables = 10;
 }
 
 
@@ -32369,6 +32493,9 @@ message UpdateScheduleRequest {
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; empty defaults to "UTC".
   google.protobuf.Duration auto_archive = 9;
+  // Variables of the tasks it creates, by name. Each must be declared by the
+  // workspace, and every required one set.
+  map<string, string> variables = 10;
 }
 
 
@@ -32491,6 +32618,7 @@ Creates a task and starts it, then prints it as JSON. It also takes the [authent
 | `--workspace`, `-w`   |             | `default` | The workspace.                                                                                                                                           |
 | `--instruction`, `-i` |             |           | An instruction. Repeat it for several.                                                                                                                   |
 | `--name`, `-n`        |             |           | The task’s name.                                                                                                                                         |
+| `--var`               |             |           | A [variable](/pr/2235/operators/workspaces-yaml/#variables) as `NAME=VALUE`. Repeat it for several.                                                      |
 | `--auto-archive`      |             | `0`       | The [auto-archive](/pr/2235/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
 
 ### `gritz task list`
@@ -32984,6 +33112,20 @@ Source `atlassian`. People are identified by their Atlassian account ID, such as
 | `mention` | Mention      | The account ID of each person @-mentioned in the comment.                                              |
 | `user`    | User         | The account ID of the commenter.                                                                       |
 
+### `issue_created`
+
+[Section titled “issue_created”](#issue_created)
+
+**Jira: Issue Created.** An issue is created. Labels and an assignee set at creation are on this event, not on `label_added` or `issue_assigned`.
+
+| Attribute  | Label             | Value                                               |
+| ---------- | ----------------- | --------------------------------------------------- |
+| `body`     | Issue Description | The issue’s description.                            |
+| `url`      | Issue URL         | The issue’s URL.                                    |
+| `label`    | Label             | Each label the issue was created with.              |
+| `assignee` | Assignee          | The account ID of the assignee it was created with. |
+| `user`     | User              | The account ID of who created it.                   |
+
 ### `label_added`
 
 [Section titled “label_added”](#label_added-1)
@@ -33321,9 +33463,18 @@ gritz task create -r my-runner -w pets-workshop \
 | `--workspace`, `-w`   | The [workspace](/pr/2235/concepts/workspaces/). Defaults to `default`.                                                                                                         |
 | `--instruction`, `-i` | An instruction. Repeat it for several.                                                                                                                                         |
 | `--name`, `-n`        | The task’s name. The agent names it if you don’t.                                                                                                                              |
+| `--var`               | A [variable](/pr/2235/operators/workspaces-yaml/#variables) the workspace declares, as `NAME=VALUE`. Repeat it for several.                                                    |
 | `--auto-archive`      | The [auto-archive](/pr/2235/concepts/tasks/#auto-archive) delay, such as `1h` or `24h`. `0`, the default, is never; a negative value archives the task as soon as it finishes. |
 
 The **Workspaces** page in the Web UI lists runner IDs and their workspaces.
+
+A workspace can declare variables, values each task sets when it is created, such as the issue to work on. Its sandbox sees `--var JIRA_ISSUE=APP-142` as the environment variable `GRITZ_VAR_JIRA_ISSUE`. Setting a variable the workspace doesn’t declare, or leaving out a required one, is an error. The value is the text after the first `=`, as is:
+
+```bash
+gritz task create -r my-runner -w story-agent \
+  --var JIRA_ISSUE=APP-142 --var BRANCH=release/2.4 \
+  -i "Implement the story."
+```
 
 ### `gritz task list`
 
@@ -33415,13 +33566,13 @@ The bar at the top links to every page, and holds the organisation selector, the
 
 **Tasks** lists the organisation’s tasks, newest first, with their runner, workspace and [status](/pr/2235/concepts/tasks/#statuses). A `command:` badge next to the status is an action the runner hasn’t carried out yet. Turn on **Show archived** to include archived tasks, and archive or unarchive a task from its row.
 
-**+ Task** creates a task. Pick a runner, then one of its workspaces; the name, [namespace](/pr/2235/concepts/namespaces/) and [auto-archive](/pr/2235/concepts/tasks/#auto-archive) delay are optional. The form remembers the last runner and workspace you used. The task is created as a draft, and starts when you send its first instruction.
+**+ Task** creates a task. Pick a runner, then one of its workspaces; the name, [namespace](/pr/2235/concepts/namespaces/) and [auto-archive](/pr/2235/concepts/tasks/#auto-archive) delay are optional. If the workspace declares [variables](/pr/2235/operators/workspaces-yaml/#variables), the form shows a field for each, with its description below it and its default as the placeholder; a required one is marked with `*`. Leave an optional field empty to use the default. The form remembers the last runner and workspace you used. The task is created as a draft, and starts when you send its first instruction.
 
 ## The task page
 
 [Section titled “The task page”](#the-task-page)
 
-The sidebar on the left holds the task’s status and name, its three views, its details (runner, workspace, namespace, created and updated times), its links, and its actions:
+The sidebar on the left holds the task’s status and name, its three views, its details (runner, workspace, namespace, created and updated times), its variables, its links, and its actions:
 
 * **Archive** or **Unarchive**. When an auto-archive delay is counting down, the time left shows next to it.
 * **Cancel**, while the task is pending or running.
@@ -33454,7 +33605,7 @@ A terminal in the task’s sandbox, for looking at what the agent left behind. I
 
 [Section titled “Schedules”](#schedules)
 
-**Schedules** lists the organisation’s [schedules](/pr/2235/concepts/schedules/) with their cron expression, timezone, next run and workspace, and the task each created last. From each row you can turn a schedule on or off, run it now, edit it or delete it. **+ Schedule** creates one.
+**Schedules** lists the organisation’s [schedules](/pr/2235/concepts/schedules/) with their cron expression, timezone, next run and workspace, and the task each created last. From each row you can turn a schedule on or off, run it now, edit it or delete it. **+ Schedule** creates one; like **+ Task**, its form has a field for each variable the workspace declares.
 
 ## Events
 

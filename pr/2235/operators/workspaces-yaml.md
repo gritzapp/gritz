@@ -47,6 +47,7 @@ pick when they create a task.
 | `agent` | The [agent](#agent) and its MCP servers. |
 | `secrets` | Environment variables whose values are masked in the shipped log. See [Secrets](/operators/secrets/). |
 | `capabilities` | Extra [capabilities](#capabilities) for the task's token. |
+| `variables` | Per-task [variables](#variables) a task can set when it is created. |
 
 ## `container`
 
@@ -153,6 +154,45 @@ The runner adds an MCP server named `gritz` to every agent, with the tools an
 agent uses to work with its task (see the
 [overview](/operators/overview/#components)). Don't define one with that name.
 
+## `variables`
+
+Variables are values a task sets when it is created, such as a branch or an
+issue key, declared by name. Names are upper case letters, digits and
+underscores, starting with a letter. Each run sees a variable `X` as the
+environment variable `GRITZ_VAR_X`; one the task doesn't set and that has no
+default is left unset.
+
+| Field | |
+| --- | --- |
+| `description` | What the value is for. |
+| `required` | A task must set it. |
+| `default` | The value when the task doesn't set it. Not allowed on a required variable. |
+
+```yaml
+workspaces:
+  story:
+    variables:
+      JIRA_ISSUE:
+        description: The story to implement
+        required: true
+      BRANCH:
+        default: main
+    commands:
+      - git clone --branch "$GRITZ_VAR_BRANCH" https://github.com/acme/app.git /work
+```
+
+Quote the reference, as `"$GRITZ_VAR_BRANCH"`, so the shell passes the value as
+one word. Values are readable by anyone who can read the task and appear
+unmasked in its log: put credentials under `secrets:`.
+
+Each time it starts a task, the runner checks the task's variables against its
+own `variables:` and fills in defaults. A task this config no longer accepts,
+because it sets a variable that isn't declared or lacks a required one, fails
+with the reason on its timeline. So a change to `variables:` can fail the next
+start of a task created earlier, and of every task a
+[schedule](/concepts/schedules/#variables) or a
+[routing rule](/concepts/routing-rules/#creating-tasks) saved before it creates.
+
 ## `capabilities`
 
 Capabilities let a task's token do more than read and update its own task. One
@@ -206,7 +246,8 @@ The setup commands and the agent see, in order of precedence:
 
 1. The workspace's `secrets`.
 2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`,
-   the task's own token. On Lambda MicroVMs, also `lambda_microvm.environment`.
+   the task's own token, and the task's [variables](#variables) as
+   `GRITZ_VAR_<NAME>`. On Lambda MicroVMs, also `lambda_microvm.environment`.
 3. The sandbox's environment: the image's, plus `container.environment` on
    Docker.
 
