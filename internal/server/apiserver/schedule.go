@@ -39,8 +39,15 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create schedule"))
 	}
-	if err := s.checkScheduleVariables(ctx, caller.OrgID, req.Runner, req.Workspace, req.Variables); err != nil {
-		return nil, err
+	decls, err := s.store.GetWorkspaceVariables(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if _, err := taskvar.Resolve(decls, req.Variables); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
 	}
 	sched := &model.Schedule{
 		OrgID:        caller.OrgID,
@@ -91,22 +98,6 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 	return &gritzv1.CreateScheduleResponse{Schedule: sched.Proto()}, nil
 }
 
-// checkScheduleVariables checks a schedule's variables against its workspace's
-// declarations.
-func (s *Server) checkScheduleVariables(ctx context.Context, orgID int64, runner, workspace string, variables map[string]string) error {
-	decls, err := s.store.GetWorkspaceVariables(ctx, nil, runner, workspace, orgID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", workspace, runner))
-		}
-		return connect.NewError(connect.CodeInternal, err)
-	}
-	if _, err := taskvar.Resolve(decls, variables); err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", workspace, err))
-	}
-	return nil
-}
-
 func (s *Server) GetSchedule(ctx context.Context, req *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	if !caller.Scopes.Allow(authscope.OpTaskRead) {
@@ -150,12 +141,19 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 	) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot update schedule"))
 	}
-	if err := s.checkScheduleVariables(ctx, caller.OrgID, req.Runner, req.Workspace, req.Variables); err != nil {
-		return nil, err
+	decls, err := s.store.GetWorkspaceVariables(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if _, err := taskvar.Resolve(decls, req.Variables); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
 	}
 	timezone := cmp.Or(req.Timezone, "UTC")
 	var sched *model.Schedule
-	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		existing, err := s.store.GetScheduleForUpdate(ctx, tx, req.Id, caller.OrgID)
 		if err != nil {
 			return err
