@@ -157,9 +157,7 @@ const (
 	LifecycleKind_LIFECYCLE_KIND_SANDBOX_STARTED LifecycleKind = 8
 	LifecycleKind_LIFECYCLE_KIND_SANDBOX_EXITED  LifecycleKind = 9
 	LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED  LifecycleKind = 10
-	// The task failed before it could run, so no sandbox was started; message
-	// says why.
-	LifecycleKind_LIFECYCLE_KIND_FAILED LifecycleKind = 11
+	LifecycleKind_LIFECYCLE_KIND_FAILED          LifecycleKind = 11
 )
 
 // Enum value maps for LifecycleKind.

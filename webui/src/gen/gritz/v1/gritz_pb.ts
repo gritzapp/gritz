@@ -3862,9 +3862,6 @@ export enum LifecycleKind {
   SANDBOX_FAILED = 10,
 
   /**
-   * The task failed before it could run, so no sandbox was started; message
-   * says why.
-   *
    * @generated from enum value: LIFECYCLE_KIND_FAILED = 11;
    */
   FAILED = 11,
