@@ -15,6 +15,7 @@ import (
 )
 
 func TestValidateWorkspace(t *testing.T) {
+	t.Parallel()
 	be := &Backend{}
 	// The driver server listens on a unix socket, so any network mode works.
 	for _, mode := range []string{"", "bridge", "gritz-net", "host", "none", "container:abc"} {
@@ -35,21 +36,25 @@ func TestValidateWorkspace(t *testing.T) {
 // whatever its network mode — including two sharing the host's network
 // namespace.
 func TestDial_TunnelsThroughExec(t *testing.T) {
+	t.Parallel()
 	be := newTestBackend(t)
 	for _, mode := range []string{"", "none", "host", "host"} {
-		sb, err := be.Create(t.Context(), &backend.Spec{
-			TaskID: rand.Int64N(1 << 40),
-			Workspace: &workspace.Workspace{
-				Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode},
-			},
-		})
-		assert.NilError(t, err)
-		t.Cleanup(func() {
-			_ = be.docker.ContainerRemove(context.Background(), sb.Handle().ID, container.RemoveOptions{Force: true})
-		})
-		assert.NilError(t, sb.Boot(t.Context()))
+		t.Run(cmp.Or(mode, "default"), func(t *testing.T) {
+			t.Parallel()
+			sb, err := be.Create(t.Context(), &backend.Spec{
+				TaskID: rand.Int64N(1 << 40),
+				Workspace: &workspace.Workspace{
+					Container: workspace.Container{Image: "alpine:latest", NetworkMode: mode},
+				},
+			})
+			assert.NilError(t, err)
+			t.Cleanup(func() {
+				_ = be.docker.ContainerRemove(context.Background(), sb.Handle().ID, container.RemoveOptions{Force: true})
+			})
+			assert.NilError(t, sb.Boot(t.Context()))
 
-		dialReady(t, sb)
+			dialReady(t, sb)
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,13 +24,23 @@ import (
 	"gotest.tools/v3/poll"
 )
 
+// TestMain points the backend at the repo's prebuilt driver binaries. It sets
+// the environment once, here, because t.Setenv cannot be used in parallel tests.
+func TestMain(m *testing.M) {
+	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("GRITZ_PREBUILT_DIR", prebuiltDir); err != nil {
+		panic(err)
+	}
+	os.Exit(m.Run())
+}
+
 // newTestBackend returns a backend on the local daemon that can provision the
 // prebuilt driver binary.
 func newTestBackend(t *testing.T) *Backend {
 	t.Helper()
-	prebuiltDir, err := filepath.Abs("../../../../prebuilt")
-	assert.NilError(t, err)
-	t.Setenv("GRITZ_PREBUILT_DIR", prebuiltDir)
 	be, err := New(Options{RunnerID: "test-runner"})
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = be.Close() })
@@ -73,6 +84,7 @@ func dialReady(t *testing.T, sb backend.Sandbox) {
 // A sandbox goes through its whole life: created, booted, dialed, suspended,
 // restarted and destroyed, after which it is gone.
 func TestSandbox_Lifecycle(t *testing.T) {
+	t.Parallel()
 	be := newTestBackend(t)
 
 	sb := create(t, be)
@@ -115,6 +127,7 @@ func TestSandbox_Lifecycle(t *testing.T) {
 
 // A reopened handle reaches the same container.
 func TestSandbox_Reopen(t *testing.T) {
+	t.Parallel()
 	be := newTestBackend(t)
 	sb := create(t, be)
 	assert.NilError(t, sb.Boot(t.Context()))
@@ -130,6 +143,7 @@ func TestSandbox_Reopen(t *testing.T) {
 // A stopped sandbox boots after its network is recreated under the same name,
 // as `docker compose down && up` does.
 func TestSandbox_BootRecreatedNetwork(t *testing.T) {
+	t.Parallel()
 	be := newTestBackend(t)
 	name := fmt.Sprintf("gritz-test-%d", rand.Int64N(1<<40))
 	_, err := be.docker.NetworkCreate(t.Context(), name, network.CreateOptions{})
@@ -163,6 +177,7 @@ func TestSandbox_BootRecreatedNetwork(t *testing.T) {
 }
 
 func TestOpen(t *testing.T) {
+	t.Parallel()
 	be := &Backend{}
 
 	// Open does not check that the container exists.
@@ -209,6 +224,7 @@ func TestSandbox_Status(t *testing.T) {
 // A sandbox's methods are safe for concurrent use, as the runner's goroutines
 // make them; run with -race.
 func TestSandbox_Concurrent(t *testing.T) {
+	t.Parallel()
 	be := newTestBackend(t)
 	sb := create(t, be)
 	assert.NilError(t, sb.Boot(t.Context()))
