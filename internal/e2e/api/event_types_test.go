@@ -3,7 +3,7 @@ package api_test
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -12,7 +12,7 @@ import (
 func TestGetEventTypes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.GetEventTypes(t.Context(), &gritzv1.GetEventTypesRequest{})
@@ -77,7 +77,7 @@ func TestGetEventTypes(t *testing.T) {
 func TestGetEventTypes_IncludesOrgCustomTypes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	problem := &gritzv1.EventTypeDef{
 		Source: "custom",

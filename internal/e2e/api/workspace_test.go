@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -15,7 +15,7 @@ import (
 func TestRegisterWorkspaces(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
@@ -33,7 +33,7 @@ func TestRegisterWorkspaces(t *testing.T) {
 	// harness's own.
 	assert.NilError(t, err)
 	assert.DeepEqual(t, h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), []*gritzv1.RegisteredWorkspace{
-		{Name: e2e.DefaultWorkspace, RunnerId: e2e.DefaultRunner},
+		{Name: harness.DefaultWorkspace, RunnerId: harness.DefaultRunner},
 		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace", Variables: []*gritzv1.VariableDecl{
 			{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
 			{Name: "JIRA_ISSUE", Required: true},
@@ -45,7 +45,7 @@ func TestRegisterWorkspaces(t *testing.T) {
 func TestRegisterWorkspaces_InvalidVariable(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act - a required variable with a default.
 	_, err := h.Org.Client.RegisterWorkspaces(t.Context(), &gritzv1.RegisterWorkspacesRequest{
@@ -60,14 +60,14 @@ func TestRegisterWorkspaces_InvalidVariable(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
 	assert.DeepEqual(t,
 		testx.ExtractField(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
-		[]string{e2e.DefaultWorkspace},
+		[]string{harness.DefaultWorkspace},
 	)
 }
 
 func TestRegisterWorkspaces_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
@@ -89,14 +89,14 @@ func TestRegisterWorkspaces_Permissions(t *testing.T) {
 	// Assert - each org sees only its own workspaces.
 	assert.NilError(t, errA)
 	assert.NilError(t, errB)
-	assert.DeepEqual(t, testx.ExtractField(respA.Workspaces, "Name"), []string{e2e.DefaultWorkspace, "workspace-a"})
-	assert.DeepEqual(t, testx.ExtractField(respB.Workspaces, "Name"), []string{e2e.DefaultWorkspace, "workspace-b"})
+	assert.DeepEqual(t, testx.ExtractField(respA.Workspaces, "Name"), []string{harness.DefaultWorkspace, "workspace-a"})
+	assert.DeepEqual(t, testx.ExtractField(respB.Workspaces, "Name"), []string{harness.DefaultWorkspace, "workspace-b"})
 }
 
 func TestRegisterWorkspaces_SameRunnerDifferentUsers(t *testing.T) {
 	t.Parallel()
 	// Arrange - both orgs register workspaces for the same runner ID.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
@@ -123,18 +123,18 @@ func TestRegisterWorkspaces_SameRunnerDifferentUsers(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		testx.ExtractField(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
-		[]string{e2e.DefaultWorkspace, "workspace-c"},
+		[]string{harness.DefaultWorkspace, "workspace-c"},
 	)
 	assert.DeepEqual(t,
 		testx.ExtractField(other.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
-		[]string{e2e.DefaultWorkspace, "workspace-b"},
+		[]string{harness.DefaultWorkspace, "workspace-b"},
 	)
 }
 
 func TestClearWorkspaces(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
@@ -154,7 +154,7 @@ func TestClearWorkspaces(t *testing.T) {
 func TestClearWorkspaces_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
@@ -177,6 +177,6 @@ func TestClearWorkspaces_Permissions(t *testing.T) {
 	assert.Assert(t, cmp.Len(h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), 0))
 	assert.DeepEqual(t,
 		testx.ExtractField(other.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), "Name"),
-		[]string{e2e.DefaultWorkspace, "workspace-b"},
+		[]string{harness.DefaultWorkspace, "workspace-b"},
 	)
 }

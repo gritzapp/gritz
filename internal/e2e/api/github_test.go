@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
 )
@@ -13,7 +13,7 @@ import (
 func TestLinkGitHubInstallation_MissingID(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.LinkGitHubInstallation(t.Context(), &gritzv1.LinkGitHubInstallationRequest{})
@@ -25,7 +25,7 @@ func TestLinkGitHubInstallation_MissingID(t *testing.T) {
 func TestLinkGitHubInstallation_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	client := h.Server.Client("xat_bad")
 
 	// Act
@@ -42,7 +42,7 @@ func TestLinkGitHubInstallation_Unauthenticated(t *testing.T) {
 func TestLinkGitHubInstallation_NotConfigured(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	// Linking a GitHub account is an OAuth flow with no RPC, so write it to the
 	// store directly. The id is random so it can't collide with rows left by
 	// previous runs.
@@ -63,7 +63,7 @@ func TestLinkGitHubInstallation_NotConfigured(t *testing.T) {
 func TestCreateGitHubToken_Unimplemented(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.CreateGitHubToken(t.Context(), &gritzv1.CreateGitHubTokenRequest{})

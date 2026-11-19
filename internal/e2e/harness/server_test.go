@@ -1,4 +1,4 @@
-package e2e_test
+package harness_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
@@ -15,7 +15,7 @@ import (
 
 func TestMock(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	m := &gritzclient.ClientMock{
 		UpdateTaskFunc: func(context.Context, *gritzv1.UpdateTaskRequest) (*gritzv1.UpdateTaskResponse, error) {
@@ -46,7 +46,7 @@ func TestMock(t *testing.T) {
 
 func TestAddOrgMember(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/backend"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -16,7 +16,7 @@ import (
 
 func TestCancel_PendingStart(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{Concurrency: 1}})
 	a := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do a"}},
 	})
@@ -52,12 +52,12 @@ func TestCancel_PendingStart(t *testing.T) {
 
 func TestConcurrent(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 2}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{Concurrency: 2}})
 	instructions := []string{"do one", "do two", "do three"}
 	// Slots aren't handed out in start order: the first two tasks take both
 	// before the third starts, so the third is the one that waits.
-	var tasks []*e2e.Task
-	var runs []*e2e.Run
+	var tasks []*harness.Task
+	var runs []*harness.Run
 	for _, text := range instructions[:2] {
 		task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 			Instructions: []*gritzv1.Instruction{{Text: text}},
@@ -94,7 +94,7 @@ func TestConcurrent(t *testing.T) {
 
 func TestArchive(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
 		Commands: []string{"echo setup >> setup"},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
@@ -123,7 +123,7 @@ func TestArchive(t *testing.T) {
 
 func TestArchive_DestroyFails(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})

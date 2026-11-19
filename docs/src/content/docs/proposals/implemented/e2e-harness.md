@@ -224,8 +224,9 @@ mid-run, and the prompt each run received is captured for assertions.
 
 ### Harness
 
-`internal/e2e` stands the system up per test; it holds only the harness and its
-own tests. The tests built on it live in two test-only packages beside it:
+`internal/e2e/harness` stands the system up per test; it holds only the harness
+and its own tests. The tests built on it live in two test-only packages beside
+it:
 `internal/e2e/api` for the API tests (one file per area, such as `task_test.go`
 or `taskscope_test.go`) and `internal/e2e/scenario` for the runner scenarios
 (one file per area, such as `start_test.go` or `faults_test.go`). A `Harness`
@@ -1106,7 +1107,7 @@ func Serve(ctx context.Context, opts ServeOptions) error
 ```
 
 ```go
-package e2e // github.com/gritzapp/gritz/internal/e2e  // new
+package harness // github.com/gritzapp/gritz/internal/e2e/harness  // new
 
 // The runner and workspace CreateTask uses where its request leaves them unset.
 const (

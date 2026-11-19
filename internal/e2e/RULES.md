@@ -5,7 +5,8 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 
 ## Where tests live
 
-- `internal/e2e` holds the harness only, plus its own tests (`server_test.go`).
+- `internal/e2e/harness` holds the harness only, plus its own tests
+  (`server_test.go`).
 - API tests built on the harness live in `internal/e2e/api` (`package
   api_test`), one file per area: `task_test.go`, `taskscope_test.go`,
   `event_test.go`, ...
@@ -30,12 +31,12 @@ Rules for `internal/e2e` and the tests built on it. The design is in
 
 ## Shape
 
-- One harness per test (`e2e.New(t, opts)`), created inside that test, so tests
+- One harness per test (`harness.New(t, opts)`), created inside that test, so tests
   can run in parallel.
 - Handles: `h.Server`, `h.Org` (the default org), and later `h.Backend` and
   `h.Runner`. Handles hold `t`, and their methods fail the test with `t.Fatal`
   instead of returning errors.
-- The runner is opt-in, through `e2e.Options`. Without it `h.Backend` and
+- The runner is opt-in, through `harness.Options`. Without it `h.Backend` and
   `h.Runner` are nil, and a server-only test may act as the runner with
   `Org.SubmitRunnerEvents`. Never do both: a test that enables the runner must
   not submit runner events by hand, since they would race the real runner's.

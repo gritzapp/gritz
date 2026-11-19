@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -22,7 +22,7 @@ import (
 func TestGetEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -61,7 +61,7 @@ func TestGetEvent(t *testing.T) {
 func TestGetEvent_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
@@ -87,7 +87,7 @@ func TestGetEvent_Permissions(t *testing.T) {
 func TestListEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -140,7 +140,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 	t.Parallel()
 	// Arrange - a task created with an instruction event, plus a link event from
 	// CreateLink; both belong to the org but are not org-feed rows.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/pull/1"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Draft:        true,
@@ -185,7 +185,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 func TestListEventsWithLimit(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -239,10 +239,10 @@ func TestListEventsWithLimit(t *testing.T) {
 func TestListEvents_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange - org A has two events, org B one.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	for org, descriptions := range map[*e2e.Org][]string{
+	for org, descriptions := range map[*harness.Org][]string{
 		h.Org: {"Org A's event 1", "Org A's event 2"},
 		other: {"Org B's event"},
 	} {
@@ -276,7 +276,7 @@ func TestListEvents_Permissions(t *testing.T) {
 func TestDeleteEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -304,7 +304,7 @@ func TestDeleteEvent(t *testing.T) {
 func TestDeleteEvent_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
@@ -333,7 +333,7 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 func TestListEventsByTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -371,7 +371,7 @@ func TestListEventsByTask(t *testing.T) {
 func TestListEventsByTask_Paged(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -432,7 +432,7 @@ func TestListEventsByTask_More(t *testing.T) {
 	// Arrange - the task's stream starts with its lifecycle CREATED and link
 	// events; add 4 externals for 6 total, an exact multiple of page size 2 so
 	// the oldest page is full (the exact-page_size boundary).
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -481,7 +481,7 @@ func TestListEventsByTask_More(t *testing.T) {
 func TestListEventsByTask_LiveFollow(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
@@ -556,7 +556,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 	// Arrange - a task whose stream carries mixed event types: an instruction
 	// from task creation, the lifecycle CREATED and link events, and an
 	// external.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/pull/1"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Draft:        true,
@@ -643,7 +643,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 func TestListEventsByTask_InvalidArgs(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 	// Act & Assert - a page size past the max → CodeInvalidArgument.
@@ -664,7 +664,7 @@ func TestListEventsByTask_InvalidArgs(t *testing.T) {
 func TestListEventsByTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/proto/driver/v1/driverv1connect"
@@ -20,7 +20,7 @@ import (
 
 func TestUnreportedRun(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -48,7 +48,7 @@ func TestUnreportedRun(t *testing.T) {
 
 func TestSandboxFails_Create(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{Concurrency: 1}})
 	m := &backend.BackendMock{
 		CreateFunc: func(context.Context, *backend.Spec) (backend.Sandbox, error) {
 			return nil, errors.New("e2e: create failed")
@@ -86,7 +86,7 @@ func TestSandboxFails_Create(t *testing.T) {
 
 func TestSandboxFails_Boot(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{Concurrency: 1}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{Concurrency: 1}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 		Draft:        true,
@@ -130,7 +130,7 @@ func TestSandboxFails_Boot(t *testing.T) {
 
 func TestDriverUnreachable(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 		Draft:        true,
@@ -158,7 +158,7 @@ func TestDriverUnreachable(t *testing.T) {
 
 func TestDriverDies_MidRun(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -185,7 +185,7 @@ func TestDriverDies_MidRun(t *testing.T) {
 
 func TestSandboxGone_MidRun(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -208,7 +208,7 @@ func TestSandboxGone_MidRun(t *testing.T) {
 
 func TestSandboxGone_Suspended(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
@@ -248,7 +248,7 @@ func TestSandboxGone_Suspended(t *testing.T) {
 
 func TestRunDropped(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{}})
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})

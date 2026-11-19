@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
@@ -17,7 +17,7 @@ import (
 func TestGetTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Draft: true,
 		Name:  "Test Task",
@@ -43,8 +43,8 @@ func TestGetTask(t *testing.T) {
 	assert.DeepEqual(t, resp.Task, &gritzv1.Task{
 		Id:          task.ID,
 		Name:        "Test Task",
-		Runner:      e2e.DefaultRunner,
-		Workspace:   e2e.DefaultWorkspace,
+		Runner:      harness.DefaultRunner,
+		Workspace:   harness.DefaultWorkspace,
 		Status:      gritzv1.TaskStatus_PENDING,
 		Command:     gritzv1.TaskCommand_START,
 		Actions:     &gritzv1.TaskActions{Cancel: true},
@@ -86,7 +86,7 @@ func TestGetTask(t *testing.T) {
 func TestGetTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
@@ -102,13 +102,13 @@ func TestGetTask_Permissions(t *testing.T) {
 func TestCreateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "New Task",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 		Instructions: []*gritzv1.Instruction{
 			{
 				Text: "Do something",
@@ -122,8 +122,8 @@ func TestCreateTask(t *testing.T) {
 	assert.DeepEqual(t, resp.Task, &gritzv1.Task{
 		Id:          resp.Task.Id,
 		Name:        "New Task",
-		Runner:      e2e.DefaultRunner,
-		Workspace:   e2e.DefaultWorkspace,
+		Runner:      harness.DefaultRunner,
+		Workspace:   harness.DefaultWorkspace,
 		Status:      gritzv1.TaskStatus_PENDING,
 		Command:     gritzv1.TaskCommand_START,
 		Actions:     &gritzv1.TaskActions{Cancel: true},
@@ -157,13 +157,13 @@ func TestCreateTask(t *testing.T) {
 func TestCreateTask_Draft(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Draft Task",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 		Draft:     true,
 	})
 
@@ -173,8 +173,8 @@ func TestCreateTask_Draft(t *testing.T) {
 	assert.DeepEqual(t, resp.Task, &gritzv1.Task{
 		Id:          resp.Task.Id,
 		Name:        "Draft Task",
-		Runner:      e2e.DefaultRunner,
-		Workspace:   e2e.DefaultWorkspace,
+		Runner:      harness.DefaultRunner,
+		Workspace:   harness.DefaultWorkspace,
 		Status:      gritzv1.TaskStatus_DRAFT,
 		Command:     gritzv1.TaskCommand_NONE,
 		Actions:     &gritzv1.TaskActions{Start: true, Archive: true},
@@ -208,7 +208,7 @@ func TestCreateTask_Draft(t *testing.T) {
 func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Draft Task", Draft: true})
 
 	// Act: exactly what the task page composer sends.
@@ -244,8 +244,8 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 			Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
 				Command:   gritzv1.TaskCommand_START,
 				Version:   1,
-				Runner:    e2e.DefaultRunner,
-				Workspace: e2e.DefaultWorkspace,
+				Runner:    harness.DefaultRunner,
+				Workspace: harness.DefaultWorkspace,
 			}},
 		}},
 		protocmp.Transform(),
@@ -272,7 +272,7 @@ func TestCreateTask_Draft_FirstInstructionStarts(t *testing.T) {
 func TestListTasks(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 1", Draft: true})
 	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task 2", Draft: true})
 
@@ -287,7 +287,7 @@ func TestListTasks(t *testing.T) {
 func TestListTasks_IncludeArchived(t *testing.T) {
 	t.Parallel()
 	// Arrange: one active task and one archived task in the same org.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	active := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active", Draft: true})
 	archived := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived", Draft: true})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: archived.ID})
@@ -318,7 +318,7 @@ func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 	t.Parallel()
 	// Arrange: two active and two archived rows so each filter mints a
 	// next-page token.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-1", Draft: true})
 	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "active-2", Draft: true})
 	archived1 := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "archived-1", Draft: true})
@@ -354,7 +354,7 @@ func TestListTasks_ArchivedTokenMismatch(t *testing.T) {
 func TestListTasks_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 1", Draft: true})
 	h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task 2", Draft: true})
@@ -373,7 +373,7 @@ func TestListTasks_Permissions(t *testing.T) {
 func TestListTasks_Pagination(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	first := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-1", Draft: true})
 	second := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task-2", Draft: true})
 
@@ -409,13 +409,13 @@ func TestListTasks_Pagination(t *testing.T) {
 func TestCreateTask_Namespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Namespaced Task",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 		Namespace: "reviewbot",
 	})
 
@@ -430,13 +430,13 @@ func TestCreateTask_Namespace(t *testing.T) {
 func TestCreateTask_DefaultNamespace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act: no namespace set — the default (empty) namespace.
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Default Task",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 	})
 
 	// Assert
@@ -449,13 +449,13 @@ func TestCreateTask_DefaultNamespace(t *testing.T) {
 func TestCreateTask_BadRunner(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Bad Task",
 		Runner:    "nonexistent-runner",
-		Workspace: e2e.DefaultWorkspace,
+		Workspace: harness.DefaultWorkspace,
 	})
 
 	// Assert
@@ -465,12 +465,12 @@ func TestCreateTask_BadRunner(t *testing.T) {
 func TestCreateTask_BadWorkspace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Bad Task",
-		Runner:    e2e.DefaultRunner,
+		Runner:    harness.DefaultRunner,
 		Workspace: "fake-workspace",
 	})
 
@@ -481,7 +481,7 @@ func TestCreateTask_BadWorkspace(t *testing.T) {
 func TestUpdateTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Original Name", Draft: true})
 
 	// Act
@@ -499,7 +499,7 @@ func TestUpdateTask(t *testing.T) {
 func TestUpdateTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
@@ -516,7 +516,7 @@ func TestUpdateTask_Permissions(t *testing.T) {
 func TestArchiveTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
@@ -530,7 +530,7 @@ func TestArchiveTask_Permissions(t *testing.T) {
 func TestCancelTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -545,7 +545,7 @@ func TestCancelTask_Permissions(t *testing.T) {
 func TestRestartTask_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -560,14 +560,14 @@ func TestRestartTask_Permissions(t *testing.T) {
 func TestCreateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	want := 90 * time.Minute
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:        "With archive",
-		Runner:      e2e.DefaultRunner,
-		Workspace:   e2e.DefaultWorkspace,
+		Runner:      harness.DefaultRunner,
+		Workspace:   harness.DefaultWorkspace,
 		AutoArchive: durationpb.New(want),
 	})
 
@@ -583,7 +583,7 @@ func TestCreateTask_AutoArchive(t *testing.T) {
 func TestUpdateTask_AutoArchive(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "No archive", Draft: true})
 	assert.Equal(t, task.Resp.Task.AutoArchive.AsDuration(), time.Duration(0), "unset means never auto-archive")
 	want := 24 * time.Hour
@@ -621,7 +621,7 @@ func TestUpdateTask_AutoArchive(t *testing.T) {
 func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	t.Parallel()
 	// Arrange: a draft can be archived directly.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Draft:       true,
 		Name:        "Auto-archive task",
@@ -650,7 +650,7 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 func TestCreateTask_Variables(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -681,7 +681,7 @@ func TestCreateTask_Variables(t *testing.T) {
 func TestCreateTask_VariablesOverrideDefault(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -736,7 +736,7 @@ func TestCreateTask_InvalidVariables(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			h := e2e.New(t, nil)
+			h := harness.New(t, nil)
 			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 				RunnerId: "runner-1",
 				Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -767,12 +767,12 @@ func TestCreateTask_InvalidVariables(t *testing.T) {
 func TestCreateTask_NoVariablesDeclared(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act - the harness workspace declares no variables, so accepts none.
 	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 		Draft:     true,
 		Variables: map[string]string{"BRANCH": "main"},
 	})

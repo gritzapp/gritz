@@ -6,7 +6,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
@@ -19,13 +19,13 @@ import (
 func TestCreateSchedule(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
 		Name:      "nightly",
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		Namespace: "reviewbot",
 		Instructions: []*gritzv1.Instruction{
 			{Text: "bump deps", Url: "https://example.com/deps"},
@@ -43,8 +43,8 @@ func TestCreateSchedule(t *testing.T) {
 	expected := &gritzv1.Schedule{
 		Id:        resp.Schedule.Id,
 		Name:      "nightly",
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		Namespace: "reviewbot",
 		Instructions: []*gritzv1.Instruction{
 			{Text: "bump deps", Url: "https://example.com/deps"},
@@ -70,12 +70,12 @@ func TestCreateSchedule(t *testing.T) {
 func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
 		Enabled:   false,
 	})
@@ -94,12 +94,12 @@ func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 func TestCreateSchedule_DefaultTimezone(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act - an empty timezone defaults to UTC.
 	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
 	})
 
@@ -111,12 +111,12 @@ func TestCreateSchedule_DefaultTimezone(t *testing.T) {
 func TestCreateSchedule_InvalidCron(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "not a cron",
 	})
 
@@ -129,12 +129,12 @@ func TestCreateSchedule_InvalidCron(t *testing.T) {
 func TestCreateSchedule_InvalidTimezone(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
 		Timezone:  "Mars/Phobos",
 	})
@@ -146,12 +146,12 @@ func TestCreateSchedule_InvalidTimezone(t *testing.T) {
 func TestCreateSchedule_BadWorkspace(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
 		Workspace: "fake-workspace",
-		Runner:    e2e.DefaultRunner,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
 	})
 
@@ -162,7 +162,7 @@ func TestCreateSchedule_BadWorkspace(t *testing.T) {
 func TestListSchedules(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{Name: "a", CronExpr: "0 9 * * *"})
 	h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{Name: "b", CronExpr: "0 10 * * *"})
@@ -181,7 +181,7 @@ func TestListSchedules(t *testing.T) {
 func TestGetSchedule_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
 
@@ -199,7 +199,7 @@ func TestGetSchedule_Permissions(t *testing.T) {
 func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
 	reader := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(authscope.OpTaskRead),
@@ -227,7 +227,7 @@ func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
 func TestSchedule_MutationsRequireWrite(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
 	writer := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(authscope.OpTaskWrite),
@@ -250,7 +250,7 @@ func TestSchedule_MutationsRequireWrite(t *testing.T) {
 func TestSetScheduleEnabled(t *testing.T) {
 	t.Parallel()
 	// Arrange - start disabled: no next fire time.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: false})
 	assert.Assert(t, sched.NextRunAt == nil)
 
@@ -289,7 +289,7 @@ func TestSetScheduleEnabled(t *testing.T) {
 func TestDeleteSchedule(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
 
 	// Act
@@ -304,7 +304,7 @@ func TestDeleteSchedule(t *testing.T) {
 func TestUpdateSchedule(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
 		Name:     "original",
 		CronExpr: "0 9 * * *",
@@ -317,8 +317,8 @@ func TestUpdateSchedule(t *testing.T) {
 	updated, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
 		Id:        sched.Id,
 		Name:      "renamed",
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "30 2 * * *",
 		Timezone:  "UTC",
 	})
@@ -332,8 +332,8 @@ func TestUpdateSchedule(t *testing.T) {
 		&gritzv1.Schedule{
 			Id:          sched.Id,
 			Name:        "renamed",
-			Workspace:   e2e.DefaultWorkspace,
-			Runner:      e2e.DefaultRunner,
+			Workspace:   harness.DefaultWorkspace,
+			Runner:      harness.DefaultRunner,
 			CronExpr:    "30 2 * * *",
 			Timezone:    "UTC",
 			Enabled:     true,
@@ -358,14 +358,14 @@ func TestUpdateSchedule(t *testing.T) {
 func TestUpdateSchedule_InvalidCron(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Timezone: "UTC"})
 
 	// Act
 	_, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
 		Id:        sched.Id,
-		Workspace: e2e.DefaultWorkspace,
-		Runner:    e2e.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
 		CronExpr:  "nonsense",
 	})
 
@@ -379,7 +379,7 @@ func TestUpdateSchedule_InvalidCron(t *testing.T) {
 func TestSchedule_Variables(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -440,7 +440,7 @@ func TestSchedule_InvalidVariables(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange
-			h := e2e.New(t, nil)
+			h := harness.New(t, nil)
 			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 				RunnerId: "runner-1",
 				Workspaces: []*gritzv1.RegisteredWorkspace{{
@@ -495,7 +495,7 @@ func TestSchedule_InvalidVariables(t *testing.T) {
 func TestRunSchedule(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	before := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
 		Name:      "nightly",
 		Namespace: "reviewbot",
@@ -531,8 +531,8 @@ func TestRunSchedule(t *testing.T) {
 		[]*gritzv1.Task{{
 			Id:        resp.Task.Id,
 			Name:      "nightly",
-			Workspace: e2e.DefaultWorkspace,
-			Runner:    e2e.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
 			Namespace: "reviewbot",
 		}},
 		protocmp.Transform(),
@@ -551,8 +551,8 @@ func TestRunSchedule(t *testing.T) {
 		{Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
 			Command:   gritzv1.TaskCommand_START,
 			Version:   1,
-			Runner:    e2e.DefaultRunner,
-			Workspace: e2e.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Workspace: harness.DefaultWorkspace,
 		}}},
 		{
 			Wake: true,
@@ -585,7 +585,7 @@ func TestRunSchedule(t *testing.T) {
 func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
 		Name:         "inert",
 		Instructions: []*gritzv1.Instruction{{Text: "smoke test"}},
@@ -617,7 +617,7 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 func TestRunSchedule_RequiresCreateScope(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
 	writer := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(authscope.OpTaskWrite),
@@ -626,15 +626,15 @@ func TestRunSchedule_RequiresCreateScope(t *testing.T) {
 		authscope.New(
 			authscope.OpTaskCreate,
 			authscope.WithTaskWorkspace("other-workspace"),
-			authscope.WithTaskRunner(e2e.DefaultRunner),
+			authscope.WithTaskRunner(harness.DefaultRunner),
 			authscope.WithTaskArchived(false),
 		),
 	})
 	creator := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(
 			authscope.OpTaskCreate,
-			authscope.WithTaskWorkspace(e2e.DefaultWorkspace),
-			authscope.WithTaskRunner(e2e.DefaultRunner),
+			authscope.WithTaskWorkspace(harness.DefaultWorkspace),
+			authscope.WithTaskRunner(harness.DefaultRunner),
 			authscope.WithTaskArchived(false),
 		),
 	})
@@ -659,7 +659,7 @@ func TestRunSchedule_RequiresCreateScope(t *testing.T) {
 func TestRunSchedule_NotFound(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	_, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: 999})

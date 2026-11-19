@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
 	"github.com/gritzapp/gritz/internal/x/testx"
@@ -16,7 +16,7 @@ import (
 
 func TestEnv(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
 		Secrets:  map[string]string{"E2E_SECRET": "s3cret"},
 		Commands: []string{"env > env"},
 	}})
@@ -36,7 +36,7 @@ func TestEnv(t *testing.T) {
 
 func TestEnv_Variables(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
 		Variables: map[string]workspace.VariableConfig{
 			"JIRA_ISSUE": {Required: true},
 			"BRANCH":     {Default: "main"},
@@ -61,14 +61,14 @@ func TestEnv_Variables(t *testing.T) {
 
 func TestEnv_VariablesStaleSchedule(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
 		Variables: map[string]workspace.VariableConfig{
 			"JIRA_ISSUE": {Required: true},
 		},
 	}})
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
-		RunnerId:   e2e.DefaultRunner,
-		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: e2e.DefaultWorkspace}},
+		RunnerId:   harness.DefaultRunner,
+		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: harness.DefaultWorkspace}},
 	})
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
@@ -89,7 +89,7 @@ func TestEnv_VariablesStaleSchedule(t *testing.T) {
 
 func TestSecretsMasked(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, &e2e.Options{Runner: &e2e.RunnerOptions{
+	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
 		Secrets: map[string]string{"E2E_SECRET": "s3cret"},
 		// The token is also kept in a file, unshipped, to compare against.
 		Commands: []string{"echo $E2E_SECRET; echo $GRITZ_TOKEN", "printenv GRITZ_TOKEN > token"},

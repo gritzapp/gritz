@@ -6,7 +6,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/command"
 	"github.com/gritzapp/gritz/internal/configfile"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"gotest.tools/v3/assert"
 )
@@ -14,7 +14,7 @@ import (
 // Not parallel: login writes to $GRITZ_CONFIG_DIR, which t.Setenv sets.
 func TestLogin(t *testing.T) {
 	// Arrange - a key in an org other than the owner's default
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "Acme Labs"})
 	key := other.CreateKey(&gritzv1.CreateKeyRequest{Name: "cli"})
 	dir := t.TempDir()

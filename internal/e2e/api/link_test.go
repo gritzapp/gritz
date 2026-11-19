@@ -3,7 +3,7 @@ package api_test
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -14,7 +14,7 @@ import (
 func TestCreateLink(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
 
 	// Act
@@ -46,7 +46,7 @@ func TestCreateLink(t *testing.T) {
 func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
 
 	// Act
@@ -86,7 +86,7 @@ func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
 
 	// Act - no routing_key supplied, so the server derives it from url
@@ -112,7 +112,7 @@ func TestCreateLink_DerivesRoutingKey(t *testing.T) {
 func TestCreateLink_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 
@@ -130,7 +130,7 @@ func TestCreateLink_Permissions(t *testing.T) {
 func TestListLinks(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Links", Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
@@ -156,7 +156,7 @@ func TestListLinks(t *testing.T) {
 func TestListLinks_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{

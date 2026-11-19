@@ -3,7 +3,7 @@ package api_test
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -12,7 +12,7 @@ import (
 func TestGetCaller_Key(t *testing.T) {
 	t.Parallel()
 	// Arrange - a key in an org other than the owner's default
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "other"})
 	key := other.CreateKey(&gritzv1.CreateKeyRequest{Name: "test-key"})
 

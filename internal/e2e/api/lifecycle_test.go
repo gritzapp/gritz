@@ -3,7 +3,7 @@ package api_test
 import (
 	"testing"
 
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
@@ -14,13 +14,13 @@ import (
 func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
 		Name:      "Task",
-		Runner:    e2e.DefaultRunner,
-		Workspace: e2e.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Workspace: harness.DefaultWorkspace,
 	})
 
 	// Assert
@@ -48,7 +48,7 @@ func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
 func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 
@@ -83,7 +83,7 @@ func TestLifecycle_CancelAppendsCancelledEventBesideProjection(t *testing.T) {
 func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -130,7 +130,7 @@ func TestLifecycle_TaskMutationsAppendEvents(t *testing.T) {
 func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -192,7 +192,7 @@ func TestLifecycle_RunnerEventsAppendSandboxEvents(t *testing.T) {
 func TestLifecycle_RunnerFailedFallsBackWhenNoReason(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	runner := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "runner"})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})

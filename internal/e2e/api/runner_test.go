@@ -5,7 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -15,7 +15,7 @@ import (
 func TestSubmitRunnerEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange - a pending task with a start command.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Test Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	assert.DeepEqual(t,
@@ -76,7 +76,7 @@ func TestSubmitRunnerEvents(t *testing.T) {
 func TestSubmitRunnerEvents_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
@@ -96,7 +96,7 @@ func TestListRunnerEvents(t *testing.T) {
 	t.Parallel()
 	// Arrange - a started task on each runner; starting one writes its command
 	// event.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId: "runner-1",
 		Workspaces: []*gritzv1.RegisteredWorkspace{
@@ -146,15 +146,15 @@ func TestListRunnerEvents(t *testing.T) {
 func TestListRunnerEvents_EmptyPage(t *testing.T) {
 	t.Parallel()
 	// Arrange - read the runner's whole log.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	want := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.ID})
-	token := h.Org.WaitRunnerEvents(e2e.DefaultRunner, len(want))
+	token := h.Org.WaitRunnerEvents(harness.DefaultRunner, len(want))
 
 	// Act
 	resp, err := h.Org.Client.ListRunnerEvents(t.Context(), &gritzv1.ListRunnerEventsRequest{
-		Runner:    e2e.DefaultRunner,
+		Runner:    harness.DefaultRunner,
 		PageToken: token,
 	})
 
@@ -170,7 +170,7 @@ func TestListRunnerEvents_EmptyPage(t *testing.T) {
 func TestListRunnerEvents_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange - a caller scoped to runner-1's tasks.
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	key := h.Org.CreateScopedKey(authscope.Scopes{
 		authscope.New(
 			authscope.OpTaskRead,
@@ -189,7 +189,7 @@ func TestListRunnerEvents_Permissions(t *testing.T) {
 
 func TestListRunnerEvents_BadRequest(t *testing.T) {
 	t.Parallel()
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	tests := []struct {
 		name string
 		req  *gritzv1.ListRunnerEventsRequest

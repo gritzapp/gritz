@@ -6,7 +6,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/auth/apiauth"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
-	"github.com/gritzapp/gritz/internal/e2e"
+	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
@@ -15,7 +15,7 @@ import (
 func TestCreateKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateKey(t.Context(), &gritzv1.CreateKeyRequest{
@@ -38,7 +38,7 @@ func TestCreateKey(t *testing.T) {
 func TestCreateKeyStoresAdminScopes(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 
 	// Act
 	resp, err := h.Org.Client.CreateKey(t.Context(), &gritzv1.CreateKeyRequest{
@@ -57,7 +57,7 @@ func TestCreateKeyStoresAdminScopes(t *testing.T) {
 func TestCreateAndListKeys(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "key-1"})
 	h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "key-2"})
 
@@ -78,7 +78,7 @@ func TestCreateAndListKeys(t *testing.T) {
 func TestDeleteKey(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	key := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "to-delete"})
 
 	// Act
@@ -96,7 +96,7 @@ func TestDeleteKey(t *testing.T) {
 func TestListKeys_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	orgA := h.Org
 	orgB := h.Server.CreateOrg()
 	orgA.CreateKey(&gritzv1.CreateKeyRequest{Name: "user-a-key"})
@@ -125,7 +125,7 @@ func TestListKeys_Permissions(t *testing.T) {
 func TestDeleteKey_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	h := e2e.New(t, nil)
+	h := harness.New(t, nil)
 	orgB := h.Server.CreateOrg()
 	key := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "user-a-key"})
 
