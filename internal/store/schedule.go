@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
@@ -14,6 +14,12 @@ import (
 func (s *Store) CreateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
 	now := time.Now().UTC()
 	instructions, err := marshalInstructions(sched.Instructions)
+	if err != nil {
+		return err
+	}
+	// json/v2 encodes a nil map as {}: schedules.variables holds an object
+	// even when the schedule has none.
+	variables, err := json.Marshal(sched.Variables)
 	if err != nil {
 		return err
 	}
@@ -34,6 +40,7 @@ func (s *Store) CreateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Sch
 		LastTaskID:   nullInt64(sched.LastTaskID),
 		CreatedAt:    now,
 		UpdatedAt:    now,
+		Variables:    variables,
 	})
 	if err != nil {
 		return err
@@ -80,6 +87,10 @@ func (s *Store) UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Sch
 	if err != nil {
 		return err
 	}
+	variables, err := json.Marshal(sched.Variables)
+	if err != nil {
+		return err
+	}
 	return s.q(tx).UpdateSchedule(ctx, sqlc.UpdateScheduleParams{
 		Name:         sched.Name,
 		Workspace:    sched.Workspace,
@@ -94,6 +105,7 @@ func (s *Store) UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Sch
 		LastRunAt:    nullTime(sched.LastRunAt),
 		LastTaskID:   nullInt64(sched.LastTaskID),
 		UpdatedAt:    sched.UpdatedAt,
+		Variables:    variables,
 		ID:           sched.ID,
 		OrgID:        sched.OrgID,
 	})
@@ -151,7 +163,7 @@ func (s *Store) AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID
 // marshalInstructions encodes the template instructions as the [{text, url}]
 // JSONB stored in schedules.instructions. A nil slice is stored as an empty JSON
 // array so the column never holds SQL NULL.
-func marshalInstructions(instructions []model.ScheduleInstruction) (json.RawMessage, error) {
+func marshalInstructions(instructions []model.ScheduleInstruction) ([]byte, error) {
 	if instructions == nil {
 		instructions = []model.ScheduleInstruction{}
 	}
@@ -166,6 +178,13 @@ func toModelSchedule(row sqlc.Schedule) (*model.Schedule, error) {
 	var instructions []model.ScheduleInstruction
 	if err := json.Unmarshal(row.Instructions, &instructions); err != nil {
 		return nil, fmt.Errorf("unmarshal schedule instructions: %w", err)
+	}
+	var variables map[string]string
+	if err := json.Unmarshal(row.Variables, &variables); err != nil {
+		return nil, fmt.Errorf("decode schedule %d variables: %w", row.ID, err)
+	}
+	if len(variables) == 0 {
+		variables = nil
 	}
 	return &model.Schedule{
 		ID:           row.ID,
@@ -185,6 +204,7 @@ func toModelSchedule(row sqlc.Schedule) (*model.Schedule, error) {
 		LastTaskID:   int64Ptr(row.LastTaskID),
 		CreatedAt:    row.CreatedAt,
 		UpdatedAt:    row.UpdatedAt,
+		Variables:    variables,
 	}, nil
 }
 

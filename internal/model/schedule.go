@@ -49,6 +49,10 @@ type Schedule struct {
 	Namespace    string                `json:"namespace,omitempty"`
 	Instructions []ScheduleInstruction `json:"instructions"`
 	AutoArchive  time.Duration         `json:"auto_archive,omitempty"`
+	// Variables are copied as given onto every task it creates, unresolved:
+	// the runner resolves them against the workspace's declarations when it
+	// starts the task. Nil when the schedule has none.
+	Variables map[string]string `json:"variables,omitempty"`
 
 	// Schedule spec.
 	CronExpr string `json:"cron_expr"`
@@ -80,6 +84,7 @@ func (s *Schedule) Task() *Task {
 		Version:     1,
 		OrgID:       s.OrgID,
 		AutoArchive: s.AutoArchive,
+		Variables:   s.Variables,
 	}
 }
 
@@ -164,6 +169,7 @@ func (s *Schedule) Proto() *gritzv1.Schedule {
 		CreatedBy:    s.CreatedBy,
 		CreatedAt:    timestamppb.New(s.CreatedAt),
 		UpdatedAt:    timestamppb.New(s.UpdatedAt),
+		Variables:    s.Variables,
 	}
 	for i, inst := range s.Instructions {
 		pb.Instructions[i] = &gritzv1.Instruction{Text: inst.Text, Url: inst.URL}

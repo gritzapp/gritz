@@ -30,6 +30,7 @@ function NewSchedulePage() {
       timezone: values.timezone,
       enabled: values.enabled,
       autoArchive: durationFromAutoArchiveSelect(values.autoArchive),
+      variables: values.variables,
     })
     navigate({ to: '/schedules', search: { org: orgId } })
   }

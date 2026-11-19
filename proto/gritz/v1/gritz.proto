@@ -944,7 +944,9 @@ message Schedule {
   string created_by = 14;                   // Who created it; grants no permissions.
   google.protobuf.Timestamp created_at = 15;
   google.protobuf.Timestamp updated_at = 16;
-  // Variables of the tasks it creates.
+  // Variables of the tasks it creates, by name, as saved. Each task gets them
+  // as they are; the runner fills in the workspace's defaults, and fails the
+  // task if the workspace no longer accepts them, when it starts it.
   map<string, string> variables = 17;
 }
 
@@ -960,7 +962,8 @@ message CreateScheduleRequest {
   // never runs until SetScheduleEnabled enables it.
   bool enabled = 8;
   google.protobuf.Duration auto_archive = 9;
-  // Variables of the tasks it creates.
+  // Variables of the tasks it creates, by name. Each must be declared by the
+  // workspace, and every required one set.
   map<string, string> variables = 10;
 }
 
@@ -995,7 +998,8 @@ message UpdateScheduleRequest {
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; empty defaults to "UTC".
   google.protobuf.Duration auto_archive = 9;
-  // Variables of the tasks it creates.
+  // Variables of the tasks it creates, by name. Each must be declared by the
+  // workspace, and every required one set.
   map<string, string> variables = 10;
 }
 

@@ -30,6 +30,7 @@ function scheduleToValues(schedule: Schedule): ScheduleFormValues {
     timezone: schedule.timezone,
     enabled: schedule.enabled,
     autoArchive: autoArchiveSelectValue(schedule.autoArchive),
+    variables: { ...schedule.variables },
   }
 }
 
@@ -58,6 +59,7 @@ function EditSchedulePage() {
       cronExpr: values.cronExpr,
       timezone: values.timezone,
       autoArchive: durationFromAutoArchiveSelect(values.autoArchive),
+      variables: values.variables,
     })
     // enabled lives on its own RPC (it has distinct side effects: enabling
     // recomputes next_run_at, disabling clears it), so only call it when the

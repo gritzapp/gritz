@@ -190,6 +190,13 @@ Quote the reference, as `"$GRITZ_VAR_BRANCH"`, so the shell passes the value as
 one word. Values are readable by anyone who can read the task and appear
 unmasked in its log: put credentials under `secrets:`.
 
+Each time it starts a task, the runner checks the task's variables against its
+own `variables:` and fills in defaults. A task this config no longer accepts,
+because it sets a variable that isn't declared or lacks a required one, fails
+with the reason on its timeline. So a change to `variables:` can fail the next
+start of a task created earlier, and of every task a
+[schedule](/concepts/schedules/#variables) saved before it creates.
+
 ## `capabilities`
 
 Capabilities let a task's token do more than read and update its own task. One

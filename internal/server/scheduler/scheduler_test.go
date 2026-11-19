@@ -23,8 +23,9 @@ func passthroughTx(_ context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) erro
 // TestScheduler_Tick_FiresDueSchedule is the happy path: a due schedule claimed
 // in the tick creates one task (a created event attributed to ScheduleActor, then
 // one instruction event per template instruction), advances next_run_at to the
-// first occurrence after now (skip-only), and the change notification is published
-// after the transaction.
+// first occurrence after now (skip-only), and the change notification is
+// published after the transaction. The schedule's variables are copied onto the
+// task unresolved.
 func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -47,6 +48,8 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		Timezone:  "UTC",
 		Enabled:   true,
 		NextRunAt: &stale,
+		// Copied onto the task as given: the runner resolves them.
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	st := &StoreMock{
 		WithTxFunc: passthroughTx,
@@ -79,6 +82,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   1,
 		OrgID:     7,
+		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 
 	// The created event first (ScheduleActor) and the start command, then one

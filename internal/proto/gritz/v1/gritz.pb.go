@@ -7264,7 +7264,9 @@ type Schedule struct {
 	CreatedBy    string                 `protobuf:"bytes,14,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`       // Who created it; grants no permissions.
 	CreatedAt    *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt    *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// Variables of the tasks it creates.
+	// Variables of the tasks it creates, by name, as saved. Each task gets them
+	// as they are; the runner fills in the workspace's defaults, and fails the
+	// task if the workspace no longer accepts them, when it starts it.
 	Variables     map[string]string `protobuf:"bytes,17,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7432,7 +7434,8 @@ type CreateScheduleRequest struct {
 	// never runs until SetScheduleEnabled enables it.
 	Enabled     bool                 `protobuf:"varint,8,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	AutoArchive *durationpb.Duration `protobuf:"bytes,9,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
-	// Variables of the tasks it creates.
+	// Variables of the tasks it creates, by name. Each must be declared by the
+	// workspace, and every required one set.
 	Variables     map[string]string `protobuf:"bytes,10,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -7764,7 +7767,8 @@ type UpdateScheduleRequest struct {
 	CronExpr     string                 `protobuf:"bytes,7,opt,name=cron_expr,json=cronExpr,proto3" json:"cron_expr,omitempty"`
 	Timezone     string                 `protobuf:"bytes,8,opt,name=timezone,proto3" json:"timezone,omitempty"` // IANA name; empty defaults to "UTC".
 	AutoArchive  *durationpb.Duration   `protobuf:"bytes,9,opt,name=auto_archive,json=autoArchive,proto3" json:"auto_archive,omitempty"`
-	// Variables of the tasks it creates.
+	// Variables of the tasks it creates, by name. Each must be declared by the
+	// workspace, and every required one set.
 	Variables     map[string]string `protobuf:"bytes,10,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

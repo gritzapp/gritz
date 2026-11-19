@@ -99,6 +99,7 @@ func TestCreateSchedule(t *testing.T) {
 			"cron_expr":    "0 3 * * *",
 			"timezone":     "Europe/Paris",
 			"auto_archive": "1h",
+			"variables":    map[string]any{"JIRA_ISSUE": "APP-142"},
 		},
 	})
 
@@ -116,6 +117,7 @@ func TestCreateSchedule(t *testing.T) {
 		CronExpr:     "0 3 * * *",
 		Timezone:     "Europe/Paris",
 		AutoArchive:  durationpb.New(time.Hour),
+		Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 	}, protocmp.Transform())
 	var got map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &got)
@@ -134,6 +136,7 @@ func TestUpdateSchedule(t *testing.T) {
 		Timezone:     "Europe/Paris",
 		Enabled:      true,
 		AutoArchive:  durationpb.New(time.Hour),
+		Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	tests := []struct {
 		name string
@@ -153,6 +156,7 @@ func TestUpdateSchedule(t *testing.T) {
 				CronExpr:     "0 9 * * *",
 				Timezone:     "Europe/Paris",
 				AutoArchive:  durationpb.New(time.Hour),
+				Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 			},
 		},
 		{
@@ -167,6 +171,7 @@ func TestUpdateSchedule(t *testing.T) {
 				"cron_expr":    "@daily",
 				"timezone":     "UTC",
 				"auto_archive": "0",
+				"variables":    map[string]any{"BRANCH": "dev"},
 			},
 			want: &gritzv1.UpdateScheduleRequest{
 				Id:           3,
@@ -177,6 +182,22 @@ func TestUpdateSchedule(t *testing.T) {
 				CronExpr:     "@daily",
 				Timezone:     "UTC",
 				AutoArchive:  durationpb.New(0),
+				Variables:    map[string]string{"BRANCH": "dev"},
+			},
+		},
+		{
+			name: "ClearVariables",
+			args: map[string]any{"id": 3, "variables": map[string]any{}},
+			want: &gritzv1.UpdateScheduleRequest{
+				Id:           3,
+				Name:         "nightly",
+				Workspace:    "ws",
+				Runner:       "r1",
+				Namespace:    "ops",
+				Instructions: []*gritzv1.Instruction{{Text: "bump deps", Url: "https://example.com/issue/1"}, {Text: "open a PR"}},
+				CronExpr:     "0 3 * * *",
+				Timezone:     "Europe/Paris",
+				AutoArchive:  durationpb.New(time.Hour),
 			},
 		},
 	}

@@ -80,15 +80,16 @@ func (h *handlers) getSchedule(ctx context.Context, req *mcp.CallToolRequest, in
 }
 
 type createScheduleInput struct {
-	Name        string `json:"name,omitempty" jsonschema:"The name of every task the schedule creates"`
-	Workspace   string `json:"workspace" jsonschema:"The workspace its tasks run in"`
-	Runner      string `json:"runner" jsonschema:"Runner ID to target"`
-	Namespace   string `json:"namespace,omitempty" jsonschema:"Its tasks' namespace. Empty is the default namespace."`
-	Instruction string `json:"instruction" jsonschema:"The instruction every task it creates starts with"`
-	CronExpr    string `json:"cron_expr" jsonschema:"When to create a task: a five-field cron expression (minute, hour, day of month, month, day of week) or @yearly, @monthly, @weekly, @daily, @hourly"`
-	Timezone    string `json:"timezone,omitempty" jsonschema:"The IANA timezone the cron expression is read in, such as \"Europe/Paris\" (default \"UTC\")"`
-	AutoArchive string `json:"auto_archive,omitempty" jsonschema:"Auto-archive its tasks this long after they reach a terminal status, as a Go duration string (e.g. \"30m\", \"1h\"). \"0\" or omitted = never, a negative value like \"-1s\" = archive immediately on terminal status, positive = delay."`
-	Enabled     bool   `json:"enabled,omitempty" jsonschema:"Whether the schedule runs. False (the default) creates it disabled."`
+	Name        string            `json:"name,omitempty" jsonschema:"The name of every task the schedule creates"`
+	Workspace   string            `json:"workspace" jsonschema:"The workspace its tasks run in"`
+	Runner      string            `json:"runner" jsonschema:"Runner ID to target"`
+	Namespace   string            `json:"namespace,omitempty" jsonschema:"Its tasks' namespace. Empty is the default namespace."`
+	Instruction string            `json:"instruction" jsonschema:"The instruction every task it creates starts with"`
+	CronExpr    string            `json:"cron_expr" jsonschema:"When to create a task: a five-field cron expression (minute, hour, day of month, month, day of week) or @yearly, @monthly, @weekly, @daily, @hourly"`
+	Timezone    string            `json:"timezone,omitempty" jsonschema:"The IANA timezone the cron expression is read in, such as \"Europe/Paris\" (default \"UTC\")"`
+	AutoArchive string            `json:"auto_archive,omitempty" jsonschema:"Auto-archive its tasks this long after they reach a terminal status, as a Go duration string (e.g. \"30m\", \"1h\"). \"0\" or omitted = never, a negative value like \"-1s\" = archive immediately on terminal status, positive = delay."`
+	Enabled     bool              `json:"enabled,omitempty" jsonschema:"Whether the schedule runs. False (the default) creates it disabled."`
+	Variables   map[string]string `json:"variables,omitempty" jsonschema:"The variables of every task it creates, by name, as in create_task. Each must be declared by the workspace."`
 }
 
 func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest, input createScheduleInput) (*mcp.CallToolResult, any, error) {
@@ -102,6 +103,7 @@ func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest,
 		CronExpr:     input.CronExpr,
 		Timezone:     input.Timezone,
 		Enabled:      input.Enabled,
+		Variables:    input.Variables,
 	}
 	if input.AutoArchive != "" {
 		d, err := parseAutoArchive(input.AutoArchive)
@@ -118,15 +120,16 @@ func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest,
 }
 
 type updateScheduleInput struct {
-	ID          int64   `json:"id" jsonschema:"The schedule ID"`
-	Name        *string `json:"name,omitempty" jsonschema:"A new name for the tasks it creates"`
-	Workspace   *string `json:"workspace,omitempty" jsonschema:"A new workspace for its tasks"`
-	Runner      *string `json:"runner,omitempty" jsonschema:"A new runner ID for its tasks"`
-	Namespace   *string `json:"namespace,omitempty" jsonschema:"A new namespace for its tasks"`
-	Instruction *string `json:"instruction,omitempty" jsonschema:"An instruction that replaces every instruction of the schedule"`
-	CronExpr    *string `json:"cron_expr,omitempty" jsonschema:"A new cron expression, as in create_schedule"`
-	Timezone    *string `json:"timezone,omitempty" jsonschema:"A new IANA timezone for the cron expression"`
-	AutoArchive *string `json:"auto_archive,omitempty" jsonschema:"A new auto-archive delay for its tasks, as in create_schedule"`
+	ID          int64              `json:"id" jsonschema:"The schedule ID"`
+	Name        *string            `json:"name,omitempty" jsonschema:"A new name for the tasks it creates"`
+	Workspace   *string            `json:"workspace,omitempty" jsonschema:"A new workspace for its tasks"`
+	Runner      *string            `json:"runner,omitempty" jsonschema:"A new runner ID for its tasks"`
+	Namespace   *string            `json:"namespace,omitempty" jsonschema:"A new namespace for its tasks"`
+	Instruction *string            `json:"instruction,omitempty" jsonschema:"An instruction that replaces every instruction of the schedule"`
+	CronExpr    *string            `json:"cron_expr,omitempty" jsonschema:"A new cron expression, as in create_schedule"`
+	Timezone    *string            `json:"timezone,omitempty" jsonschema:"A new IANA timezone for the cron expression"`
+	AutoArchive *string            `json:"auto_archive,omitempty" jsonschema:"A new auto-archive delay for its tasks, as in create_schedule"`
+	Variables   *map[string]string `json:"variables,omitempty" jsonschema:"Variables that replace every variable of the schedule, as in create_schedule. An empty object removes them all."`
 }
 
 func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest, input updateScheduleInput) (*mcp.CallToolResult, any, error) {
@@ -148,6 +151,7 @@ func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest,
 		CronExpr:     s.CronExpr,
 		Timezone:     s.Timezone,
 		AutoArchive:  s.AutoArchive,
+		Variables:    s.Variables,
 	}
 	if input.Name != nil {
 		updateReq.Name = *input.Name
@@ -169,6 +173,9 @@ func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	if input.Timezone != nil {
 		updateReq.Timezone = *input.Timezone
+	}
+	if input.Variables != nil {
+		updateReq.Variables = *input.Variables
 	}
 	if input.AutoArchive != nil {
 		d, err := parseAutoArchive(*input.AutoArchive)

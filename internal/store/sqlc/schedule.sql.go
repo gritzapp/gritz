@@ -99,8 +99,8 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 }
 
 const createSchedule = `-- name: CreateSchedule :one
-INSERT INTO schedules (org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+INSERT INTO schedules (org_id, created_by, name, workspace, runner, namespace, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 RETURNING id
 `
 
@@ -121,6 +121,7 @@ type CreateScheduleParams struct {
 	LastTaskID   sql.NullInt64   `json:"last_task_id"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	Variables    json.RawMessage `json:"variables"`
 }
 
 func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) (int64, error) {
@@ -141,6 +142,7 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 		arg.LastTaskID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Variables,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -298,8 +300,8 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 
 const updateSchedule = `-- name: UpdateSchedule :exec
 UPDATE schedules
-SET name = $1, workspace = $2, runner = $3, namespace = $4, instructions = $5, auto_archive = $6, cron_expr = $7, timezone = $8, enabled = $9, next_run_at = $10, last_run_at = $11, last_task_id = $12, updated_at = $13
-WHERE id = $14 AND org_id = $15
+SET name = $1, workspace = $2, runner = $3, namespace = $4, instructions = $5, auto_archive = $6, cron_expr = $7, timezone = $8, enabled = $9, next_run_at = $10, last_run_at = $11, last_task_id = $12, updated_at = $13, variables = $14
+WHERE id = $15 AND org_id = $16
 `
 
 type UpdateScheduleParams struct {
@@ -316,6 +318,7 @@ type UpdateScheduleParams struct {
 	LastRunAt    sql.NullTime    `json:"last_run_at"`
 	LastTaskID   sql.NullInt64   `json:"last_task_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	Variables    json.RawMessage `json:"variables"`
 	ID           int64           `json:"id"`
 	OrgID        int64           `json:"org_id"`
 }
@@ -335,6 +338,7 @@ func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) 
 		arg.LastRunAt,
 		arg.LastTaskID,
 		arg.UpdatedAt,
+		arg.Variables,
 		arg.ID,
 		arg.OrgID,
 	)
