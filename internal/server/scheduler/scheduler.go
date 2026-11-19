@@ -22,7 +22,6 @@ import (
 	"log/slog"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store"
@@ -144,22 +143,43 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	return nil
 }
 
+// InvalidError is a schedule Validate rejects: an invalid cron expression,
+// timezone or variable.
+type InvalidError struct {
+	Err error
+}
+
+func (e *InvalidError) Error() string { return e.Err.Error() }
+
+func (e *InvalidError) Unwrap() error { return e.Err }
+
+// WorkspaceNotFoundError is a schedule whose workspace isn't registered on its
+// runner.
+type WorkspaceNotFoundError struct {
+	Runner, Workspace string
+}
+
+func (e *WorkspaceNotFoundError) Error() string {
+	return fmt.Sprintf("workspace %q not found on runner %q", e.Workspace, e.Runner)
+}
+
 // Validate checks a schedule before it is saved: its cron expression and
 // timezone, that its workspace is registered, and its variables against the
-// workspace's declarations. It returns a connect error.
+// workspace's declarations. It returns an *InvalidError, a
+// *WorkspaceNotFoundError, or the store's error.
 func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) error {
 	if err := sched.Validate(); err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, err)
+		return &InvalidError{Err: err}
 	}
 	decls, err := st.GetWorkspaceVariables(ctx, tx, sched.Runner, sched.Workspace, sched.OrgID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", sched.Workspace, sched.Runner))
+			return &WorkspaceNotFoundError{Runner: sched.Runner, Workspace: sched.Workspace}
 		}
-		return connect.NewError(connect.CodeInternal, err)
+		return err
 	}
 	if _, err := taskvar.Resolve(decls, sched.Variables); err != nil {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", sched.Workspace, err))
+		return &InvalidError{Err: fmt.Errorf("workspace %q: %w", sched.Workspace, err)}
 	}
 	return nil
 }
