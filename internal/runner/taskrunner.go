@@ -205,27 +205,28 @@ func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 			return err
 		}
 	}
-	gone := tr.sbx.Boot(ctx)
-	if !errors.Is(gone, backend.ErrGone) {
-		return gone
-	}
-	tr.clear(ctx)
-	if !spec.Workspace.AutoReset {
-		return gone
-	}
-	tr.opts.Log.Info("sandbox gone, resetting", "task", tr.opts.TaskID, "version", spec.Version, "reason", gone)
-	if err := tr.enqueue(model.RunnerEvent{
-		TaskID:  tr.opts.TaskID,
-		Event:   model.RunnerEventReset,
-		Version: spec.Version,
-		Reason:  gone.Error(),
-	}); err != nil {
+	if err := tr.sbx.Boot(ctx); errors.Is(err, backend.ErrGone) {
+		tr.clear(ctx)
+		if !spec.Workspace.AutoReset {
+			return backend.ErrGone
+		}
+		tr.opts.Log.Info("sandbox gone, resetting", "task", tr.opts.TaskID, "version", spec.Version, "reason", err)
+		if err := tr.enqueue(model.RunnerEvent{
+			TaskID:  tr.opts.TaskID,
+			Event:   model.RunnerEventReset,
+			Version: spec.Version,
+			Reason:  err.Error(),
+		}); err != nil {
+			return err
+		}
+		if err := tr.create(ctx, spec); err != nil {
+			return err
+		}
+		return tr.sbx.Boot(ctx)
+	} else if err != nil {
 		return err
 	}
-	if err := tr.create(ctx, spec); err != nil {
-		return err
-	}
-	return tr.sbx.Boot(ctx)
+	return nil
 }
 
 // create creates the task's sandbox from spec and records its handle at
@@ -270,7 +271,8 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord
 	if err != nil {
 		return backend.StatusUnknown, fmt.Errorf("failed to get sandbox status: %w", err)
 	}
-	if st == backend.StatusUp {
+	switch st {
+	case backend.StatusUp:
 		tr.up = true
 	}
 	return st, nil
