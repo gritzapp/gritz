@@ -2705,7 +2705,10 @@ export const GenerateAtlassianWebhookSecretResponseSchema: GenMessage<GenerateAt
 
 /**
  * RuleCondition constrains one attribute of an event. Comparisons are exact and
- * case-sensitive.
+ * case-sensitive. A "glob" value is a pattern matched against the whole
+ * attribute: "*" and "?" match within a path segment (not "/"), "**" as a whole
+ * segment matches any number of segments, "[a-z]" matches a character class and
+ * "{a,b}" either alternative.
  *
  * @generated from message gritz.v1.RuleCondition
  */
@@ -2716,7 +2719,7 @@ export type RuleCondition = Message<"gritz.v1.RuleCondition"> & {
   attr: string;
 
   /**
-   * One of "equals", "prefix" or "contains".
+   * One of "equals", "prefix", "contains" or "glob".
    *
    * @generated from field: string op = 2;
    */

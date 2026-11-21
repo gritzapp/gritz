@@ -449,6 +449,28 @@ func TestMatchRule(t *testing.T) {
 			want: false,
 		},
 
+		// --- glob ---
+		{
+			name: "glob holds when any of many values matches",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "docs/**/*.md"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/src/index.md", "main.go"}}},
+			want:  true,
+		},
+		{
+			name: "glob fails when no value matches",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "docs/**/*.md"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/diagram.svg"}}},
+			want:  false,
+		},
+
 		// --- unknown op never matches ---
 		{
 			name: "unknown op never matches",

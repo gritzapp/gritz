@@ -106,6 +106,23 @@ func TestSchemaRegistryValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "valid glob",
+			rule: model.RoutingRule{
+				Source:     "test",
+				Type:       "label",
+				Conditions: []model.Condition{{Attr: "label", Op: "glob", Value: "team-{a,b}/**"}},
+			},
+		},
+		{
+			name: "malformed glob",
+			rule: model.RoutingRule{
+				Source:     "test",
+				Type:       "label",
+				Conditions: []model.Condition{{Attr: "label", Op: "glob", Value: "team-[a"}},
+			},
+			wantErr: true,
+		},
+		{
 			name: "unknown attr",
 			rule: model.RoutingRule{
 				Source:     "test",
