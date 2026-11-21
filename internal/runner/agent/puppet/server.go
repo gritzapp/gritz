@@ -13,7 +13,7 @@ import (
 // errClosed is the answer every open and later run gets once the Server is closed.
 const errClosed = "puppet server closed"
 
-// Server is the http.Handler Agents forward to. Each request becomes a Run,
+// Server is the http.Handler puppet agents forward to. Each request becomes a Run,
 // queued per task in arrival order and held open until it ends.
 type Server struct {
 	mu     sync.Mutex
@@ -126,8 +126,8 @@ func (s *Server) Runs(taskID int64) []*Run {
 	return slices.Clone(q.runs)
 }
 
-// Close fails every open run, and every run that arrives later, so the Agents
-// waiting on them return.
+// Close fails every open run, and every run that arrives later, so the puppet
+// agents waiting on them return.
 func (s *Server) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
