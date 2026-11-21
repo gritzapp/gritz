@@ -21,6 +21,10 @@ export function canRestartTask(task: TaskLike): boolean {
   return task.actions?.restart ?? false
 }
 
+export function canResetTask(task: TaskLike): boolean {
+  return task.actions?.reset ?? false
+}
+
 export function isArchivedTask(task: TaskLike): boolean {
   return task.archived
 }

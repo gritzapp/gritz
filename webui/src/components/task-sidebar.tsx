@@ -5,6 +5,7 @@ import type { TaskTab } from '@/lib/task'
 import {
   canArchiveTask,
   canCancelTask,
+  canResetTask,
   canRestartTask,
   canUnarchiveTask,
   isArchivedTask,
@@ -43,6 +44,7 @@ import {
   RotateCcw,
   ScrollText,
   Terminal,
+  Trash2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -71,6 +73,8 @@ export function TaskSidebar({
   cancelPending,
   onRestart,
   restartPending,
+  onReset,
+  resetPending,
 }: {
   task: Task
   title: string
@@ -90,6 +94,8 @@ export function TaskSidebar({
   cancelPending?: boolean
   onRestart: () => void
   restartPending?: boolean
+  onReset: () => void
+  resetPending?: boolean
 }) {
   return (
     <aside
@@ -231,6 +237,17 @@ export function TaskSidebar({
             onClick={onRestart}
             disabled={restartPending}
             pending={restartPending}
+          />
+        )}
+        {canResetTask(task) && (
+          <SidebarAction
+            icon={Trash2}
+            label="Reset sandbox"
+            collapsed={collapsed}
+            onClick={onReset}
+            disabled={resetPending}
+            pending={resetPending}
+            destructive
           />
         )}
         <AutoArchiveRow

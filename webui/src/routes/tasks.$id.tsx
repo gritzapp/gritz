@@ -8,6 +8,7 @@ import {
   unarchiveTask,
   cancelTask,
   restartTask,
+  resetSandbox,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { useState, useRef, useLayoutEffect } from 'react'
 import type { TaskTab } from '@/lib/task'
@@ -120,6 +121,7 @@ function TaskDetail() {
   const unarchiveMutation = useMutation(unarchiveTask, { onSuccess: refetchAll })
   const cancelMutation = useMutation(cancelTask, { onSuccess: refetchAll })
   const restartMutation = useMutation(restartTask, { onSuccess: refetchAll })
+  const resetMutation = useMutation(resetSandbox, { onSuccess: refetchAll })
 
   const handleArchive = async () => {
     await archiveMutation.mutateAsync({ id: taskId })
@@ -135,6 +137,10 @@ function TaskDetail() {
 
   const handleRestart = async () => {
     await restartMutation.mutateAsync({ id: taskId })
+  }
+
+  const handleReset = async () => {
+    await resetMutation.mutateAsync({ taskId })
   }
 
   const submitInstruction = async () => {
@@ -212,6 +218,8 @@ function TaskDetail() {
         cancelPending={cancelMutation.isPending}
         onRestart={handleRestart}
         restartPending={restartMutation.isPending}
+        onReset={handleReset}
+        resetPending={resetMutation.isPending}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
