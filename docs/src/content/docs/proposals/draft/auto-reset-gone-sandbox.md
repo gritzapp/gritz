@@ -51,8 +51,9 @@ auto-reset as future work: the runner creates the new sandbox itself, without th
 
 ## Design
 
-When a run's boot finds the task's sandbox gone, the runner creates a fresh
-sandbox and starts the same run in it, instead of failing the run. It reports
+When a run's boot finds the task's sandbox gone and the workspace sets
+`auto_reset: true`, the runner creates a fresh sandbox and starts the same run in
+it, instead of failing the run. It reports
 that it did, and the task's timeline shows **"Sandbox reset: …"** with the
 reason, before the run's "Sandbox started". The run's version, its command and
 the task's history are unchanged; the agent starts with a clean session in the
@@ -61,15 +62,16 @@ manual reset.
 
 The three questions the issue leaves open:
 
-- **Where the option lives: the workspace, `on_sandbox_gone: reset | fail`,
-  default `reset`.** Whether a run may land in a fresh sandbox is a property of
+- **Where the option lives: the workspace, `auto_reset: true | false`, default
+  `false`.** Whether a run may land in a fresh sandbox is a property of
   the work, not of the runtime or the runner: a workspace whose setup commands
   rebuild everything from the clone is fine with it; one whose agent keeps
   unpushed state on disk may want a human to look first. A workspace is also the
   unit the runner already reads per run (`backend.Spec.Workspace`), so the
-  option needs no new plumbing. The default is `reset` because the failure
-  protects nothing — the disk is gone either way — and only drops the wake.
-  `fail` keeps today's behaviour for workspaces that want it.
+  option needs no new plumbing. Auto-reset is opt-in: a run that unasked
+  lands in a fresh sandbox is a change in what a workspace's tasks can assume,
+  so the operator who knows what the workspace's sandboxes hold turns it on.
+  Leaving it off keeps today's behaviour.
 - **Which backends: any that reports `ErrGone`.** The handling is in
   `TaskRunner.boot`, which is backend-agnostic; a Lambda-only option would need
   the runner to ask which backend it has, for no benefit. A Docker container
@@ -78,7 +80,7 @@ The three questions the issue leaves open:
   the reason as its message.** It is the entry a manual reset ends with, without
   the "Sandbox reset requested by …" before it, so the timeline reads "Sandbox
   reset: previous sandbox gone: microvm vm-0123 is TERMINATED (…)", then "Sandbox
-  started". With `fail`, the user sees the "Sandbox failed: … sandbox is gone"
+  started". Without `auto_reset`, the user sees the "Sandbox failed: … sandbox is gone"
   entry they see today.
 
 ### Workspace config
@@ -86,32 +88,23 @@ The three questions the issue leaves open:
 `internal/runner/workspace/workspace.go`:
 
 ```go
-// OnSandboxGone is what a run does when the task's sandbox is gone at boot.
-type OnSandboxGone string
-
-const (
-	// OnSandboxGoneReset creates a fresh sandbox and starts the run in it.
-	OnSandboxGoneReset OnSandboxGone = "reset"
-	// OnSandboxGoneFail fails the run; the next start creates a fresh sandbox.
-	OnSandboxGoneFail OnSandboxGone = "fail"
-)
-
 type Workspace struct {
 	// ...
-	// OnSandboxGone is what a run does when the task's sandbox is gone at
-	// boot. Empty is OnSandboxGoneReset.
-	OnSandboxGone OnSandboxGone `yaml:"on_sandbox_gone"`
+	// AutoReset makes a run whose sandbox is gone at boot start in a fresh
+	// sandbox instead of failing; without it, the run fails and the next start
+	// creates a fresh sandbox.
+	AutoReset bool `yaml:"auto_reset"`
 }
 ```
 
-`Workspace.Validate` rejects any other value. The field is top-level, beside
+The field is top-level, beside
 `secrets:` and `capabilities:`, because it is backend-agnostic, unlike
 `container:` and `lambda_microvm:`.
 
 ```yaml
 workspaces:
   example:
-    on_sandbox_gone: fail
+    auto_reset: true
     lambda_microvm:
       # ...
 ```
@@ -172,9 +165,8 @@ No proto change: `RunnerEvent.event` is a string (its comment gains
 // sandbox. Then it boots the sandbox.
 //
 // If the sandbox is gone, boot drops it, leaving tr with no sandbox, and
-// follows the workspace's on_sandbox_gone: with reset it reports the run's
-// sandbox replaced and boots a fresh one; with fail it returns
-// backend.ErrGone, the caller reports the run failed, and the next boot
+// follows the workspace's auto_reset: with it, boot reports the run's sandbox
+// replaced and boots a fresh one; without it, boot returns backend.ErrGone, the caller reports the run failed, and the next boot
 // creates a fresh sandbox. Any other failure to boot keeps the sandbox and its
 // record, so it can still be destroyed.
 func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
@@ -192,7 +184,7 @@ func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 		return gone
 	}
 	tr.clear(ctx)
-	if spec.Workspace.OnSandboxGone == workspace.OnSandboxGoneFail {
+	if !spec.Workspace.AutoReset {
 		return gone
 	}
 	if err := tr.enqueue(model.RunnerEvent{
@@ -223,8 +215,8 @@ reset: …" then "Sandbox failed: …", which is what happened.
 **`Restore` stops clearing a gone sandbox.** It keeps the sandbox and its record,
 so the next start's `boot` gets `ErrGone` from it and takes the path above. One
 code path then decides every gone-at-boot case, and the expired VM behaves the
-same whether or not the runner restarted while the task was idle — with `reset`
-the timeline gets its entry, and with `fail` the run fails, neither of which
+same whether or not the runner restarted while the task was idle — with `auto_reset`
+the timeline gets its entry, and without it the run fails, neither of which
 happens today. `Load` is unchanged: it already treats `StatusGone` like
 `StatusSuspended`, failing a task that was running. A kept gone sandbox is
 otherwise harmless: `destroy` on it is a no-op, so a manual reset or an archive
@@ -246,8 +238,8 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 
 ## Implementation Plan
 
-1. **Workspace option** — Delivers: `OnSandboxGone`, the `on_sandbox_gone` field
-   and its validation. Read by nothing yet. Depends on: nothing. Verifiable by:
+1. **Workspace option** — Delivers: the `auto_reset` workspace field. Read by
+   nothing yet. Depends on: nothing. Verifiable by:
    review; (3)'s scenarios exercise both values.
 
 2. **`replaced` runner event** — Delivers: `RunnerEventReplaced`, its fold arm,
@@ -261,13 +253,13 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 3. **Replace a gone sandbox at boot** — Delivers: the `boot` change, and
    `Restore` keeping a gone sandbox. Depends on: (1), (2). Verifiable by:
    three `internal/e2e/scenario` tests on the `local` backend that delete a
-   task's sandbox between runs and restart it: with the default, the run
+   task's sandbox between runs and restart it: with `auto_reset: true`, the run
    completes in a new sandbox and the timeline has "Sandbox reset: previous
-   sandbox gone: …"; with `on_sandbox_gone: fail`, the run fails with the gone
-   error; and with the default and the runner restarted while the task is idle,
-   the run is replaced the same way (the `Restore` change).
+   sandbox gone: …"; with the default, the run fails with the gone error; and
+   with `auto_reset: true` and the runner restarted while the task is idle, the
+   run is replaced the same way (the `Restore` change).
 
-4. **Docs** — Delivers: `on_sandbox_gone` in the workspace fields table of
+4. **Docs** — Delivers: `auto_reset` in the workspace fields table of
    `operators/workspaces-yaml`, and the Lambda section of `operators/backends`
    saying what happens after `max_duration_seconds` instead of steering
    long-lived tasks to Docker. Depends on: (3). Verifiable by: `cd docs && pnpm
@@ -275,11 +267,14 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 
 ## Trade-offs
 
-- **Default `reset` vs. `fail`.** `fail` is safer only if the failure protected
-  something, and it doesn't: the sandbox is already gone and the next start
-  creates a fresh one regardless. What `fail` costs is the wake — a review
-  comment that sits unanswered until someone restarts the task. The visible
-  timeline entry keeps the reset from being silent.
+- **Opt-in vs. on by default.** The failure protects little: the sandbox is
+  already gone and the next start creates a fresh one regardless, so what it
+  costs is the wake — a review comment that sits unanswered until someone
+  restarts the task. But a run that lands in a fresh sandbox unasked is a new
+  thing for a workspace's tasks to cope with, and the operator is the one who
+  knows whether its setup rebuilds what the agent needs. Opt-in leaves every
+  existing workspace as it is; one whose sandboxes are disposable turns it on,
+  and the timeline entry keeps the reset from being silent.
 - **Workspace vs. backend config (`lambda_microvm:`).** Under the backend it
   would read naturally next to `max_duration_seconds`, but the behaviour is the
   runner's and holds for every backend; a Docker workspace would need its own
@@ -306,5 +301,5 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 
 ## Open Questions
 
-None. The default is settled above; a workspace that turns out to need a human
-in the loop sets `on_sandbox_gone: fail`.
+None. The default is settled above; a workspace whose sandboxes are disposable
+sets `auto_reset: true`.
