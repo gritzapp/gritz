@@ -148,6 +148,9 @@ var _ Client = &ClientMock{}
 //			RemoveOrgMemberFunc: func(contextMoqParam context.Context, removeOrgMemberRequest *gritzv1.RemoveOrgMemberRequest) (*gritzv1.RemoveOrgMemberResponse, error) {
 //				panic("mock out the RemoveOrgMember method")
 //			},
+//			ResetSandboxFunc: func(contextMoqParam context.Context, resetSandboxRequest *gritzv1.ResetSandboxRequest) (*gritzv1.ResetSandboxResponse, error) {
+//				panic("mock out the ResetSandbox method")
+//			},
 //			RestartTaskFunc: func(contextMoqParam context.Context, restartTaskRequest *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error) {
 //				panic("mock out the RestartTask method")
 //			},
@@ -322,6 +325,9 @@ type ClientMock struct {
 
 	// RemoveOrgMemberFunc mocks the RemoveOrgMember method.
 	RemoveOrgMemberFunc func(contextMoqParam context.Context, removeOrgMemberRequest *gritzv1.RemoveOrgMemberRequest) (*gritzv1.RemoveOrgMemberResponse, error)
+
+	// ResetSandboxFunc mocks the ResetSandbox method.
+	ResetSandboxFunc func(contextMoqParam context.Context, resetSandboxRequest *gritzv1.ResetSandboxRequest) (*gritzv1.ResetSandboxResponse, error)
 
 	// RestartTaskFunc mocks the RestartTask method.
 	RestartTaskFunc func(contextMoqParam context.Context, restartTaskRequest *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error)
@@ -665,6 +671,13 @@ type ClientMock struct {
 			// RemoveOrgMemberRequest is the removeOrgMemberRequest argument value.
 			RemoveOrgMemberRequest *gritzv1.RemoveOrgMemberRequest
 		}
+		// ResetSandbox holds details about calls to the ResetSandbox method.
+		ResetSandbox []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// ResetSandboxRequest is the resetSandboxRequest argument value.
+			ResetSandboxRequest *gritzv1.ResetSandboxRequest
+		}
 		// RestartTask holds details about calls to the RestartTask method.
 		RestartTask []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -800,6 +813,7 @@ type ClientMock struct {
 	lockPing                           sync.RWMutex
 	lockRegisterWorkspaces             sync.RWMutex
 	lockRemoveOrgMember                sync.RWMutex
+	lockResetSandbox                   sync.RWMutex
 	lockRestartTask                    sync.RWMutex
 	lockRunSchedule                    sync.RWMutex
 	lockSetCustomEventTypes            sync.RWMutex
@@ -2360,6 +2374,42 @@ func (mock *ClientMock) RemoveOrgMemberCalls() []struct {
 	mock.lockRemoveOrgMember.RLock()
 	calls = mock.calls.RemoveOrgMember
 	mock.lockRemoveOrgMember.RUnlock()
+	return calls
+}
+
+// ResetSandbox calls ResetSandboxFunc.
+func (mock *ClientMock) ResetSandbox(contextMoqParam context.Context, resetSandboxRequest *gritzv1.ResetSandboxRequest) (*gritzv1.ResetSandboxResponse, error) {
+	if mock.ResetSandboxFunc == nil {
+		panic("ClientMock.ResetSandboxFunc: method is nil but Client.ResetSandbox was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam     context.Context
+		ResetSandboxRequest *gritzv1.ResetSandboxRequest
+	}{
+		ContextMoqParam:     contextMoqParam,
+		ResetSandboxRequest: resetSandboxRequest,
+	}
+	mock.lockResetSandbox.Lock()
+	mock.calls.ResetSandbox = append(mock.calls.ResetSandbox, callInfo)
+	mock.lockResetSandbox.Unlock()
+	return mock.ResetSandboxFunc(contextMoqParam, resetSandboxRequest)
+}
+
+// ResetSandboxCalls gets all the calls that were made to ResetSandbox.
+// Check the length with:
+//
+//	len(mockedClient.ResetSandboxCalls())
+func (mock *ClientMock) ResetSandboxCalls() []struct {
+	ContextMoqParam     context.Context
+	ResetSandboxRequest *gritzv1.ResetSandboxRequest
+} {
+	var calls []struct {
+		ContextMoqParam     context.Context
+		ResetSandboxRequest *gritzv1.ResetSandboxRequest
+	}
+	mock.lockResetSandbox.RLock()
+	calls = mock.calls.ResetSandbox
+	mock.lockResetSandbox.RUnlock()
 	return calls
 }
 

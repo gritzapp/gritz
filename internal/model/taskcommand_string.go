@@ -12,11 +12,12 @@ func _() {
 	_ = x[TaskCommandRestart-1]
 	_ = x[TaskCommandStop-2]
 	_ = x[TaskCommandStart-3]
+	_ = x[TaskCommandReset-4]
 }
 
-const _TaskCommand_name = "NoneRestartStopStart"
+const _TaskCommand_name = "NoneRestartStopStartReset"
 
-var _TaskCommand_index = [...]uint8{0, 4, 11, 15, 20}
+var _TaskCommand_index = [...]uint8{0, 4, 11, 15, 20, 25}
 
 func (i TaskCommand) String() string {
 	idx := int(i) - 0

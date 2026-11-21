@@ -57,6 +57,7 @@ const (
 	TaskCommandRestart TaskCommand = TaskCommand(gritzv1.TaskCommand_RESTART)
 	TaskCommandStop    TaskCommand = TaskCommand(gritzv1.TaskCommand_STOP)
 	TaskCommandStart   TaskCommand = TaskCommand(gritzv1.TaskCommand_START)
+	TaskCommandReset   TaskCommand = TaskCommand(gritzv1.TaskCommand_RESET)
 )
 
 // Task represents a task in the system. Instructions are no longer a Task field —
@@ -153,6 +154,7 @@ func (t *Task) Proto(baseURL string) *gritzv1.Task {
 			Cancel:    t.CanCancel(),
 			Restart:   t.CanRestart(),
 			Start:     t.CanStart(),
+			Reset_:    t.CanReset(),
 		},
 	}
 }
@@ -191,6 +193,7 @@ const (
 	RunnerEventStarted RunnerEventType = "started"
 	RunnerEventStopped RunnerEventType = "stopped"
 	RunnerEventFailed  RunnerEventType = "failed"
+	RunnerEventReset   RunnerEventType = "reset"
 )
 
 // RunnerEvent represents an event from the runner about a task's container.
@@ -252,6 +255,8 @@ func (t *Task) ApplyRunnerEvent(e *RunnerEvent) bool {
 		return t.applyRunnerEventStopped()
 	case RunnerEventFailed:
 		return t.applyRunnerEventFailed()
+	case RunnerEventReset:
+		return t.applyRunnerEventReset()
 	default:
 		return false
 	}
@@ -327,6 +332,14 @@ func (t *Task) applyRunnerEventFailed() bool {
 	}
 }
 
+func (t *Task) applyRunnerEventReset() bool {
+	if t.Command != TaskCommandReset {
+		return false
+	}
+	t.Command = TaskCommandNone
+	return true
+}
+
 // LifecycleEvent maps the runner event to its sandbox lifecycle event. task
 // carries the post-fold status and from is the status before the fold, so the
 // payload records the transition (e.g. RUNNING -> COMPLETED). The container
@@ -355,6 +368,8 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 		// The reason is passed through as-is; fall back to the legacy constant
 		// only when a producer left it empty (old runners/drivers).
 		return lifecycle(LifecycleKindSandboxFailed, cmp.Or(e.Reason, "container failed")), true
+	case RunnerEventReset:
+		return lifecycle(LifecycleKindSandboxReset, ""), true
 	default:
 		return nil, false
 	}
@@ -532,6 +547,24 @@ func (t *Task) Start() bool {
 		t.Version++
 	}
 	t.Command = TaskCommandStart
+	return true
+}
+
+// CanReset reports whether the task's sandbox can be deleted. Only a finished
+// task qualifies: a live sandbox is stopped (Cancel), not deleted. A command
+// already in flight holds the slot, so reset waits its turn.
+func (t *Task) CanReset() bool {
+	return !t.Archived && t.Status.IsTerminal() && t.Command == TaskCommandNone
+}
+
+// Reset sets the reset command, asking the runner to delete the task's
+// sandbox. Status and version are deliberately untouched: no run starts or
+// ends. The next start finds no sandbox and creates a fresh one.
+func (t *Task) Reset() bool {
+	if !t.CanReset() {
+		return false
+	}
+	t.Command = TaskCommandReset
 	return true
 }
 

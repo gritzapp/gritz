@@ -39,6 +39,8 @@ func TestAllMethodsScopeChecked(t *testing.T) {
 		// CreateGitHubToken is intentionally Unimplemented on the API server; only
 		// the runner proxy serves it (#806).
 		"CreateGitHubToken": "API server leaves it Unimplemented; served by the runner proxy",
+		// ResetSandbox stays Unimplemented until its handler lands (#1958).
+		"ResetSandbox": "API server leaves it Unimplemented until its handler lands",
 	}
 	srv := New(Options{})
 	// A present-but-scopeless caller: tenancy is satisfied (a caller exists) so

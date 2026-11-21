@@ -27,6 +27,7 @@ service GritzService {
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
   rpc RestartTask(RestartTaskRequest) returns (RestartTaskResponse);
   rpc OpenShell(OpenShellRequest) returns (OpenShellResponse);
+  rpc ResetSandbox(ResetSandboxRequest) returns (ResetSandboxResponse);
   // Called by the agent's `report` tool in a task's sandbox. Each entry of type
   // `llm` is added to the task as a report event; entries of other types are
   // ignored.
@@ -105,6 +106,7 @@ message TaskActions {
   bool restart = 3;
   bool start = 4;
   bool unarchive = 5;
+  bool reset = 6;
 }
 
 enum TaskStatus {
@@ -124,6 +126,7 @@ enum TaskCommand {
   RESTART = 1;
   STOP = 2;
   START = 3;
+  RESET = 4;
 }
 
 message Task {
@@ -307,6 +310,14 @@ message OpenShellResponse {
   // it.
   string session_id = 1;
 }
+
+// ResetSandboxRequest deletes a finished task's sandbox, so that its next run
+// starts in a fresh one. The task's status, version and history are unchanged.
+message ResetSandboxRequest {
+  int64 task_id = 1;
+}
+
+message ResetSandboxResponse {}
 
 message LogEntry {
   string type = 1;
@@ -528,6 +539,8 @@ enum LifecycleKind {
   LIFECYCLE_KIND_SANDBOX_STARTED = 8;
   LIFECYCLE_KIND_SANDBOX_EXITED = 9;
   LIFECYCLE_KIND_SANDBOX_FAILED = 10;
+  LIFECYCLE_KIND_RESET_REQUESTED = 11;
+  LIFECYCLE_KIND_SANDBOX_RESET = 12;
 }
 
 message ListExternalEventsRequest {
@@ -577,7 +590,7 @@ message ListEventsByTaskResponse {
 
 message RunnerEvent {
   int64 task_id = 1;
-  string event = 2;     // "started", "stopped" or "failed".
+  string event = 2;     // "started", "stopped", "failed" or "reset".
   // The run (Task.version) the event is about. An event for another run than
   // the task's current one is ignored; 0 applies to the current run.
   int64 version = 3;
