@@ -41,7 +41,8 @@ type TaskRunner struct {
 	sbx backend.Sandbox
 	rec runnerstore.SandboxRecord
 	// up is set by Restore for a sandbox it finds up: RunLoop drives it
-	// first, with the slot Load counted for it.
+	// first, with the slot Load counted for it, before the task's first
+	// report.
 	up bool
 
 	// changeMu guards change, the task's latest report, and seq, the
@@ -318,13 +319,15 @@ type handled struct {
 // RunLoop is the TaskRunner's lifetime: it boots, drives and suspends the
 // task's sandbox as the task's reports ask, and returns nil once the task is
 // archived and its sandbox destroyed. The manager hands it the task's first
-// report before it starts.
+// report before it starts, unless Restore found the sandbox up.
 //
 // Each pass waits for a start or restart newer than the last version it
 // handled, takes a slot, boots the sandbox, and holds the driver's stream in
 // drive until the driver is idle; then it releases the slot and suspends the
 // sandbox. A sandbox Restore found up is driven first, with the slot Load
-// counted for it. Only the wait for a slot is preempted by a newer report;
+// counted for it, without waiting for the task's first report: reattaching
+// needs none, and RunLoop acts on reports only once it is over. Only the
+// wait for a slot is preempted by a newer report;
 // a reset or an archive that arrives during a boot or a drive waits for it
 // to end.
 //
@@ -335,8 +338,8 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 	if tr.opts.Slots == nil || tr.opts.Queue == nil || tr.opts.Stream == nil || tr.opts.Spec == nil {
 		panic("runner: TaskRunnerOptions.Slots, Queue, Stream and Spec are required to RunLoop")
 	}
-	if _, seq := tr.latest(); seq == 0 {
-		panic("runner: RunLoop before the TaskRunner's first Change")
+	if _, seq := tr.latest(); seq == 0 && !tr.up {
+		panic("runner: RunLoop before the TaskRunner's first Change, with no sandbox up to reattach to")
 	}
 	var h handled
 	if tr.up {
@@ -388,6 +391,9 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 //
 // A reset is not versioned: two resets of the same run are both legitimate,
 // so next resets once for every report of a reset, even a repeated one.
+//
+// Until the task's first report, which a reattach may precede, next has
+// nothing to act on, and waits.
 func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskChange, archived bool, err error) {
 	retry := doubling(tr.opts.RetryInterval, tr.opts.RetryMaxInterval)
 	for {
@@ -544,9 +550,18 @@ func (tr *TaskRunner) drive(ctx context.Context, spec *driverv1.RunSpec) (int64,
 
 // lost reports the task's latest run failed for why, as drive gave up on its
 // driver, and returns its version: the latest report's, or the record's if
-// that is newer.
+// that is newer. A reattach can give up before the task's first report, so
+// lost waits for it: the record alone may be a run behind the driver.
 func (tr *TaskRunner) lost(ctx context.Context, why string) (int64, error) {
-	c, _ := tr.latest()
+	c, seq := tr.latest()
+	for seq == 0 {
+		select {
+		case <-tr.changed:
+		case <-ctx.Done():
+			return 0, context.Cause(ctx)
+		}
+		c, seq = tr.latest()
+	}
 	version := max(c.Version, tr.rec.Version)
 	if tr.sbx != nil && tr.gone(ctx, tr.sbx) {
 		tr.clear(ctx)

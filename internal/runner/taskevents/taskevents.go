@@ -44,6 +44,8 @@ type Log struct {
 
 	wake  wakeup.Chan
 	tasks chan runnerstore.TaskChange
+	// synced is closed once Run's first sync has completed.
+	synced chan struct{}
 
 	// stored wakes every blocked Read when a page is stored.
 	stored wakeup.Broadcast
@@ -60,16 +62,24 @@ func New(opts Options) *Log {
 		log:      cmp.Or(opts.Log, slog.Default()),
 		wake:     wakeup.New(),
 		tasks:    make(chan runnerstore.TaskChange),
+		synced:   make(chan struct{}),
 	}
 }
 
 // Run replicates until ctx ends: it syncs with the server, then waits for a
 // Wake or the poll interval, and repeats. A failed fetch is logged and
-// retried at the next sync; a store error ends Run.
+// retried at the next sync; a store error ends Run. Run closes Synced once
+// a sync has fetched every page the server had.
 func (l *Log) Run(ctx context.Context) error {
+	synced := false
 	for {
-		if err := l.sync(ctx); err != nil {
+		done, err := l.sync(ctx)
+		if err != nil {
 			return err
+		}
+		if done && !synced {
+			close(l.synced)
+			synced = true
 		}
 		// A page with more == false means nothing is readable right now, not
 		// that the replica is caught up: the server's xid watermark can hold
@@ -84,12 +94,13 @@ func (l *Log) Run(ctx context.Context) error {
 	}
 }
 
-// sync stores every page the server has after the stored cursor. It returns
-// only store and ctx errors; a failed fetch is logged and ends the sync.
-func (l *Log) sync(ctx context.Context) error {
+// sync stores every page the server has after the stored cursor, and
+// reports whether it got to the last one. It returns only store and ctx
+// errors; a failed fetch is logged and ends the sync.
+func (l *Log) sync(ctx context.Context) (done bool, err error) {
 	cursor, err := l.store.EventReplicationCursor(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	req := &gritzv1.ListRunnerEventsRequest{Runner: l.runnerID, PageToken: cursor}
 	for resp, err := range gritzclient.ListRunnerEvents(ctx, l.client, req) {
@@ -97,23 +108,23 @@ func (l *Log) sync(ctx context.Context) error {
 			if ctx.Err() == nil {
 				l.log.Warn("taskevents: fetch runner events", "err", err)
 			}
-			return nil
+			return false, nil
 		}
 		if len(resp.GetEvents()) == 0 {
 			continue
 		}
 		changes, err := l.store.AppendEvents(ctx, resp.GetEvents(), resp.GetNextPageToken())
 		if err != nil {
-			return err
+			return false, err
 		}
 		l.stored.Wake()
 		for _, c := range changes {
 			if err := l.report(ctx, c); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // report sends c on Tasks(), blocking until it is received or ctx ends.
@@ -139,6 +150,14 @@ func (l *Log) Wake() {
 // received.
 func (l *Log) Tasks() <-chan runnerstore.TaskChange {
 	return l.tasks
+}
+
+// Synced is closed once Run's first sync has completed: every page the
+// server had when it was fetched is stored, and every report from it
+// received from Tasks(). A failed fetch doesn't complete a sync, so while the
+// server is unreachable Synced stays open.
+func (l *Log) Synced() <-chan struct{} {
+	return l.synced
 }
 
 // Stream returns the task's event stream.
