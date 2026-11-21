@@ -6,7 +6,6 @@ package taskevents
 import (
 	"cmp"
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -69,7 +68,7 @@ func New(opts Options) *Log {
 // retried at the next sync; a store error ends Run.
 func (l *Log) Run(ctx context.Context) error {
 	for {
-		if err := l.sync(ctx); err != nil {
+		if _, err := l.sync(ctx, true); err != nil {
 			return err
 		}
 		// A page with more == false means nothing is readable right now, not
@@ -86,61 +85,59 @@ func (l *Log) Run(ctx context.Context) error {
 }
 
 // Sync stores every page the server has after the stored cursor, without
-// reporting any on Tasks(), and returns once the replica has caught up with
-// the server. It is for startup, before Run: nothing reads Tasks() yet. A
-// failed fetch is returned, like a store error.
+// reporting any on Tasks(), and returns once the replica has caught up: it is
+// for startup, before Run, when nothing reads Tasks(). After a failed fetch it
+// waits the poll interval and tries again. It returns only store and ctx
+// errors.
 func (l *Log) Sync(ctx context.Context) error {
-	return l.catchUp(ctx, func(runnerstore.TaskChange) error { return nil })
-}
-
-// sync stores every page the server has after the stored cursor, and reports
-// each page's changes on Tasks(). It returns only store and ctx errors; a
-// failed fetch is logged and ends the sync.
-func (l *Log) sync(ctx context.Context) error {
-	err := l.catchUp(ctx, func(c runnerstore.TaskChange) error { return l.report(ctx, c) })
-	if fe := (fetchError{}); errors.As(err, &fe) {
-		if ctx.Err() == nil {
-			l.log.Warn("taskevents: fetch runner events", "err", err)
+	for {
+		done, err := l.sync(ctx, false)
+		if err != nil || done {
+			return err
 		}
-		return nil
+		select {
+		case <-time.After(l.interval):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	return err
 }
 
-// fetchError is a failure to fetch a page of the runner's events.
-type fetchError struct{ err error }
-
-func (e fetchError) Error() string { return "fetch runner events: " + e.err.Error() }
-func (e fetchError) Unwrap() error { return e.err }
-
-// catchUp stores every page the server has after the stored cursor, and
-// hands each page's changes to report once the page is stored. A failed
-// fetch ends it with a fetchError.
-func (l *Log) catchUp(ctx context.Context, report func(runnerstore.TaskChange) error) error {
+// sync stores every page the server has after the stored cursor and, if
+// report is set, reports each page's changes on Tasks() once it is stored. It
+// returns whether it reached the last page, and only store and ctx errors; a
+// failed fetch is logged and ends the sync.
+func (l *Log) sync(ctx context.Context, report bool) (bool, error) {
 	cursor, err := l.store.EventReplicationCursor(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	req := &gritzv1.ListRunnerEventsRequest{Runner: l.runnerID, PageToken: cursor}
 	for resp, err := range gritzclient.ListRunnerEvents(ctx, l.client, req) {
 		if err != nil {
-			return fetchError{err}
+			if ctx.Err() == nil {
+				l.log.Warn("taskevents: fetch runner events", "err", err)
+			}
+			return false, nil
 		}
 		if len(resp.GetEvents()) == 0 {
 			continue
 		}
 		changes, err := l.store.AppendEvents(ctx, resp.GetEvents(), resp.GetNextPageToken())
 		if err != nil {
-			return err
+			return false, err
 		}
 		l.stored.Wake()
+		if !report {
+			continue
+		}
 		for _, c := range changes {
-			if err := report(c); err != nil {
-				return err
+			if err := l.report(ctx, c); err != nil {
+				return false, err
 			}
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // report sends c on Tasks(), blocking until it is received or ctx ends.
@@ -160,10 +157,10 @@ func (l *Log) Wake() {
 }
 
 // Tasks reports the full state of each task with a command or archive event
-// in a page Run stores, after that page. Tasks already stored when Run starts,
-// those Sync stored included, are not reported. A report may repeat a task's current state, so the
-// consumer must apply them idempotently. Run blocks until each report is
-// received.
+// in a page Run stores, after that page. Tasks already stored when Run
+// starts, those Sync stored included, are not reported. A report may repeat a
+// task's current state, so the consumer must apply them idempotently. Run
+// blocks until each report is received.
 func (l *Log) Tasks() <-chan runnerstore.TaskChange {
 	return l.tasks
 }
