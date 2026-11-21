@@ -88,13 +88,14 @@ the command line the driver logs carries the name, not the value.
 
 | Field | |
 | --- | --- |
-| `type` | `claude` (the default), `codex`, `cursor`, `copilot` or `process`. `dummy` is a stand-in that runs no model, for testing a runner. |
+| `type` | `claude` (the default), `codex`, `cursor`, `copilot`, `process` or `gritzrpc`. `dummy` is a stand-in that runs no model, for testing a runner. |
 | `cwd` | The directory the agent starts in. `$VAR` references are expanded from the sandbox's environment. |
-| `prompt` | Text added to the agent's prompt on a task's first run, after gritz's own instructions: conventions for this repository, say. |
-| `verbose` | Log every raw line of the agent CLI's output instead of parsing it. Supported by `claude`, `codex` and `cursor`. See [Debugging](/operators/debugging/#raw-agent-output). |
+| `prompt` | Text added to the agent's prompt on a task's first run, after gritz's own instructions: conventions for this repository, say. Not allowed with `gritzrpc`. |
+| `verbose` | Log every raw line of the agent CLI's output instead of parsing it. Supported by `claude`, `codex` and `cursor`; not allowed with `gritzrpc`. See [Debugging](/operators/debugging/#raw-agent-output). |
 | `mcp_servers` | MCP servers for the agent, by name. |
 | `claude`, `codex`, `cursor`, `copilot` | Options for that agent: `model`, and `bin`, the CLI to run if not the default (`claude`, `codex` and so on). |
 | `process` | For `type: process`: `command`, the program to run and its arguments, as a list. See [Custom agent process](#custom-agent-process). |
+| `gritzrpc` | For `type: gritzrpc`: `command`, the program to run (required), and `args`, its arguments. See [gritzrpc agent](#gritzrpc-agent). |
 
 The agent CLI has to be installed in the image. Claude Code runs with
 `--model opus` unless `claude.model` is set; the other agents use their CLI's
@@ -126,6 +127,40 @@ agent:
   process:
     command: [/usr/local/bin/my-agent, --fast]
 ```
+
+### gritzrpc agent
+
+`type: gritzrpc` runs your own program as the agent and talks to it over
+[gritzrpc](/reference/gritzrpc/), a JSON-RPC protocol on its standard input and
+output. Use it for a program rather than a chat-style CLI, such as a workflow
+that suspends until a pull request is reviewed:
+
+- On each run the program receives the task, the typed events that started the
+  run, and the configs of its MCP servers, the `gritz` server included.
+- It reports its outcome in its response: a successful response completes the
+  run, an error fails it with the error's message.
+- Its standard error and the log lines it sends go to the task's log.
+- A new process starts for every run, so state the program needs on a later run
+  has to be saved, in the workspace or elsewhere.
+
+```yaml
+workspaces:
+  mastra:
+    container:
+      image: ghcr.io/acme/mastra-agent:latest
+    secrets:
+      OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+    commands:
+      - cd /workspace && pnpm install --frozen-lockfile && pnpm build
+    agent:
+      type: gritzrpc
+      cwd: /workspace
+      gritzrpc:
+        command: node
+        args: [dist/agent.js]
+```
+
+The program reads `OPENAI_API_KEY` from its environment.
 
 ### `mcp_servers`
 
