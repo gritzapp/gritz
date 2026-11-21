@@ -56,6 +56,7 @@ func TestListTools(t *testing.T) {
 		"list_tasks",
 		"list_workspaces",
 		"put_custom_event_type",
+		"reset_sandbox",
 		"restart_task",
 		"run_schedule",
 		"set_routing_rules",

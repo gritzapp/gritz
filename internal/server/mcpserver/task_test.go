@@ -414,6 +414,7 @@ func TestGetTask(t *testing.T) {
 			"restart":   true,
 			"start":     false,
 			"unarchive": true,
+			"reset":     false,
 		},
 		"links":  nil,
 		"events": nil,
@@ -584,6 +585,14 @@ func TestTaskActionTools(t *testing.T) {
 				RestartTaskFunc: func(ctx context.Context, req *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error) {
 					*called = req.Id
 					return &gritzv1.RestartTaskResponse{}, nil
+				},
+			}
+		}},
+		{"reset_sandbox", func(called *int64) *gritzclient.ClientMock {
+			return &gritzclient.ClientMock{
+				ResetSandboxFunc: func(ctx context.Context, req *gritzv1.ResetSandboxRequest) (*gritzv1.ResetSandboxResponse, error) {
+					*called = req.TaskId
+					return &gritzv1.ResetSandboxResponse{}, nil
 				},
 			}
 		}},

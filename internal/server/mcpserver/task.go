@@ -67,6 +67,11 @@ func (h *handlers) addTaskTools(server *mcp.Server) {
 	}, h.restartTask)
 
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "reset_sandbox",
+		Description: "Reset a task's sandbox: delete the finished task's sandbox so its next run starts in a fresh one. The task's status, instructions, events and links are kept. Not available while the task is running or has a pending command.",
+	}, h.resetSandbox)
+
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "archive_task",
 		Description: "Archive a task. The task must be in a terminal state (completed, failed, or cancelled) — running or pending tasks cannot be archived.",
 	}, h.archiveTask)
@@ -204,6 +209,7 @@ func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input 
 		Restart   bool `json:"restart"`
 		Start     bool `json:"start"`
 		Unarchive bool `json:"unarchive"`
+		Reset     bool `json:"reset"`
 	}
 	type taskDetails struct {
 		taskSummary
@@ -222,6 +228,7 @@ func (h *handlers) getTask(ctx context.Context, req *mcp.CallToolRequest, input 
 			Restart:   a.GetRestart(),
 			Start:     a.GetStart(),
 			Unarchive: a.GetUnarchive(),
+			Reset:     a.GetReset_(),
 		},
 	}
 	if task.AutoArchive != nil {
@@ -331,6 +338,14 @@ func (h *handlers) restartTask(ctx context.Context, req *mcp.CallToolRequest, in
 	service := h.service()
 	if _, err := service.RestartTask(ctx, &gritzv1.RestartTaskRequest{Id: input.ID}); err != nil {
 		return mcpx.ErrorResult("failed to restart task: %v", err), nil, nil
+	}
+	return taskResult(ctx, service, input.ID), nil, nil
+}
+
+func (h *handlers) resetSandbox(ctx context.Context, req *mcp.CallToolRequest, input taskIDInput) (*mcp.CallToolResult, any, error) {
+	service := h.service()
+	if _, err := service.ResetSandbox(ctx, &gritzv1.ResetSandboxRequest{TaskId: input.ID}); err != nil {
+		return mcpx.ErrorResult("failed to reset sandbox: %v", err), nil, nil
 	}
 	return taskResult(ctx, service, input.ID), nil, nil
 }
