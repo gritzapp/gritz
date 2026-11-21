@@ -34,6 +34,9 @@ type Options struct {
 	// without it they are nil and the test may act as the runner with
 	// Org.SubmitRunnerEvents.
 	Runner *RunnerOptions
+	// MaxOrgsPerUser caps the orgs a user can be a member of; the server's
+	// default when zero.
+	MaxOrgsPerUser int
 }
 
 // Harness is gritz for one test.
@@ -103,9 +106,10 @@ func New(t *testing.T, opts *Options) *Harness {
 			Subscriber:  ps,
 			OrgResolver: resolver,
 		}),
-		AppKey:      appKey,
-		OrgResolver: resolver,
-		Wrap:        s.route,
+		AppKey:         appKey,
+		OrgResolver:    resolver,
+		MaxOrgsPerUser: opts.MaxOrgsPerUser,
+		Wrap:           s.route,
 	})
 	ts.Config.Handler = srv.Handler()
 	ts.Start()

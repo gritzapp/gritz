@@ -60,6 +60,8 @@ type Options struct {
 	// OrgResolver authorizes cookie-authenticated (browser) operators on the
 	// shell attach leg, the same way it does for the SSE stream.
 	OrgResolver shellserver.OrgResolver
+	// MaxOrgsPerUser caps the orgs a user can be a member of.
+	MaxOrgsPerUser int
 	// Wrap, when set, wraps the RPC implementation behind the Connect
 	// interceptors and the MCP endpoint, so callers are authenticated before
 	// it runs. Tests use it to mock RPCs.
@@ -87,13 +89,14 @@ func New(opts Options) *Server {
 		OrgResolver:      opts.OrgResolver,
 	})
 	apiOpts := apiserver.Options{
-		Log:       log,
-		Store:     opts.Store,
-		BaseURL:   opts.BaseURL,
-		Publisher: opts.Publisher,
-		Atlassian: opts.Atlassian,
-		AppKey:    opts.AppKey,
-		Shells:    shell,
+		Log:            log,
+		Store:          opts.Store,
+		BaseURL:        opts.BaseURL,
+		Publisher:      opts.Publisher,
+		Atlassian:      opts.Atlassian,
+		AppKey:         opts.AppKey,
+		Shells:         shell,
+		MaxOrgsPerUser: opts.MaxOrgsPerUser,
 		// Router powers TestEvent's dry-run matcher. It only reads (Router.Plan),
 		// so OnRouteOutcome is intentionally left unset.
 		Router: &eventrouter.Router{

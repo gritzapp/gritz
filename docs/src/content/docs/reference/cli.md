@@ -176,6 +176,7 @@ Runs the server. Its flags are described in [Server](/operators/server/).
 | `--archive-batch` | `GRITZ_ARCHIVE_BATCH` | `100` |
 | `--schedule-poll` | `GRITZ_SCHEDULE_POLL` | `10s` |
 | `--schedule-batch` | `GRITZ_SCHEDULE_BATCH` | `100` |
+| `--max-orgs-per-user` | `GRITZ_MAX_ORGS_PER_USER` | `20` |
 
 ### `gritz runner`
 

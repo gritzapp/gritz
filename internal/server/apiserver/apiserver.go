@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -47,6 +48,9 @@ type Server struct {
 	// dry-run path. May be nil in tests that don't exercise TestEvent; the
 	// handler errors if it's called without one.
 	router *eventrouter.Router
+	// maxOrgsPerUser caps the orgs a user can be a member of. CreateOrg and
+	// AddOrgMember refuse to add a membership beyond it.
+	maxOrgsPerUser int
 }
 
 // ShellRegistry registers a debug-shell rendezvous session so the driver and
@@ -66,7 +70,12 @@ type Options struct {
 	AppKey    ed25519.PrivateKey
 	Shells    ShellRegistry
 	Router    *eventrouter.Router
+	// MaxOrgsPerUser defaults to DefaultMaxOrgsPerUser when zero.
+	MaxOrgsPerUser int
 }
+
+// DefaultMaxOrgsPerUser is the default cap on the orgs a user can be a member of.
+const DefaultMaxOrgsPerUser = 20
 
 func New(opts Options) *Server {
 	log := opts.Log
@@ -74,15 +83,16 @@ func New(opts Options) *Server {
 		log = slog.Default()
 	}
 	return &Server{
-		log:       log,
-		store:     opts.Store,
-		baseURL:   opts.BaseURL,
-		publisher: opts.Publisher,
-		atlassian: opts.Atlassian,
-		github:    opts.GitHub,
-		appKey:    opts.AppKey,
-		shells:    opts.Shells,
-		router:    opts.Router,
+		log:            log,
+		store:          opts.Store,
+		baseURL:        opts.BaseURL,
+		publisher:      opts.Publisher,
+		atlassian:      opts.Atlassian,
+		github:         opts.GitHub,
+		appKey:         opts.AppKey,
+		shells:         opts.Shells,
+		router:         opts.Router,
+		maxOrgsPerUser: cmp.Or(opts.MaxOrgsPerUser, DefaultMaxOrgsPerUser),
 	}
 }
 

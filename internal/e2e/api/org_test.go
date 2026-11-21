@@ -35,6 +35,20 @@ func TestCreateOrg(t *testing.T) {
 	assert.Assert(t, resp.Org.Id != 0)
 }
 
+func TestCreateOrg_MaxOrgsPerUser(t *testing.T) {
+	t.Parallel()
+	// Arrange - the owner's default org is the first of the two allowed.
+	h := harness.New(t, &harness.Options{MaxOrgsPerUser: 2})
+
+	// Act & Assert - the second org is allowed.
+	_, err := h.Org.Client.CreateOrg(t.Context(), &gritzv1.CreateOrgRequest{Name: "second"})
+	assert.NilError(t, err)
+
+	// Act & Assert - the third is refused.
+	_, err = h.Org.Client.CreateOrg(t.Context(), &gritzv1.CreateOrgRequest{Name: "third"})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeResourceExhausted)
+}
+
 func TestListOrgs(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -105,6 +119,22 @@ func TestAddAndListOrgMembers(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Member.Role, "member")
 	assert.Assert(t, cmp.Len(h.Org.ListOrgMembers(&gritzv1.ListOrgMembersRequest{}), 2))
+}
+
+func TestAddOrgMember_MaxOrgsPerUser(t *testing.T) {
+	t.Parallel()
+	// Arrange - the other user is in their default org and one more.
+	h := harness.New(t, &harness.Options{MaxOrgsPerUser: 2})
+	other := h.Server.CreateOrg()
+	other.CreateOrg(&gritzv1.CreateOrgRequest{Name: "second"})
+
+	// Act
+	_, err := h.Org.Client.AddOrgMember(t.Context(), &gritzv1.AddOrgMemberRequest{
+		Email: other.Owner.Email,
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeResourceExhausted)
 }
 
 func TestAddOrgMember_EmailIgnoresCase(t *testing.T) {

@@ -28,6 +28,14 @@ func (s *Server) CreateOrg(ctx context.Context, req *gritzv1.CreateOrgRequest) (
 		Owner: caller.ID,
 	}
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		// Not locked: concurrent adds can overshoot the cap slightly.
+		n, err := s.store.CountOrgMembershipsByUser(ctx, tx, caller.ID)
+		if err != nil {
+			return err
+		}
+		if n >= int64(s.maxOrgsPerUser) {
+			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("user is already in the maximum of %d orgs", s.maxOrgsPerUser))
+		}
 		if err := s.store.CreateOrg(ctx, tx, org); err != nil {
 			return err
 		}
@@ -41,6 +49,9 @@ func (s *Server) CreateOrg(ctx context.Context, req *gritzv1.CreateOrgRequest) (
 		return tx.Commit()
 	})
 	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "org created", "id", org.ID, "name", org.Name, "owner", caller.ID)
@@ -137,7 +148,24 @@ func (s *Server) AddOrgMember(ctx context.Context, req *gritzv1.AddOrgMemberRequ
 		UserID: user.ID,
 		Role:   "member",
 	}
-	if err := s.store.AddOrgMember(ctx, nil, member); err != nil {
+	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		// Not locked: concurrent adds can overshoot the cap slightly.
+		n, err := s.store.CountOrgMembershipsByUser(ctx, tx, user.ID)
+		if err != nil {
+			return err
+		}
+		if n >= int64(s.maxOrgsPerUser) {
+			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("user %q is already in the maximum of %d orgs", req.Email, s.maxOrgsPerUser))
+		}
+		if err := s.store.AddOrgMember(ctx, tx, member); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "org member added", "user_id", user.ID, "email", req.Email)
