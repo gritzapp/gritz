@@ -22,8 +22,8 @@ type CopilotAgent struct {
 }
 
 // Prompt sends a prompt to Copilot and waits for completion.
-func (a *CopilotAgent) Prompt(ctx context.Context, prompt string, resume bool) error {
-	a.log.Info("sending prompt", "text", prompt)
+func (a *CopilotAgent) Prompt(ctx context.Context, turn Turn) error {
+	a.log.Info("sending prompt", "text", turn.Prompt)
 
 	args := []string{
 		"--silent",
@@ -51,11 +51,11 @@ func (a *CopilotAgent) Prompt(ctx context.Context, prompt string, resume bool) e
 	}
 
 	// Resume previous session if requested
-	if resume {
+	if turn.Resume {
 		args = append(args, "--continue")
 	}
 
-	args = append(args, "--prompt", prompt)
+	args = append(args, "--prompt", turn.Prompt)
 
 	bin := "copilot"
 	if a.options != nil && a.options.Bin != "" {

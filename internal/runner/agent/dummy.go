@@ -27,8 +27,8 @@ type DummyAgent struct {
 // If Sleep is set to -1, it sleeps forever (until context cancellation).
 // If Sleep is set to a positive value, it sleeps for that many seconds.
 // Otherwise, it does nothing and returns nil.
-func (a *DummyAgent) Prompt(ctx context.Context, prompt string, resume bool) error {
-	a.log.Info("dummy agent received prompt", "text", prompt, "resume", resume)
+func (a *DummyAgent) Prompt(ctx context.Context, turn Turn) error {
+	a.log.Info("dummy agent received prompt", "text", turn.Prompt, "resume", turn.Resume)
 	if err := a.doToolCalls(ctx); err != nil {
 		return err
 	}

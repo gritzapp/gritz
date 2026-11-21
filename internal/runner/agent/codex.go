@@ -27,8 +27,8 @@ type Codegritz struct {
 }
 
 // Prompt sends a prompt to Codex and waits for completion.
-func (a *Codegritz) Prompt(ctx context.Context, prompt string, resume bool) error {
-	a.log.Info("sending prompt", "text", prompt)
+func (a *Codegritz) Prompt(ctx context.Context, turn Turn) error {
+	a.log.Info("sending prompt", "text", turn.Prompt)
 
 	// Write MCP config if we have MCP servers
 	if len(a.mcpServers) > 0 {
@@ -42,7 +42,7 @@ func (a *Codegritz) Prompt(ctx context.Context, prompt string, resume bool) erro
 		bin = a.options.Bin
 	}
 
-	if resume {
+	if turn.Resume {
 		// Resume the last exec session with a follow-up prompt
 		args := []string{
 			"exec",
@@ -50,7 +50,7 @@ func (a *Codegritz) Prompt(ctx context.Context, prompt string, resume bool) erro
 			"--dangerously-bypass-approvals-and-sandbox",
 			"--json",
 			"--last",
-			prompt,
+			turn.Prompt,
 		}
 
 		return a.run(ctx, bin, args)
@@ -67,7 +67,7 @@ func (a *Codegritz) Prompt(ctx context.Context, prompt string, resume bool) erro
 		args = append(args, "--model", a.options.Model)
 	}
 
-	args = append(args, prompt)
+	args = append(args, turn.Prompt)
 
 	return a.run(ctx, bin, args)
 }

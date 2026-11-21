@@ -24,11 +24,11 @@ type SloppyAgent struct {
 }
 
 // Prompt sends a prompt to Sloppy and waits for completion.
-func (a *SloppyAgent) Prompt(ctx context.Context, prompt string, resume bool) error {
-	if resume {
+func (a *SloppyAgent) Prompt(ctx context.Context, turn Turn) error {
+	if turn.Resume {
 		return fmt.Errorf("sloppy does not support session resume")
 	}
-	a.log.Info("sending prompt", "text", prompt)
+	a.log.Info("sending prompt", "text", turn.Prompt)
 
 	var args []string
 
@@ -41,7 +41,7 @@ func (a *SloppyAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 		args = append(args, "--config", configPath)
 	}
 
-	args = append(args, "--prompt", prompt)
+	args = append(args, "--prompt", turn.Prompt)
 
 	bin := "sloppy"
 	if a.options != nil && a.options.Bin != "" {

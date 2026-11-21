@@ -25,8 +25,8 @@ type ClaudeAgent struct {
 }
 
 // Prompt sends a prompt to Claude and waits for completion.
-func (a *ClaudeAgent) Prompt(ctx context.Context, prompt string, resume bool) error {
-	a.log.Info("sending prompt", "text", prompt)
+func (a *ClaudeAgent) Prompt(ctx context.Context, turn Turn) error {
+	a.log.Info("sending prompt", "text", turn.Prompt)
 
 	// Use model from options, defaulting to "opus"
 	model := "opus"
@@ -53,11 +53,11 @@ func (a *ClaudeAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 	}
 
 	// Resume previous session if requested
-	if resume {
+	if turn.Resume {
 		args = append(args, "--continue")
 	}
 
-	args = append(args, "--print", prompt)
+	args = append(args, "--print", turn.Prompt)
 
 	bin := "claude"
 	if a.options != nil && a.options.Bin != "" {
