@@ -264,7 +264,13 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 		return fmt.Errorf("failed to build prompt: %w", err)
 	}
 
-	if err := a.Prompt(ctx, prompt, cfg.Started); err != nil {
+	if err := a.Prompt(ctx, Turn{
+		Prompt: prompt,
+		Resume: cfg.Started,
+		Task:   task,
+		Events: events,
+		Links:  promptLinks,
+	}); err != nil {
 		return err
 	}
 

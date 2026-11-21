@@ -39,7 +39,7 @@ func TestClaudePrompt_StderrTeed(t *testing.T) {
 	}
 
 	// Act
-	assert.NilError(t, a.Prompt(t.Context(), "prompt", false))
+	assert.NilError(t, a.Prompt(t.Context(), Turn{Prompt: "prompt"}))
 
 	// Assert - stderr is teed into the sink
 	assert.Assert(t, cmp.Contains(sink.String(), "claude-stderr-marker"))
@@ -79,7 +79,7 @@ func TestClaudePrompt_LongLine(t *testing.T) {
 	// rather than hanging it
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	err := a.Prompt(ctx, "prompt", false)
+	err := a.Prompt(ctx, Turn{Prompt: "prompt"})
 
 	// Assert - the events on both sides of the drained output are logged
 	assert.NilError(t, err)

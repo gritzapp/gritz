@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/runner/agent/puppet"
 )
 
@@ -31,15 +32,28 @@ const (
 	TypePuppet  = "puppet"
 )
 
+// Turn is the input of one run.
+type Turn struct {
+	// Prompt is the rendered prompt.
+	Prompt string
+	// Resume is true when the agent should continue from the previous session.
+	Resume bool
+	// Task is the task the run belongs to.
+	Task *gritzv1.Task
+	// Events are the events the prompt was rendered with.
+	Events []*gritzv1.Event
+	// Links are the task's links; nil unless this is the task's first run.
+	Links []*gritzv1.TaskLink
+}
+
 // Agent abstracts the underlying agent implementation (e.g., Claude Code, Cursor).
 type Agent interface {
-	// Prompt sends a prompt to the agent and waits for completion.
-	// If resume is true, the agent should continue from the previous session.
+	// Prompt runs one turn and waits for completion.
 	//
 	// If the provided context is cancelled, the returned error must have
 	// context.Canceled in its error chain (i.e., errors.Is(err, context.Canceled)
 	// must return true).
-	Prompt(ctx context.Context, prompt string, resume bool) error
+	Prompt(ctx context.Context, turn Turn) error
 
 	// Close releases any resources held by the agent.
 	Close() error

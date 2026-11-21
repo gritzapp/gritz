@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -25,7 +26,14 @@ func newPuppetAgent(log *DriverLog, env []string, options *puppet.Options) (Agen
 	}
 	opts := *options
 	opts.Log = &log.Logger
-	return puppet.New(taskID, opts), nil
+	return puppetAgent{puppet.New(taskID, opts)}, nil
+}
+
+// puppetAgent adapts a puppet.Agent, which cannot import this package, to Agent.
+type puppetAgent struct{ *puppet.Agent }
+
+func (a puppetAgent) Prompt(ctx context.Context, turn Turn) error {
+	return a.Agent.Prompt(ctx, turn.Prompt, turn.Resume)
 }
 
 // lookupEnv returns the value of the last entry for key in env, as exec does.

@@ -26,8 +26,8 @@ type CursorAgent struct {
 }
 
 // Prompt sends a prompt to Cursor and waits for completion.
-func (a *CursorAgent) Prompt(ctx context.Context, prompt string, resume bool) error {
-	a.log.Info("sending prompt", "text", prompt)
+func (a *CursorAgent) Prompt(ctx context.Context, turn Turn) error {
+	a.log.Info("sending prompt", "text", turn.Prompt)
 
 	// Write MCP config file if we have MCP servers
 	if len(a.mcpServers) > 0 {
@@ -49,11 +49,11 @@ func (a *CursorAgent) Prompt(ctx context.Context, prompt string, resume bool) er
 	}
 
 	// Resume the last chat session
-	if resume {
+	if turn.Resume {
 		args = append(args, "--continue")
 	}
 
-	args = append(args, prompt)
+	args = append(args, turn.Prompt)
 
 	bin, err := a.findBin()
 	if err != nil {
