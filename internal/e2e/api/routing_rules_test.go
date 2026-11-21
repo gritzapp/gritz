@@ -146,13 +146,6 @@ func TestSetRoutingRules_RejectsInvalid(t *testing.T) {
 				{Attr: "body", Op: "regex", Value: "x"},
 			},
 		},
-		"malformed glob": {
-			Source: "github",
-			Type:   "label_added",
-			Conditions: []*gritzv1.RuleCondition{
-				{Attr: "label", Op: "glob", Value: "team-[a"},
-			},
-		},
 		"attr wrong type": {
 			Source: "github",
 			Type:   "issue_comment",

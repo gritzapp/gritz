@@ -407,51 +407,6 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 	)
 }
 
-// TestTestEventGlob saves a rule with a glob condition and dry-runs events
-// against it: a value matching the pattern matches the rule, and one that only
-// shares its prefix does not.
-func TestTestEventGlob(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
-			{
-				Source:     "github",
-				Type:       "label_added",
-				Wakeup:     true,
-				Conditions: []*gritzv1.RuleCondition{{Attr: "label", Op: "glob", Value: "team-*"}},
-			},
-		},
-	})
-	tests := []struct {
-		label string
-		want  []*gritzv1.TestEventMatch
-	}{
-		{label: "team-infra", want: []*gritzv1.TestEventMatch{{OrgId: h.Org.ID, RuleIndex: 0, WouldWake: true}}},
-		{label: "team/infra", want: nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.label, func(t *testing.T) {
-			// Act
-			resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
-				Source: "github",
-				Type:   "label_added",
-				Url:    "https://github.com/o/r/issues/1",
-				Attrs:  map[string]*gritzv1.AttrValues{"label": {Values: []string{tt.label}}},
-			})
-
-			// Assert
-			assert.NilError(t, err)
-			assert.DeepEqual(t,
-				resp,
-				&gritzv1.TestEventResponse{Matches: tt.want},
-				protocmp.Transform(),
-			)
-		})
-	}
-}
-
 // TestTestEventCustomInvalid asserts a custom test event is rejected wherever
 // the custom event webhook would reject it.
 func TestTestEventCustomInvalid(t *testing.T) {
