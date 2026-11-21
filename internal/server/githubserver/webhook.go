@@ -41,21 +41,23 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleInstallationEvent(w, r, event)
 		return
 	}
-	input := toInputEvent(webhookEvent)
-	if input == nil {
+	inputs := toInputEvents(webhookEvent)
+	if len(inputs) == 0 {
 		eventType := r.Header.Get("X-GitHub-Event")
 		slog.Debug("ignoring GitHub webhook event", "event_type", eventType)
 		fmt.Fprintf(w, "ignored")
 		return
 	}
-	// toInputEvent always sets Meta to a GitHubMeta, so this
-	// assertion is safe. It panics loudly if that invariant is ever broken.
-	meta := input.Meta.(GitHubMeta)
+	// toInputEvents always sets Meta to a GitHubMeta, so this assertion is
+	// safe. It panics loudly if that invariant is ever broken. Every event of a
+	// delivery shares its sender and installation, so the first one's meta
+	// resolves the orgs and the actor for all of them.
+	meta := inputs[0].Meta.(GitHubMeta)
 
 	// Resolve the App installation to the orgs the event belongs to,
 	// independent of the actor's membership. These gate non-member routing: a
 	// Public rule on one of these orgs can fire even when the actor is unlinked.
-	input.Orgs, err = h.Store.ListOrgIDsByGitHubInstallation(r.Context(), nil, meta.InstallationID)
+	orgs, err := h.Store.ListOrgIDsByGitHubInstallation(r.Context(), nil, meta.InstallationID)
 	if err != nil {
 		slog.Error("failed to list orgs for GitHub installation", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -64,11 +66,12 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Look up the gritz user by GitHub user ID. A linked actor routes to their
 	// member orgs as before; an unlinked actor keeps an empty UserID and routes
-	// only via Public rules on the installation's orgs (input.Orgs).
+	// only via Public rules on the installation's orgs.
+	var userID string
 	user, err := h.Store.GetUserByGitHubUserID(r.Context(), nil, meta.AuthorID)
 	switch {
 	case err == nil:
-		input.UserID = user.ID
+		userID = user.ID
 		// Update cached username if it changed.
 		if meta.AuthorLogin != "" && meta.AuthorLogin != user.GitHubUsername {
 			if err := h.Store.UpdateGitHubUsername(r.Context(), nil, user.GitHubUserID, meta.AuthorLogin); err != nil {
@@ -83,15 +86,20 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Route event to subscribed tasks.
-	totalRouted, err := h.Router.Route(r.Context(), *input)
-	if err != nil {
-		slog.Error("failed to route event", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+	for _, input := range inputs {
+		input.Orgs = orgs
+		input.UserID = userID
+
+		// Route event to subscribed tasks.
+		routed, err := h.Router.Route(r.Context(), input)
+		if err != nil {
+			slog.Error("failed to route event", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		slog.Info("GitHub webhook processed", "url", input.URL, "type", input.Type, "tasks_routed", routed)
 	}
 
-	slog.Info("GitHub webhook processed", "url", input.URL, "tasks_routed", totalRouted)
 	fmt.Fprintf(w, "processed")
 }
 
@@ -141,7 +149,7 @@ type GitHubMeta struct {
 	NodeID string
 }
 
-// Event-type strings set on eventrouter.InputEvent.Type by toInputEvent. They
+// Event-type strings set on eventrouter.InputEvent.Type by toInputEvents. They
 // form a contract between the extractor (producer) and any consumer that
 // dispatches on InputEvent.Type.
 const (
@@ -156,7 +164,9 @@ const (
 	EventTypePush                     = "push"
 )
 
-func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
+// toInputEvents extracts the routable events from a webhook payload; empty
+// means ignore.
+func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 	switch event := webhookEvent.(type) {
 	case *github.IssueCommentEvent:
 		if action := event.GetAction(); action != "created" && action != "edited" {
@@ -174,7 +184,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 		if event.Issue.IsPullRequest() {
 			description = fmt.Sprintf("%s commented on PR #%d", login, number)
 		}
-		return &eventrouter.InputEvent{
+		return []eventrouter.InputEvent{{
 			Source:      "github",
 			Type:        EventTypeIssueComment,
 			Description: description,
@@ -189,7 +199,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				InstallationID: event.GetInstallation().GetID(),
 				NodeID:         event.GetComment().GetNodeID(),
 			},
-		}
+		}}
 
 	case *github.PullRequestReviewCommentEvent:
 		if action := event.GetAction(); action != "created" && action != "edited" {
@@ -234,7 +244,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 		if path := c.GetPath(); path != "" {
 			description = fmt.Sprintf("%s reviewed PR #%d (%s:%d)", login, number, path, line)
 		}
-		return &eventrouter.InputEvent{
+		return []eventrouter.InputEvent{{
 			Source:      "github",
 			Type:        EventTypePullRequestReviewComment,
 			Description: description,
@@ -250,7 +260,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				InstallationID: event.GetInstallation().GetID(),
 				NodeID:         event.GetComment().GetNodeID(),
 			},
-		}
+		}}
 
 	case *github.PullRequestReviewEvent:
 		if event.Action == nil || *event.Action != "submitted" ||
@@ -262,7 +272,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 		body := strings.TrimSpace(*event.Review.Body)
 		login := event.Review.User.GetLogin()
 		number := event.PullRequest.GetNumber()
-		return &eventrouter.InputEvent{
+		return []eventrouter.InputEvent{{
 			Source:      "github",
 			Type:        EventTypePullRequestReview,
 			Description: fmt.Sprintf("%s reviewed PR #%d", login, number),
@@ -277,7 +287,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				InstallationID: event.GetInstallation().GetID(),
 				NodeID:         event.GetReview().GetNodeID(),
 			},
-		}
+		}}
 
 	case *github.IssuesEvent:
 		switch event.GetAction() {
@@ -290,7 +300,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			senderLogin := event.Sender.GetLogin()
 			assigneeLogin := event.Assignee.GetLogin()
 			number := event.Issue.GetNumber()
-			return &eventrouter.InputEvent{
+			return []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        EventTypeIssueAssigned,
 				Description: fmt.Sprintf("%s assigned issue #%d to @%s", senderLogin, number, assigneeLogin),
@@ -303,7 +313,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 					InstallationID: event.GetInstallation().GetID(),
 					NodeID:         event.GetIssue().GetNodeID(),
 				},
-			}
+			}}
 		case "labeled":
 			if event.Issue == nil || event.Issue.HTMLURL == nil ||
 				event.Label == nil || event.Label.Name == nil ||
@@ -315,7 +325,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			number := event.Issue.GetNumber()
 			// GitHub fires a separate "labeled" delivery per label, so the "label"
 			// attr carries the single added label for a label condition to match.
-			return &eventrouter.InputEvent{
+			return []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        EventTypeLabelAdded,
 				Description: fmt.Sprintf("%s labeled issue #%d %q", senderLogin, number, label),
@@ -328,7 +338,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 					InstallationID: event.GetInstallation().GetID(),
 					NodeID:         event.GetIssue().GetNodeID(),
 				},
-			}
+			}}
 		}
 		return nil
 
@@ -341,7 +351,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			}
 			senderLogin := event.Sender.GetLogin()
 			number := event.PullRequest.GetNumber()
-			return &eventrouter.InputEvent{
+			return []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        EventTypePullRequestOpened,
 				Description: fmt.Sprintf("%s opened PR #%d", senderLogin, number),
@@ -356,7 +366,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 					InstallationID: event.GetInstallation().GetID(),
 					NodeID:         event.GetPullRequest().GetNodeID(),
 				},
-			}
+			}}
 		case "assigned":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Assignee == nil || event.Assignee.Login == nil ||
@@ -366,7 +376,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			senderLogin := event.Sender.GetLogin()
 			assigneeLogin := event.Assignee.GetLogin()
 			number := event.PullRequest.GetNumber()
-			return &eventrouter.InputEvent{
+			return []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        EventTypePullRequestAssigned,
 				Description: fmt.Sprintf("%s assigned PR #%d to @%s", senderLogin, number, assigneeLogin),
@@ -379,7 +389,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 					InstallationID: event.GetInstallation().GetID(),
 					NodeID:         event.GetPullRequest().GetNodeID(),
 				},
-			}
+			}}
 		case "labeled":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Label == nil || event.Label.Name == nil ||
@@ -391,7 +401,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			number := event.PullRequest.GetNumber()
 			// GitHub fires a separate "labeled" delivery per label, so the "label"
 			// attr carries the single added label for a label condition to match.
-			return &eventrouter.InputEvent{
+			return []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        EventTypeLabelAdded,
 				Description: fmt.Sprintf("%s labeled PR #%d %q", senderLogin, number, label),
@@ -404,7 +414,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 					InstallationID: event.GetInstallation().GetID(),
 					NodeID:         event.GetPullRequest().GetNodeID(),
 				},
-			}
+			}}
 		case "closed":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
@@ -418,7 +428,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			if event.PullRequest.GetMerged() {
 				state = "merged"
 			}
-			return &eventrouter.InputEvent{
+			return []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        EventTypePullRequestClosed,
 				Description: fmt.Sprintf("%s %s PR #%d", senderLogin, state, number),
@@ -433,7 +443,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 					InstallationID: event.GetInstallation().GetID(),
 					NodeID:         event.GetPullRequest().GetNodeID(),
 				},
-			}
+			}}
 		}
 		return nil
 
@@ -467,7 +477,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 		default:
 			description = fmt.Sprintf("%s pushed %d commits to %s", senderLogin, n, branch)
 		}
-		return &eventrouter.InputEvent{
+		return []eventrouter.InputEvent{{
 			Source:      "github",
 			Type:        EventTypePush,
 			Description: description,
@@ -498,7 +508,7 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 				AuthorLogin:    senderLogin,
 				InstallationID: event.GetInstallation().GetID(),
 			},
-		}
+		}}
 	}
 
 	return nil
