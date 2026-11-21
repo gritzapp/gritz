@@ -17,6 +17,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/oauthflow"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server"
+	"github.com/gritzapp/gritz/internal/server/apiserver"
 	"github.com/gritzapp/gritz/internal/server/archiver"
 	"github.com/gritzapp/gritz/internal/server/atlassianserver"
 	"github.com/gritzapp/gritz/internal/server/customserver"
@@ -158,6 +159,12 @@ var ServerCommand = &cli.Command{
 			Value:   scheduler.DefaultBatchSize,
 			Sources: cli.EnvVars("GRITZ_SCHEDULE_BATCH"),
 		},
+		&cli.IntFlag{
+			Name:    "max-orgs-per-user",
+			Usage:   "Maximum number of orgs a single user can be a member of",
+			Value:   apiserver.DefaultMaxOrgsPerUser,
+			Sources: cli.EnvVars("GRITZ_MAX_ORGS_PER_USER"),
+		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		addr := cmd.String("addr")
@@ -266,16 +273,17 @@ var ServerCommand = &cli.Command{
 			OrgResolver: resolver,
 		})
 		opts := server.Options{
-			Store:         st,
-			Auth:          auth,
-			BaseURL:       baseURL,
-			EncryptionKey: key,
-			OAuth:         oauth,
-			CORS:          cmd.Bool("cors"),
-			Publisher:     ps,
-			Notify:        notify,
-			AppKey:        appKey,
-			OrgResolver:   resolver,
+			Store:          st,
+			Auth:           auth,
+			BaseURL:        baseURL,
+			EncryptionKey:  key,
+			OAuth:          oauth,
+			CORS:           cmd.Bool("cors"),
+			Publisher:      ps,
+			Notify:         notify,
+			AppKey:         appKey,
+			OrgResolver:    resolver,
+			MaxOrgsPerUser: cmd.Int("max-orgs-per-user"),
 			Custom: customserver.New(customserver.Options{
 				Store:     st,
 				Publisher: ps,

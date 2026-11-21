@@ -65,6 +65,12 @@ func (s *Store) ListOrgsByMember(ctx context.Context, tx *sql.Tx, userID string)
 	return orgs, nil
 }
 
+// CountOrgMembershipsByUser returns the number of non-archived orgs the user
+// is a member of: the same set ListOrgsByMember returns.
+func (s *Store) CountOrgMembershipsByUser(ctx context.Context, tx *sql.Tx, userID string) (int64, error) {
+	return s.q(tx).CountOrgMembershipsByUser(ctx, userID)
+}
+
 func (s *Store) UpdateOrg(ctx context.Context, tx *sql.Tx, org *model.Org) error {
 	org.UpdatedAt = time.Now().UTC()
 	return s.q(tx).UpdateOrg(ctx, sqlc.UpdateOrgParams{

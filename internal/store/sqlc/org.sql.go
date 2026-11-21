@@ -58,6 +58,20 @@ func (q *Queries) ClearGitHubInstallation(ctx context.Context, githubInstallatio
 	return err
 }
 
+const countOrgMembershipsByUser = `-- name: CountOrgMembershipsByUser :one
+SELECT COUNT(*)
+FROM org_members om
+JOIN orgs o ON o.id = om.org_id
+WHERE om.user_id = $1 AND o.archived = FALSE
+`
+
+func (q *Queries) CountOrgMembershipsByUser(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOrgMembershipsByUser, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createOrg = `-- name: CreateOrg :one
 INSERT INTO orgs (name, owner, created_at, updated_at)
 VALUES ($1, $2, $3, $4)

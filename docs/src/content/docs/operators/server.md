@@ -154,6 +154,15 @@ URL per organisation.
 Auto-archive only happens when `--archive-poll` is set, for example to `1m`.
 Archiving a task makes its runner destroy the task's sandbox.
 
+## Limits
+
+| Flag | Environment variable | Default | |
+| --- | --- | --- | --- |
+| `--max-orgs-per-user` | `GRITZ_MAX_ORGS_PER_USER` | `20` | The most organisations a user can belong to. Deleted organisations don't count. |
+
+A user at the limit can't create an organisation or be added to one. A lower
+limit doesn't remove anyone's existing memberships.
+
 ## Endpoints
 
 | Path | |

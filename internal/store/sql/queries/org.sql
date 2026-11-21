@@ -15,6 +15,12 @@ JOIN org_members om ON o.id = om.org_id
 WHERE om.user_id = $1 AND o.archived = FALSE
 ORDER BY o.name;
 
+-- name: CountOrgMembershipsByUser :one
+SELECT COUNT(*)
+FROM org_members om
+JOIN orgs o ON o.id = om.org_id
+WHERE om.user_id = $1 AND o.archived = FALSE;
+
 -- name: UpdateOrg :exec
 UPDATE orgs SET
     name = $2,

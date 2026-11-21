@@ -19,6 +19,11 @@ and switch between those you belong to with the selector at the top of the
 [Web UI](/using/web-ui/). The current organisation is in each page's `?org=`
 parameter.
 
+A person can belong to at most 20 organisations, counting those they created
+and those they were added to; deleted organisations don't count. The server's
+operator can change the limit with
+[`--max-orgs-per-user`](/operators/server/#limits).
+
 ## Members
 
 Every member of an organisation can do everything in it: create, run and
@@ -34,7 +39,8 @@ which only its owner can do. The owner is whoever created it.
 | Delete the organisation | | ✓ |
 
 The owner adds members on the **Members** page, by the email address they sign
-in with. A person has to have signed in to gritz once before they can be added.
+in with. A person has to have signed in to gritz once before they can be added,
+and can't be added once they belong to the maximum number of organisations.
 The owner can't be removed.
 
 Membership also decides whose GitHub and Jira activity counts as the

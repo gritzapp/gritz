@@ -28,6 +28,13 @@ func (s *Server) CreateOrg(ctx context.Context, req *gritzv1.CreateOrgRequest) (
 		Owner: caller.ID,
 	}
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		full, err := s.atOrgCap(ctx, tx, caller.ID)
+		if err != nil {
+			return err
+		}
+		if full {
+			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("user is already in the maximum of %d orgs", s.maxOrgsPerUser))
+		}
 		if err := s.store.CreateOrg(ctx, tx, org); err != nil {
 			return err
 		}
@@ -41,6 +48,9 @@ func (s *Server) CreateOrg(ctx context.Context, req *gritzv1.CreateOrgRequest) (
 		return tx.Commit()
 	})
 	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "org created", "id", org.ID, "name", org.Name, "owner", caller.ID)
@@ -137,7 +147,23 @@ func (s *Server) AddOrgMember(ctx context.Context, req *gritzv1.AddOrgMemberRequ
 		UserID: user.ID,
 		Role:   "member",
 	}
-	if err := s.store.AddOrgMember(ctx, nil, member); err != nil {
+	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		full, err := s.atOrgCap(ctx, tx, user.ID)
+		if err != nil {
+			return err
+		}
+		if full {
+			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("user %q is already in the maximum of %d orgs", req.Email, s.maxOrgsPerUser))
+		}
+		if err := s.store.AddOrgMember(ctx, tx, member); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "org member added", "user_id", user.ID, "email", req.Email)
@@ -158,6 +184,17 @@ func (s *Server) AddOrgMember(ctx context.Context, req *gritzv1.AddOrgMemberRequ
 			Role:   member.Role,
 		},
 	}, nil
+}
+
+// atOrgCap reports whether the user is already a member of maxOrgsPerUser
+// orgs, so adding another membership would exceed the cap. Archived orgs don't
+// count. The check isn't locked: concurrent adds can overshoot the cap slightly.
+func (s *Server) atOrgCap(ctx context.Context, tx *sql.Tx, userID string) (bool, error) {
+	n, err := s.store.CountOrgMembershipsByUser(ctx, tx, userID)
+	if err != nil {
+		return false, err
+	}
+	return n >= int64(s.maxOrgsPerUser), nil
 }
 
 func (s *Server) RemoveOrgMember(ctx context.Context, req *gritzv1.RemoveOrgMemberRequest) (*gritzv1.RemoveOrgMemberResponse, error) {
