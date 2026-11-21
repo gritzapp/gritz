@@ -56,7 +56,7 @@ Three constraints shape everything below:
   (like `OpenShell(task_id)`): `ResetTask` would read as resetting the task itself.
 
 The runner already has the mechanism: `TaskRunner.destroy` destroys the sandbox and
-deletes its record, and is what an archived task's `RunLoop` calls. What is missing is
+`clear` deletes its record, which is what an archived task's `RunLoop` does. What is missing is
 a command that asks for it without archiving.
 
 ### Command and completion event
@@ -87,8 +87,8 @@ The full round trip:
 2. `PendingRunner()` is non-empty (the command is not `NONE`), so the notification
    wakes the task's runner, whose `taskevents.Log` syncs and hands the `TaskChange`
    to the task's `TaskRunner` (creating one, with no sandbox, if the task had none).
-3. `TaskRunner.next` sees `RESET`, destroys the sandbox and deletes its record, and
-   enqueues `{event: "reset", version: c.Version}`.
+3. `TaskRunner.next` sees `RESET`, destroys the sandbox, enqueues
+   `{event: "reset", version: c.Version}`, and then deletes the sandbox's record.
 4. The fold clears the command back to `NONE`, leaving the status alone, and
    `SubmitRunnerEvents` appends the runner's `SANDBOX_RESET` lifecycle event and the
    clearing command event.
@@ -241,6 +241,12 @@ handler runs that `switch` only when the fold changed the status
 (`task.Status != original.Status`). No existing event is affected: every fold that
 lands on a terminal status changes it.
 
+The server side is idempotent: the fold consumes a `reset` event only while the task
+has `RESET` in flight, and otherwise returns false, so `SubmitRunnerEvents` writes
+nothing and publishes nothing for it. A duplicate or stale report — an outbox
+redelivery, a second report for a repeated `RESET` report (see below), or a fresh
+`TaskRunner` acting on a `RESET` left in its store — is harmless.
+
 ### Runner
 
 Reset is handled in `TaskRunner.next`, beside the two reports that already need no
@@ -249,9 +255,9 @@ nothing:
 
 ```go
 case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
-	// Delete the sandbox and its record so the next start creates a fresh
-	// one. destroy deletes the record only once the sandbox is destroyed, so
-	// a failed destroy keeps it tracked and is retried with backoff.
+	// Destroy the sandbox, report the reset, and only then delete its
+	// record, so the record marks a reset in progress until the report is
+	// durable. A failed destroy is retried with backoff.
 	if err := tr.destroy(ctx); err != nil {
 		if ctx.Err() != nil {
 			return c, false, context.Cause(ctx)
@@ -260,7 +266,6 @@ case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
 		timer = time.After(retry.NextBackOff())
 		break
 	}
-	tr.opts.Log.Info("sandbox reset", "task", tr.opts.TaskID)
 	h.reset = seq
 	if err := tr.enqueue(model.RunnerEvent{
 		TaskID:  tr.opts.TaskID,
@@ -269,7 +274,12 @@ case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
 	}); err != nil {
 		return c, false, err
 	}
+	tr.clear(ctx)
 ```
+
+`destroy` only destroys the sandbox (a no-op without one) and leaves the record to
+its caller: the archive case calls `destroy` then `clear`, and the reset case
+enqueues its report in between.
 
 The case sits after `c.Archived` (which cannot coexist with `RESET`) and is mutually
 exclusive with the start and stop cases. `next`'s doc comment gains the third report it
@@ -282,11 +292,25 @@ is not — and there always is one: the manager hands a `TaskRunner` its first r
 before `RunLoop` starts, so without the key every reset on a new `TaskRunner` would be
 reported twice.
 
+The order — destroy, report, delete the record — makes the record the durable marker
+of a reset in progress, and the command the guard on the old sandbox:
+
+- A crash before the report is enqueued leaves the record and the `RESET` command.
+  The restarted runner's Load opens the record and finds the sandbox gone (dropping
+  the record) or still there, and `next` resets again — `Destroy` on a gone sandbox is
+  a no-op — and reports it.
+- A crash after the enqueue leaves the report to the outbox. If the record survived
+  too, Load finds the sandbox gone and drops it.
+- The command is cleared only by the report, which is enqueued only once the sandbox
+  is gone, so no start can be issued against a reset whose sandbox still exists, and
+  none can boot it. A destroy that keeps failing keeps the command in flight, which
+  also blocks archiving.
+
 Behaviour notes:
 
 - **No sandbox.** The task never ran on this runner, its sandbox already went with a
-  previous reset, or Load found it gone and dropped the record: `destroy` returns nil
-  without touching the backend and the reset still reports complete. Reset is
+  previous reset, or Load found it gone and dropped the record: `next` reports the
+  reset without touching the backend or the store. Reset is
   idempotent from the user's point of view.
 - **A `RESET` that arrives during a busy period.** The task turns terminal when the
   driver's `stopped` or `failed` folds, which can be just before the driver goes idle
@@ -296,16 +320,17 @@ Behaviour notes:
   rule the archive follows. The driver needs no change.
 - **A repeated report.** `taskevents.Log` reports every stored task again when the
   runner boots, so a runner restarted before the clear replicated sees `RESET` twice.
-  A second `RESET` report
-  before the fold enqueues a second `reset` event at the same version. If it lands
-  after the user has reset again at that version, it clears the second reset before
-  the runner acts on it — harmless, because nothing can have created a sandbox in
-  between: a sandbox is only created by a boot for a start, and a start bumps the
+  A second report that lands after the fold finds no reset in flight and is ignored.
+  A second `RESET` report before the fold enqueues a second `reset` event at the same
+  version. If it lands after the user has reset again at that version, it clears the
+  second reset before the runner acts on it — harmless, because nothing can have
+  created a sandbox in between: a sandbox is only created by a boot for a start, and a start bumps the
   version, which the second event's version guard would then reject.
-- **Retry is bounded by the command's lifetime.** The command stays on the server until
-  a `reset` event consumes it, and `next` retries a failed destroy with the backoff it
-  already uses for an archive's. A runner restart re-reports the task's stored state,
-  so a reset in flight when the runner stopped is carried out after Load.
+- **Retry is bounded by the command's lifetime.** The command stays on the server
+  until a `reset` event consumes it, and `next` retries a failed destroy with the
+  backoff it already uses for an archive's. A runner restart re-reports the task's
+  stored state, so a reset in flight when the runner stopped is carried out after
+  Load.
 - **A durable-write failure is fatal**, as everywhere else in the `TaskRunner`: `enqueue`
   returns a `fatalError`, and the manager terminates the runner.
 
@@ -390,7 +415,7 @@ When a task's sandbox vanishes on its own — a Lambda microVM expiring after 8 
 for example — the task should get a new sandbox automatically. The runner would
 destroy the stale record and create a new sandbox itself, without going through
 `ResetSandbox` or the `RESET` command, so the clobber window does not apply. Nothing
-here blocks it: the runner side of reset is `TaskRunner.destroy` followed by the
+here blocks it: the runner side of reset is `TaskRunner.destroy` and `clear` followed by the
 existing create-on-boot path, both of which auto-reset can use without the command.
 
 ## Implementation Plan
@@ -420,10 +445,14 @@ existing create-on-boot path, both of which auto-reset can use without the comma
    channel message. Depends on: (1), and (2) for the end-to-end path. Verifiable by:
    `internal/e2e/api` tests asserting the command is set with status and version
    unchanged, the `RESET_REQUESTED` and command events, the `FailedPrecondition`
-   (running task, command in flight, archived) and `PermissionDenied` paths; and an
-   `internal/e2e/scenario` test that fails a run, resets, sees `SANDBOX_RESET` and the
-   command cleared with the task still `failed`, then restarts it into a newly created
-   sandbox.
+   (running task, command in flight, archived) and `PermissionDenied` paths, and a
+   duplicate `reset` event being ignored; and `internal/e2e/scenario` tests, which
+   replace (2)'s `TaskRunner` unit tests, that fail a run, reset, see `SANDBOX_RESET`
+   and the command cleared with the task still `failed`, then restart it into a newly
+   created sandbox — plus a task with no sandbox, a repeated reset, a destroy that
+   fails (the reset is not reported until a retry succeeds), a reset issued while the
+   runner is down, and a runner restarted while the destroy is failing. This slice
+   also moves the record's deletion after the report.
 
 4. **Web UI** — Delivers: the "Reset sandbox" sidebar action and the timeline
    labels. Depends on: (3). Verifiable by: resetting a failed

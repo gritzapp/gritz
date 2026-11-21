@@ -262,20 +262,16 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord
 	return st, nil
 }
 
-// destroy destroys the task's sandbox and deletes its record, leaving tr with
-// no sandbox. The record is deleted only after the destroy succeeds, so a
-// failed destroy leaves the sandbox tracked. Destroying a gone sandbox is not
-// an error, so a sandbox that vanished is simply dropped. A task with no
-// sandbox has nothing to destroy.
+// destroy destroys the task's sandbox, leaving its record and tr's handle to
+// the caller, which clears them once it has done whatever must come before:
+// a failed destroy, or a crash before the clear, leaves the sandbox tracked.
+// Destroying a gone sandbox is not an error. A task with no sandbox has
+// nothing to destroy.
 func (tr *TaskRunner) destroy(ctx context.Context) error {
 	if tr.sbx == nil {
 		return nil
 	}
-	if err := tr.sbx.Destroy(ctx); err != nil {
-		return err
-	}
-	tr.clear(ctx)
-	return nil
+	return tr.sbx.Destroy(ctx)
 }
 
 // Change stores c as the task's latest report, replacing the one before it,
@@ -385,10 +381,10 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 // next waits for the task's latest report to want a run newer than h.driven,
 // and returns it. Meanwhile it handles the three reports that need no driver:
 // a stop newer than h.stopped, which no Run is open to report, is reported
-// "stopped" here; a reset destroys the sandbox and its record and is reported
-// "reset", leaving the next start to create a fresh sandbox; and an archive
-// destroys the sandbox and its record, when next reports archived. A destroy
-// that fails is retried with backoff.
+// "stopped" here; a reset destroys the sandbox, is reported "reset", and
+// deletes the sandbox's record, leaving the next start to create a fresh
+// sandbox; and an archive destroys the sandbox and its record, when next
+// reports archived. A destroy that fails is retried with backoff.
 //
 // A reset is not versioned: two resets of the same run are both legitimate,
 // so next resets once for every report of a reset, even a repeated one.
@@ -401,6 +397,7 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 		case c.Archived:
 			err := tr.destroy(ctx)
 			if err == nil {
+				tr.clear(ctx)
 				tr.opts.Log.Info("task archived, sandbox destroyed", "task", tr.opts.TaskID)
 				return c, true, nil
 			}
@@ -410,9 +407,13 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			tr.opts.Log.Error("failed to destroy archived task's sandbox", "task", tr.opts.TaskID, "err", err)
 			timer = time.After(retry.NextBackOff())
 		case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
-			// Delete the sandbox and its record so the next start creates a
-			// fresh one. destroy deletes the record only once the sandbox is
-			// destroyed, so a failed destroy keeps it tracked and is retried
+			// Destroy the sandbox, report the reset, and only then delete
+			// its record, so the record marks a reset in progress until the
+			// report is durable. A crash before the enqueue leaves the record
+			// and the command, and the next runner's Load finds the sandbox
+			// gone and resets again; a crash after it leaves the report to
+			// the outbox. The command is not cleared until the sandbox is
+			// gone, so no start can boot it. A failed destroy is retried
 			// with backoff.
 			if err := tr.destroy(ctx); err != nil {
 				if ctx.Err() != nil {
@@ -431,6 +432,7 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			}); err != nil {
 				return c, false, err
 			}
+			tr.clear(ctx)
 		case wantsRun(c) && c.Version > h.driven:
 			return c, false, nil
 		case c.Command == gritzv1.TaskCommand_STOP && c.Version > h.stopped:
