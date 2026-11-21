@@ -1,5 +1,54 @@
 # Changelog
 
+## [4.10.0](https://github.com/gritzapp/gritz/compare/v4.9.0...v4.10.0) (2026-11-21)
+
+
+### Features
+
+* **events:** add a glob condition op to routing rules ([#2277](https://github.com/gritzapp/gritz/issues/2277)) ([d3b586a](https://github.com/gritzapp/gritz/commit/d3b586ac336d280753fb8ee0f1384db24e51af65))
+* **events:** extract github push events ([#2280](https://github.com/gritzapp/gritz/issues/2280)) ([218e0ae](https://github.com/gritzapp/gritz/commit/218e0aef7486d8cdc6efab4d08cf4d5975a5f06f))
+* **events:** register the github push event type ([#2284](https://github.com/gritzapp/gritz/issues/2284)) ([7216cab](https://github.com/gritzapp/gritz/commit/7216cab3863f921cf2065fe8996cf87578ad6177))
+* **github:** emit check_run_completed for completed check runs ([#2329](https://github.com/gritzapp/gritz/issues/2329)) ([fa78548](https://github.com/gritzapp/gritz/commit/fa78548a812b3fc841cec3800b70039ef0e26ac9))
+* **github:** emit pull_request_check_run_completed per same-repo PR ([#2332](https://github.com/gritzapp/gritz/issues/2332)) ([1c0667c](https://github.com/gritzapp/gritz/commit/1c0667c38f5aecf63523d32e674d480f9b74dade))
+* **github:** group an Actions workflow run's jobs under one routing key ([#2331](https://github.com/gritzapp/gritz/issues/2331)) ([c60139c](https://github.com/gritzapp/gritz/commit/c60139c3f65fc37000055bf323167a23f71ebf13))
+* **mcp:** add reset_sandbox tool ([#2336](https://github.com/gritzapp/gritz/issues/2336)) ([ffa5eef](https://github.com/gritzapp/gritz/commit/ffa5eef045f79a029e2d6c8d393ef3340de21fe8))
+* **proto:** add the reset command, lifecycle kinds and ResetSandbox messages ([#2252](https://github.com/gritzapp/gritz/issues/2252)) ([063f082](https://github.com/gritzapp/gritz/commit/063f082af74f975c34b3fce80d7243081e7b83c9))
+* **runner:** add the auto_reset workspace option ([#2294](https://github.com/gritzapp/gritz/issues/2294)) ([c263c05](https://github.com/gritzapp/gritz/commit/c263c05d7e787a339490436b3db8b7567affb22a))
+* **runner:** handle the reset command ([#2270](https://github.com/gritzapp/gritz/issues/2270)) ([06585b1](https://github.com/gritzapp/gritz/commit/06585b138a1792a79ebd67bfe59a8b2a19a8f549))
+* **runner:** record an automatic reset with the reset runner event ([#2296](https://github.com/gritzapp/gritz/issues/2296)) ([412829d](https://github.com/gritzapp/gritz/commit/412829d82e588d242a6558e88b30d03eec7c142c))
+* **runner:** replace a gone sandbox at boot with auto_reset ([#2304](https://github.com/gritzapp/gritz/issues/2304)) ([d124fda](https://github.com/gritzapp/gritz/commit/d124fda35ee41f357ccd90c1d487ada75dee4929))
+* **server:** add the ResetSandbox RPC ([#2276](https://github.com/gritzapp/gritz/issues/2276)) ([274cc3e](https://github.com/gritzapp/gritz/commit/274cc3e57566936a74e5d3b3742c4fe590e58d23))
+* **server:** cap the number of orgs per user ([#2268](https://github.com/gritzapp/gritz/issues/2268)) ([1d997ff](https://github.com/gritzapp/gritz/commit/1d997ff2a43458187a4e4ba0a975b235b322560e))
+* **webui:** add a Reset sandbox task action ([#2279](https://github.com/gritzapp/gritz/issues/2279)) ([c139bea](https://github.com/gritzapp/gritz/commit/c139bea7df5670297b780c04ef2d13e9bac49492))
+* **webui:** give sandbox reset timeline entries their own category ([#2288](https://github.com/gritzapp/gritz/issues/2288)) ([5bf3768](https://github.com/gritzapp/gritz/commit/5bf3768fcb57157882b396cbed685cfa46818176))
+* **webui:** offer the glob op in the routing rule form ([#2278](https://github.com/gritzapp/gritz/issues/2278)) ([65b6ad6](https://github.com/gritzapp/gritz/commit/65b6ad648ff7261943244f28060a3031c804eac5))
+
+
+### Bug Fixes
+
+* **runner:** report each restored task's state once on startup ([#2301](https://github.com/gritzapp/gritz/issues/2301)) ([54e8c9a](https://github.com/gritzapp/gritz/commit/54e8c9a62628c40071765e5782bd3c218d1b327f))
+* **runner:** sync the task log before runners act at startup ([#2311](https://github.com/gritzapp/gritz/issues/2311)) ([a683392](https://github.com/gritzapp/gritz/commit/a683392b90a605aa606fdf7c305b4f80405f0bb6))
+* **server:** report client-cancelled RPCs as Canceled, not Internal ([#2330](https://github.com/gritzapp/gritz/issues/2330)) ([50238b1](https://github.com/gritzapp/gritz/commit/50238b12493da1a68c11ab5853b9d2d88a09cb2f)), closes [#2328](https://github.com/gritzapp/gritz/issues/2328)
+* **shell:** start the debug shell with the run's environment ([#2305](https://github.com/gritzapp/gritz/issues/2305)) ([c0da23b](https://github.com/gritzapp/gritz/commit/c0da23b4d898d5110a53d9c0f2b3a572fbb6f7dd))
+
+
+### Miscellaneous
+
+* describe the gritz shell run environment ([#2306](https://github.com/gritzapp/gritz/issues/2306)) ([fcc33ea](https://github.com/gritzapp/gritz/commit/fcc33ea0e9d0159d42ecb60d4191f7c1b7ffc150)), closes [#2303](https://github.com/gritzapp/gritz/issues/2303)
+* **docker:** remove test containers with a live context ([#2254](https://github.com/gritzapp/gritz/issues/2254)) ([d546bc2](https://github.com/gritzapp/gritz/commit/d546bc2154bb7bff94cdd643eabb61b3d926b48e))
+* **docker:** run sandbox tests in parallel ([#2256](https://github.com/gritzapp/gritz/issues/2256)) ([54f4aaa](https://github.com/gritzapp/gritz/commit/54f4aaaff14a322f888a4b7599a56e2b74f12816))
+* **docs:** publish gh-pages as a single orphan commit ([#2295](https://github.com/gritzapp/gritz/issues/2295)) ([c4cde10](https://github.com/gritzapp/gritz/commit/c4cde10eddf470816abb6950c3ef7484ad5d38ab)), closes [#2289](https://github.com/gritzapp/gritz/issues/2289)
+* document auto_reset for a gone sandbox ([#2313](https://github.com/gritzapp/gritz/issues/2313)) ([9859da1](https://github.com/gritzapp/gritz/commit/9859da18e66d3e941af331586aa1e287b94c034f))
+* document GitHub check run events ([#2333](https://github.com/gritzapp/gritz/issues/2333)) ([7d14f94](https://github.com/gritzapp/gritz/commit/7d14f9471ce830ff221b75f26fd98475f70b85a1))
+* document github push events and the glob op ([#2287](https://github.com/gritzapp/gritz/issues/2287)) ([42dadc5](https://github.com/gritzapp/gritz/commit/42dadc593480e2c498163e6513e828744511549e))
+* document resetting a task's sandbox ([#2283](https://github.com/gritzapp/gritz/issues/2283)) ([5d902eb](https://github.com/gritzapp/gritz/commit/5d902eb2929c48f52a9a1fc151d6fc479741c13e))
+* **e2e:** filter a task's events with Task.FilterEvents ([#2314](https://github.com/gritzapp/gritz/issues/2314)) ([8e44a9e](https://github.com/gritzapp/gritz/commit/8e44a9eb905b56447d15f67fc8fce502274559cd))
+* **e2e:** move the harness into internal/e2e/harness ([#2258](https://github.com/gritzapp/gritz/issues/2258)) ([62d45a1](https://github.com/gritzapp/gritz/commit/62d45a1806886ab924d1bd1a75e1278606f3cc66))
+* **github:** extract a slice of events per webhook delivery ([#2327](https://github.com/gritzapp/gritz/issues/2327)) ([86c14a7](https://github.com/gritzapp/gritz/commit/86c14a7473f1be1ef5679f8dbbf40827eacdc9ad))
+* **runner:** start restored runners as Load finds them ([#2262](https://github.com/gritzapp/gritz/issues/2262)) ([f3d415b](https://github.com/gritzapp/gritz/commit/f3d415b4d7765b39fe24ac46d1b548211a089c3c))
+* skip Go tests on docs-only changes ([#2316](https://github.com/gritzapp/gritz/issues/2316)) ([5482898](https://github.com/gritzapp/gritz/commit/548289875bb21fe3d663326c53a1c9ea5ba1687f))
+* **test:** run test Postgres without durability ([#2257](https://github.com/gritzapp/gritz/issues/2257)) ([8bef76b](https://github.com/gritzapp/gritz/commit/8bef76b173bc2eb7b442d5f1f52dfa15dff4a1d8))
+
 ## [4.9.0](https://github.com/gritzapp/gritz/compare/v4.8.0...v4.9.0) (2026-11-19)
 
 
