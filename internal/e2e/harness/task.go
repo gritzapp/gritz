@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"fmt"
+	"slices"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"google.golang.org/protobuf/proto"
@@ -78,13 +79,31 @@ func (task *Task) Unarchive() {
 
 // Events returns the task's events, oldest first.
 func (task *Task) Events() []*gritzv1.Event {
+	task.org.server.t.Helper()
+	return task.FilterEvents(EventFilter{})
+}
+
+// EventFilter selects a task's events; zero fields match everything.
+type EventFilter struct {
+	Types          []string                // payload types, passed to ListEventsByTask's types
+	LifecycleKinds []gritzv1.LifecycleKind // lifecycle events of these kinds only
+}
+
+// FilterEvents returns the task's events matching f, oldest first.
+func (task *Task) FilterEvents(f EventFilter) []*gritzv1.Event {
 	t := task.org.server.t
 	t.Helper()
-	events, err := task.org.events(task.ID)
+	events, err := task.org.events(task.ID, f.Types)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return events
+	if len(f.LifecycleKinds) == 0 {
+		return events
+	}
+	return slices.DeleteFunc(events, func(e *gritzv1.Event) bool {
+		lc := e.GetLifecycle()
+		return lc == nil || !slices.Contains(f.LifecycleKinds, lc.Kind)
+	})
 }
 
 // WaitStatus waits until the task has status and returns it.

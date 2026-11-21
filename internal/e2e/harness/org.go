@@ -436,7 +436,7 @@ func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task {
 		if cond(task) {
 			return poll.Success()
 		}
-		events, err := o.events(id)
+		events, err := o.events(id, nil)
 		if err != nil {
 			return poll.Error(err)
 		}
@@ -451,7 +451,7 @@ func (o *Org) WaitEvent(id int64, match func(*gritzv1.Event) bool) *gritzv1.Even
 	t.Helper()
 	var found *gritzv1.Event
 	poll.WaitOn(t, func(poll.LogT) poll.Result {
-		events, err := o.events(id)
+		events, err := o.events(id, nil)
 		if err != nil {
 			return poll.Error(err)
 		}
@@ -470,8 +470,9 @@ func (o *Org) pollOps() []poll.SettingOp {
 	return []poll.SettingOp{poll.WithTimeout(o.server.timeout), poll.WithDelay(20 * time.Millisecond)}
 }
 
-// events returns every event of task id, oldest first.
-func (o *Org) events(id int64) ([]*gritzv1.Event, error) {
+// events returns the events of task id of the given payload types, or every
+// event if types is empty, oldest first.
+func (o *Org) events(id int64, types []string) ([]*gritzv1.Event, error) {
 	var events []*gritzv1.Event
 	token := ""
 	for {
@@ -479,6 +480,7 @@ func (o *Org) events(id int64) ([]*gritzv1.Event, error) {
 			TaskId:    id,
 			PageSize:  200,
 			PageToken: token,
+			Types:     types,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("ListEventsByTask %d: %w", id, err)

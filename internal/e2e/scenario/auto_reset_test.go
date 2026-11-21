@@ -1,7 +1,6 @@
 package scenario_test
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/e2e/harness"
@@ -35,10 +34,9 @@ func TestAutoReset(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, h.Backend.ReadFile(task.ID, "sandbox") != old)
-	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
-	resets := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
-		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
-	})
+	resets := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.FilterEvents(harness.EventFilter{
+		LifecycleKinds: []gritzv1.LifecycleKind{gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET},
+	}))
 	assert.DeepEqual(t, testx.ExtractField(resets, "Message"), []string{"previous sandbox gone: " + backend.ErrGone.Error()})
 }
 
@@ -59,10 +57,9 @@ func TestAutoReset_Off(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
-	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
-	failed := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
-		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
-	})
+	failed := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.FilterEvents(harness.EventFilter{
+		LifecycleKinds: []gritzv1.LifecycleKind{gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED},
+	}))
 	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{backend.ErrGone.Error()})
 }
 
@@ -93,9 +90,8 @@ func TestAutoReset_RunnerRestart(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, h.Backend.ReadFile(task.ID, "sandbox") != old)
-	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
-	resets := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
-		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
-	})
+	resets := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.FilterEvents(harness.EventFilter{
+		LifecycleKinds: []gritzv1.LifecycleKind{gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET},
+	}))
 	assert.DeepEqual(t, testx.ExtractField(resets, "Message"), []string{"previous sandbox gone: " + backend.ErrGone.Error()})
 }

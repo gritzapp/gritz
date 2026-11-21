@@ -3,7 +3,6 @@ package scenario_test
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/e2e/harness"
@@ -215,8 +214,8 @@ func TestReset_RunnerRestart_DestroyFails(t *testing.T) {
 	// reset once.
 	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
 	h.Org.WaitTask(task.ID, func(got *gritzv1.Task) bool { return got.Command == gritzv1.TaskCommand_NONE })
-	resets := slices.DeleteFunc(task.Events(), func(e *gritzv1.Event) bool {
-		return e.GetLifecycle().GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	resets := task.FilterEvents(harness.EventFilter{
+		LifecycleKinds: []gritzv1.LifecycleKind{gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET},
 	})
 	assert.Assert(t, cmp.Len(resets, 1))
 }
