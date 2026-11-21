@@ -121,8 +121,9 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	}
 
 	// Rehydrate the sandboxes the runner has records of: this starts a
-	// RunLoop per record, which reattaches to a running sandbox, and seeds
-	// the concurrency semaphore. It runs once, before Run admits new work.
+	// RunLoop per record, which reattaches to a running sandbox, counts the
+	// running sandboxes against the concurrency limit, and then opens the
+	// slots. It runs once, before Run admits new work.
 	if err := m.Load(ctx); err != nil {
 		return fmt.Errorf("failed to load sandboxes: %w", err)
 	}

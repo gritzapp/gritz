@@ -71,8 +71,11 @@ func TestTaskManagerLoad_Slot(t *testing.T) {
 	// Act
 	assert.NilError(t, m.Load(t.Context()))
 
-	// Assert - the reattached run holds the only slot.
-	assert.Assert(t, !m.slots.sem.TryAcquire(1))
+	// Assert - the reattached run holds the only slot: an Acquire with a
+	// canceled ctx finds none free.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.Equal(t, m.slots.Acquire(ctx, false), context.Canceled)
 }
 
 // TestTaskManagerRegisterWorkspaces checks that the runner registers each
