@@ -257,7 +257,7 @@ func (t *Task) ApplyRunnerEvent(e *RunnerEvent) bool {
 	case RunnerEventFailed:
 		return t.applyRunnerEventFailed()
 	case RunnerEventReset:
-		return t.applyRunnerEventReset(e)
+		return t.applyRunnerEventReset()
 	default:
 		return false
 	}
@@ -335,16 +335,15 @@ func (t *Task) applyRunnerEventFailed() bool {
 
 // applyRunnerEventReset records a sandbox reset. With a reset in flight, it
 // consumes the reset command once the runner reports the sandbox deleted (a
-// manual reset). Otherwise it applies only at the task's current version and
-// changes nothing, so the lifecycle entry is recorded: the runner replaced the
-// run's gone sandbox at boot and the run carries on in the new one (an
-// automatic reset). The status is untouched either way.
-func (t *Task) applyRunnerEventReset(e *RunnerEvent) bool {
+// manual reset). Otherwise it changes nothing, so the lifecycle entry is
+// recorded: the runner replaced the run's gone sandbox at boot and the run
+// carries on in the new one (an automatic reset). The status is untouched
+// either way.
+func (t *Task) applyRunnerEventReset() bool {
 	if t.Command == TaskCommandReset {
 		t.Command = TaskCommandNone
-		return true
 	}
-	return e.Version == t.Version
+	return true
 }
 
 // LifecycleEvent maps the runner event to its sandbox lifecycle event. task
