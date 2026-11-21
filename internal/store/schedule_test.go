@@ -3,7 +3,6 @@ package store_test
 import (
 	"context"
 	"database/sql"
-	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -168,34 +168,28 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 	claimed1 := make(chan struct{})
 	claimed2 := make(chan struct{})
 	var claim1, claim2 []*model.Schedule
-	var err1, err2 error
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		err1 = s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+	tx1 := testx.Go(func() error {
+		return s.WithTx(ctx, nil, func(tx *sql.Tx) error {
 			var e error
 			claim1, e = s.ClaimDueSchedules(ctx, tx, n/2)
 			close(claimed1)
 			<-claimed2 // hold the locks until caller 2 has claimed
 			return e
 		})
-	}()
-	go func() {
-		defer wg.Done()
+	})
+	tx2 := testx.Go(func() error {
 		<-claimed1 // claim only once caller 1 holds its locks
-		err2 = s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		return s.WithTx(ctx, nil, func(tx *sql.Tx) error {
 			var e error
 			claim2, e = s.ClaimDueSchedules(ctx, tx, n/2)
 			close(claimed2)
 			return e
 		})
-	}()
-	wg.Wait()
+	})
 
-	assert.NilError(t, err1)
-	assert.NilError(t, err2)
+	assert.NilError(t, tx1.Wait(t, 10*time.Second))
+	assert.NilError(t, tx2.Wait(t, 10*time.Second))
 	assert.Assert(t, cmp.Len(claim1, n/2))
 	assert.Assert(t, cmp.Len(claim2, n/2))
 

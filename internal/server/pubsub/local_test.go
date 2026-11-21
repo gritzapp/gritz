@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 )
 
@@ -148,22 +149,14 @@ func TestPublish_SlowSubscriberDoesNotBlock(t *testing.T) {
 	}
 
 	// Next publish should not block — it drops the notification.
-	done := make(chan struct{})
-	go func() {
-		err := ps.Publish(context.Background(), model.Notification{
+	publish := testx.Go(func() error {
+		return ps.Publish(context.Background(), model.Notification{
 			Type:      "change",
 			Resources: []model.NotificationResource{{Action: "updated", Type: "task", ID: 999}},
 			OrgID:     1,
 		})
-		assert.NilError(t, err)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("publish blocked on slow subscriber")
-	}
+	})
+	assert.NilError(t, publish.Wait(t, time.Second))
 
 	// Drain to make sure the buffered messages are there.
 	for range subscriberBufSize {
