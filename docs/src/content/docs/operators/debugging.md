@@ -59,6 +59,12 @@ It works for every backend and for runners on other machines: the driver dials
 the server, and the server relays your terminal to it, so you need neither
 Docker access nor a route to the runner.
 
+The shell has the agent's [environment](/operators/workspaces-yaml/#environment):
+the workspace's environment and `secrets:`, the task's variables, and
+`GRITZ_TASK_ID`, `GRITZ_TOKEN` and `GRITZ_SERVER`. Tools behave as they did for
+the agent, so a `git push` through the gritz credential helper authenticates the
+same way the agent's did.
+
 Inside, `/gritz/log` is the driver's raw log, with secrets unmasked, and
 `/tmp/gritz/<task-id>.json` is the agent config the runner wrote, including the
 MCP servers.
