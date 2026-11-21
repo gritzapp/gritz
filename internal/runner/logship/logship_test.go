@@ -471,20 +471,18 @@ func TestShipper_WriteDoesNotBlockOnASlowServer(t *testing.T) {
 	go shipper.Run(t.Context())
 
 	// Act - write well past the cap while the sender is blocked
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
+	writes := testx.Go(func() int {
+		var n int
 		for range 1000 {
-			_, _ = shipper.Write([]byte("aaaaaaaa"))
+			k, _ := shipper.Write([]byte("aaaaaaaa"))
+			n += k
 		}
-	}()
+		return n
+	})
 
-	// Assert - the writes finish without waiting for the server
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Write blocked on the in-flight sender")
-	}
+	// Assert - the writes finish without waiting for the server, and report
+	// every byte as written even though most are dropped
+	assert.Equal(t, writes.Wait(t, 5*time.Second), 8000)
 	close(release)
 	assert.NilError(t, shipper.Flush(t.Context()))
 

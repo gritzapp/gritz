@@ -17,6 +17,7 @@ import (
 	"github.com/gritzapp/gritz/internal/server/shellserver"
 	"github.com/gritzapp/gritz/internal/shell"
 	"github.com/gritzapp/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 )
 
@@ -101,13 +102,13 @@ func (b *syncBuffer) String() string {
 }
 
 // operator drives shell.Operate over conn: stdin writes are sent as data frames,
-// stdout is collected, and resize forwards terminal sizes. done carries the exit
+// stdout is collected, and resize forwards terminal sizes. exit yields the exit
 // code once the shell exits.
 type operator struct {
 	stdin  *io.PipeWriter
 	stdout *syncBuffer
 	resize chan shell.WinSize
-	done   chan opResult
+	exit   *testx.Future[opResult]
 }
 
 type opResult struct {
@@ -124,17 +125,16 @@ func runOperator(t *testing.T, conn *websocket.Conn) *operator {
 		stdin:  inW,
 		stdout: &syncBuffer{},
 		resize: make(chan shell.WinSize, 1),
-		done:   make(chan opResult, 1),
 	}
-	go func() {
+	op.exit = testx.Go(func() opResult {
 		code, err := shell.Operate(t.Context(), shell.OperateOptions{
 			Conn:   conn,
 			In:     inR,
 			Out:    op.stdout,
 			Resize: op.resize,
 		})
-		op.done <- opResult{code: code, err: err}
-	}()
+		return opResult{code: code, err: err}
+	})
 	return op
 }
 
@@ -153,11 +153,11 @@ func (op *operator) waitFor(t *testing.T, substr string) {
 		if strings.Contains(op.stdout.String(), substr) {
 			return
 		}
-		select {
-		case r := <-op.done:
+		if op.exit.Done() {
+			r := op.exit.Wait(t, time.Second)
 			t.Fatalf("operator exited before %q appeared (code=%d err=%v); output: %q", substr, r.code, r.err, op.stdout.String())
-		case <-time.After(10 * time.Millisecond):
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %q; output: %q", substr, op.stdout.String())
 }
@@ -165,14 +165,9 @@ func (op *operator) waitFor(t *testing.T, substr string) {
 // waitExit waits for shell.Operate to return and yields the exit code.
 func (op *operator) waitExit(t *testing.T) int {
 	t.Helper()
-	select {
-	case r := <-op.done:
-		assert.NilError(t, r.err)
-		return r.code
-	case <-time.After(10 * time.Second):
-		t.Fatal("operator did not return after shell exit")
-		return 0
-	}
+	r := op.exit.Wait(t, 10*time.Second)
+	assert.NilError(t, r.err)
+	return r.code
 }
 
 func TestServeAndOperate(t *testing.T) {
@@ -183,15 +178,14 @@ func TestServeAndOperate(t *testing.T) {
 	srv := newRelayServer(t, reg)
 	assert.NilError(t, reg.Seed("s1", testOrg, testTask))
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{
+	serve := testx.Go(func() error {
+		return shell.Serve(t.Context(), shell.ServeOptions{
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s1",
 			Log:       slog.Default(),
 		})
-	}()
+	})
 
 	op := runOperator(t, dialAttach(t, srv, "s1"))
 
@@ -208,12 +202,7 @@ func TestServeAndOperate(t *testing.T) {
 	op.send(t, "exit 0\n")
 	assert.Equal(t, op.waitExit(t), 0)
 
-	select {
-	case err := <-serveErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve did not return after shell exited")
-	}
+	assert.NilError(t, serve.Wait(t, 10*time.Second))
 }
 
 func TestServe_LargeBurstSurvivesReadLimit(t *testing.T) {
@@ -234,15 +223,14 @@ func TestServe_LargeBurstSurvivesReadLimit(t *testing.T) {
 	srv := newRelayServer(t, reg)
 	assert.NilError(t, reg.Seed("burst", testOrg, testTask))
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{
+	serve := testx.Go(func() error {
+		return shell.Serve(t.Context(), shell.ServeOptions{
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "burst",
 			Log:       slog.Default(),
 		})
-	}()
+	})
 
 	op := runOperator(t, dialAttach(t, srv, "burst"))
 
@@ -275,12 +263,7 @@ func TestServe_LargeBurstSurvivesReadLimit(t *testing.T) {
 	// The session survived the burst: the shell still responds and exits cleanly.
 	op.send(t, "stty sane; exit 0\n")
 	assert.Equal(t, op.waitExit(t), 0)
-	select {
-	case err := <-serveErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve did not return after shell exited")
-	}
+	assert.NilError(t, serve.Wait(t, 10*time.Second))
 }
 
 func TestServe_ExitCode(t *testing.T) {
@@ -290,15 +273,14 @@ func TestServe_ExitCode(t *testing.T) {
 	srv := newRelayServer(t, reg)
 	assert.NilError(t, reg.Seed("s2", testOrg, testTask))
 
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- shell.Serve(t.Context(), shell.ServeOptions{
+	serve := testx.Go(func() error {
+		return shell.Serve(t.Context(), shell.ServeOptions{
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s2",
 			Log:       slog.Default(),
 		})
-	}()
+	})
 
 	op := runOperator(t, dialAttach(t, srv, "s2"))
 
@@ -307,12 +289,7 @@ func TestServe_ExitCode(t *testing.T) {
 
 	// Assert: the operator observes the shell's exit code.
 	assert.Equal(t, op.waitExit(t), 7)
-	select {
-	case err := <-serveErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve did not return after shell exited")
-	}
+	assert.NilError(t, serve.Wait(t, 10*time.Second))
 }
 
 func TestSessionTornDownWhenOperatorDisconnects(t *testing.T) {
@@ -345,12 +322,8 @@ func TestSessionTornDownWhenOperatorDisconnects(t *testing.T) {
 	// Assert: dropping one leg tears the whole session down, and the operator's
 	// pump returns an error rather than blocking.
 	waitForCond(t, 5*time.Second, func() bool { return !reg.Has("s3") })
-	select {
-	case r := <-op.done:
-		assert.Assert(t, r.err != nil, "Operate should error once its leg is closed")
-	case <-time.After(5 * time.Second):
-		t.Fatal("operator did not return after its leg was closed")
-	}
+	r := op.exit.Wait(t, 5*time.Second)
+	assert.Assert(t, r.err != nil, "Operate should error once its leg is closed")
 }
 
 func TestServe_ContextCancelTearsDownBlockedShell(t *testing.T) {
@@ -367,15 +340,14 @@ func TestServe_ContextCancelTearsDownBlockedShell(t *testing.T) {
 	assert.NilError(t, reg.Seed("s4", testOrg, testTask))
 
 	serveCtx, cancelServe := context.WithCancel(t.Context())
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{
+	serve := testx.Go(func() error {
+		return shell.Serve(serveCtx, shell.ServeOptions{
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s4",
 			Log:       slog.Default(),
 		})
-	}()
+	})
 
 	op := runOperator(t, dialAttach(t, srv, "s4"))
 
@@ -389,21 +361,12 @@ func TestServe_ContextCancelTearsDownBlockedShell(t *testing.T) {
 
 	// Assert: the operator's leg is closed promptly — cmd.Cancel closes the
 	// connection first, so the operator gets instant feedback rather than hanging.
-	select {
-	case r := <-op.done:
-		assert.Assert(t, r.err != nil, "operator should error once the connection is closed on teardown")
-	case <-time.After(5 * time.Second):
-		t.Fatal("operator did not return after the connection was closed on teardown")
-	}
+	r := op.exit.Wait(t, 5*time.Second)
+	assert.Assert(t, r.err != nil, "operator should error once the connection is closed on teardown")
 
 	// Assert: Serve returns promptly rather than blocking on cmd.Wait, and the
 	// relay session is torn down.
-	select {
-	case err := <-serveErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve did not return after its context was canceled")
-	}
+	assert.NilError(t, serve.Wait(t, 10*time.Second))
 	waitForCond(t, 5*time.Second, func() bool { return !reg.Has("s4") })
 }
 
@@ -426,15 +389,14 @@ func TestServe_OperatorDisconnectTearsDownBlockedShell(t *testing.T) {
 	// not this cancellation.
 	serveCtx, cancelServe := context.WithCancel(t.Context())
 	t.Cleanup(cancelServe)
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{
+	serve := testx.Go(func() error {
+		return shell.Serve(serveCtx, shell.ServeOptions{
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s6",
 			Log:       slog.Default(),
 		})
-	}()
+	})
 
 	attach := dialAttach(t, srv, "s6")
 	op := runOperator(t, attach)
@@ -449,12 +411,7 @@ func TestServe_OperatorDisconnectTearsDownBlockedShell(t *testing.T) {
 
 	// Assert: Serve returns promptly rather than blocking on cmd.Wait, and the
 	// relay session is torn down — so the driver exits and the container stops.
-	select {
-	case err := <-serveErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("Serve did not return after the operator disconnected")
-	}
+	assert.NilError(t, serve.Wait(t, 10*time.Second))
 	waitForCond(t, 5*time.Second, func() bool { return !reg.Has("s6") })
 }
 
@@ -469,15 +426,14 @@ func TestServe_ContextCancelForceKillsUnresponsiveShell(t *testing.T) {
 	assert.NilError(t, reg.Seed("s5", testOrg, testTask))
 
 	serveCtx, cancelServe := context.WithCancel(t.Context())
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- shell.Serve(serveCtx, shell.ServeOptions{
+	serve := testx.Go(func() error {
+		return shell.Serve(serveCtx, shell.ServeOptions{
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s5",
 			Log:       slog.Default(),
 		})
-	}()
+	})
 
 	op := runOperator(t, dialAttach(t, srv, "s5"))
 
@@ -502,15 +458,10 @@ func TestServe_ContextCancelForceKillsUnresponsiveShell(t *testing.T) {
 
 	// Assert: Serve still returns — via the force-kill backstop — and only after
 	// the grace period elapsed (proving SIGTERM alone did not stop this shell).
-	select {
-	case err := <-serveErr:
-		assert.NilError(t, err)
-		elapsed := time.Since(start)
-		assert.Assert(t, elapsed >= 1500*time.Millisecond,
-			"Serve returned in %s — too fast for the WaitDelay backstop; SIGTERM must not have stopped this shell", elapsed)
-	case <-time.After(15 * time.Second):
-		t.Fatal("Serve did not return after its context was canceled — WaitDelay backstop did not fire")
-	}
+	assert.NilError(t, serve.Wait(t, 15*time.Second))
+	elapsed := time.Since(start)
+	assert.Assert(t, elapsed >= 1500*time.Millisecond,
+		"Serve returned in %s — too fast for the WaitDelay backstop; SIGTERM must not have stopped this shell", elapsed)
 	waitForCond(t, 5*time.Second, func() bool { return !reg.Has("s5") })
 }
 

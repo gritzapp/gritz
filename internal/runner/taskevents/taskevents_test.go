@@ -22,16 +22,10 @@ import (
 // run runs l until the returned stop is called, which returns Run's error.
 func run(t *testing.T, l *taskevents.Log) (stop func() error) {
 	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- l.Run(ctx) }()
-	var once sync.Once
-	var err error
+	f := testx.Go(func() error { return l.Run(ctx) })
 	stop = func() error {
-		once.Do(func() {
-			cancel()
-			err = <-done
-		})
-		return err
+		cancel()
+		return f.Wait(t, 5*time.Second)
 	}
 	t.Cleanup(func() { _ = stop() })
 	return stop

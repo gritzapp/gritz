@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+	"time"
 
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
+
+	"github.com/gritzapp/gritz/internal/x/testx"
 )
 
 const taskID = 42
@@ -24,18 +27,11 @@ func setup(t *testing.T) (*Server, *Agent) {
 	return srv, New(taskID, Options{URL: hs.URL})
 }
 
-// prompt calls a.Prompt in the background and returns its result channel.
-func prompt(ctx context.Context, a *Agent, text string, resume bool) <-chan error {
-	errc := make(chan error, 1)
-	go func() { errc <- a.Prompt(ctx, text, resume) }()
-	return errc
-}
-
 func TestComplete(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv, a := setup(t)
-	errc := prompt(t.Context(), a, "do the thing", true)
+	prompt := testx.Go(func() error { return a.Prompt(t.Context(), "do the thing", true) })
 	run, err := srv.Next(t.Context(), taskID)
 	assert.NilError(t, err)
 
@@ -43,7 +39,7 @@ func TestComplete(t *testing.T) {
 	assert.NilError(t, run.Complete())
 
 	// Assert
-	assert.NilError(t, <-errc)
+	assert.NilError(t, prompt.Wait(t, 5*time.Second))
 	assert.Equal(t, run.TaskID, int64(taskID))
 	assert.Equal(t, run.Prompt, "do the thing")
 	assert.Equal(t, run.Resume, true)
@@ -53,7 +49,7 @@ func TestFail(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	srv, a := setup(t)
-	errc := prompt(t.Context(), a, "do the thing", false)
+	prompt := testx.Go(func() error { return a.Prompt(t.Context(), "do the thing", false) })
 	run, err := srv.Next(t.Context(), taskID)
 	assert.NilError(t, err)
 
@@ -61,7 +57,7 @@ func TestFail(t *testing.T) {
 	assert.NilError(t, run.Fail("run failed on purpose"))
 
 	// Assert
-	assert.Error(t, <-errc, "run failed on purpose")
+	assert.Error(t, prompt.Wait(t, 5*time.Second), "run failed on purpose")
 }
 
 func TestCancel(t *testing.T) {
@@ -69,7 +65,7 @@ func TestCancel(t *testing.T) {
 	// Arrange
 	srv, a := setup(t)
 	ctx, cancel := context.WithCancel(t.Context())
-	errc := prompt(ctx, a, "do the thing", false)
+	prompt := testx.Go(func() error { return a.Prompt(ctx, "do the thing", false) })
 	run, err := srv.Next(t.Context(), taskID)
 	assert.NilError(t, err)
 
@@ -77,7 +73,7 @@ func TestCancel(t *testing.T) {
 	cancel()
 
 	// Assert
-	err = <-errc
+	err = prompt.Wait(t, 5*time.Second)
 	assert.Assert(t, errors.Is(err, context.Canceled), "got %v", err)
 	<-run.Cancelled()
 	assert.ErrorContains(t, run.Complete(), "already ended")
@@ -87,10 +83,10 @@ func TestNext_InOrder(t *testing.T) {
 	t.Parallel()
 	// Arrange - two runs, the second arriving after the first was taken
 	srv, a := setup(t)
-	errc1 := prompt(t.Context(), a, "one", false)
+	prompt1 := testx.Go(func() error { return a.Prompt(t.Context(), "one", false) })
 	run1, err := srv.Next(t.Context(), taskID)
 	assert.NilError(t, err)
-	errc2 := prompt(t.Context(), a, "two", true)
+	prompt2 := testx.Go(func() error { return a.Prompt(t.Context(), "two", true) })
 
 	// Act
 	run2, err := srv.Next(t.Context(), taskID)
@@ -103,19 +99,19 @@ func TestNext_InOrder(t *testing.T) {
 	assert.Check(t, is.Len(srv.Runs(taskID+1), 0))
 	assert.NilError(t, run1.Complete())
 	assert.NilError(t, run2.Complete())
-	assert.NilError(t, <-errc1)
-	assert.NilError(t, <-errc2)
+	assert.NilError(t, prompt1.Wait(t, 5*time.Second))
+	assert.NilError(t, prompt2.Wait(t, 5*time.Second))
 }
 
 func TestComplete_Ended(t *testing.T) {
 	t.Parallel()
 	// Arrange - a completed run
 	srv, a := setup(t)
-	errc := prompt(t.Context(), a, "do the thing", false)
+	prompt := testx.Go(func() error { return a.Prompt(t.Context(), "do the thing", false) })
 	run, err := srv.Next(t.Context(), taskID)
 	assert.NilError(t, err)
 	assert.NilError(t, run.Complete())
-	assert.NilError(t, <-errc)
+	assert.NilError(t, prompt.Wait(t, 5*time.Second))
 
 	// Act
 	err = run.Complete()
@@ -129,7 +125,7 @@ func TestClose(t *testing.T) {
 	t.Parallel()
 	// Arrange - an open run
 	srv, a := setup(t)
-	errc := prompt(t.Context(), a, "do the thing", false)
+	prompt := testx.Go(func() error { return a.Prompt(t.Context(), "do the thing", false) })
 	run, err := srv.Next(t.Context(), taskID)
 	assert.NilError(t, err)
 
@@ -137,7 +133,7 @@ func TestClose(t *testing.T) {
 	srv.Close()
 
 	// Assert
-	assert.Error(t, <-errc, "puppet server closed")
+	assert.Error(t, prompt.Wait(t, 5*time.Second), "puppet server closed")
 	assert.ErrorContains(t, run.Complete(), "already ended")
 	assert.Error(t, a.Prompt(t.Context(), "after close", false), "puppet server closed")
 }

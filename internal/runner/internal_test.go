@@ -16,6 +16,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -176,17 +177,11 @@ func TestTaskManagerRun_Fatal(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
-	done := make(chan error, 1)
-	go func() { done <- m.Run(ctx) }()
+	err = testx.Go(func() error { return m.Run(ctx) }).Wait(t, 3*time.Second)
 
 	// Assert - Run returns the FatalError the runner was terminated with.
-	select {
-	case err := <-done:
-		var fatal FatalError
-		assert.Assert(t, errors.As(err, &fatal), "got %v", err)
-		assert.ErrorContains(t, err, "database is closed")
-		assert.Equal(t, err, context.Cause(ctx))
-	case <-time.After(3 * time.Second):
-		t.Fatal("Run did not return")
-	}
+	var fatal FatalError
+	assert.Assert(t, errors.As(err, &fatal), "got %v", err)
+	assert.ErrorContains(t, err, "database is closed")
+	assert.Equal(t, err, context.Cause(ctx))
 }

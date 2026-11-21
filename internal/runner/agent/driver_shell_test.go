@@ -15,6 +15,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/shellserver"
 	"github.com/gritzapp/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 )
 
@@ -50,8 +51,7 @@ func TestRun_ForksIntoShell(t *testing.T) {
 	d := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, ServerURL: srv.URL, Token: "t"}
 
 	task := &gritzv1.Task{Id: 1, ShellSession: "s1"}
-	runErr := make(chan error, 1)
-	go func() { runErr <- d.run(t.Context(), task) }()
+	run := testx.Go(func() error { return d.run(t.Context(), task) })
 
 	// Connect the operator leg and exercise the shell the fork spawned.
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -77,10 +77,5 @@ func TestRun_ForksIntoShell(t *testing.T) {
 
 	// Ending the shell makes run() return.
 	assert.NilError(t, attach.Write(ctx, websocket.MessageBinary, shellwire.Data([]byte("exit\n"))))
-	select {
-	case err := <-runErr:
-		assert.NilError(t, err)
-	case <-time.After(10 * time.Second):
-		t.Fatal("run did not return after shell exit")
-	}
+	assert.NilError(t, run.Wait(t, 10*time.Second))
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/server/notifyserver"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/x/sse"
+	"github.com/gritzapp/gritz/internal/x/testx"
 	"gotest.tools/v3/assert"
 )
 
@@ -45,18 +46,10 @@ func newTestNotifyServer(t *testing.T) (*httptest.Server, *pubsub.LocalPubSub) {
 func runClient(t *testing.T, c *gritzclient.NotificationClient) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() {
-		_ = c.Run(ctx)
-		close(done)
-	}()
+	run := testx.Go(func() error { return c.Run(ctx) })
 	t.Cleanup(func() {
 		cancel()
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("client did not stop")
-		}
+		_ = run.Wait(t, time.Second)
 	})
 }
 
