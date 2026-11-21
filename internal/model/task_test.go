@@ -922,21 +922,21 @@ func TestTask_Reset(t *testing.T) {
 		want   bool
 	}{
 		{
-			name:   "from completed succeeds without changing status or version",
+			name:   "from completed succeeds, keeping status and bumping version",
 			before: Task{Status: TaskStatusCompleted, Version: 2},
-			after:  Task{Status: TaskStatusCompleted, Command: TaskCommandReset, Version: 2},
+			after:  Task{Status: TaskStatusCompleted, Command: TaskCommandReset, Version: 3},
 			want:   true,
 		},
 		{
-			name:   "from failed succeeds without changing status or version",
+			name:   "from failed succeeds, keeping status and bumping version",
 			before: Task{Status: TaskStatusFailed, Version: 2},
-			after:  Task{Status: TaskStatusFailed, Command: TaskCommandReset, Version: 2},
+			after:  Task{Status: TaskStatusFailed, Command: TaskCommandReset, Version: 3},
 			want:   true,
 		},
 		{
-			name:   "from cancelled succeeds without changing status or version",
+			name:   "from cancelled succeeds, keeping status and bumping version",
 			before: Task{Status: TaskStatusCancelled, Version: 2},
-			after:  Task{Status: TaskStatusCancelled, Command: TaskCommandReset, Version: 2},
+			after:  Task{Status: TaskStatusCancelled, Command: TaskCommandReset, Version: 3},
 			want:   true,
 		},
 		{

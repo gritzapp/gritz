@@ -238,12 +238,11 @@ func (t *Task) ApplyRunnerEvent(e *RunnerEvent) bool {
 		return false
 	}
 
-	// The version is the run counter (see
+	// The version counts the task's runs and sandbox resets (see
 	// docs/src/content/docs/proposals/implemented/task-run-versions.md): N >= 1
-	// is scoped to run N, so the event applies only when it matches the task's
-	// current run; 0 is the unscoped bypass, applying regardless of the task's
-	// version. The guard logic is unchanged — only its meaning is now
-	// normative.
+	// is scoped to version N, so the event applies only when it matches the
+	// task's current version; 0 is the unscoped bypass, applying regardless of
+	// the task's version.
 	if e.Version != 0 && e.Version != t.Version {
 		return false
 	}
@@ -335,8 +334,8 @@ func (t *Task) applyRunnerEventFailed() bool {
 // applyRunnerEventReset consumes the reset command once the runner reports the
 // sandbox deleted. The status is deliberately untouched. A reset event with no
 // reset in flight is a no-op: a redelivery (the outbox is at-least-once), or a
-// duplicate the runner reported for a replayed report, since it reports a reset
-// before carrying it out.
+// repeat from a runner that restarted before deleting the sandbox's record. A
+// reset event for an older version is dropped by ApplyRunnerEvent's guard.
 func (t *Task) applyRunnerEventReset() bool {
 	if t.Command != TaskCommandReset {
 		return false
@@ -563,13 +562,15 @@ func (t *Task) CanReset() bool {
 }
 
 // Reset sets the reset command, asking the runner to delete the task's
-// sandbox. Status and version are deliberately untouched: no run starts or
-// ends. The next start finds no sandbox and creates a fresh one.
+// sandbox, and increments the version, as start and restart do, so the runner
+// carries out each reset once. The status is deliberately untouched: no run
+// starts or ends. The next start finds no sandbox and creates a fresh one.
 func (t *Task) Reset() bool {
 	if !t.CanReset() {
 		return false
 	}
 	t.Command = TaskCommandReset
+	t.Version++
 	return true
 }
 

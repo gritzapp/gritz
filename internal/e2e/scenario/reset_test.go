@@ -34,7 +34,7 @@ func TestReset_Failed(t *testing.T) {
 	task.ResetSandbox()
 
 	// The sandbox is gone and nothing was booted, and the task is still
-	// failed on the same run, with no command left.
+	// failed, at the reset's version, with no command left.
 	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
 	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
 		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
@@ -42,7 +42,7 @@ func TestReset_Failed(t *testing.T) {
 	got := task.Get()
 	assert.Equal(t, got.Status, gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
-	assert.Equal(t, got.Version, int64(1))
+	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(m.BootCalls(), 1))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 0))
 
@@ -51,7 +51,7 @@ func TestReset_Failed(t *testing.T) {
 	task.Restart()
 	h.Agent.WaitRun(task.ID).Complete()
 	got = task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
-	assert.Equal(t, got.Version, int64(2))
+	assert.Equal(t, got.Version, int64(3))
 	assert.Equal(t, h.Backend.ReadFile(task.ID, "setup"), "setup\n")
 }
 
@@ -95,15 +95,15 @@ func TestReset_Repeated(t *testing.T) {
 
 	task.ResetSandbox()
 
-	// The second reset of the same run is carried out and reported too, or
-	// its command would never be cleared.
+	// The second reset, at a newer version, is carried out and reported too,
+	// or its command would never be cleared.
 	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
 		return e.Id > first.Id && e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
 	})
 	got := task.Get()
 	assert.Equal(t, got.Status, gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
-	assert.Equal(t, got.Version, int64(1))
+	assert.Equal(t, got.Version, int64(3))
 }
 
 func TestReset_DestroyFails(t *testing.T) {
@@ -157,7 +157,7 @@ func TestReset_DestroyFails(t *testing.T) {
 	task.Restart()
 	h.Agent.WaitRun(task.ID).Complete()
 	got := task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
-	assert.Equal(t, got.Version, int64(2))
+	assert.Equal(t, got.Version, int64(3))
 	assert.Assert(t, cmp.Len(m.DestroyCalls(), 1))
 	assert.Assert(t, h.Backend.ReadFile(task.ID, "sandbox") != old)
 }

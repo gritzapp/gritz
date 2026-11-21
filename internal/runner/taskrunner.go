@@ -44,12 +44,11 @@ type TaskRunner struct {
 	// first, with the slot Load counted for it.
 	up bool
 
-	// changeMu guards change, the task's latest report, and seq, the
-	// number of reports so far: zero until the first, and a new number for
-	// each, even one that repeats the report before it.
-	changeMu sync.Mutex
-	change   runnerstore.TaskChange
-	seq      uint64
+	// changeMu guards change, the task's latest report, and hasChange,
+	// whether there has been one.
+	changeMu  sync.Mutex
+	change    runnerstore.TaskChange
+	hasChange bool
 	// changed wakes RunLoop when Change stores a report.
 	changed wakeup.Chan
 }
@@ -279,18 +278,16 @@ func (tr *TaskRunner) destroy(ctx context.Context) error {
 // command superseded before RunLoop got to it is never acted on.
 func (tr *TaskRunner) Change(c runnerstore.TaskChange) {
 	tr.changeMu.Lock()
-	tr.change = c
-	tr.seq++
+	tr.change, tr.hasChange = c, true
 	tr.changeMu.Unlock()
 	tr.changed.Wake()
 }
 
-// latest returns the task's latest report and its sequence number, which is
-// zero if there has been none.
-func (tr *TaskRunner) latest() (runnerstore.TaskChange, uint64) {
+// latest returns the task's latest report, and false if there has been none.
+func (tr *TaskRunner) latest() (runnerstore.TaskChange, bool) {
 	tr.changeMu.Lock()
 	defer tr.changeMu.Unlock()
-	return tr.change, tr.seq
+	return tr.change, tr.hasChange
 }
 
 // wantsRun reports whether c's command needs the driver to run version
@@ -309,10 +306,9 @@ type handled struct {
 	// stopped is the newest version whose stop needs no report from the
 	// runner: the driver ran it, or the runner has reported it stopped.
 	stopped int64
-	// reset is the sequence number of the last report whose reset the
-	// runner has reported. A reset is not versioned, so it is keyed on the
-	// report: a wake with no new report does not reset again.
-	reset uint64
+	// reset is the newest version whose reset the runner has reported: a
+	// reset needs carrying out only if it is newer.
+	reset int64
 }
 
 // RunLoop is the TaskRunner's lifetime: it boots, drives and suspends the
@@ -335,7 +331,7 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 	if tr.opts.Slots == nil || tr.opts.Queue == nil || tr.opts.Stream == nil || tr.opts.Spec == nil {
 		panic("runner: TaskRunnerOptions.Slots, Queue, Stream and Spec are required to RunLoop")
 	}
-	if _, seq := tr.latest(); seq == 0 {
+	if _, ok := tr.latest(); !ok {
 		panic("runner: RunLoop before the TaskRunner's first Change")
 	}
 	var h handled
@@ -386,13 +382,14 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 // sandbox; and an archive destroys the sandbox and its record, when next
 // reports archived. A destroy that fails is retried with backoff.
 //
-// A reset is not versioned: two resets of the same run are both legitimate,
-// so next resets once for every report of a reset, even a repeated one.
+// A reset is versioned like a start: each reset of the task bumps its
+// version, so a report that repeats a reset already carried out is not
+// carried out again.
 func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskChange, archived bool, err error) {
 	retry := doubling(tr.opts.RetryInterval, tr.opts.RetryMaxInterval)
 	for {
 		var timer <-chan time.Time
-		c, seq := tr.latest()
+		c, _ := tr.latest()
 		switch {
 		case c.Archived:
 			err := tr.destroy(ctx)
@@ -406,7 +403,7 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			}
 			tr.opts.Log.Error("failed to destroy archived task's sandbox", "task", tr.opts.TaskID, "err", err)
 			timer = time.After(retry.NextBackOff())
-		case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
+		case c.Command == gritzv1.TaskCommand_RESET && c.Version > h.reset:
 			// Destroy the sandbox, report the reset, and only then delete
 			// its record, so the record marks a reset in progress until the
 			// report is durable. A crash before the enqueue leaves the record
@@ -424,7 +421,7 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 				break
 			}
 			tr.opts.Log.Info("sandbox reset", "task", tr.opts.TaskID)
-			h.reset = seq
+			h.reset = c.Version
 			if err := tr.enqueue(model.RunnerEvent{
 				TaskID:  tr.opts.TaskID,
 				Event:   model.RunnerEventReset,

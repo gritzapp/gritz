@@ -140,8 +140,8 @@ message Task {
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   TaskCommand command = 10;
-  // The task's current run: 0 before it first starts, then 1, and one more for
-  // each new run.
+  // 0 before the task first starts, then 1, and one more for each new run and
+  // each sandbox reset.
   int64 version = 11;
   TaskActions actions = 12;
   bool archived = 13;
@@ -312,7 +312,8 @@ message OpenShellResponse {
 }
 
 // ResetSandboxRequest deletes a finished task's sandbox, so that its next run
-// starts in a fresh one. The task's status, version and history are unchanged.
+// starts in a fresh one. The task's status and history are unchanged; its
+// version is incremented.
 message ResetSandboxRequest {
   int64 task_id = 1;
 }
@@ -591,8 +592,9 @@ message ListEventsByTaskResponse {
 message RunnerEvent {
   int64 task_id = 1;
   string event = 2;     // "started", "stopped", "failed" or "reset".
-  // The run (Task.version) the event is about. An event for another run than
-  // the task's current one is ignored; 0 applies to the current run.
+  // The Task.version the event is about: the run, or the sandbox reset. An
+  // event for another version than the task's current one is ignored; 0
+  // applies to the current version.
   int64 version = 3;
   bool reconcile = 4;   // Events with reconcile set are ignored.
   string reason = 5;    // Optional human-readable detail, such as why the run failed.

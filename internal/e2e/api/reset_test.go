@@ -31,8 +31,8 @@ func TestResetSandbox(t *testing.T) {
 	// Act
 	_, err := h.Org.Client.ResetSandbox(t.Context(), &gritzv1.ResetSandboxRequest{TaskId: task.ID})
 
-	// Assert - the reset command is set, and the status and version are not
-	// touched.
+	// Assert - the reset command is set at the next version, and the status
+	// is not touched.
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
@@ -40,7 +40,7 @@ func TestResetSandbox(t *testing.T) {
 			Id:      task.ID,
 			Status:  gritzv1.TaskStatus_FAILED,
 			Command: gritzv1.TaskCommand_RESET,
-			Version: 1,
+			Version: 2,
 		},
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
@@ -67,7 +67,7 @@ func TestResetSandbox(t *testing.T) {
 		commands[len(commands)-1],
 		&gritzv1.CommandPayload{
 			Command:   gritzv1.TaskCommand_RESET,
-			Version:   1,
+			Version:   2,
 			Runner:    harness.DefaultRunner,
 			Workspace: harness.DefaultWorkspace,
 		},
@@ -202,11 +202,11 @@ func TestResetSandbox_RunnerReset(t *testing.T) {
 
 	// Act
 	_, err := h.Org.Client.SubmitRunnerEvents(t.Context(), &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: string(model.RunnerEventReset), Version: 1}},
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: string(model.RunnerEventReset), Version: 2}},
 	})
 
-	// Assert - the command is cleared and the task is still failed, on the
-	// same run. Its outcome is not announced again.
+	// Assert - the command is cleared and the task is still failed, at the
+	// reset's version. Its outcome is not announced again.
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		task.Get(),
@@ -214,7 +214,7 @@ func TestResetSandbox_RunnerReset(t *testing.T) {
 			Id:      task.ID,
 			Status:  gritzv1.TaskStatus_FAILED,
 			Command: gritzv1.TaskCommand_NONE,
-			Version: 1,
+			Version: 2,
 		},
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "version"),
@@ -258,7 +258,7 @@ func TestResetSandbox_DuplicateRunnerResetIgnored(t *testing.T) {
 	})
 	task.ResetSandbox()
 	reset := &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: string(model.RunnerEventReset), Version: 1}},
+		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: string(model.RunnerEventReset), Version: 2}},
 	}
 	h.Org.SubmitRunnerEvents(reset)
 	before := task.Events()

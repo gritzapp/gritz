@@ -451,8 +451,8 @@ type Task struct {
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	Command   TaskCommand            `protobuf:"varint,10,opt,name=command,proto3,enum=gritz.v1.TaskCommand" json:"command,omitempty"`
-	// The task's current run: 0 before it first starts, then 1, and one more for
-	// each new run.
+	// 0 before the task first starts, then 1, and one more for each new run and
+	// each sandbox reset.
 	Version  int64        `protobuf:"varint,11,opt,name=version,proto3" json:"version,omitempty"`
 	Actions  *TaskActions `protobuf:"bytes,12,opt,name=actions,proto3" json:"actions,omitempty"`
 	Archived bool         `protobuf:"varint,13,opt,name=archived,proto3" json:"archived,omitempty"`
@@ -1950,7 +1950,8 @@ func (x *OpenShellResponse) GetSessionId() string {
 }
 
 // ResetSandboxRequest deletes a finished task's sandbox, so that its next run
-// starts in a fresh one. The task's status, version and history are unchanged.
+// starts in a fresh one. The task's status and history are unchanged; its
+// version is incremented.
 type ResetSandboxRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -3865,8 +3866,9 @@ type RunnerEvent struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	TaskId int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Event  string                 `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"` // "started", "stopped", "failed" or "reset".
-	// The run (Task.version) the event is about. An event for another run than
-	// the task's current one is ignored; 0 applies to the current run.
+	// The Task.version the event is about: the run, or the sandbox reset. An
+	// event for another version than the task's current one is ignored; 0
+	// applies to the current version.
 	Version       int64  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	Reconcile     bool   `protobuf:"varint,4,opt,name=reconcile,proto3" json:"reconcile,omitempty"` // Events with reconcile set are ignored.
 	Reason        string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`        // Optional human-readable detail, such as why the run failed.

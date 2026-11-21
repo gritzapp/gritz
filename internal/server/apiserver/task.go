@@ -562,8 +562,8 @@ func (s *Server) RestartTask(ctx context.Context, req *gritzv1.RestartTaskReques
 
 // ResetSandbox asks the task's runner to delete its sandbox, so that the next
 // start creates a fresh one. Only a finished task with no command in flight can
-// be reset; its status and version are unchanged. Authorization mirrors
-// RestartTask.
+// be reset; its status is unchanged and its version is incremented, as a start
+// does. Authorization mirrors RestartTask.
 func (s *Server) ResetSandbox(ctx context.Context, req *gritzv1.ResetSandboxRequest) (*gritzv1.ResetSandboxResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// Coarse, fail-fast capability gate before entering the transaction (AllowOp

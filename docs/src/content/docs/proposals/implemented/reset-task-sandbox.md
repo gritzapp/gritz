@@ -49,9 +49,10 @@ Three constraints shape everything below:
   the same precondition `OpenShell` enforces. A running task's sandbox is live;
   deleting it would be a stop, which is what `CancelTask` is for. Terminal-only means
   reset never has to kill a run or orphan its events.
-- **The task's status and version never change.** A reset task stays exactly as
-  terminal as it was, on the same run. The only observable state change is that its
-  sandbox is gone.
+- **The task's status never changes.** A reset task stays exactly as terminal as it
+  was. Its version is bumped, as a start's is, so that each reset is a distinct
+  command the runner carries out once (see [Runner](#runner)); no run starts. The only
+  other observable state change is that its sandbox is gone.
 - **The RPC is `ResetSandbox(task_id)`**, named for the sandbox rather than the task
   (like `OpenShell(task_id)`): `ResetTask` would read as resetting the task itself.
 
@@ -82,8 +83,8 @@ does not change.
 The full round trip:
 
 1. `ResetSandbox` sets `command = RESET` on a terminal task with no command in flight,
-   and writes a `RESET_REQUESTED` lifecycle event and the command event. Status and
-   version are untouched.
+   bumps the version, and writes a `RESET_REQUESTED` lifecycle event and the command
+   event. The status is untouched.
 2. `PendingRunner()` is non-empty (the command is not `NONE`), so the notification
    wakes the task's runner, whose `taskevents.Log` syncs and hands the `TaskChange`
    to the task's `TaskRunner` (creating one, with no sandbox, if the task had none).
@@ -128,7 +129,8 @@ service GritzService {
 }
 
 // ResetSandboxRequest deletes a finished task's sandbox, so that its next run
-// starts in a fresh one. The task's status, version and history are unchanged.
+// starts in a fresh one. The task's status and history are unchanged; its
+// version is incremented.
 message ResetSandboxRequest {
   int64 task_id = 1;
 }
@@ -152,7 +154,7 @@ and `INTEGER` in the runner store, so **no migration is needed** in either.
 ```go
 // TaskCommandReset asks the runner to delete the task's sandbox. It is not a
 // run command: nothing is started, stopped or restarted, and the task's status
-// and version are unchanged. The runner's "reset" event consumes it.
+// is unchanged. The runner's "reset" event consumes it.
 TaskCommandReset TaskCommand = TaskCommand(gritzv1.TaskCommand_RESET)
 
 // RunnerEventReset reports that the runner deleted the task's sandbox and its
@@ -164,7 +166,8 @@ RunnerEventReset RunnerEventType = "reset"
 `LifecycleKindSandboxReset`, and `LifecyclePayload.Summary` renders them as "Sandbox
 reset requested" and "Sandbox reset".
 
-The transition pair — unlike `Restart`, it touches neither status nor version:
+The transition pair — unlike `Restart`, it leaves the status alone, but it bumps the
+version as `Restart` does:
 
 ```go
 // CanReset reports whether the task's sandbox can be deleted. Only a finished
@@ -175,13 +178,15 @@ func (t *Task) CanReset() bool {
 }
 
 // Reset sets the reset command, asking the runner to delete the task's
-// sandbox. Status and version are deliberately untouched: no run starts or
-// ends. The next start finds no sandbox and creates a fresh one.
+// sandbox, and increments the version, as start and restart do, so the runner
+// carries out each reset once. The status is deliberately untouched: no run
+// starts or ends. The next start finds no sandbox and creates a fresh one.
 func (t *Task) Reset() bool {
 	if !t.CanReset() {
 		return false
 	}
 	t.Command = TaskCommandReset
+	t.Version++
 	return true
 }
 ```
@@ -191,8 +196,9 @@ The fold arm in `ApplyRunnerEvent`, after the existing version guard:
 ```go
 // applyRunnerEventReset consumes the reset command once the runner reports the
 // sandbox deleted. The status is deliberately untouched. A reset event with no
-// reset pending — a redelivery (the outbox is at-least-once), or a duplicate
-// the runner reported for a repeated TaskChange — is a no-op.
+// reset pending — a redelivery (the outbox is at-least-once), or a repeat from a
+// runner that restarted before deleting the sandbox's record — is a no-op. A
+// reset event for an older version is dropped by ApplyRunnerEvent's guard.
 func (t *Task) applyRunnerEventReset() bool {
 	if t.Command != TaskCommandReset {
 		return false
@@ -244,8 +250,8 @@ lands on a terminal status changes it.
 The server side is idempotent: the fold consumes a `reset` event only while the task
 has `RESET` in flight, and otherwise returns false, so `SubmitRunnerEvents` writes
 nothing and publishes nothing for it. A duplicate or stale report — an outbox
-redelivery, a second report for a repeated `RESET` report (see below), or a fresh
-`TaskRunner` acting on a `RESET` left in its store — is harmless.
+redelivery, or a fresh `TaskRunner` acting on a `RESET` left in its store — is
+harmless, and a `reset` at an older version is dropped by the version guard.
 
 ### Runner
 
@@ -254,7 +260,7 @@ driver (a stop no run is open to report, and an archive). It takes no slot and b
 nothing:
 
 ```go
-case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
+case c.Command == gritzv1.TaskCommand_RESET && c.Version > h.reset:
 	// Destroy the sandbox, report the reset, and only then delete its
 	// record, so the record marks a reset in progress until the report is
 	// durable. A failed destroy is retried with backoff.
@@ -266,7 +272,7 @@ case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
 		timer = time.After(retry.NextBackOff())
 		break
 	}
-	h.reset = seq
+	h.reset = c.Version
 	if err := tr.enqueue(model.RunnerEvent{
 		TaskID:  tr.opts.TaskID,
 		Event:   model.RunnerEventReset,
@@ -283,14 +289,14 @@ enqueues its report in between.
 
 The case sits after `c.Archived` (which cannot coexist with `RESET`) and is mutually
 exclusive with the start and stop cases. `next`'s doc comment gains the third report it
-handles. A reset is not versioned (two resets of the same run are both legitimate and
-both must be reported, or the second would strand its command), so it is keyed on the
-report instead: `Change` numbers each report (`seq`, which replaces `hasChange`), and
-`handled.reset` is the number of the last one `next` reset for. Every new `RESET`
-report is carried out, even one that repeats the last, but a wake with no new report
-is not — and there always is one: the manager hands a `TaskRunner` its first report
-before `RunLoop` starts, so without the key every reset on a new `TaskRunner` would be
-reported twice.
+handles. A reset is versioned like a start: `handled.reset` is the newest version
+`next` has reset, as `handled.stopped` and `handled.driven` are for stops and runs, and
+a `RESET` is carried out only at a newer one. Two resets of the same run are both
+carried out, because each bumps the version, but a wake or a report that repeats the
+task's state is not — and there always is one: the manager hands a `TaskRunner` its
+first report before `RunLoop` starts, and `taskevents.Log` may report a stored task
+again, so without the version every reset on a new `TaskRunner` would be reported
+twice.
 
 The order — destroy, report, delete the record — makes the record the durable marker
 of a reset in progress, and the command the guard on the old sandbox:
@@ -318,14 +324,12 @@ Behaviour notes:
   ignores any command but start, restart and stop; once `busy` has suspended the
   sandbox, `next` sees `RESET` and destroys it — the same "waits for the drive to end"
   rule the archive follows. The driver needs no change.
-- **A repeated report.** `taskevents.Log` reports every stored task again when the
-  runner boots, so a runner restarted before the clear replicated sees `RESET` twice.
-  A second report that lands after the fold finds no reset in flight and is ignored.
-  A second `RESET` report before the fold enqueues a second `reset` event at the same
-  version. If it lands after the user has reset again at that version, it clears the
-  second reset before the runner acts on it — harmless, because nothing can have
-  created a sandbox in between: a sandbox is only created by a boot for a start, and a start bumps the
-  version, which the second event's version guard would then reject.
+- **A repeated report.** `taskevents.Log` may report a task's current state again,
+  so a `TaskRunner` can see the same `RESET` twice. `next` has already reset that
+  version, so it does nothing. A runner restarted before the record was deleted has a
+  fresh `TaskRunner`, which resets again and reports it at the same version; the fold
+  finds no reset in flight and ignores it, or, if the user has reset again since, the
+  version guard rejects it.
 - **Retry is bounded by the command's lifetime.** The command stays on the server
   until a `reset` event consumes it, and `next` retries a failed destroy with the
   backoff it already uses for an archive's. A runner restart re-reports the task's
@@ -443,8 +447,8 @@ existing create-on-boot path, both of which auto-reset can use without the comma
 3. **`ResetSandbox` RPC** — Delivers: the server handler, its lifecycle and command
    events, the notification, and the status-changed guard on `SubmitRunnerEvents`'
    channel message. Depends on: (1), and (2) for the end-to-end path. Verifiable by:
-   `internal/e2e/api` tests asserting the command is set with status and version
-   unchanged, the `RESET_REQUESTED` and command events, the `FailedPrecondition`
+   `internal/e2e/api` tests asserting the command is set with the status
+   unchanged and the version bumped, the `RESET_REQUESTED` and command events, the `FailedPrecondition`
    (running task, command in flight, archived) and `PermissionDenied` paths, and a
    duplicate `reset` event being ignored; and `internal/e2e/scenario` tests, which
    replace (2)'s `TaskRunner` unit tests, that fail a run, reset, see `SANDBOX_RESET`
