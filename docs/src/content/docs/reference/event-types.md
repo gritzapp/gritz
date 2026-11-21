@@ -20,11 +20,13 @@ source `custom` and the attributes their schema defines; see
 Every type has two attributes:
 
 - `body`: the event's text. For a comment or a review it is that text; for a
-  push it is the newest commit's message; for the other types it is the
-  description of the issue or pull request.
+  push it is the newest commit's message; for a check run it is the check's
+  output; for the other types it is the description of the issue or pull
+  request.
 - `url`: the event's own URL. For a comment or a review it is the comment's or
-  review's URL; for a push it is the newest commit's URL; for the other types it
-  is the issue's or pull request's URL.
+  review's URL; for a push it is the newest commit's URL; for a check run it is
+  the check run's or the pull request's URL; for the other types it is the
+  issue's or pull request's URL.
 
 Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
@@ -154,6 +156,70 @@ before and after the push (`before`, `after`), the compare URL (`compare`),
 whether it was a force push (`forced`) and the number of commits (`commits`).
 The agent can diff `before` and `after` for the complete list of changed files.
 
+### `check_run_completed`
+
+**GitHub: Check Run Completed.** A check run finishes, whatever its conclusion.
+A check run is one check reported through GitHub's Checks API: for GitHub
+Actions, one job of a workflow run; other CI systems, such as CircleCI or
+Buildkite, report theirs the same way.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Check Output | The title and summary of the check's output, often empty for GitHub Actions. |
+| `url` | Check Run URL | The check run's URL; for GitHub Actions, the job's, such as `https://github.com/owner/repo/actions/runs/123/job/456`. |
+| `repo` | Repository | The repository the check ran in, such as `owner/repo`. |
+| `branch` | Branch | The branch the check ran on, such as `master`. Absent for a commit pushed to a fork. |
+| `conclusion` | Conclusion | How the check finished: `success`, `failure`, `cancelled`, `timed_out`, `action_required`, `neutral`, `skipped`, `stale` or `startup_failure`. |
+| `check` | Check Name | The check's name; for GitHub Actions, the job's name, such as `test` or `build (linux, 1.26)`. |
+| `app` | App | The GitHub App that reported the check, such as `github-actions` or `circleci-checks`. |
+| `user` | User | The username GitHub attributes the run to. |
+
+Every completed check sends this event, including the checks of a pull request
+and the successful ones, so a rule usually has a `conclusion` condition. To
+match any failure, use `conclusion glob {failure,timed_out,startup_failure}`.
+A matrix job's name carries its axes, so match `check` with `prefix` or `glob`,
+such as `check glob build*`.
+
+A condition on an absent attribute never holds, so a rule with a `branch`
+condition never matches a check of a commit pushed to a fork.
+
+`user` is usually whoever pushed, but it is the bot when a bot pushed, including
+an agent pushing as the GitHub App, and none of these are gritz members. A rule
+for this type is therefore usually [public](/concepts/routing-rules/#public-rules);
+its `branch` condition keeps it to branches only people with push access to the
+repository can update.
+
+The event also carries, for the agent but not for conditions, the commit SHA
+the check ran on (`head_sha`), the check run's page on GitHub
+(`check_run_url`) and the page the CI system links for its details
+(`details_url`).
+
+### `pull_request_check_run_completed`
+
+**GitHub: PR Check Run Completed.** A check run of an open pull request
+finishes. It is sent alongside `check_run_completed`, once for each open pull
+request in the same repository whose head is the commit the check ran on, with
+the pull request's URL, so it reaches the tasks subscribed to that pull request.
+A pull request opened from a fork gets none.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Check Output | The title and summary of the check's output, often empty for GitHub Actions. |
+| `url` | PR URL | The pull request's URL, such as `https://github.com/owner/repo/pull/123`. |
+| `repo` | Repository | The repository the check ran in, such as `owner/repo`. |
+| `branch` | Branch | The pull request's head branch. |
+| `conclusion` | Conclusion | How the check finished, as for `check_run_completed`. |
+| `check` | Check Name | The check's name, as for `check_run_completed`. |
+| `app` | App | The GitHub App that reported the check. |
+| `user` | User | The username GitHub attributes the run to. |
+
+As with `check_run_completed`, use a `conclusion` condition to act only on
+failures, and make the rule public so a bot's push still counts. The event only
+reaches tasks subscribed to the pull request.
+
+The event carries the same extra details as `check_run_completed`, and the pull
+request's number (`pull_request`).
+
 ## Jira
 
 Source `atlassian`. People are identified by their Atlassian account ID, such as
@@ -213,9 +279,12 @@ The `url` attribute is the event's own URL, as listed above, so a `url`
 condition sees the comment's or review's URL, with its fragment or query string.
 Use `prefix` to scope a rule to a repository or a project:
 `url prefix https://github.com/owner/repo/` or
-`url prefix https://your-domain.atlassian.net/browse/PROJ-`. A push also has
-`repo`, so `repo equals owner/repo` does the same.
+`url prefix https://your-domain.atlassian.net/browse/PROJ-`. A push and a check
+run also have `repo`, so `repo equals owner/repo` does the same.
 
 To find subscribed tasks, gritz reduces the URL to the issue or pull request it
 belongs to, so an event about a comment reaches the tasks subscribed to its
-issue. See [Subscriptions](/concepts/events-and-links/#subscriptions).
+issue. A GitHub Actions job's URL reduces to its workflow run, so every job and
+re-run of one workflow run reaches the same tasks: when a rule creates a task
+for one failing job, another failing job of that run goes to that task instead
+of creating a second one. See [Subscriptions](/concepts/events-and-links/#subscriptions).

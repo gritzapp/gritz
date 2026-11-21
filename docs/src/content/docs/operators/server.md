@@ -97,10 +97,12 @@ Developer settings → GitHub Apps**, with:
   | Repository → Issues | Read and write | Issue and issue comment events, and reacting to them. |
   | Repository → Pull requests | Read and write | Pull request, review and review comment events, and reacting to them. |
   | Repository → Contents | Read | Push events. |
+  | Repository → Checks | Read | Check run events. |
   | Organization → Members | Read | Checking that a user linking an installation is a member of its GitHub organisation. |
 
 - **Subscribe to events**: **Issues**, **Issue comment**, **Pull request**,
-  **Pull request review**, **Pull request review comment** and **Push**. GitHub
+  **Pull request review**, **Pull request review comment**, **Push** and
+  **Check run**. GitHub
   sends `installation` events to every App without a subscription; gritz uses
   them to unlink an installation when it is uninstalled.
 - **Where can this GitHub App be installed?**: **Any account**, unless only your
