@@ -3327,7 +3327,9 @@ type LifecyclePayload struct {
 	Actor      *Actor                 `protobuf:"bytes,2,opt,name=actor,proto3" json:"actor,omitempty"`
 	FromStatus string                 `protobuf:"bytes,3,opt,name=from_status,json=fromStatus,proto3" json:"from_status,omitempty"`
 	ToStatus   string                 `protobuf:"bytes,4,opt,name=to_status,json=toStatus,proto3" json:"to_status,omitempty"`
-	Message    string                 `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"` // The failure detail for SANDBOX_FAILED; empty for other kinds.
+	// The failure detail for SANDBOX_FAILED, or the reason for a SANDBOX_RESET
+	// the runner did on its own; empty for other kinds.
+	Message string `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
 	// The task fields that changed, such as "name" or "status", for UPDATED;
 	// empty for other kinds.
 	Fields        []string `protobuf:"bytes,6,rep,name=fields,proto3" json:"fields,omitempty"`
@@ -3867,9 +3869,11 @@ type RunnerEvent struct {
 	Event  string                 `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"` // "started", "stopped", "failed" or "reset".
 	// The run (Task.version) the event is about. An event for another run than
 	// the task's current one is ignored; 0 applies to the current run.
-	Version       int64  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	Reconcile     bool   `protobuf:"varint,4,opt,name=reconcile,proto3" json:"reconcile,omitempty"` // Events with reconcile set are ignored.
-	Reason        string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`        // Optional human-readable detail, such as why the run failed.
+	Version   int64 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
+	Reconcile bool  `protobuf:"varint,4,opt,name=reconcile,proto3" json:"reconcile,omitempty"` // Events with reconcile set are ignored.
+	// Optional human-readable detail: why the run failed, or why the sandbox of
+	// a reset the runner did on its own was gone.
+	Reason        string `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

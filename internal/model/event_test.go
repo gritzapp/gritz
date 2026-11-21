@@ -98,6 +98,15 @@ func TestLifecyclePayload_Summary(t *testing.T) {
 			want:    "Sandbox reset",
 		},
 		{
+			name: "sandbox reset with message",
+			payload: LifecyclePayload{
+				Kind:    LifecycleKindSandboxReset,
+				Actor:   RunnerActor,
+				Message: "previous sandbox gone: backend: sandbox is gone",
+			},
+			want: "Sandbox reset: previous sandbox gone: backend: sandbox is gone",
+		},
+		{
 			name: "updated with fields by user",
 			payload: LifecyclePayload{
 				Kind:   LifecycleKindUpdated,

@@ -511,7 +511,9 @@ message LifecyclePayload {
   Actor actor = 2;
   string from_status = 3;
   string to_status = 4;
-  string message = 5;  // The failure detail for SANDBOX_FAILED; empty for other kinds.
+  // The failure detail for SANDBOX_FAILED, or the reason for a SANDBOX_RESET
+  // the runner did on its own; empty for other kinds.
+  string message = 5;
   // The task fields that changed, such as "name" or "status", for UPDATED;
   // empty for other kinds.
   repeated string fields = 6;
@@ -595,7 +597,9 @@ message RunnerEvent {
   // the task's current one is ignored; 0 applies to the current run.
   int64 version = 3;
   bool reconcile = 4;   // Events with reconcile set are ignored.
-  string reason = 5;    // Optional human-readable detail, such as why the run failed.
+  // Optional human-readable detail: why the run failed, or why the sandbox of
+  // a reset the runner did on its own was gone.
+  string reason = 5;
 }
 
 message SubmitRunnerEventsRequest {

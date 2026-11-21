@@ -203,7 +203,8 @@ type RunnerEvent struct {
 	Version   int64
 	Reconcile bool
 	// Reason is an optional human-readable detail (e.g. the failure reason).
-	// It is currently populated only for "failed" events and is empty otherwise.
+	// It is populated only for "failed" events and automatic "reset" events,
+	// and is empty otherwise.
 	Reason string
 }
 
@@ -332,16 +333,16 @@ func (t *Task) applyRunnerEventFailed() bool {
 	}
 }
 
-// applyRunnerEventReset consumes the reset command once the runner reports the
-// sandbox deleted. The status is deliberately untouched. A reset event with no
-// reset in flight is a no-op: a redelivery (the outbox is at-least-once), or a
-// duplicate the runner reported for a replayed report, since it reports a reset
-// before carrying it out.
+// applyRunnerEventReset records a sandbox reset. With a reset in flight, it
+// consumes the reset command once the runner reports the sandbox deleted (a
+// manual reset). Otherwise it changes nothing, so the lifecycle entry is
+// recorded: the runner replaced the run's gone sandbox at boot and the run
+// carries on in the new one (an automatic reset). The status is untouched
+// either way.
 func (t *Task) applyRunnerEventReset() bool {
-	if t.Command != TaskCommandReset {
-		return false
+	if t.Command == TaskCommandReset {
+		t.Command = TaskCommandNone
 	}
-	t.Command = TaskCommandNone
 	return true
 }
 
@@ -374,7 +375,10 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 		// only when a producer left it empty (old runners/drivers).
 		return lifecycle(LifecycleKindSandboxFailed, cmp.Or(e.Reason, "container failed")), true
 	case RunnerEventReset:
-		return lifecycle(LifecycleKindSandboxReset, ""), true
+		if e.Reason == "" {
+			return lifecycle(LifecycleKindSandboxReset, ""), true
+		}
+		return lifecycle(LifecycleKindSandboxReset, "previous sandbox gone: "+e.Reason), true
 	default:
 		return nil, false
 	}

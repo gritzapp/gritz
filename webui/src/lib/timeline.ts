@@ -154,6 +154,7 @@ export function lifecycleSummary(p: LifecyclePayload): string {
       break
     case LifecycleKind.SANDBOX_RESET:
       s = 'Sandbox reset'
+      if (p.message) s += `: ${p.message}`
       break
     default:
       s = 'Lifecycle event'
