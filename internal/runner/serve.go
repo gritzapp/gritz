@@ -19,6 +19,7 @@ import (
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
 	"github.com/gritzapp/gritz/internal/runner/taskevents"
 	"github.com/gritzapp/gritz/internal/runner/workspace"
+	"github.com/gritzapp/gritz/internal/x/common"
 )
 
 // ServeOptions configures Serve.
@@ -42,8 +43,15 @@ type ServeOptions struct {
 	Log          *slog.Logger
 }
 
+// syncRetryInterval and syncRetryMaxInterval bound the backoff between
+// Serve's attempts to catch the task log up with the server at startup.
+const (
+	syncRetryInterval    = time.Second
+	syncRetryMaxInterval = 30 * time.Second
+)
+
 // Serve runs the runner until ctx ends: it opens the state DB, registers the
-// workspaces, restores sandboxes, delivers runner events, follows server
+// workspaces, catches the task log up with the server, restores sandboxes, delivers runner events, follows server
 // notifications and drives the tasks. It leaves sandboxes up when ctx ends.
 // It returns a FatalError when a durable write fails.
 func Serve(ctx context.Context, opts ServeOptions) error {
@@ -118,6 +126,21 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	// Register workspaces with the server (non-fatal if it fails)
 	if err := m.RegisterWorkspaces(ctx); err != nil {
 		log.Warn("failed to register workspaces", "err", err)
+	}
+
+	// Catch the replica up with the server before Load, so every RunLoop
+	// acts on task state as current as during normal running, not on the
+	// replica as the runner left it, which is as stale as the runner was
+	// down. While the server is unreachable, nothing runs.
+	bo := doubling(syncRetryInterval, syncRetryMaxInterval)
+	for err := tasklog.Sync(ctx); err != nil; err = tasklog.Sync(ctx) {
+		if ctx.Err() != nil {
+			return nil
+		}
+		log.Warn("failed to sync the task log, retrying", "err", err)
+		if !common.SleepContext(ctx, bo.NextBackOff()) {
+			return nil
+		}
 	}
 
 	// Rehydrate the sandboxes the runner has records of: this starts a

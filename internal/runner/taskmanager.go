@@ -45,14 +45,10 @@ type TaskManager struct {
 	newTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 
 	// tasks is the registry of the tasks' TaskRunners, one per task whose
-	// RunLoop is running: from when Load (for a sandbox it finds up), the
-	// event log's first sync (for a task stored at boot) or the task's first
-	// unarchived report starts it until RunLoop returns. Load fills it before
-	// Run starts, and from then on only Run's goroutine touches it.
+	// RunLoop is running: from when Load (for a task stored at boot) or the
+	// task's first unarchived report starts it until RunLoop returns. Load fills it before Run
+	// starts, and from then on only Run's goroutine touches it.
 	tasks map[int64]*TaskRunner
-	// restored holds the TaskRunners Load restored a sandbox record for
-	// whose sandbox isn't up, until the event log's first sync starts them.
-	restored map[int64]*TaskRunner
 	// done receives each TaskRunner whose RunLoop returned nil; Run drops
 	// it from tasks.
 	done chan *TaskRunner
@@ -144,7 +140,6 @@ func NewTaskManager(opts TaskManagerOptions) (*TaskManager, error) {
 		fatal:         fatal,
 		newTaskRunner: newTaskRunner,
 		tasks:         map[int64]*TaskRunner{},
-		restored:      map[int64]*TaskRunner{},
 		done:          make(chan *TaskRunner),
 	}
 	return m, nil
@@ -183,12 +178,6 @@ func (m *TaskManager) Wake() { m.tasklog.Wake() }
 // and its sandbox destroyed, is dropped. If the log or a RunLoop fails, Run
 // terminates the runner through die.
 //
-// No task's state is reported before the log's first sync has completed,
-// however long the server takes to answer: the replica may be as stale as
-// the runner was down. Then startStored hands each stored task its state
-// from the synced replica, and Run drops the reports of that sync, which the
-// replica already has.
-//
 // Load must have returned before Run is called, on the same ctx.
 func (m *TaskManager) Run(ctx context.Context) error {
 	logDone := make(chan struct{})
@@ -198,20 +187,9 @@ func (m *TaskManager) Run(ctx context.Context) error {
 			m.die(fmt.Errorf("event log: %w", err))
 		}
 	}()
-	synced := m.tasklog.Synced()
 	for {
 		select {
-		case <-synced:
-			synced = nil
-			if err := m.startStored(ctx); err != nil {
-				m.die(err)
-			}
 		case c := <-m.tasklog.Tasks():
-			if synced != nil {
-				// startStored reads the task's state from the replica, which
-				// has this report and any after it.
-				continue
-			}
 			if tr := m.tasks[c.ID]; tr != nil {
 				tr.Change(c)
 			} else if !c.Archived {
@@ -227,22 +205,16 @@ func (m *TaskManager) Run(ctx context.Context) error {
 	}
 }
 
-// start hands tr c, the task's first report, and runs it.
+// start registers tr, hands it c, the task's first report, and runs its
+// RunLoop on its own goroutine. When RunLoop returns nil, tr is sent to Run
+// to be removed; an error terminates the runner, unless ctx is done.
 func (m *TaskManager) start(ctx context.Context, tr *TaskRunner, c runnerstore.TaskChange) {
+	m.tasks[c.ID] = tr
 	tr.Change(c)
-	m.run(ctx, tr)
-}
-
-// run registers tr and runs its RunLoop on its own goroutine. When RunLoop
-// returns nil, tr is sent to Run to be removed; an error terminates the
-// runner, unless ctx is done.
-func (m *TaskManager) run(ctx context.Context, tr *TaskRunner) {
-	taskID := tr.opts.TaskID
-	m.tasks[taskID] = tr
 	m.loops.Go(func() {
 		if err := tr.RunLoop(ctx); err != nil {
 			if ctx.Err() == nil {
-				m.die(fmt.Errorf("task %d: %w", taskID, err))
+				m.die(fmt.Errorf("task %d: %w", c.ID, err))
 			}
 			return
 		}
@@ -292,18 +264,18 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 	return nil
 }
 
-// Load restores the runner's sandboxes at boot, before Run admits new work.
-// It hands no task its state: startStored does, once the event log's first
-// sync has completed.
+// Load starts a TaskRunner for every stored task at boot, before Run admits
+// new work, each handed the task's stored state once; Run only reports
+// changes from new pages. Every unarchived task gets one, and so does an
+// archived task with a sandbox record, to destroy it.
 //
 // Each sandbox record is adopted by a TaskRunner for its task through
-// TaskRunner.Restore, which also answers the sandbox's liveness. An up
-// sandbox's RunLoop starts at once, reattaching to whatever its driver is
-// doing, and gets the task's state when the others do. Every other
-// TaskRunner waits in restored for startStored: a suspended husk or a gone
-// sandbox is a lost-report backstop, a gone sandbox's dangling record is
-// dropped, and the sandbox of a task archived before the restart is
-// destroyed once its RunLoop starts. An up sandbox's slot is taken before its
+// TaskRunner.Restore, which also answers the sandbox's liveness, and handed
+// the task's stored state (archived included) before its RunLoop starts: an
+// up sandbox is driven, reattaching to whatever its driver is doing, and the
+// sandbox of a task archived before the restart is destroyed. A suspended
+// husk or a gone sandbox is a lost-report backstop, and a gone sandbox's
+// dangling record is dropped. An up sandbox's slot is taken before its
 // RunLoop starts, so the slots may exceed capacity in over-limit scenarios —
 // that's fine. The slots are closed to RunLoops' Acquire until every record
 // is loaded, so none takes a slot an up sandbox holds.
@@ -317,6 +289,10 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	}
 	m.slots.Open(false)
 	for _, rec := range recs {
+		c, err := m.store.Task(ctx, rec.TaskID)
+		if err != nil {
+			return fmt.Errorf("failed to read task %d: %w", rec.TaskID, err)
+		}
 		tr := m.newRunner(rec.TaskID)
 		st, err := tr.Restore(ctx, rec)
 		if err != nil {
@@ -325,40 +301,13 @@ func (m *TaskManager) Load(ctx context.Context) error {
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
 			_ = m.slots.Acquire(ctx, true)
-			m.run(ctx, tr)
 		case backend.StatusSuspended, backend.StatusGone: // husk preserved, or the bound sandbox vanished
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		}
-		if st != backend.StatusUp {
-			m.restored[rec.TaskID] = tr
-		}
+		m.start(ctx, tr, c)
 		m.log.Info("found existing sandbox", "task", rec.TaskID, "status", st)
 	}
 	m.slots.Open(true)
-	return nil
-}
-
-// startStored hands every stored task its state from the replica, once, as
-// the event log's first sync has completed: each TaskRunner Load started for
-// an up sandbox, each restored one (archived task included), whose RunLoop
-// starts, and a new TaskRunner for every other unarchived task.
-func (m *TaskManager) startStored(ctx context.Context) error {
-	// Only the up sandboxes' TaskRunners are registered yet.
-	for id, tr := range m.tasks {
-		c, err := m.store.Task(ctx, id)
-		if err != nil {
-			return fmt.Errorf("failed to read task %d: %w", id, err)
-		}
-		tr.Change(c)
-	}
-	for id, tr := range m.restored {
-		c, err := m.store.Task(ctx, id)
-		if err != nil {
-			return fmt.Errorf("failed to read task %d: %w", id, err)
-		}
-		m.start(ctx, tr, c)
-	}
-	m.restored = nil
 	tasks, err := m.store.UnarchivedTasks(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list tasks: %w", err)
