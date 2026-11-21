@@ -28,34 +28,29 @@ type AttachOptions struct {
 	Session     string
 }
 
-// Attach runs the operator side of a debug-shell session. It dials the server's
-// shell relay WebSocket at GET {ServerURL}/shell/attach?session={Session}
-// authenticating with a token from TokenSource as a Bearer header, negotiates
-// the gritz-shell.v1 subprotocol, puts the local terminal into raw mode, tracks
-// its size (initial size plus SIGWINCH), and pipes stdin/stdout through the WebSocket using the shellwire framing until
-// the shell exits. It returns the shell's exit code.
+// Attach runs the operator side of a debug-shell session. It dials the
+// session's operator leg with Dial, authenticating with a token from
+// TokenSource, puts the local terminal into raw mode, tracks its size (initial
+// size plus SIGWINCH), and pipes stdin/stdout through the WebSocket using the
+// shellwire framing until the shell exits. It returns the shell's exit code.
 //
 // It is the operator-side counterpart to Serve. internal/command/shell.go is a
 // thin wrapper: it asks the server to open a session via the OpenShell RPC and
 // then hands the session off to Attach.
 func Attach(ctx context.Context, opts AttachOptions) (int, error) {
-	url, err := AttachURL(opts.ServerURL, opts.Session)
-	if err != nil {
-		return 1, err
-	}
 	tok, err := opts.TokenSource.Token()
 	if err != nil {
 		return 1, err
 	}
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
-		Subprotocols: []string{shellwire.Subprotocol},
-		HTTPHeader:   http.Header{"Authorization": {"Bearer " + tok.AccessToken}},
+	conn, err := Dial(ctx, DialOptions{
+		ServerURL: opts.ServerURL,
+		Session:   opts.Session,
+		Token:     tok.AccessToken,
 	})
 	if err != nil {
-		return 1, fmt.Errorf("failed to attach to shell: %w", err)
+		return 1, err
 	}
 	defer conn.CloseNow()
-	conn.SetReadLimit(shellwire.ReadLimit)
 
 	// Put the terminal into raw mode so keystrokes reach the remote shell
 	// unbuffered and unechoed; always restore it on the way out.
@@ -103,6 +98,33 @@ func Attach(ctx context.Context, opts AttachOptions) (int, error) {
 	// CloseNow, so a graceful close here blocks for a close-frame reply that never
 	// comes and burns the handshake timeout — the shell-exit hang.
 	return code, conn.CloseNow()
+}
+
+// DialOptions configures Dial.
+type DialOptions struct {
+	ServerURL string
+	Session   string
+	Token     string
+}
+
+// Dial connects to a session's operator leg on the server's shell relay: GET
+// {ServerURL}/shell/attach?session={Session} with Token as a Bearer header,
+// negotiating the gritz-shell.v1 subprotocol. The connection is ready for
+// Operate.
+func Dial(ctx context.Context, opts DialOptions) (*websocket.Conn, error) {
+	url, err := AttachURL(opts.ServerURL, opts.Session)
+	if err != nil {
+		return nil, err
+	}
+	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+		Subprotocols: []string{shellwire.Subprotocol},
+		HTTPHeader:   http.Header{"Authorization": {"Bearer " + opts.Token}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach to shell: %w", err)
+	}
+	conn.SetReadLimit(shellwire.ReadLimit)
+	return conn, nil
 }
 
 // OperateOptions configures Operate.

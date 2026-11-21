@@ -2,12 +2,9 @@ package harness
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
-	"github.com/coder/websocket"
 	"github.com/gritzapp/gritz/internal/shell"
-	"github.com/gritzapp/gritz/internal/shell/shellwire"
 )
 
 // Shell attaches to the debug-shell session as the org's owner, as gritz shell
@@ -18,19 +15,15 @@ func (o *Org) Shell(session, input string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), o.server.timeout)
 	defer cancel()
-	url, err := shell.AttachURL(o.server.URL, session)
+	conn, err := shell.Dial(ctx, shell.DialOptions{
+		ServerURL: o.server.URL,
+		Session:   session,
+		Token:     o.server.userToken(o.Owner.UserID, o.ID),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
-		Subprotocols: []string{shellwire.Subprotocol},
-		HTTPHeader:   http.Header{"Authorization": {"Bearer " + o.server.userToken(o.Owner.UserID, o.ID)}},
-	})
-	if err != nil {
-		t.Fatalf("attaching to shell %s: %v", session, err)
-	}
 	defer conn.CloseNow()
-	conn.SetReadLimit(shellwire.ReadLimit)
 	var out strings.Builder
 	code, err := shell.Operate(ctx, shell.OperateOptions{
 		Conn: conn,
