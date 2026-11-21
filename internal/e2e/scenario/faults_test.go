@@ -3,7 +3,6 @@ package scenario_test
 import (
 	"context"
 	"errors"
-	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -199,10 +198,9 @@ func TestSandboxGone_MidRun(t *testing.T) {
 	got := task.WaitStatus(gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Version, int64(1))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
-	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
-	failed := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
-		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
-	})
+	failed := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.FilterEvents(harness.EventFilter{
+		LifecycleKinds: []gritzv1.LifecycleKind{gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED},
+	}))
 	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{"sandbox gone"})
 }
 
@@ -227,10 +225,9 @@ func TestSandboxGone_Suspended(t *testing.T) {
 	assert.Equal(t, got.Version, int64(2))
 	assert.Assert(t, cmp.Len(h.Agent.Runs(task.ID), 1))
 	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
-	lifecycle := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.Events())
-	failed := slices.DeleteFunc(lifecycle, func(lc *gritzv1.LifecyclePayload) bool {
-		return lc.GetKind() != gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED
-	})
+	failed := testx.ProtoVariantsOf[*gritzv1.LifecyclePayload](task.FilterEvents(harness.EventFilter{
+		LifecycleKinds: []gritzv1.LifecycleKind{gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED},
+	}))
 	assert.DeepEqual(t, testx.ExtractField(failed, "Message"), []string{backend.ErrGone.Error()})
 
 	// The next wake gets a fresh sandbox.
