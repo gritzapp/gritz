@@ -82,16 +82,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// OnSandboxGone is what a run does when the task's sandbox is gone at boot.
-type OnSandboxGone string
-
-const (
-	// OnSandboxGoneReset creates a fresh sandbox and starts the run in it.
-	OnSandboxGoneReset OnSandboxGone = "reset"
-	// OnSandboxGoneFail fails the run; the next start creates a fresh sandbox.
-	OnSandboxGoneFail OnSandboxGone = "fail"
-)
-
 type Workspace struct {
 	Description string `yaml:"description"`
 	// Container holds the Docker backend's runtime config. LambdaMicroVM holds
@@ -117,9 +107,15 @@ type Workspace struct {
 	// Variables declares the per-task values a task may set, injected as
 	// GRITZ_VAR_<NAME>.
 	Variables map[string]VariableConfig `yaml:"variables,omitempty"`
-	// OnSandboxGone is what a run does when the task's sandbox is gone at
-	// boot. Empty is OnSandboxGoneReset.
-	OnSandboxGone OnSandboxGone `yaml:"on_sandbox_gone"`
+	// AutoReset is whether a run whose sandbox is gone at boot gets a fresh
+	// sandbox instead of failing. Unset is true; see ShouldAutoReset.
+	AutoReset *bool `yaml:"auto_reset,omitempty"`
+}
+
+// ShouldAutoReset reports whether a run whose sandbox is gone at boot gets a
+// fresh sandbox. Without it, the run fails and the next start creates one.
+func (w *Workspace) ShouldAutoReset() bool {
+	return w.AutoReset == nil || *w.AutoReset
 }
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
@@ -230,11 +226,6 @@ func (w *Workspace) Validate() error {
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("variables: %w", err)
 		}
-	}
-	switch w.OnSandboxGone {
-	case "", OnSandboxGoneReset, OnSandboxGoneFail:
-	default:
-		return fmt.Errorf("on_sandbox_gone: unknown value %q, want %q or %q", w.OnSandboxGone, OnSandboxGoneReset, OnSandboxGoneFail)
 	}
 	return nil
 }
