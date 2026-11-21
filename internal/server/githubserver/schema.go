@@ -360,4 +360,59 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
+	reg.MustRegister(model.EventTypeDef{
+		Source: "github",
+		Type:   EventTypePullRequestCheckRunCompleted,
+		Label:  "GitHub: PR Check Run Completed",
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Check Output",
+				Placeholder: "gritz:",
+				Help:        "Matched against the check run's output title and summary, which are often empty for GitHub Actions.",
+			},
+			{
+				Key:         "url",
+				Label:       "PR URL",
+				Placeholder: "https://github.com/owner/repo/pull/",
+				Help:        "Matched against the URL of the pull request the check ran for, e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "repo",
+				Label:       "Repository",
+				Placeholder: "owner/repo",
+				Help:        "The repository the check ran in, as owner/name.",
+			},
+			{
+				Key:         "branch",
+				Label:       "Branch",
+				Placeholder: "master",
+				Help:        "The PR's head branch the check ran on, without refs/heads/.",
+			},
+			{
+				Key:         "conclusion",
+				Label:       "Conclusion",
+				Placeholder: "failure",
+				Help:        "How the check finished: success, failure, cancelled, timed_out, action_required, neutral, skipped, stale or startup_failure. Match several with glob, e.g. {failure,timed_out,startup_failure}.",
+			},
+			{
+				Key:         "check",
+				Label:       "Check Name",
+				Placeholder: "build*",
+				Help:        "The check's name; for GitHub Actions, the job name. Matrix jobs carry their axes, e.g. build (linux, 1.26), so prefix or glob is usually the right op.",
+			},
+			{
+				Key:         "app",
+				Label:       "App",
+				Placeholder: "github-actions",
+				Help:        "The slug of the GitHub App that reported the check, e.g. github-actions.",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username GitHub attributes the run to (no leading @): usually the pusher, but a bot for bot pushes, so a rule usually needs to be public. The event only reaches tasks subscribed to the PR.",
+			},
+		},
+	})
 }
