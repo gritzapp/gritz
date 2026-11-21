@@ -307,6 +307,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 		m.start(ctx, tr, c)
 		m.log.Info("found existing sandbox", "task", rec.TaskID, "status", st)
 	}
+	m.slots.Open(true)
 	tasks, err := m.store.UnarchivedTasks(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list tasks: %w", err)
@@ -316,7 +317,6 @@ func (m *TaskManager) Load(ctx context.Context) error {
 			m.start(ctx, m.newRunner(c.ID), c)
 		}
 	}
-	m.slots.Open(true)
 	return nil
 }
 
