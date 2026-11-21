@@ -12,10 +12,6 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// sandboxID is a setup command that writes an id unique to the sandbox it
-// provisions to the file "sandbox".
-const sandboxID = "cat /proc/sys/kernel/random/uuid > sandbox"
-
 func TestReset_Failed(t *testing.T) {
 	t.Parallel()
 	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
@@ -111,7 +107,8 @@ func TestReset_Repeated(t *testing.T) {
 func TestReset_DestroyFails(t *testing.T) {
 	t.Parallel()
 	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
-		Commands: []string{sandboxID},
+		// Writes an id unique to the sandbox it provisions.
+		Commands: []string{"cat /proc/sys/kernel/random/uuid > sandbox"},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
