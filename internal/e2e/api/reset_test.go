@@ -15,8 +15,10 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-// createFailedTask creates a task whose run 1 started and failed.
-func createFailedTask(h *harness.Harness) *harness.Task {
+func TestResetSandbox(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
@@ -25,14 +27,6 @@ func createFailedTask(h *harness.Harness) *harness.Task {
 			{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
 		},
 	})
-	return task
-}
-
-func TestResetSandbox(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	task := createFailedTask(h)
 
 	// Act
 	_, err := h.Org.Client.ResetSandbox(t.Context(), &gritzv1.ResetSandboxRequest{TaskId: task.ID})
@@ -85,7 +79,14 @@ func TestResetSandbox_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-	task := createFailedTask(h)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
+			{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
+		},
+	})
 	notifications := h.Org.Subscribe()
 
 	// Act
@@ -122,12 +123,26 @@ func TestResetSandbox_FailedPrecondition(t *testing.T) {
 			return task
 		}},
 		{"command in flight", func() *harness.Task {
-			task := createFailedTask(h)
+			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
+			h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+			h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+				Events: []*gritzv1.RunnerEvent{
+					{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
+					{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
+				},
+			})
 			task.ResetSandbox()
 			return task
 		}},
 		{"archived", func() *harness.Task {
-			task := createFailedTask(h)
+			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
+			h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+			h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+				Events: []*gritzv1.RunnerEvent{
+					{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
+					{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
+				},
+			})
 			task.Archive()
 			return task
 		}},
@@ -153,7 +168,14 @@ func TestResetSandbox_CrossOrgDenied(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := createFailedTask(h)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
+			{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
+		},
+	})
 
 	// Act
 	_, err := other.Client.ResetSandbox(t.Context(), &gritzv1.ResetSandboxRequest{TaskId: task.ID})
@@ -167,7 +189,14 @@ func TestResetSandbox_RunnerReset(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-	task := createFailedTask(h)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
+			{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
+		},
+	})
 	task.ResetSandbox()
 	notifications := h.Org.Subscribe()
 
@@ -219,7 +248,14 @@ func TestResetSandbox_DuplicateRunnerResetIgnored(t *testing.T) {
 	t.Parallel()
 	// Arrange - the runner reported the reset, which cleared the command.
 	h := harness.New(t, nil)
-	task := createFailedTask(h)
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
+	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
+		Events: []*gritzv1.RunnerEvent{
+			{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
+			{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
+		},
+	})
 	task.ResetSandbox()
 	reset := &gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: string(model.RunnerEventReset), Version: 1}},
