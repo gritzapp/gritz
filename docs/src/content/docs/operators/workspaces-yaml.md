@@ -247,7 +247,9 @@ Any other namespace is an error. References without a namespace, such as
 
 ## Environment
 
-The setup commands and the agent see, in order of precedence:
+The setup commands, the agent and a
+[`gritz shell`](/operators/debugging/#a-shell-in-the-sandbox) session see, in
+order of precedence:
 
 1. The workspace's `secrets`.
 2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`,
