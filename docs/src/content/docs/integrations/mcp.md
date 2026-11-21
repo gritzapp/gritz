@@ -158,6 +158,7 @@ up a `gritz login` made since.
 | `update_task` | Adds an instruction to a task, renames it, changes its auto-archive delay, or starts it. |
 | `cancel_task` | Cancels a task. |
 | `restart_task` | Restarts a task. |
+| `reset_sandbox` | Deletes a finished task's sandbox, so its next run starts in a fresh one. |
 | `archive_task` | Archives a finished task. |
 | `unarchive_task` | Unarchives a task. |
 | `get_task_log` | Reads the end of a task's agent transcript. |
@@ -242,13 +243,17 @@ It returns `tasks` and `next_page_token`, which is empty on the last page.
 
 Besides the fields above, it returns the task's auto-archive delay, its links,
 its timeline, and `actions`: whether the task can be archived, cancelled,
-restarted, started or unarchived now.
+restarted, started, unarchived or have its sandbox reset now.
 
-### `cancel_task`, `restart_task`, `archive_task`, `unarchive_task`
+### `cancel_task`, `restart_task`, `reset_sandbox`, `archive_task`, `unarchive_task`
 
 Each takes the task's `id`. `archive_task` only archives a task that has
-completed, failed or been cancelled; archiving destroys its sandbox. `get_task`'s
-`actions` say which of these a task allows.
+completed, failed or been cancelled; archiving destroys its sandbox.
+`reset_sandbox` [resets the sandbox](/concepts/tasks/#resetting-the-sandbox) of
+a finished task: it deletes the sandbox, so the task's next run starts in a
+fresh one, and keeps the task's status and history. It isn't available while
+the task is running or has a command pending. `get_task`'s `actions` say which
+of these a task allows.
 
 ### `get_task_log`
 
