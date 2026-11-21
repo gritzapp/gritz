@@ -43,11 +43,6 @@ type TaskRunner struct {
 	// up is set by Restore for a sandbox it finds up: RunLoop drives it
 	// first, with the slot Load counted for it.
 	up bool
-	// goneAt is set by Restore to the record's version for a sandbox it finds
-	// gone: RunLoop does not boot that run again, since there is no driver
-	// left to reattach to and Load reports it failed if it was running. A
-	// newer start boots the sandbox, and finds it gone.
-	goneAt int64
 
 	// changeMu guards change, the task's latest report, and seq, the
 	// number of reports so far: zero until the first, and a new number for
@@ -260,8 +255,7 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 // A handle that cannot be opened leaves tr with no sandbox and its record
 // deleted; see clear. A gone sandbox, or a failed status check, keeps the
 // sandbox and its record: the next start's boot finds it gone, if it is, and
-// handles it as it does any gone sandbox. RunLoop does not boot a gone
-// sandbox again for the record's own run.
+// handles it as it does any gone sandbox.
 func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord) (backend.Status, error) {
 	if tr.sbx != nil {
 		panic("runner: Restore on a TaskRunner with a sandbox")
@@ -276,11 +270,8 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord
 	if err != nil {
 		return backend.StatusUnknown, fmt.Errorf("failed to get sandbox status: %w", err)
 	}
-	switch st {
-	case backend.StatusUp:
+	if st == backend.StatusUp {
 		tr.up = true
-	case backend.StatusGone:
-		tr.goneAt = rec.Version
 	}
 	return st, nil
 }
@@ -361,7 +352,7 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 	if _, seq := tr.latest(); seq == 0 {
 		panic("runner: RunLoop before the TaskRunner's first Change")
 	}
-	h := handled{driven: tr.goneAt}
+	var h handled
 	if tr.up {
 		if err := tr.busy(ctx, &h, nil); err != nil {
 			return err
