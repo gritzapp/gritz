@@ -186,6 +186,10 @@ func TestTaskScope_WrongInstanceDenied(t *testing.T) {
 			_, err := c.RestartTask(ctx, &gritzv1.RestartTaskRequest{Id: id})
 			return err
 		}},
+		{"ResetSandbox", func(ctx context.Context, c gritzclient.Client, id int64) error {
+			_, err := c.ResetSandbox(ctx, &gritzv1.ResetSandboxRequest{TaskId: id})
+			return err
+		}},
 		{"CreateLink", func(ctx context.Context, c gritzclient.Client, id int64) error {
 			_, err := c.CreateLink(ctx, &gritzv1.CreateLinkRequest{
 				TaskId: id,

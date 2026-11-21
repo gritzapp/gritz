@@ -46,6 +46,15 @@ func (task *Task) Restart() {
 	}
 }
 
+// ResetSandbox resets the task's sandbox, as the task page does.
+func (task *Task) ResetSandbox() {
+	t := task.org.server.t
+	t.Helper()
+	if _, err := task.org.Client.ResetSandbox(t.Context(), &gritzv1.ResetSandboxRequest{TaskId: task.ID}); err != nil {
+		t.Fatalf("ResetSandbox: %v", err)
+	}
+}
+
 // Get returns the task.
 func (task *Task) Get() *gritzv1.Task {
 	task.org.server.t.Helper()

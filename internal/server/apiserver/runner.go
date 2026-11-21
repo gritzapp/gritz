@@ -91,7 +91,12 @@ func (s *Server) SubmitRunnerEvents(ctx context.Context, req *gritzv1.SubmitRunn
 			// without re-deriving why, so we stay silent and let the
 			// eventual terminal event speak. The terminal status is also
 			// stamped on the notification so subscribers like `gritz notify`
-			// can filter to task outcomes that need attention.
+			// can filter to task outcomes that need attention. Only a fold
+			// that changed the status speaks: a reset leaves a finished task
+			// as it was, and must not announce its outcome again.
+			if task.Status == original.Status {
+				return tx.Commit()
+			}
 			switch task.Status {
 			case model.TaskStatusCompleted:
 				notification.TaskStatus = task.Status

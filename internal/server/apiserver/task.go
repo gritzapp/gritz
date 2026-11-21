@@ -559,3 +559,79 @@ func (s *Server) RestartTask(ctx context.Context, req *gritzv1.RestartTaskReques
 	s.publish(notification)
 	return &gritzv1.RestartTaskResponse{}, nil
 }
+
+// ResetSandbox asks the task's runner to delete its sandbox, so that the next
+// start creates a fresh one. Only a finished task with no command in flight can
+// be reset; its status and version are unchanged. Authorization mirrors
+// RestartTask.
+func (s *Server) ResetSandbox(ctx context.Context, req *gritzv1.ResetSandboxRequest) (*gritzv1.ResetSandboxResponse, error) {
+	caller := apiauth.MustCaller(ctx)
+	// Coarse, fail-fast capability gate before entering the transaction (AllowOp
+	// ignores predicates); the per-instance check runs inside the tx against the
+	// row it already loads.
+	if !caller.Scopes.AllowOp(authscope.OpTaskWrite) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
+	}
+	notification := model.Notification{
+		Type:     "change",
+		OrgID:    caller.OrgID,
+		UserID:   caller.ID,
+		ClientID: caller.ClientID,
+		Time:     time.Now(),
+	}
+	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		task, err := s.store.GetTaskForUpdate(ctx, tx, req.TaskId, caller.OrgID)
+		if err != nil {
+			return err
+		}
+		if !caller.Scopes.Allow(authscope.OpTaskWrite, task.ScopeAttr()...) {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
+		}
+		from := task.Clone()
+		if !task.Reset() {
+			return connect.NewError(connect.CodeFailedPrecondition,
+				fmt.Errorf("cannot reset sandbox of task with status %s, command %s, archived %t: task must be finished with no command in flight",
+					task.Status, task.Command, task.Archived))
+		}
+		if err := s.store.UpdateTask(ctx, tx, task); err != nil {
+			return err
+		}
+		if err := s.store.CreateEvent(ctx, tx, &model.Event{
+			TaskID: task.ID,
+			OrgID:  task.OrgID,
+			Payload: &model.LifecyclePayload{
+				Kind:       model.LifecycleKindResetRequested,
+				Actor:      model.UserActor(caller.AuditName()),
+				FromStatus: from.Status.Label(),
+				ToStatus:   task.Status.Label(),
+			},
+		}); err != nil {
+			return err
+		}
+		if ev, ok := task.CommandEvent(from); ok {
+			if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+				return err
+			}
+		}
+		notification.Runner = task.PendingRunner()
+		notification.Resources = []model.NotificationResource{
+			{Action: "reset", Type: "task", ID: task.ID},
+			{Action: "appended", Type: "task_events", ID: task.ID},
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		// The in-tx checks return typed connect errors; surface any of them
+		// as-is rather than re-wrapping them as Internal.
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("task %d not found", req.TaskId))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	s.log.InfoContext(ctx, "task sandbox reset requested", "id", req.TaskId)
+	s.publish(notification)
+	return &gritzv1.ResetSandboxResponse{}, nil
+}

@@ -332,6 +332,11 @@ func (t *Task) applyRunnerEventFailed() bool {
 	}
 }
 
+// applyRunnerEventReset consumes the reset command once the runner reports the
+// sandbox deleted. The status is deliberately untouched. A reset event with no
+// reset in flight is a no-op: a redelivery (the outbox is at-least-once), or a
+// duplicate the runner reported for a replayed report, since it reports a reset
+// before carrying it out.
 func (t *Task) applyRunnerEventReset() bool {
 	if t.Command != TaskCommandReset {
 		return false
