@@ -63,20 +63,10 @@ func New(opts Options) *Log {
 	}
 }
 
-// Run reports every stored unarchived task on Tasks(), then replicates until
-// ctx ends: it syncs with the server, then waits for a Wake or the poll
-// interval, and repeats. A failed fetch is logged and retried at the next
-// sync; a store error ends Run.
+// Run replicates until ctx ends: it syncs with the server, then waits for a
+// Wake or the poll interval, and repeats. A failed fetch is logged and
+// retried at the next sync; a store error ends Run.
 func (l *Log) Run(ctx context.Context) error {
-	tasks, err := l.store.UnarchivedTasks(ctx)
-	if err != nil {
-		return err
-	}
-	for _, t := range tasks {
-		if err := l.report(ctx, t); err != nil {
-			return err
-		}
-	}
 	for {
 		if err := l.sync(ctx); err != nil {
 			return err
@@ -142,9 +132,9 @@ func (l *Log) Wake() {
 	l.wake.Wake()
 }
 
-// Tasks reports the full state of tasks: every unarchived stored task when Run
-// starts, then each task with a command or archive event in a stored page,
-// after that page. A report may repeat a task's current state, so the
+// Tasks reports the full state of each task with a command or archive event
+// in a page Run stores, after that page. Tasks already stored when Run starts
+// are not reported. A report may repeat a task's current state, so the
 // consumer must apply them idempotently. Run blocks until each report is
 // received.
 func (l *Log) Tasks() <-chan runnerstore.TaskChange {

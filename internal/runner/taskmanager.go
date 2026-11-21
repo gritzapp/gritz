@@ -45,8 +45,8 @@ type TaskManager struct {
 	newTaskRunner func(opts TaskRunnerOptions) *TaskRunner
 
 	// tasks is the registry of the tasks' TaskRunners, one per task whose
-	// RunLoop is running: from the task's first unarchived report (or its
-	// record, at Load) until RunLoop returns. Load fills it before Run
+	// RunLoop is running: from when Load (for a task stored at boot) or the
+	// task's first unarchived report starts it until RunLoop returns. Load fills it before Run
 	// starts, and from then on only Run's goroutine touches it.
 	tasks map[int64]*TaskRunner
 	// done receives each TaskRunner whose RunLoop returned nil; Run drops
@@ -264,7 +264,11 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 	return nil
 }
 
-// Load rehydrates this runner's sandboxes at boot, before Run admits new work.
+// Load starts a TaskRunner for every stored task at boot, before Run admits
+// new work, each handed the task's stored state once; Run only reports
+// changes from new pages. Every unarchived task gets one, and so does an
+// archived task with a sandbox record, to destroy it.
+//
 // Each sandbox record is adopted by a TaskRunner for its task through
 // TaskRunner.Restore, which also answers the sandbox's liveness, and handed
 // the task's stored state (archived included) before its RunLoop starts: an
@@ -302,6 +306,15 @@ func (m *TaskManager) Load(ctx context.Context) error {
 		}
 		m.start(ctx, tr, c)
 		m.log.Info("found existing sandbox", "task", rec.TaskID, "status", st)
+	}
+	tasks, err := m.store.UnarchivedTasks(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list tasks: %w", err)
+	}
+	for _, c := range tasks {
+		if m.tasks[c.ID] == nil {
+			m.start(ctx, m.newRunner(c.ID), c)
+		}
 	}
 	m.slots.Open(true)
 	return nil
