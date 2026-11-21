@@ -193,11 +193,10 @@ const (
 	RunnerEventStarted RunnerEventType = "started"
 	RunnerEventStopped RunnerEventType = "stopped"
 	RunnerEventFailed  RunnerEventType = "failed"
-	RunnerEventReset   RunnerEventType = "reset"
-	// RunnerEventReplaced reports that the run's sandbox was gone at boot and
-	// the runner created a fresh one for it. Reason says why the old one was
-	// gone.
-	RunnerEventReplaced RunnerEventType = "replaced"
+	// RunnerEventReset reports that the task's sandbox was deleted: for a
+	// manual reset, the RESET command carried out; for an automatic one, the
+	// run's sandbox found gone at boot and replaced, with Reason saying why.
+	RunnerEventReset RunnerEventType = "reset"
 )
 
 // RunnerEvent represents an event from the runner about a task's container.
@@ -207,8 +206,8 @@ type RunnerEvent struct {
 	Version   int64
 	Reconcile bool
 	// Reason is an optional human-readable detail (e.g. the failure reason).
-	// It is populated only for "failed" and "replaced" events and is empty
-	// otherwise.
+	// It is populated only for "failed" events and automatic "reset" events,
+	// and is empty otherwise.
 	Reason string
 }
 
@@ -261,9 +260,7 @@ func (t *Task) ApplyRunnerEvent(e *RunnerEvent) bool {
 	case RunnerEventFailed:
 		return t.applyRunnerEventFailed()
 	case RunnerEventReset:
-		return t.applyRunnerEventReset()
-	case RunnerEventReplaced:
-		return t.applyRunnerEventReplaced()
+		return t.applyRunnerEventReset(e)
 	default:
 		return false
 	}
@@ -339,22 +336,19 @@ func (t *Task) applyRunnerEventFailed() bool {
 	}
 }
 
-// applyRunnerEventReset consumes the reset command once the runner reports the
-// sandbox deleted. The status is deliberately untouched. A reset event with no
-// reset in flight is a no-op: a redelivery (the outbox is at-least-once), or a
-// duplicate the runner reported for a replayed report, since it reports a reset
-// before carrying it out.
-func (t *Task) applyRunnerEventReset() bool {
-	if t.Command != TaskCommandReset {
-		return false
+// applyRunnerEventReset records a sandbox reset. With a reset in flight, it
+// consumes the reset command once the runner reports the sandbox deleted (a
+// manual reset). Otherwise it applies only at the task's current version and
+// changes nothing, so the lifecycle entry is recorded: the runner replaced the
+// run's gone sandbox at boot and the run carries on in the new one (an
+// automatic reset). The status is untouched either way.
+func (t *Task) applyRunnerEventReset(e *RunnerEvent) bool {
+	if t.Command == TaskCommandReset {
+		t.Command = TaskCommandNone
+		return true
 	}
-	t.Command = TaskCommandNone
-	return true
+	return e.Version == t.Version
 }
-
-// applyRunnerEventReplaced records that the run's sandbox was replaced. It
-// changes nothing: the run carries on in the new sandbox.
-func (t *Task) applyRunnerEventReplaced() bool { return true }
 
 // LifecycleEvent maps the runner event to its sandbox lifecycle event. task
 // carries the post-fold status and from is the status before the fold, so the
@@ -385,8 +379,9 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 		// only when a producer left it empty (old runners/drivers).
 		return lifecycle(LifecycleKindSandboxFailed, cmp.Or(e.Reason, "container failed")), true
 	case RunnerEventReset:
-		return lifecycle(LifecycleKindSandboxReset, ""), true
-	case RunnerEventReplaced:
+		if e.Reason == "" {
+			return lifecycle(LifecycleKindSandboxReset, ""), true
+		}
 		return lifecycle(LifecycleKindSandboxReset, "previous sandbox gone: "+e.Reason), true
 	default:
 		return nil, false

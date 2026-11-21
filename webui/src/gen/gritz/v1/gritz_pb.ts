@@ -1743,7 +1743,7 @@ export type RunnerEvent = Message<"gritz.v1.RunnerEvent"> & {
   taskId: bigint;
 
   /**
-   * "started", "stopped", "failed", "reset" or "replaced".
+   * "started", "stopped", "failed" or "reset".
    *
    * @generated from field: string event = 2;
    */
@@ -1765,7 +1765,8 @@ export type RunnerEvent = Message<"gritz.v1.RunnerEvent"> & {
   reconcile: boolean;
 
   /**
-   * Optional human-readable detail, such as why the run failed.
+   * Optional human-readable detail: why the run failed, or why the sandbox of
+   * a reset the runner did on its own was gone.
    *
    * @generated from field: string reason = 5;
    */

@@ -397,21 +397,7 @@ func TestTask_ApplyRunnerEvent(t *testing.T) {
 			changed: false,
 		},
 		{
-			name: "reset: redelivery with no reset pending is a no-op",
-			before: Task{
-				Status:  TaskStatusCompleted,
-				Version: 3,
-			},
-			event: RunnerEvent{
-				Event:   RunnerEventReset,
-				Version: 3,
-			},
-			changed: false,
-		},
-
-		// Replaced events
-		{
-			name: "replaced: applies at the task's version and changes nothing",
+			name: "reset: no reset pending applies at the task's version and changes nothing",
 			before: Task{
 				Status:  TaskStatusPending,
 				Command: TaskCommandStart,
@@ -423,21 +409,21 @@ func TestTask_ApplyRunnerEvent(t *testing.T) {
 				Version: 3,
 			},
 			event: RunnerEvent{
-				Event:   RunnerEventReplaced,
+				Event:   RunnerEventReset,
 				Version: 3,
 				Reason:  "backend: sandbox is gone",
 			},
 			changed: true,
 		},
 		{
-			name: "replaced: another version is dropped",
+			name: "reset: no reset pending at another version is dropped",
 			before: Task{
 				Status:  TaskStatusPending,
 				Command: TaskCommandStart,
 				Version: 4,
 			},
 			event: RunnerEvent{
-				Event:   RunnerEventReplaced,
+				Event:   RunnerEventReset,
 				Version: 3,
 				Reason:  "backend: sandbox is gone",
 			},

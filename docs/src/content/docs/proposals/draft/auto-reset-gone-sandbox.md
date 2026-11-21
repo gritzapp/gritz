@@ -116,42 +116,50 @@ the next boot of every task in the workspace, like any other workspace field.
 
 The runner reports the replacement itself, through its `RunnerEventOutbox`, as
 it reports a manual reset: no driver can, since the old sandbox is gone and the
-new one's driver is not up yet. It needs its own runner event rather than
-`reset`, whose fold consumes a `RESET` command that isn't there.
+new one's driver is not up yet. It reuses the `reset` runner event, with the
+run's version and the reason the old sandbox was gone.
+
+The `reset` fold gains a second arm. With a `RESET` command in flight, it clears
+it, as today (a manual reset). Otherwise it applies only when the event's
+version is the task's current version, and changes no field: it exists so
+`SubmitRunnerEvents` appends the lifecycle event, which it does only for an
+applied event (an automatic reset during a run's boot).
 
 `internal/model/task.go`:
 
 ```go
-// RunnerEventReplaced reports that the run's sandbox was gone at boot and the
-// runner created a fresh one for it. Reason says why the old one was gone.
-RunnerEventReplaced RunnerEventType = "replaced"
+// applyRunnerEventReset records a sandbox reset. With a reset in flight, it
+// consumes the reset command once the runner reports the sandbox deleted (a
+// manual reset). Otherwise it applies only at the task's current version and
+// changes nothing, so the lifecycle entry is recorded: the runner replaced the
+// run's gone sandbox at boot and the run carries on in the new one (an
+// automatic reset). The status is untouched either way.
+func (t *Task) applyRunnerEventReset(e *RunnerEvent) bool {
+	if t.Command == TaskCommandReset {
+		t.Command = TaskCommandNone
+		return true
+	}
+	return e.Version == t.Version
+}
 ```
 
-The fold applies it after the version guard and changes no field: it exists so
-`SubmitRunnerEvents` appends the lifecycle event, which it does only for an
-applied event.
-
-```go
-// applyRunnerEventReplaced records that the run's sandbox was replaced. It
-// changes nothing: the run carries on in the new sandbox.
-func (t *Task) applyRunnerEventReplaced() bool { return true }
-```
-
-`RunnerEvent.LifecycleEvent` maps it to
-`lifecycle(LifecycleKindSandboxReset, "previous sandbox gone: " + e.Reason)`, and
+`RunnerEvent.LifecycleEvent` maps a `reset` with a `Reason` to
+`lifecycle(LifecycleKindSandboxReset, "previous sandbox gone: " + e.Reason)`,
+and one without to the message-less entry a manual reset records today.
 `LifecyclePayload.Summary` and the web UI's `lifecycleSummary` render
 `SANDBOX_RESET` with a message as "Sandbox reset: <message>" (a manual reset's
 entry has none, and renders as today). `LifecyclePayload`'s and the proto's
-`message` comments gain `SANDBOX_RESET`. `SubmitRunnerEvents` needs no change:
-the status doesn't change, so the status-changed guard keeps it silent on the
-channel.
+`message` comments gain `SANDBOX_RESET`, and `RunnerEvent.Reason`'s comments
+gain the automatic reset. `SubmitRunnerEvents` needs no change: the status
+doesn't change, so the status-changed guard keeps it silent on the channel.
 
 The version guard scopes it to its run, so a report that lands after a newer
-start is dropped. An outbox redelivery appends the entry twice; that is the only
-cost of at-least-once here, and it is rare.
+start is dropped. An outbox redelivery at the current version appends the entry
+twice, for an automatic reset and also for a manual one whose command is
+already clear; that is the only cost of at-least-once here, and it is rare.
 
-No proto change: `RunnerEvent.event` is a string (its comment gains
-`"replaced"`), and the lifecycle kind exists.
+No proto change beyond comments: `RunnerEvent.event` is a string, `reason`
+exists, and so does the lifecycle kind.
 
 ### Runner
 
@@ -166,8 +174,8 @@ No proto change: `RunnerEvent.event` is a string (its comment gains
 //
 // If the sandbox is gone, boot drops it, leaving tr with no sandbox, and
 // follows the workspace's auto_reset: with it, boot reports the run's sandbox
-// replaced and boots a fresh one; without it, boot returns backend.ErrGone, the caller reports the run failed, and the next boot
-// creates a fresh sandbox. Any other failure to boot keeps the sandbox and its
+// reset and boots a fresh one; without it, boot returns backend.ErrGone, the
+// caller reports the run failed, and the next boot creates a fresh sandbox. Any other failure to boot keeps the sandbox and its
 // record, so it can still be destroyed.
 func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 	if tr.sbx == nil {
@@ -189,7 +197,7 @@ func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 	}
 	if err := tr.enqueue(model.RunnerEvent{
 		TaskID:  tr.opts.TaskID,
-		Event:   model.RunnerEventReplaced,
+		Event:   model.RunnerEventReset,
 		Version: spec.Version,
 		Reason:  gone.Error(),
 	}); err != nil {
@@ -205,7 +213,8 @@ func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 A sandbox created a moment ago can't have outlived its lifetime, so the second
 `Boot` gets no special case: if it returns `ErrGone`, the run fails with it like
 any other boot error. `RunLoop` is unchanged — it already treats every `boot`
-error as the run's failure.
+error as the run's failure, and once the fresh sandbox's driver is up the run
+reports `started` as usual.
 
 The order is report, then create, so a crash in between leaves the report with
 no new sandbox: the next start finds no record and creates one, and the timeline
@@ -242,13 +251,16 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
    nothing yet. Depends on: nothing. Verifiable by:
    review; (3)'s scenarios exercise both values.
 
-2. **`replaced` runner event** — Delivers: `RunnerEventReplaced`, its fold arm,
-   the `LifecycleEvent` case, the `SANDBOX_RESET` message rendering in `Summary`
-   and `webui/src/lib/timeline.ts`, and the `message` comments in the model and
-   the proto. Dormant until (3): no runner reports it. Depends on: nothing.
-   Verifiable by: `internal/model` tests for the fold (applied at the task's
-   version with no field changed, dropped at another version) and for `Summary`
-   with and without a message; `pnpm lint` in `webui/`.
+2. **Automatic `reset` runner event** — Delivers: the `reset` fold's arm for no
+   `RESET` in flight, the `LifecycleEvent` message for a `reset` with a reason,
+   the `SANDBOX_RESET` message rendering in `Summary` and
+   `webui/src/lib/timeline.ts`, and the `message`, `reason` and `event` comments
+   in the model and the proto. Dormant until (3): no runner reports a `reset`
+   outside a manual reset. Depends on: nothing. Verifiable by: `internal/model`
+   tests for the fold with no `RESET` in flight (applied at the task's version
+   with no field changed, dropped at another version) beside the manual-reset
+   cases, and for `Summary` with and without a message; `pnpm lint` in
+   `webui/`.
 
 3. **Replace a gone sandbox at boot** — Delivers: the `boot` change, and
    `Restore` keeping a gone sandbox. Depends on: (1), (2). Verifiable by:
@@ -294,10 +306,13 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
   same and users already know "Sandbox reset" from the task page. The missing
   "Sandbox reset requested by …" before it and the reason after it tell the two
   apart.
-- **Reusing the `reset` runner event.** Its fold consumes the `RESET` command,
-  which a run in flight doesn't hold; making it also apply without one would
-  blur its idempotence guard (a redelivered manual reset is dropped because the
-  command is clear).
+- **A new `replaced` runner event vs. reusing `reset`.** A separate event would
+  keep `reset`'s fold strict — it applies only by consuming the `RESET`
+  command, so a redelivered manual reset is dropped once the command is clear.
+  Reusing `reset` gives up that guard at the current version (a redelivered
+  manual reset appends a second entry), in exchange for one runner event per
+  lifecycle kind and no new event type for the server, the runner and the
+  proto comment to carry. The duplicate is rare and harmless.
 
 ## Open Questions
 
