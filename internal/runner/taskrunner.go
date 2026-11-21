@@ -317,9 +317,6 @@ type handled struct {
 	// runner has reported. A reset is not versioned, so it is keyed on the
 	// report: a wake with no new report does not reset again.
 	reset uint64
-	// resetting is whether the reset reported for h.reset still has its
-	// sandbox to destroy.
-	resetting bool
 }
 
 // RunLoop is the TaskRunner's lifetime: it boots, drives and suspends the
@@ -388,11 +385,10 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 // next waits for the task's latest report to want a run newer than h.driven,
 // and returns it. Meanwhile it handles the three reports that need no driver:
 // a stop newer than h.stopped, which no Run is open to report, is reported
-// "stopped" here; a reset is reported "reset" and then destroys the sandbox
-// and its record, leaving the next start to create a fresh sandbox; and an
-// archive destroys the sandbox and its record, when next reports archived. A
-// destroy that fails is retried with backoff, and a reset's holds back any
-// start until it succeeds.
+// "stopped" here; a reset destroys the sandbox, is reported "reset", and
+// deletes the sandbox's record, leaving the next start to create a fresh
+// sandbox; and an archive destroys the sandbox and its record, when next
+// reports archived. A destroy that fails is retried with backoff.
 //
 // A reset is not versioned: two resets of the same run are both legitimate,
 // so next resets once for every report of a reset, even a repeated one.
@@ -414,11 +410,25 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			tr.opts.Log.Error("failed to destroy archived task's sandbox", "task", tr.opts.TaskID, "err", err)
 			timer = time.After(retry.NextBackOff())
 		case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
-			// Report the reset before carrying it out, so a crash between
-			// the two cannot lose the report. A crash after the enqueue
-			// leaves the reset to be carried out and reported again for the
-			// report the next runner's Load replays; the server ignores a
-			// reset it has no reset in flight for.
+			// Destroy the sandbox, report the reset, and only then delete
+			// its record, so the record marks a reset in progress until the
+			// report is durable. A crash before the enqueue leaves the record
+			// and the command, and the next runner's Load finds the sandbox
+			// gone and resets again; a crash after it leaves the report to
+			// the outbox. The command is not cleared until the sandbox is
+			// gone, so no start can boot it. A failed destroy is retried
+			// with backoff.
+			if tr.sbx != nil {
+				if err := tr.sbx.Destroy(ctx); err != nil {
+					if ctx.Err() != nil {
+						return c, false, context.Cause(ctx)
+					}
+					tr.opts.Log.Error("failed to reset sandbox", "task", tr.opts.TaskID, "err", err)
+					timer = time.After(retry.NextBackOff())
+					break
+				}
+			}
+			tr.opts.Log.Info("sandbox reset", "task", tr.opts.TaskID)
 			h.reset = seq
 			if err := tr.enqueue(model.RunnerEvent{
 				TaskID:  tr.opts.TaskID,
@@ -427,26 +437,9 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			}); err != nil {
 				return c, false, err
 			}
-			h.resetting = true
-			continue
-		case h.resetting:
-			// Delete the sandbox and its record so the next start creates a
-			// fresh one. The report may already have cleared the command, so
-			// the destroy is kept pending here rather than on the report:
-			// destroy deletes the record only once the sandbox is destroyed,
-			// so a failed destroy keeps it tracked and is retried with
-			// backoff, before any start can boot it.
-			if err := tr.destroy(ctx); err != nil {
-				if ctx.Err() != nil {
-					return c, false, context.Cause(ctx)
-				}
-				tr.opts.Log.Error("failed to reset sandbox", "task", tr.opts.TaskID, "err", err)
-				timer = time.After(retry.NextBackOff())
-				break
+			if tr.sbx != nil {
+				tr.clear(ctx)
 			}
-			tr.opts.Log.Info("sandbox reset", "task", tr.opts.TaskID)
-			h.resetting = false
-			continue
 		case wantsRun(c) && c.Version > h.driven:
 			return c, false, nil
 		case c.Command == gritzv1.TaskCommand_STOP && c.Version > h.stopped:
