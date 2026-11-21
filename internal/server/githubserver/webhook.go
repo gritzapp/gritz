@@ -160,6 +160,7 @@ const (
 	EventTypePullRequestClosed        = "pull_request_closed"
 	EventTypeLabelAdded               = "label_added"
 	EventTypePush                     = "push"
+	EventTypeCheckRunCompleted        = "check_run_completed"
 )
 
 // toInputEvents extracts the routable events from a webhook payload. Every
@@ -499,7 +500,82 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 			InstallationID: event.GetInstallation().GetID(),
 			// A push has no reactable node.
 		}
+
+	case *github.CheckRunEvent:
+		if event.GetAction() != "completed" ||
+			event.CheckRun == nil || event.CheckRun.HTMLURL == nil ||
+			event.Repo == nil || event.Repo.FullName == nil ||
+			event.Sender == nil || event.Sender.ID == nil {
+			return nil, GitHubMeta{}
+		}
+		run := event.CheckRun
+		senderLogin := event.Sender.GetLogin()
+		repo := *event.Repo.FullName
+		check := run.GetName()
+		conclusion := run.GetConclusion()
+		app := run.GetApp().GetSlug()
+		sha := run.GetHeadSHA()
+		attrs := eventrouter.Attrs{
+			"repo":       {repo},
+			"conclusion": {conclusion},
+			"check":      {check},
+			"app":        {app},
+			"user":       {senderLogin},
+		}
+		details := map[string]string{
+			"repo":          repo,
+			"check":         check,
+			"conclusion":    conclusion,
+			"head_sha":      sha,
+			"app":           app,
+			"details_url":   run.GetDetailsURL(),
+			"check_run_url": *run.HTMLURL,
+		}
+		// GitHub sends a null head_branch for a commit pushed to a fork, so
+		// such a run carries no branch and a branch condition can't match it.
+		var on string
+		if branch := run.GetCheckSuite().GetHeadBranch(); branch != "" {
+			attrs["branch"] = []string{branch}
+			details["branch"] = branch
+			on = " on " + branch
+		}
+		output := run.GetOutput()
+		return []eventrouter.InputEvent{{
+			Source:      "github",
+			Type:        EventTypeCheckRunCompleted,
+			Description: fmt.Sprintf("check %q %s%s (%.7s)", check, checkRunOutcome(conclusion), on, sha),
+			Data:        strings.TrimSpace(output.GetTitle() + "\n\n" + output.GetSummary()),
+			// For Actions this is the job: .../actions/runs/R/job/J.
+			URL:     *run.HTMLURL,
+			Attrs:   attrs,
+			Details: details,
+		}}, GitHubMeta{
+			AuthorID:       *event.Sender.ID,
+			AuthorLogin:    senderLogin,
+			InstallationID: event.GetInstallation().GetID(),
+			// A check run has no reactable node.
+		}
 	}
 
 	return nil, GitHubMeta{}
+}
+
+// checkRunOutcome phrases a check run's conclusion as a past-tense verb for
+// its event description, falling back to "completed (<conclusion>)".
+func checkRunOutcome(conclusion string) string {
+	switch conclusion {
+	case "success":
+		return "succeeded"
+	case "failure":
+		return "failed"
+	case "cancelled":
+		return "was cancelled"
+	case "timed_out":
+		return "timed out"
+	case "skipped":
+		return "was skipped"
+	case "startup_failure":
+		return "failed to start"
+	}
+	return fmt.Sprintf("completed (%s)", conclusion)
 }

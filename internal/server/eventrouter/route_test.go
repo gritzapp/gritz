@@ -995,6 +995,63 @@ func TestRoutePushCreatesTaskOnce(t *testing.T) {
 	assert.Equal(t, links[0].Subscribe, true)
 }
 
+func TestRouteCheckRunFailureCreatesTask(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: the public create rule for failed checks on master. The sender
+	// is usually unlinked, so the event reaches the org through the App
+	// installation only.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
+		Source: "github",
+		Type:   "check_run_completed",
+		Public: true,
+		Conditions: []model.Condition{
+			{Attr: "conclusion", Op: "equals", Value: "failure"},
+			{Attr: "repo", Op: "equals", Value: "owner/repo"},
+			{Attr: "branch", Op: "equals", Value: "master"},
+		},
+		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
+	}})
+	assert.NilError(t, err)
+	r := &eventrouter.Router{Log: slog.Default(), Store: s}
+	checkRun := func(job, conclusion string) eventrouter.InputEvent {
+		return eventrouter.InputEvent{
+			Source:      "github",
+			Type:        "check_run_completed",
+			Description: `check "test" completed on master (abc1234)`,
+			URL:         "https://github.com/owner/repo/actions/runs/11/job/" + job,
+			Orgs:        []int64{org.OrgID},
+			Attrs: eventrouter.Attrs{
+				"repo":       {"owner/repo"},
+				"branch":     {"master"},
+				"conclusion": {conclusion},
+				"check":      {"test"},
+				"app":        {"github-actions"},
+				"user":       {"alice"},
+			},
+		}
+	}
+
+	// Act: a successful check, then a failed one.
+	n, err := r.Route(t.Context(), checkRun("21", "success"))
+	assert.NilError(t, err)
+	assert.Equal(t, n, 0)
+	n, err = r.Route(t.Context(), checkRun("22", "failure"))
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+
+	// Assert: one task, triggered by the failed job.
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(tasks), 1)
+	links, err := s.ListLinksByTask(t.Context(), nil, tasks[0].ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(links), 1)
+	assert.Equal(t, links[0].URL, "https://github.com/owner/repo/actions/runs/11/job/22")
+}
+
 func TestRouteFirstMatchingRuleWins(t *testing.T) {
 	t.Parallel()
 
