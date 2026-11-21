@@ -41,6 +41,8 @@ variables, its links, and its actions:
   time left shows next to it.
 - **Cancel**, while the task is pending or running.
 - **Restart**, once it is running or finished.
+- **Reset sandbox**, once it is finished, to delete its sandbox so the next run
+  starts in a new one. See [Resetting the sandbox](/concepts/tasks/#resetting-the-sandbox).
 - **Auto-archive**, to change the delay: never, immediately, 1 hour, 6 hours,
   24 hours or 7 days.
 

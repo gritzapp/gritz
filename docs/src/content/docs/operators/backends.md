@@ -8,7 +8,7 @@ sidebar:
 A runner starts every task's sandbox through one backend, chosen with
 `--backend`. The backend creates the sandbox, starts and suspends it around each
 run, connects the runner to the driver inside it, and destroys it when the task
-is archived.
+is archived or its sandbox is [reset](/concepts/tasks/#resetting-the-sandbox).
 
 | | Docker | Lambda MicroVMs |
 | --- | --- | --- |
@@ -51,7 +51,7 @@ For each task the runner:
 3. Starts the container for each run and stops it afterwards. The container's
    filesystem survives between runs, so a woken task finds its checkout where it
    left it.
-4. Removes the container when the task is archived.
+4. Removes the container when the task is archived or its sandbox is reset.
 
 The `container:` section maps onto the container's settings: `image`, `user`,
 `working_dir`, `environment`, `volumes`, `networks`, `network_mode`,
@@ -83,7 +83,8 @@ For each task the runner:
    token scoped to that port.
 3. Suspends the VM after every run (`suspend-microvm`) and resumes it for the
    next (`resume-microvm`).
-4. Terminates the VM when the task is archived (`terminate-microvm`).
+4. Terminates the VM when the task is archived or its sandbox is reset
+   (`terminate-microvm`).
 
 A VM runs for at most `max_duration_seconds`, 8 hours by default and at most, so
 keep tasks that wake up over days on Docker.

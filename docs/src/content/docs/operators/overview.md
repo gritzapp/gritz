@@ -21,11 +21,12 @@ and it stores tasks, events and logs in PostgreSQL. See [Server](/operators/serv
 key, registers the workspaces in its [`workspaces.yaml`](/operators/workspaces-yaml/),
 and picks up the tasks that users create for it. For each task it creates a
 sandbox through its [backend](/operators/backends/), starts the task's runs, and
-destroys the sandbox when the task is archived. See [Runner](/operators/runner/).
+destroys the sandbox when the task is archived or the sandbox is reset. See [Runner](/operators/runner/).
 
 **Sandbox** is where a task's agent runs: a Docker container named
 `gritz-<task-id>`, or an AWS Lambda MicroVM. A task keeps its sandbox from its
-first run until it is archived, so files the agent leaves behind are still there
+first run until it is archived or its sandbox is
+[reset](/concepts/tasks/#resetting-the-sandbox), so files the agent leaves behind are still there
 when an event wakes the task up.
 
 **Driver** (`gritz driver`) is the sandbox's main process. The runner copies the

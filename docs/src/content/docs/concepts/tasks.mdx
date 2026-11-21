@@ -1,6 +1,6 @@
 ---
 title: Tasks
-description: What a task is, how instructions and events start its runs, the task statuses, restarting and cancelling, archiving and auto-archive, and the task log.
+description: What a task is, how instructions and events start its runs, the task statuses, restarting and cancelling, resetting the sandbox, archiving and auto-archive, and the task log.
 sidebar:
   order: 1
 ---
@@ -10,7 +10,8 @@ import Diagram from '../../../components/Diagram.astro';
 A task is one piece of work for one agent. It names a
 [runner](/concepts/runners/) and a [workspace](/concepts/workspaces/), and holds
 the instructions and events the agent works from. Each task gets a sandbox of its
-own, which it keeps until it is archived.
+own, which it keeps until it is archived or its sandbox is
+[reset](#resetting-the-sandbox).
 
 Tasks are created from the [Web UI](/using/web-ui/), the [CLI](/using/cli/), an
 MCP client, a [routing rule](/concepts/routing-rules/) or a
@@ -69,7 +70,7 @@ task isn't over: an instruction or an event starts it again, from where it left
 off.
 
 Next to the status, the Web UI shows the task's pending **command**, if any:
-`command:start`, `command:restart` or `command:stop`. It is what the runner has
+`command:start`, `command:restart`, `command:stop` or `command:reset`. It is what the runner has
 been asked to do and hasn't done yet. A `command:start` on a running task is an
 instruction or event waiting for the current run to end.
 
@@ -82,6 +83,23 @@ instruction or event waiting for the current run to end.
 - **Cancel** stops the task. A pending task is cancelled at once; a running or
   restarting one goes through `cancelling` while the runner stops the agent. The
   sandbox is kept, so the task can still be started again.
+
+## Resetting the sandbox
+
+**Reset sandbox** deletes a finished task's sandbox, and with it any files the
+agent left there. Use it when the sandbox can no longer start, so every run
+fails the same way, or when its contents have gone bad: a broken checkout, a
+confused agent session, an outdated image.
+
+A reset doesn't start the task, and its status stays what it was. The task
+keeps its instructions, events, links and subscriptions. Its next run, started
+by an instruction, an event or **Restart**, gets a new sandbox set up from the
+workspace as it is then, and is run like a first run: the setup commands run
+again, and the agent starts a new session with the whole task.
+
+A reset is available on a finished task with no pending command. To reset a
+running task, cancel it first. The timeline records the request, and the
+reset itself once the runner has deleted the sandbox.
 
 ## Archiving
 

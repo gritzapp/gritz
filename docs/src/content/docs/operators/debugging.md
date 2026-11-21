@@ -74,7 +74,7 @@ gritz containers
 ```
 
 A task's container is stopped between runs and removed when the task is
-archived. Containers can be left behind when a runner loses its
+archived or its sandbox is [reset](/concepts/tasks/#resetting-the-sandbox). Containers can be left behind when a runner loses its
 [state database](/operators/runner/#the-state-database), or when a container is
 created for a runner ID that no longer runs. To remove them:
 

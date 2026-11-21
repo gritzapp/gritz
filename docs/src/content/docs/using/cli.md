@@ -297,7 +297,8 @@ gritz task update 1234 --start -i "Also update the README."
 An instruction added without `--start` waits on the task until something else
 starts it, such as an event or a later `--start`.
 
-Cancelling, restarting and archiving tasks are done in the
+Cancelling, restarting and archiving tasks, and resetting their sandboxes, are
+done in the
 [Web UI](/using/web-ui/#the-task-page).
 
 ## `gritz logs`
