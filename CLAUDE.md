@@ -123,7 +123,7 @@ Design proposals are docs pages too, in `docs/src/content/docs/proposals/{draft,
 
 `docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link. Both publish through `.github/scripts/deploy-gh-pages.sh`, which force-pushes `gh-pages` as a single orphan commit, so the branch carries no history.
 
-**A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR, if that page no longer describes it correctly.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update. See "What belongs in the docs" below before writing anything.
+**Code PRs don't update the user docs.** A routing rule creates a task for every push to `master` that changes code. The task reviews the push and opens a `docs:` PR when a page no longer describes behaviour a user or operator can see: a flag, a workspace field, an envelope field, a routing semantic, an MCP tool. Where the matching page doesn't exist yet, there is nothing to update. The table below and "What belongs in the docs" are that task's guide.
 
 | Code | Docs |
 | --- | --- |
@@ -148,7 +148,7 @@ The docs are for people who use or operate gritz, not for people who work on it.
 - **No implementation details.** No Go package, file, function, type, or RPC names, SQL tables, interceptors, or internal mechanisms, unless the reader configures or observes them directly. Explain behaviour, not how the code achieves it.
 - **Edit in place.** Correct the sentence that's wrong instead of appending a caveat beside it. A behaviour change should usually leave the page about the same length.
 
-Before touching a page, ask: would a user or operator reading the current page be misled? If not, leave it alone, and say in the PR description that no docs change was needed.
+Before touching a page, ask: would a user or operator reading the current page be misled? If not, leave it alone, and report that no docs change was needed.
 
 ## Invariants
 

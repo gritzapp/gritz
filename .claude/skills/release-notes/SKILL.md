@@ -19,9 +19,7 @@ generates it.
 1. **Find the release.** The newest one in `gh release list -R gritzapp/gritz`,
    or the version you were given. Note its tag (`vX.Y.Z`) and the previous tag.
 2. **Read what went in.** The release's section of `CHANGELOG.md`, and the
-   merged PRs it links (`gh pr view <n> -R gritzapp/gritz`). For a feature, read
-   the docs pages its PRs changed (`docs/src/content/docs/`): the docs say what
-   it does in the terms a user acts on.
+   merged PRs it links (`gh pr view <n> -R gritzapp/gritz`).
 3. **Write the notes** in the format below, to a file.
 4. **Publish them**: `gh release edit <tag> -R gritzapp/gritz --notes-file <file>`.
 5. **Don't commit or push anything.**
@@ -52,7 +50,6 @@ users can now do.
 ## Features
 
 - **Short name.** What it lets people do, in one or two sentences.
-  [Docs page](https://docs.gritz.dev/...)
 
 ## Fixes
 
@@ -69,9 +66,7 @@ users can now do.
 - Leave out a section that would be empty. A release with nothing user-facing
   gets one line: `No user-facing changes.` followed by the changelog link.
 - Order features by how much a user would care, not by package.
-- Link the docs page that covers a feature (`https://docs.gritz.dev/<path>/`,
-  the page's path under `docs/src/content/docs/`). Check the page exists on
-  `master` before linking it.
+- Don't link docs pages.
 
 ## Writing
 
@@ -95,20 +90,16 @@ The 4.10.0 changelog had 17 `feat` lines. Its notes:
 - **Reset a task's sandbox.** A Reset sandbox action on the task page, and a
   `reset_sandbox` MCP tool, delete a finished task's sandbox so its next run
   starts in a fresh one. The task keeps its history.
-  [Tasks](https://docs.gritz.dev/concepts/tasks/#resetting-the-sandbox)
 - **Auto-reset.** With `auto_reset: true` in a workspace, a run whose sandbox is
   gone, such as a Lambda MicroVM past its 8-hour limit, starts in a fresh
   sandbox instead of failing.
-  [workspaces.yaml](https://docs.gritz.dev/operators/workspaces-yaml/)
 - **GitHub push events.** Routing rules can react to pushes, by repository,
   branch, changed path or user.
-  [Event types](https://docs.gritz.dev/reference/event-types/)
 - **GitHub check runs.** Routing rules can react to completed CI checks: wake a
   pull request's task when its checks fail, or create a task when CI fails on a
-  branch. [GitHub](https://docs.gritz.dev/integrations/github/)
+  branch.
 - **`glob` conditions.** Routing rule conditions can match patterns such as
   `internal/store/**` or `release/*`.
-  [Routing rules](https://docs.gritz.dev/concepts/routing-rules/)
 - **Org limit.** A user can belong to at most 20 organisations.
 
 ## Fixes
