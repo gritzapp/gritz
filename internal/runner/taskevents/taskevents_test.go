@@ -211,22 +211,18 @@ func TestLog_Restart(t *testing.T) {
 
 func TestLog_Boot(t *testing.T) {
 	t.Parallel()
-	// Arrange - tasks 10, 20 and 30 are stored, and 20 is archived; 30 was
-	// archived and unarchived.
+	// Arrange - task 10 is stored, and the server has a new event for task
+	// 20.
 	store := openStore(t, filepath.Join(t.TempDir(), "runner.db"))
 	_, err := store.AppendEvents(t.Context(),
 		[]*gritzv1.Event{
 			{Id: 1, TaskId: 10, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
-			{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
-			{Id: 3, TaskId: 30, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 2}}},
-			{Id: 4, TaskId: 20, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 5, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_ARCHIVED}}},
-			{Id: 6, TaskId: 30, Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{Kind: gritzv1.LifecycleKind_LIFECYCLE_KIND_UNARCHIVED}}},
 		},
-		"0", // the fake server below has no events, so it serves empty pages from here
+		"0",
 	)
 	assert.NilError(t, err)
 	srv := newServer(10)
+	srv.Add(&gritzv1.Event{Id: 2, TaskId: 20, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}})
 	l := taskevents.New(taskevents.Options{
 		Store:    store,
 		Client:   srv.Client(),
@@ -235,17 +231,11 @@ func TestLog_Boot(t *testing.T) {
 
 	// Act
 	run(t, l)
-	reports := []runnerstore.TaskChange{<-l.Tasks(), <-l.Tasks()}
+	report := <-l.Tasks()
 
-	// Assert - the unarchived tasks are reported in id order, archived 20 is
-	// skipped.
-	assert.DeepEqual(t,
-		reports,
-		[]runnerstore.TaskChange{
-			{ID: 10, Command: gritzv1.TaskCommand_START, Version: 1},
-			{ID: 30, Command: gritzv1.TaskCommand_START, Version: 2},
-		},
-	)
+	// Assert - the first report is the new page's: stored task 10 isn't
+	// reported.
+	assert.DeepEqual(t, report, runnerstore.TaskChange{ID: 20, Command: gritzv1.TaskCommand_START, Version: 1})
 }
 
 func TestLog_Tasks(t *testing.T) {

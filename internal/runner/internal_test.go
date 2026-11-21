@@ -78,6 +78,56 @@ func TestTaskManagerLoad_Slot(t *testing.T) {
 	assert.Equal(t, m.slots.Acquire(ctx, false), context.Canceled)
 }
 
+// TestTaskManagerLoad_Tasks checks that Load starts a TaskRunner for every
+// stored task, with a sandbox record or not, and hands each its stored state
+// once.
+func TestTaskManagerLoad_Tasks(t *testing.T) {
+	t.Parallel()
+	// Arrange - tasks 1 and 2 have a pending start, and only task 1 has a
+	// sandbox, which is up and holds the only slot, so task 2 stays pending.
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
+	_, err = store.AppendEvents(t.Context(), []*gritzv1.Event{
+		{Id: 1, TaskId: 1, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+		{Id: 2, TaskId: 2, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+	}, "2")
+	assert.NilError(t, err)
+	assert.NilError(t, store.WriteSandbox(t.Context(), runnerstore.SandboxRecord{TaskID: 1, Version: 1}))
+	sbx := &backend.SandboxMock{
+		StatusFunc: func(context.Context) (backend.Status, error) { return backend.StatusUp, nil },
+		DialFunc: func(context.Context, string) (driverv1connect.DriverServiceClient, error) {
+			return nil, errors.New("unreachable")
+		},
+	}
+	be := &backend.BackendMock{
+		OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return sbx, nil },
+	}
+	client := &gritzclient.ClientMock{}
+	m, err := NewTaskManager(TaskManagerOptions{
+		Client:      client,
+		Backend:     be,
+		Workspaces:  &workspace.Config{},
+		Concurrency: 1,
+		RunnerID:    "r",
+		Queue:       NewRunnerEventOutbox(RunnerEventOutboxOptions{Store: store, Client: client, Backoff: backoff.NewConstantBackOff(0), Log: slog.Default()}),
+		TaskLog:     taskevents.New(taskevents.Options{Store: store, Client: client}),
+		RunnerStore: store,
+	})
+	assert.NilError(t, err)
+
+	// Act
+	assert.NilError(t, m.Load(t.Context()))
+
+	// Assert - each task's TaskRunner got its stored state, once.
+	assert.Assert(t, cmp.Len(m.tasks, 2))
+	for id, tr := range m.tasks {
+		c, seq := tr.latest()
+		assert.DeepEqual(t, c, runnerstore.TaskChange{ID: id, Command: gritzv1.TaskCommand_START, Version: 1})
+		assert.Equal(t, seq, uint64(1))
+	}
+}
+
 // TestTaskManagerRegisterWorkspaces checks that the runner registers each
 // workspace with the task variables it declares.
 func TestTaskManagerRegisterWorkspaces(t *testing.T) {
@@ -176,6 +226,7 @@ func TestTaskManagerRun_Fatal(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Act
+	assert.NilError(t, m.Load(ctx))
 	done := make(chan error, 1)
 	go func() { done <- m.Run(ctx) }()
 
