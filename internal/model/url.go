@@ -28,12 +28,15 @@ func TaskBadgeURL(baseURL string, taskID int64) string {
 
 // RoutingKey reduces a recognized resource URL to a stable routing key, so two
 // URLs that point at the same logical resource — a comment vs. its issue, or an
-// API URL vs. its web URL — produce the same key. Only recognized URLs (GitHub
-// issues/PRs and Jira issues, in both their web and API forms) are normalized;
-// anything else is returned unchanged.
+// API URL vs. its web URL, or two jobs of one Actions workflow run — produce
+// the same key. Only recognized URLs (GitHub issues/PRs and Jira issues, in
+// both their web and API forms, and GitHub Actions workflow runs) are
+// normalized; anything else is returned unchanged.
 //
 //	github.com/o/r/issues/5#issuecomment-9            -> github.com/o/r/issues/5
 //	github.com/o/r/pull/5/files                       -> github.com/o/r/pull/5
+//	github.com/o/r/actions/runs/7/job/8               -> github.com/o/r/actions/runs/7
+//	github.com/o/r/actions/runs/7/attempts/2          -> github.com/o/r/actions/runs/7
 //	api.github.com/repos/o/r/issues/5                 -> github.com/o/r/issues/5
 //	api.github.com/repos/o/r/pulls/5                  -> github.com/o/r/pull/5
 //	site.atlassian.net/browse/X-1?focusedCommentId=2  -> site.atlassian.net/browse/X-1
@@ -51,6 +54,11 @@ func RoutingKey(raw string) string {
 		// (/files, /commits/…) and fragments are already dropped.
 		if m := githubWebRe.FindStringSubmatch(u.Path); m != nil {
 			return fmt.Sprintf("https://github.com/%s/%s/%s/%s", m[1], m[2], m[3], m[4])
+		}
+		// /{owner}/{repo}/actions/runs/{id}[/job/{j}|/attempts/{n}] — every
+		// job and attempt of a workflow run shares the run's key.
+		if m := githubRunRe.FindStringSubmatch(u.Path); m != nil {
+			return fmt.Sprintf("https://github.com/%s/%s/actions/runs/%s", m[1], m[2], m[3])
 		}
 	case u.Host == "api.github.com":
 		// /repos/{owner}/{repo}/{issues|pulls}/{n} maps to the web key.
@@ -73,6 +81,7 @@ func RoutingKey(raw string) string {
 
 var (
 	githubWebRe = regexp.MustCompile(`^/([^/]+)/([^/]+)/(issues|pull)/(\d+)`)
+	githubRunRe = regexp.MustCompile(`^/([^/]+)/([^/]+)/actions/runs/(\d+)`)
 	githubAPIRe = regexp.MustCompile(`^/repos/([^/]+)/([^/]+)/(issues|pulls)/(\d+)`)
 	jiraAPIRe   = regexp.MustCompile(`^/rest/api/\d+/issue/([^/]+)`)
 	digitsRe    = regexp.MustCompile(`^\d+$`)

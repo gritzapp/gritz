@@ -93,6 +93,30 @@ func TestRoutingKey(t *testing.T) {
 			"https://github.com/o/r/issues/5",
 		},
 
+		// GitHub Actions — jobs and attempts reduce to the workflow run
+		{
+			"github actions run",
+			"https://github.com/o/r/actions/runs/7",
+			"https://github.com/o/r/actions/runs/7",
+		},
+		{
+			"github actions job",
+			"https://github.com/o/r/actions/runs/7/job/8",
+			"https://github.com/o/r/actions/runs/7",
+		},
+		{
+			"github actions attempt",
+			"https://github.com/o/r/actions/runs/7/attempts/2",
+			"https://github.com/o/r/actions/runs/7",
+		},
+
+		// GitHub non-Actions check run — one key per check run
+		{
+			"github check run",
+			"https://github.com/o/r/runs/9",
+			"https://github.com/o/r/runs/9",
+		},
+
 		// GitHub API
 		{
 			"github api issue",

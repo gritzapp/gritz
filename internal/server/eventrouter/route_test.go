@@ -3,6 +3,7 @@ package eventrouter_test
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1050,6 +1051,67 @@ func TestRouteCheckRunFailureCreatesTask(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(links), 1)
 	assert.Equal(t, links[0].URL, "https://github.com/owner/repo/actions/runs/11/job/22")
+}
+
+func TestRouteCheckRunFailuresOfOneRunShareTask(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: the public create rule for failed checks on master.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
+		Source: "github",
+		Type:   "check_run_completed",
+		Public: true,
+		Conditions: []model.Condition{
+			{Attr: "conclusion", Op: "equals", Value: "failure"},
+			{Attr: "branch", Op: "equals", Value: "master"},
+		},
+		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
+	}})
+	assert.NilError(t, err)
+	r := &eventrouter.Router{Log: slog.Default(), Store: s}
+	failedJob := func(job, check string) eventrouter.InputEvent {
+		return eventrouter.InputEvent{
+			Source:      "github",
+			Type:        "check_run_completed",
+			Description: `check "` + check + `" failed on master (abc1234)`,
+			URL:         "https://github.com/owner/repo/actions/runs/11/job/" + job,
+			Orgs:        []int64{org.OrgID},
+			Attrs: eventrouter.Attrs{
+				"repo":       {"owner/repo"},
+				"branch":     {"master"},
+				"conclusion": {"failure"},
+				"check":      {check},
+				"app":        {"github-actions"},
+				"user":       {"alice"},
+			},
+		}
+	}
+
+	// Act: two failing jobs of the same workflow run.
+	n, err := r.Route(t.Context(), failedJob("21", "test"))
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+	n, err = r.Route(t.Context(), failedJob("22", "lint"))
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+
+	// Assert: one task, carrying both failures.
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(tasks), 1)
+	events, err := s.ListEventsByTask(t.Context(), nil, tasks[0].ID, org.OrgID, []string{model.EventTypeExternal})
+	assert.NilError(t, err)
+	var urls []string
+	for _, e := range events {
+		urls = append(urls, e.Payload.(*model.ExternalPayload).URL)
+	}
+	slices.Sort(urls)
+	assert.DeepEqual(t, urls, []string{
+		"https://github.com/owner/repo/actions/runs/11/job/21",
+		"https://github.com/owner/repo/actions/runs/11/job/22",
+	})
 }
 
 func TestRouteFirstMatchingRuleWins(t *testing.T) {
