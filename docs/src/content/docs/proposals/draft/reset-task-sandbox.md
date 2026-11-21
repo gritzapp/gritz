@@ -56,7 +56,7 @@ Three constraints shape everything below:
   (like `OpenShell(task_id)`): `ResetTask` would read as resetting the task itself.
 
 The runner already has the mechanism: `TaskRunner.destroy` destroys the sandbox and
-deletes its record, and is what an archived task's `RunLoop` calls. What is missing is
+`clear` deletes its record, which is what an archived task's `RunLoop` does. What is missing is
 a command that asks for it without archiving.
 
 ### Command and completion event
@@ -258,15 +258,13 @@ case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
 	// Destroy the sandbox, report the reset, and only then delete its
 	// record, so the record marks a reset in progress until the report is
 	// durable. A failed destroy is retried with backoff.
-	if tr.sbx != nil {
-		if err := tr.sbx.Destroy(ctx); err != nil {
-			if ctx.Err() != nil {
-				return c, false, context.Cause(ctx)
-			}
-			tr.opts.Log.Error("failed to reset sandbox", "task", tr.opts.TaskID, "err", err)
-			timer = time.After(retry.NextBackOff())
-			break
+	if err := tr.destroy(ctx); err != nil {
+		if ctx.Err() != nil {
+			return c, false, context.Cause(ctx)
 		}
+		tr.opts.Log.Error("failed to reset sandbox", "task", tr.opts.TaskID, "err", err)
+		timer = time.After(retry.NextBackOff())
+		break
 	}
 	h.reset = seq
 	if err := tr.enqueue(model.RunnerEvent{
@@ -276,10 +274,12 @@ case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
 	}); err != nil {
 		return c, false, err
 	}
-	if tr.sbx != nil {
-		tr.clear(ctx)
-	}
+	tr.clear(ctx)
 ```
+
+`destroy` only destroys the sandbox (a no-op without one) and leaves the record to
+its caller: the archive case calls `destroy` then `clear`, and the reset case
+enqueues its report in between.
 
 The case sits after `c.Archived` (which cannot coexist with `RESET`) and is mutually
 exclusive with the start and stop cases. `next`'s doc comment gains the third report it
@@ -415,7 +415,7 @@ When a task's sandbox vanishes on its own — a Lambda microVM expiring after 8 
 for example — the task should get a new sandbox automatically. The runner would
 destroy the stale record and create a new sandbox itself, without going through
 `ResetSandbox` or the `RESET` command, so the clobber window does not apply. Nothing
-here blocks it: the runner side of reset is `TaskRunner.destroy` followed by the
+here blocks it: the runner side of reset is `TaskRunner.destroy` and `clear` followed by the
 existing create-on-boot path, both of which auto-reset can use without the command.
 
 ## Implementation Plan

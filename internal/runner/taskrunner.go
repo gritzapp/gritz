@@ -262,20 +262,16 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord
 	return st, nil
 }
 
-// destroy destroys the task's sandbox and deletes its record, leaving tr with
-// no sandbox. The record is deleted only after the destroy succeeds, so a
-// failed destroy leaves the sandbox tracked. Destroying a gone sandbox is not
-// an error, so a sandbox that vanished is simply dropped. A task with no
-// sandbox has nothing to destroy.
+// destroy destroys the task's sandbox, leaving its record and tr's handle to
+// the caller, which clears them once it has done whatever must come before:
+// a failed destroy, or a crash before the clear, leaves the sandbox tracked.
+// Destroying a gone sandbox is not an error. A task with no sandbox has
+// nothing to destroy.
 func (tr *TaskRunner) destroy(ctx context.Context) error {
 	if tr.sbx == nil {
 		return nil
 	}
-	if err := tr.sbx.Destroy(ctx); err != nil {
-		return err
-	}
-	tr.clear(ctx)
-	return nil
+	return tr.sbx.Destroy(ctx)
 }
 
 // Change stores c as the task's latest report, replacing the one before it,
@@ -401,6 +397,7 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 		case c.Archived:
 			err := tr.destroy(ctx)
 			if err == nil {
+				tr.clear(ctx)
 				tr.opts.Log.Info("task archived, sandbox destroyed", "task", tr.opts.TaskID)
 				return c, true, nil
 			}
@@ -418,15 +415,13 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			// the outbox. The command is not cleared until the sandbox is
 			// gone, so no start can boot it. A failed destroy is retried
 			// with backoff.
-			if tr.sbx != nil {
-				if err := tr.sbx.Destroy(ctx); err != nil {
-					if ctx.Err() != nil {
-						return c, false, context.Cause(ctx)
-					}
-					tr.opts.Log.Error("failed to reset sandbox", "task", tr.opts.TaskID, "err", err)
-					timer = time.After(retry.NextBackOff())
-					break
+			if err := tr.destroy(ctx); err != nil {
+				if ctx.Err() != nil {
+					return c, false, context.Cause(ctx)
 				}
+				tr.opts.Log.Error("failed to reset sandbox", "task", tr.opts.TaskID, "err", err)
+				timer = time.After(retry.NextBackOff())
+				break
 			}
 			tr.opts.Log.Info("sandbox reset", "task", tr.opts.TaskID)
 			h.reset = seq
@@ -437,9 +432,7 @@ func (tr *TaskRunner) next(ctx context.Context, h *handled) (c runnerstore.TaskC
 			}); err != nil {
 				return c, false, err
 			}
-			if tr.sbx != nil {
-				tr.clear(ctx)
-			}
+			tr.clear(ctx)
 		case wantsRun(c) && c.Version > h.driven:
 			return c, false, nil
 		case c.Command == gritzv1.TaskCommand_STOP && c.Version > h.stopped:
