@@ -96,16 +96,20 @@ Developer settings → GitHub Apps**, with:
   | --- | --- | --- |
   | Repository → Issues | Read and write | Issue and issue comment events, and reacting to them. |
   | Repository → Pull requests | Read and write | Pull request, review and review comment events, and reacting to them. |
+  | Repository → Contents | Read | Push events. |
   | Organization → Members | Read | Checking that a user linking an installation is a member of its GitHub organisation. |
 
 - **Subscribe to events**: **Issues**, **Issue comment**, **Pull request**,
-  **Pull request review** and **Pull request review comment**. GitHub sends
-  `installation` events to every App without a subscription; gritz uses them to
-  unlink an installation when it is uninstalled.
+  **Pull request review**, **Pull request review comment** and **Push**. GitHub
+  sends `installation` events to every App without a subscription; gritz uses
+  them to unlink an installation when it is uninstalled.
 - **Where can this GitHub App be installed?**: **Any account**, unless only your
   own account or organisation will use it.
 
 Then generate a private key on the App's page.
+
+When you add a permission to an existing App, each installation's owner has to
+accept it on GitHub before the App receives the events that need it.
 
 ### Configure the server
 

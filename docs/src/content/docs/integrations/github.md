@@ -1,13 +1,13 @@
 ---
 title: GitHub
-description: Install the gritz GitHub App, link your GitHub account, and route pull request and issue events to tasks; the events gritz receives, the reactions it posts, and GitHub credentials for agents.
+description: Install the gritz GitHub App, link your GitHub account, and route pull request, issue and push events to tasks; the events gritz receives, the reactions it posts, and GitHub credentials for agents.
 sidebar:
   order: 1
 ---
 
 The GitHub integration turns activity on GitHub into
 [events](/concepts/events-and-links/): comments, reviews, assignments, labels,
-and pull requests being opened or closed. [Routing rules](/concepts/routing-rules/)
+pull requests being opened or closed, and pushes. [Routing rules](/concepts/routing-rules/)
 then decide what each event does: wake the task that opened the pull request,
 create a new task for an issue, or nothing.
 
@@ -96,9 +96,10 @@ gritz turns these GitHub webhook deliveries into events. The rule form's
 | A pull request is opened | GitHub: PR Opened | the pull request |
 | A pull request is closed or merged | GitHub: PR Closed | the pull request |
 | A label is added to an issue or pull request | GitHub: Label Added | the issue or pull request |
+| Commits are pushed to a branch | GitHub: Push | the newest commit |
 
-Every other delivery is ignored. Editing a comment sends the event again, with
-the new text. A review submitted without a summary, such as a bare approval, is
+Every other delivery is ignored, including pushing a tag and deleting a
+branch. Editing a comment sends the event again, with the new text. A review submitted without a summary, such as a bare approval, is
 ignored, but its inline comments are still sent as review comments. GitHub sends
 one delivery per label, so adding two labels sends two events.
 
@@ -108,7 +109,17 @@ to the issue or pull request it belongs to. So a task with a
 gets every comment, review and review comment on it.
 
 The attributes each type offers for conditions, such as `mention`, `user`,
-`label` or `state`, are listed in [Event types](/reference/event-types/#github).
+`label`, `branch` or `path`, are listed in
+[Event types](/reference/event-types/#github).
+
+### Pushes and agents
+
+Agents push too, and their pushes are events like anyone else's, from the
+GitHub user whose [credentials](#github-credentials-for-agents) the workspace
+gives them. A push rule that creates tasks can therefore feed itself: the task
+it creates pushes a branch, and that push creates another task. Give every push
+rule a `branch` condition, such as `branch equals master`, that the branches
+agents push don't match.
 
 ### What the agent sees
 
@@ -117,8 +128,11 @@ Each event on a task's timeline has a description, such as
 review comment body, or the issue's or pull request's description for the other
 types. A review
 comment also carries where it was left: the file, the line (or the range from
-`start_line`), the side of the diff, and the diff hunk it is anchored to. The
-agent gets all of it at the start of its next run, and through
+`start_line`), the side of the diff, and the diff hunk it is anchored to. A push
+has `octocat pushed 3 commits to master`, the newest commit's message, and the
+repository, the branch, the commit SHAs before and after the push, the compare
+URL, whether it was a force push and the number of commits, so the agent can
+diff the push itself. The agent gets all of it at the start of its next run, and through
 [`get_my_task`](/using/agent-tools/#get_my_task).
 
 ## Reactions
@@ -130,8 +144,8 @@ as the GitHub App:
 - 👀 when it woke one or more subscribed tasks.
 
 The reaction goes on the comment, the review, or the issue or pull request for
-the other event types. An event that matched a rule but neither created nor woke
-a task gets no reaction, and neither does one that matched no rule. Reactions
+the other event types; a push gets none. An event that matched a rule but
+neither created nor woke a task gets no reaction, and neither does one that matched no rule. Reactions
 need the organisation to have linked an installation.
 
 A reaction is the quickest way to tell that a comment such as
@@ -154,6 +168,14 @@ Start a task for every issue a member labels `gritz`, in one repository:
 - **Create a task**: on, with a runner, a workspace and a prompt such as "Fix
   the issue and open a pull request."
 - **Wake up linked tasks**: on, so labelling the issue again wakes the same task
+
+Start a task whenever a push to `master` changes a database migration:
+
+- **Event type**: GitHub: Push
+- **Conditions**: `repo equals example/app`, `branch equals master`,
+  `path glob internal/store/sql/migrations/**`
+- **Create a task**: on, with a runner, a workspace and a prompt such as "A
+  migration changed; check that it is safe to run on a live database."
 
 Let anyone, members or not, ask for a change on your repositories' pull
 requests by starting a comment with `gritz:`:
