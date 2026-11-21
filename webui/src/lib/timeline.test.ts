@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { sourceFromUrl } from './timeline'
+import { create } from '@bufbuild/protobuf'
+import { EventSchema, LifecycleKind, LifecyclePayloadSchema } from '@/gen/gritz/v1/gritz_pb'
+import { eventsToTimeline, sourceFromUrl } from './timeline'
 
 describe('sourceFromUrl', () => {
   it('recognizes Dynatrace hosts', () => {
@@ -18,5 +20,20 @@ describe('sourceFromUrl', () => {
   it('leaves non-Dynatrace URLs alone', () => {
     expect(sourceFromUrl('https://example.com/alerts/1')).toBe('other')
     expect(sourceFromUrl('not a url')).toBe('other')
+  })
+})
+
+describe('eventsToTimeline', () => {
+  function lifecycleCategory(kind: LifecycleKind) {
+    const event = create(EventSchema, {
+      payload: { case: 'lifecycle', value: create(LifecyclePayloadSchema, { kind }) },
+    })
+    const [item] = eventsToTimeline([event])
+    return item.kind === 'lifecycle' ? item.category : undefined
+  }
+
+  it('gives sandbox resets their own category', () => {
+    expect(lifecycleCategory(LifecycleKind.SANDBOX_RESET)).toBe('reset')
+    expect(lifecycleCategory(LifecycleKind.RESET_REQUESTED)).toBe('updated')
   })
 })

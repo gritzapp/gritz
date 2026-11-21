@@ -24,6 +24,7 @@ export type LifecycleCategory =
   | 'failed'
   | 'cancelled'
   | 'archived'
+  | 'reset'
   | 'updated'
 
 // A single entry in the unified task timeline. The discriminated `kind` decides
@@ -181,6 +182,8 @@ function lifecycleCategory(p: LifecyclePayload): LifecycleCategory {
     case LifecycleKind.UNARCHIVED:
     case LifecycleKind.AUTO_ARCHIVED:
       return 'archived'
+    case LifecycleKind.SANDBOX_RESET:
+      return 'reset'
     default:
       return 'updated'
   }
