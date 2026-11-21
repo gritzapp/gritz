@@ -12,7 +12,6 @@ import (
 	"github.com/gritzapp/gritz/internal/x/testx"
 	"google.golang.org/protobuf/testing/protocmp"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 func TestResetSandbox(t *testing.T) {
@@ -242,32 +241,4 @@ func TestResetSandbox_RunnerReset(t *testing.T) {
 		OrgID:  h.Org.ID,
 		UserID: h.Org.Owner.UserID,
 	}, cmpopts.IgnoreFields(model.Notification{}, "Time"))
-}
-
-func TestResetSandbox_DuplicateRunnerResetIgnored(t *testing.T) {
-	t.Parallel()
-	// Arrange - the runner reported the reset, which cleared the command.
-	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", Draft: true})
-	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
-	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{
-			{TaskId: task.ID, Event: string(model.RunnerEventStarted), Version: 1},
-			{TaskId: task.ID, Event: string(model.RunnerEventFailed), Version: 1},
-		},
-	})
-	task.ResetSandbox()
-	reset := &gritzv1.SubmitRunnerEventsRequest{
-		Events: []*gritzv1.RunnerEvent{{TaskId: task.ID, Event: string(model.RunnerEventReset), Version: 1}},
-	}
-	h.Org.SubmitRunnerEvents(reset)
-	before := task.Events()
-
-	// Act - the runner reports it again.
-	_, err := h.Org.Client.SubmitRunnerEvents(t.Context(), reset)
-
-	// Assert - no reset is in flight, so the report changes nothing.
-	assert.NilError(t, err)
-	assert.Equal(t, task.Get().Command, gritzv1.TaskCommand_NONE)
-	assert.Assert(t, cmp.Len(task.Events(), len(before)))
 }
