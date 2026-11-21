@@ -1114,6 +1114,75 @@ func TestRouteCheckRunFailuresOfOneRunShareTask(t *testing.T) {
 	})
 }
 
+func TestRoutePullRequestCheckRunFailureWakesTask(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: a done task subscribed to the PR it opened, and the public
+	// waking rule for its failed checks.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, &teststore.OrgOptions{
+		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
+	})
+	url := "https://github.com/owner/repo/pull/12"
+	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+		Runner:    "r",
+		Workspace: "w",
+		Status:    model.TaskStatusCompleted,
+		Links:     []teststore.LinkOptions{{URL: url, Subscribe: true}},
+	})
+	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
+		Source: "github",
+		Type:   "pull_request_check_run_completed",
+		Public: true,
+		Conditions: []model.Condition{
+			{Attr: "conclusion", Op: "equals", Value: "failure"},
+			{Attr: "repo", Op: "equals", Value: "owner/repo"},
+		},
+		Wakeup: true,
+	}})
+	assert.NilError(t, err)
+	r := &eventrouter.Router{Log: slog.Default(), Store: s}
+	checkRun := func(conclusion string) eventrouter.InputEvent {
+		return eventrouter.InputEvent{
+			Source:      "github",
+			Type:        "pull_request_check_run_completed",
+			Description: `check "test" completed on PR #12 (abc1234)`,
+			URL:         url,
+			Orgs:        []int64{org.OrgID},
+			Attrs: eventrouter.Attrs{
+				"repo":       {"owner/repo"},
+				"branch":     {"feature"},
+				"conclusion": {conclusion},
+				"check":      {"test"},
+				"app":        {"github-actions"},
+				"user":       {"alice"},
+			},
+		}
+	}
+
+	// Act: a successful check leaves the task untouched and unattached.
+	n, err := r.Route(t.Context(), checkRun("success"))
+	assert.NilError(t, err)
+	assert.Equal(t, n, 0)
+	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
+	assert.NilError(t, err)
+	assert.Equal(t, len(events), 0)
+
+	// Act: a failed check wakes it.
+	n, err = r.Route(t.Context(), checkRun("failure"))
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+
+	// Assert: the task is restarted, carrying only the failure.
+	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, updated.Status, model.TaskStatusPending)
+	events, err = s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
+	assert.NilError(t, err)
+	assert.Equal(t, len(events), 1)
+	assert.Equal(t, events[0].Payload.(*model.ExternalPayload).EventType, "pull_request_check_run_completed")
+}
+
 func TestRouteFirstMatchingRuleWins(t *testing.T) {
 	t.Parallel()
 

@@ -1328,6 +1328,119 @@ func TestHandleGitHubWebhookCheckRunCompleted(t *testing.T) {
 	})
 }
 
+func TestHandleGitHubWebhookPullRequestCheckRunCompleted(t *testing.T) {
+	router := &RouterMock{
+		RouteFunc: func(ctx context.Context, input eventrouter.InputEvent) (int, error) {
+			return 0, nil
+		},
+	}
+	store := &StoreMock{
+		GetUserByGitHubUserIDFunc: func(ctx context.Context, tx *sql.Tx, id int64) (*model.User, error) {
+			return nil, sql.ErrNoRows
+		},
+		ListOrgIDsByGitHubInstallationFunc: func(ctx context.Context, tx *sql.Tx, id int64) ([]int64, error) {
+			return []int64{7}, nil
+		},
+	}
+	h := &WebhookHandler{Router: router, Store: store}
+	pullRequest := func(number int, repoID int64) *github.PullRequest {
+		return &github.PullRequest{
+			Number: github.Ptr(number),
+			Base:   &github.PullRequestBranch{Repo: &github.Repository{ID: github.Ptr(repoID)}},
+		}
+	}
+	// The branch is open against master (#12) and a release branch (#13), and
+	// another repository has a PR (#5) with the same head ref.
+	payload := github.CheckRunEvent{
+		Action: github.Ptr("completed"),
+		CheckRun: &github.CheckRun{
+			Name:         github.Ptr("test"),
+			HeadSHA:      github.Ptr("abc1234def5678"),
+			Status:       github.Ptr("completed"),
+			Conclusion:   github.Ptr("failure"),
+			HTMLURL:      github.Ptr("https://github.com/owner/repo/actions/runs/11/job/22"),
+			DetailsURL:   github.Ptr("https://github.com/owner/repo/actions/runs/11/job/22"),
+			Output:       &github.CheckRunOutput{Title: github.Ptr(""), Summary: github.Ptr("")},
+			CheckSuite:   &github.CheckSuite{HeadBranch: github.Ptr("feature")},
+			App:          &github.App{Slug: github.Ptr("github-actions")},
+			PullRequests: []*github.PullRequest{pullRequest(12, 1), pullRequest(5, 2), pullRequest(13, 1)},
+		},
+		Repo: &github.Repository{
+			ID:       github.Ptr[int64](1),
+			FullName: github.Ptr("owner/repo"),
+			HTMLURL:  github.Ptr("https://github.com/owner/repo"),
+		},
+		Sender:       &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+		Installation: &github.Installation{ID: github.Ptr[int64](99)},
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, makeWebhookRequest(t, "check_run", payload))
+	assert.Equal(t, rec.Code, http.StatusOK)
+	assert.Equal(t, rec.Body.String(), "processed")
+
+	attrs := eventrouter.Attrs{
+		"repo":       {"owner/repo"},
+		"branch":     {"feature"},
+		"conclusion": {"failure"},
+		"check":      {"test"},
+		"app":        {"github-actions"},
+		"user":       {"octocat"},
+	}
+	details := func(pr string) map[string]string {
+		d := map[string]string{
+			"repo":          "owner/repo",
+			"branch":        "feature",
+			"check":         "test",
+			"conclusion":    "failure",
+			"head_sha":      "abc1234def5678",
+			"app":           "github-actions",
+			"details_url":   "https://github.com/owner/repo/actions/runs/11/job/22",
+			"check_run_url": "https://github.com/owner/repo/actions/runs/11/job/22",
+		}
+		if pr != "" {
+			d["pull_request"] = pr
+		}
+		return d
+	}
+	meta := GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 99}
+	assert.DeepEqual(t, router.RoutedInputs(), []eventrouter.InputEvent{
+		{
+			Source:      "github",
+			Type:        EventTypeCheckRunCompleted,
+			Description: `check "test" failed on feature (abc1234)`,
+			URL:         "https://github.com/owner/repo/actions/runs/11/job/22",
+			Attrs:       attrs,
+			Details:     details(""),
+			Orgs:        []int64{7},
+			Meta:        meta,
+		},
+		{
+			Source:      "github",
+			Type:        EventTypePullRequestCheckRunCompleted,
+			Description: `check "test" failed on PR #12 (abc1234)`,
+			URL:         "https://github.com/owner/repo/pull/12",
+			Attrs:       attrs,
+			Details:     details("12"),
+			Orgs:        []int64{7},
+			Meta:        meta,
+		},
+		{
+			Source:      "github",
+			Type:        EventTypePullRequestCheckRunCompleted,
+			Description: `check "test" failed on PR #13 (abc1234)`,
+			URL:         "https://github.com/owner/repo/pull/13",
+			Attrs:       attrs,
+			Details:     details("13"),
+			Orgs:        []int64{7},
+			Meta:        meta,
+		},
+	})
+	// The delivery's actor and orgs are resolved once for all three events.
+	assert.DeepEqual(t, testx.ExtractField(store.GetUserByGitHubUserIDCalls(), "GithubUserID"), []int64{999})
+	assert.Equal(t, len(store.ListOrgIDsByGitHubInstallationCalls()), 1)
+}
+
 // installation "created" no longer records any state: linking is verified on
 // demand against live GitHub membership, so the handler ignores it.
 func TestHandleGitHubWebhookInstallationCreated(t *testing.T) {

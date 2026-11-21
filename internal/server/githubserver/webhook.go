@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -161,6 +162,9 @@ const (
 	EventTypeLabelAdded               = "label_added"
 	EventTypePush                     = "push"
 	EventTypeCheckRunCompleted        = "check_run_completed"
+	// EventTypePullRequestCheckRunCompleted is a completed check run keyed by
+	// one of the PRs it ran for, so it routes to the tasks subscribed to that PR.
+	EventTypePullRequestCheckRunCompleted = "pull_request_check_run_completed"
 )
 
 // toInputEvents extracts the routable events from a webhook payload. Every
@@ -540,16 +544,41 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 			on = " on " + branch
 		}
 		output := run.GetOutput()
-		return []eventrouter.InputEvent{{
+		data := strings.TrimSpace(output.GetTitle() + "\n\n" + output.GetSummary())
+		outcome := checkRunOutcome(conclusion)
+		events := []eventrouter.InputEvent{{
 			Source:      "github",
 			Type:        EventTypeCheckRunCompleted,
-			Description: fmt.Sprintf("check %q %s%s (%.7s)", check, checkRunOutcome(conclusion), on, sha),
-			Data:        strings.TrimSpace(output.GetTitle() + "\n\n" + output.GetSummary()),
+			Description: fmt.Sprintf("check %q %s%s (%.7s)", check, outcome, on, sha),
+			Data:        data,
 			// For Actions this is the job: .../actions/runs/R/job/J.
 			URL:     *run.HTMLURL,
 			Attrs:   attrs,
 			Details: details,
-		}}, GitHubMeta{
+		}}
+		// One PR variant per open PR whose head is the run's commit. GitHub
+		// can also list PRs of other repositories that share the head ref;
+		// their number means nothing under this repository's URL, so skip them.
+		for _, pr := range run.PullRequests {
+			if pr.GetBase().GetRepo().GetID() != event.Repo.GetID() {
+				continue
+			}
+			number := pr.GetNumber()
+			prDetails := maps.Clone(details)
+			prDetails["pull_request"] = strconv.Itoa(number)
+			events = append(events, eventrouter.InputEvent{
+				Source:      "github",
+				Type:        EventTypePullRequestCheckRunCompleted,
+				Description: fmt.Sprintf("check %q %s on PR #%d (%.7s)", check, outcome, number, sha),
+				Data:        data,
+				// The PR's web URL, the routing key of the link the agent
+				// created when it opened the PR.
+				URL:     fmt.Sprintf("%s/pull/%d", event.Repo.GetHTMLURL(), number),
+				Attrs:   attrs,
+				Details: prDetails,
+			})
+		}
+		return events, GitHubMeta{
 			AuthorID:       *event.Sender.ID,
 			AuthorLogin:    senderLogin,
 			InstallationID: event.GetInstallation().GetID(),
