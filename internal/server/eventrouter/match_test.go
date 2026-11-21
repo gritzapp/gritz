@@ -449,6 +449,98 @@ func TestMatchRule(t *testing.T) {
 			want: false,
 		},
 
+		// --- glob ---
+		{
+			name: "glob ** spans path segments",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "internal/store/**"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"internal/store/sql/migrations/001.sql"}}},
+			want:  true,
+		},
+		{
+			name: "glob ** matches zero segments",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "**/*.sql"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"schema.sql"}}},
+			want:  true,
+		},
+		{
+			name: "glob * does not cross /",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "internal/*.go"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"internal/store/store.go"}}},
+			want:  false,
+		},
+		{
+			name: "glob * matches within a segment",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "branch", Op: "glob", Value: "release/*"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"branch": {"release/v1.2"}}},
+			want:  true,
+		},
+		{
+			name: "glob {a,b} alternatives",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "{go.mod,go.sum}"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.sum"}}},
+			want:  true,
+		},
+		{
+			name: "glob matches the whole value",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "glob", Value: "team-*"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"my-team-a"}}},
+			want:  false,
+		},
+		{
+			name: "glob is case-sensitive",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "glob", Value: "team-*"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"Team-a"}}},
+			want:  false,
+		},
+		{
+			name: "glob holds when any of many values matches",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "docs/**/*.md"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/src/index.md", "main.go"}}},
+			want:  true,
+		},
+		{
+			name: "glob fails when no value matches",
+			rule: model.RoutingRule{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "docs/**/*.md"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/diagram.svg"}}},
+			want:  false,
+		},
+
 		// --- unknown op never matches ---
 		{
 			name: "unknown op never matches",

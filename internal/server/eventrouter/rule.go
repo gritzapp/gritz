@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/taskvar"
@@ -52,6 +53,12 @@ func conditionMatch(c model.Condition, values []string) bool {
 			}
 		case "contains":
 			if strings.Contains(v, c.Value) {
+				return true
+			}
+		case "glob":
+			// Validate rejects malformed patterns before a rule is saved;
+			// MatchUnvalidated reports false for one rather than erroring.
+			if doublestar.MatchUnvalidated(c.Value, v) {
 				return true
 			}
 		}

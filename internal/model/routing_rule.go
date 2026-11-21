@@ -30,8 +30,10 @@ type RoutingRule struct {
 }
 
 // Condition constrains one attribute dimension of an event. Op is one of
-// "equals", "prefix", or "contains"; comparisons are literal (exact,
-// case-sensitive) string operations. It is the canonical conditions type the
+// "equals", "prefix", "contains", or "glob"; comparisons are case-sensitive.
+// The first three are literal string operations. "glob" matches the whole value
+// against a pattern where * and ? don't cross /, ** spans path segments, and
+// [a-z] and {a,b} work as in a shell. It is the canonical conditions type the
 // eventrouter matcher, registry, and store all operate on directly.
 type Condition struct {
 	Attr  string `json:"attr,omitempty"`

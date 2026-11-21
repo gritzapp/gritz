@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/gritzapp/gritz/internal/model"
 )
 
@@ -120,8 +121,9 @@ func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 // exactly one registered (Source, Type) event type: an empty Type is rejected,
 // and — because the registry is keyed by (Source, Type) and label_added exists
 // under multiple sources — an empty Source is rejected too. Each condition's op
-// must be equals/prefix/contains, and its attr must be one of the selected event
-// type's valid attrs (its Attrs set, which includes the derived body/url).
+// must be equals/prefix/contains/glob, a glob's value must be a well-formed
+// pattern, and its attr must be one of the selected event type's valid attrs
+// (its Attrs set, which includes the derived body/url).
 // A custom rule must also be Public: custom events are ingested without an
 // actor, so routing only considers the org's public rules for them.
 func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
@@ -141,6 +143,10 @@ func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
 	for _, cond := range rule.Conditions {
 		switch cond.Op {
 		case "equals", "prefix", "contains":
+		case "glob":
+			if !doublestar.ValidatePattern(cond.Value) {
+				return fmt.Errorf("invalid glob %q on attr %q", cond.Value, cond.Attr)
+			}
 		default:
 			return fmt.Errorf("unknown op %q on attr %q", cond.Op, cond.Attr)
 		}

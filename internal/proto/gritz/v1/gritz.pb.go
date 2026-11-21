@@ -6165,11 +6165,14 @@ func (x *GenerateAtlassianWebhookSecretResponse) GetWebhookUrl() string {
 }
 
 // RuleCondition constrains one attribute of an event. Comparisons are exact and
-// case-sensitive.
+// case-sensitive. A "glob" value is a pattern matched against the whole
+// attribute: "*" and "?" match within a path segment (not "/"), "**" as a whole
+// segment matches any number of segments, "[a-z]" matches a character class and
+// "{a,b}" either alternative.
 type RuleCondition struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Attr          string                 `protobuf:"bytes,1,opt,name=attr,proto3" json:"attr,omitempty"`
-	Op            string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"` // One of "equals", "prefix" or "contains".
+	Op            string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"` // One of "equals", "prefix", "contains" or "glob".
 	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
