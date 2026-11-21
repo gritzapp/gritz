@@ -2,15 +2,17 @@ import { create } from '@bufbuild/protobuf'
 import { type EventTypeDef, type RoutingRule, RoutingRuleSchema } from '@/gen/gritz/v1/gritz_pb'
 import { durationFromHours, hoursFromDuration } from '@/lib/duration'
 
-// The condition operators the backend understands. Op semantics are literal
-// (exact, case-sensitive) string comparisons — see RuleCondition in the proto.
-export const CONDITION_OPS = ['equals', 'prefix', 'contains'] as const
+// The condition operators the backend understands. Comparisons are exact and
+// case-sensitive; "glob" matches a path-style pattern against the whole value —
+// see RuleCondition in the proto.
+export const CONDITION_OPS = ['equals', 'prefix', 'contains', 'glob'] as const
 export type ConditionOp = (typeof CONDITION_OPS)[number]
 
 export const OP_LABELS: Record<ConditionOp, string> = {
   equals: 'equals',
   prefix: 'starts with',
   contains: 'contains',
+  glob: 'matches glob',
 }
 
 // Stable id for a (source, type) event-type pair, used as the dropdown value.
