@@ -86,8 +86,15 @@ For each task the runner:
 4. Terminates the VM when the task is archived or its sandbox is reset
    (`terminate-microvm`).
 
-A VM runs for at most `max_duration_seconds`, 8 hours by default and at most, so
-keep tasks that wake up over days on Docker.
+A VM runs for at most `max_duration_seconds`, 8 hours by default and at most,
+suspended or not. Lambda then terminates it, and its disk is gone with it. A run
+still going in it fails. A task whose VM expired while it was idle gets a new VM,
+set up from scratch as after a [reset](/concepts/tasks/#resetting-the-sandbox):
+with [`auto_reset: true`](/operators/workspaces-yaml/#workspace-fields) in the
+workspace, its next run starts in it; without it, the next run fails and the one
+after it gets the new VM. Turn on `auto_reset` for tasks that wake up over days,
+such as a pull request awaiting review, when the workspace's setup commands
+rebuild what the agent needs. See [A gone sandbox](/concepts/tasks/#a-gone-sandbox).
 
 ### Workspace config
 
