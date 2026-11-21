@@ -274,14 +274,14 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 // the task's stored state (archived included) before its RunLoop starts: an
 // up sandbox is driven, reattaching to whatever its driver is doing, and the
 // sandbox of a task archived before the restart is destroyed. A suspended
-// husk or a gone sandbox is a lost-report backstop, and a gone sandbox's
-// dangling record is dropped. An up sandbox's slot is taken before its
+// husk or a gone sandbox is a lost-report backstop; a gone sandbox is kept,
+// for its next boot to find gone. An up sandbox's slot is taken before its
 // RunLoop starts, so the slots may exceed capacity in over-limit scenarios —
 // that's fine. The slots are closed to RunLoops' Acquire until every record
 // is loaded, so none takes a slot an up sandbox holds.
 //
-// A record whose handle cannot be opened is dropped like a gone sandbox's,
-// leaving its TaskRunner with no sandbox.
+// A record whose handle cannot be opened is dropped, leaving its TaskRunner
+// with no sandbox.
 func (m *TaskManager) Load(ctx context.Context) error {
 	recs, err := m.store.Sandboxes(ctx)
 	if err != nil {

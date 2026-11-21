@@ -43,6 +43,11 @@ type TaskRunner struct {
 	// up is set by Restore for a sandbox it finds up: RunLoop drives it
 	// first, with the slot Load counted for it.
 	up bool
+	// goneAt is set by Restore to the record's version for a sandbox it finds
+	// gone: RunLoop does not boot that run again, since there is no driver
+	// left to reattach to and Load reports it failed if it was running. A
+	// newer start boots the sandbox, and finds it gone.
+	goneAt int64
 
 	// changeMu guards change, the task's latest report, and seq, the
 	// number of reports so far: zero until the first, and a new number for
@@ -174,7 +179,7 @@ func (tr *TaskRunner) fail(version int64, why string) error {
 // clear deletes the task's record and leaves tr with no sandbox, which it
 // always does: a record that cannot be deleted is only logged, since it tracks
 // a sandbox that is gone or destroyed. The next boot overwrites it, and if
-// there is none, the next runner's Load finds the sandbox gone and drops it.
+// there is none, the next runner's Load adopts the gone sandbox again.
 // The record is deleted even if ctx is done, since the sandbox it tracks
 // already is.
 func (tr *TaskRunner) clear(ctx context.Context) {
@@ -189,10 +194,12 @@ func (tr *TaskRunner) clear(ctx context.Context) {
 // record with spec.Version and reuses it, since a task is bound 1:1 to its
 // sandbox. Then it boots the sandbox.
 //
-// If the sandbox is gone, boot deletes its record, leaving tr with no
-// sandbox, and returns backend.ErrGone: the caller reports the run failed, and
-// the next boot creates a fresh sandbox. Any other failure to boot it keeps
-// the sandbox and its record, so it can still be destroyed.
+// If the sandbox is gone, boot drops it, leaving tr with no sandbox, and
+// follows the workspace's auto_reset: with it, boot reports the run's sandbox
+// reset and boots a fresh one; without it, boot returns backend.ErrGone, the
+// caller reports the run failed, and the next boot creates a fresh sandbox.
+// Any other failure to boot keeps the sandbox and its record, so it can still
+// be destroyed.
 func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 	if tr.sbx == nil {
 		if err := tr.create(ctx, spec); err != nil {
@@ -203,13 +210,27 @@ func (tr *TaskRunner) boot(ctx context.Context, spec *backend.Spec) error {
 			return err
 		}
 	}
-	if err := tr.sbx.Boot(ctx); errors.Is(err, backend.ErrGone) {
-		tr.clear(ctx)
-		return backend.ErrGone
-	} else if err != nil {
+	gone := tr.sbx.Boot(ctx)
+	if !errors.Is(gone, backend.ErrGone) {
+		return gone
+	}
+	tr.clear(ctx)
+	if !spec.Workspace.AutoReset {
+		return gone
+	}
+	tr.opts.Log.Info("sandbox gone, resetting", "task", tr.opts.TaskID, "version", spec.Version, "reason", gone)
+	if err := tr.enqueue(model.RunnerEvent{
+		TaskID:  tr.opts.TaskID,
+		Event:   model.RunnerEventReset,
+		Version: spec.Version,
+		Reason:  gone.Error(),
+	}); err != nil {
 		return err
 	}
-	return nil
+	if err := tr.create(ctx, spec); err != nil {
+		return err
+	}
+	return tr.sbx.Boot(ctx)
 }
 
 // create creates the task's sandbox from spec and records its handle at
@@ -236,9 +257,11 @@ func (tr *TaskRunner) create(ctx context.Context, spec *backend.Spec) error {
 // sandbox first, as it reattaches to whatever the driver is doing. Restore
 // is called before RunLoop starts, on a TaskRunner with no sandbox.
 //
-// A handle that cannot be opened, or a sandbox that is gone, leaves tr with no
-// sandbox and its record deleted; see clear. A failed status check keeps the
-// sandbox and its record, since the sandbox may still be there.
+// A handle that cannot be opened leaves tr with no sandbox and its record
+// deleted; see clear. A gone sandbox, or a failed status check, keeps the
+// sandbox and its record: the next start's boot finds it gone, if it is, and
+// handles it as it does any gone sandbox. RunLoop does not boot a gone
+// sandbox again for the record's own run.
 func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord) (backend.Status, error) {
 	if tr.sbx != nil {
 		panic("runner: Restore on a TaskRunner with a sandbox")
@@ -254,10 +277,10 @@ func (tr *TaskRunner) Restore(ctx context.Context, rec runnerstore.SandboxRecord
 		return backend.StatusUnknown, fmt.Errorf("failed to get sandbox status: %w", err)
 	}
 	switch st {
-	case backend.StatusGone:
-		tr.clear(ctx)
 	case backend.StatusUp:
 		tr.up = true
+	case backend.StatusGone:
+		tr.goneAt = rec.Version
 	}
 	return st, nil
 }
@@ -338,7 +361,7 @@ func (tr *TaskRunner) RunLoop(ctx context.Context) error {
 	if _, seq := tr.latest(); seq == 0 {
 		panic("runner: RunLoop before the TaskRunner's first Change")
 	}
-	var h handled
+	h := handled{driven: tr.goneAt}
 	if tr.up {
 		if err := tr.busy(ctx, &h, nil); err != nil {
 			return err

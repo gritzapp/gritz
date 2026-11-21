@@ -30,6 +30,8 @@ type RunnerOptions struct {
 	Secrets map[string]string
 	// Variables are the workspace's task variable declarations.
 	Variables map[string]workspace.VariableConfig
+	// AutoReset is the workspace's auto_reset.
+	AutoReset bool
 	// PollInterval is the runner's; default 1s, a backstop to notifications.
 	PollInterval time.Duration
 }
@@ -65,6 +67,7 @@ func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions
 				Commands:  opts.Commands,
 				Secrets:   opts.Secrets,
 				Variables: opts.Variables,
+				AutoReset: opts.AutoReset,
 			},
 		}},
 		RunnerID:     DefaultRunner,

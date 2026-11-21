@@ -228,7 +228,17 @@ the timeline gets its entry, and without it the run fails, neither of which
 happens today. `Load` is unchanged: it already treats `StatusGone` like
 `StatusSuspended`, failing a task that was running. A kept gone sandbox is
 otherwise harmless: `destroy` on it is a no-op, so a manual reset or an archive
-clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
+clears it as usual. `Restore`'s doc comment changes, and its `StatusGone` case
+no longer clears the sandbox.
+
+That case marks the record's version as already driven instead. After a
+restart, `RunLoop` boots the sandbox again for the task's last command, a start
+it may already have carried out; with a suspended husk the driver finds nothing
+to do. A gone sandbox would instead fail that run, or reset it, long after it
+ended or while a stop is pending, and turn a completed or cancelled task into a
+failed one. There is no driver left to reattach to, and `Load` already reports a
+run that was still going failed, so `RunLoop` skips that version; a newer start
+boots the gone sandbox and takes the path above.
 
 ### Not in scope
 
