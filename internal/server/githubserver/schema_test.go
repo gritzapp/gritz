@@ -48,3 +48,23 @@ func TestSchemaRegistration(t *testing.T) {
 	_, ok = reg.EventTypeFor("github", EventTypeLabelAdded)
 	assert.Assert(t, ok, "EventTypeFor(github, %q) = _, false; want hit", EventTypeLabelAdded)
 }
+
+func TestSchemaPushRule(t *testing.T) {
+	reg := eventrouter.NewSchemaRegistry()
+	RegisterSchemas(reg)
+
+	def, ok := reg.EventTypeFor("github", EventTypePush)
+	assert.Assert(t, ok, "EventTypeFor(github, %q) = _, false; want hit", EventTypePush)
+	assert.Equal(t, def.Label, "GitHub: Push")
+
+	err := reg.Validate(model.RoutingRule{
+		Source: "github",
+		Type:   EventTypePush,
+		Conditions: []model.Condition{
+			{Attr: "branch", Op: "equals", Value: "master"},
+			{Attr: "path", Op: "glob", Value: "internal/store/sql/migrations/**"},
+		},
+		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
+	})
+	assert.NilError(t, err)
+}

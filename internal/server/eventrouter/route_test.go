@@ -943,6 +943,58 @@ func TestRouteRedeliveryDedup(t *testing.T) {
 	assert.Equal(t, len(links[org.OrgID]), 1)
 }
 
+func TestRoutePushCreatesTaskOnce(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: a push rule scoped by branch and changed path.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	url := "https://github.com/owner/repo/commit/ccc"
+	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
+		Source: "github",
+		Type:   "push",
+		Conditions: []model.Condition{
+			{Attr: "branch", Op: "equals", Value: "master"},
+			{Attr: "path", Op: "glob", Value: "internal/store/sql/migrations/**"},
+		},
+		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
+	}})
+	assert.NilError(t, err)
+	r := &eventrouter.Router{Log: slog.Default(), Store: s}
+
+	input := eventrouter.InputEvent{
+		Source:      "github",
+		Type:        "push",
+		Description: "alice pushed 1 commit to master",
+		Data:        "add migration",
+		URL:         url,
+		UserID:      org.UserID,
+		Attrs: eventrouter.Attrs{
+			"repo":   {"owner/repo"},
+			"branch": {"master"},
+			"path":   {"README.md", "internal/store/sql/migrations/0042_add.sql"},
+			"user":   {"alice"},
+		},
+	}
+
+	// Act: the push, then a redelivery of it.
+	n, err := r.Route(t.Context(), input)
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+	_, err = r.Route(t.Context(), input)
+	assert.NilError(t, err)
+
+	// Assert: one task, triggered by the head commit URL.
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(tasks), 1)
+	links, err := s.ListLinksByTask(t.Context(), nil, tasks[0].ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(links), 1)
+	assert.Equal(t, links[0].URL, url)
+	assert.Equal(t, links[0].Subscribe, true)
+}
+
 func TestRouteFirstMatchingRuleWins(t *testing.T) {
 	t.Parallel()
 

@@ -262,4 +262,47 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
+	reg.MustRegister(model.EventTypeDef{
+		Source: "github",
+		Type:   EventTypePush,
+		Label:  "GitHub: Push",
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Head Commit Message",
+				Placeholder: "gritz:",
+				Help:        "Matched against the message of the push's newest commit.",
+			},
+			{
+				Key:         "url",
+				Label:       "Head Commit URL",
+				Placeholder: "https://github.com/owner/repo/commit/",
+				Help:        "Matched against the URL of the push's newest commit, e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "repo",
+				Label:       "Repository",
+				Placeholder: "owner/repo",
+				Help:        "The repository pushed to, as owner/name.",
+			},
+			{
+				Key:         "branch",
+				Label:       "Branch",
+				Placeholder: "master",
+				Help:        "The branch pushed to, without refs/heads/.",
+			},
+			{
+				Key:         "path",
+				Label:       "Changed Path",
+				Placeholder: "internal/store/**",
+				Help:        "A file added, modified or removed by the push. A condition holds when any changed file satisfies it.",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username of the user who pushed (no leading @).",
+			},
+		},
+	})
 }

@@ -506,7 +506,7 @@ func TestTestEventBuiltinInvalid(t *testing.T) {
 		{
 			name:   "unknown type",
 			source: "github",
-			typ:    "push",
+			typ:    "not_a_type",
 			url:    "https://github.com/o/r/issues/1",
 		},
 		{
