@@ -19,9 +19,10 @@ import (
 
 func TestToGithubInputEvent(t *testing.T) {
 	tests := []struct {
-		name     string
-		event    any
-		expected *eventrouter.InputEvent
+		name         string
+		event        any
+		expected     []eventrouter.InputEvent
+		expectedMeta GitHubMeta
 	}{
 		{
 			name: "IssueComment",
@@ -47,19 +48,19 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "testuser commented on issue #1",
 				Data:        "gritz: do something",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-555",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta: GitHubMeta{
-					AuthorID:       123,
-					AuthorLogin:    "testuser",
-					InstallationID: 42,
-					NodeID:         "IC_node555",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       123,
+				AuthorLogin:    "testuser",
+				InstallationID: 42,
+				NodeID:         "IC_node555",
 			},
 		},
 		{
@@ -86,18 +87,18 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "pruser commented on PR #2",
 				Data:        "gritz: review this",
 				URL:         "https://github.com/owner/repo/pull/2#issuecomment-556",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"pruser"}},
-				Meta: GitHubMeta{
-					AuthorID:    456,
-					AuthorLogin: "pruser",
-					NodeID:      "IC_node556",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    456,
+				AuthorLogin: "pruser",
+				NodeID:      "IC_node556",
 			},
 		},
 		{
@@ -117,15 +118,15 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/1"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "testuser commented on issue #1",
 				Data:        "just a regular comment",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-600",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssueComment_SingleMention",
@@ -144,15 +145,15 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/1"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "testuser commented on issue #1",
 				Data:        "hey @icholy-bot please take a look",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-610",
 				Attrs:       eventrouter.Attrs{"mention": {"icholy-bot"}, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssueComment_MultipleMentions",
@@ -174,7 +175,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/1"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "testuser commented on issue #1",
@@ -184,8 +185,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"mention": {"alice", "bob", "carol"},
 					"user":    {"testuser"},
 				},
-				Meta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name:     "IssueComment_NilFields",
@@ -209,15 +210,15 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/1"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "testuser commented on issue #1",
 				Data:        "gritz: do something",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-601",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssueComment_Deleted",
@@ -268,7 +269,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_review_comment",
 				Description: "reviewer reviewed PR #3 (internal/server/githubserver/webhook.go:202)",
@@ -282,11 +283,11 @@ func TestToGithubInputEvent(t *testing.T) {
 					"side":       "RIGHT",
 					"diff_hunk":  "@@ -200,3 +200,3 @@\n-old\n+new",
 				},
-				Meta: GitHubMeta{
-					AuthorID:    789,
-					AuthorLogin: "reviewer",
-					NodeID:      "PRRC_node777",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    789,
+				AuthorLogin: "reviewer",
+				NodeID:      "PRRC_node777",
 			},
 		},
 		{
@@ -313,7 +314,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/3"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_review_comment",
 				Description: "reviewer reviewed PR #3 (main.go:42)",
@@ -324,11 +325,11 @@ func TestToGithubInputEvent(t *testing.T) {
 					"path": "main.go",
 					"line": "42",
 				},
-				Meta: GitHubMeta{
-					AuthorID:    789,
-					AuthorLogin: "reviewer",
-					NodeID:      "PRRC_node778",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    789,
+				AuthorLogin: "reviewer",
+				NodeID:      "PRRC_node778",
 			},
 		},
 		{
@@ -350,7 +351,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/3"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_review_comment",
 				Description: "reviewer reviewed PR #3 (main.go:10)",
@@ -361,8 +362,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"path": "main.go",
 					"line": "10",
 				},
-				Meta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
 		},
 		{
 			name:     "PullRequestReviewComment_NilFields",
@@ -388,7 +389,7 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/3"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_review_comment",
 				Description: "reviewer reviewed PR #3 (main.go:10)",
@@ -399,8 +400,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"path": "main.go",
 					"line": "10",
 				},
-				Meta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
 		},
 		{
 			name: "PullRequestReviewComment_Deleted",
@@ -444,15 +445,15 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 			// The reactable target is the review summary, addressed by its
 			// GraphQL node ID.
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_review",
 				Description: "lead reviewed PR #4",
 				Data:        "gritz: please address comments",
 				URL:         "https://github.com/owner/repo/pull/4#pullrequestreview-123",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"lead"}},
-				Meta:        GitHubMeta{AuthorID: 101, AuthorLogin: "lead", NodeID: "PRR_node123"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 101, AuthorLogin: "lead", NodeID: "PRR_node123"},
 		},
 		{
 			name: "PullRequestReview_NotSubmitted",
@@ -488,15 +489,15 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/4"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_review",
 				Description: "lead reviewed PR #4",
 				Data:        "approved",
 				URL:         "https://github.com/owner/repo/pull/4#pullrequestreview-200",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"lead"}},
-				Meta:        GitHubMeta{AuthorID: 101, AuthorLogin: "lead"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 101, AuthorLogin: "lead"},
 		},
 		{
 			name:     "PullRequestReview_NilFields",
@@ -539,7 +540,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				Sender:       &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
 				Installation: &github.Installation{ID: github.Ptr[int64](42)},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "push",
 				Description: "octocat pushed 2 commits to master",
@@ -565,8 +566,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"forced":  "false",
 					"commits": "2",
 				},
-				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 42},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 42},
 		},
 		{
 			name: "Push_OneCommitForced",
@@ -581,7 +582,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				},
 				Sender: &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "push",
 				Description: "octocat pushed 1 commit to feature/x",
@@ -602,8 +603,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"forced":  "true",
 					"commits": "1",
 				},
-				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
 		},
 		{
 			// A branch created at an existing commit lists no commits.
@@ -620,7 +621,7 @@ func TestToGithubInputEvent(t *testing.T) {
 				},
 				Sender: &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "push",
 				Description: "octocat pushed to release",
@@ -641,8 +642,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"forced":  "false",
 					"commits": "0",
 				},
-				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
 		},
 		{
 			name: "Push_Tag",
@@ -715,15 +716,15 @@ func TestToGithubInputEvent(t *testing.T) {
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/1"),
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_comment",
 				Description: "testuser commented on issue #1",
 				Data:        "gritz: trimmed",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-602",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
-			},
+			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssuesEvent_Assigned",
@@ -749,18 +750,18 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 			// The reactable target is the issue itself, addressed by its GraphQL
 			// node ID.
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "issue_assigned",
 				Description: "octocat assigned issue #7 to @icholy-bot",
 				Data:        "gritz: fix the flaky test",
 				URL:         "https://github.com/owner/repo/issues/7",
 				Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}, "user": {"octocat"}},
-				Meta: GitHubMeta{
-					AuthorID:    999,
-					AuthorLogin: "octocat",
-					NodeID:      "I_node7",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    999,
+				AuthorLogin: "octocat",
+				NodeID:      "I_node7",
 			},
 		},
 		{
@@ -815,18 +816,18 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 			// The reactable target is the PR itself, addressed by its GraphQL
 			// node ID.
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_assigned",
 				Description: "alice assigned PR #12 to @icholy-bot",
 				Data:        "gritz: review this",
 				URL:         "https://github.com/owner/repo/pull/12",
 				Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}, "user": {"alice"}},
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
 			},
 		},
 		{
@@ -877,18 +878,18 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "label_added",
 				Description: `octocat labeled issue #7 "gritz"`,
 				Data:        "gritz: triage",
 				Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"octocat"}},
 				URL:         "https://github.com/owner/repo/issues/7",
-				Meta: GitHubMeta{
-					AuthorID:    999,
-					AuthorLogin: "octocat",
-					NodeID:      "I_node7",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    999,
+				AuthorLogin: "octocat",
+				NodeID:      "I_node7",
 			},
 		},
 		{
@@ -926,18 +927,18 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "label_added",
 				Description: `alice labeled PR #12 "needs-review"`,
 				Data:        "Adds the thing.",
 				Attrs:       eventrouter.Attrs{"label": {"needs-review"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
 			},
 		},
 		{
@@ -972,18 +973,18 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_closed",
 				Description: "alice merged PR #12",
 				Data:        "Fixes #7.",
 				Attrs:       eventrouter.Attrs{"state": {"merged"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
 			},
 		},
 		{
@@ -1006,18 +1007,18 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_closed",
 				Description: "alice closed PR #12",
 				Data:        "Fixes #7.",
 				Attrs:       eventrouter.Attrs{"state": {"closed"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
 			},
 		},
 		{
@@ -1051,18 +1052,18 @@ func TestToGithubInputEvent(t *testing.T) {
 					Owner: &github.User{Login: github.Ptr("owner")},
 				},
 			},
-			expected: &eventrouter.InputEvent{
+			expected: []eventrouter.InputEvent{{
 				Source:      "github",
 				Type:        "pull_request_opened",
 				Description: "alice opened PR #12",
 				Data:        "Fixes #7.",
 				URL:         "https://github.com/owner/repo/pull/12",
 				Attrs:       eventrouter.Attrs{"user": {"alice"}},
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
 			},
 		},
 		{
@@ -1080,8 +1081,9 @@ func TestToGithubInputEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := toInputEvent(tt.event)
+			got, meta := toInputEvents(tt.event)
 			assert.DeepEqual(t, got, tt.expected)
+			assert.DeepEqual(t, meta, tt.expectedMeta)
 		})
 	}
 }

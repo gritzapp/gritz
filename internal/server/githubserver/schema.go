@@ -11,7 +11,7 @@ func init() {
 }
 
 // RegisterSchemas records the eventrouter schema for every event type
-// githubserver emits (see toInputEvent) on reg. Each schema declares the
+// githubserver emits (see toInputEvents) on reg. Each schema declares the
 // complete valid attr set for its type (the derived body/url plus its emitted
 // dimensions). Every AttrDef is declared inline per event type so its display
 // copy (label/help/placeholder) speaks to that specific event: a "Body" on an
