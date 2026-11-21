@@ -271,8 +271,10 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 // up sandbox is driven, reattaching to whatever its driver is doing, and the
 // sandbox of a task archived before the restart is destroyed. A suspended
 // husk or a gone sandbox is a lost-report backstop, and a gone sandbox's
-// dangling record is dropped. The slots are seeded with the up count, so
-// they may exceed capacity in over-limit scenarios — that's fine.
+// dangling record is dropped. An up sandbox's slot is taken before its
+// RunLoop starts, so the slots may exceed capacity in over-limit scenarios —
+// that's fine. The slots are closed to RunLoops' Acquire until every record
+// is loaded, so none takes a slot an up sandbox holds.
 //
 // A record whose handle cannot be opened is dropped like a gone sandbox's,
 // leaving its TaskRunner with no sandbox.
@@ -281,12 +283,7 @@ func (m *TaskManager) Load(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to list records: %w", err)
 	}
-	var running int64
-	type restored struct {
-		tr *TaskRunner
-		c  runnerstore.TaskChange
-	}
-	var runners []restored
+	m.slots.Open(false)
 	for _, rec := range recs {
 		c, err := m.store.Task(ctx, rec.TaskID)
 		if err != nil {
@@ -299,20 +296,14 @@ func (m *TaskManager) Load(ctx context.Context) error {
 		}
 		switch st {
 		case backend.StatusUp: // container running / VM RUNNING: re-attach
-			running++
-		case backend.StatusSuspended: // stopped container / SUSPENDED VM (husk preserved)
-			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
-		case backend.StatusGone: // removed / TERMINATED: the bound sandbox vanished
+			_ = m.slots.Acquire(ctx, true)
+		case backend.StatusSuspended, backend.StatusGone: // husk preserved, or the bound sandbox vanished
 			m.failIfTaskRunning(ctx, rec.TaskID, rec.Version)
 		}
-		runners = append(runners, restored{tr, c})
+		m.start(ctx, tr, c)
+		m.log.Info("found existing sandbox", "task", rec.TaskID, "status", st)
 	}
-	// Seed the slots before any RunLoop can take or give one back.
-	m.slots.Set(running)
-	m.log.Info("initialized running sandbox count", "count", running)
-	for _, r := range runners {
-		m.start(ctx, r.tr, r.c)
-	}
+	m.slots.Open(true)
 	return nil
 }
 

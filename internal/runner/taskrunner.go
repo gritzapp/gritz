@@ -435,7 +435,7 @@ func (tr *TaskRunner) acquire(ctx context.Context) error {
 		case <-actx.Done():
 		}
 	}()
-	err := tr.opts.Slots.Acquire(actx)
+	err := tr.opts.Slots.Acquire(actx, false)
 	cancel(nil)
 	// Wait for the watcher, so that only RunLoop reads tr.changed once
 	// acquire returns.
