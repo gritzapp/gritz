@@ -128,6 +128,69 @@ func TestTaskManagerLoad_Tasks(t *testing.T) {
 	}
 }
 
+// TestTaskManagerLoad_Synced checks that a start the replica held when the
+// runner stopped, but which already ran, doesn't boot the task's suspended
+// sandbox again: the event log is synced before Load, so the task's
+// TaskRunner gets the cleared command.
+func TestTaskManagerLoad_Synced(t *testing.T) {
+	t.Parallel()
+	// Arrange - task 1's sandbox is suspended and its start is stored; the
+	// server has the start cleared, as its run started before the runner
+	// stopped.
+	store, err := runnerstore.Open(filepath.Join(t.TempDir(), "runner.db"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { assert.NilError(t, store.Close()) })
+	_, err = store.AppendEvents(t.Context(), []*gritzv1.Event{
+		{Id: 1, TaskId: 1, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_START, Version: 1}}},
+	}, "1")
+	assert.NilError(t, err)
+	assert.NilError(t, store.WriteSandbox(t.Context(), runnerstore.SandboxRecord{TaskID: 1, Version: 1}))
+	husk := &backend.SandboxMock{
+		StatusFunc: func(context.Context) (backend.Status, error) { return backend.StatusSuspended, nil },
+	}
+	be := &backend.BackendMock{
+		OpenFunc: func(backend.Handle) (backend.Sandbox, error) { return husk, nil },
+	}
+	client := &gritzclient.ClientMock{
+		GetTaskFunc: func(context.Context, *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
+			return &gritzv1.GetTaskResponse{Task: &gritzv1.Task{Status: gritzv1.TaskStatus_COMPLETED}}, nil
+		},
+		ListRunnerEventsFunc: func(context.Context, *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
+			return &gritzv1.ListRunnerEventsResponse{
+				Events: []*gritzv1.Event{
+					{Id: 2, TaskId: 1, Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{Command: gritzv1.TaskCommand_NONE, Version: 1}}},
+				},
+				NextPageToken: "2",
+			}, nil
+		},
+	}
+	tasklog := taskevents.New(taskevents.Options{Store: store, Client: client, RunnerID: "r"})
+	m, err := NewTaskManager(TaskManagerOptions{
+		Client:      client,
+		Backend:     be,
+		Workspaces:  &workspace.Config{},
+		Concurrency: 1,
+		RunnerID:    "r",
+		Queue:       NewRunnerEventOutbox(RunnerEventOutboxOptions{Store: store, Client: client, Backoff: backoff.NewConstantBackOff(0), Log: slog.Default()}),
+		TaskLog:     tasklog,
+		RunnerStore: store,
+	})
+	assert.NilError(t, err)
+
+	// Act - startup: sync, then load.
+	assert.NilError(t, tasklog.Sync(t.Context()))
+	assert.NilError(t, m.Load(t.Context()))
+
+	// Assert - the TaskRunner's only report is the synced state, which has
+	// no start: its RunLoop never boots the husk.
+	tr := m.tasks[1]
+	assert.Assert(t, tr != nil)
+	c, seq := tr.latest()
+	assert.DeepEqual(t, c, runnerstore.TaskChange{ID: 1, Command: gritzv1.TaskCommand_NONE, Version: 1})
+	assert.Equal(t, seq, uint64(1))
+	assert.Assert(t, cmp.Len(husk.BootCalls(), 0))
+}
+
 // TestTaskManagerRegisterWorkspaces checks that the runner registers each
 // workspace with the task variables it declares.
 func TestTaskManagerRegisterWorkspaces(t *testing.T) {
