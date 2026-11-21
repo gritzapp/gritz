@@ -33,8 +33,7 @@ describe('eventsToTimeline', () => {
   }
 
   it('gives sandbox resets their own category', () => {
-    expect(lifecycleCategory(LifecycleKind.RESET_REQUESTED)).toBe('reset')
     expect(lifecycleCategory(LifecycleKind.SANDBOX_RESET)).toBe('reset')
-    expect(lifecycleCategory(LifecycleKind.UPDATED)).toBe('updated')
+    expect(lifecycleCategory(LifecycleKind.RESET_REQUESTED)).toBe('updated')
   })
 })

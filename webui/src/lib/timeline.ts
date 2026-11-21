@@ -182,7 +182,6 @@ function lifecycleCategory(p: LifecyclePayload): LifecycleCategory {
     case LifecycleKind.UNARCHIVED:
     case LifecycleKind.AUTO_ARCHIVED:
       return 'archived'
-    case LifecycleKind.RESET_REQUESTED:
     case LifecycleKind.SANDBOX_RESET:
       return 'reset'
     default:
