@@ -1224,6 +1224,110 @@ func TestHandleGitHubWebhookPushProcessed(t *testing.T) {
 	assert.DeepEqual(t, testx.ExtractField(store.GetUserByGitHubUserIDCalls(), "GithubUserID"), []int64{999})
 }
 
+func TestHandleGitHubWebhookCheckRunCompleted(t *testing.T) {
+	router := &RouterMock{
+		RouteFunc: func(ctx context.Context, input eventrouter.InputEvent) (int, error) {
+			return 0, nil
+		},
+	}
+	store := &StoreMock{
+		GetUserByGitHubUserIDFunc: func(ctx context.Context, tx *sql.Tx, id int64) (*model.User, error) {
+			return nil, sql.ErrNoRows
+		},
+		ListOrgIDsByGitHubInstallationFunc: func(ctx context.Context, tx *sql.Tx, id int64) ([]int64, error) {
+			return []int64{7}, nil
+		},
+	}
+	h := &WebhookHandler{Router: router, Store: store}
+	checkRun := func(headBranch *string) github.CheckRunEvent {
+		return github.CheckRunEvent{
+			Action: github.Ptr("completed"),
+			CheckRun: &github.CheckRun{
+				Name:       github.Ptr("test"),
+				HeadSHA:    github.Ptr("abc1234def5678"),
+				Status:     github.Ptr("completed"),
+				Conclusion: github.Ptr("failure"),
+				HTMLURL:    github.Ptr("https://github.com/owner/repo/actions/runs/11/job/22"),
+				DetailsURL: github.Ptr("https://github.com/owner/repo/actions/runs/11/job/22"),
+				Output: &github.CheckRunOutput{
+					Title:   github.Ptr("Process completed with exit code 1."),
+					Summary: github.Ptr(""),
+				},
+				CheckSuite: &github.CheckSuite{HeadBranch: headBranch},
+				App:        &github.App{Slug: github.Ptr("github-actions")},
+			},
+			Repo:         &github.Repository{FullName: github.Ptr("owner/repo")},
+			Sender:       &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			Installation: &github.Installation{ID: github.Ptr[int64](99)},
+		}
+	}
+
+	// A failure on master, then the same check for a commit pushed to a fork,
+	// which GitHub delivers with a null head_branch.
+	for _, payload := range []github.CheckRunEvent{checkRun(github.Ptr("master")), checkRun(nil)} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, makeWebhookRequest(t, "check_run", payload))
+		assert.Equal(t, rec.Code, http.StatusOK)
+		assert.Equal(t, rec.Body.String(), "processed")
+	}
+
+	meta := GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 99}
+	assert.DeepEqual(t, router.RoutedInputs(), []eventrouter.InputEvent{
+		{
+			Source:      "github",
+			Type:        EventTypeCheckRunCompleted,
+			Description: `check "test" failed on master (abc1234)`,
+			Data:        "Process completed with exit code 1.",
+			URL:         "https://github.com/owner/repo/actions/runs/11/job/22",
+			Attrs: eventrouter.Attrs{
+				"repo":       {"owner/repo"},
+				"branch":     {"master"},
+				"conclusion": {"failure"},
+				"check":      {"test"},
+				"app":        {"github-actions"},
+				"user":       {"octocat"},
+			},
+			Details: map[string]string{
+				"repo":          "owner/repo",
+				"branch":        "master",
+				"check":         "test",
+				"conclusion":    "failure",
+				"head_sha":      "abc1234def5678",
+				"app":           "github-actions",
+				"details_url":   "https://github.com/owner/repo/actions/runs/11/job/22",
+				"check_run_url": "https://github.com/owner/repo/actions/runs/11/job/22",
+			},
+			Orgs: []int64{7},
+			Meta: meta,
+		},
+		{
+			Source:      "github",
+			Type:        EventTypeCheckRunCompleted,
+			Description: `check "test" failed (abc1234)`,
+			Data:        "Process completed with exit code 1.",
+			URL:         "https://github.com/owner/repo/actions/runs/11/job/22",
+			Attrs: eventrouter.Attrs{
+				"repo":       {"owner/repo"},
+				"conclusion": {"failure"},
+				"check":      {"test"},
+				"app":        {"github-actions"},
+				"user":       {"octocat"},
+			},
+			Details: map[string]string{
+				"repo":          "owner/repo",
+				"check":         "test",
+				"conclusion":    "failure",
+				"head_sha":      "abc1234def5678",
+				"app":           "github-actions",
+				"details_url":   "https://github.com/owner/repo/actions/runs/11/job/22",
+				"check_run_url": "https://github.com/owner/repo/actions/runs/11/job/22",
+			},
+			Orgs: []int64{7},
+			Meta: meta,
+		},
+	})
+}
+
 // installation "created" no longer records any state: linking is verified on
 // demand against live GitHub membership, so the handler ignores it.
 func TestHandleGitHubWebhookInstallationCreated(t *testing.T) {
