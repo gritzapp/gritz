@@ -217,8 +217,9 @@ const (
 // replacement for the old logs rows with type='audit'/'info' and the
 // type='error' container-failure rows. Lifecycle events sit beside the existing
 // status mutation in the same transaction; status stays a materialized
-// projection. Message carries the failure detail for SANDBOX_FAILED and is
-// empty for kinds that don't need it.
+// projection. Message carries the failure detail for SANDBOX_FAILED and the
+// reason for a SANDBOX_RESET the runner did on its own, and is empty for kinds
+// that don't need it.
 type LifecyclePayload struct {
 	Kind       LifecycleKind `json:"kind"`
 	Actor      Actor         `json:"actor"`
@@ -285,6 +286,9 @@ func (p *LifecyclePayload) Summary() string {
 		s = "Sandbox reset requested"
 	case LifecycleKindSandboxReset:
 		s = "Sandbox reset"
+		if p.Message != "" {
+			s += ": " + p.Message
+		}
 	default:
 		s = "Lifecycle event"
 	}

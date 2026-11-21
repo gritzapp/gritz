@@ -1499,7 +1499,8 @@ export type LifecyclePayload = Message<"gritz.v1.LifecyclePayload"> & {
   toStatus: string;
 
   /**
-   * The failure detail for SANDBOX_FAILED; empty for other kinds.
+   * The failure detail for SANDBOX_FAILED, or the reason for a SANDBOX_RESET
+   * the runner did on its own; empty for other kinds.
    *
    * @generated from field: string message = 5;
    */
@@ -1742,7 +1743,7 @@ export type RunnerEvent = Message<"gritz.v1.RunnerEvent"> & {
   taskId: bigint;
 
   /**
-   * "started", "stopped", "failed" or "reset".
+   * "started", "stopped", "failed", "reset" or "replaced".
    *
    * @generated from field: string event = 2;
    */

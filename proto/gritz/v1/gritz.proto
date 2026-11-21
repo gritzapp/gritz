@@ -511,7 +511,9 @@ message LifecyclePayload {
   Actor actor = 2;
   string from_status = 3;
   string to_status = 4;
-  string message = 5;  // The failure detail for SANDBOX_FAILED; empty for other kinds.
+  // The failure detail for SANDBOX_FAILED, or the reason for a SANDBOX_RESET
+  // the runner did on its own; empty for other kinds.
+  string message = 5;
   // The task fields that changed, such as "name" or "status", for UPDATED;
   // empty for other kinds.
   repeated string fields = 6;
@@ -590,7 +592,7 @@ message ListEventsByTaskResponse {
 
 message RunnerEvent {
   int64 task_id = 1;
-  string event = 2;     // "started", "stopped", "failed" or "reset".
+  string event = 2;     // "started", "stopped", "failed", "reset" or "replaced".
   // The run (Task.version) the event is about. An event for another run than
   // the task's current one is ignored; 0 applies to the current run.
   int64 version = 3;

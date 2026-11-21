@@ -194,6 +194,10 @@ const (
 	RunnerEventStopped RunnerEventType = "stopped"
 	RunnerEventFailed  RunnerEventType = "failed"
 	RunnerEventReset   RunnerEventType = "reset"
+	// RunnerEventReplaced reports that the run's sandbox was gone at boot and
+	// the runner created a fresh one for it. Reason says why the old one was
+	// gone.
+	RunnerEventReplaced RunnerEventType = "replaced"
 )
 
 // RunnerEvent represents an event from the runner about a task's container.
@@ -203,7 +207,8 @@ type RunnerEvent struct {
 	Version   int64
 	Reconcile bool
 	// Reason is an optional human-readable detail (e.g. the failure reason).
-	// It is currently populated only for "failed" events and is empty otherwise.
+	// It is populated only for "failed" and "replaced" events and is empty
+	// otherwise.
 	Reason string
 }
 
@@ -257,6 +262,8 @@ func (t *Task) ApplyRunnerEvent(e *RunnerEvent) bool {
 		return t.applyRunnerEventFailed()
 	case RunnerEventReset:
 		return t.applyRunnerEventReset()
+	case RunnerEventReplaced:
+		return t.applyRunnerEventReplaced()
 	default:
 		return false
 	}
@@ -345,6 +352,10 @@ func (t *Task) applyRunnerEventReset() bool {
 	return true
 }
 
+// applyRunnerEventReplaced records that the run's sandbox was replaced. It
+// changes nothing: the run carries on in the new sandbox.
+func (t *Task) applyRunnerEventReplaced() bool { return true }
+
 // LifecycleEvent maps the runner event to its sandbox lifecycle event. task
 // carries the post-fold status and from is the status before the fold, so the
 // payload records the transition (e.g. RUNNING -> COMPLETED). The container
@@ -375,6 +386,8 @@ func (e RunnerEvent) LifecycleEvent(task *Task, from TaskStatus) (*Event, bool) 
 		return lifecycle(LifecycleKindSandboxFailed, cmp.Or(e.Reason, "container failed")), true
 	case RunnerEventReset:
 		return lifecycle(LifecycleKindSandboxReset, ""), true
+	case RunnerEventReplaced:
+		return lifecycle(LifecycleKindSandboxReset, "previous sandbox gone: "+e.Reason), true
 	default:
 		return nil, false
 	}

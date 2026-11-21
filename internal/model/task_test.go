@@ -409,6 +409,41 @@ func TestTask_ApplyRunnerEvent(t *testing.T) {
 			changed: false,
 		},
 
+		// Replaced events
+		{
+			name: "replaced: applies at the task's version and changes nothing",
+			before: Task{
+				Status:  TaskStatusPending,
+				Command: TaskCommandStart,
+				Version: 3,
+			},
+			after: Task{
+				Status:  TaskStatusPending,
+				Command: TaskCommandStart,
+				Version: 3,
+			},
+			event: RunnerEvent{
+				Event:   RunnerEventReplaced,
+				Version: 3,
+				Reason:  "backend: sandbox is gone",
+			},
+			changed: true,
+		},
+		{
+			name: "replaced: another version is dropped",
+			before: Task{
+				Status:  TaskStatusPending,
+				Command: TaskCommandStart,
+				Version: 4,
+			},
+			event: RunnerEvent{
+				Event:   RunnerEventReplaced,
+				Version: 3,
+				Reason:  "backend: sandbox is gone",
+			},
+			changed: false,
+		},
+
 		// Unknown event type
 		{
 			name: "unknown event type returns false",
