@@ -55,3 +55,4 @@ mise run build      # Build main + prebuilt binaries (linux amd64/arm64)
 mise run generate   # Generate protobuf code
 go build            # Build main binary only
 ```
+
