@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -152,6 +153,7 @@ const (
 	EventTypePullRequestOpened        = "pull_request_opened"
 	EventTypePullRequestClosed        = "pull_request_closed"
 	EventTypeLabelAdded               = "label_added"
+	EventTypePush                     = "push"
 )
 
 func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
@@ -434,6 +436,69 @@ func toInputEvent(webhookEvent any) *eventrouter.InputEvent {
 			}
 		}
 		return nil
+
+	case *github.PushEvent:
+		branch, ok := strings.CutPrefix(event.GetRef(), "refs/heads/")
+		if !ok || event.GetDeleted() ||
+			event.HeadCommit == nil || event.HeadCommit.URL == nil ||
+			event.Repo == nil || event.Repo.FullName == nil ||
+			event.Sender == nil || event.Sender.ID == nil {
+			return nil // tag push, branch deletion, or malformed payload
+		}
+		senderLogin := event.Sender.GetLogin()
+		repo := *event.Repo.FullName
+		// path covers every commit in the push, distinct or not: a commit
+		// already on another branch is still new to this one. The agent diffs
+		// before..after for the full list, so the paths aren't persisted.
+		var paths []string
+		for _, c := range event.Commits {
+			paths = append(paths, c.Added...)
+			paths = append(paths, c.Modified...)
+			paths = append(paths, c.Removed...)
+		}
+		slices.Sort(paths)
+		paths = slices.Compact(paths)
+		description := fmt.Sprintf("%s pushed to %s", senderLogin, branch)
+		switch n := len(event.Commits); n {
+		case 0:
+			// A branch created at an existing commit.
+		case 1:
+			description = fmt.Sprintf("%s pushed 1 commit to %s", senderLogin, branch)
+		default:
+			description = fmt.Sprintf("%s pushed %d commits to %s", senderLogin, n, branch)
+		}
+		return &eventrouter.InputEvent{
+			Source:      "github",
+			Type:        EventTypePush,
+			Description: description,
+			Data:        strings.TrimSpace(event.HeadCommit.GetMessage()),
+			// The head commit URL is unique per tip and stable across
+			// redeliveries, unlike the compare URL, which is just
+			// .../compare/<branch> for a branch creation and so repeats when a
+			// branch is deleted and recreated.
+			URL: *event.HeadCommit.URL,
+			Attrs: eventrouter.Attrs{
+				"repo":   {repo},
+				"branch": {branch},
+				"path":   paths,
+				"user":   {senderLogin},
+			},
+			Details: map[string]string{
+				"repo":    repo,
+				"branch":  branch,
+				"before":  event.GetBefore(),
+				"after":   event.GetAfter(),
+				"compare": event.GetCompare(),
+				"forced":  strconv.FormatBool(event.GetForced()),
+				"commits": strconv.Itoa(len(event.Commits)),
+			},
+			// A push has no reactable node.
+			Meta: GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+			},
+		}
 	}
 
 	return nil

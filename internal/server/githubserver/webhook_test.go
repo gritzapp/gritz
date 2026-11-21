@@ -505,7 +505,197 @@ func TestToGithubInputEvent(t *testing.T) {
 		},
 		{
 			name:     "UnknownEventType",
-			event:    &github.PushEvent{},
+			event:    &github.StarEvent{},
+			expected: nil,
+		},
+		{
+			name: "Push",
+			event: &github.PushEvent{
+				Ref:     github.Ptr("refs/heads/master"),
+				Before:  github.Ptr("aaa"),
+				After:   github.Ptr("ccc"),
+				Compare: github.Ptr("https://github.com/owner/repo/compare/aaa...ccc"),
+				Forced:  github.Ptr(false),
+				Repo:    &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				// Paths are the union over every commit, distinct or not,
+				// deduplicated and sorted.
+				Commits: []*github.HeadCommit{
+					{
+						Added:    []string{"internal/store/sql/migrations/0042.sql"},
+						Modified: []string{"go.mod", "internal/store/store.go"},
+					},
+					{
+						Distinct: github.Ptr(false),
+						Modified: []string{"internal/store/store.go"},
+						Removed:  []string{"docs/old.md"},
+					},
+				},
+				HeadCommit: &github.HeadCommit{
+					Message: github.Ptr("  fix the store\n\nlonger body\n"),
+					URL:     github.Ptr("https://github.com/owner/repo/commit/ccc"),
+				},
+				// pusher carries no user ID; the actor comes from sender.
+				Pusher:       &github.CommitAuthor{Name: github.Ptr("someone-else")},
+				Sender:       &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+				Installation: &github.Installation{ID: github.Ptr[int64](42)},
+			},
+			expected: &eventrouter.InputEvent{
+				Source:      "github",
+				Type:        "push",
+				Description: "octocat pushed 2 commits to master",
+				Data:        "fix the store\n\nlonger body",
+				URL:         "https://github.com/owner/repo/commit/ccc",
+				Attrs: eventrouter.Attrs{
+					"repo":   {"owner/repo"},
+					"branch": {"master"},
+					"path": {
+						"docs/old.md",
+						"go.mod",
+						"internal/store/sql/migrations/0042.sql",
+						"internal/store/store.go",
+					},
+					"user": {"octocat"},
+				},
+				Details: map[string]string{
+					"repo":    "owner/repo",
+					"branch":  "master",
+					"before":  "aaa",
+					"after":   "ccc",
+					"compare": "https://github.com/owner/repo/compare/aaa...ccc",
+					"forced":  "false",
+					"commits": "2",
+				},
+				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 42},
+			},
+		},
+		{
+			name: "Push_OneCommitForced",
+			event: &github.PushEvent{
+				Ref:     github.Ptr("refs/heads/feature/x"),
+				Forced:  github.Ptr(true),
+				Repo:    &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				Commits: []*github.HeadCommit{{Modified: []string{"main.go"}}},
+				HeadCommit: &github.HeadCommit{
+					Message: github.Ptr("wip"),
+					URL:     github.Ptr("https://github.com/owner/repo/commit/ddd"),
+				},
+				Sender: &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			},
+			expected: &eventrouter.InputEvent{
+				Source:      "github",
+				Type:        "push",
+				Description: "octocat pushed 1 commit to feature/x",
+				Data:        "wip",
+				URL:         "https://github.com/owner/repo/commit/ddd",
+				Attrs: eventrouter.Attrs{
+					"repo":   {"owner/repo"},
+					"branch": {"feature/x"},
+					"path":   {"main.go"},
+					"user":   {"octocat"},
+				},
+				Details: map[string]string{
+					"repo":    "owner/repo",
+					"branch":  "feature/x",
+					"before":  "",
+					"after":   "",
+					"compare": "",
+					"forced":  "true",
+					"commits": "1",
+				},
+				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
+			},
+		},
+		{
+			// A branch created at an existing commit lists no commits.
+			name: "Push_BranchCreatedNoCommits",
+			event: &github.PushEvent{
+				Ref:     github.Ptr("refs/heads/release"),
+				After:   github.Ptr("ccc"),
+				Created: github.Ptr(true),
+				Compare: github.Ptr("https://github.com/owner/repo/compare/release"),
+				Repo:    &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				HeadCommit: &github.HeadCommit{
+					Message: github.Ptr("fix the store"),
+					URL:     github.Ptr("https://github.com/owner/repo/commit/ccc"),
+				},
+				Sender: &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			},
+			expected: &eventrouter.InputEvent{
+				Source:      "github",
+				Type:        "push",
+				Description: "octocat pushed to release",
+				Data:        "fix the store",
+				URL:         "https://github.com/owner/repo/commit/ccc",
+				Attrs: eventrouter.Attrs{
+					"repo":   {"owner/repo"},
+					"branch": {"release"},
+					"path":   nil,
+					"user":   {"octocat"},
+				},
+				Details: map[string]string{
+					"repo":    "owner/repo",
+					"branch":  "release",
+					"before":  "",
+					"after":   "ccc",
+					"compare": "https://github.com/owner/repo/compare/release",
+					"forced":  "false",
+					"commits": "0",
+				},
+				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
+			},
+		},
+		{
+			name: "Push_Tag",
+			event: &github.PushEvent{
+				Ref:  github.Ptr("refs/tags/v1.0.0"),
+				Repo: &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				HeadCommit: &github.HeadCommit{
+					URL: github.Ptr("https://github.com/owner/repo/commit/ccc"),
+				},
+				Sender: &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			},
+			expected: nil,
+		},
+		{
+			name: "Push_BranchDeleted",
+			event: &github.PushEvent{
+				Ref:     github.Ptr("refs/heads/feature/x"),
+				Deleted: github.Ptr(true),
+				Repo:    &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				Sender:  &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			},
+			expected: nil,
+		},
+		{
+			name: "Push_NoSender",
+			event: &github.PushEvent{
+				Ref:  github.Ptr("refs/heads/master"),
+				Repo: &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				HeadCommit: &github.HeadCommit{
+					URL: github.Ptr("https://github.com/owner/repo/commit/ccc"),
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "Push_NoHeadCommitURL",
+			event: &github.PushEvent{
+				Ref:        github.Ptr("refs/heads/master"),
+				Repo:       &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+				HeadCommit: &github.HeadCommit{},
+				Sender:     &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			},
+			expected: nil,
+		},
+		{
+			name: "Push_NoRepo",
+			event: &github.PushEvent{
+				Ref: github.Ptr("refs/heads/master"),
+				HeadCommit: &github.HeadCommit{
+					URL: github.Ptr("https://github.com/owner/repo/commit/ccc"),
+				},
+				Sender: &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+			},
 			expected: nil,
 		},
 		{
@@ -984,13 +1174,52 @@ func TestHandleGitHubWebhookRoutesToTask(t *testing.T) {
 func TestHandleGitHubWebhookIgnoredEventType(t *testing.T) {
 	h := &WebhookHandler{}
 
-	payload := github.PushEvent{}
-	req := makeWebhookRequest(t, "push", payload)
+	payload := github.StarEvent{}
+	req := makeWebhookRequest(t, "star", payload)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	assert.Equal(t, rec.Code, http.StatusOK)
 	assert.Equal(t, rec.Body.String(), "ignored")
+}
+
+func TestHandleGitHubWebhookPushProcessed(t *testing.T) {
+	router := &RouterMock{
+		RouteFunc: func(ctx context.Context, input eventrouter.InputEvent) (int, error) {
+			return 0, nil
+		},
+	}
+	store := &StoreMock{
+		GetUserByGitHubUserIDFunc: func(ctx context.Context, tx *sql.Tx, id int64) (*model.User, error) {
+			return nil, sql.ErrNoRows
+		},
+		ListOrgIDsByGitHubInstallationFunc: func(ctx context.Context, tx *sql.Tx, id int64) ([]int64, error) {
+			return []int64{7}, nil
+		},
+	}
+	h := &WebhookHandler{Router: router, Store: store}
+
+	payload := github.PushEvent{
+		Ref:  github.Ptr("refs/heads/master"),
+		Repo: &github.PushEventRepository{FullName: github.Ptr("owner/repo")},
+		HeadCommit: &github.HeadCommit{
+			Message: github.Ptr("fix"),
+			URL:     github.Ptr("https://github.com/owner/repo/commit/ccc"),
+		},
+		Sender:       &github.User{ID: github.Ptr[int64](999), Login: github.Ptr("octocat")},
+		Installation: &github.Installation{ID: github.Ptr[int64](99)},
+	}
+	req := makeWebhookRequest(t, "push", payload)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	assert.Equal(t, rec.Body.String(), "processed")
+	routed := router.RoutedInputs()
+	assert.Equal(t, len(routed), 1)
+	assert.Equal(t, routed[0].Type, EventTypePush)
+	assert.DeepEqual(t, routed[0].Orgs, []int64{7})
+	assert.DeepEqual(t, testx.ExtractField(store.GetUserByGitHubUserIDCalls(), "GithubUserID"), []int64{999})
 }
 
 // installation "created" no longer records any state: linking is verified on
