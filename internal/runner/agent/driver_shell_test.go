@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestRun_ForksIntoShell(t *testing.T) {
 			}, nil
 		},
 	}
-	d := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, ServerURL: srv.URL, Token: "t"}
+	d := &Driver{TaskID: 1, Client: mock, Log: DiscardDriverLog, ServerURL: srv.URL, Token: "t", Env: os.Environ()}
 
 	task := &gritzv1.Task{Id: 1, ShellSession: "s1"}
 	runErr := make(chan error, 1)
