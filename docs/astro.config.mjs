@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import mermaid from 'astro-mermaid';
 import starlightLinksValidator from 'starlight-links-validator';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import { existsSync, readdirSync } from 'node:fs';
@@ -120,6 +121,9 @@ export default defineConfig({
 	base: base ?? '/',
 	integrations: [
 		baseLinks,
+		// Renders ```mermaid blocks in the browser. It has to come before Starlight,
+		// which would otherwise highlight them as code.
+		mermaid({ autoTheme: true }),
 		starlight({
 			title: 'gritz',
 			// The web UI's icon; logo-dark.png is it inverted, as the web UI shows it in
