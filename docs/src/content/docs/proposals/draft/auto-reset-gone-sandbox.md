@@ -226,7 +226,11 @@ code path then decides every gone-at-boot case, and the expired VM behaves the
 same whether or not the runner restarted while the task was idle — with `auto_reset`
 the timeline gets its entry, and without it the run fails, neither of which
 happens today. `Load` is unchanged: it already treats `StatusGone` like
-`StatusSuspended`, failing a task that was running. A kept gone sandbox is
+`StatusSuspended`, failing a task that was running. The runner catches the
+task log up before `Load`, so a restored task's latest report is its current
+command: a run that already ended, or was stopped while the runner was down,
+is not booted again, and only a start still pending reaches the kept sandbox's
+`boot`. A kept gone sandbox is
 otherwise harmless: `destroy` on it is a no-op, so a manual reset or an archive
 clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 
