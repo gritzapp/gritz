@@ -19,8 +19,8 @@ permissions:
   pull-requests: write
 
 # A newer push to the PR replaces its running preview. Other workflows push
-# to gh-pages concurrently; the deploy action rebases and retries instead
-# (force: false).
+# to gh-pages concurrently; the deploy script retries on top of their push
+# instead of overwriting it.
 concurrency:
   group: docs-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -62,21 +62,12 @@ jobs:
         env:
           DOCS_BASE: /${{ env.PREVIEW_DIR }}/
 
-      # .nojekyll only matters at the gh-pages root. The deploy action never
-      # deletes it, so a preview carrying it could not be removed.
-      - name: Drop root-only files
-        run: rm -f docs/dist/.nojekyll
-
       - name: Deploy preview
         if: env.SAME_REPO == 'true'
-        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
-        with:
-          branch: gh-pages
-          folder: docs/dist
-          target-folder: ${{ env.PREVIEW_DIR }}
-          commit-message: 'docs: preview docs for #${{ github.event.pull_request.number }}'
-          force: false
-          attempt-limit: 10
+        run: |
+          .github/scripts/deploy-gh-pages.sh preview docs/dist \
+            'docs: preview docs for #${{ github.event.pull_request.number }}' \
+            ${{ github.event.pull_request.number }}
 
       - name: Write comment
         if: env.SAME_REPO == 'true'

@@ -3,7 +3,8 @@ name: Docs Pages
 # Publishes the Starlight docs site in docs/, with the Motion Canvas diagrams in
 # diagrams/ built into its /diagrams/, to the root of the gh-pages branch,
 # served at docs.gritz.dev. In the same commit it removes the docs preview
-# under /pr/<number>/ of every PR that is no longer open.
+# under /pr/<number>/ of every PR that is no longer open. gh-pages holds a
+# single orphan commit with no history (.github/scripts/deploy-gh-pages.sh).
 
 on:
   push:
@@ -18,8 +19,8 @@ permissions:
   contents: write
   pull-requests: read
 
-# Docs Preview pushes to gh-pages concurrently; the deploy action rebases and
-# retries instead (force: false).
+# Docs Preview pushes to gh-pages concurrently; the deploy script retries on
+# top of the other push instead of overwriting it.
 concurrency:
   group: docs-pages
   cancel-in-progress: false
@@ -53,29 +54,12 @@ jobs:
         run: pnpm run build
         working-directory: docs
 
-      # The previews to keep, one rsync filter pattern per open PR.
-      - name: List open PRs
-        id: open-prs
+      - name: Deploy
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          {
-            echo 'previews<<EOF'
-            gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 \
-              --json number --jq '.[] | "/pr/\(.number)/"'
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@fa24774553152dd7873cd16ebd8d959b010c5445 # v4.9.0
-        with:
-          branch: gh-pages
-          folder: docs/dist
-          # Cleans the whole branch root except the previews of open PRs.
-          # .nojekyll comes from docs/public/. GitHub manages the root CNAME
-          # from the Pages settings, and the action never deletes it.
-          clean-exclude: ${{ steps.open-prs.outputs.previews }}
-          # Rebase onto concurrent preview pushes instead of overwriting them.
-          force: false
-          attempt-limit: 10
-          commit-message: 'docs: publish docs for ${{ github.sha }}'
+          # Keep the previews of open PRs.
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 1000 \
+            --json number --jq '.[].number')
+          .github/scripts/deploy-gh-pages.sh root docs/dist \
+            'docs: publish docs for ${{ github.sha }}' $prs
