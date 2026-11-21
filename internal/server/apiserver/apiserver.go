@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"cmp"
 	"context"
 	"crypto/ed25519"
 	"errors"
@@ -69,7 +70,7 @@ type Options struct {
 	AppKey    ed25519.PrivateKey
 	Shells    ShellRegistry
 	Router    *eventrouter.Router
-	// MaxOrgsPerUser defaults to DefaultMaxOrgsPerUser when not positive.
+	// MaxOrgsPerUser defaults to DefaultMaxOrgsPerUser when zero.
 	MaxOrgsPerUser int
 }
 
@@ -81,10 +82,6 @@ func New(opts Options) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	maxOrgsPerUser := opts.MaxOrgsPerUser
-	if maxOrgsPerUser <= 0 {
-		maxOrgsPerUser = DefaultMaxOrgsPerUser
-	}
 	return &Server{
 		log:            log,
 		store:          opts.Store,
@@ -95,7 +92,7 @@ func New(opts Options) *Server {
 		appKey:         opts.AppKey,
 		shells:         opts.Shells,
 		router:         opts.Router,
-		maxOrgsPerUser: maxOrgsPerUser,
+		maxOrgsPerUser: cmp.Or(opts.MaxOrgsPerUser, DefaultMaxOrgsPerUser),
 	}
 }
 
