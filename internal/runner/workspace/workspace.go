@@ -107,15 +107,10 @@ type Workspace struct {
 	// Variables declares the per-task values a task may set, injected as
 	// GRITZ_VAR_<NAME>.
 	Variables map[string]VariableConfig `yaml:"variables,omitempty"`
-	// AutoReset is whether a run whose sandbox is gone at boot gets a fresh
-	// sandbox instead of failing. Unset is true; see ShouldAutoReset.
-	AutoReset *bool `yaml:"auto_reset,omitempty"`
-}
-
-// ShouldAutoReset reports whether a run whose sandbox is gone at boot gets a
-// fresh sandbox. Without it, the run fails and the next start creates one.
-func (w *Workspace) ShouldAutoReset() bool {
-	return w.AutoReset == nil || *w.AutoReset
+	// AutoReset makes a run whose sandbox is gone at boot start in a fresh
+	// sandbox instead of failing; without it, the run fails and the next start
+	// creates a fresh sandbox.
+	AutoReset bool `yaml:"auto_reset"`
 }
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
