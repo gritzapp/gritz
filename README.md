@@ -56,3 +56,4 @@ mise run generate   # Generate protobuf code
 go build            # Build main binary only
 ```
 
+
