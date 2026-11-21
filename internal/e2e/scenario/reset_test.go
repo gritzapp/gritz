@@ -16,14 +16,6 @@ import (
 // provisions to the file "sandbox".
 const sandboxID = "cat /proc/sys/kernel/random/uuid > sandbox"
 
-// waitSandboxReset waits for the runner to report a reset of the task's
-// sandbox in an event newer than after, and returns that event.
-func waitSandboxReset(h *harness.Harness, task *harness.Task, after int64) *gritzv1.Event {
-	return h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
-		return e.Id > after && e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
-	})
-}
-
 func TestReset_Failed(t *testing.T) {
 	t.Parallel()
 	h := harness.New(t, &harness.Options{Runner: &harness.RunnerOptions{
@@ -46,7 +38,9 @@ func TestReset_Failed(t *testing.T) {
 	// The sandbox is gone and nothing was booted, and the task is still
 	// failed on the same run, with no command left.
 	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
-	waitSandboxReset(h, task, 0)
+	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
+		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	})
 	got := task.Get()
 	assert.Equal(t, got.Status, gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
@@ -80,7 +74,9 @@ func TestReset_NoSandbox(t *testing.T) {
 	task.ResetSandbox()
 
 	// There was no sandbox to delete, and the reset completes all the same.
-	waitSandboxReset(h, task, 0)
+	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
+		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	})
 	got := task.Get()
 	assert.Equal(t, got.Status, gritzv1.TaskStatus_FAILED)
 	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
@@ -95,13 +91,17 @@ func TestReset_Repeated(t *testing.T) {
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
 	task.ResetSandbox()
-	first := waitSandboxReset(h, task, 0)
+	first := h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
+		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	})
 
 	task.ResetSandbox()
 
 	// The second reset of the same run is carried out and reported too, or
 	// its command would never be cleared.
-	waitSandboxReset(h, task, first.Id)
+	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
+		return e.Id > first.Id && e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	})
 	got := task.Get()
 	assert.Equal(t, got.Status, gritzv1.TaskStatus_COMPLETED)
 	assert.Equal(t, got.Command, gritzv1.TaskCommand_NONE)
@@ -138,7 +138,9 @@ func TestReset_DestroyFails(t *testing.T) {
 
 	// The runner reports the reset before it destroys the sandbox, so the
 	// command is cleared while the destroy hangs.
-	waitSandboxReset(h, task, 0)
+	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
+		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	})
 	assert.Equal(t, task.Get().Command, gritzv1.TaskCommand_NONE)
 
 	// The restart waits for the destroy to be retried rather than booting
@@ -168,6 +170,8 @@ func TestReset_RunnerRestart(t *testing.T) {
 
 	// The new runner loaded the task and carried out the reset it missed.
 	h.Backend.WaitSandbox(task.ID, backend.StatusGone)
-	waitSandboxReset(h, task, 0)
+	h.Org.WaitEvent(task.ID, func(e *gritzv1.Event) bool {
+		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_RESET
+	})
 	assert.Equal(t, task.Get().Command, gritzv1.TaskCommand_NONE)
 }
