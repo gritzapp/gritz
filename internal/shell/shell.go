@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -33,6 +32,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 	"github.com/gritzapp/gritz/internal/shell/shellwire"
+	"github.com/gritzapp/gritz/internal/x/envx"
 )
 
 // exitReportTimeout bounds the best-effort send of the final exit frame once the
@@ -61,11 +61,14 @@ type ServeOptions struct {
 	ServerURL string
 	Token     string
 	Session   string
-	Log       *slog.Logger
+	// Env is the shell's complete environment; it must not be nil.
+	Env []string
+	Log *slog.Logger
 }
 
 // Serve runs an interactive debug shell for a rendezvous session. It allocates a
-// PTY, spawns a shell ($SHELL, else /bin/sh), dials the server's shell
+// PTY, spawns a shell ($SHELL from opts.Env, else /bin/sh) with opts.Env as its
+// environment, dials the server's shell
 // relay WebSocket at GET {ServerURL}/shell/driver?session={Session} authenticating with
 // Token as a Bearer header, negotiates the gritz-shell.v1 subprotocol, and
 // pipes the PTY over the WebSocket using the shellwire framing.
@@ -77,6 +80,9 @@ type ServeOptions struct {
 // robust teardown (see cmd.Cancel below), so the shell is always reaped and
 // Serve returns rather than leaking a shell or hanging the driver.
 func Serve(ctx context.Context, opts ServeOptions) error {
+	if opts.Env == nil {
+		panic("shell: ServeOptions.Env is nil; the driver passes the run's environment")
+	}
 	log := opts.Log
 	if log == nil {
 		log = slog.Default()
@@ -84,7 +90,7 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	session := opts.Session
 	log.Info("starting reverse shell", "session", session)
 
-	shell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
+	shell := cmp.Or(envx.Expand("${SHELL}", opts.Env), "/bin/sh")
 	// cmdCtx drives the shell's lifecycle. It is canceled on ctx cancellation
 	// (SIGTERM) via exec.CommandContext's watchdog, and explicitly by the
 	// WebSocket->PTY goroutine when the operator leg drops — routing both teardown
@@ -96,8 +102,8 @@ func Serve(ctx context.Context, opts ServeOptions) error {
 	// under the hood, so the watchdog still gets wired up — they compose.
 	// Deliberately not a login shell: /etc/profile resets PATH, which would
 	// drop entries the image sets via ENV (e.g. /root/.local/bin for claude).
-	// A plain shell inherits the driver's environment as-is.
 	cmd := exec.CommandContext(cmdCtx, shell)
+	cmd.Env = opts.Env
 
 	url, err := DriverURL(opts.ServerURL, session)
 	if err != nil {

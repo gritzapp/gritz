@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -189,6 +190,7 @@ func TestServeAndOperate(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s1",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()
@@ -240,6 +242,7 @@ func TestServe_LargeBurstSurvivesReadLimit(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "burst",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()
@@ -296,6 +299,7 @@ func TestServe_ExitCode(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s2",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()
@@ -330,6 +334,7 @@ func TestSessionTornDownWhenOperatorDisconnects(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s3",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()
@@ -373,6 +378,7 @@ func TestServe_ContextCancelTearsDownBlockedShell(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s4",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()
@@ -432,6 +438,7 @@ func TestServe_OperatorDisconnectTearsDownBlockedShell(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s6",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()
@@ -475,6 +482,7 @@ func TestServe_ContextCancelForceKillsUnresponsiveShell(t *testing.T) {
 			ServerURL: srv.URL,
 			Token:     "driver-token",
 			Session:   "s5",
+			Env:       os.Environ(),
 			Log:       slog.Default(),
 		})
 	}()

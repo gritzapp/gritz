@@ -38,8 +38,9 @@ type Driver struct {
 	ServerURL string
 	Token     string
 
-	// Env is the run's environment: the complete environment of the agent CLI
-	// and the setup commands, and what $VARs in the config's cwd expand against.
+	// Env is the run's environment: the complete environment of the agent CLI,
+	// the setup commands and a debug shell, and what $VARs in the config's cwd
+	// expand against.
 	Env []string
 }
 
@@ -161,6 +162,7 @@ func (d *Driver) run(ctx context.Context, task *gritzv1.Task) error {
 			ServerURL: d.ServerURL,
 			Token:     d.Token,
 			Session:   session,
+			Env:       d.Env,
 			Log:       &d.Log.Logger,
 		})
 	}
