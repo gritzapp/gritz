@@ -238,6 +238,7 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 		Cursor:     cfg.Cursor,
 		Sloppy:     cfg.Sloppy,
 		Process:    cfg.Process,
+		GritzRPC:   cfg.GritzRPC,
 		Dummy:      cfg.Dummy,
 		Puppet:     cfg.Puppet,
 		Log:        d.Log,

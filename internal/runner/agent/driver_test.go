@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/agent/gritzrpc"
 	"github.com/gritzapp/gritz/internal/runner/eventfile"
 	"github.com/gritzapp/gritz/internal/runner/logship"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -308,4 +310,79 @@ func TestDriverRun_MasksSecretsInShippedLog(t *testing.T) {
 	shipped := mock.ShippedLog()
 	assert.Assert(t, cmp.Contains(shipped, "cloning with [gritz:masked GH_TOKEN]"))
 	assert.Assert(t, !strings.Contains(shipped, secret), "shipped log leaked the secret")
+}
+
+func TestDriverRun_GritzRPC(t *testing.T) {
+	t.Parallel()
+	// Arrange - the test binary as the ok gritzrpc agent, on a first run with
+	// an instruction, an external event, a standing link and an MCP server
+	exe, err := os.Executable()
+	assert.NilError(t, err)
+	cwd := t.TempDir()
+	out := filepath.Join(t.TempDir(), "start.json")
+	mcpServers := map[string]McpServer{
+		"gritz": {Type: "stdio", Command: "gritz", Args: []string{"tool", "agent-mcp"}},
+	}
+	driver, mock := setupDriver(t, &Config{
+		Type:       TypeGritzRPC,
+		Cwd:        cwd,
+		McpServers: mcpServers,
+		GritzRPC:   &GritzRPCOptions{Command: exe},
+	})
+	driver.Env = []string{"GRITZRPC_TEST_AGENT=ok", "GRITZRPC_TEST_OUT=" + out}
+	link := &gritzv1.TaskLink{Id: 881, TaskId: 1, Relevance: "PR", Url: "https://github.com/acme/repo/pull/1", Subscribe: true}
+	mock.ListLinksFunc = func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
+		return &gritzv1.ListLinksResponse{Links: []*gritzv1.TaskLink{link}}, nil
+	}
+	external := &gritzv1.Event{
+		Id: 6,
+		Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
+			Url:     "https://github.com/acme/repo/pull/1#discussion_r1",
+			Source:  "github",
+			Type:    "pull_request_review_comment",
+			Details: map[string]string{"path": "main.go"},
+		}},
+	}
+	_, err = driver.Events.Append([]*gritzv1.Event{instruction(5, "do the thing"), external})
+	assert.NilError(t, err)
+	logPath := filepath.Join(t.TempDir(), "log")
+	driver.Log = OpenDriverLog(logPath, nil)
+
+	// Act
+	assert.NilError(t, driver.Run(t.Context()))
+	assert.NilError(t, driver.Log.Close())
+
+	// Assert - the run succeeded
+	assert.DeepEqual(t,
+		mock.SubmittedRunnerEvents(),
+		[]*gritzv1.RunnerEvent{
+			{TaskId: 1, Version: testTaskVersion, Event: "started"},
+			{TaskId: 1, Version: testTaskVersion, Event: "stopped"},
+		},
+		protocmp.Transform(),
+	)
+	// The agent received the typed events, the first-run links, its cwd and
+	// the MCP servers
+	data, err := os.ReadFile(out)
+	assert.NilError(t, err)
+	var got gritzrpc.StartParams
+	assert.NilError(t, json.Unmarshal(data, &got))
+	assert.DeepEqual(t,
+		got,
+		gritzrpc.StartParams{
+			ProtocolVersion: gritzrpc.ProtocolVersion,
+			Cwd:             cwd,
+			Task:            &gritzv1.Task{Id: 1, Version: testTaskVersion},
+			Events:          []*gritzv1.Event{instruction(5, "do the thing"), external},
+			Links:           []*gritzv1.TaskLink{link},
+			McpServers: map[string]gritzrpc.McpServer{
+				"gritz": {Type: "stdio", Command: "gritz", Args: []string{"tool", "agent-mcp"}},
+			},
+		},
+		protocmp.Transform(),
+	)
+	// The agent's log line reached the driver log
+	log, err := os.ReadFile(logPath)
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Contains(string(log), `level=WARN msg="step finished" agent=gritzrpc ms=1532 step=plan`))
 }

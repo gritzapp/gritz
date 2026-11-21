@@ -28,8 +28,10 @@ const (
 	TypeCursor  = "cursor"
 	TypeSloppy  = "sloppy"
 	TypeProcess = "process"
-	TypeDummy   = "dummy"
-	TypePuppet  = "puppet"
+	// TypeGritzRPC runs a user-supplied process that speaks gritzrpc.
+	TypeGritzRPC = "gritzrpc"
+	TypeDummy    = "dummy"
+	TypePuppet   = "puppet"
 )
 
 // Turn is the input of one run.
@@ -76,6 +78,7 @@ type Options struct {
 	Cursor     *CursorOptions
 	Sloppy     *SloppyOptions
 	Process    *ProcessOptions
+	GritzRPC   *GritzRPCOptions
 	Dummy      *DummyOptions
 	Puppet     *puppet.Options
 }
@@ -113,6 +116,14 @@ type SloppyOptions struct {
 type ProcessOptions struct {
 	// Command is the argv to run: the executable followed by its arguments.
 	Command []string
+}
+
+// GritzRPCOptions contains gritzrpc-specific agent options.
+type GritzRPCOptions struct {
+	// Command is the executable to run.
+	Command string `json:"command"`
+	// Args are the arguments passed to Command.
+	Args []string `json:"args,omitempty"`
 }
 
 // DummyOptions contains Dummy-specific agent options.
@@ -189,6 +200,18 @@ func NewAgent(opts Options) (Agent, error) {
 			cwd:     cmp.Or(opts.Cwd, "."),
 			env:     opts.Env,
 			options: opts.Process,
+		}, nil
+	case TypeGritzRPC:
+		if opts.GritzRPC == nil || opts.GritzRPC.Command == "" {
+			panic("gritzrpc agent: workspace validation guarantees gritzrpc.command")
+		}
+		return &GritzRPCAgent{
+			log:         log,
+			cwd:         cmp.Or(opts.Cwd, "."),
+			env:         opts.Env,
+			mcpServers:  opts.McpServers,
+			options:     opts.GritzRPC,
+			cancelGrace: gritzrpcCancelGrace,
 		}, nil
 	case TypeDummy:
 		return &DummyAgent{
