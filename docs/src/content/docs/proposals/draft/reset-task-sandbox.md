@@ -248,7 +248,7 @@ driver (a stop no run is open to report, and an archive). It takes no slot and b
 nothing:
 
 ```go
-case c.Command == gritzv1.TaskCommand_RESET:
+case c.Command == gritzv1.TaskCommand_RESET && seq > h.reset:
 	// Delete the sandbox and its record so the next start creates a fresh
 	// one. destroy deletes the record only once the sandbox is destroyed, so
 	// a failed destroy keeps it tracked and is retried with backoff.
@@ -261,6 +261,7 @@ case c.Command == gritzv1.TaskCommand_RESET:
 		break
 	}
 	tr.opts.Log.Info("sandbox reset", "task", tr.opts.TaskID)
+	h.reset = seq
 	if err := tr.enqueue(model.RunnerEvent{
 		TaskID:  tr.opts.TaskID,
 		Event:   model.RunnerEventReset,
@@ -272,9 +273,14 @@ case c.Command == gritzv1.TaskCommand_RESET:
 
 The case sits after `c.Archived` (which cannot coexist with `RESET`) and is mutually
 exclusive with the start and stop cases. `next`'s doc comment gains the third report it
-handles. `handled` gains no field: a reset is not versioned (two resets of the same run
-are both legitimate and both must be reported, or the second would strand its
-command), so `next` reports every `RESET` report it sees.
+handles. A reset is not versioned (two resets of the same run are both legitimate and
+both must be reported, or the second would strand its command), so it is keyed on the
+report instead: `Change` numbers each report (`seq`, which replaces `hasChange`), and
+`handled.reset` is the number of the last one `next` reset for. Every new `RESET`
+report is carried out, even one that repeats the last, but a wake with no new report
+is not — and there always is one: the manager hands a `TaskRunner` its first report
+before `RunLoop` starts, so without the key every reset on a new `TaskRunner` would be
+reported twice.
 
 Behaviour notes:
 

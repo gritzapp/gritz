@@ -29,11 +29,11 @@ type RunnerEventOutboxOptions struct {
 	Log *slog.Logger
 }
 
-// RunnerEventOutbox delivers runner lifecycle events (started/stopped/failed)
-// to the server in order, at least once. Each event is stored before delivery
-// and removed only after the server accepts it, so a crash between the two
-// redelivers it on restart. Delivery is strict FIFO with head-of-line
-// blocking.
+// RunnerEventOutbox delivers runner lifecycle events
+// (started/stopped/failed/reset) to the server in order, at least once. Each
+// event is stored before delivery and removed only after the server accepts
+// it, so a crash between the two redelivers it on restart. Delivery is
+// strict FIFO with head-of-line blocking.
 type RunnerEventOutbox struct {
 	store   *runnerstore.Store
 	client  gritzclient.Client
