@@ -193,10 +193,7 @@ const (
 	RunnerEventStarted RunnerEventType = "started"
 	RunnerEventStopped RunnerEventType = "stopped"
 	RunnerEventFailed  RunnerEventType = "failed"
-	// RunnerEventReset reports that the task's sandbox was deleted: for a
-	// manual reset, the RESET command carried out; for an automatic one, the
-	// run's sandbox found gone at boot and replaced, with Reason saying why.
-	RunnerEventReset RunnerEventType = "reset"
+	RunnerEventReset   RunnerEventType = "reset"
 )
 
 // RunnerEvent represents an event from the runner about a task's container.
