@@ -121,7 +121,7 @@ The docs build also builds the Motion Canvas diagrams in `diagrams/` (`pnpm diag
 
 Design proposals are docs pages too, in `docs/src/content/docs/proposals/{draft,implemented,rejected}/`, listed in the Proposals sidebar section and left out of the llms.txt documentation sets. Write and move them with the `proposal` skill. The "What belongs in the docs" rules below don't apply to proposals: they are design history for contributors.
 
-`docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link.
+`docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link. Both publish through `.github/scripts/deploy-gh-pages.sh`, which force-pushes `gh-pages` as a single orphan commit, so the branch carries no history.
 
 **A PR that changes behaviour a user or operator can see — a flag, a workspace field, an envelope field, a routing semantic, an MCP tool — updates the matching page in the same PR, if that page no longer describes it correctly.** Reviewers ask for it like they ask for tests. Where the matching page doesn't exist yet, there is nothing to update. See "What belongs in the docs" below before writing anything.
 
