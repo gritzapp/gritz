@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -147,6 +148,7 @@ type Agent struct {
 	Cursor     *CursorConfig              `yaml:"cursor,omitempty"`
 	Sloppy     *SloppyConfig              `yaml:"sloppy,omitempty"`
 	Process    *ProcessConfig             `yaml:"process,omitempty"`
+	GritzRPC   *GritzRPCConfig            `yaml:"gritzrpc,omitempty"`
 	Dummy      *DummyConfig               `yaml:"dummy,omitempty"`
 	Puppet     *PuppetConfig              `yaml:"puppet,omitempty"`
 }
@@ -184,6 +186,14 @@ type SloppyConfig struct {
 type ProcessConfig struct {
 	// Command is the argv to run: the executable followed by its arguments.
 	Command []string `yaml:"command"`
+}
+
+// GritzRPCConfig contains gritzrpc-specific agent configuration.
+type GritzRPCConfig struct {
+	// Command is the executable to run.
+	Command string `yaml:"command"`
+	// Args are the arguments passed to Command.
+	Args []string `yaml:"args"`
 }
 
 // DummyConfig contains Dummy-specific agent configuration.
@@ -226,6 +236,17 @@ func (w *Workspace) Validate() error {
 }
 
 func (a *Agent) Validate() error {
+	if a.Type == agent.TypeGritzRPC {
+		if a.GritzRPC == nil || a.GritzRPC.Command == "" {
+			return errors.New("gritzrpc.command is required")
+		}
+		if a.Prompt != "" {
+			return errors.New("prompt is not supported by the gritzrpc agent")
+		}
+		if a.Verbose {
+			return errors.New("verbose is not supported by the gritzrpc agent")
+		}
+	}
 	for name, srv := range a.McpServers {
 		if err := srv.Validate(); err != nil {
 			return fmt.Errorf("mcp_servers.%s: %w", name, err)
@@ -440,6 +461,12 @@ func (w *Workspace) AgentConfig() agent.Config {
 	if w.Agent.Process != nil {
 		cfg.Process = &agent.ProcessOptions{
 			Command: w.Agent.Process.Command,
+		}
+	}
+	if w.Agent.GritzRPC != nil {
+		cfg.GritzRPC = &agent.GritzRPCOptions{
+			Command: w.Agent.GritzRPC.Command,
+			Args:    w.Agent.GritzRPC.Args,
 		}
 	}
 	if w.Agent.Dummy != nil {

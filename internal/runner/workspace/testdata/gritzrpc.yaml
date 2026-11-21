@@ -1,0 +1,8 @@
+workspaces:
+  ws:
+    agent:
+      type: gritzrpc
+      cwd: /workspace
+      gritzrpc:
+        command: node
+        args: [dist/agent.js]
