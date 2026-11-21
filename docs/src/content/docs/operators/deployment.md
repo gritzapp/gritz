@@ -118,4 +118,5 @@ driver. Upgrade them as one:
 A sandbox keeps the driver it was created with: the Docker backend copies the
 binary in when it creates the container, and a MicroVM runs the one in its
 image. Tasks that were created before an upgrade keep their old driver until
-they are archived.
+they are archived or their sandbox is
+[reset](/concepts/tasks/#resetting-the-sandbox).

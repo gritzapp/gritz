@@ -259,12 +259,14 @@ The setup commands and the agent see, in order of precedence:
 ## Changing a workspace
 
 A task's sandbox is set up from its workspace once, when it is first created
-and run, and keeps that setup until the task is archived. After you change a
+and run, and keeps that setup until the task is archived or its sandbox is
+[reset](/concepts/tasks/#resetting-the-sandbox). After you change a
 workspace and restart the runner:
 
 - `container`, `lambda_microvm` (except `environment`), `commands`,
   `capabilities` and `agent`, including `prompt` and `mcp_servers`, apply to
-  tasks created from then on. Existing tasks keep what they started with.
+  tasks created from then on. Existing tasks keep what they started with until
+  their sandbox is reset.
 - `secrets` and `lambda_microvm.environment` are sent with each run, so existing
   tasks get the new values from their next run.
 
