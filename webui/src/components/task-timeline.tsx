@@ -12,6 +12,7 @@ import {
   Clock,
   Info,
   Archive,
+  Trash2,
   Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -155,6 +156,7 @@ const lifecycleConfig: Record<LifecycleCategory, { icon: React.ReactNode; tone: 
   },
   failed: { icon: <XCircle className="h-3.5 w-3.5" />, tone: 'text-red-600 dark:text-red-400' },
   cancelled: { icon: <Ban className="h-3.5 w-3.5" />, tone: 'text-amber-600 dark:text-amber-400' },
+  reset: { icon: <Trash2 className="h-3.5 w-3.5" />, tone: 'text-orange-600 dark:text-orange-400' },
   archived: { icon: <Archive className="h-3.5 w-3.5" />, tone: 'text-muted-foreground' },
   updated: { icon: <Info className="h-3.5 w-3.5" />, tone: 'text-muted-foreground' },
 }
