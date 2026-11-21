@@ -101,6 +101,22 @@ A reset is available on a finished task with no pending command. To reset a
 running task, cancel it first. The timeline records the request, and the
 reset itself once the runner has deleted the sandbox.
 
+### A gone sandbox
+
+A sandbox can disappear without a reset: a Lambda MicroVM is terminated at the
+end of its [lifetime](/operators/backends/#lambda-microvms), and a container can
+be removed outside gritz. The task's next run can't start in it:
+
+- By default, the run fails with the reason on the timeline, and the run after
+  it gets a new sandbox.
+- In a workspace with [`auto_reset: true`](/operators/workspaces-yaml/#workspace-fields),
+  the run starts in a new sandbox instead, and the timeline shows
+  "Sandbox reset: previous sandbox gone: …" before it.
+
+Either way, the new sandbox is set up as after a reset: the setup commands run
+again, and the agent starts a new session with the whole task. A sandbox that
+disappears during a run fails that run, with or without `auto_reset`.
+
 ## Archiving
 
 Archive a task when you are done with it. Archiving:

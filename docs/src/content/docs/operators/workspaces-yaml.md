@@ -53,6 +53,7 @@ pick when they create a task.
 | `secrets` | Environment variables whose values are masked in the shipped log. See [Secrets](/operators/secrets/). |
 | `capabilities` | Extra [capabilities](#capabilities) for the task's token. |
 | `variables` | Per-task [variables](#variables) a task can set when it is created. |
+| `auto_reset` | Start a run whose sandbox is gone in a new sandbox instead of failing it. Off by default. See [A gone sandbox](/concepts/tasks/#a-gone-sandbox). |
 
 ## `container`
 
@@ -271,6 +272,7 @@ workspace and restart the runner:
   their sandbox is reset.
 - `secrets` and `lambda_microvm.environment` are sent with each run, so existing
   tasks get the new values from their next run.
+- `auto_reset` applies to the next run of every task.
 
 ## Checking a config
 
