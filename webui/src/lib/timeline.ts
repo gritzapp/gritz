@@ -148,6 +148,12 @@ export function lifecycleSummary(p: LifecyclePayload): string {
       s = 'Sandbox failed'
       if (p.message) s += `: ${p.message}`
       break
+    case LifecycleKind.RESET_REQUESTED:
+      s = 'Sandbox reset requested'
+      break
+    case LifecycleKind.SANDBOX_RESET:
+      s = 'Sandbox reset'
+      break
     default:
       s = 'Lifecycle event'
   }
