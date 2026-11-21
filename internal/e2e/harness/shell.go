@@ -31,31 +31,17 @@ func (o *Org) Shell(session, input string) string {
 	}
 	defer conn.CloseNow()
 	conn.SetReadLimit(shellwire.ReadLimit)
-	if err := conn.Write(ctx, websocket.MessageBinary, shellwire.Data([]byte(input+"\nexit\n"))); err != nil {
-		t.Fatalf("writing to shell %s: %v", session, err)
-	}
 	var out strings.Builder
-	for {
-		_, msg, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("reading shell %s: %v; output:\n%s", session, err, out.String())
-		}
-		frame, err := shellwire.Parse(msg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		switch frame.Type {
-		case shellwire.TypeData:
-			out.Write(frame.Payload)
-		case shellwire.TypeExit:
-			code, err := frame.ExitCode()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if code != 0 {
-				t.Fatalf("shell %s exited with %d; output:\n%s", session, code, out.String())
-			}
-			return out.String()
-		}
+	code, err := shell.Operate(ctx, shell.OperateOptions{
+		Conn: conn,
+		In:   strings.NewReader(input + "\nexit\n"),
+		Out:  &out,
+	})
+	if err != nil {
+		t.Fatalf("shell %s: %v; output:\n%s", session, err, out.String())
 	}
+	if code != 0 {
+		t.Fatalf("shell %s exited with %d; output:\n%s", session, code, out.String())
+	}
+	return out.String()
 }
