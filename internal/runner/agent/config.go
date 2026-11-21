@@ -73,6 +73,7 @@ type Config struct {
 	Cursor       *CursorOptions       `json:"cursor,omitempty"`
 	Sloppy       *SloppyOptions       `json:"sloppy,omitempty"`
 	Process      *ProcessOptions      `json:"process,omitempty"`
+	GritzRPC     *GritzRPCOptions     `json:"gritzrpc,omitempty"`
 	Dummy        *DummyOptions        `json:"dummy,omitempty"`
 	Puppet       *puppet.Options      `json:"puppet,omitempty"`
 
