@@ -248,8 +248,7 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 
 1. **Workspace option** — Delivers: `OnSandboxGone`, the `on_sandbox_gone` field
    and its validation. Read by nothing yet. Depends on: nothing. Verifiable by:
-   `internal/runner/workspace` tests loading `reset`, `fail` and empty, and
-   rejecting any other value.
+   review; (3)'s scenarios exercise both values.
 
 2. **`replaced` runner event** — Delivers: `RunnerEventReplaced`, its fold arm,
    the `LifecycleEvent` case, the `SANDBOX_RESET` message rendering in `Summary`
@@ -261,13 +260,12 @@ clears it as usual. `Restore`'s doc comment and its `StatusGone` case go.
 
 3. **Replace a gone sandbox at boot** — Delivers: the `boot` change, and
    `Restore` keeping a gone sandbox. Depends on: (1), (2). Verifiable by:
-   `internal/e2e/scenario` tests on the `local` backend that delete a task's
-   sandbox between runs and restart it — with the default, the run completes in
-   a new sandbox and the timeline has "Sandbox reset: previous sandbox gone: …"
-   before "Sandbox started"; with `fail`, the run fails with the gone error and
-   the next restart succeeds — plus the same after a runner restart while the
-   task is idle, and a manual reset and an archive of a task whose kept sandbox
-   is gone.
+   three `internal/e2e/scenario` tests on the `local` backend that delete a
+   task's sandbox between runs and restart it: with the default, the run
+   completes in a new sandbox and the timeline has "Sandbox reset: previous
+   sandbox gone: …"; with `on_sandbox_gone: fail`, the run fails with the gone
+   error; and with the default and the runner restarted while the task is idle,
+   the run is replaced the same way (the `Restore` change).
 
 4. **Docs** — Delivers: `on_sandbox_gone` in the workspace fields table of
    `operators/workspaces-yaml`, and the Lambda section of `operators/backends`
