@@ -19,10 +19,12 @@ source `custom` and the attributes their schema defines; see
 
 Every type has two attributes:
 
-- `body`: the event's text. For a comment or a review it is that text; for the
-  other types it is the description of the issue or pull request.
+- `body`: the event's text. For a comment or a review it is that text; for a
+  push it is the newest commit's message; for the other types it is the
+  description of the issue or pull request.
 - `url`: the event's own URL. For a comment or a review it is the comment's or
-  review's URL; for the other types it is the issue's or pull request's URL.
+  review's URL; for a push it is the newest commit's URL; for the other types it
+  is the issue's or pull request's URL.
 
 Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
@@ -128,6 +130,30 @@ several labels sends one event per label.
 | `label` | Label | The label added. |
 | `user` | User | The username of who added it. |
 
+### `push`
+
+**GitHub: Push.** Commits are pushed to a branch, including a push that creates
+the branch. Pushing a tag and deleting a branch send no event.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Head Commit Message | The message of the push's newest commit. |
+| `url` | Head Commit URL | The newest commit's URL, such as `https://github.com/owner/repo/commit/<sha>`. |
+| `repo` | Repository | The repository pushed to, such as `owner/repo`. |
+| `branch` | Branch | The branch pushed to, such as `master`, without `refs/heads/`. |
+| `path` | Changed Path | Each file added, modified or removed by the push's commits. |
+| `user` | User | The username of who pushed. |
+
+Use `glob` to match `path`, such as `path glob internal/store/**`; the condition
+holds when any changed file matches. `path` comes from the commits GitHub lists
+in the delivery: a force push lists only the new commits, and a very large push
+may list only some of them.
+
+The event also carries, for the agent but not for conditions, the commit SHAs
+before and after the push (`before`, `after`), the compare URL (`compare`),
+whether it was a force push (`forced`) and the number of commits (`commits`).
+The agent can diff `before` and `after` for the complete list of changed files.
+
 ## Jira
 
 Source `atlassian`. People are identified by their Atlassian account ID, such as
@@ -187,7 +213,8 @@ The `url` attribute is the event's own URL, as listed above, so a `url`
 condition sees the comment's or review's URL, with its fragment or query string.
 Use `prefix` to scope a rule to a repository or a project:
 `url prefix https://github.com/owner/repo/` or
-`url prefix https://your-domain.atlassian.net/browse/PROJ-`.
+`url prefix https://your-domain.atlassian.net/browse/PROJ-`. A push also has
+`repo`, so `repo equals owner/repo` does the same.
 
 To find subscribed tasks, gritz reduces the URL to the issue or pull request it
 belongs to, so an event about a comment reaches the tasks subscribed to its

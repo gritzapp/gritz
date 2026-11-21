@@ -37,6 +37,22 @@ A rule matches an event by:
 | `equals` | is exactly the value |
 | `prefix` | starts with the value |
 | `contains` | contains the value anywhere |
+| `glob` | matches the value as a pattern, such as `internal/store/**` or `release/*` |
+
+A `glob` pattern must match the whole value:
+
+| Pattern | Matches |
+| --- | --- |
+| `*` | any run of characters except `/` |
+| `**` | as a whole path segment, any number of segments, including none |
+| `?` | any one character except `/` |
+| `[abc]`, `[a-z]`, `[^a]` | one character from the class |
+| `{a,b}` | either alternative |
+| `\x` | a literal `x` |
+
+So `**/*.sql` matches every `.sql` file at any depth and `{go.mod,go.sum}`
+matches either file. Because `*` stops at `/`, use `prefix` or `contains` for
+URLs and text. A rule with a malformed pattern can't be saved.
 
 Comparisons are exact and case-sensitive. An attribute can have several values,
 such as the labels on an issue, and a condition holds when any of them
