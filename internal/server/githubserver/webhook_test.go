@@ -19,9 +19,10 @@ import (
 
 func TestToGithubInputEvent(t *testing.T) {
 	tests := []struct {
-		name     string
-		event    any
-		expected []eventrouter.InputEvent
+		name         string
+		event        any
+		expected     []eventrouter.InputEvent
+		expectedMeta GitHubMeta
 	}{
 		{
 			name: "IssueComment",
@@ -54,13 +55,13 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: do something",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-555",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta: GitHubMeta{
-					AuthorID:       123,
-					AuthorLogin:    "testuser",
-					InstallationID: 42,
-					NodeID:         "IC_node555",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       123,
+				AuthorLogin:    "testuser",
+				InstallationID: 42,
+				NodeID:         "IC_node555",
+			},
 		},
 		{
 			name: "IssueComment_PullRequest",
@@ -93,12 +94,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: review this",
 				URL:         "https://github.com/owner/repo/pull/2#issuecomment-556",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"pruser"}},
-				Meta: GitHubMeta{
-					AuthorID:    456,
-					AuthorLogin: "pruser",
-					NodeID:      "IC_node556",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    456,
+				AuthorLogin: "pruser",
+				NodeID:      "IC_node556",
+			},
 		},
 		{
 			name: "IssueComment_NoGritzPrefix",
@@ -124,8 +125,8 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "just a regular comment",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-600",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssueComment_SingleMention",
@@ -151,8 +152,8 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "hey @icholy-bot please take a look",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-610",
 				Attrs:       eventrouter.Attrs{"mention": {"icholy-bot"}, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssueComment_MultipleMentions",
@@ -184,8 +185,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"mention": {"alice", "bob", "carol"},
 					"user":    {"testuser"},
 				},
-				Meta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name:     "IssueComment_NilFields",
@@ -216,8 +217,8 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: do something",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-601",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssueComment_Deleted",
@@ -282,12 +283,12 @@ func TestToGithubInputEvent(t *testing.T) {
 					"side":       "RIGHT",
 					"diff_hunk":  "@@ -200,3 +200,3 @@\n-old\n+new",
 				},
-				Meta: GitHubMeta{
-					AuthorID:    789,
-					AuthorLogin: "reviewer",
-					NodeID:      "PRRC_node777",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    789,
+				AuthorLogin: "reviewer",
+				NodeID:      "PRRC_node777",
+			},
 		},
 		{
 			// line is null (comment on an outdated diff): the line key falls back
@@ -324,12 +325,12 @@ func TestToGithubInputEvent(t *testing.T) {
 					"path": "main.go",
 					"line": "42",
 				},
-				Meta: GitHubMeta{
-					AuthorID:    789,
-					AuthorLogin: "reviewer",
-					NodeID:      "PRRC_node778",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    789,
+				AuthorLogin: "reviewer",
+				NodeID:      "PRRC_node778",
+			},
 		},
 		{
 			name: "PullRequestReviewComment_NoGritzPrefix",
@@ -361,8 +362,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"path": "main.go",
 					"line": "10",
 				},
-				Meta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
 		},
 		{
 			name:     "PullRequestReviewComment_NilFields",
@@ -399,8 +400,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"path": "main.go",
 					"line": "10",
 				},
-				Meta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 789, AuthorLogin: "reviewer"},
 		},
 		{
 			name: "PullRequestReviewComment_Deleted",
@@ -451,8 +452,8 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: please address comments",
 				URL:         "https://github.com/owner/repo/pull/4#pullrequestreview-123",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"lead"}},
-				Meta:        GitHubMeta{AuthorID: 101, AuthorLogin: "lead", NodeID: "PRR_node123"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 101, AuthorLogin: "lead", NodeID: "PRR_node123"},
 		},
 		{
 			name: "PullRequestReview_NotSubmitted",
@@ -495,8 +496,8 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "approved",
 				URL:         "https://github.com/owner/repo/pull/4#pullrequestreview-200",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"lead"}},
-				Meta:        GitHubMeta{AuthorID: 101, AuthorLogin: "lead"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 101, AuthorLogin: "lead"},
 		},
 		{
 			name:     "PullRequestReview_NilFields",
@@ -565,8 +566,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"forced":  "false",
 					"commits": "2",
 				},
-				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 42},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat", InstallationID: 42},
 		},
 		{
 			name: "Push_OneCommitForced",
@@ -602,8 +603,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"forced":  "true",
 					"commits": "1",
 				},
-				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
 		},
 		{
 			// A branch created at an existing commit lists no commits.
@@ -641,8 +642,8 @@ func TestToGithubInputEvent(t *testing.T) {
 					"forced":  "false",
 					"commits": "0",
 				},
-				Meta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 999, AuthorLogin: "octocat"},
 		},
 		{
 			name: "Push_Tag",
@@ -722,8 +723,8 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: trimmed",
 				URL:         "https://github.com/owner/repo/issues/1#issuecomment-602",
 				Attrs:       eventrouter.Attrs{"mention": nil, "user": {"testuser"}},
-				Meta:        GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 			}},
+			expectedMeta: GitHubMeta{AuthorID: 123, AuthorLogin: "testuser"},
 		},
 		{
 			name: "IssuesEvent_Assigned",
@@ -756,12 +757,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: fix the flaky test",
 				URL:         "https://github.com/owner/repo/issues/7",
 				Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}, "user": {"octocat"}},
-				Meta: GitHubMeta{
-					AuthorID:    999,
-					AuthorLogin: "octocat",
-					NodeID:      "I_node7",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    999,
+				AuthorLogin: "octocat",
+				NodeID:      "I_node7",
+			},
 		},
 		{
 			name: "IssuesEvent_WrongAction",
@@ -822,12 +823,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: review this",
 				URL:         "https://github.com/owner/repo/pull/12",
 				Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}, "user": {"alice"}},
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
+			},
 		},
 		{
 			name: "PullRequestEvent_WrongAction",
@@ -884,12 +885,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "gritz: triage",
 				Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"octocat"}},
 				URL:         "https://github.com/owner/repo/issues/7",
-				Meta: GitHubMeta{
-					AuthorID:    999,
-					AuthorLogin: "octocat",
-					NodeID:      "I_node7",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    999,
+				AuthorLogin: "octocat",
+				NodeID:      "I_node7",
+			},
 		},
 		{
 			name: "IssuesEvent_Labeled_NoLabel",
@@ -933,12 +934,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "Adds the thing.",
 				Attrs:       eventrouter.Attrs{"label": {"needs-review"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
+			},
 		},
 		{
 			name: "PullRequestEvent_Labeled_NoSender",
@@ -979,12 +980,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "Fixes #7.",
 				Attrs:       eventrouter.Attrs{"state": {"merged"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
+			},
 		},
 		{
 			name: "PullRequestEvent_Closed_NotMerged",
@@ -1013,12 +1014,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "Fixes #7.",
 				Attrs:       eventrouter.Attrs{"state": {"closed"}, "user": {"alice"}},
 				URL:         "https://github.com/owner/repo/pull/12",
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
+			},
 		},
 		{
 			name: "PullRequestEvent_Closed_NoSender",
@@ -1058,12 +1059,12 @@ func TestToGithubInputEvent(t *testing.T) {
 				Data:        "Fixes #7.",
 				URL:         "https://github.com/owner/repo/pull/12",
 				Attrs:       eventrouter.Attrs{"user": {"alice"}},
-				Meta: GitHubMeta{
-					AuthorID:    42,
-					AuthorLogin: "alice",
-					NodeID:      "PR_node12",
-				},
 			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:    42,
+				AuthorLogin: "alice",
+				NodeID:      "PR_node12",
+			},
 		},
 		{
 			name: "PullRequestEvent_Opened_NoSender",
@@ -1080,8 +1081,9 @@ func TestToGithubInputEvent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := toInputEvents(tt.event)
+			got, meta := toInputEvents(tt.event)
 			assert.DeepEqual(t, got, tt.expected)
+			assert.DeepEqual(t, meta, tt.expectedMeta)
 		})
 	}
 }

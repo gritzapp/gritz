@@ -41,18 +41,15 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleInstallationEvent(w, r, event)
 		return
 	}
-	inputs := toInputEvents(webhookEvent)
+	// Every event of a delivery shares its sender and installation, so meta
+	// resolves the orgs and the actor once for all of them.
+	inputs, meta := toInputEvents(webhookEvent)
 	if len(inputs) == 0 {
 		eventType := r.Header.Get("X-GitHub-Event")
 		slog.Debug("ignoring GitHub webhook event", "event_type", eventType)
 		fmt.Fprintf(w, "ignored")
 		return
 	}
-	// toInputEvents always sets Meta to a GitHubMeta, so this assertion is
-	// safe. It panics loudly if that invariant is ever broken. Every event of a
-	// delivery shares its sender and installation, so the first one's meta
-	// resolves the orgs and the actor for all of them.
-	meta := inputs[0].Meta.(GitHubMeta)
 
 	// Resolve the App installation to the orgs the event belongs to,
 	// independent of the actor's membership. These gate non-member routing: a
@@ -89,6 +86,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, input := range inputs {
 		input.Orgs = orgs
 		input.UserID = userID
+		input.Meta = meta
 
 		// Route event to subscribed tasks.
 		routed, err := h.Router.Route(r.Context(), input)
@@ -164,18 +162,20 @@ const (
 	EventTypePush                     = "push"
 )
 
-// toInputEvents extracts the routable events from a webhook payload; empty
-// means ignore.
-func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
+// toInputEvents extracts the routable events from a webhook payload. Every
+// event of a delivery shares its sender and installation, which are returned
+// once as meta for the caller to set on each event's Meta. It returns no events
+// for payloads that should be ignored.
+func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 	switch event := webhookEvent.(type) {
 	case *github.IssueCommentEvent:
 		if action := event.GetAction(); action != "created" && action != "edited" {
-			return nil
+			return nil, GitHubMeta{}
 		}
 		if event.Comment == nil || event.Issue == nil ||
 			event.Comment.Body == nil || event.Comment.HTMLURL == nil ||
 			event.Comment.User == nil || event.Comment.User.ID == nil {
-			return nil
+			return nil, GitHubMeta{}
 		}
 		body := strings.TrimSpace(*event.Comment.Body)
 		login := event.Comment.User.GetLogin()
@@ -193,22 +193,21 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 			// derives the parent routing key from it via model.RoutingKey.
 			URL:   *event.Comment.HTMLURL,
 			Attrs: eventrouter.Attrs{"mention": githubx.Mentions(body), "user": {login}},
-			Meta: GitHubMeta{
-				AuthorID:       *event.Comment.User.ID,
-				AuthorLogin:    login,
-				InstallationID: event.GetInstallation().GetID(),
-				NodeID:         event.GetComment().GetNodeID(),
-			},
-		}}
+		}}, GitHubMeta{
+			AuthorID:       *event.Comment.User.ID,
+			AuthorLogin:    login,
+			InstallationID: event.GetInstallation().GetID(),
+			NodeID:         event.GetComment().GetNodeID(),
+		}
 
 	case *github.PullRequestReviewCommentEvent:
 		if action := event.GetAction(); action != "created" && action != "edited" {
-			return nil
+			return nil, GitHubMeta{}
 		}
 		if event.Comment == nil || event.PullRequest == nil ||
 			event.Comment.Body == nil || event.Comment.HTMLURL == nil ||
 			event.Comment.User == nil || event.Comment.User.ID == nil {
-			return nil
+			return nil, GitHubMeta{}
 		}
 		body := strings.TrimSpace(*event.Comment.Body)
 		login := event.Comment.User.GetLogin()
@@ -254,20 +253,19 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 			// router derives the parent PR routing key via model.RoutingKey.
 			URL:   *event.Comment.HTMLURL,
 			Attrs: eventrouter.Attrs{"mention": githubx.Mentions(body), "user": {login}},
-			Meta: GitHubMeta{
-				AuthorID:       *event.Comment.User.ID,
-				AuthorLogin:    login,
-				InstallationID: event.GetInstallation().GetID(),
-				NodeID:         event.GetComment().GetNodeID(),
-			},
-		}}
+		}}, GitHubMeta{
+			AuthorID:       *event.Comment.User.ID,
+			AuthorLogin:    login,
+			InstallationID: event.GetInstallation().GetID(),
+			NodeID:         event.GetComment().GetNodeID(),
+		}
 
 	case *github.PullRequestReviewEvent:
 		if event.Action == nil || *event.Action != "submitted" ||
 			event.Review == nil || event.PullRequest == nil ||
 			event.Review.Body == nil || event.Review.HTMLURL == nil ||
 			event.Review.User == nil || event.Review.User.ID == nil {
-			return nil
+			return nil, GitHubMeta{}
 		}
 		body := strings.TrimSpace(*event.Review.Body)
 		login := event.Review.User.GetLogin()
@@ -281,13 +279,12 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 			// derives the parent PR routing key via model.RoutingKey.
 			URL:   *event.Review.HTMLURL,
 			Attrs: eventrouter.Attrs{"mention": githubx.Mentions(body), "user": {login}},
-			Meta: GitHubMeta{
-				AuthorID:       *event.Review.User.ID,
-				AuthorLogin:    login,
-				InstallationID: event.GetInstallation().GetID(),
-				NodeID:         event.GetReview().GetNodeID(),
-			},
-		}}
+		}}, GitHubMeta{
+			AuthorID:       *event.Review.User.ID,
+			AuthorLogin:    login,
+			InstallationID: event.GetInstallation().GetID(),
+			NodeID:         event.GetReview().GetNodeID(),
+		}
 
 	case *github.IssuesEvent:
 		switch event.GetAction() {
@@ -295,7 +292,7 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 			if event.Issue == nil || event.Issue.HTMLURL == nil ||
 				event.Assignee == nil || event.Assignee.Login == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
-				return nil
+				return nil, GitHubMeta{}
 			}
 			senderLogin := event.Sender.GetLogin()
 			assigneeLogin := event.Assignee.GetLogin()
@@ -307,18 +304,17 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				Data:        strings.TrimSpace(event.Issue.GetBody()),
 				URL:         *event.Issue.HTMLURL,
 				Attrs:       eventrouter.Attrs{"assignee": {assigneeLogin}, "user": {senderLogin}},
-				Meta: GitHubMeta{
-					AuthorID:       *event.Sender.ID,
-					AuthorLogin:    senderLogin,
-					InstallationID: event.GetInstallation().GetID(),
-					NodeID:         event.GetIssue().GetNodeID(),
-				},
-			}}
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetIssue().GetNodeID(),
+			}
 		case "labeled":
 			if event.Issue == nil || event.Issue.HTMLURL == nil ||
 				event.Label == nil || event.Label.Name == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
-				return nil
+				return nil, GitHubMeta{}
 			}
 			senderLogin := event.Sender.GetLogin()
 			label := event.Label.GetName()
@@ -332,22 +328,21 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				Data:        strings.TrimSpace(event.Issue.GetBody()),
 				Attrs:       eventrouter.Attrs{"label": {label}, "user": {senderLogin}},
 				URL:         *event.Issue.HTMLURL,
-				Meta: GitHubMeta{
-					AuthorID:       *event.Sender.ID,
-					AuthorLogin:    senderLogin,
-					InstallationID: event.GetInstallation().GetID(),
-					NodeID:         event.GetIssue().GetNodeID(),
-				},
-			}}
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetIssue().GetNodeID(),
+			}
 		}
-		return nil
+		return nil, GitHubMeta{}
 
 	case *github.PullRequestEvent:
 		switch event.GetAction() {
 		case "opened":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
-				return nil
+				return nil, GitHubMeta{}
 			}
 			senderLogin := event.Sender.GetLogin()
 			number := event.PullRequest.GetNumber()
@@ -360,18 +355,17 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				// model.RoutingKey reduces this PR URL to the canonical /pull/N,
 				// matching the link the agent created when it opened the PR.
 				URL: *event.PullRequest.HTMLURL,
-				Meta: GitHubMeta{
-					AuthorID:       *event.Sender.ID,
-					AuthorLogin:    senderLogin,
-					InstallationID: event.GetInstallation().GetID(),
-					NodeID:         event.GetPullRequest().GetNodeID(),
-				},
-			}}
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetPullRequest().GetNodeID(),
+			}
 		case "assigned":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Assignee == nil || event.Assignee.Login == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
-				return nil
+				return nil, GitHubMeta{}
 			}
 			senderLogin := event.Sender.GetLogin()
 			assigneeLogin := event.Assignee.GetLogin()
@@ -383,18 +377,17 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				URL:         *event.PullRequest.HTMLURL,
 				Attrs:       eventrouter.Attrs{"assignee": {assigneeLogin}, "user": {senderLogin}},
-				Meta: GitHubMeta{
-					AuthorID:       *event.Sender.ID,
-					AuthorLogin:    senderLogin,
-					InstallationID: event.GetInstallation().GetID(),
-					NodeID:         event.GetPullRequest().GetNodeID(),
-				},
-			}}
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetPullRequest().GetNodeID(),
+			}
 		case "labeled":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Label == nil || event.Label.Name == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
-				return nil
+				return nil, GitHubMeta{}
 			}
 			senderLogin := event.Sender.GetLogin()
 			label := event.Label.GetName()
@@ -408,17 +401,16 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				Attrs:       eventrouter.Attrs{"label": {label}, "user": {senderLogin}},
 				URL:         *event.PullRequest.HTMLURL,
-				Meta: GitHubMeta{
-					AuthorID:       *event.Sender.ID,
-					AuthorLogin:    senderLogin,
-					InstallationID: event.GetInstallation().GetID(),
-					NodeID:         event.GetPullRequest().GetNodeID(),
-				},
-			}}
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetPullRequest().GetNodeID(),
+			}
 		case "closed":
 			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
 				event.Sender == nil || event.Sender.ID == nil {
-				return nil
+				return nil, GitHubMeta{}
 			}
 			senderLogin := event.Sender.GetLogin()
 			number := event.PullRequest.GetNumber()
@@ -437,15 +429,14 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				// model.RoutingKey reduces this PR URL to the canonical /pull/N,
 				// matching the link the agent created when it opened the PR.
 				URL: *event.PullRequest.HTMLURL,
-				Meta: GitHubMeta{
-					AuthorID:       *event.Sender.ID,
-					AuthorLogin:    senderLogin,
-					InstallationID: event.GetInstallation().GetID(),
-					NodeID:         event.GetPullRequest().GetNodeID(),
-				},
-			}}
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetPullRequest().GetNodeID(),
+			}
 		}
-		return nil
+		return nil, GitHubMeta{}
 
 	case *github.PushEvent:
 		branch, ok := strings.CutPrefix(event.GetRef(), "refs/heads/")
@@ -453,7 +444,7 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 			event.HeadCommit == nil || event.HeadCommit.URL == nil ||
 			event.Repo == nil || event.Repo.FullName == nil ||
 			event.Sender == nil || event.Sender.ID == nil {
-			return nil // tag push, branch deletion, or malformed payload
+			return nil, GitHubMeta{} // tag push, branch deletion, or malformed payload
 		}
 		senderLogin := event.Sender.GetLogin()
 		repo := *event.Repo.FullName
@@ -502,14 +493,13 @@ func toInputEvents(webhookEvent any) []eventrouter.InputEvent {
 				"forced":  strconv.FormatBool(event.GetForced()),
 				"commits": strconv.Itoa(len(event.Commits)),
 			},
+		}}, GitHubMeta{
+			AuthorID:       *event.Sender.ID,
+			AuthorLogin:    senderLogin,
+			InstallationID: event.GetInstallation().GetID(),
 			// A push has no reactable node.
-			Meta: GitHubMeta{
-				AuthorID:       *event.Sender.ID,
-				AuthorLogin:    senderLogin,
-				InstallationID: event.GetInstallation().GetID(),
-			},
-		}}
+		}
 	}
 
-	return nil
+	return nil, GitHubMeta{}
 }
