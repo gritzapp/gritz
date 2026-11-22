@@ -1,5 +1,22 @@
 # Changelog
 
+## [4.11.0](https://github.com/gritzapp/gritz/compare/v4.10.0...v4.11.0) (2026-11-21)
+
+
+### Features
+
+* **agent:** add gritzrpc agent type ([#2349](https://github.com/gritzapp/gritz/issues/2349)) ([8dcf5a1](https://github.com/gritzapp/gritz/commit/8dcf5a14d5eb84857b2dbf09595b6403edb4ce50))
+* **agent:** add gritzrpc wire package ([#2346](https://github.com/gritzapp/gritz/issues/2346)) ([e26df4d](https://github.com/gritzapp/gritz/commit/e26df4d404729067c25d467468aade7139494410))
+* **workspace:** configure the gritzrpc agent type ([#2350](https://github.com/gritzapp/gritz/issues/2350)) ([0e5a614](https://github.com/gritzapp/gritz/commit/0e5a614a1db4c7be2dae1db696c4f21386724776))
+
+
+### Miscellaneous
+
+* **agent:** widen Agent.Prompt to take a Turn ([#2345](https://github.com/gritzapp/gritz/issues/2345)) ([cf2130e](https://github.com/gritzapp/gritz/commit/cf2130e4b40db0e7bff478afe8eb812e2f5d7369))
+* document the gritzrpc agent type ([#2351](https://github.com/gritzapp/gritz/issues/2351)) ([4b51e2c](https://github.com/gritzapp/gritz/commit/4b51e2ce262b3102651969373e801714804e9a3f))
+* generate docs from push events instead of in code PRs ([#2352](https://github.com/gritzapp/gritz/issues/2352)) ([17b7c36](https://github.com/gritzapp/gritz/commit/17b7c3658ad7e470c04a8a286c9acb471ccbbc05))
+* **skills:** add a release-notes skill ([#2337](https://github.com/gritzapp/gritz/issues/2337)) ([60e47c2](https://github.com/gritzapp/gritz/commit/60e47c2ccb446917da417f6daf8d0fb9545b887b))
+
 ## [4.10.0](https://github.com/gritzapp/gritz/compare/v4.9.0...v4.10.0) (2026-11-21)
 
 
