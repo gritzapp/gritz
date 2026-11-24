@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { AuthTransport, NO_ORG } from './transport'
@@ -55,5 +55,20 @@ describe('AuthTransport', () => {
     expect(token).toBe('tok-default')
     expect(transport.getOrgId()).toBe('7')
     expect(transport.getOrgId()).not.toBe(NO_ORG)
+  })
+
+  it('keeps the org and reloads the page when the session expired', async () => {
+    localStorage.setItem('gritz_org_id', '5')
+    localStorage.setItem('gritz_token', 'tok-stale')
+    const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
+
+    server.use(http.get('/auth/token', () => new HttpResponse(null, { status: 401 })))
+
+    const transport = new AuthTransport('client-abc')
+    await expect(transport.fetchToken()).rejects.toThrow('session expired')
+
+    expect(reload).toHaveBeenCalledOnce()
+    expect(transport.getOrgId()).toBe('5')
+    expect(transport.getToken()).toBeNull()
   })
 })
