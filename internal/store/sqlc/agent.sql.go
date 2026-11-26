@@ -67,16 +67,16 @@ func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) (int64
 const getAgent = `-- name: GetAgent :one
 SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at
 FROM agents
-WHERE org_id = $1 AND name = $2
+WHERE org_id = $1 AND id = $2
 `
 
 type GetAgentParams struct {
-	OrgID int64  `json:"org_id"`
-	Name  string `json:"name"`
+	OrgID int64 `json:"org_id"`
+	ID    int64 `json:"id"`
 }
 
 func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, error) {
-	row := q.db.QueryRowContext(ctx, getAgent, arg.OrgID, arg.Name)
+	row := q.db.QueryRowContext(ctx, getAgent, arg.OrgID, arg.ID)
 	var i Agent
 	err := row.Scan(
 		&i.ID,
@@ -99,7 +99,7 @@ const listAgentsForOrgs = `-- name: ListAgentsForOrgs :many
 SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at
 FROM agents
 WHERE org_id = ANY($1::BIGINT[])
-ORDER BY org_id, name
+ORDER BY org_id, name, id
 `
 
 func (q *Queries) ListAgentsForOrgs(ctx context.Context, orgIds []int64) ([]Agent, error) {

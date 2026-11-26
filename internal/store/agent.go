@@ -35,17 +35,17 @@ func (s *Store) CreateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 	return nil
 }
 
-// GetAgent returns the org's agent by name, or sql.ErrNoRows.
-func (s *Store) GetAgent(ctx context.Context, tx *sql.Tx, orgID int64, name string) (*model.Agent, error) {
-	row, err := s.q(tx).GetAgent(ctx, sqlc.GetAgentParams{OrgID: orgID, Name: name})
+// GetAgent returns the org's agent by ID, or sql.ErrNoRows.
+func (s *Store) GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error) {
+	row, err := s.q(tx).GetAgent(ctx, sqlc.GetAgentParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return nil, err
 	}
 	return toModelAgent(row)
 }
 
-// ListAgentsForOrgs returns the agents of every org in orgIDs, ordered by org
-// and name.
+// ListAgentsForOrgs returns the agents of every org in orgIDs, ordered by org,
+// name and ID.
 func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int64) ([]*model.Agent, error) {
 	rows, err := s.q(tx).ListAgentsForOrgs(ctx, orgIDs)
 	if err != nil {

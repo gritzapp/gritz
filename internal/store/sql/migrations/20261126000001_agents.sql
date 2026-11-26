@@ -13,9 +13,10 @@ CREATE TABLE agents (
     triggers     jsonb NOT NULL DEFAULT '[]',
     links        jsonb NOT NULL DEFAULT '[]',
     created_at   timestamptz NOT NULL DEFAULT now(),
-    updated_at   timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (org_id, name)
+    updated_at   timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_agents_org_id ON agents (org_id);
 
 -- migrate:down
 

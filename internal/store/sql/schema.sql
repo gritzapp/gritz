@@ -430,14 +430,6 @@ ALTER TABLE ONLY public.workspaces ALTER COLUMN id SET DEFAULT nextval('public.w
 
 
 --
--- Name: agents agents_org_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.agents
-    ADD CONSTRAINT agents_org_id_name_key UNIQUE (org_id, name);
-
-
---
 -- Name: agents agents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -531,6 +523,13 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.workspaces
     ADD CONSTRAINT workspaces_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: idx_agents_org_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_agents_org_id ON public.agents USING btree (org_id);
 
 
 --

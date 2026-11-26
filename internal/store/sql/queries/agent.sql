@@ -6,13 +6,13 @@ RETURNING id;
 -- name: GetAgent :one
 SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at
 FROM agents
-WHERE org_id = $1 AND name = $2;
+WHERE org_id = $1 AND id = $2;
 
 -- name: ListAgentsForOrgs :many
 SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at
 FROM agents
 WHERE org_id = ANY(sqlc.arg(org_ids)::BIGINT[])
-ORDER BY org_id, name;
+ORDER BY org_id, name, id;
 
 -- name: UpdateAgent :execrows
 UPDATE agents
