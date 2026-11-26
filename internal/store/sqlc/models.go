@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+type Agent struct {
+	ID          int64           `json:"id"`
+	OrgID       int64           `json:"org_id"`
+	Name        string          `json:"name"`
+	Workspace   string          `json:"workspace"`
+	Runner      string          `json:"runner"`
+	Prompt      string          `json:"prompt"`
+	AutoArchive int64           `json:"auto_archive"`
+	Variables   json.RawMessage `json:"variables"`
+	Triggers    json.RawMessage `json:"triggers"`
+	Links       json.RawMessage `json:"links"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
 type Event struct {
 	ID        int64           `json:"id"`
 	OrgID     int64           `json:"org_id"`
