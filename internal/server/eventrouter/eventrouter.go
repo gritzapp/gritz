@@ -160,21 +160,8 @@ type Router struct {
 //
 // Scoping the result to a single org (e.g. the test path's caller.OrgID) is
 // the caller's job, done by filtering the returned plan.
-//
-// Plan reads one snapshot, so every subscribed link it finds belongs to a task
-// of an agent it loaded.
 func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
-	var plan *Plan
-	err := r.Store.WithSnapshot(ctx, func(tx *sql.Tx) error {
-		var err error
-		plan, err = r.plan(ctx, tx, input)
-		return err
-	})
-	return plan, err
-}
-
-func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan, error) {
-	orgs, err := r.Store.ListEventOrgs(ctx, tx, input.UserID, input.Orgs)
+	orgs, err := r.Store.ListEventOrgs(ctx, nil, input.UserID, input.Orgs)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +175,7 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 		orgIDs = append(orgIDs, org.OrgID)
 		member[org.OrgID] = org.IsMember
 	}
-	agents, err := r.Store.ListAgentsForOrgs(ctx, tx, orgIDs)
+	agents, err := r.Store.ListAgentsForOrgs(ctx, nil, orgIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +183,7 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 	for _, agent := range agents {
 		agentByID[agent.ID] = agent
 	}
-	defs, err := r.eventTypes(ctx, tx, input, orgIDs)
+	defs, err := r.eventTypes(ctx, input, orgIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +211,7 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 	// triggers yield to, whether or not they deliver this event.
 	linksByOrg := map[int64][]store.SubscribedLink{}
 	for _, url := range urls {
-		links, err := r.Store.FindSubscribedLinks(ctx, tx, url, orgsByURL[url])
+		links, err := r.Store.FindSubscribedLinks(ctx, nil, url, orgsByURL[url])
 		if err != nil {
 			return nil, err
 		}
@@ -234,11 +221,11 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 			if delivered[link.Link.TaskID] {
 				continue
 			}
-			// Unarchiving a task of a deleted agent fails, so every unarchived
-			// task's agent is live.
+			// An unarchived task's agent is live, but an agent and its task
+			// can be created between the agents read and the links read.
 			agent, ok := agentByID[link.AgentID]
 			if !ok {
-				panic(fmt.Sprintf("eventrouter: unarchived task %d belongs to agent %d, which isn't a live agent of org %d", link.Link.TaskID, link.AgentID, link.OrgID))
+				continue
 			}
 			// The kind is gone when its agent dropped it since.
 			kind, ok := agent.Link(link.Link.Kind)
@@ -299,7 +286,7 @@ func claimHolders(links []store.SubscribedLink, claims []string) []int64 {
 // eventTypes returns the event's type in each of orgIDs: the registry's for a
 // built-in source, and each org's own for a custom one. An org with no such
 // type is left out.
-func (r *Router) eventTypes(ctx context.Context, tx *sql.Tx, input InputEvent, orgIDs []int64) (map[int64]model.EventTypeDef, error) {
+func (r *Router) eventTypes(ctx context.Context, input InputEvent, orgIDs []int64) (map[int64]model.EventTypeDef, error) {
 	defs := map[int64]model.EventTypeDef{}
 	if input.Source != SourceCustom {
 		if def, ok := r.Registry.EventTypeFor(input.Source, input.Type); ok {
@@ -310,7 +297,7 @@ func (r *Router) eventTypes(ctx context.Context, tx *sql.Tx, input InputEvent, o
 		return defs, nil
 	}
 	for _, orgID := range orgIDs {
-		custom, err := r.Store.GetOrgCustomEventTypes(ctx, tx, orgID)
+		custom, err := r.Store.GetOrgCustomEventTypes(ctx, nil, orgID)
 		if err != nil {
 			return nil, err
 		}
