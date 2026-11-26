@@ -5,75 +5,9 @@ import (
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/model"
-	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
-
-func TestListEventOrgs(t *testing.T) {
-	t.Parallel()
-	// Arrange: a member org (the actor belongs to it) and a distinct org the
-	// actor is NOT a member of.
-	s := teststore.New(t)
-	memberOrg := teststore.CreateOrg(t, s, nil)
-	nonMemberOrg := teststore.CreateOrg(t, s, nil)
-
-	// Act
-	result, err := s.ListEventOrgs(t.Context(), nil, memberOrg.UserID, []int64{nonMemberOrg.OrgID})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.DeepEqual(t, result, []store.EventOrg{
-		{OrgID: memberOrg.OrgID, IsMember: true},
-		{OrgID: nonMemberOrg.OrgID, IsMember: false},
-	})
-}
-
-func TestListEventOrgsMembershipWins(t *testing.T) {
-	t.Parallel()
-	// Arrange: an org the actor is a member of, also named in the passed orgs.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-
-	// Act
-	result, err := s.ListEventOrgs(t.Context(), nil, org.UserID, []int64{org.OrgID})
-
-	// Assert: the overlapping org is returned exactly once, from the member branch.
-	assert.NilError(t, err)
-	assert.DeepEqual(t, result, []store.EventOrg{{OrgID: org.OrgID, IsMember: true}})
-}
-
-func TestListEventOrgsExcludesArchived(t *testing.T) {
-	t.Parallel()
-	// Arrange: an archived member org and an archived non-member org.
-	s := teststore.New(t)
-	memberOrg := teststore.CreateOrg(t, s, nil)
-	assert.NilError(t, s.ArchiveOrg(t.Context(), nil, memberOrg.OrgID))
-	nonMemberOrg := teststore.CreateOrg(t, s, nil)
-	assert.NilError(t, s.ArchiveOrg(t.Context(), nil, nonMemberOrg.OrgID))
-
-	// Act
-	result, err := s.ListEventOrgs(t.Context(), nil, memberOrg.UserID, []int64{nonMemberOrg.OrgID})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(result, 0))
-}
-
-func TestListEventOrgsEmptyUser(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-
-	// Act: an empty user id yields just the non-member branch.
-	result, err := s.ListEventOrgs(t.Context(), nil, "", []int64{org.OrgID})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.DeepEqual(t, result, []store.EventOrg{{OrgID: org.OrgID, IsMember: false}})
-}
 
 func TestListOrgIDsByGitHubInstallation(t *testing.T) {
 	t.Parallel()

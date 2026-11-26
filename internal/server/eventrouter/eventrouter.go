@@ -145,8 +145,8 @@ type Router struct {
 	OnRouteOutcome func(ctx context.Context, outcome RouteOutcome)
 }
 
-// Plan routes the event without side effects, in every org it belongs to (see
-// store.ListEventOrgs):
+// Plan routes the event without side effects, in every org it belongs to that
+// has a live agent (see store.ListAgentsForEvent):
 //
 //   - Delivery: the subscribed links on the event's resource — the canonical
 //     URL its event type's link types give it — whose kind, on the task's
@@ -161,27 +161,27 @@ type Router struct {
 // Scoping the result to a single org (e.g. the test path's caller.OrgID) is
 // the caller's job, done by filtering the returned plan.
 func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
-	orgs, err := r.Store.ListEventOrgs(ctx, nil, input.UserID, input.Orgs)
+	// An org with no live agent has no unarchived task either, so nothing
+	// routes there.
+	eventAgents, err := r.Store.ListAgentsForEvent(ctx, nil, input.UserID, input.Orgs)
 	if err != nil {
 		return nil, err
 	}
 	plan := &Plan{}
-	if len(orgs) == 0 {
+	if len(eventAgents) == 0 {
 		return plan, nil
 	}
+	var agents []*model.Agent
 	var orgIDs []int64
 	member := map[int64]bool{}
-	for _, org := range orgs {
-		orgIDs = append(orgIDs, org.OrgID)
-		member[org.OrgID] = org.IsMember
-	}
-	agents, err := r.Store.ListAgentsForOrgs(ctx, nil, orgIDs)
-	if err != nil {
-		return nil, err
-	}
 	agentByID := map[int64]*model.Agent{}
-	for _, agent := range agents {
-		agentByID[agent.ID] = agent
+	for _, ea := range eventAgents {
+		agents = append(agents, ea.Agent)
+		agentByID[ea.Agent.ID] = ea.Agent
+		if _, seen := member[ea.Agent.OrgID]; !seen {
+			orgIDs = append(orgIDs, ea.Agent.OrgID)
+		}
+		member[ea.Agent.OrgID] = ea.IsMember
 	}
 	defs, err := r.eventTypes(ctx, input, orgIDs)
 	if err != nil {

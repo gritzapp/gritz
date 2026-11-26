@@ -64,6 +64,53 @@ func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int6
 	return agents, nil
 }
 
+// EventAgent is a live agent of an org an event routes in, and whether the
+// routing actor is a member of that org. A non-member org admits only public
+// triggers and link kinds.
+type EventAgent struct {
+	Agent    *model.Agent
+	IsMember bool
+}
+
+// ListAgentsForEvent returns the live agents of every org an event of the
+// actor userID routes in, ordered by org, name and ID. Those orgs are every
+// org the user is a member of (IsMember true), and the passed-in orgs the user
+// is NOT a member of (IsMember false). Membership wins on overlap. An empty
+// orgs slice reduces this to the member orgs, and an empty userID to the
+// passed-in ones. An org with no live agent has no rows.
+func (s *Store) ListAgentsForEvent(ctx context.Context, tx *sql.Tx, userID string, orgs []int64) ([]EventAgent, error) {
+	rows, err := s.q(tx).ListAgentsForEvent(ctx, sqlc.ListAgentsForEventParams{
+		UserID: userID,
+		OrgIds: orgs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var agents []EventAgent
+	for _, row := range rows {
+		a, err := toModelAgent(sqlc.Agent{
+			ID:          row.ID,
+			OrgID:       row.OrgID,
+			Name:        row.Name,
+			Workspace:   row.Workspace,
+			Runner:      row.Runner,
+			Prompt:      row.Prompt,
+			AutoArchive: row.AutoArchive,
+			Variables:   row.Variables,
+			Triggers:    row.Triggers,
+			Links:       row.Links,
+			CreatedAt:   row.CreatedAt,
+			UpdatedAt:   row.UpdatedAt,
+			DeletedAt:   row.DeletedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, EventAgent{Agent: a, IsMember: row.IsMember})
+	}
+	return agents, nil
+}
+
 // UpdateAgent replaces the stored agent with a, matched by a.ID and a.OrgID.
 // It returns sql.ErrNoRows when it is deleted or the org has none.
 func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) error {

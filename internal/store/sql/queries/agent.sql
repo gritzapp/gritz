@@ -22,6 +22,35 @@ FROM agents
 WHERE org_id = ANY(sqlc.arg(org_ids)::BIGINT[]) AND deleted_at IS NULL
 ORDER BY org_id, name, id;
 
+-- name: ListAgentsForEvent :many
+-- The live agents of every org an event routes in, with whether the actor is
+-- a member of the org. Member orgs (joined via org_members) have is_member =
+-- TRUE. The orgs in org_ids (the event's orgs) that the actor is NOT a member
+-- of have is_member = FALSE; the caller admits only public triggers and link
+-- kinds in them. Membership wins on overlap (the NOT EXISTS drops a passed org
+-- the actor already belongs to). An empty org_ids reduces this to the member
+-- orgs; an empty user_id yields just the non-member branch.
+WITH event_orgs AS (
+    SELECT o.id, TRUE::boolean AS is_member
+    FROM orgs o
+    JOIN org_members m ON m.org_id = o.id
+    WHERE m.user_id = sqlc.arg(user_id) AND o.archived = FALSE
+    UNION
+    SELECT o.id, FALSE::boolean AS is_member
+    FROM orgs o
+    WHERE o.id = ANY(sqlc.arg(org_ids)::BIGINT[])
+      AND o.archived = FALSE
+      AND NOT EXISTS (
+          SELECT 1 FROM org_members m
+          WHERE m.org_id = o.id AND m.user_id = sqlc.arg(user_id)
+      )
+)
+SELECT a.id, a.org_id, a.name, a.workspace, a.runner, a.prompt, a.auto_archive, a.variables, a.triggers, a.links, a.created_at, a.updated_at, a.deleted_at, e.is_member
+FROM agents a
+JOIN event_orgs e ON e.id = a.org_id
+WHERE a.deleted_at IS NULL
+ORDER BY a.org_id, a.name, a.id;
+
 -- name: UpdateAgent :execrows
 UPDATE agents
 SET name = $1, workspace = $2, runner = $3, prompt = $4, auto_archive = $5,

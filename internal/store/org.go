@@ -232,32 +232,3 @@ func (s *Store) SetOrgCustomEventTypes(ctx context.Context, tx *sql.Tx, orgID in
 		CustomEventTypes: data,
 	})
 }
-
-// EventOrg is an org an event routes in, and whether the routing actor is a
-// member of it. A non-member org (IsMember == false) admits only public
-// triggers and link kinds.
-type EventOrg struct {
-	OrgID    int64
-	IsMember bool
-}
-
-// ListEventOrgs returns the orgs an event of the actor userID routes in,
-// ordered by ID. It unions two sources: every org the user is a member of
-// (IsMember == true), and the passed-in orgs the user is NOT a member of
-// (IsMember == false). Membership wins on overlap — an org the user belongs to
-// is returned once, from the member branch. An empty orgs slice reduces this
-// to the member orgs.
-func (s *Store) ListEventOrgs(ctx context.Context, tx *sql.Tx, userID string, orgs []int64) ([]EventOrg, error) {
-	rows, err := s.q(tx).ListEventOrgs(ctx, sqlc.ListEventOrgsParams{
-		UserID: userID,
-		OrgIds: orgs,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var result []EventOrg
-	for _, row := range rows {
-		result = append(result, EventOrg{OrgID: row.ID, IsMember: row.IsMember})
-	}
-	return result, nil
-}
