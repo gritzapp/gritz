@@ -93,7 +93,7 @@ When a trigger matches, the router creates a task from the agent's template, wit
 - `claim` is stamped on every link of this kind.
 - `public` (per kind, as on triggers) allows delivery of events from actors who aren't org members.
 
-`create_link` takes a `kind`. A subscribed link must name one of the task's agent's kinds, and its URL must be accepted by the kind's type; the stored URL is the canonical one. A link with `subscribe=false` is a plain reference: it takes no kind, and its URL is stored as given.
+`create_link` takes an optional `kind` in place of `subscribe`. A link with a kind is subscribed: the kind must be one of the task's agent's kinds, and the URL must be accepted by the kind's type; the stored URL is the canonical one. A link without a kind is a plain reference: it receives no events, and its URL is stored as given.
 
 An event is delivered to a subscribed link when the event's canonical URL equals the link's URL, the event type is listed by the link's kind, and admission passes. Delivery always wakes the task. Each matching task receives the event once, however many of its links match.
 
@@ -162,7 +162,8 @@ ALTER TABLE tasks DROP COLUMN namespace;
 ALTER TABLE task_links ADD COLUMN kind text;   -- NULL for plain reference links
 ALTER TABLE task_links ADD COLUMN claim text;
 ALTER TABLE task_links DROP COLUMN routing_key;
-CREATE INDEX task_links_subscribed ON task_links (url) WHERE subscribe;
+ALTER TABLE task_links DROP COLUMN subscribe;   -- a link is subscribed when it has a kind
+CREATE INDEX task_links_subscribed ON task_links (url) WHERE kind IS NOT NULL;
 
 ALTER TABLE schedules ADD COLUMN agent_id bigint REFERENCES agents(id);
 ALTER TABLE schedules DROP COLUMN workspace, DROP COLUMN runner, DROP COLUMN namespace,
@@ -173,21 +174,21 @@ ALTER TABLE orgs DROP COLUMN routing_rules;
 
 The task keeps its own `workspace`, `runner`, `auto_archive` and `variables`, copied from the agent at creation, so editing an agent doesn't move running tasks. The link's `claim` is copied from its kind at creation so the yield lookup is a plain indexed query; which events a link receives is read from the agent's current kind at routing time.
 
-At the cutover the migration creates an agent named `default` per org with no triggers or links, assigns every existing task to it, and then sets `tasks.agent_id` `NOT NULL`. Existing subscribed links have no kind and stop receiving events. Existing schedules are pointed at their org's `default` agent and `schedules.agent_id` is set `NOT NULL`; their workspace, runner and other template fields are lost, so they must be repointed at a real agent. Routing rules are dropped and must be recreated as agents.
+At the cutover the migration creates an agent named `default` per org with no triggers or links, assigns every existing task to it, and then sets `tasks.agent_id` `NOT NULL`. Existing links get no kind, so they become plain references and stop receiving events. Existing schedules are pointed at their org's `default` agent and `schedules.agent_id` is set `NOT NULL`; their workspace, runner and other template fields are lost, so they must be repointed at a real agent. Routing rules are dropped and must be recreated as agents.
 
 ### Router
 
 `Router.Plan` and `Router.Apply` keep their split (the test-event path needs a side-effect-free plan) but change shape:
 
 1. **Admission.** For each org in `input.Orgs`, note whether the actor is a member, as today.
-2. **Delivery.** Compute the event's canonical URL per link type. Find subscribed links with that URL in those orgs, joined to their task's agent. Keep a link when its kind lists the event type and (the actor is a member or the kind is public). Attach the event to each distinct task, waking it.
+2. **Delivery.** Compute the event's canonical URL per link type. Find links with a kind and that URL in those orgs, joined to their task's agent. Keep a link when its kind lists the event type and (the actor is a member or the kind is public). Attach the event to each distinct task, waking it.
 3. **Triggers.** For each agent in each org, take its first trigger that matches (selector, conditions, public). If the trigger has `yield_to`, look up unarchived tasks holding one of those claims on the event's canonical URL; if any, record the yield and stop. Otherwise create a task of the agent, attach the event, and create the trigger's link.
 
 There is no rule order across agents and no first match across the org.
 
 ### Agent tools
 
-- `create_link` gains `kind`, required when `subscribe` is true. The error for an unknown kind lists the agent's kinds.
+- `create_link` replaces `subscribe` with an optional `kind`. The error for an unknown kind lists the agent's kinds.
 - The first-run brief renders the agent's link kinds (kind, type, claim) so the agent knows what to pass.
 
 ### Proto
@@ -242,7 +243,7 @@ Changed messages:
 
 - `CreateTaskRequest`: `agent` (name) replaces `workspace`, `runner`, `auto_archive`, `namespace` and `variables`.
 - `Task`: `agent` added, `namespace` removed.
-- `CreateLinkRequest`, `TaskLink`: `kind` and `claim` added; `routing_key` removed.
+- `CreateLinkRequest`, `TaskLink`: `kind` and `claim` added; `subscribe` and `routing_key` removed.
 - `Schedule`, `CreateScheduleRequest`, `UpdateScheduleRequest`: `agent` replaces the template fields.
 - `EventTypeDef`: `link_types` added. `GetEventTypesResponse` adds `repeated LinkTypeDef link_types`.
 - `TestEventMatch` is replaced by per-agent results: the agent, the trigger index, whether it created or yielded (with the holding task IDs), and the tasks the event was delivered to with the link kind that matched.
@@ -314,9 +315,9 @@ type EventTypeDef struct {
 
 type Link struct {
 	// ...
-	Kind  string // new
+	Kind  string // new: empty for a plain reference link
 	Claim string // new
-	// removed: RoutingKey, Namespace
+	// removed: Subscribe, RoutingKey, Namespace
 }
 
 type Task struct {
@@ -393,7 +394,7 @@ func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 // DeleteAgent removes the org's agent. // new
 func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 
-// FindSubscribedLinks returns subscribed links on url in orgIDs, with their task's agent. // changed (was FindSubscribedLinksForOrgs, keyed by routing key)
+// FindSubscribedLinks returns links with a kind on url in orgIDs, with their task's agent. // changed (was FindSubscribedLinksForOrgs, keyed by routing key)
 func (s *Store) FindSubscribedLinks(ctx context.Context, tx *sql.Tx, url string, orgIDs []int64) ([]*LinkWithAgent, error)
 
 // FindClaimHolders returns unarchived tasks in orgID holding one of claims on url. // new
