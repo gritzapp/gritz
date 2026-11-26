@@ -5,6 +5,8 @@ description: "Tasks cannot emit events, subscribe to anything but a resource URL
 
 Issue: https://github.com/gritzapp/gritz/issues/2203
 
+> **Status: rejected.** Superseded by [Agents](/proposals/draft/agents/).
+
 ## Problem
 
 The issue describes a coordination model: a workflow declares triggers and agents, an agent declares subscriptions and link types, and tasks talk to each other by emitting events on a bus. It is a model, not a design. This proposal is the design: what is stored, what the API looks like, and how the router changes.

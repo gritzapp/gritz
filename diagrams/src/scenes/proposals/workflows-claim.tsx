@@ -4,7 +4,7 @@ import {hideTask, workflowsLayout} from '../../layouts/workflows';
 import {Colors} from '../../theme';
 
 // A trigger yields to a claim, traced from
-// docs/src/content/docs/proposals/draft/event-workflows.md (Claims, Publish
+// docs/src/content/docs/proposals/rejected/event-workflows.md (Claims, Publish
 // steps 1-7, CloseWorkflowInstance under Starting and closing an instance): a
 // bot mention on a pull request an implementer holds goes to the implementer
 // alone, a mention on an unowned pull request starts a responder, and closing
