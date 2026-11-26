@@ -203,7 +203,6 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 
 	// The event's resource per org: an org's custom event type can differ from
 	// another's. Orgs sharing a resource share a link lookup.
-	resource := map[int64]string{}
 	var urls []string
 	orgsByURL := map[string][]int64{}
 	for _, orgID := range orgIDs {
@@ -215,13 +214,15 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 		if !ok {
 			continue
 		}
-		resource[orgID] = url
 		if _, seen := orgsByURL[url]; !seen {
 			urls = append(urls, url)
 		}
 		orgsByURL[url] = append(orgsByURL[url], orgID)
 	}
 
+	// Every subscribed link on the resource, by org. They hold the claims
+	// triggers yield to, whether or not they deliver this event.
+	linksByOrg := map[int64][]store.SubscribedLink{}
 	for _, url := range urls {
 		links, err := r.Store.FindSubscribedLinks(ctx, tx, url, orgsByURL[url])
 		if err != nil {
@@ -229,6 +230,7 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 		}
 		delivered := map[int64]bool{}
 		for _, link := range links {
+			linksByOrg[link.OrgID] = append(linksByOrg[link.OrgID], link)
 			if delivered[link.Link.TaskID] {
 				continue
 			}
@@ -271,17 +273,27 @@ func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan,
 				continue
 			}
 			match := TriggerMatch{OrgID: agent.OrgID, Agent: agent, TriggerIndex: i}
-			if url, ok := resource[agent.OrgID]; ok && len(trigger.YieldTo) > 0 {
-				match.YieldedTo, err = r.Store.FindClaimHolders(ctx, tx, agent.OrgID, url, trigger.YieldTo)
-				if err != nil {
-					return nil, err
-				}
+			if len(trigger.YieldTo) > 0 {
+				match.YieldedTo = claimHolders(linksByOrg[agent.OrgID], trigger.YieldTo)
 			}
 			plan.Triggers = append(plan.Triggers, match)
 			break
 		}
 	}
 	return plan, nil
+}
+
+// claimHolders returns the distinct tasks, in ascending order, of the links
+// whose claim is one of claims.
+func claimHolders(links []store.SubscribedLink, claims []string) []int64 {
+	var holders []int64
+	for _, link := range links {
+		if slices.Contains(claims, link.Link.Claim) {
+			holders = append(holders, link.Link.TaskID)
+		}
+	}
+	slices.Sort(holders)
+	return slices.Compact(holders)
 }
 
 // eventTypes returns the event's type in each of orgIDs: the registry's for a

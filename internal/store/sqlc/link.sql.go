@@ -52,45 +52,6 @@ func (q *Queries) DeleteLink(ctx context.Context, id int64) error {
 	return err
 }
 
-const findClaimHolders = `-- name: FindClaimHolders :many
-SELECT DISTINCT t.id
-FROM task_links l
-JOIN tasks t ON l.task_id = t.id
-WHERE l.url = $1 AND l.kind <> '' AND t.archived = FALSE
-  AND t.org_id = $2
-  AND l.claim = ANY($3::TEXT[])
-ORDER BY t.id
-`
-
-type FindClaimHoldersParams struct {
-	Url    string   `json:"url"`
-	OrgID  int64    `json:"org_id"`
-	Claims []string `json:"claims"`
-}
-
-func (q *Queries) FindClaimHolders(ctx context.Context, arg FindClaimHoldersParams) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, findClaimHolders, arg.Url, arg.OrgID, pq.Array(arg.Claims))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []int64{}
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const findSubscribedLinks = `-- name: FindSubscribedLinks :many
 SELECT l.id, l.task_id, l.relevance, l.url, l.title, l.created_at, l.kind, l.claim, t.org_id, t.agent_id
 FROM task_links l

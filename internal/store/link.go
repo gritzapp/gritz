@@ -81,17 +81,6 @@ func (s *Store) FindSubscribedLinks(ctx context.Context, tx *sql.Tx, url string,
 	return links, nil
 }
 
-// FindClaimHolders returns the IDs of the unarchived tasks in orgID holding
-// one of claims on url: those with a subscribed link to url whose claim is one
-// of claims, in ID order.
-func (s *Store) FindClaimHolders(ctx context.Context, tx *sql.Tx, orgID int64, url string, claims []string) ([]int64, error) {
-	return s.q(tx).FindClaimHolders(ctx, sqlc.FindClaimHoldersParams{
-		Url:    url,
-		OrgID:  orgID,
-		Claims: claims,
-	})
-}
-
 func toModelLink(row sqlc.TaskLink) *model.Link {
 	return &model.Link{
 		ID:        row.ID,

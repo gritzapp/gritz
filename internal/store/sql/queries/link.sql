@@ -20,12 +20,3 @@ JOIN tasks t ON l.task_id = t.id
 WHERE l.url = sqlc.arg(url) AND l.kind <> '' AND t.archived = FALSE
   AND t.org_id = ANY(sqlc.arg(org_ids)::BIGINT[])
 ORDER BY t.org_id, l.task_id, l.id;
-
--- name: FindClaimHolders :many
-SELECT DISTINCT t.id
-FROM task_links l
-JOIN tasks t ON l.task_id = t.id
-WHERE l.url = sqlc.arg(url) AND l.kind <> '' AND t.archived = FALSE
-  AND t.org_id = sqlc.arg(org_id)
-  AND l.claim = ANY(sqlc.arg(claims)::TEXT[])
-ORDER BY t.id;
