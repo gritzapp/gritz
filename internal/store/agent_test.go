@@ -96,7 +96,7 @@ func TestDeleteAgent_Soft(t *testing.T) {
 	assert.NilError(t, err)
 	_, err = s.GetAgent(ctx, nil, org.OrgID, agent.ID)
 	assert.ErrorIs(t, err, sql.ErrNoRows)
-	agents, err := s.ListAgentsForOrgs(ctx, nil, []int64{org.OrgID})
+	agents, err := s.ListAgents(ctx, nil, org.OrgID)
 	assert.NilError(t, err)
 	assert.Assert(t, cmp.Len(agents, 0))
 	assert.ErrorIs(t, s.UpdateAgent(ctx, nil, agent), sql.ErrNoRows)
@@ -113,29 +113,27 @@ func TestDeleteAgent_Soft(t *testing.T) {
 	assert.Equal(t, got.AgentID, agent.ID)
 }
 
-func TestListAgentsForOrgs(t *testing.T) {
+func TestListAgents(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := teststore.New(t)
-	org1 := teststore.CreateOrg(t, s, nil)
-	org2 := teststore.CreateOrg(t, s, nil)
-	org3 := teststore.CreateOrg(t, s, nil)
+	org := teststore.CreateOrg(t, s, nil)
+	other := teststore.CreateOrg(t, s, nil)
 	ctx := t.Context()
-	b1 := &model.Agent{OrgID: org1.OrgID, Name: "b", Workspace: "w", Runner: "r"}
-	a1 := &model.Agent{OrgID: org1.OrgID, Name: "a", Workspace: "w", Runner: "r"}
-	a1Twin := &model.Agent{OrgID: org1.OrgID, Name: "a", Workspace: "w", Runner: "r"}
-	a2 := &model.Agent{OrgID: org2.OrgID, Name: "a", Workspace: "w", Runner: "r"}
-	a3 := &model.Agent{OrgID: org3.OrgID, Name: "a", Workspace: "w", Runner: "r"}
-	for _, a := range []*model.Agent{b1, a1, a1Twin, a2, a3} {
-		assert.NilError(t, s.CreateAgent(ctx, nil, a))
+	b := &model.Agent{OrgID: org.OrgID, Name: "b", Workspace: "w", Runner: "r"}
+	a := &model.Agent{OrgID: org.OrgID, Name: "a", Workspace: "w", Runner: "r"}
+	aTwin := &model.Agent{OrgID: org.OrgID, Name: "a", Workspace: "w", Runner: "r"}
+	elsewhere := &model.Agent{OrgID: other.OrgID, Name: "a", Workspace: "w", Runner: "r"}
+	for _, agent := range []*model.Agent{b, a, aTwin, elsewhere} {
+		assert.NilError(t, s.CreateAgent(ctx, nil, agent))
 	}
 
 	// Act
-	got, err := s.ListAgentsForOrgs(ctx, nil, []int64{org2.OrgID, org1.OrgID})
+	got, err := s.ListAgents(ctx, nil, org.OrgID)
 
-	// Assert - only the listed orgs, ordered by org, name and ID
+	// Assert - only the org's agents, ordered by name and ID
 	assert.NilError(t, err)
-	assert.DeepEqual(t, got, []*model.Agent{a1, a1Twin, b1, a2})
+	assert.DeepEqual(t, got, []*model.Agent{a, aTwin, b})
 }
 
 func TestGetAgent_OtherOrg(t *testing.T) {

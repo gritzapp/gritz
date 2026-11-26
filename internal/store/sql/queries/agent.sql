@@ -16,11 +16,11 @@ SELECT id FROM agents
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR SHARE;
 
--- name: ListAgentsForOrgs :many
+-- name: ListAgents :many
 SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
 FROM agents
-WHERE org_id = ANY(sqlc.arg(org_ids)::BIGINT[]) AND deleted_at IS NULL
-ORDER BY org_id, name, id;
+WHERE org_id = $1 AND deleted_at IS NULL
+ORDER BY name, id;
 
 -- name: ListAgentsForEvent :many
 -- The live agents of every org an event routes in, with whether the actor is

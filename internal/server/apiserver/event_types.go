@@ -73,7 +73,7 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 			return err
 		}
 		reg := eventrouter.DefaultSchemaRegistry.With(defs...)
-		agents, err := s.store.ListAgentsForOrgs(ctx, tx, []int64{caller.OrgID})
+		agents, err := s.store.ListAgents(ctx, tx, caller.OrgID)
 		if err != nil {
 			return err
 		}
@@ -205,7 +205,7 @@ func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (
 		plan = applied
 	}
 
-	agents, err := s.store.ListAgentsForOrgs(ctx, nil, []int64{caller.OrgID})
+	agents, err := s.store.ListAgents(ctx, nil, caller.OrgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

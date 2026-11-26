@@ -120,6 +120,50 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 	return i, err
 }
 
+const listAgents = `-- name: ListAgents :many
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
+FROM agents
+WHERE org_id = $1 AND deleted_at IS NULL
+ORDER BY name, id
+`
+
+func (q *Queries) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgents, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Agent{}
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Workspace,
+			&i.Runner,
+			&i.Prompt,
+			&i.AutoArchive,
+			&i.Variables,
+			&i.Triggers,
+			&i.Links,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentsForEvent = `-- name: ListAgentsForEvent :many
 WITH event_orgs AS (
     SELECT o.id, TRUE::boolean AS is_member
@@ -196,50 +240,6 @@ func (q *Queries) ListAgentsForEvent(ctx context.Context, arg ListAgentsForEvent
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.IsMember,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAgentsForOrgs = `-- name: ListAgentsForOrgs :many
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
-FROM agents
-WHERE org_id = ANY($1::BIGINT[]) AND deleted_at IS NULL
-ORDER BY org_id, name, id
-`
-
-func (q *Queries) ListAgentsForOrgs(ctx context.Context, orgIds []int64) ([]Agent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentsForOrgs, pq.Array(orgIds))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Agent{}
-	for rows.Next() {
-		var i Agent
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.Name,
-			&i.Workspace,
-			&i.Runner,
-			&i.Prompt,
-			&i.AutoArchive,
-			&i.Variables,
-			&i.Triggers,
-			&i.Links,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}

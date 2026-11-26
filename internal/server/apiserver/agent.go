@@ -74,7 +74,7 @@ func (s *Server) ListAgents(ctx context.Context, req *gritzv1.ListAgentsRequest)
 	if !caller.Scopes.Allow(authscope.OpOrgRead) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read org"))
 	}
-	agents, err := s.store.ListAgentsForOrgs(ctx, nil, []int64{caller.OrgID})
+	agents, err := s.store.ListAgents(ctx, nil, caller.OrgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

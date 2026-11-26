@@ -46,10 +46,9 @@ func (s *Store) GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*mod
 	return toModelAgent(row)
 }
 
-// ListAgentsForOrgs returns the live agents of every org in orgIDs, ordered
-// by org, name and ID.
-func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int64) ([]*model.Agent, error) {
-	rows, err := s.q(tx).ListAgentsForOrgs(ctx, orgIDs)
+// ListAgents returns the org's live agents, ordered by name and ID.
+func (s *Store) ListAgents(ctx context.Context, tx *sql.Tx, orgID int64) ([]*model.Agent, error) {
+	rows, err := s.q(tx).ListAgents(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
