@@ -13,7 +13,7 @@ import (
 )
 
 // TestPostCustomEvent posts a custom event with an API key and asserts it
-// creates a task through a public create rule.
+// creates a task through a public trigger.
 func TestPostCustomEvent(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -33,21 +33,18 @@ func TestPostCustomEvent(t *testing.T) {
 		},
 	})
 	assert.NilError(t, err)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
-			{
-				Source:     "custom",
-				Type:       "problem",
-				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
-				Create: &gritzv1.CreateTaskAction{
-					Workspace: harness.DefaultWorkspace,
-					Runner:    harness.DefaultRunner,
-					Prompt:    "Investigate the problem.",
-				},
-				Public: true,
-			},
-		},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "investigator",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Prompt:    "Investigate the problem.",
+		Triggers: []*gritzv1.AgentTrigger{{
+			Source:     "custom",
+			Type:       "problem",
+			Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
+			Public:     true,
+		}},
+	}})
 	key := h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "dynatrace"})
 	webhook := h.Org.CustomWebhook(key)
 	url := "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=-123_456V2"
@@ -76,6 +73,7 @@ func TestPostCustomEvent(t *testing.T) {
 			Version:     1,
 			Actions:     &gritzv1.TaskActions{Cancel: true},
 			AutoArchive: durationpb.New(0),
+			AgentId:     agent.Id,
 		}},
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Task{}, "id", "created_at", "updated_at"),
@@ -114,19 +112,12 @@ func TestPostCustomEventDescription(t *testing.T) {
 		},
 	})
 	assert.NilError(t, err)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
-			{
-				Source: "custom",
-				Type:   "problem",
-				Create: &gritzv1.CreateTaskAction{
-					Workspace: harness.DefaultWorkspace,
-					Runner:    harness.DefaultRunner,
-				},
-				Public: true,
-			},
-		},
-	})
+	h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "investigator",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers:  []*gritzv1.AgentTrigger{{Source: "custom", Type: "problem", Public: true}},
+	}})
 	webhook := h.Org.CustomWebhook(h.Org.CreateKey(&gritzv1.CreateKeyRequest{Name: "dynatrace"}))
 	url := "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=1"
 

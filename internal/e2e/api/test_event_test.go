@@ -14,75 +14,145 @@ import (
 )
 
 // TestTestEvent is a sanity check on the dry-run handler: it composes a
-// synthetic event, runs the real matcher, reports the matched rule straight
-// through, and writes nothing.
+// synthetic event, runs the real planner, reports per agent what the event
+// would do, and writes nothing.
 func TestTestEvent(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - a watcher's task subscribed to the issue, a responder whose
+	// second trigger matches, and an agent whose trigger doesn't.
 	h := harness.New(t, nil)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
+	url := "https://github.com/o/r/issues/1"
+	watcher := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []string{"issue_comment"}}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: watcher.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
+	responder := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "responder",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers: []*gritzv1.AgentTrigger{
+			{Source: "github", Type: "pull_request_opened"},
 			{
-				Source: "github",
-				Type:   "issue_comment",
-				Wakeup: true,
-				Conditions: []*gritzv1.RuleCondition{
-					{Attr: "body", Op: "prefix", Value: "gritz:"},
-				},
+				Source:     "github",
+				Type:       "issue_comment",
+				Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
 			},
 		},
-	})
+	}})
+	h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "reviewer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers:  []*gritzv1.AgentTrigger{{Source: "github", Type: "pull_request_opened"}},
+	}})
 
 	// Act
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 		Source: "github",
 		Type:   "issue_comment",
 		Body:   "gritz: do it",
-		Url:    "https://github.com/o/r/issues/1",
+		Url:    url + "#issuecomment-9",
 	})
 
-	// Assert: the matched rule is reported straight through, and the dry run
-	// never fires.
+	// Assert: per agent, in ListAgents order; the dry run never fires.
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		resp,
 		&gritzv1.TestEventResponse{
-			Matches: []*gritzv1.TestEventMatch{
-				{OrgId: h.Org.ID, RuleIndex: 0, WouldWake: true},
+			Agents: []*gritzv1.TestEventAgent{
+				{AgentId: responder.Id, TriggerIndex: 1},
+				{
+					AgentId:      watcher.Id,
+					TriggerIndex: -1,
+					Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: task.ID, Kind: "github.issue"}},
+				},
 			},
 		},
 		protocmp.Transform(),
 	)
 
 	// Assert: the dry run persists nothing.
-	assert.Equal(t, len(h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true})), 0)
+	assert.Equal(t, len(h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true})), 1)
 	assert.Equal(t, len(h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})), 0)
 }
 
-// TestTestEventFireCreatesTask fires a synthetic event against a create rule and
-// asserts it routes for real: a task and its external event are written, the
-// composed Details land on the persisted ExternalPayload, and the response
-// reports the created task and event ids.
+// TestTestEventYield asserts a trigger yields to a task holding one of its
+// yield_to claims on the event's resource, and the report names the holder.
+func TestTestEventYield(t *testing.T) {
+	t.Parallel()
+	// Arrange - an implementer's task owns the PR.
+	h := harness.New(t, nil)
+	implementer := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links: []*gritzv1.AgentLink{{
+			Type:   "github.pr",
+			Kind:   "owned-pr",
+			Claim:  "pr-owner",
+			Events: []string{"pull_request_review"},
+		}},
+	}})
+	owner := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: implementer.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: owner.ID, Url: "https://github.com/o/r/pull/1", Kind: "owned-pr"})
+	responder := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "responder",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers: []*gritzv1.AgentTrigger{{
+			Source:  "github",
+			Type:    "issue_comment",
+			YieldTo: []string{"pr-owner"},
+		}},
+	}})
+
+	// Act
+	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
+		Source: "github",
+		Type:   "issue_comment",
+		Url:    "https://github.com/o/r/pull/1#issuecomment-9",
+		Fire:   true,
+	})
+
+	// Assert: the responder yielded and created nothing; the owner's kind
+	// doesn't list comments, so it isn't delivered the event either.
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		resp,
+		&gritzv1.TestEventResponse{
+			Fired: true,
+			Agents: []*gritzv1.TestEventAgent{
+				{AgentId: responder.Id, TriggerIndex: 0, YieldedTo: []int64{owner.ID}},
+			},
+		},
+		protocmp.Transform(),
+	)
+	assert.Equal(t, len(h.Org.ListTasks(&gritzv1.ListTasksRequest{})), 1)
+}
+
+// TestTestEventFireCreatesTask fires a synthetic event against a trigger and
+// asserts it routes for real: a task of the agent and its external event are
+// written, the composed Details land on the persisted ExternalPayload, and the
+// response reports the created task and event ids.
 func TestTestEventFireCreatesTask(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
-			{
-				Source: "github",
-				Type:   "issue_comment",
-				Conditions: []*gritzv1.RuleCondition{
-					{Attr: "body", Op: "prefix", Value: "gritz:"},
-				},
-				Create: &gritzv1.CreateTaskAction{
-					Workspace: harness.DefaultWorkspace,
-					Runner:    harness.DefaultRunner,
-					Prompt:    "Do it.",
-				},
-			},
-		},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "responder",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Prompt:    "Do it.",
+		Triggers: []*gritzv1.AgentTrigger{{
+			Source:     "github",
+			Type:       "issue_comment",
+			Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
+		}},
+	}})
 	url := "https://github.com/o/r/issues/1"
 	details := map[string]string{"path": "main.go", "line": "42"}
 
@@ -99,17 +169,18 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 
 	assert.NilError(t, err)
 
-	// Assert: a real task exists.
+	// Assert: a real task of the agent exists.
 	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
 	assert.DeepEqual(t,
 		tasks,
 		[]*gritzv1.Task{{
-			Id:      resp.Matches[0].CreatedTaskIds[0],
+			Id:      resp.Agents[0].CreatedTaskId,
 			Status:  gritzv1.TaskStatus_PENDING,
 			Command: gritzv1.TaskCommand_START,
+			AgentId: agent.Id,
 		}},
 		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "command", "agent_id"),
 	)
 
 	// Assert: the external event carries the composed Details on its
@@ -137,12 +208,11 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 	assert.DeepEqual(t,
 		resp,
 		&gritzv1.TestEventResponse{
-			Matches: []*gritzv1.TestEventMatch{{
-				OrgId:          h.Org.ID,
-				RuleIndex:      0,
-				WouldCreate:    true,
-				CreatedTaskIds: []int64{tasks[0].Id},
-				EventIds:       []int64{events[0].Id},
+			Agents: []*gritzv1.TestEventAgent{{
+				AgentId:        agent.Id,
+				TriggerIndex:   0,
+				CreatedTaskId:  tasks[0].Id,
+				CreatedEventId: events[0].Id,
 			}},
 			Fired: true,
 		},
@@ -150,99 +220,75 @@ func TestTestEventFireCreatesTask(t *testing.T) {
 	)
 }
 
-// TestTestEventFireWakesSubscribedTask fires a synthetic event that matches a
-// wake rule against an existing subscribed task and asserts the task is woken
-// (restarted) with the event — carrying its Details — attached, rather than a
-// new task created.
-func TestTestEventFireWakesSubscribedTask(t *testing.T) {
+// TestTestEventFireWakesThroughTriggerLink fires an event that creates a task
+// through a trigger with a link, then one on the same resource, and asserts
+// the second is delivered to the created task through that link, waking it.
+func TestTestEventFireWakesThroughTriggerLink(t *testing.T) {
 	t.Parallel()
-	// Arrange: a completed task subscribed to the issue.
+	// Arrange - a reviewer created for each opened PR, linked to it, and woken
+	// by its reviews.
 	h := harness.New(t, nil)
-	url := "https://github.com/o/r/issues/1"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: task.ID, Start: true})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "reviewer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers:  []*gritzv1.AgentTrigger{{Source: "github", Type: "pull_request_opened", Link: "github.pr"}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []string{"pull_request_review"}}},
+	}})
+	created := h.Org.TestEvent(&gritzv1.TestEventRequest{
+		Source: "github",
+		Type:   "pull_request_opened",
+		Url:    "https://github.com/o/r/pull/1",
+		Fire:   true,
+	})
+	taskID := created.Agents[0].CreatedTaskId
+	assert.DeepEqual(t,
+		h.Org.ListLinks(&gritzv1.ListLinksRequest{TaskId: taskID}),
+		[]*gritzv1.TaskLink{{
+			TaskId:    taskID,
+			Relevance: "trigger",
+			Url:       "https://github.com/o/r/pull/1",
+			Kind:      "github.pr",
+		}},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
+	)
+	// The task finishes its run.
 	h.Org.SubmitRunnerEvents(&gritzv1.SubmitRunnerEventsRequest{
 		Events: []*gritzv1.RunnerEvent{
-			{TaskId: task.ID, Event: string(model.RunnerEventStarted)},
-			{TaskId: task.ID, Event: string(model.RunnerEventStopped)},
+			{TaskId: taskID, Event: string(model.RunnerEventStarted)},
+			{TaskId: taskID, Event: string(model.RunnerEventStopped)},
 		},
 	})
-	assert.Equal(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Status, gritzv1.TaskStatus_COMPLETED)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
-			{
-				Source: "github",
-				Type:   "issue_comment",
-				Wakeup: true,
-				Conditions: []*gritzv1.RuleCondition{
-					{Attr: "body", Op: "prefix", Value: "gritz:"},
-				},
-			},
-		},
-	})
-	details := map[string]string{"path": "main.go"}
 
-	// Act
+	// Act - a review on the PR.
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "follow-up comment",
-		Body:        "gritz: again",
-		Url:         url,
-		Details:     details,
-		Fire:        true,
+		Source: "github",
+		Type:   "pull_request_review",
+		Url:    "https://github.com/o/r/pull/1#pullrequestreview-5",
+		Fire:   true,
 	})
 
+	// Assert - delivered through the trigger's link, waking the task.
 	assert.NilError(t, err)
-
-	// Assert: no new task was created — the existing one is the only one, and
-	// it was restarted.
-	assert.DeepEqual(t,
-		h.Org.ListTasks(&gritzv1.ListTasksRequest{Archived: true}),
-		[]*gritzv1.Task{{
-			Id:      task.ID,
-			Status:  gritzv1.TaskStatus_PENDING,
-			Version: 2,
-		}},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "version"),
-	)
-
-	// Assert: the attached event carries the composed Details.
-	events := h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})
-	assert.DeepEqual(t,
-		events,
-		[]*gritzv1.Event{{
-			TaskId: task.ID,
-			Wake:   true,
-			Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
-				Description: "follow-up comment",
-				Url:         url,
-				Data:        "gritz: again",
-				Details:     details,
-				Source:      "github",
-				Type:        "issue_comment",
-			}},
-		}},
-		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
-	)
-
-	// Assert: the wake path attaches to the existing task: no task is created,
-	// one event is written.
 	assert.DeepEqual(t,
 		resp,
 		&gritzv1.TestEventResponse{
-			Matches: []*gritzv1.TestEventMatch{{
-				OrgId:     h.Org.ID,
-				RuleIndex: 0,
-				WouldWake: true,
-				EventIds:  []int64{events[0].Id},
-			}},
 			Fired: true,
+			Agents: []*gritzv1.TestEventAgent{{
+				AgentId:      agent.Id,
+				TriggerIndex: -1,
+				Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: taskID, Kind: "github.pr"}},
+			}},
 		},
 		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.TestEventDelivery{}, "event_id"),
+	)
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: taskID}),
+		&gritzv1.Task{Id: taskID, Status: gritzv1.TaskStatus_PENDING, Version: 2},
+		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "status", "version"),
 	)
 }
 
@@ -276,7 +322,7 @@ func TestTestEventFireRequiresOrgWrite(t *testing.T) {
 
 // TestTestEventFireCustomRoutesWithoutActor fires a custom test event and
 // asserts it routes like one posted to the webhook: with no actor, so a
-// member-only rule is skipped and the public rule after it creates the task,
+// member-only trigger is skipped and the public trigger after it creates the task,
 // and with the type's label as its description.
 func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 	t.Parallel()
@@ -297,13 +343,19 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 		},
 	})
 	assert.NilError(t, err)
-	create := &model.CreateTaskAction{Workspace: harness.DefaultWorkspace, Runner: harness.DefaultRunner}
-	// SetRoutingRules rejects a member-only custom rule, so it is stored
+	// CreateAgent rejects a member-only custom trigger, so the agent is stored
 	// directly: the test needs one to show the caller's membership is ignored.
-	err = h.Server.Store.SetOrgRoutingRules(t.Context(), nil, h.Org.ID, []model.RoutingRule{
-		{Source: "custom", Type: "problem", Create: create},
-		{Source: "custom", Type: "problem", Create: create, Public: true},
-	})
+	agent := &model.Agent{
+		OrgID:     h.Org.ID,
+		Name:      "investigator",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers: []model.AgentTrigger{
+			{Source: "custom", Type: "problem"},
+			{Source: "custom", Type: "problem", Public: true},
+		},
+	}
+	err = h.Server.Store.CreateAgent(t.Context(), nil, agent)
 	assert.NilError(t, err)
 	url := "https://abc123.live.dynatrace.com/#problems/problemdetails;pid=1"
 
@@ -317,7 +369,7 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 		Fire:   true,
 	})
 
-	// Assert: the public rule matched, not the member-only one before it.
+	// Assert: the public trigger matched, not the member-only one before it.
 	assert.NilError(t, err)
 	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
 	assert.Equal(t, len(tasks), 1)
@@ -325,12 +377,11 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 	assert.DeepEqual(t,
 		resp,
 		&gritzv1.TestEventResponse{
-			Matches: []*gritzv1.TestEventMatch{{
-				OrgId:          h.Org.ID,
-				RuleIndex:      1,
-				WouldCreate:    true,
-				CreatedTaskIds: []int64{tasks[0].Id},
-				EventIds:       []int64{events[0].Id},
+			Agents: []*gritzv1.TestEventAgent{{
+				AgentId:        agent.ID,
+				TriggerIndex:   1,
+				CreatedTaskId:  tasks[0].Id,
+				CreatedEventId: events[0].Id,
 			}},
 			Fired: true,
 		},
@@ -355,7 +406,7 @@ func TestTestEventFireCustomRoutesWithoutActor(t *testing.T) {
 	)
 }
 
-// TestTestEventCustomMultiValuedAttr asserts a rule condition matches a custom
+// TestTestEventCustomMultiValuedAttr asserts a trigger condition matches a custom
 // event when any of a multi-valued attr's values satisfies it.
 func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 	t.Parallel()
@@ -376,17 +427,17 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 		},
 	})
 	assert.NilError(t, err)
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
-			{
-				Source:     "custom",
-				Type:       "problem",
-				Wakeup:     true,
-				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
-				Public:     true,
-			},
-		},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "investigator",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers: []*gritzv1.AgentTrigger{{
+			Source:     "custom",
+			Type:       "problem",
+			Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
+			Public:     true,
+		}},
+	}})
 
 	// Act
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
@@ -401,7 +452,7 @@ func TestTestEventCustomMultiValuedAttr(t *testing.T) {
 	assert.DeepEqual(t,
 		resp,
 		&gritzv1.TestEventResponse{
-			Matches: []*gritzv1.TestEventMatch{{OrgId: h.Org.ID, RuleIndex: 0, WouldWake: true}},
+			Agents: []*gritzv1.TestEventAgent{{AgentId: agent.Id, TriggerIndex: 0}},
 		},
 		protocmp.Transform(),
 	)

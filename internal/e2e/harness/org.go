@@ -21,6 +21,10 @@ type Org struct {
 	Owner *Member
 	// Client is shorthand for Owner.Client.
 	Client gritzclient.Client
+	// DefaultAgent is the org's agent on DefaultRunner and DefaultWorkspace,
+	// with no triggers or links. CreateTask uses it when the request names no
+	// agent. Nil for an org whose workspace isn't registered.
+	DefaultAgent *gritzv1.Agent
 
 	server *Server
 	// runnerKey is the org's runner key, and runner calls the server with it.
@@ -40,8 +44,8 @@ type Member struct {
 	Resp *gritzv1.AddOrgMemberResponse
 }
 
-// CreateTask creates a task, as the new-task page does. It fills the harness
-// defaults where req leaves them unset: the org's e2e runner and workspace.
+// CreateTask creates a task, as the new-task page does. It fills the org's
+// DefaultAgent where req names no agent.
 // Draft passes through as given, so a request with instructions and no Draft
 // creates a started task. req may be nil.
 func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
@@ -52,8 +56,7 @@ func (o *Org) CreateTask(req *gritzv1.CreateTaskRequest) *Task {
 	} else {
 		req = proto.CloneOf(req)
 	}
-	req.Runner = cmp.Or(req.Runner, DefaultRunner)
-	req.Workspace = cmp.Or(req.Workspace, DefaultWorkspace)
+	req.AgentId = cmp.Or(req.AgentId, o.DefaultAgent.GetId())
 	resp, err := o.Client.CreateTask(t.Context(), req)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -254,6 +257,17 @@ func (o *Org) CreateLink(req *gritzv1.CreateLinkRequest) *gritzv1.TaskLink {
 	return resp.Link
 }
 
+// ListLinks returns a task's links, as the task page shows them.
+func (o *Org) ListLinks(req *gritzv1.ListLinksRequest) []*gritzv1.TaskLink {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.ListLinks(t.Context(), req)
+	if err != nil {
+		t.Fatalf("ListLinks: %v", err)
+	}
+	return resp.Links
+}
+
 // ListKeys returns the org's keys.
 func (o *Org) ListKeys(req *gritzv1.ListKeysRequest) []*gritzv1.Key {
 	t := o.server.t
@@ -293,31 +307,8 @@ func (o *Org) ListTasks(req *gritzv1.ListTasksRequest) []*gritzv1.Task {
 	return resp.Tasks
 }
 
-// SetRoutingRules replaces the org's routing rules, as the routing rules page
-// does, and returns the rules as stored.
-func (o *Org) SetRoutingRules(req *gritzv1.SetRoutingRulesRequest) []*gritzv1.RoutingRule {
-	t := o.server.t
-	t.Helper()
-	resp, err := o.Client.SetRoutingRules(t.Context(), req)
-	if err != nil {
-		t.Fatalf("SetRoutingRules: %v", err)
-	}
-	return resp.Rules
-}
-
-// GetRoutingRules returns the org's routing rules.
-func (o *Org) GetRoutingRules(req *gritzv1.GetRoutingRulesRequest) []*gritzv1.RoutingRule {
-	t := o.server.t
-	t.Helper()
-	resp, err := o.Client.GetRoutingRules(t.Context(), req)
-	if err != nil {
-		t.Fatalf("GetRoutingRules: %v", err)
-	}
-	return resp.Rules
-}
-
-// TestEvent routes a synthetic event through the org's routing rules, as the
-// test event dialog does. With Fire set it writes external events to the tasks
+// TestEvent routes a synthetic event through the org's agents, as the test
+// event dialog does. With Fire set it writes external events to the tasks
 // it routes to, the same way a webhook-born event does; it is the only RPC that
 // does.
 func (o *Org) TestEvent(req *gritzv1.TestEventRequest) *gritzv1.TestEventResponse {
@@ -385,12 +376,13 @@ func (o *Org) ListLogChunksByTask(req *gritzv1.ListLogChunksByTaskRequest) []*gr
 }
 
 // CreateSchedule creates a schedule, as the schedules page does. It fills the
-// harness defaults where req leaves them unset: the org's e2e runner and
-// workspace.
+// harness defaults where req leaves them unset: the org's DefaultAgent, and
+// its e2e runner and workspace.
 func (o *Org) CreateSchedule(req *gritzv1.CreateScheduleRequest) *gritzv1.Schedule {
 	t := o.server.t
 	t.Helper()
 	req = proto.CloneOf(req)
+	req.AgentId = cmp.Or(req.AgentId, o.DefaultAgent.GetId())
 	req.Runner = cmp.Or(req.Runner, DefaultRunner)
 	req.Workspace = cmp.Or(req.Workspace, DefaultWorkspace)
 	resp, err := o.Client.CreateSchedule(t.Context(), req)

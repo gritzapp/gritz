@@ -37,6 +37,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 	sched := &model.Schedule{
 		ID:        1,
 		OrgID:     7,
+		AgentID:   3,
 		Name:      "nightly",
 		Workspace: "w",
 		Runner:    "r",
@@ -81,6 +82,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		Command:   model.TaskCommandStart,
 		Version:   1,
 		OrgID:     7,
+		AgentID:   3,
 		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 
@@ -250,11 +252,12 @@ func TestValidate(t *testing.T) {
 	t.Parallel()
 	storeErr := errors.New("db down")
 	tests := []struct {
-		name  string
-		sched *model.Schedule
-		decls []taskvar.Decl
-		err   error
-		check func(t *testing.T, err error)
+		name     string
+		sched    *model.Schedule
+		decls    []taskvar.Decl
+		agentErr error
+		err      error
+		check    func(t *testing.T, err error)
 	}{
 		{
 			name:  "valid",
@@ -266,6 +269,15 @@ func TestValidate(t *testing.T) {
 			name:  "invalid cron",
 			sched: &model.Schedule{CronExpr: "nonsense", Timezone: "UTC"},
 			check: func(t *testing.T, err error) { assert.Assert(t, IsInvalidError(err), err) },
+		},
+		{
+			name:     "unknown agent",
+			sched:    &model.Schedule{CronExpr: "@daily", Timezone: "UTC", AgentID: 3},
+			agentErr: sql.ErrNoRows,
+			check: func(t *testing.T, err error) {
+				assert.Assert(t, IsInvalidError(err), err)
+				assert.Error(t, err, "agent 3 not found")
+			},
 		},
 		{
 			name:  "invalid variable",
@@ -298,6 +310,9 @@ func TestValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			st := &StoreMock{
+				GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
+					return &model.Agent{}, tt.agentErr
+				},
 				GetWorkspaceVariablesFunc: func(context.Context, *sql.Tx, string, string, int64) ([]taskvar.Decl, error) {
 					return tt.decls, tt.err
 				},

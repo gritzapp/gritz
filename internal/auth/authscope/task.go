@@ -39,8 +39,8 @@ var (
 	OpKeyRead        = []string{"key", "read"}
 	OpKeyCreate      = []string{"key", "create"}
 	OpKeyWrite       = []string{"key", "write"} // delete folds into write (coarse, no key.id)
-	OpOrgRead        = []string{"org", "read"}  // settings, members, routing-rule reads
-	OpOrgWrite       = []string{"org", "write"} // members, settings, routing-rules, GH-installation link
+	OpOrgRead        = []string{"org", "read"}  // settings, members, agent reads
+	OpOrgWrite       = []string{"org", "write"} // members, settings, agents, GH-installation link
 	OpOrgCreate      = []string{"org", "create"}
 	OpOrgDelete      = []string{"org", "delete"}
 	OpAccountWrite   = []string{"account", "write"} // unlink GitHub/Atlassian — user-identity axis

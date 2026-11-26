@@ -67,7 +67,7 @@ func TestTaskScope_CreateTask_Denied(t *testing.T) {
 
 	// Act
 	_, err := token.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner: harness.DefaultRunner, Workspace: harness.DefaultWorkspace,
+		AgentId: h.Org.DefaultAgent.Id,
 	})
 
 	// Assert

@@ -48,39 +48,53 @@ func (s *Server) ListTasks(ctx context.Context, req *gritzv1.ListTasksRequest) (
 
 func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
 	caller := apiauth.MustCaller(ctx)
-	// No row exists yet, so authorize directly on the request attributes — the
+	// Coarse, fail-fast capability gate before the agent read (AllowOp ignores
+	// predicates); the narrow create scope is checked on the agent's target.
+	if !caller.Scopes.AllowOp(authscope.OpTaskCreate) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create task"))
+	}
+	agent, err := s.store.GetAgent(ctx, nil, caller.OrgID, req.AgentId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent %d not found", req.AgentId))
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	// No task row exists yet, so authorize directly on the agent's target — the
 	// narrow create scope (workspace/runner) a privileged caller holds. The
 	// literal task.archived:"false" satisfies the minted scope's archived
-	// predicate: a freshly created task is never archived. There is no row read to
-	// fail fast before, so no AllowOp pre-gate is needed.
+	// predicate: a freshly created task is never archived.
 	if !caller.Scopes.Allow(authscope.OpTaskCreate,
-		authscope.WithTaskWorkspace(req.Workspace),
-		authscope.WithTaskRunner(req.Runner),
+		authscope.WithTaskWorkspace(agent.Workspace),
+		authscope.WithTaskRunner(agent.Runner),
 		authscope.WithTaskArchived(false),
 	) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create task"))
 	}
-	decls, err := s.store.GetWorkspaceVariables(ctx, nil, req.Runner, req.Workspace, caller.OrgID)
+	// The agent was checked against its workspace when it was saved, but the
+	// workspace may have been unregistered or changed its declarations since.
+	decls, err := s.store.GetWorkspaceVariables(ctx, nil, agent.Runner, agent.Workspace, caller.OrgID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("workspace %q not found on runner %q", req.Workspace, req.Runner))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d: workspace %q not found on runner %q", agent.ID, agent.Workspace, agent.Runner))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	variables, err := taskvar.Resolve(decls, req.Variables)
+	variables, err := taskvar.Resolve(decls, agent.Variables)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", req.Workspace, err))
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d: workspace %q: %w", agent.ID, agent.Workspace, err))
 	}
 	task := &model.Task{
-		Name:      req.Name,
-		Runner:    req.Runner,
-		Workspace: req.Workspace,
-		Namespace: req.Namespace,
-		Status:    model.TaskStatusPending,
-		Command:   model.TaskCommandStart,
-		Version:   1,
-		OrgID:     caller.OrgID,
-		Variables: variables,
+		Name:        req.Name,
+		Runner:      agent.Runner,
+		Workspace:   agent.Workspace,
+		AgentID:     agent.ID,
+		Status:      model.TaskStatusPending,
+		Command:     model.TaskCommandStart,
+		Version:     1,
+		OrgID:       caller.OrgID,
+		AutoArchive: agent.AutoArchive,
+		Variables:   variables,
 	}
 	// A draft has no command and no run — no runner picks it up and nothing is
 	// launched. Version 0 is "never provisioned", so its first start is run 1.
@@ -88,9 +102,6 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		task.Status = model.TaskStatusDraft
 		task.Command = model.TaskCommandNone
 		task.Version = 0
-	}
-	if req.AutoArchive != nil {
-		task.AutoArchive = req.AutoArchive.AsDuration()
 	}
 	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		if err := s.store.CreateTask(ctx, tx, task); err != nil {

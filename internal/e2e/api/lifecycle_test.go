@@ -18,9 +18,8 @@ func TestLifecycle_CreateAppendsCreatedEvent(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "Task",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
+		Name:    "Task",
+		AgentId: h.Org.DefaultAgent.Id,
 	})
 
 	// Assert

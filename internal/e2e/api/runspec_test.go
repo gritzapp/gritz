@@ -25,12 +25,13 @@ func TestGetRunSpecInputs(t *testing.T) {
 			},
 		}},
 	})
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Runner:    "runner-1",
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "story",
 		Workspace: "story",
-		Draft:     true,
+		Runner:    "runner-1",
 		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
-	})
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 
 	// Act
 	resp, err := h.Org.Client.GetRunSpecInputs(t.Context(), &gritzv1.GetRunSpecInputsRequest{

@@ -42,11 +42,11 @@ func TestEnv_Variables(t *testing.T) {
 			"BRANCH":     {Default: "main"},
 			"LABEL":      {},
 		},
-		Commands: []string{"env > env"},
+		AgentVariables: map[string]string{"JIRA_ISSUE": "APP-142"},
+		Commands:       []string{"env > env"},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
-		Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 	h.Agent.WaitRun(task.ID).Complete()
 	task.WaitStatus(gritzv1.TaskStatus_COMPLETED)
@@ -65,6 +65,7 @@ func TestEnv_VariablesStaleSchedule(t *testing.T) {
 		Variables: map[string]workspace.VariableConfig{
 			"JIRA_ISSUE": {Required: true},
 		},
+		AgentVariables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	}})
 	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
 		RunnerId:   harness.DefaultRunner,

@@ -22,9 +22,8 @@ func TestCreateTask_Publishes(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "test",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
+		Name:    "test",
+		AgentId: h.Org.DefaultAgent.Id,
 	})
 	assert.NilError(t, err)
 
@@ -51,10 +50,9 @@ func TestCreateTask_Draft_PublishesWithoutRunner(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "test",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
-		Draft:     true,
+		Name:    "test",
+		AgentId: h.Org.DefaultAgent.Id,
+		Draft:   true,
 	})
 	assert.NilError(t, err)
 

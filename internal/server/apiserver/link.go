@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -12,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
 func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest) (*gritzv1.CreateLinkResponse, error) {
@@ -34,13 +37,16 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
 	}
 	link := &model.Link{
-		TaskID:     req.TaskId,
-		Relevance:  req.Relevance,
-		URL:        req.Url,
-		RoutingKey: model.RoutingKey(req.Url),
-		Title:      req.Title,
-		Subscribe:  req.Subscribe,
-		CreatedAt:  time.Now(),
+		TaskID:    req.TaskId,
+		Relevance: req.Relevance,
+		URL:       req.Url,
+		Title:     req.Title,
+		CreatedAt: time.Now(),
+	}
+	if req.Kind != "" {
+		if err := s.subscribeLink(ctx, task, link, req.Kind); err != nil {
+			return nil, err
+		}
 	}
 	// task_links is the subscription/list projection; the link event is the
 	// timeline source of truth. Upsert the projection and append the event in one
@@ -61,7 +67,7 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	s.log.InfoContext(ctx, "link created", "relevance", req.Relevance, "url", req.Url)
+	s.log.InfoContext(ctx, "link created", "relevance", link.Relevance, "url", link.URL, "kind", link.Kind)
 	s.publish(model.Notification{
 		Type: "change",
 		Resources: []model.NotificationResource{
@@ -76,6 +82,43 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 	return &gritzv1.CreateLinkResponse{
 		Link: link.Proto(),
 	}, nil
+}
+
+// subscribeLink makes link a subscribed link of kind, a link kind of the
+// task's agent: it stamps the kind and its claim, and replaces the URL with
+// the canonical URL of the kind's link type, rejecting one the type doesn't
+// accept.
+func (s *Server) subscribeLink(ctx context.Context, task *model.Task, link *model.Link, kind string) error {
+	agent, err := s.store.GetAgent(ctx, nil, task.OrgID, task.AgentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("task %d's agent %d no longer exists", task.ID, task.AgentID))
+		}
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	entry, ok := agent.Link(kind)
+	if !ok {
+		var kinds []string
+		for _, l := range agent.Links {
+			kinds = append(kinds, strconv.Quote(l.Name()))
+		}
+		if len(kinds) == 0 {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown link kind %q: agent %q has no link kinds", kind, agent.Name))
+		}
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown link kind %q: agent %q has link kinds %s", kind, agent.Name, strings.Join(kinds, ", ")))
+	}
+	lt, ok := eventrouter.DefaultSchemaRegistry.LinkType(entry.Type)
+	if !ok {
+		panic(fmt.Sprintf("apiserver: agent %d link kind %q names unregistered link type %q", agent.ID, kind, entry.Type))
+	}
+	url, ok := lt.Canonical(link.URL)
+	if !ok {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("url %q is not a %s, the link type of kind %q", link.URL, lt.Label, kind))
+	}
+	link.URL = url
+	link.Kind = entry.Name()
+	link.Claim = entry.Claim
+	return nil
 }
 
 func (s *Server) ListLinks(ctx context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {

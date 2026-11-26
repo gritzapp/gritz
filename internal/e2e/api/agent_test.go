@@ -274,7 +274,7 @@ func TestCreateAgent_Invalid(t *testing.T) {
 			assert.ErrorContains(t, updateErr, tt.want)
 			agents, err := h.Org.Client.ListAgents(t.Context(), &gritzv1.ListAgentsRequest{})
 			assert.NilError(t, err)
-			assert.DeepEqual(t, agents.Agents, []*gritzv1.Agent{existing}, protocmp.Transform())
+			assert.DeepEqual(t, agents.Agents, []*gritzv1.Agent{h.Org.DefaultAgent, existing}, protocmp.Transform())
 		})
 	}
 }
@@ -314,7 +314,7 @@ func TestListAgents(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		resp.Agents,
-		[]*gritzv1.Agent{implementer, implementer2, reviewer},
+		[]*gritzv1.Agent{h.Org.DefaultAgent, implementer, implementer2, reviewer},
 		protocmp.Transform(),
 	)
 }
@@ -433,7 +433,7 @@ func TestAgent_RequiresOrgWrite(t *testing.T) {
 	assert.DeepEqual(t, got.Agent, agent, protocmp.Transform())
 	list, err := key.Client.ListAgents(t.Context(), &gritzv1.ListAgentsRequest{})
 	assert.NilError(t, err)
-	assert.DeepEqual(t, list.Agents, []*gritzv1.Agent{agent}, protocmp.Transform())
+	assert.DeepEqual(t, list.Agents, []*gritzv1.Agent{h.Org.DefaultAgent, agent}, protocmp.Transform())
 
 	// Act & Assert - writes are denied.
 	_, err = key.Client.CreateAgent(t.Context(), &gritzv1.CreateAgentRequest{Agent: agent})

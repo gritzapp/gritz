@@ -3,6 +3,7 @@ package api_test
 import (
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -15,39 +16,128 @@ func TestCreateLink(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", AgentId: agent.Id, Draft: true})
 
-	// Act
+	// Act - a comment's URL, which names the PR.
 	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
 		Relevance: "Related PR",
-		Url:       "https://github.com/example/repo/pull/123",
+		Url:       "https://github.com/example/repo/pull/123#issuecomment-9",
 		Title:     "Fix bug",
-		Subscribe: true,
+		Kind:      "owned-pr",
 	})
 
-	// Assert
+	// Assert - the link stores the PR's canonical URL, and the kind's claim.
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		resp.Link,
 		&gritzv1.TaskLink{
-			TaskId:     task.ID,
-			Relevance:  "Related PR",
-			Url:        "https://github.com/example/repo/pull/123",
-			Title:      "Fix bug",
-			Subscribe:  true,
-			RoutingKey: "https://github.com/example/repo/pull/123",
+			TaskId:    task.ID,
+			Relevance: "Related PR",
+			Url:       "https://github.com/example/repo/pull/123",
+			Title:     "Fix bug",
+			Kind:      "owned-pr",
+			Claim:     "pr-owner",
 		},
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
 	)
 }
 
-func TestCreateLink_AppendsLinkEvent(t *testing.T) {
+func TestCreateLink_Reference(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
+
+	// Act - no kind: a plain reference link.
+	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+		TaskId: task.ID,
+		Url:    "https://github.com/example/repo/pull/123#issuecomment-9",
+	})
+
+	// Assert - stored as given.
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		resp.Link,
+		&gritzv1.TaskLink{
+			TaskId: task.ID,
+			Url:    "https://github.com/example/repo/pull/123#issuecomment-9",
+		},
+		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
+	)
+}
+
+func TestCreateLink_Invalid(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		url  string
+		kind string
+		err  string
+	}{
+		{
+			name: "unknown kind",
+			url:  "https://github.com/example/repo/pull/123",
+			kind: "github.issue",
+			err:  `unknown link kind "github.issue": agent "implementer" has link kinds "github.pr", "owned-pr"`,
+		},
+		{
+			name: "url not of the kind's link type",
+			url:  "https://github.com/example/repo/issues/123",
+			kind: "owned-pr",
+			err:  `url "https://github.com/example/repo/issues/123" is not a GitHub: Pull Request, the link type of kind "owned-pr"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			h := harness.New(t, nil)
+			agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+				Name:      "implementer",
+				Workspace: harness.DefaultWorkspace,
+				Runner:    harness.DefaultRunner,
+				Links: []*gritzv1.AgentLink{
+					{Type: "github.pr"},
+					{Type: "github.pr", Kind: "owned-pr"},
+				},
+			}})
+			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+
+			// Act
+			_, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+				TaskId: task.ID,
+				Url:    tt.url,
+				Kind:   tt.kind,
+			})
+
+			// Assert
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+			assert.ErrorContains(t, err, tt.err)
+			assert.Assert(t, cmp.Len(h.Org.ListLinks(&gritzv1.ListLinksRequest{TaskId: task.ID}), 0))
+		})
+	}
+}
+
+func TestCreateLink_AppendsLinkEvent(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Claim: "pr-owner"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", AgentId: agent.Id, Draft: true})
 
 	// Act
 	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
@@ -55,7 +145,7 @@ func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 		Relevance: "Related PR",
 		Url:       "https://github.com/example/repo/pull/123",
 		Title:     "Fix bug",
-		Subscribe: true,
+		Kind:      "github.pr",
 	})
 
 	// Assert - a link event mirroring the task_links row is appended to the
@@ -75,37 +165,12 @@ func TestCreateLink_AppendsLinkEvent(t *testing.T) {
 				Relevance: "Related PR",
 				Url:       "https://github.com/example/repo/pull/123",
 				Title:     "Fix bug",
-				Subscribe: true,
+				Kind:      "github.pr",
+				Claim:     "pr-owner",
 			}},
 		}},
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "created_at"),
-	)
-}
-
-func TestCreateLink_DerivesRoutingKey(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
-
-	// Act - no routing_key supplied, so the server derives it from url
-	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
-		TaskId: task.ID,
-		Url:    "https://github.com/example/repo/pull/123#issuecomment-9",
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		resp.Link,
-		&gritzv1.TaskLink{
-			TaskId:     task.ID,
-			Url:        "https://github.com/example/repo/pull/123#issuecomment-9",
-			RoutingKey: "https://github.com/example/repo/pull/123",
-		},
-		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
 	)
 }
 

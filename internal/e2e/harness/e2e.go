@@ -123,6 +123,7 @@ func New(t *testing.T, opts *Options) *Harness {
 		h.Agent = newAgent(t, h.Org)
 		h.Backend = newBackend(t, s.timeout, log)
 		h.Runner = newRunner(t, h.Org, h.Backend, h.Agent, opts.Runner, log)
+		h.Org.createDefaultAgent(opts.Runner.AgentVariables)
 		t.Cleanup(h.Agent.server.Close)
 	}
 	t.Cleanup(func() {
