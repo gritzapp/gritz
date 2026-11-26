@@ -101,7 +101,9 @@ Triggers and delivery are independent: an event can be delivered to a subscribed
 
 ### Claims
 
-A claim is a name stamped on a link by its kind. A task holds a claim on a URL while it is unarchived and has a subscribed link with that claim and URL. Claims are org-wide strings: a trigger in one agent can yield to a claim held by another agent's tasks.
+A claim is a name stamped on a link by its kind. A task holds a claim on a URL while it is unarchived and has a subscribed link with that claim and URL. Claims are org-wide strings: a trigger in one agent can yield to a claim held by another agent's tasks. They are not declared anywhere else, and saving an agent doesn't check that a `yield_to` name is the `claim` of some agent link; a misspelled name yields to nothing, which the test-event report shows.
+
+A mistaken link holds its claim until the task is archived. Removing a single link is left to #1853.
 
 ```yaml
 # implementer: the PRs it opens carry pr-owner
@@ -126,6 +128,10 @@ Schedules stay org-level resources with their own RPCs, and are not part of the 
 ### Manual tasks
 
 `CreateTask` names an agent. The caller supplies only the instructions; workspace, runner, auto-archive and variables come from the agent. `draft` is unchanged.
+
+### Deleting an agent
+
+`DeleteAgent` fails with `FailedPrecondition` while any unarchived task or any schedule references the agent. Archive its tasks and repoint or delete its schedules first.
 
 ### Validation
 
@@ -172,7 +178,7 @@ ALTER TABLE schedules DROP COLUMN workspace, DROP COLUMN runner, DROP COLUMN nam
 ALTER TABLE orgs DROP COLUMN routing_rules;
 ```
 
-The task keeps its own `workspace`, `runner`, `auto_archive` and `variables`, copied from the agent at creation, so editing an agent doesn't move running tasks. The link's `claim` is copied from its kind at creation so the yield lookup is a plain indexed query; which events a link receives is read from the agent's current kind at routing time.
+The task keeps its own `workspace`, `runner`, `auto_archive` and `variables`, copied from the agent at creation, so editing an agent doesn't move running tasks. The link's `claim` is copied from its kind at creation so the yield lookup is a plain indexed query; which events a link receives is read from the agent's current kind at routing time. Changing an agent link's `claim` only affects links created afterwards; existing links keep the claim they were created with.
 
 At the cutover the migration creates an agent named `default` per org with no triggers or links, assigns every existing task to it, and then sets `tasks.agent_id` `NOT NULL`. Existing links get no kind, so they become plain references and stop receiving events. Existing schedules are pointed at their org's `default` agent and `schedules.agent_id` is set `NOT NULL`; their workspace, runner and other template fields are lost, so they must be repointed at a real agent. Routing rules are dropped and must be recreated as agents.
 
@@ -391,7 +397,7 @@ func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int6
 // UpdateAgent replaces the stored agent with a. // new
 func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) error
 
-// DeleteAgent removes the org's agent. // new
+// DeleteAgent removes the org's agent; it fails while unarchived tasks or schedules reference it. // new
 func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 
 // FindSubscribedLinks returns links with a kind on url in orgIDs, with their task's agent. // changed (was FindSubscribedLinksForOrgs, keyed by routing key)
@@ -426,14 +432,11 @@ Layer 4 is large because the router, links and tasks change together and there i
 - **Link kinds fixed by the agent, not chosen by the task.** The agent author decides what a task can subscribe to and which claims it can hold; the task only picks a kind. A task can't subscribe to arbitrary events or claim resources the author didn't intend.
 - **Integrations own link types.** Replaces a single URL normalizer that had to know every integration with one function per resource next to the event types that produce it. Validation can then check that a link kind's events can actually name its resource.
 - **Claims last until archive.** A task passes through `COMPLETED` between runs, so terminal status can't release a claim. Archiving (manual or auto-archive) or deleting the link releases it.
+- **Every delivery wakes.** Routing rules' `wakeup: false` attached an event without starting a run. An agent link has no such flag: an event it shouldn't wake the task for is left out of `events`.
+- **The cutover breaks live tasks.** Existing links become plain references and existing schedules point at an empty `default` agent. gritz has one deployment, so live tasks are archived or recreated after the deploy rather than migrating routing rules and links into agents.
+- **Schedules stay outside agents.** They could later move into the agent definition beside triggers; for now a schedule only names the agent its tasks belong to.
 - **Yield drops the event.** Forwarding a yielded event to the holder would bypass the holder's link kind; the holder already hears what its kind lists.
 
 ## Open Questions
 
-1. **Deleting an agent with unarchived tasks or schedules.** Reject with `FailedPrecondition`, or archive its tasks and delete its schedules?
-2. **Editing a link kind.** Events are read from the current kind, but the claim is copied at link creation. Should changing a kind's claim rewrite existing links' claims?
-3. **Delivering without waking.** Rules had `Wakeup: false` to attach an event without starting a run. Is a per-kind `wake` flag needed, or does every delivery wake?
-4. **Validating `yield_to`.** Should a claim name in `yield_to` have to exist on some agent's link kind in the org?
-5. **Cutover.** Live tasks lose their subscriptions because their links have no kind. Acceptable for our deployment, or should the migration assign kinds to existing links of the `default` agent?
-6. **Removing links** (#1853). With claims, a mistaken link blocks other agents' triggers until archive; a `delete_link` tool becomes more important.
-7. **Schedules inside agents.** Schedules could later move into the agent definition, alongside triggers. Left out for now.
+None.
