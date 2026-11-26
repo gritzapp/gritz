@@ -92,7 +92,7 @@ func (a *Agent) Proto() *gritzv1.Agent {
 		pb.Triggers = append(pb.Triggers, &gritzv1.AgentTrigger{
 			Source:     t.Source,
 			Type:       t.Type,
-			Conditions: conditionsProto(t.Conditions),
+			Conditions: ProtoMap(t.Conditions),
 			Public:     t.Public,
 			YieldTo:    t.YieldTo,
 			Link:       t.Link,

@@ -14,16 +14,13 @@ type Condition struct {
 	Value string `json:"value,omitempty"`
 }
 
-func conditionsProto(conds []Condition) []*gritzv1.RuleCondition {
-	var pb []*gritzv1.RuleCondition
-	for _, c := range conds {
-		pb = append(pb, &gritzv1.RuleCondition{
-			Attr:  c.Attr,
-			Op:    c.Op,
-			Value: c.Value,
-		})
+// Proto converts c to its protobuf representation.
+func (c Condition) Proto() *gritzv1.RuleCondition {
+	return &gritzv1.RuleCondition{
+		Attr:  c.Attr,
+		Op:    c.Op,
+		Value: c.Value,
 	}
-	return pb
 }
 
 func conditionsFromProto(pb []*gritzv1.RuleCondition) []Condition {
