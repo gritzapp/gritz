@@ -19,12 +19,13 @@ Issue: https://github.com/gritzapp/gritz/issues/2355
 
 ### Overview
 
-- An **agent** is a named, org-scoped task template plus everything that creates or wakes its tasks: **triggers**, **link kinds** and **schedules**. The org has no routing rules or schedules of its own.
+- An **agent** is a named, org-scoped task template plus the routing that creates and wakes its tasks: **triggers** and **link kinds**. The org has no routing rules of its own.
 - Every task belongs to exactly one agent.
 - **Triggers** create tasks. They never wake an existing one. Each agent's triggers are evaluated independently of every other agent's; within an agent, the first matching trigger wins.
 - **Link kinds** are the only links an agent's tasks may subscribe to. A kind names a registered **link type**, and lists the events a subscribed link of that kind delivers. Delivery no longer depends on any trigger matching.
 - **Link types** are registered by the integrations, beside their event types. A link type recognizes and canonicalizes URLs of one resource (`github.pr`, `jira.issue`). Each event type declares which link types it is about. `model.RoutingKey` is replaced by the link types.
 - A link kind can give its links a **claim**. A trigger with `yield_to` creates no task while an unarchived task holds one of those claims on the event's resource.
+- Schedules stay org-level, but name an agent instead of carrying their own task template.
 - Namespaces, `orgs.routing_rules` and the schedule's task template are removed.
 
 ### Agent definition
@@ -58,12 +59,6 @@ links:
     events: [pull_request_review_comment, pull_request_review, pull_request_closed, pull_request_check_run_completed]
   - type: github.pr           # kind "github.pr": a PR the agent only watches
     events: [pull_request_closed]
-
-schedules:
-  - name: nightly
-    cron_expr: "0 3 * * *"
-    timezone: America/Toronto
-    instructions: Re-check open PRs.
 ```
 
 ### Link types
@@ -126,7 +121,7 @@ links:
 
 ### Schedules
 
-A schedule belongs to an agent and creates a new task of that agent each time it fires. It keeps `name`, `cron_expr`, `timezone`, `enabled`, its bookkeeping, and `instructions`, which are the created task's first instructions in place of the agent's prompt. `RunSchedule` is unchanged.
+Schedules stay org-level resources with their own RPCs, and are not part of the agent definition. A schedule names an agent in place of its task template (`workspace`, `runner`, `namespace`, `auto_archive`, `variables`): each time it fires it creates a task of that agent. It keeps `name`, `cron_expr`, `timezone`, `enabled`, its bookkeeping, and `instructions`, which are the created task's first instructions in place of the agent's prompt. `RunSchedule` is unchanged.
 
 ### Manual tasks
 
@@ -169,7 +164,7 @@ ALTER TABLE task_links ADD COLUMN claim text;
 ALTER TABLE task_links DROP COLUMN routing_key;
 CREATE INDEX task_links_subscribed ON task_links (url) WHERE subscribe;
 
-ALTER TABLE schedules ADD COLUMN agent_id bigint NOT NULL REFERENCES agents(id) ON DELETE CASCADE;
+ALTER TABLE schedules ADD COLUMN agent_id bigint REFERENCES agents(id);
 ALTER TABLE schedules DROP COLUMN workspace, DROP COLUMN runner, DROP COLUMN namespace,
                       DROP COLUMN auto_archive, DROP COLUMN variables;
 
@@ -178,7 +173,7 @@ ALTER TABLE orgs DROP COLUMN routing_rules;
 
 The task keeps its own `workspace`, `runner`, `auto_archive` and `variables`, copied from the agent at creation, so editing an agent doesn't move running tasks. The link's `claim` is copied from its kind at creation so the yield lookup is a plain indexed query; which events a link receives is read from the agent's current kind at routing time.
 
-At the cutover the migration creates an agent named `default` per org with no triggers or links, assigns every existing task to it, and then sets `tasks.agent_id` `NOT NULL`. Existing subscribed links have no kind and stop receiving events. Existing schedules and routing rules are dropped and must be recreated as agents.
+At the cutover the migration creates an agent named `default` per org with no triggers or links, assigns every existing task to it, and then sets `tasks.agent_id` `NOT NULL`. Existing subscribed links have no kind and stop receiving events. Existing schedules are pointed at their org's `default` agent and `schedules.agent_id` is set `NOT NULL`; their workspace, runner and other template fields are lost, so they must be repointed at a real agent. Routing rules are dropped and must be recreated as agents.
 
 ### Router
 
@@ -257,14 +252,14 @@ Changed messages:
 
 - `gritz agent list|get|create|update|delete`; `gritz task create --agent`.
 - Server MCP: `list_agents`, `get_agent`, `put_agent`, `delete_agent` replace `get_routing_rules` and `set_routing_rules`; `create_task` and the schedule tools take `agent`.
-- Web UI: an Agents page replaces Routing Rules and Schedules. An agent's page has its template, triggers, link kinds and schedules; the trigger and link forms are driven by `GetEventTypes` (link kinds offer only event types that declare the chosen link type). The create-task form picks an agent. The task page shows each link's kind and claim.
+- Web UI: an Agents page replaces Routing Rules. An agent's page has its template, triggers and link kinds; the trigger and link forms are driven by `GetEventTypes` (link kinds offer only event types that declare the chosen link type). The create-task and schedule forms pick an agent. The task page shows each link's kind and claim.
 
 ### API
 
 ```go
 package model // github.com/gritzapp/gritz/internal/model
 
-// Agent is a named task template with the triggers, link kinds and schedules that create and wake its tasks. // new
+// Agent is a named task template with the triggers and link kinds that create and wake its tasks. // new
 type Agent struct {
 	ID          int64
 	OrgID       int64
@@ -395,7 +390,7 @@ func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int6
 // UpdateAgent replaces the stored agent with a. // new
 func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) error
 
-// DeleteAgent removes the org's agent and its schedules. // new
+// DeleteAgent removes the org's agent. // new
 func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 
 // FindSubscribedLinks returns subscribed links on url in orgIDs, with their task's agent. // changed (was FindSubscribedLinksForOrgs, keyed by routing key)
@@ -415,17 +410,17 @@ func (s *Store) FindClaimHolders(ctx context.Context, tx *sql.Tx, orgID int64, u
 2. **Agents table and store** — Delivers: the `agents` migration and store methods. Depends on: nothing. Verifiable by: store tests.
 3. **Agent model, validation and RPCs** — Delivers: `model.Agent`, `ValidateAgent`, the agent proto and RPCs, `LinkTypeDef` in `GetEventTypes`. Depends on: (1), (2). Verifiable by: handler tests, including the validation errors.
 4. **Cutover migration** — Delivers: `tasks.agent_id`, the `default` agents, link `kind`/`claim`, dropping `routing_key`, `namespace` and `orgs.routing_rules`; `CreateTask` takes `agent`; `CreateLink` takes `kind` and canonicalizes; the router rewritten to `Plan`/`Apply` over agents with delivery, triggers and claims; `TestEvent` reporting per agent; routing-rule RPCs and model removed. Depends on: (3). Verifiable by: router tests per case (delivery by kind, first trigger wins, two agents on one event, yield, trigger link), and the e2e harness creating a task from a trigger and waking it through its link.
-5. **Schedules on agents** — Delivers: `schedules.agent_id`, template columns dropped, scheduler builds tasks from the agent. Depends on: (4). Verifiable by: scheduler tests and `RunSchedule`.
+5. **Schedules name an agent** — Delivers: `schedules.agent_id`, template columns dropped, scheduler builds tasks from the named agent. Depends on: (4). Verifiable by: scheduler tests and `RunSchedule`.
 6. **Agent tools** — Delivers: `kind` on `create_link`, link kinds in the first-run brief. Depends on: (4). Verifiable by: agentmcp and prompt tests.
 7. **CLI and server MCP** — Delivers: `gritz agent`, `--agent` on `gritz task create`, the agent MCP tools, `agent` on `create_task` and the schedule tools. Depends on: (4), (5). Verifiable by: running them against the dev stack.
-8. **Web UI** — Delivers: the Agents page with triggers, link kinds and schedules, agent picker on create-task, kind and claim on the task's links, the new test-event report; Routing Rules and Schedules pages removed. Depends on: (7). Verifiable by: exercising the pages against the dev stack; `pnpm lint`.
+8. **Web UI** — Delivers: the Agents page with triggers and link kinds, agent picker on the create-task and schedule forms, kind and claim on the task's links, the new test-event report; Routing Rules page removed. Depends on: (7). Verifiable by: exercising the pages against the dev stack; `pnpm lint`.
 9. **Docs** — Delivers: `concepts/routing-rules` replaced by an agents page; event types, CLI, MCP and agent-tools pages updated. Depends on: (8). Verifiable by: `cd docs && pnpm build`.
 
 Layer 4 is large because the router, links and tasks change together and there is no compatibility path. It can be split by landing the router behind the new types first while `orgs.routing_rules` is still read, but that would be a dual code path, which the project avoids.
 
 ## Trade-offs
 
-- **Event Workflows.** Instances, buses, `start` modes, `emit` and exports solved inter-task coordination too, at the cost of a new execution model. Agents solve the routing problems with the concepts that already exist (rules, links, schedules), regrouped. Task-to-task events can be added later as a source that triggers and link kinds match.
+- **Event Workflows.** Instances, buses, `start` modes, `emit` and exports solved inter-task coordination too, at the cost of a new execution model. Agents solve the routing problems with the concepts that already exist (rules, links), regrouped. Task-to-task events can be added later as a source that triggers and link kinds match.
 - **First match within an agent, independent across agents.** Keeps a single agent's behaviour as predictable as today's rule list, while removing cross-job interference.
 - **Link kinds fixed by the agent, not chosen by the task.** The agent author decides what a task can subscribe to and which claims it can hold; the task only picks a kind. A task can't subscribe to arbitrary events or claim resources the author didn't intend.
 - **Integrations own link types.** Replaces a single URL normalizer that had to know every integration with one function per resource next to the event types that produce it. Validation can then check that a link kind's events can actually name its resource.
@@ -434,9 +429,10 @@ Layer 4 is large because the router, links and tasks change together and there i
 
 ## Open Questions
 
-1. **Deleting an agent with unarchived tasks.** Reject with `FailedPrecondition`, or archive its tasks?
+1. **Deleting an agent with unarchived tasks or schedules.** Reject with `FailedPrecondition`, or archive its tasks and delete its schedules?
 2. **Editing a link kind.** Events are read from the current kind, but the claim is copied at link creation. Should changing a kind's claim rewrite existing links' claims?
 3. **Delivering without waking.** Rules had `Wakeup: false` to attach an event without starting a run. Is a per-kind `wake` flag needed, or does every delivery wake?
 4. **Validating `yield_to`.** Should a claim name in `yield_to` have to exist on some agent's link kind in the org?
 5. **Cutover.** Live tasks lose their subscriptions because their links have no kind. Acceptable for our deployment, or should the migration assign kinds to existing links of the `default` agent?
 6. **Removing links** (#1853). With claims, a mistaken link blocks other agents' triggers until archive; a `delete_link` tool becomes more important.
+7. **Schedules inside agents.** Schedules could later move into the agent definition, alongside triggers. Left out for now.
