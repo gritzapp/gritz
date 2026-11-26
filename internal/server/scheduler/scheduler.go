@@ -42,6 +42,7 @@ type Store interface {
 	UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
 	GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error)
 	GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error)
+	LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 }
 
 // DefaultInterval is how often the scheduler tick fires when no override is set.
@@ -202,6 +203,10 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*mo
 	// The schedule owns the template -> task/events mapping. Insert the task, then
 	// seed its events (Events needs the assigned task.ID), so a scheduled task is
 	// indistinguishable from a hand-created one downstream.
+	// Hold the agent so a concurrent DeleteAgent sees this task.
+	if err := st.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
+		return nil, model.Notification{}, err
+	}
 	task := sched.Task()
 	if err := st.CreateTask(ctx, tx, task); err != nil {
 		return nil, model.Notification{}, err

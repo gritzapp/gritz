@@ -505,6 +505,17 @@ func (o *Org) CreateAgent(req *gritzv1.CreateAgentRequest) *gritzv1.Agent {
 	return resp.Agent
 }
 
+// ListAgents returns the org's agents, as the agents page lists them.
+func (o *Org) ListAgents(req *gritzv1.ListAgentsRequest) []*gritzv1.Agent {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.ListAgents(t.Context(), req)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	return resp.Agents
+}
+
 // GetAgent returns the agent.
 func (o *Org) GetAgent(req *gritzv1.GetAgentRequest) *gritzv1.Agent {
 	t := o.server.t

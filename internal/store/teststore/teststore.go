@@ -58,7 +58,7 @@ type LinkOptions struct {
 }
 
 // TaskOptions configures CreateTask behavior. Zero values are replaced
-// with sensible defaults.
+// with sensible defaults; a zero AgentID creates an agent for the task.
 type TaskOptions struct {
 	Status    model.TaskStatus
 	Runner    string
@@ -73,6 +73,9 @@ func CreateTask(t *testing.T, s *store.Store, org *Org, opts *TaskOptions) *mode
 	t.Helper()
 	if opts == nil {
 		opts = &TaskOptions{}
+	}
+	if opts.AgentID == 0 {
+		opts.AgentID = CreateAgent(t, s, org, nil).ID
 	}
 	task := &model.Task{
 		OrgID:     org.OrgID,

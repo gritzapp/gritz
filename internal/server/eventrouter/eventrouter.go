@@ -160,8 +160,21 @@ type Router struct {
 //
 // Scoping the result to a single org (e.g. the test path's caller.OrgID) is
 // the caller's job, done by filtering the returned plan.
+//
+// Plan reads one snapshot, so every subscribed link it finds belongs to a task
+// of an agent it loaded.
 func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
-	orgs, err := r.Store.ListEventOrgs(ctx, nil, input.UserID, input.Orgs)
+	var plan *Plan
+	err := r.Store.WithSnapshot(ctx, func(tx *sql.Tx) error {
+		var err error
+		plan, err = r.plan(ctx, tx, input)
+		return err
+	})
+	return plan, err
+}
+
+func (r *Router) plan(ctx context.Context, tx *sql.Tx, input InputEvent) (*Plan, error) {
+	orgs, err := r.Store.ListEventOrgs(ctx, tx, input.UserID, input.Orgs)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +188,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 		orgIDs = append(orgIDs, org.OrgID)
 		member[org.OrgID] = org.IsMember
 	}
-	agents, err := r.Store.ListAgentsForOrgs(ctx, nil, orgIDs)
+	agents, err := r.Store.ListAgentsForOrgs(ctx, tx, orgIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +196,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 	for _, agent := range agents {
 		agentByID[agent.ID] = agent
 	}
-	defs, err := r.eventTypes(ctx, input, orgIDs)
+	defs, err := r.eventTypes(ctx, tx, input, orgIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +223,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 	}
 
 	for _, url := range urls {
-		links, err := r.Store.FindSubscribedLinks(ctx, nil, url, orgsByURL[url])
+		links, err := r.Store.FindSubscribedLinks(ctx, tx, url, orgsByURL[url])
 		if err != nil {
 			return nil, err
 		}
@@ -219,12 +232,13 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 			if delivered[link.Link.TaskID] {
 				continue
 			}
-			// The agent is gone when an archived task of a deleted agent was
-			// unarchived, and the kind when its agent dropped it since.
+			// Unarchiving a task of a deleted agent fails, so every unarchived
+			// task's agent is live.
 			agent, ok := agentByID[link.AgentID]
 			if !ok {
-				continue
+				panic(fmt.Sprintf("eventrouter: unarchived task %d belongs to agent %d, which isn't a live agent of org %d", link.Link.TaskID, link.AgentID, link.OrgID))
 			}
+			// The kind is gone when its agent dropped it since.
 			kind, ok := agent.Link(link.Link.Kind)
 			if !ok {
 				continue
@@ -258,7 +272,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 			}
 			match := TriggerMatch{OrgID: agent.OrgID, Agent: agent, TriggerIndex: i}
 			if url, ok := resource[agent.OrgID]; ok && len(trigger.YieldTo) > 0 {
-				match.YieldedTo, err = r.Store.FindClaimHolders(ctx, nil, agent.OrgID, url, trigger.YieldTo)
+				match.YieldedTo, err = r.Store.FindClaimHolders(ctx, tx, agent.OrgID, url, trigger.YieldTo)
 				if err != nil {
 					return nil, err
 				}
@@ -273,7 +287,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 // eventTypes returns the event's type in each of orgIDs: the registry's for a
 // built-in source, and each org's own for a custom one. An org with no such
 // type is left out.
-func (r *Router) eventTypes(ctx context.Context, input InputEvent, orgIDs []int64) (map[int64]model.EventTypeDef, error) {
+func (r *Router) eventTypes(ctx context.Context, tx *sql.Tx, input InputEvent, orgIDs []int64) (map[int64]model.EventTypeDef, error) {
 	defs := map[int64]model.EventTypeDef{}
 	if input.Source != SourceCustom {
 		if def, ok := r.Registry.EventTypeFor(input.Source, input.Type); ok {
@@ -284,7 +298,7 @@ func (r *Router) eventTypes(ctx context.Context, input InputEvent, orgIDs []int6
 		return defs, nil
 	}
 	for _, orgID := range orgIDs {
-		custom, err := r.Store.GetOrgCustomEventTypes(ctx, nil, orgID)
+		custom, err := r.Store.GetOrgCustomEventTypes(ctx, tx, orgID)
 		if err != nil {
 			return nil, err
 		}
@@ -495,6 +509,11 @@ func (r *Router) create(ctx context.Context, input InputEvent, match TriggerMatc
 		prompt := agent.Prompt
 		if prompt == "" {
 			prompt = fmt.Sprintf("You were created by a trigger of agent %q in response to a %s %s event.", agent.Name, input.Source, input.Type)
+		}
+		// Hold the agent so a concurrent DeleteAgent sees this task; one
+		// deleted since the plan creates nothing.
+		if err := r.Store.LockLiveAgent(ctx, tx, match.OrgID, agent.ID); err != nil {
+			return fmt.Errorf("lock agent %d: %w", agent.ID, err)
 		}
 		task = &model.Task{
 			Runner:      agent.Runner,

@@ -104,6 +104,13 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		task.Version = 0
 	}
 	err = s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		// Hold the agent so a concurrent DeleteAgent sees this task.
+		if err := s.store.LockLiveAgent(ctx, tx, task.OrgID, task.AgentID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return connect.NewError(connect.CodeNotFound, fmt.Errorf("agent %d not found", task.AgentID))
+			}
+			return err
+		}
 		if err := s.store.CreateTask(ctx, tx, task); err != nil {
 			return err
 		}
@@ -146,6 +153,9 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		return tx.Commit()
 	})
 	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "task created", "id", task.ID, "runner", task.Runner, "workspace", task.Workspace)
@@ -385,6 +395,14 @@ func (s *Server) UnarchiveTask(ctx context.Context, req *gritzv1.UnarchiveTaskRe
 		from := task.Status
 		if !task.Unarchive() {
 			return fmt.Errorf("cannot unarchive task: not archived")
+		}
+		// An unarchived task's agent is live: hold it so a concurrent
+		// DeleteAgent sees this task, and refuse a task of a deleted agent.
+		if err := s.store.LockLiveAgent(ctx, tx, task.OrgID, task.AgentID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("task %d's agent %d is deleted", task.ID, task.AgentID))
+			}
+			return err
 		}
 		if err := s.store.UpdateTask(ctx, tx, task); err != nil {
 			return err

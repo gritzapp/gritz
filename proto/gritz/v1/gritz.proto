@@ -23,6 +23,8 @@ service GritzService {
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
   rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
   rpc ArchiveTask(ArchiveTaskRequest) returns (ArchiveTaskResponse);
+  // UnarchiveTask fails with `failed_precondition` when the task's agent is
+  // deleted.
   rpc UnarchiveTask(UnarchiveTaskRequest) returns (UnarchiveTaskResponse);
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
   rpc RestartTask(RestartTaskRequest) returns (RestartTaskResponse);
@@ -94,7 +96,8 @@ service GritzService {
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
   rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
   // DeleteAgent fails with `failed_precondition` while an unarchived task or
-  // a schedule belongs to the agent.
+  // a schedule belongs to the agent. A deleted agent is gone from every agent
+  // RPC; its archived tasks keep its id.
   rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
 }
 

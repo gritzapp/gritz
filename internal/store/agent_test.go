@@ -9,6 +9,7 @@ import (
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestAgentCRUD(t *testing.T) {
@@ -60,10 +61,56 @@ func TestAgentCRUD(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t, got, agent)
 
-	// Delete removes it.
-	assert.NilError(t, s.DeleteAgent(ctx, nil, org.OrgID, agent.ID))
+	// Delete hides it.
+	assert.NilError(t, s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.DeleteAgent(ctx, tx, org.OrgID, agent.ID); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}))
 	_, err = s.GetAgent(ctx, nil, org.OrgID, agent.ID)
 	assert.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestDeleteAgent_Soft(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent with an archived task.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ctx := t.Context()
+	agent := teststore.CreateAgent(t, s, org, nil)
+	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{AgentID: agent.ID})
+	task.Archived = true
+	assert.NilError(t, s.UpdateTask(ctx, nil, task))
+
+	// Act
+	err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.DeleteAgent(ctx, tx, org.OrgID, agent.ID); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+
+	// Assert - every method sees no agent, and the archived task still loads
+	// with its agent's ID.
+	assert.NilError(t, err)
+	_, err = s.GetAgent(ctx, nil, org.OrgID, agent.ID)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+	agents, err := s.ListAgentsForOrgs(ctx, nil, []int64{org.OrgID})
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(agents, 0))
+	assert.ErrorIs(t, s.UpdateAgent(ctx, nil, agent), sql.ErrNoRows)
+	err = s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		return s.LockLiveAgent(ctx, tx, org.OrgID, agent.ID)
+	})
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+	err = s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		return s.DeleteAgent(ctx, tx, org.OrgID, agent.ID)
+	})
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+	got, err := s.GetTask(ctx, nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, got.AgentID, agent.ID)
 }
 
 func TestListAgentsForOrgs(t *testing.T) {
@@ -139,7 +186,9 @@ func TestDeleteAgent_OtherOrg(t *testing.T) {
 	assert.NilError(t, s.CreateAgent(ctx, nil, agent))
 
 	// Act
-	err := s.DeleteAgent(ctx, nil, other.OrgID, agent.ID)
+	err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		return s.DeleteAgent(ctx, tx, other.OrgID, agent.ID)
+	})
 
 	// Assert
 	assert.ErrorIs(t, err, sql.ErrNoRows)
@@ -193,7 +242,9 @@ func TestDeleteAgent_InUse(t *testing.T) {
 			tt.using(t, s, org, agent.ID)
 
 			// Act
-			err := s.DeleteAgent(t.Context(), nil, org.OrgID, agent.ID)
+			err := s.WithTx(t.Context(), nil, func(tx *sql.Tx) error {
+				return s.DeleteAgent(t.Context(), tx, org.OrgID, agent.ID)
+			})
 
 			// Assert
 			if tt.err != nil {

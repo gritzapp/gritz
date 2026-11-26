@@ -56,6 +56,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
+		LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
 		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, task *model.Task) error {
 			task.ID = 42 // the store assigns the id the events and advance then reference
 			return nil
@@ -171,6 +172,7 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
+		LockLiveAgentFunc:  func(context.Context, *sql.Tx, int64, int64) error { return nil },
 		CreateTaskFunc:     func(_ context.Context, _ *sql.Tx, task *model.Task) error { task.ID = 99; return nil },
 		CreateEventFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
 		UpdateScheduleFunc: func(_ context.Context, _ *sql.Tx, _ *model.Schedule) error { return nil },
@@ -222,7 +224,8 @@ func TestScheduler_Tick_ErrorPropagatesWithoutPublishing(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
-		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
+		LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
+		CreateTaskFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
 	}
 	pub := &pubsub.PublisherMock{
 		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },

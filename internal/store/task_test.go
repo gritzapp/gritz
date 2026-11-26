@@ -18,6 +18,7 @@ func TestClearShellSession(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 
 	task := &model.Task{
 		Name:         "shell-task",
@@ -25,6 +26,7 @@ func TestClearShellSession(t *testing.T) {
 		Workspace:    "w",
 		Status:       model.TaskStatusCompleted,
 		OrgID:        org.OrgID,
+		AgentID:      orgAgent.ID,
 		ShellSession: "sess-1",
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
@@ -40,6 +42,7 @@ func TestClearShellSession_WrongOrgNoOp(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 	other := teststore.CreateOrg(t, s, nil)
 
 	task := &model.Task{
@@ -48,6 +51,7 @@ func TestClearShellSession_WrongOrgNoOp(t *testing.T) {
 		Workspace:    "w",
 		Status:       model.TaskStatusCompleted,
 		OrgID:        org.OrgID,
+		AgentID:      orgAgent.ID,
 		ShellSession: "sess-2",
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
@@ -64,12 +68,13 @@ func TestCreateTask_AgentID(t *testing.T) {
 	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	agent := teststore.CreateAgent(t, s, org, nil)
 	task := &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
-		AgentID:   42,
+		AgentID:   agent.ID,
 	}
 
 	// Act
@@ -78,7 +83,7 @@ func TestCreateTask_AgentID(t *testing.T) {
 
 	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, got.AgentID, int64(42))
+	assert.Equal(t, got.AgentID, agent.ID)
 }
 
 func TestCreateTask_Variables(t *testing.T) {
@@ -86,6 +91,7 @@ func TestCreateTask_Variables(t *testing.T) {
 	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 	vars := map[string]string{"JIRA_ISSUE": "APP-142", "EMPTY": ""}
 
 	// Act
@@ -93,6 +99,7 @@ func TestCreateTask_Variables(t *testing.T) {
 		Runner:    "r",
 		Workspace: "w",
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Variables: vars,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
@@ -107,6 +114,7 @@ func TestListTasksPage_ActiveOnly(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 
 	// Interleave active and archived; keyset order is newest-created first.
 	a := &model.Task{
@@ -114,6 +122,7 @@ func TestListTasksPage_ActiveOnly(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, a))
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
@@ -121,6 +130,7 @@ func TestListTasksPage_ActiveOnly(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}))
 	c := &model.Task{
@@ -128,6 +138,7 @@ func TestListTasksPage_ActiveOnly(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, c))
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
@@ -135,6 +146,7 @@ func TestListTasksPage_ActiveOnly(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}))
 
@@ -149,12 +161,14 @@ func TestListTasksPage_IncludeArchived(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 
 	a := &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, a))
 	b := &model.Task{
@@ -162,6 +176,7 @@ func TestListTasksPage_IncludeArchived(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, b))
@@ -170,6 +185,7 @@ func TestListTasksPage_IncludeArchived(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, c))
 	d := &model.Task{
@@ -177,6 +193,7 @@ func TestListTasksPage_IncludeArchived(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, d))
@@ -195,12 +212,14 @@ func TestListTasksPage_ArchivedKeysetPaging(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 
 	a := &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, a))
 	b := &model.Task{
@@ -208,6 +227,7 @@ func TestListTasksPage_ArchivedKeysetPaging(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, b))
@@ -216,6 +236,7 @@ func TestListTasksPage_ArchivedKeysetPaging(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}
 	assert.NilError(t, s.CreateTask(t.Context(), nil, c))
 
@@ -243,6 +264,7 @@ func TestListTasksPage_TokenBindsFilter(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 
 	// Two archived-included rows so the first page mints a next token.
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
@@ -250,6 +272,7 @@ func TestListTasksPage_TokenBindsFilter(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}))
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
@@ -257,6 +280,7 @@ func TestListTasksPage_TokenBindsFilter(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 		Archived:  true,
 	}))
 
@@ -284,12 +308,14 @@ func TestListTasksPage_TokenBindsFilter(t *testing.T) {
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}))
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}))
 	activePage, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{
 		OrgID:    org.OrgID,
@@ -311,18 +337,21 @@ func TestListTasksPage_DefaultTokenWireCompatible(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
 
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}))
 	assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
+		AgentID:   orgAgent.ID,
 	}))
 
 	page, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{

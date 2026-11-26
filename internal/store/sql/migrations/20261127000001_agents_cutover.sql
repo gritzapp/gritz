@@ -7,7 +7,11 @@
 -- no kind, so they become plain references and stop receiving events, and the
 -- routing rules are dropped: neither is migrated into agents.
 
-ALTER TABLE tasks ADD COLUMN agent_id bigint;
+-- A deleted agent keeps its row, so the archived tasks of it keep their
+-- reference; it is live while deleted_at is NULL.
+ALTER TABLE agents ADD COLUMN deleted_at timestamptz;
+
+ALTER TABLE tasks ADD COLUMN agent_id bigint REFERENCES agents(id);
 ALTER TABLE schedules ADD COLUMN agent_id bigint REFERENCES agents(id);
 
 WITH defaults AS (
@@ -19,8 +23,6 @@ WITH defaults AS (
 )
 UPDATE schedules s SET agent_id = d.id FROM defaults d WHERE s.org_id = d.org_id;
 
--- No foreign key: an agent can be deleted once its tasks are archived, and
--- the archived tasks keep its id.
 ALTER TABLE tasks ALTER COLUMN agent_id SET NOT NULL;
 CREATE INDEX idx_tasks_agent_id ON tasks (agent_id) WHERE archived = FALSE;
 ALTER TABLE tasks DROP COLUMN namespace;
@@ -57,3 +59,4 @@ ALTER TABLE tasks ADD COLUMN namespace text NOT NULL DEFAULT '';
 ALTER TABLE tasks DROP COLUMN agent_id;
 
 DELETE FROM agents;
+ALTER TABLE agents DROP COLUMN deleted_at;

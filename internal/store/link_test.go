@@ -46,8 +46,9 @@ func TestFindSubscribedLinks(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	other := teststore.CreateOrg(t, s, nil)
 	const url = "https://github.com/o/r/pull/5"
+	agent := teststore.CreateAgent(t, s, org, nil)
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		AgentID: 7,
+		AgentID: agent.ID,
 		Links: []teststore.LinkOptions{
 			{URL: url, Kind: "owned-pr", Claim: "pr-owner"},
 			{URL: url},
@@ -77,7 +78,7 @@ func TestFindSubscribedLinks(t *testing.T) {
 			Claim:  "pr-owner",
 		},
 		OrgID:   org.OrgID,
-		AgentID: 7,
+		AgentID: agent.ID,
 	}}, cmpopts.IgnoreFields(model.Link{}, "ID", "CreatedAt"))
 }
 

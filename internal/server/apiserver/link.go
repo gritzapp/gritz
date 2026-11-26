@@ -91,9 +91,6 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 func (s *Server) subscribeLink(ctx context.Context, task *model.Task, link *model.Link, kind string) error {
 	agent, err := s.store.GetAgent(ctx, nil, task.OrgID, task.AgentID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("task %d's agent %d no longer exists", task.ID, task.AgentID))
-		}
 		return connect.NewError(connect.CodeInternal, err)
 	}
 	entry, ok := agent.Link(kind)

@@ -54,6 +54,9 @@ export const updateTask = GritzService.method.updateTask;
 export const archiveTask = GritzService.method.archiveTask;
 
 /**
+ * UnarchiveTask fails with `failed_precondition` when the task's agent is
+ * deleted.
+ *
  * @generated from rpc gritz.v1.GritzService.UnarchiveTask
  */
 export const unarchiveTask = GritzService.method.unarchiveTask;
@@ -333,7 +336,8 @@ export const updateAgent = GritzService.method.updateAgent;
 
 /**
  * DeleteAgent fails with `failed_precondition` while an unarchived task or
- * a schedule belongs to the agent.
+ * a schedule belongs to the agent. A deleted agent is gone from every agent
+ * RPC; its archived tasks keep its id.
  *
  * @generated from rpc gritz.v1.GritzService.DeleteAgent
  */

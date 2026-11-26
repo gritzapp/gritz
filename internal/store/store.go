@@ -49,6 +49,17 @@ func (s *Store) WithTx(ctx context.Context, tx *sql.Tx, f func(tx *sql.Tx) error
 	return f(tx)
 }
 
+// WithSnapshot calls f with a read-only transaction whose queries all see the
+// same snapshot of the database.
+func (s *Store) WithSnapshot(ctx context.Context, f func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	return f(tx)
+}
+
 func Open(dsn string, migrate bool) (*sql.DB, error) {
 	if migrate {
 		if err := Migrate(dsn); err != nil {
