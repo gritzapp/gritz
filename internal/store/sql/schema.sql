@@ -20,6 +20,45 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: agents; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.agents (
+    id bigint NOT NULL,
+    org_id bigint NOT NULL,
+    name text NOT NULL,
+    workspace text NOT NULL,
+    runner text NOT NULL,
+    prompt text DEFAULT ''::text NOT NULL,
+    auto_archive bigint DEFAULT 0 NOT NULL,
+    variables jsonb DEFAULT '{}'::jsonb NOT NULL,
+    triggers jsonb DEFAULT '[]'::jsonb NOT NULL,
+    links jsonb DEFAULT '[]'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: agents_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.agents_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: agents_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.agents_id_seq OWNED BY public.agents.id;
+
+
+--
 -- Name: events; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -335,6 +374,13 @@ ALTER SEQUENCE public.workspaces_id_seq OWNED BY public.workspaces.id;
 
 
 --
+-- Name: agents id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agents ALTER COLUMN id SET DEFAULT nextval('public.agents_id_seq'::regclass);
+
+
+--
 -- Name: events id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -381,6 +427,22 @@ ALTER TABLE ONLY public.tasks ALTER COLUMN id SET DEFAULT nextval('public.tasks_
 --
 
 ALTER TABLE ONLY public.workspaces ALTER COLUMN id SET DEFAULT nextval('public.workspaces_id_seq'::regclass);
+
+
+--
+-- Name: agents agents_org_id_name_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agents
+    ADD CONSTRAINT agents_org_id_name_key UNIQUE (org_id, name);
+
+
+--
+-- Name: agents agents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agents
+    ADD CONSTRAINT agents_pkey PRIMARY KEY (id);
 
 
 --
@@ -647,6 +709,14 @@ CREATE INDEX tasks_org_created_id_idx ON public.tasks USING btree (org_id, creat
 
 
 --
+-- Name: agents agents_org_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.agents
+    ADD CONSTRAINT agents_org_id_fkey FOREIGN KEY (org_id) REFERENCES public.orgs(id) ON DELETE CASCADE;
+
+
+--
 -- Name: events fk_events_org_id; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -804,4 +874,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261101000001'),
     ('20261107000001'),
     ('20261118000001'),
-    ('20261119000001');
+    ('20261119000001'),
+    ('20261126000001');
