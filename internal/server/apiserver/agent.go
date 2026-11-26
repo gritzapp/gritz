@@ -142,16 +142,12 @@ func (s *Server) DeleteAgent(ctx context.Context, req *gritzv1.DeleteAgentReques
 }
 
 // validateAgent checks an agent before it is saved in tx, returning an
-// InvalidArgument error when it is rejected. It takes the org lock, so the
-// agent is checked against custom event types a concurrent SetCustomEventTypes
-// can't be changing, and checks the agent's template: a name, a workspace
-// registered on its runner, and variables the workspace accepts.
+// InvalidArgument error when it is rejected: against the built-in and the
+// org's custom event types, and its template: a name, a workspace registered
+// on its runner, and variables the workspace accepts.
 func (s *Server) validateAgent(ctx context.Context, tx *sql.Tx, agent *model.Agent) error {
 	if agent.Name == "" {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("name is required"))
-	}
-	if err := s.store.LockOrg(ctx, tx, agent.OrgID); err != nil {
-		return err
 	}
 	custom, err := s.store.GetOrgCustomEventTypes(ctx, tx, agent.OrgID)
 	if err != nil {
