@@ -59,35 +59,26 @@ func TestClearShellSession_WrongOrgNoOp(t *testing.T) {
 	assert.Equal(t, got.ShellSession, "sess-2")
 }
 
-func TestCreateTask_Namespace(t *testing.T) {
+func TestCreateTask_AgentID(t *testing.T) {
 	t.Parallel()
+	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
-
-	// A task created with a non-default namespace reads it back.
 	task := &model.Task{
 		Runner:    "r",
 		Workspace: "w",
 		Status:    model.TaskStatusCompleted,
 		OrgID:     org.OrgID,
-		Namespace: "reviewbot",
+		AgentID:   42,
 	}
+
+	// Act
 	assert.NilError(t, s.CreateTask(t.Context(), nil, task))
 	got, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, got.Namespace, "reviewbot")
 
-	// A task created without a namespace reads back the default (empty string).
-	def := &model.Task{
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusCompleted,
-		OrgID:     org.OrgID,
-	}
-	assert.NilError(t, s.CreateTask(t.Context(), nil, def))
-	gotDef, err := s.GetTask(t.Context(), nil, def.ID, org.OrgID)
+	// Assert
 	assert.NilError(t, err)
-	assert.Equal(t, gotDef.Namespace, "")
+	assert.Equal(t, got.AgentID, int64(42))
 }
 
 func TestCreateTask_Variables(t *testing.T) {

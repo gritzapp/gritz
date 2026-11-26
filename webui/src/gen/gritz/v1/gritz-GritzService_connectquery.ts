@@ -244,16 +244,6 @@ export const getOrgSettings = GritzService.method.getOrgSettings;
 export const generateAtlassianWebhookSecret = GritzService.method.generateAtlassianWebhookSecret;
 
 /**
- * @generated from rpc gritz.v1.GritzService.GetRoutingRules
- */
-export const getRoutingRules = GritzService.method.getRoutingRules;
-
-/**
- * @generated from rpc gritz.v1.GritzService.SetRoutingRules
- */
-export const setRoutingRules = GritzService.method.setRoutingRules;
-
-/**
  * @generated from rpc gritz.v1.GritzService.GetEventTypes
  */
 export const getEventTypes = GritzService.method.getEventTypes;
@@ -342,6 +332,9 @@ export const listAgents = GritzService.method.listAgents;
 export const updateAgent = GritzService.method.updateAgent;
 
 /**
+ * DeleteAgent fails with `failed_precondition` while an unarchived task or
+ * a schedule belongs to the agent.
+ *
  * @generated from rpc gritz.v1.GritzService.DeleteAgent
  */
 export const deleteAgent = GritzService.method.deleteAgent;

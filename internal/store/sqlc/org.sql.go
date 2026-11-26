@@ -161,49 +161,6 @@ func (q *Queries) GetOrgCustomEventTypes(ctx context.Context, id int64) (json.Ra
 	return custom_event_types, err
 }
 
-const getOrgRoutingRules = `-- name: GetOrgRoutingRules :one
-SELECT routing_rules FROM orgs WHERE id = $1
-`
-
-func (q *Queries) GetOrgRoutingRules(ctx context.Context, id int64) (json.RawMessage, error) {
-	row := q.db.QueryRowContext(ctx, getOrgRoutingRules, id)
-	var routing_rules json.RawMessage
-	err := row.Scan(&routing_rules)
-	return routing_rules, err
-}
-
-const getRoutingRulesByOrgs = `-- name: GetRoutingRulesByOrgs :many
-SELECT id, routing_rules FROM orgs WHERE id = ANY($1::BIGINT[])
-`
-
-type GetRoutingRulesByOrgsRow struct {
-	ID           int64           `json:"id"`
-	RoutingRules json.RawMessage `json:"routing_rules"`
-}
-
-func (q *Queries) GetRoutingRulesByOrgs(ctx context.Context, dollar_1 []int64) ([]GetRoutingRulesByOrgsRow, error) {
-	rows, err := q.db.QueryContext(ctx, getRoutingRulesByOrgs, pq.Array(dollar_1))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GetRoutingRulesByOrgsRow{}
-	for rows.Next() {
-		var i GetRoutingRulesByOrgsRow
-		if err := rows.Scan(&i.ID, &i.RoutingRules); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const isOrgMember = `-- name: IsOrgMember :one
 SELECT EXISTS(
     SELECT 1 FROM org_members om
@@ -222,6 +179,63 @@ func (q *Queries) IsOrgMember(ctx context.Context, arg IsOrgMemberParams) (bool,
 	var is_member bool
 	err := row.Scan(&is_member)
 	return is_member, err
+}
+
+const listEventOrgs = `-- name: ListEventOrgs :many
+SELECT o.id, TRUE::boolean AS is_member
+FROM orgs o
+JOIN org_members m ON m.org_id = o.id
+WHERE m.user_id = $1 AND o.archived = FALSE
+UNION
+SELECT o.id, FALSE::boolean AS is_member
+FROM orgs o
+WHERE o.id = ANY($2::BIGINT[])
+  AND o.archived = FALSE
+  AND NOT EXISTS (
+      SELECT 1 FROM org_members m
+      WHERE m.org_id = o.id AND m.user_id = $1
+  )
+ORDER BY id
+`
+
+type ListEventOrgsParams struct {
+	UserID string  `json:"user_id"`
+	OrgIds []int64 `json:"org_ids"`
+}
+
+type ListEventOrgsRow struct {
+	ID       int64 `json:"id"`
+	IsMember bool  `json:"is_member"`
+}
+
+// The orgs an event routes in. Member orgs (joined via org_members) are
+// returned with is_member = TRUE. The orgs in org_ids (the event's orgs) that
+// the actor is NOT a member of are returned with is_member = FALSE; the caller
+// admits only public triggers and link kinds in them. Membership wins on
+// overlap (the NOT EXISTS drops a passed org the actor already belongs to).
+// An empty org_ids reduces this to the member orgs; an empty user_id yields
+// just the non-member branch.
+func (q *Queries) ListEventOrgs(ctx context.Context, arg ListEventOrgsParams) ([]ListEventOrgsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEventOrgs, arg.UserID, pq.Array(arg.OrgIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventOrgsRow{}
+	for rows.Next() {
+		var i ListEventOrgsRow
+		if err := rows.Scan(&i.ID, &i.IsMember); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listOrgIDsByGitHubInstallation = `-- name: ListOrgIDsByGitHubInstallation :many
@@ -387,67 +401,11 @@ func (q *Queries) ListOrgsByMember(ctx context.Context, userID string) ([]ListOr
 	return items, nil
 }
 
-const listRoutingRulesForEvent = `-- name: ListRoutingRulesForEvent :many
-SELECT o.id, o.routing_rules, TRUE::boolean AS is_member
-FROM orgs o
-JOIN org_members m ON m.org_id = o.id
-WHERE m.user_id = $1 AND o.archived = FALSE
-UNION
-SELECT o.id, o.routing_rules, FALSE::boolean AS is_member
-FROM orgs o
-WHERE o.id = ANY($2::BIGINT[])
-  AND o.archived = FALSE
-  AND NOT EXISTS (
-      SELECT 1 FROM org_members m
-      WHERE m.org_id = o.id AND m.user_id = $1
-  )
-`
-
-type ListRoutingRulesForEventParams struct {
-	UserID string  `json:"user_id"`
-	OrgIds []int64 `json:"org_ids"`
-}
-
-type ListRoutingRulesForEventRow struct {
-	ID           int64           `json:"id"`
-	RoutingRules json.RawMessage `json:"routing_rules"`
-	IsMember     bool            `json:"is_member"`
-}
-
-// Member orgs (joined via org_members) are returned with is_member = TRUE and
-// all their rules. The orgs in org_ids (the event's orgs) that the actor is NOT
-// a member of are returned with is_member = FALSE; the caller keeps only their
-// public rules. Membership wins on overlap (the NOT EXISTS drops a passed org
-// the actor already belongs to). An empty org_ids reduces this to the
-// member-only behavior; an empty user_id yields just the non-member branch.
-func (q *Queries) ListRoutingRulesForEvent(ctx context.Context, arg ListRoutingRulesForEventParams) ([]ListRoutingRulesForEventRow, error) {
-	rows, err := q.db.QueryContext(ctx, listRoutingRulesForEvent, arg.UserID, pq.Array(arg.OrgIds))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListRoutingRulesForEventRow{}
-	for rows.Next() {
-		var i ListRoutingRulesForEventRow
-		if err := rows.Scan(&i.ID, &i.RoutingRules, &i.IsMember); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const lockOrg = `-- name: LockOrg :exec
 SELECT id FROM orgs WHERE id = $1 FOR UPDATE
 `
 
-// Serializes writes that check routing rules against custom event types.
+// Serializes changes to an org's custom event types.
 func (q *Queries) LockOrg(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, lockOrg, id)
 	return err
@@ -513,23 +471,6 @@ type SetOrgGitHubInstallationParams struct {
 
 func (q *Queries) SetOrgGitHubInstallation(ctx context.Context, arg SetOrgGitHubInstallationParams) error {
 	_, err := q.db.ExecContext(ctx, setOrgGitHubInstallation, arg.GithubInstallationID, arg.ID)
-	return err
-}
-
-const setOrgRoutingRules = `-- name: SetOrgRoutingRules :exec
-UPDATE orgs SET
-    routing_rules = $2,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $1
-`
-
-type SetOrgRoutingRulesParams struct {
-	ID           int64           `json:"id"`
-	RoutingRules json.RawMessage `json:"routing_rules"`
-}
-
-func (q *Queries) SetOrgRoutingRules(ctx context.Context, arg SetOrgRoutingRulesParams) error {
-	_, err := q.db.ExecContext(ctx, setOrgRoutingRules, arg.ID, arg.RoutingRules)
 	return err
 }
 

@@ -88,39 +88,28 @@ SELECT EXISTS(
     WHERE om.org_id = $1 AND om.user_id = $2 AND o.archived = FALSE
 ) AS is_member;
 
--- name: GetOrgRoutingRules :one
-SELECT routing_rules FROM orgs WHERE id = $1;
-
--- name: SetOrgRoutingRules :exec
-UPDATE orgs SET
-    routing_rules = $2,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = $1;
-
--- name: GetRoutingRulesByOrgs :many
-SELECT id, routing_rules FROM orgs WHERE id = ANY($1::BIGINT[]);
-
--- name: ListRoutingRulesForEvent :many
--- Member orgs (joined via org_members) are returned with is_member = TRUE and
--- all their rules. The orgs in org_ids (the event's orgs) that the actor is NOT
--- a member of are returned with is_member = FALSE; the caller keeps only their
--- public rules. Membership wins on overlap (the NOT EXISTS drops a passed org
--- the actor already belongs to). An empty org_ids reduces this to the
--- member-only behavior; an empty user_id yields just the non-member branch.
-SELECT o.id, o.routing_rules, TRUE::boolean AS is_member
+-- name: ListEventOrgs :many
+-- The orgs an event routes in. Member orgs (joined via org_members) are
+-- returned with is_member = TRUE. The orgs in org_ids (the event's orgs) that
+-- the actor is NOT a member of are returned with is_member = FALSE; the caller
+-- admits only public triggers and link kinds in them. Membership wins on
+-- overlap (the NOT EXISTS drops a passed org the actor already belongs to).
+-- An empty org_ids reduces this to the member orgs; an empty user_id yields
+-- just the non-member branch.
+SELECT o.id, TRUE::boolean AS is_member
 FROM orgs o
 JOIN org_members m ON m.org_id = o.id
 WHERE m.user_id = sqlc.arg(user_id) AND o.archived = FALSE
 UNION
-SELECT o.id, o.routing_rules, FALSE::boolean AS is_member
+SELECT o.id, FALSE::boolean AS is_member
 FROM orgs o
 WHERE o.id = ANY(sqlc.arg(org_ids)::BIGINT[])
   AND o.archived = FALSE
   AND NOT EXISTS (
       SELECT 1 FROM org_members m
       WHERE m.org_id = o.id AND m.user_id = sqlc.arg(user_id)
-  );
-
+  )
+ORDER BY id;
 
 -- name: GetOrgCustomEventTypes :one
 SELECT custom_event_types FROM orgs WHERE id = $1;
@@ -132,5 +121,5 @@ UPDATE orgs SET
 WHERE id = $1;
 
 -- name: LockOrg :exec
--- Serializes writes that check routing rules against custom event types.
+-- Serializes changes to an org's custom event types.
 SELECT id FROM orgs WHERE id = $1 FOR UPDATE;

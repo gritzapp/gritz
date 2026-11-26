@@ -74,11 +74,10 @@ type Task struct {
 	Archived  bool        `json:"archived"`
 	CreatedAt time.Time   `json:"created_at"`
 	UpdatedAt time.Time   `json:"updated_at"`
-	// Namespace partitions subscription matching in the event router. Empty is
-	// the default namespace — the behavior every existing task already has. It is
-	// set at creation and read-only thereafter (see
-	// docs/src/content/docs/proposals/implemented/task-namespaces.md).
-	Namespace string `json:"namespace,omitempty"`
+	// AgentID is the agent the task belongs to. Runner, Workspace, AutoArchive
+	// and Variables were copied from it at creation, so editing the agent
+	// doesn't move the task. Set at creation and never changed.
+	AgentID int64 `json:"agent_id"`
 	// AutoArchive controls auto-archive after the task reaches a terminal
 	// status. 0 = never (default); <0 = archive immediately; >0 = delay.
 	AutoArchive time.Duration `json:"auto_archive,omitempty"`
@@ -146,7 +145,7 @@ func (t *Task) Proto(baseURL string) *gritzv1.Task {
 		UpdatedAt:    timestamppb.New(t.UpdatedAt),
 		AutoArchive:  durationpb.New(t.AutoArchive),
 		ShellSession: t.ShellSession,
-		Namespace:    t.Namespace,
+		AgentId:      t.AgentID,
 		Variables:    t.Variables,
 		Actions: &gritzv1.TaskActions{
 			Archive:   t.CanArchive(),
@@ -181,7 +180,7 @@ func TaskFromProto(pb *gritzv1.Task) *Task {
 		UpdatedAt:    updatedAt,
 		AutoArchive:  pb.AutoArchive.AsDuration(),
 		ShellSession: pb.ShellSession,
-		Namespace:    pb.Namespace,
+		AgentID:      pb.AgentId,
 		Variables:    pb.Variables,
 	}
 }

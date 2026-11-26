@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"time"
 
@@ -90,9 +91,21 @@ func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 	return nil
 }
 
-// DeleteAgent removes the org's agent. It returns sql.ErrNoRows when the org
-// has no such agent.
+// ErrAgentInUse is returned by DeleteAgent for an agent an unarchived task or
+// a schedule belongs to.
+var ErrAgentInUse = errors.New("agent in use")
+
+// DeleteAgent removes the org's agent. It returns ErrAgentInUse while an
+// unarchived task or a schedule belongs to it, and sql.ErrNoRows when the org
+// has no such agent. Archived tasks keep the deleted agent's ID.
 func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error {
+	inUse, err := s.q(tx).AgentInUse(ctx, sqlc.AgentInUseParams{AgentID: id, OrgID: orgID})
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return ErrAgentInUse
+	}
 	n, err := s.q(tx).DeleteAgent(ctx, sqlc.DeleteAgentParams{ID: id, OrgID: orgID})
 	if err != nil {
 		return err

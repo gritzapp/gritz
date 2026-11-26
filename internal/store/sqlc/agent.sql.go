@@ -12,6 +12,29 @@ import (
 	"github.com/lib/pq"
 )
 
+const agentInUse = `-- name: AgentInUse :one
+SELECT (EXISTS (
+    SELECT 1 FROM tasks t
+    WHERE t.agent_id = $1 AND t.org_id = $2 AND t.archived = FALSE
+) OR EXISTS (
+    SELECT 1 FROM schedules s
+    WHERE s.agent_id = $1 AND s.org_id = $2
+))::boolean AS in_use
+`
+
+type AgentInUseParams struct {
+	AgentID int64 `json:"agent_id"`
+	OrgID   int64 `json:"org_id"`
+}
+
+// Whether an unarchived task or a schedule references the agent.
+func (q *Queries) AgentInUse(ctx context.Context, arg AgentInUseParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, agentInUse, arg.AgentID, arg.OrgID)
+	var in_use bool
+	err := row.Scan(&in_use)
+	return in_use, err
+}
+
 const createAgent = `-- name: CreateAgent :one
 INSERT INTO agents (org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)

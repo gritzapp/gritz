@@ -97,9 +97,6 @@ var _ Client = &ClientMock{}
 //			GetProfileFunc: func(contextMoqParam context.Context, getProfileRequest *gritzv1.GetProfileRequest) (*gritzv1.GetProfileResponse, error) {
 //				panic("mock out the GetProfile method")
 //			},
-//			GetRoutingRulesFunc: func(contextMoqParam context.Context, getRoutingRulesRequest *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error) {
-//				panic("mock out the GetRoutingRules method")
-//			},
 //			GetRunSpecInputsFunc: func(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
 //				panic("mock out the GetRunSpecInputs method")
 //			},
@@ -171,9 +168,6 @@ var _ Client = &ClientMock{}
 //			},
 //			SetCustomEventTypesFunc: func(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
 //				panic("mock out the SetCustomEventTypes method")
-//			},
-//			SetRoutingRulesFunc: func(contextMoqParam context.Context, setRoutingRulesRequest *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error) {
-//				panic("mock out the SetRoutingRules method")
 //			},
 //			SetScheduleEnabledFunc: func(contextMoqParam context.Context, setScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest) (*gritzv1.SetScheduleEnabledResponse, error) {
 //				panic("mock out the SetScheduleEnabled method")
@@ -290,9 +284,6 @@ type ClientMock struct {
 	// GetProfileFunc mocks the GetProfile method.
 	GetProfileFunc func(contextMoqParam context.Context, getProfileRequest *gritzv1.GetProfileRequest) (*gritzv1.GetProfileResponse, error)
 
-	// GetRoutingRulesFunc mocks the GetRoutingRules method.
-	GetRoutingRulesFunc func(contextMoqParam context.Context, getRoutingRulesRequest *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error)
-
 	// GetRunSpecInputsFunc mocks the GetRunSpecInputs method.
 	GetRunSpecInputsFunc func(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error)
 
@@ -364,9 +355,6 @@ type ClientMock struct {
 
 	// SetCustomEventTypesFunc mocks the SetCustomEventTypes method.
 	SetCustomEventTypesFunc func(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error)
-
-	// SetRoutingRulesFunc mocks the SetRoutingRules method.
-	SetRoutingRulesFunc func(contextMoqParam context.Context, setRoutingRulesRequest *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error)
 
 	// SetScheduleEnabledFunc mocks the SetScheduleEnabled method.
 	SetScheduleEnabledFunc func(contextMoqParam context.Context, setScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest) (*gritzv1.SetScheduleEnabledResponse, error)
@@ -582,13 +570,6 @@ type ClientMock struct {
 			// GetProfileRequest is the getProfileRequest argument value.
 			GetProfileRequest *gritzv1.GetProfileRequest
 		}
-		// GetRoutingRules holds details about calls to the GetRoutingRules method.
-		GetRoutingRules []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// GetRoutingRulesRequest is the getRoutingRulesRequest argument value.
-			GetRoutingRulesRequest *gritzv1.GetRoutingRulesRequest
-		}
 		// GetRunSpecInputs holds details about calls to the GetRunSpecInputs method.
 		GetRunSpecInputs []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -757,13 +738,6 @@ type ClientMock struct {
 			// SetCustomEventTypesRequest is the setCustomEventTypesRequest argument value.
 			SetCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest
 		}
-		// SetRoutingRules holds details about calls to the SetRoutingRules method.
-		SetRoutingRules []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// SetRoutingRulesRequest is the setRoutingRulesRequest argument value.
-			SetRoutingRulesRequest *gritzv1.SetRoutingRulesRequest
-		}
 		// SetScheduleEnabled holds details about calls to the SetScheduleEnabled method.
 		SetScheduleEnabled []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -861,7 +835,6 @@ type ClientMock struct {
 	lockGetEventTypes                  sync.RWMutex
 	lockGetOrgSettings                 sync.RWMutex
 	lockGetProfile                     sync.RWMutex
-	lockGetRoutingRules                sync.RWMutex
 	lockGetRunSpecInputs               sync.RWMutex
 	lockGetSchedule                    sync.RWMutex
 	lockGetTask                        sync.RWMutex
@@ -886,7 +859,6 @@ type ClientMock struct {
 	lockRestartTask                    sync.RWMutex
 	lockRunSchedule                    sync.RWMutex
 	lockSetCustomEventTypes            sync.RWMutex
-	lockSetRoutingRules                sync.RWMutex
 	lockSetScheduleEnabled             sync.RWMutex
 	lockSubmitRunnerEvents             sync.RWMutex
 	lockTestEvent                      sync.RWMutex
@@ -1835,42 +1807,6 @@ func (mock *ClientMock) GetProfileCalls() []struct {
 	return calls
 }
 
-// GetRoutingRules calls GetRoutingRulesFunc.
-func (mock *ClientMock) GetRoutingRules(contextMoqParam context.Context, getRoutingRulesRequest *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error) {
-	if mock.GetRoutingRulesFunc == nil {
-		panic("ClientMock.GetRoutingRulesFunc: method is nil but Client.GetRoutingRules was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam        context.Context
-		GetRoutingRulesRequest *gritzv1.GetRoutingRulesRequest
-	}{
-		ContextMoqParam:        contextMoqParam,
-		GetRoutingRulesRequest: getRoutingRulesRequest,
-	}
-	mock.lockGetRoutingRules.Lock()
-	mock.calls.GetRoutingRules = append(mock.calls.GetRoutingRules, callInfo)
-	mock.lockGetRoutingRules.Unlock()
-	return mock.GetRoutingRulesFunc(contextMoqParam, getRoutingRulesRequest)
-}
-
-// GetRoutingRulesCalls gets all the calls that were made to GetRoutingRules.
-// Check the length with:
-//
-//	len(mockedClient.GetRoutingRulesCalls())
-func (mock *ClientMock) GetRoutingRulesCalls() []struct {
-	ContextMoqParam        context.Context
-	GetRoutingRulesRequest *gritzv1.GetRoutingRulesRequest
-} {
-	var calls []struct {
-		ContextMoqParam        context.Context
-		GetRoutingRulesRequest *gritzv1.GetRoutingRulesRequest
-	}
-	mock.lockGetRoutingRules.RLock()
-	calls = mock.calls.GetRoutingRules
-	mock.lockGetRoutingRules.RUnlock()
-	return calls
-}
-
 // GetRunSpecInputs calls GetRunSpecInputsFunc.
 func (mock *ClientMock) GetRunSpecInputs(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
 	if mock.GetRunSpecInputsFunc == nil {
@@ -2732,42 +2668,6 @@ func (mock *ClientMock) SetCustomEventTypesCalls() []struct {
 	mock.lockSetCustomEventTypes.RLock()
 	calls = mock.calls.SetCustomEventTypes
 	mock.lockSetCustomEventTypes.RUnlock()
-	return calls
-}
-
-// SetRoutingRules calls SetRoutingRulesFunc.
-func (mock *ClientMock) SetRoutingRules(contextMoqParam context.Context, setRoutingRulesRequest *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error) {
-	if mock.SetRoutingRulesFunc == nil {
-		panic("ClientMock.SetRoutingRulesFunc: method is nil but Client.SetRoutingRules was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam        context.Context
-		SetRoutingRulesRequest *gritzv1.SetRoutingRulesRequest
-	}{
-		ContextMoqParam:        contextMoqParam,
-		SetRoutingRulesRequest: setRoutingRulesRequest,
-	}
-	mock.lockSetRoutingRules.Lock()
-	mock.calls.SetRoutingRules = append(mock.calls.SetRoutingRules, callInfo)
-	mock.lockSetRoutingRules.Unlock()
-	return mock.SetRoutingRulesFunc(contextMoqParam, setRoutingRulesRequest)
-}
-
-// SetRoutingRulesCalls gets all the calls that were made to SetRoutingRules.
-// Check the length with:
-//
-//	len(mockedClient.SetRoutingRulesCalls())
-func (mock *ClientMock) SetRoutingRulesCalls() []struct {
-	ContextMoqParam        context.Context
-	SetRoutingRulesRequest *gritzv1.SetRoutingRulesRequest
-} {
-	var calls []struct {
-		ContextMoqParam        context.Context
-		SetRoutingRulesRequest *gritzv1.SetRoutingRulesRequest
-	}
-	mock.lockSetRoutingRules.RLock()
-	calls = mock.calls.SetRoutingRules
-	mock.lockSetRoutingRules.RUnlock()
 	return calls
 }
 

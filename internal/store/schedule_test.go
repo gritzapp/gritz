@@ -25,13 +25,14 @@ func TestScheduleCRUD(t *testing.T) {
 	// query's due set (see TestClaimDueSchedules_Concurrent, which owns the due
 	// set for this package). Relative to now so it can never rot into the past.
 	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+	agent := teststore.CreateAgent(t, s, org, nil)
 	sched := &model.Schedule{
 		OrgID:     org.OrgID,
 		CreatedBy: org.UserID,
 		Name:      "nightly",
 		Workspace: "w",
 		Runner:    "r",
-		Namespace: "ns",
+		AgentID:   agent.ID,
 		Instructions: []model.ScheduleInstruction{
 			{Text: "bump deps", URL: "https://example.com/deps"},
 			{Text: "groom changelog"},
@@ -58,6 +59,7 @@ func TestScheduleCRUD(t *testing.T) {
 
 	// Update mutates the template and spec.
 	sched.Name = "nightly-v2"
+	sched.AgentID = teststore.CreateAgent(t, s, org, &model.Agent{Name: "other"}).ID
 	sched.CronExpr = "30 2 * * *"
 	sched.Timezone = "UTC"
 	sched.Enabled = false
@@ -98,6 +100,7 @@ func TestAdvanceSchedule(t *testing.T) {
 	sched := &model.Schedule{
 		OrgID:     org.OrgID,
 		CreatedBy: org.UserID,
+		AgentID:   teststore.CreateAgent(t, s, org, nil).ID,
 		Workspace: "w",
 		Runner:    "r",
 		CronExpr:  "0 9 * * *",
@@ -141,6 +144,7 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 	// delete them afterwards, so they don't stay due for the next run.
 	const n = 6
 	past := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	agent := teststore.CreateAgent(t, s, org, nil)
 	want := map[int64]bool{}
 	for i := 0; i < n; i++ {
 		// Distinct next_run_at so ORDER BY next_run_at is deterministic.
@@ -148,6 +152,7 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 		sched := &model.Schedule{
 			OrgID:     org.OrgID,
 			CreatedBy: org.UserID,
+			AgentID:   agent.ID,
 			Workspace: "w",
 			Runner:    "r",
 			CronExpr:  "* * * * *",

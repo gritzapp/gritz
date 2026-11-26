@@ -201,41 +201,8 @@ func toModelOrgMember(row sqlc.OrgMember) *model.OrgMember {
 	}
 }
 
-// DecodeRoutingRules decodes stored routing_rules JSONB into conditions-native
-// model.RoutingRule values. Storage is conditions-native, so this is a plain
-// unmarshal; empty/absent data decodes to a nil slice.
-func DecodeRoutingRules(data []byte) ([]model.RoutingRule, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var rules []model.RoutingRule
-	if err := json.Unmarshal(data, &rules); err != nil {
-		return nil, err
-	}
-	return rules, nil
-}
-
-func (s *Store) GetOrgRoutingRules(ctx context.Context, tx *sql.Tx, orgID int64) ([]model.RoutingRule, error) {
-	data, err := s.q(tx).GetOrgRoutingRules(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeRoutingRules(data)
-}
-
-func (s *Store) SetOrgRoutingRules(ctx context.Context, tx *sql.Tx, orgID int64, rules []model.RoutingRule) error {
-	data, err := json.Marshal(rules)
-	if err != nil {
-		return err
-	}
-	return s.q(tx).SetOrgRoutingRules(ctx, sqlc.SetOrgRoutingRulesParams{
-		ID:           orgID,
-		RoutingRules: data,
-	})
-}
-
-// LockOrg takes a row lock on the org until tx ends. It serializes the writes
-// that check routing rules against custom event types.
+// LockOrg takes a row lock on the org until tx ends. It serializes changes to
+// the org's custom event types.
 func (s *Store) LockOrg(ctx context.Context, tx *sql.Tx, orgID int64) error {
 	if tx == nil {
 		panic("store: LockOrg requires a transaction")
@@ -266,57 +233,31 @@ func (s *Store) SetOrgCustomEventTypes(ctx context.Context, tx *sql.Tx, orgID in
 	})
 }
 
-func (s *Store) GetRoutingRulesByOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int64) (map[int64][]model.RoutingRule, error) {
-	rows, err := s.q(tx).GetRoutingRulesByOrgs(ctx, orgIDs)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[int64][]model.RoutingRule, len(rows))
-	for _, row := range rows {
-		rules, err := DecodeRoutingRules(row.RoutingRules)
-		if err != nil {
-			return nil, fmt.Errorf("org %d: %w", row.ID, err)
-		}
-		result[row.ID] = rules
-	}
-	return result, nil
-}
-
-// OrgRoutingRules pairs an org's routing rules with whether the routing actor
-// is a member of it. Non-member orgs (IsMember == false) contribute only their
-// public rules; the caller decides eligibility from the rule flag.
-type OrgRoutingRules struct {
+// EventOrg is an org an event routes in, and whether the routing actor is a
+// member of it. A non-member org (IsMember == false) admits only public
+// triggers and link kinds.
+type EventOrg struct {
 	OrgID    int64
 	IsMember bool
-	Rules    []model.RoutingRule
 }
 
-// ListRoutingRulesForEvent returns routing rules for the event's orgs, tagging
-// each with whether the actor is a member. It unions two sources: every org the
-// user is a member of (IsMember == true, all rules), and the passed-in orgs the
-// user is NOT a member of (IsMember == false). Membership wins on overlap — an
-// org the user belongs to is returned once, from the member branch. Member orgs
-// without configured rules are included with a nil/empty slice so callers can
-// apply a fallback. An empty orgs slice reduces this to the member-only set.
-func (s *Store) ListRoutingRulesForEvent(ctx context.Context, tx *sql.Tx, userID string, orgs []int64) ([]OrgRoutingRules, error) {
-	rows, err := s.q(tx).ListRoutingRulesForEvent(ctx, sqlc.ListRoutingRulesForEventParams{
+// ListEventOrgs returns the orgs an event of the actor userID routes in,
+// ordered by ID. It unions two sources: every org the user is a member of
+// (IsMember == true), and the passed-in orgs the user is NOT a member of
+// (IsMember == false). Membership wins on overlap — an org the user belongs to
+// is returned once, from the member branch. An empty orgs slice reduces this
+// to the member orgs.
+func (s *Store) ListEventOrgs(ctx context.Context, tx *sql.Tx, userID string, orgs []int64) ([]EventOrg, error) {
+	rows, err := s.q(tx).ListEventOrgs(ctx, sqlc.ListEventOrgsParams{
 		UserID: userID,
 		OrgIds: orgs,
 	})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]OrgRoutingRules, 0, len(rows))
+	var result []EventOrg
 	for _, row := range rows {
-		rules, err := DecodeRoutingRules(row.RoutingRules)
-		if err != nil {
-			return nil, fmt.Errorf("org %d: %w", row.ID, err)
-		}
-		result = append(result, OrgRoutingRules{
-			OrgID:    row.ID,
-			IsMember: row.IsMember,
-			Rules:    rules,
-		})
+		result = append(result, EventOrg{OrgID: row.ID, IsMember: row.IsMember})
 	}
 	return result, nil
 }

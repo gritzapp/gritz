@@ -33,7 +33,7 @@ func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 		Archived:     task.Archived,
 		AutoArchive:  task.AutoArchive.Microseconds(),
 		ShellSession: task.ShellSession,
-		Namespace:    task.Namespace,
+		AgentID:      task.AgentID,
 		Variables:    variables,
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func toModelTask(row sqlc.Task) (*model.Task, error) {
 		UpdatedAt:    row.UpdatedAt,
 		AutoArchive:  time.Duration(row.AutoArchive) * time.Microsecond,
 		ShellSession: row.ShellSession,
-		Namespace:    row.Namespace,
+		AgentID:      row.AgentID,
 		Variables:    variables,
 	}, nil
 }

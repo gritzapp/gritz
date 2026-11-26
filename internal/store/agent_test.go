@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
 )
@@ -144,4 +145,62 @@ func TestDeleteAgent_OtherOrg(t *testing.T) {
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 	_, err = s.GetAgent(ctx, nil, org.OrgID, agent.ID)
 	assert.NilError(t, err)
+}
+
+func TestDeleteAgent_InUse(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		using func(t *testing.T, s *store.Store, org *teststore.Org, agentID int64)
+		err   error
+	}{
+		{
+			name: "unarchived task",
+			using: func(t *testing.T, s *store.Store, org *teststore.Org, agentID int64) {
+				teststore.CreateTask(t, s, org, &teststore.TaskOptions{AgentID: agentID})
+			},
+			err: store.ErrAgentInUse,
+		},
+		{
+			name: "schedule",
+			using: func(t *testing.T, s *store.Store, org *teststore.Org, agentID int64) {
+				assert.NilError(t, s.CreateSchedule(t.Context(), nil, &model.Schedule{
+					OrgID:     org.OrgID,
+					CreatedBy: org.UserID,
+					AgentID:   agentID,
+					CronExpr:  "@daily",
+					Timezone:  "UTC",
+				}))
+			},
+			err: store.ErrAgentInUse,
+		},
+		{
+			name: "archived task",
+			using: func(t *testing.T, s *store.Store, org *teststore.Org, agentID int64) {
+				task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{AgentID: agentID})
+				task.Archived = true
+				assert.NilError(t, s.UpdateTask(t.Context(), nil, task))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			agent := teststore.CreateAgent(t, s, org, nil)
+			tt.using(t, s, org, agent.ID)
+
+			// Act
+			err := s.DeleteAgent(t.Context(), nil, org.OrgID, agent.ID)
+
+			// Assert
+			if tt.err != nil {
+				assert.ErrorIs(t, err, tt.err)
+			} else {
+				assert.NilError(t, err)
+			}
+		})
+	}
 }

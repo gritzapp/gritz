@@ -163,7 +163,6 @@ CREATE TABLE public.orgs (
     owner text NOT NULL,
     archived boolean DEFAULT false NOT NULL,
     atlassian_webhook_secret text DEFAULT ''::text NOT NULL,
-    routing_rules jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     github_installation_id bigint,
@@ -201,7 +200,6 @@ CREATE TABLE public.schedules (
     name text DEFAULT ''::text NOT NULL,
     workspace text NOT NULL,
     runner text NOT NULL,
-    namespace text DEFAULT ''::text NOT NULL,
     instructions jsonb DEFAULT '[]'::jsonb NOT NULL,
     auto_archive bigint DEFAULT 0 NOT NULL,
     cron_expr text NOT NULL,
@@ -212,7 +210,8 @@ CREATE TABLE public.schedules (
     last_task_id bigint,
     created_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
-    variables jsonb DEFAULT '{}'::jsonb NOT NULL
+    variables jsonb DEFAULT '{}'::jsonb NOT NULL,
+    agent_id bigint NOT NULL
 );
 
 
@@ -254,9 +253,9 @@ CREATE TABLE public.task_links (
     relevance text NOT NULL,
     url text NOT NULL,
     title text DEFAULT ''::text NOT NULL,
-    subscribe boolean DEFAULT false NOT NULL,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    routing_key text DEFAULT ''::text NOT NULL
+    kind text DEFAULT ''::text NOT NULL,
+    claim text DEFAULT ''::text NOT NULL
 );
 
 
@@ -297,8 +296,8 @@ CREATE TABLE public.tasks (
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
     auto_archive bigint DEFAULT 0 CONSTRAINT tasks_archive_after_not_null NOT NULL,
     shell_session text DEFAULT ''::text NOT NULL,
-    namespace text DEFAULT ''::text NOT NULL,
-    variables jsonb DEFAULT '{}'::jsonb NOT NULL
+    variables jsonb DEFAULT '{}'::jsonb NOT NULL,
+    agent_id bigint NOT NULL
 );
 
 
@@ -596,6 +595,13 @@ CREATE INDEX idx_orgs_owner ON public.orgs USING btree (owner);
 
 
 --
+-- Name: idx_schedules_agent_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_schedules_agent_id ON public.schedules USING btree (agent_id);
+
+
+--
 -- Name: idx_schedules_due; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -610,10 +616,10 @@ CREATE INDEX idx_schedules_org_id ON public.schedules USING btree (org_id);
 
 
 --
--- Name: idx_task_links_routing_key; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_task_links_subscribed; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_task_links_routing_key ON public.task_links USING btree (routing_key);
+CREATE INDEX idx_task_links_subscribed ON public.task_links USING btree (url) WHERE (kind <> ''::text);
 
 
 --
@@ -621,6 +627,13 @@ CREATE INDEX idx_task_links_routing_key ON public.task_links USING btree (routin
 --
 
 CREATE INDEX idx_task_links_task_id ON public.task_links USING btree (task_id);
+
+
+--
+-- Name: idx_tasks_agent_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_tasks_agent_id ON public.tasks USING btree (agent_id) WHERE (archived = false);
 
 
 --
@@ -804,6 +817,14 @@ ALTER TABLE ONLY public.org_members
 
 
 --
+-- Name: schedules schedules_agent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schedules
+    ADD CONSTRAINT schedules_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id);
+
+
+--
 -- Name: schedules schedules_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -874,4 +895,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261107000001'),
     ('20261118000001'),
     ('20261119000001'),
-    ('20261126000001');
+    ('20261126000001'),
+    ('20261127000001');

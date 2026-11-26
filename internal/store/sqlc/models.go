@@ -61,7 +61,6 @@ type Org struct {
 	Owner                  string          `json:"owner"`
 	Archived               bool            `json:"archived"`
 	AtlassianWebhookSecret string          `json:"atlassian_webhook_secret"`
-	RoutingRules           json.RawMessage `json:"routing_rules"`
 	CreatedAt              time.Time       `json:"created_at"`
 	UpdatedAt              time.Time       `json:"updated_at"`
 	GithubInstallationID   sql.NullInt64   `json:"github_installation_id"`
@@ -82,7 +81,6 @@ type Schedule struct {
 	Name         string          `json:"name"`
 	Workspace    string          `json:"workspace"`
 	Runner       string          `json:"runner"`
-	Namespace    string          `json:"namespace"`
 	Instructions json.RawMessage `json:"instructions"`
 	AutoArchive  int64           `json:"auto_archive"`
 	CronExpr     string          `json:"cron_expr"`
@@ -94,6 +92,7 @@ type Schedule struct {
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	Variables    json.RawMessage `json:"variables"`
+	AgentID      int64           `json:"agent_id"`
 }
 
 type SchemaMigration struct {
@@ -114,19 +113,19 @@ type Task struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 	AutoArchive  int64           `json:"auto_archive"`
 	ShellSession string          `json:"shell_session"`
-	Namespace    string          `json:"namespace"`
 	Variables    json.RawMessage `json:"variables"`
+	AgentID      int64           `json:"agent_id"`
 }
 
 type TaskLink struct {
-	ID         int64     `json:"id"`
-	TaskID     int64     `json:"task_id"`
-	Relevance  string    `json:"relevance"`
-	Url        string    `json:"url"`
-	Title      string    `json:"title"`
-	Subscribe  bool      `json:"subscribe"`
-	CreatedAt  time.Time `json:"created_at"`
-	RoutingKey string    `json:"routing_key"`
+	ID        int64     `json:"id"`
+	TaskID    int64     `json:"task_id"`
+	Relevance string    `json:"relevance"`
+	Url       string    `json:"url"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	Kind      string    `json:"kind"`
+	Claim     string    `json:"claim"`
 }
 
 type User struct {
