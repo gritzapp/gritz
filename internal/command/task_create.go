@@ -10,15 +10,13 @@ import (
 	"github.com/gritzapp/gritz/internal/configfile"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/taskvar"
 	"github.com/urfave/cli/v3"
-	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 var TaskCreateCommand = &cli.Command{
 	Name:  "create",
 	Usage: "Create a new task",
-	// --instruction and --var values are free text: don't split them on commas.
+	// --instruction values are free text: don't split them on commas.
 	DisableSliceFlagSeparator: true,
 	Flags: slices.Concat(configfile.Flags(), []cli.Flag{
 		&cli.StringFlag{
@@ -26,30 +24,16 @@ var TaskCreateCommand = &cli.Command{
 			Aliases: []string{"n"},
 			Usage:   "Task name",
 		},
-		&cli.StringFlag{
-			Name:     "runner",
-			Aliases:  []string{"r"},
-			Usage:    "Runner ID to assign this task to",
+		&cli.Int64Flag{
+			Name:     "agent",
+			Aliases:  []string{"a"},
+			Usage:    "ID of the agent the task belongs to; the task runs with its workspace, runner, auto-archive and variables",
 			Required: true,
-		},
-		&cli.StringFlag{
-			Name:    "workspace",
-			Aliases: []string{"w"},
-			Usage:   "Workspace to use",
-			Value:   "default",
 		},
 		&cli.StringSliceFlag{
 			Name:    "instruction",
 			Aliases: []string{"i"},
 			Usage:   "Instruction to execute (can be specified multiple times)",
-		},
-		&cli.StringSliceFlag{
-			Name:  "var",
-			Usage: "Task variable as `NAME=VALUE` (can be specified multiple times)",
-		},
-		&cli.DurationFlag{
-			Name:  "auto-archive",
-			Usage: "Auto-archive the task this long after it reaches a terminal status. 0 = never (default), negative = archive immediately, positive = delay (e.g. 1h, 24h).",
 		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -68,18 +52,10 @@ var TaskCreateCommand = &cli.Command{
 			instructions[i] = &gritzv1.Instruction{Text: text}
 		}
 
-		variables, err := taskvar.ParseFlags(cmd.StringSlice("var"))
-		if err != nil {
-			return fmt.Errorf("--var: %w", err)
-		}
-
 		resp, err := client.CreateTask(ctx, &gritzv1.CreateTaskRequest{
 			Name:         cmd.String("name"),
-			Runner:       cmd.String("runner"),
-			Workspace:    cmd.String("workspace"),
+			AgentId:      cmd.Int64("agent"),
 			Instructions: instructions,
-			AutoArchive:  durationpb.New(cmd.Duration("auto-archive")),
-			Variables:    variables,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create task: %w", err)

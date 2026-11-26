@@ -12,7 +12,6 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
-	"github.com/gritzapp/gritz/internal/server/eventrouter"
 )
 
 func (s *Server) CreateOrg(ctx context.Context, req *gritzv1.CreateOrgRequest) (*gritzv1.CreateOrgResponse, error) {
@@ -291,69 +290,4 @@ func (s *Server) UnlinkAtlassianAccount(ctx context.Context, req *gritzv1.Unlink
 	}
 	s.log.InfoContext(ctx, "atlassian account unlinked", "owner", caller.ID)
 	return &gritzv1.UnlinkAtlassianAccountResponse{}, nil
-}
-
-func (s *Server) GetRoutingRules(ctx context.Context, req *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error) {
-	caller := apiauth.MustCaller(ctx)
-	if !caller.Scopes.Allow(authscope.OpOrgRead) {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read org"))
-	}
-	rules, err := s.store.GetOrgRoutingRules(ctx, nil, caller.OrgID)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	pb := make([]*gritzv1.RoutingRule, len(rules))
-	for i := range rules {
-		pb[i] = rules[i].Proto()
-	}
-	return &gritzv1.GetRoutingRulesResponse{Rules: pb}, nil
-}
-
-// SetRoutingRules replaces the caller's org's routing rules. Every rule is
-// validated under the org lock against the built-in event types plus the org's
-// custom ones, so a rule can't be saved against a custom type that a concurrent
-// SetCustomEventTypes is deleting, and a create-task rule's variables against
-// its workspace's declarations.
-func (s *Server) SetRoutingRules(ctx context.Context, req *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error) {
-	caller := apiauth.MustCaller(ctx)
-	if !caller.Scopes.Allow(authscope.OpOrgWrite) {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write org"))
-	}
-	rules := make([]model.RoutingRule, len(req.Rules))
-	for i, r := range req.Rules {
-		rules[i] = model.RoutingRuleFromProto(r)
-	}
-	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
-		if err := s.store.LockOrg(ctx, tx, caller.OrgID); err != nil {
-			return err
-		}
-		custom, err := s.store.GetOrgCustomEventTypes(ctx, tx, caller.OrgID)
-		if err != nil {
-			return err
-		}
-		reg := eventrouter.DefaultSchemaRegistry.With(custom...)
-		for i, rule := range rules {
-			if err := eventrouter.ValidateRule(ctx, tx, s.store, reg, caller.OrgID, rule); err != nil {
-				if eventrouter.IsInvalidError(err) {
-					return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("routing rule %d: %w", i+1, err))
-				}
-				return err
-			}
-		}
-		if err := s.store.SetOrgRoutingRules(ctx, tx, caller.OrgID, rules); err != nil {
-			return err
-		}
-		return tx.Commit()
-	})
-	if err != nil {
-		if connect.CodeOf(err) != connect.CodeUnknown {
-			return nil, err
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	pb := make([]*gritzv1.RoutingRule, len(rules))
-	for i := range rules {
-		pb[i] = rules[i].Proto()
-	}
-	return &gritzv1.SetRoutingRulesResponse{Rules: pb}, nil
 }

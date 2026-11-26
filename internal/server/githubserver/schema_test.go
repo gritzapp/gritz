@@ -57,15 +57,14 @@ func TestSchemaPushRule(t *testing.T) {
 	assert.Assert(t, ok, "EventTypeFor(github, %q) = _, false; want hit", EventTypePush)
 	assert.Equal(t, def.Label, "GitHub: Push")
 
-	err := reg.Validate(model.RoutingRule{
+	err := reg.ValidateAgent(&model.Agent{Triggers: []model.AgentTrigger{{
 		Source: "github",
 		Type:   EventTypePush,
 		Conditions: []model.Condition{
 			{Attr: "branch", Op: "equals", Value: "master"},
 			{Attr: "path", Op: "glob", Value: "internal/store/sql/migrations/**"},
 		},
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	})
+	}}})
 	assert.NilError(t, err)
 }
 

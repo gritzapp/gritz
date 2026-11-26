@@ -9,30 +9,32 @@ import (
 
 // Link represents a link between a task and an external resource.
 type Link struct {
-	ID         int64     `json:"id"`
-	TaskID     int64     `json:"task_id"`
-	Relevance  string    `json:"relevance"`
-	URL        string    `json:"url"`
-	RoutingKey string    `json:"routing_key"`
-	Title      string    `json:"title"`
-	Subscribe  bool      `json:"subscribe"`
-	CreatedAt  time.Time `json:"created_at"`
-	// Namespace is the namespace of the link's task, surfaced read-only via the
-	// task join for subscription routing. It is not stored on the link itself.
-	Namespace string `json:"namespace,omitempty"`
+	ID        int64     `json:"id"`
+	TaskID    int64     `json:"task_id"`
+	Relevance string    `json:"relevance"`
+	URL       string    `json:"url"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	// Kind is the link kind of the task's agent the link was created with: a
+	// link with a kind is subscribed, and URL is the canonical URL of the
+	// kind's link type. Empty for a plain reference link.
+	Kind string `json:"kind,omitempty"`
+	// Claim is copied from the kind when the link is created. The task holds
+	// it on URL while it is unarchived.
+	Claim string `json:"claim,omitempty"`
 }
 
 // Proto converts a Link to its protobuf representation.
 func (l *Link) Proto() *gritzv1.TaskLink {
 	return &gritzv1.TaskLink{
-		Id:         l.ID,
-		TaskId:     l.TaskID,
-		Relevance:  l.Relevance,
-		Url:        l.URL,
-		RoutingKey: l.RoutingKey,
-		Title:      l.Title,
-		Subscribe:  l.Subscribe,
-		CreatedAt:  timestamppb.New(l.CreatedAt),
+		Id:        l.ID,
+		TaskId:    l.TaskID,
+		Relevance: l.Relevance,
+		Url:       l.URL,
+		Title:     l.Title,
+		Kind:      l.Kind,
+		Claim:     l.Claim,
+		CreatedAt: timestamppb.New(l.CreatedAt),
 	}
 }
 
@@ -46,7 +48,8 @@ func (l *Link) EventPayload() *LinkPayload {
 		Relevance: l.Relevance,
 		URL:       l.URL,
 		Title:     l.Title,
-		Subscribe: l.Subscribe,
+		Kind:      l.Kind,
+		Claim:     l.Claim,
 	}
 }
 
@@ -57,13 +60,13 @@ func LinkFromProto(pb *gritzv1.TaskLink) *Link {
 		createdAt = pb.CreatedAt.AsTime()
 	}
 	return &Link{
-		ID:         pb.Id,
-		TaskID:     pb.TaskId,
-		Relevance:  pb.Relevance,
-		URL:        pb.Url,
-		RoutingKey: pb.RoutingKey,
-		Title:      pb.Title,
-		Subscribe:  pb.Subscribe,
-		CreatedAt:  createdAt,
+		ID:        pb.Id,
+		TaskID:    pb.TaskId,
+		Relevance: pb.Relevance,
+		URL:       pb.Url,
+		Title:     pb.Title,
+		Kind:      pb.Kind,
+		Claim:     pb.Claim,
+		CreatedAt: createdAt,
 	}
 }

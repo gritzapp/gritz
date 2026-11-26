@@ -25,15 +25,13 @@ func (s *Server) react(ctx context.Context, outcome eventrouter.RouteOutcome) er
 	}
 
 	// Pick the emoji from the routing outcome: a created task gets 🚀 and a woken
-	// task 👀. Anything else stays silent: a waking rule that matched but woke
-	// nothing happens routinely in valid setups (e.g. a rule that fans out to
-	// whichever tasks are subscribed), and a matched-only non-waking rule is
-	// passive by design, so reacting to either would just be noise.
+	// task 👀. Anything else stays silent: a trigger that yielded is passive by
+	// design, so reacting to it would just be noise.
 	var content githubv4.ReactionContent
 	switch {
-	case outcome.Created:
+	case outcome.Created():
 		content = githubv4.ReactionContentRocket
-	case len(outcome.TaskIDs) > 0:
+	case outcome.Delivered():
 		content = githubv4.ReactionContentEyes
 	default:
 		return nil

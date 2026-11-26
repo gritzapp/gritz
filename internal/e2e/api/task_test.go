@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -52,6 +53,7 @@ func TestGetTask(t *testing.T) {
 		CreatedAt:   resp.Task.CreatedAt, // Copy timestamps since we can't predict them
 		UpdatedAt:   resp.Task.UpdatedAt,
 		AutoArchive: durationpb.New(0),
+		AgentId:     h.Org.DefaultAgent.Id,
 	}, protocmp.Transform())
 	// The initial instructions are seeded into the stream as instruction events.
 	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
@@ -106,9 +108,8 @@ func TestCreateTask(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "New Task",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
+		Name:    "New Task",
+		AgentId: h.Org.DefaultAgent.Id,
 		Instructions: []*gritzv1.Instruction{
 			{
 				Text: "Do something",
@@ -131,6 +132,7 @@ func TestCreateTask(t *testing.T) {
 		CreatedAt:   resp.Task.CreatedAt,
 		UpdatedAt:   resp.Task.UpdatedAt,
 		AutoArchive: durationpb.New(0),
+		AgentId:     h.Org.DefaultAgent.Id,
 	}, protocmp.Transform())
 	// The initial instruction is seeded into the stream as an instruction event.
 	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{
@@ -161,10 +163,9 @@ func TestCreateTask_Draft(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "Draft Task",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
-		Draft:     true,
+		Name:    "Draft Task",
+		AgentId: h.Org.DefaultAgent.Id,
+		Draft:   true,
 	})
 
 	// Assert: draft, no command, and startable + archivable. Not cancellable and
@@ -182,6 +183,7 @@ func TestCreateTask_Draft(t *testing.T) {
 		CreatedAt:   resp.Task.CreatedAt,
 		UpdatedAt:   resp.Task.UpdatedAt,
 		AutoArchive: durationpb.New(0),
+		AgentId:     h.Org.DefaultAgent.Id,
 	}, protocmp.Transform())
 	// The Created lifecycle event is the only event, so the timeline is not
 	// empty, and there is no instruction and no command event: no runner ever
@@ -406,76 +408,39 @@ func TestListTasks_Pagination(t *testing.T) {
 	)
 }
 
-func TestCreateTask_Namespace(t *testing.T) {
+func TestCreateTask_UnknownAgent(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - another org's agent.
 	h := harness.New(t, nil)
-
-	// Act
-	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "Namespaced Task",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
-		Namespace: "reviewbot",
-	})
-
-	// Assert: the response carries the namespace...
-	assert.NilError(t, err)
-	assert.Equal(t, resp.Task.Namespace, "reviewbot")
-	// ...and it is persisted, readable back on the task.
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.Equal(t, got.Namespace, "reviewbot")
-}
-
-func TestCreateTask_DefaultNamespace(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-
-	// Act: no namespace set — the default (empty) namespace.
-	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "Default Task",
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, resp.Task.Namespace, "")
-	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.Equal(t, got.Namespace, "")
-}
-
-func TestCreateTask_BadRunner(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
+	other := h.Server.CreateOrg()
 
 	// Act
 	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "Bad Task",
-		Runner:    "nonexistent-runner",
-		Workspace: harness.DefaultWorkspace,
+		Name:    "Bad Task",
+		AgentId: other.DefaultAgent.Id,
 	})
 
 	// Assert
-	assert.ErrorContains(t, err, "not found")
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+	assert.ErrorContains(t, err, fmt.Sprintf("agent %d not found", other.DefaultAgent.Id))
 }
 
-func TestCreateTask_BadWorkspace(t *testing.T) {
+func TestCreateTask_AgentWorkspaceGone(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - the agent's workspace was unregistered after it was saved.
 	h := harness.New(t, nil)
+	_, err := h.Org.Client.ClearWorkspaces(t.Context(), &gritzv1.ClearWorkspacesRequest{})
+	assert.NilError(t, err)
 
 	// Act
-	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:      "Bad Task",
-		Runner:    harness.DefaultRunner,
-		Workspace: "fake-workspace",
+	_, err = h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+		Name:    "Bad Task",
+		AgentId: h.Org.DefaultAgent.Id,
 	})
 
 	// Assert
-	assert.ErrorContains(t, err, "not found")
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.ErrorContains(t, err, "not found on runner")
 }
 
 func TestUpdateTask(t *testing.T) {
@@ -562,21 +527,23 @@ func TestCreateTask_AutoArchive(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	want := 90 * time.Minute
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:        "archiving",
+		Workspace:   harness.DefaultWorkspace,
+		Runner:      harness.DefaultRunner,
+		AutoArchive: durationpb.New(want),
+	}})
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Name:        "With archive",
-		Runner:      harness.DefaultRunner,
-		Workspace:   harness.DefaultWorkspace,
-		AutoArchive: durationpb.New(want),
+		Name:    "With archive",
+		AgentId: agent.Id,
 	})
 
-	// Assert
+	// Assert - the task gets the agent's auto-archive delay.
 	assert.NilError(t, err)
-	assert.Assert(t, resp.Task.AutoArchive != nil, "AutoArchive should be set on response")
 	assert.Equal(t, resp.Task.AutoArchive.AsDuration(), want)
 	got := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id})
-	assert.Assert(t, got.AutoArchive != nil)
 	assert.Equal(t, got.AutoArchive.AsDuration(), want)
 }
 
@@ -622,10 +589,16 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 	t.Parallel()
 	// Arrange: a draft can be archived directly.
 	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Draft:       true,
-		Name:        "Auto-archive task",
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:        "archiving",
+		Workspace:   harness.DefaultWorkspace,
+		Runner:      harness.DefaultRunner,
 		AutoArchive: durationpb.New(time.Hour),
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		AgentId: agent.Id,
+		Draft:   true,
+		Name:    "Auto-archive task",
 	})
 	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
 
@@ -649,87 +622,22 @@ func TestUnarchiveTask_ClearsAutoArchive(t *testing.T) {
 
 func TestCreateTask_Variables(t *testing.T) {
 	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
-		RunnerId: "runner-1",
-		Workspaces: []*gritzv1.RegisteredWorkspace{{
-			Name: "story",
-			Variables: []*gritzv1.VariableDecl{
-				{Name: "BRANCH", Default: "main"},
-				{Name: "JIRA_ISSUE", Required: true},
-				{Name: "LABEL"},
-			},
-		}},
-	})
-
-	// Act
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Runner:    "runner-1",
-		Workspace: "story",
-		Draft:     true,
-		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
-	})
-
-	// Assert - the default fills BRANCH, and the unset optional LABEL is
-	// absent, in the response and read back.
-	want := map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "main"}
-	assert.DeepEqual(t, task.Resp.Task.Variables, want)
-	assert.DeepEqual(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Variables, want)
-}
-
-func TestCreateTask_VariablesOverrideDefault(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
-		RunnerId: "runner-1",
-		Workspaces: []*gritzv1.RegisteredWorkspace{{
-			Name: "story",
-			Variables: []*gritzv1.VariableDecl{
-				{Name: "BRANCH", Default: "main"},
-				{Name: "JIRA_ISSUE", Required: true},
-				{Name: "LABEL"},
-			},
-		}},
-	})
-
-	// Act - an explicit empty string is a value too.
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Runner:    "runner-1",
-		Workspace: "story",
-		Draft:     true,
-		Variables: map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "dev", "LABEL": ""},
-	})
-
-	// Assert
-	assert.DeepEqual(t,
-		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Variables,
-		map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "dev", "LABEL": ""},
-	)
-}
-
-func TestCreateTask_InvalidVariables(t *testing.T) {
-	t.Parallel()
 	tests := []struct {
 		name      string
 		variables map[string]string
-		want      string
+		want      map[string]string
 	}{
 		{
-			name:      "undeclared",
-			variables: map[string]string{"JIRA_ISSUE": "APP-142", "JIRA": "APP-142"},
-			want:      `workspace "story": variable "JIRA": not declared by the workspace`,
+			// The default fills BRANCH, and the unset optional LABEL is absent.
+			name:      "defaults",
+			variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+			want:      map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "main"},
 		},
 		{
-			name:      "missing required",
-			variables: map[string]string{"BRANCH": "dev"},
-			want:      `workspace "story": variable "JIRA_ISSUE": required`,
-		},
-		{
-			name:      "NUL byte",
-			variables: map[string]string{"JIRA_ISSUE": "APP\x00142"},
-			want:      `workspace "story": variable "JIRA_ISSUE": value contains a NUL byte`,
+			// An explicit empty string is a value too.
+			name:      "overrides",
+			variables: map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "dev", "LABEL": ""},
+			want:      map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "dev", "LABEL": ""},
 		},
 	}
 	for _, tt := range tests {
@@ -748,35 +656,44 @@ func TestCreateTask_InvalidVariables(t *testing.T) {
 					},
 				}},
 			})
+			agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+				Name:      "story",
+				Workspace: "story",
+				Runner:    "runner-1",
+				Variables: tt.variables,
+			}})
 
 			// Act
-			_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-				Runner:    "runner-1",
-				Workspace: "story",
-				Draft:     true,
-				Variables: tt.variables,
-			})
+			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 
-			// Assert
-			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
-			assert.ErrorContains(t, err, tt.want)
+			// Assert - the agent's variables, resolved against the workspace, in
+			// the response and read back.
+			assert.DeepEqual(t, task.Resp.Task.Variables, tt.want)
+			assert.DeepEqual(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Variables, tt.want)
 		})
 	}
 }
 
-func TestCreateTask_NoVariablesDeclared(t *testing.T) {
+func TestCreateTask_AgentVariablesNoLongerAccepted(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - the workspace requires a variable it didn't when the agent
+	// was saved.
 	h := harness.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: harness.DefaultRunner,
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name:      harness.DefaultWorkspace,
+			Variables: []*gritzv1.VariableDecl{{Name: "JIRA_ISSUE", Required: true}},
+		}},
+	})
 
-	// Act - the harness workspace declares no variables, so accepts none.
+	// Act
 	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
-		Draft:     true,
-		Variables: map[string]string{"BRANCH": "main"},
+		AgentId: h.Org.DefaultAgent.Id,
+		Draft:   true,
 	})
 
 	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.ErrorContains(t, err, `variable "JIRA_ISSUE": required`)
 }

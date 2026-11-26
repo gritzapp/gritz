@@ -30,6 +30,9 @@ type RunnerOptions struct {
 	Secrets map[string]string
 	// Variables are the workspace's task variable declarations.
 	Variables map[string]workspace.VariableConfig
+	// AgentVariables are the variables of the org's DefaultAgent; it must
+	// set every required one of Variables.
+	AgentVariables map[string]string
 	// AutoReset is the workspace's auto_reset.
 	AutoReset bool
 	// PollInterval is the runner's; default 1s, a backstop to notifications.

@@ -129,7 +129,7 @@ export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
         type: 'object',
         additionalProperties: false,
         properties: attrs,
-        description: 'Values routing rules can match on. Each value is a list of strings.',
+        description: 'Values triggers can match on. Each value is a list of strings.',
       },
       details: {
         type: 'object',
@@ -141,8 +141,8 @@ export function jsonSchema(def: EventTypeDef): Record<string, unknown> {
 }
 
 // Mutation that replaces the org's whole custom type list. On success it
-// invalidates both the custom type list and getEventTypes, so the routing rule
-// editor and test-event form see the change.
+// invalidates both the custom type list and getEventTypes, so the
+// test-event form sees the change.
 export function useSetCustomEventTypes() {
   const queryClient = useQueryClient()
   return useMutation(setCustomEventTypes, {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"time"
 
@@ -35,7 +36,8 @@ func (s *Store) CreateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 	return nil
 }
 
-// GetAgent returns the org's agent by ID, or sql.ErrNoRows.
+// GetAgent returns the org's agent by ID, or sql.ErrNoRows when it is deleted
+// or the org has none.
 func (s *Store) GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error) {
 	row, err := s.q(tx).GetAgent(ctx, sqlc.GetAgentParams{OrgID: orgID, ID: id})
 	if err != nil {
@@ -44,10 +46,9 @@ func (s *Store) GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*mod
 	return toModelAgent(row)
 }
 
-// ListAgentsForOrgs returns the agents of every org in orgIDs, ordered by org,
-// name and ID.
-func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int64) ([]*model.Agent, error) {
-	rows, err := s.q(tx).ListAgentsForOrgs(ctx, orgIDs)
+// ListAgents returns the org's live agents, ordered by name and ID.
+func (s *Store) ListAgents(ctx context.Context, tx *sql.Tx, orgID int64) ([]*model.Agent, error) {
+	rows, err := s.q(tx).ListAgents(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -62,8 +63,55 @@ func (s *Store) ListAgentsForOrgs(ctx context.Context, tx *sql.Tx, orgIDs []int6
 	return agents, nil
 }
 
+// EventAgent is a live agent of an org an event routes in, and whether the
+// routing actor is a member of that org. A non-member org admits only public
+// triggers and link kinds.
+type EventAgent struct {
+	Agent    *model.Agent
+	IsMember bool
+}
+
+// ListAgentsForEvent returns the live agents of every org an event of the
+// actor userID routes in, ordered by org, name and ID. Those orgs are every
+// org the user is a member of (IsMember true), and the passed-in orgs the user
+// is NOT a member of (IsMember false). Membership wins on overlap. An empty
+// orgs slice reduces this to the member orgs, and an empty userID to the
+// passed-in ones. An org with no live agent has no rows.
+func (s *Store) ListAgentsForEvent(ctx context.Context, tx *sql.Tx, userID string, orgs []int64) ([]EventAgent, error) {
+	rows, err := s.q(tx).ListAgentsForEvent(ctx, sqlc.ListAgentsForEventParams{
+		UserID: userID,
+		OrgIds: orgs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var agents []EventAgent
+	for _, row := range rows {
+		a, err := toModelAgent(sqlc.Agent{
+			ID:          row.ID,
+			OrgID:       row.OrgID,
+			Name:        row.Name,
+			Workspace:   row.Workspace,
+			Runner:      row.Runner,
+			Prompt:      row.Prompt,
+			AutoArchive: row.AutoArchive,
+			Variables:   row.Variables,
+			Triggers:    row.Triggers,
+			Links:       row.Links,
+			CreatedAt:   row.CreatedAt,
+			UpdatedAt:   row.UpdatedAt,
+			DeletedAt:   row.DeletedAt,
+		})
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, EventAgent{Agent: a, IsMember: row.IsMember})
+	}
+	return agents, nil
+}
+
 // UpdateAgent replaces the stored agent with a, matched by a.ID and a.OrgID.
-// It returns sql.ErrNoRows when the org has no such agent.
+// It returns sql.ErrNoRows when it is deleted or the org has none.
 func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) error {
 	cols, err := marshalAgent(a)
 	if err != nil {
@@ -90,17 +138,43 @@ func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 	return nil
 }
 
-// DeleteAgent removes the org's agent. It returns sql.ErrNoRows when the org
-// has no such agent.
+// ErrAgentInUse is returned by DeleteAgent for an agent an unarchived task or
+// a schedule belongs to.
+var ErrAgentInUse = errors.New("agent in use")
+
+// DeleteAgent soft-deletes the org's agent in tx, after which no method sees
+// it: its row stays, so its archived tasks keep referencing it. It returns
+// ErrAgentInUse while an unarchived task or a schedule belongs to it, and
+// sql.ErrNoRows when the org has no such live agent. It locks the agent
+// first, so a concurrent LockLiveAgent holder finishes creating or
+// unarchiving its task before the check, which then sees that task.
 func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error {
-	n, err := s.q(tx).DeleteAgent(ctx, sqlc.DeleteAgentParams{ID: id, OrgID: orgID})
+	if tx == nil {
+		panic("store: DeleteAgent requires a transaction")
+	}
+	if _, err := s.q(tx).LockAgentForDelete(ctx, sqlc.LockAgentForDeleteParams{OrgID: orgID, ID: id}); err != nil {
+		return err
+	}
+	inUse, err := s.q(tx).AgentInUse(ctx, sqlc.AgentInUseParams{AgentID: id, OrgID: orgID})
 	if err != nil {
 		return err
 	}
-	if n == 0 {
-		return sql.ErrNoRows
+	if inUse {
+		return ErrAgentInUse
 	}
-	return nil
+	return s.q(tx).DeleteAgent(ctx, sqlc.DeleteAgentParams{ID: id, OrgID: orgID})
+}
+
+// LockLiveAgent share-locks the org's agent until tx ends, and returns
+// sql.ErrNoRows when it is deleted or the org has none. Creating or
+// unarchiving a task of the agent holds it, so DeleteAgent can't delete an
+// agent an unarchived task belongs to.
+func (s *Store) LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error {
+	if tx == nil {
+		panic("store: LockLiveAgent requires a transaction")
+	}
+	_, err := s.q(tx).LockLiveAgent(ctx, sqlc.LockLiveAgentParams{OrgID: orgID, ID: id})
+	return err
 }
 
 type agentColumns struct {

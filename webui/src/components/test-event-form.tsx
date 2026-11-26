@@ -1,17 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@connectrpc/connect-query'
-import {
-  getEventTypes,
-  getRoutingRules,
-  testEvent,
-} from '@/gen/gritz/v1/gritz-GritzService_connectquery'
+import { getEventTypes, testEvent } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { create } from '@bufbuild/protobuf'
 import {
   AttrValuesSchema,
   TestEventRequestSchema,
-  type EventTypeDef,
-  type RoutingRule,
   type TestEventResponse,
 } from '@/gen/gritz/v1/gritz_pb'
 import { Badge } from '@/components/ui/badge'
@@ -34,13 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  eventTypeId,
-  eventTypeLabel,
-  findEventType,
-  OP_LABELS,
-  type ConditionOp,
-} from '@/lib/routing-rules'
+import { eventTypeId, findEventType } from '@/lib/event-types'
 import { useOrgId } from '@/hooks/use-org-id'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
 
@@ -57,11 +45,6 @@ export function TestEventForm() {
 
   const { data: eventTypesData, isLoading: eventTypesLoading } = useQuery(getEventTypes, {})
   const eventTypes = useMemo(() => eventTypesData?.eventTypes ?? [], [eventTypesData])
-
-  // The configured rules, looked up so a matched rule's detail (event type,
-  // filters) can be shown inline in the results by its rule_index.
-  const { data: rulesData } = useQuery(getRoutingRules, {})
-  const rules = rulesData?.rules ?? []
 
   const [source, setSource] = useState('')
   const [type, setType] = useState('')
@@ -179,8 +162,8 @@ export function TestEventForm() {
             <div className="space-y-1">
               <Label>Attributes</Label>
               <p className="text-muted-foreground text-xs">
-                The matchable values the routing rules evaluate. Leave an attribute blank to omit it
-                from the event.
+                The matchable values the triggers evaluate. Leave an attribute blank to omit it from
+                the event.
               </p>
             </div>
             {availableAttrs.length === 0 ? (
@@ -282,9 +265,7 @@ export function TestEventForm() {
         </div>
       </form>
 
-      {result && (
-        <ResultsPanel result={result} orgId={orgId} rules={rules} eventTypes={eventTypes} />
-      )}
+      {result && <ResultsPanel result={result} orgId={orgId} />}
 
       <Dialog open={confirmFire} onOpenChange={setConfirmFire}>
         <DialogContent>
@@ -309,27 +290,24 @@ export function TestEventForm() {
   )
 }
 
-// Compact conditions summary for a matched rule, shown inline in the results.
-function ruleMatchBadges(rule: RoutingRule): string[] {
-  return rule.conditions.map((c) => {
-    const op = OP_LABELS[c.op as ConditionOp] ?? c.op
-    const value = c.value.length > 40 ? c.value.slice(0, 40) + '…' : c.value
-    return `${c.attr} ${op} ${value}`
-  })
+function TaskLinks({ ids, orgId }: { ids: bigint[]; orgId: string }) {
+  return ids.map((id, j) => (
+    <span key={String(id)}>
+      {j > 0 && ', '}
+      <Link
+        to="/tasks/$id"
+        params={{ id: String(id) }}
+        search={{ org: orgId }}
+        className="text-primary hover:underline"
+      >
+        Task {String(id)}
+      </Link>
+    </span>
+  ))
 }
 
-function ResultsPanel({
-  result,
-  orgId,
-  rules,
-  eventTypes,
-}: {
-  result: TestEventResponse
-  orgId: string
-  rules: RoutingRule[]
-  eventTypes: EventTypeDef[]
-}) {
-  const matches = result.matches
+function ResultsPanel({ result, orgId }: { result: TestEventResponse; orgId: string }) {
+  const agents = result.agents
 
   return (
     <div className="space-y-3 rounded-md border p-4">
@@ -342,94 +320,63 @@ function ResultsPanel({
         )}
       </div>
 
-      {matches.length === 0 ? (
+      {agents.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          No routing rules matched this event — nothing would be woken or created.
+          No agent&apos;s trigger matched this event and no subscribed task receives it — nothing
+          would be woken or created.
         </p>
       ) : (
         <div className="space-y-3">
-          {matches.map((match, i) => {
-            // The matched rule, looked up by the index the router reported, so
-            // its event type + filters render right here in the result.
-            const rule = rules[match.ruleIndex]
-            const filters = rule ? ruleMatchBadges(rule) : []
-            return (
-              <div key={i} className="space-y-2 rounded-md border p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    to="/routing/$index"
-                    params={{ index: String(match.ruleIndex) }}
-                    search={{ org: orgId }}
-                  >
-                    <Badge variant="outline" className="cursor-pointer hover:bg-accent">
-                      Rule #{match.ruleIndex + 1}
-                    </Badge>
-                  </Link>
-                  {match.wouldWake && <Badge variant="secondary">would wake</Badge>}
-                  {match.wouldCreate && <Badge variant="secondary">would create</Badge>}
-                </div>
-
-                {rule && (
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-                    <span className="text-foreground font-medium">
-                      {eventTypeLabel(eventTypes, rule.source, rule.type)}
-                    </span>
-                    {filters.length > 0 ? (
-                      filters.map((label) => (
-                        <Badge
-                          key={label}
-                          variant="outline"
-                          className="font-mono max-w-full truncate"
-                        >
-                          {label}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span>no filters</span>
-                    )}
-                  </div>
+          {agents.map((agent) => (
+            <div key={String(agent.agentId)} className="space-y-2 rounded-md border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">Agent {String(agent.agentId)}</Badge>
+                {agent.triggerIndex >= 0 && (
+                  <Badge variant="secondary">trigger #{agent.triggerIndex + 1}</Badge>
                 )}
-
-                {result.fired && match.createdTaskIds.length > 0 && (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Created tasks: </span>
-                    {match.createdTaskIds.map((id, j) => (
-                      <span key={String(id)}>
-                        {j > 0 && ', '}
-                        <Link
-                          to="/tasks/$id"
-                          params={{ id: String(id) }}
-                          search={{ org: orgId }}
-                          className="text-primary hover:underline"
-                        >
-                          Task {String(id)}
-                        </Link>
-                      </span>
-                    ))}
-                  </div>
+                {agent.triggerIndex >= 0 && agent.yieldedTo.length === 0 && (
+                  <Badge variant="secondary">{result.fired ? 'created' : 'would create'}</Badge>
                 )}
-
-                {result.fired && match.eventIds.length > 0 && (
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Events written: </span>
-                    {match.eventIds.map((id, j) => (
-                      <span key={String(id)}>
-                        {j > 0 && ', '}
-                        <Link
-                          to="/events/$id"
-                          params={{ id: String(id) }}
-                          search={{ org: orgId }}
-                          className="text-primary hover:underline"
-                        >
-                          Event {String(id)}
-                        </Link>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {agent.yieldedTo.length > 0 && <Badge variant="secondary">yielded</Badge>}
               </div>
-            )
-          })}
+
+              {agent.yieldedTo.length > 0 && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Yielded to: </span>
+                  <TaskLinks ids={agent.yieldedTo} orgId={orgId} />
+                </div>
+              )}
+
+              {agent.createdTaskId !== 0n && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Created: </span>
+                  <TaskLinks ids={[agent.createdTaskId]} orgId={orgId} />
+                </div>
+              )}
+
+              {agent.deliveries.length > 0 && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">
+                    {result.fired ? 'Delivered to: ' : 'Would deliver to: '}
+                  </span>
+                  {agent.deliveries.map((d, j) => (
+                    <span key={String(d.taskId)}>
+                      {j > 0 && ', '}
+                      <Link
+                        to="/tasks/$id"
+                        params={{ id: String(d.taskId) }}
+                        search={{ org: orgId }}
+                        className="text-primary hover:underline"
+                      >
+                        Task {String(d.taskId)}
+                      </Link>{' '}
+                      <span className="text-muted-foreground font-mono">({d.kind})</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

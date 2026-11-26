@@ -8,10 +8,12 @@ import (
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e/harness"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 func TestCreateAgent(t *testing.T) {
@@ -274,7 +276,7 @@ func TestCreateAgent_Invalid(t *testing.T) {
 			assert.ErrorContains(t, updateErr, tt.want)
 			agents, err := h.Org.Client.ListAgents(t.Context(), &gritzv1.ListAgentsRequest{})
 			assert.NilError(t, err)
-			assert.DeepEqual(t, agents.Agents, []*gritzv1.Agent{existing}, protocmp.Transform())
+			assert.DeepEqual(t, agents.Agents, []*gritzv1.Agent{h.Org.DefaultAgent, existing}, protocmp.Transform())
 		})
 	}
 }
@@ -314,7 +316,7 @@ func TestListAgents(t *testing.T) {
 	assert.NilError(t, err)
 	assert.DeepEqual(t,
 		resp.Agents,
-		[]*gritzv1.Agent{implementer, implementer2, reviewer},
+		[]*gritzv1.Agent{h.Org.DefaultAgent, implementer, implementer2, reviewer},
 		protocmp.Transform(),
 	)
 }
@@ -416,6 +418,71 @@ func TestDeleteAgent(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
 }
 
+func TestDeleteAgent_InUse(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent with an unarchived task, and one with a schedule.
+	h := harness.New(t, nil)
+	withTask := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+	}})
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: withTask.Id, Draft: true})
+	withSchedule := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "nightly",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+	}})
+	h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{AgentId: withSchedule.Id, CronExpr: "@daily"})
+
+	// Act
+	_, taskErr := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: withTask.Id})
+	_, scheduleErr := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: withSchedule.Id})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(taskErr), connect.CodeFailedPrecondition)
+	assert.Equal(t, connect.CodeOf(scheduleErr), connect.CodeFailedPrecondition)
+	assert.Assert(t, cmp.Len(h.Org.ListAgents(&gritzv1.ListAgentsRequest{}), 3))
+}
+
+func TestDeleteAgent_ArchivedTasks(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent whose only task is archived.
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
+
+	// Act
+	_, err := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: agent.Id})
+
+	// Assert - the agent is gone, but its archived task still loads with its
+	// agent's ID, and can't be unarchived or have tasks created for it.
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		h.Org.ListAgents(&gritzv1.ListAgentsRequest{}),
+		[]*gritzv1.Agent{h.Org.DefaultAgent},
+		protocmp.Transform(),
+	)
+	_, err = h.Org.Client.GetAgent(t.Context(), &gritzv1.GetAgentRequest{Id: agent.Id})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+	assert.DeepEqual(t,
+		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}),
+		&gritzv1.Task{Id: task.ID, Archived: true, AgentId: agent.Id},
+		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "archived", "agent_id"),
+	)
+	_, err = h.Org.Client.UnarchiveTask(t.Context(), &gritzv1.UnarchiveTaskRequest{Id: task.ID})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.Equal(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Archived, true)
+	_, err = h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{AgentId: agent.Id})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+}
+
 func TestAgent_RequiresOrgWrite(t *testing.T) {
 	t.Parallel()
 	// Arrange: a read-only caller, OpOrgRead only, no write.
@@ -433,7 +500,7 @@ func TestAgent_RequiresOrgWrite(t *testing.T) {
 	assert.DeepEqual(t, got.Agent, agent, protocmp.Transform())
 	list, err := key.Client.ListAgents(t.Context(), &gritzv1.ListAgentsRequest{})
 	assert.NilError(t, err)
-	assert.DeepEqual(t, list.Agents, []*gritzv1.Agent{agent}, protocmp.Transform())
+	assert.DeepEqual(t, list.Agents, []*gritzv1.Agent{h.Org.DefaultAgent, agent}, protocmp.Transform())
 
 	// Act & Assert - writes are denied.
 	_, err = key.Client.CreateAgent(t.Context(), &gritzv1.CreateAgentRequest{Agent: agent})

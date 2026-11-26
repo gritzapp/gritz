@@ -66,7 +66,7 @@ type createLinkInput struct {
 	Relevance string `json:"relevance" jsonschema:"Describe how this link is relevant to the task"`
 	URL       string `json:"url" jsonschema:"URL of the external resource"`
 	Title     string `json:"title,omitempty" jsonschema:"Optional display title for the link"`
-	Subscribe bool   `json:"subscribe,omitempty" jsonschema:"True to receive events for this link"`
+	Kind      string `json:"kind,omitempty" jsonschema:"A link kind of your agent: the link then receives the events the kind lists. Omit for a plain reference link, which receives no events"`
 }
 
 func (s *Server) createLink(ctx context.Context, req *mcp.CallToolRequest, input createLinkInput) (*mcp.CallToolResult, any, error) {
@@ -75,7 +75,7 @@ func (s *Server) createLink(ctx context.Context, req *mcp.CallToolRequest, input
 		Relevance: input.Relevance,
 		Url:       input.URL,
 		Title:     input.Title,
-		Subscribe: input.Subscribe,
+		Kind:      input.Kind,
 	})
 	if err != nil {
 		return mcpx.ErrorResult("failed to create link: %v", err), nil, nil
@@ -133,7 +133,7 @@ type updateMyTaskInput struct {
 
 func (s *Server) updateMyTask(ctx context.Context, _ *mcp.CallToolRequest, input updateMyTaskInput) (*mcp.CallToolResult, any, error) {
 	// Note: a task is intentionally not allowed to change its own auto_archive.
-	// The value set by the routing rule (or a human) is authoritative for the
+	// The value set by its agent (or a human) is authoritative for the
 	// task's lifetime — see gritzapp/gritz#1094.
 	if _, err := s.client.UpdateTask(ctx, &gritzv1.UpdateTaskRequest{
 		Id:   s.task.ID,
@@ -186,7 +186,6 @@ func taskDetailsToMap(task *gritzv1.Task, taskEvents []*gritzv1.Event, taskLinks
 		"name":      task.Name,
 		"status":    task.Status.String(),
 		"workspace": task.Workspace,
-		"namespace": task.Namespace,
 		"url":       task.Url,
 		"links":     links,
 		"events":    events,

@@ -10,11 +10,11 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 )
 
-// AttrDef is a self-describing attribute dimension a routing rule may condition
-// on. Key is the machine name conditions reference and that rule validation and
+// AttrDef is a self-describing attribute dimension a trigger may condition on.
+// Key is the machine name conditions reference and that agent validation and
 // the matcher check against; Label, Help, and Placeholder are display copy the
-// routing-rule editor renders straight from the schema (rather than hardcoding
-// it per attr/source).
+// trigger editor renders straight from the schema (rather than hardcoding it
+// per attr/source).
 type AttrDef struct {
 	Key         string `json:"key"`                   // machine name, e.g. "body", "mention"
 	Label       string `json:"label,omitempty"`       // human label for the attr dropdown, e.g. "Mention"
@@ -23,7 +23,7 @@ type AttrDef struct {
 }
 
 // EventTypeDef declares a (Source, Type) event kind and the complete set of
-// attribute dimensions a rule may condition on for that kind. Attrs is that full
+// attribute dimensions a trigger may condition on for that kind. Attrs is that full
 // set: it always includes the derived views "body" and "url" (see
 // eventrouter.InputEvent.Attr) plus the type's own emitted dimensions. Each
 // AttrDef carries its own display copy so clients render

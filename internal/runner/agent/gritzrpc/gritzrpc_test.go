@@ -33,7 +33,7 @@ func TestStartParamsRoundTrip(t *testing.T) {
 			}},
 		}},
 		Links: []*gritzv1.TaskLink{{
-			Id: 881, TaskId: 2283, Relevance: "PR", Subscribe: true, CreatedAt: createdAt,
+			Id: 881, TaskId: 2283, Relevance: "PR", Kind: "github.pr", CreatedAt: createdAt,
 			Url: "https://github.com/gritzapp/gritz/pull/1950",
 		}},
 		McpServers: map[string]McpServer{

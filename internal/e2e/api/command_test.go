@@ -19,8 +19,7 @@ func TestCreateTask_CommandEvent(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
+		AgentId: h.Org.DefaultAgent.Id,
 	})
 
 	// Assert
@@ -47,9 +46,8 @@ func TestCreateTask_DraftNoCommandEvent(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
-		Runner:    harness.DefaultRunner,
-		Workspace: harness.DefaultWorkspace,
-		Draft:     true,
+		AgentId: h.Org.DefaultAgent.Id,
+		Draft:   true,
 	})
 
 	// Assert

@@ -26,7 +26,8 @@ func TestTestEventFireSkipsOutboundSideEffects(t *testing.T) {
 	st := teststore.New(t)
 	var reacted bool
 	router := &eventrouter.Router{
-		Store: st,
+		Store:    st,
+		Registry: eventrouter.DefaultSchemaRegistry,
 		OnRouteOutcome: func(context.Context, eventrouter.RouteOutcome) {
 			reacted = true
 		},
@@ -38,12 +39,13 @@ func TestTestEventFireSkipsOutboundSideEffects(t *testing.T) {
 		OrgID:  org.OrgID,
 		Scopes: authscope.Admin(),
 	})
-	err := srv.store.SetOrgRoutingRules(ctx, nil, org.OrgID, []model.RoutingRule{
-		{Source: "github", Type: "issue_comment",
+	teststore.CreateAgent(t, st, org, &model.Agent{
+		Triggers: []model.AgentTrigger{{
+			Source:     "github",
+			Type:       "issue_comment",
 			Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
-			Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r"}},
+		}},
 	})
-	assert.NilError(t, err)
 
 	resp, err := srv.TestEvent(ctx, &gritzv1.TestEventRequest{
 		Source: "github",
@@ -56,6 +58,6 @@ func TestTestEventFireSkipsOutboundSideEffects(t *testing.T) {
 
 	// Apply ran (a task was created) but the reaction callback did not fire.
 	assert.Assert(t, resp.Fired)
-	assert.Equal(t, len(resp.Matches[0].CreatedTaskIds), 1)
+	assert.Assert(t, resp.Agents[0].CreatedTaskId != 0)
 	assert.Assert(t, !reacted)
 }

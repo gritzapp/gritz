@@ -5,6 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
+	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"gotest.tools/v3/assert"
@@ -18,6 +19,7 @@ func TestCreateSchedule_RequiresCreateScope(t *testing.T) {
 			{RunnerID: "test-runner", Name: "test-workspace"},
 		},
 	})
+	agent := teststore.CreateAgent(t, srv.store, org, &model.Agent{Workspace: "test-workspace"})
 
 	// A member holding only task-read (org membership, no create scope) is denied.
 	readOnly := scopedCtx(t, org, authscope.Scopes{authscope.New(authscope.OpTaskRead)})
@@ -33,7 +35,7 @@ func TestCreateSchedule_RequiresCreateScope(t *testing.T) {
 		authscope.WithTaskArchived(false),
 	)})
 	_, err = srv.CreateSchedule(creator, &gritzv1.CreateScheduleRequest{
-		Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
+		AgentId: agent.ID, Workspace: "test-workspace", Runner: "test-runner", CronExpr: "0 9 * * *",
 	})
 	assert.NilError(t, err)
 }

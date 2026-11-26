@@ -112,17 +112,23 @@ func TestListRunnerEvents(t *testing.T) {
 	// runner-2's task is started first, so once runner-1's events pass the
 	// watermark, runner-2's have too.
 	other := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Draft:     true,
-		Name:      "other",
-		Runner:    "runner-2",
-		Workspace: "test-workspace",
+		Draft: true,
+		Name:  "other",
+		AgentId: h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+			Name:      "runner-2",
+			Workspace: "test-workspace",
+			Runner:    "runner-2",
+		}}).Id,
 	})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: other.ID, Start: true})
 	mine := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
-		Draft:     true,
-		Name:      "mine",
-		Runner:    "runner-1",
-		Workspace: "test-workspace",
+		Draft: true,
+		Name:  "mine",
+		AgentId: h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+			Name:      "runner-1",
+			Workspace: "test-workspace",
+			Runner:    "runner-1",
+		}}).Id,
 	})
 	h.Org.UpdateTask(&gritzv1.UpdateTaskRequest{Id: mine.ID, Start: true})
 	want := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: mine.ID})

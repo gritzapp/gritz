@@ -34,8 +34,14 @@ var _ Store = &StoreMock{}
 //			CreateTaskFunc: func(ctx context.Context, tx *sql.Tx, task *model.Task) error {
 //				panic("mock out the CreateTask method")
 //			},
+//			GetAgentFunc: func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) (*model.Agent, error) {
+//				panic("mock out the GetAgent method")
+//			},
 //			GetWorkspaceVariablesFunc: func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error) {
 //				panic("mock out the GetWorkspaceVariables method")
+//			},
+//			LockLiveAgentFunc: func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error {
+//				panic("mock out the LockLiveAgent method")
 //			},
 //			UpdateScheduleFunc: func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
 //				panic("mock out the UpdateSchedule method")
@@ -62,8 +68,14 @@ type StoreMock struct {
 	// CreateTaskFunc mocks the CreateTask method.
 	CreateTaskFunc func(ctx context.Context, tx *sql.Tx, task *model.Task) error
 
+	// GetAgentFunc mocks the GetAgent method.
+	GetAgentFunc func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) (*model.Agent, error)
+
 	// GetWorkspaceVariablesFunc mocks the GetWorkspaceVariables method.
 	GetWorkspaceVariablesFunc func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error)
+
+	// LockLiveAgentFunc mocks the LockLiveAgent method.
+	LockLiveAgentFunc func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error
 
 	// UpdateScheduleFunc mocks the UpdateSchedule method.
 	UpdateScheduleFunc func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
@@ -113,6 +125,17 @@ type StoreMock struct {
 			// Task is the task argument value.
 			Task *model.Task
 		}
+		// GetAgent holds details about calls to the GetAgent method.
+		GetAgent []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx *sql.Tx
+			// OrgID is the orgID argument value.
+			OrgID int64
+			// ID is the id argument value.
+			ID int64
+		}
 		// GetWorkspaceVariables holds details about calls to the GetWorkspaceVariables method.
 		GetWorkspaceVariables []struct {
 			// Ctx is the ctx argument value.
@@ -125,6 +148,17 @@ type StoreMock struct {
 			Name string
 			// OrgID is the orgID argument value.
 			OrgID int64
+		}
+		// LockLiveAgent holds details about calls to the LockLiveAgent method.
+		LockLiveAgent []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Tx is the tx argument value.
+			Tx *sql.Tx
+			// OrgID is the orgID argument value.
+			OrgID int64
+			// ID is the id argument value.
+			ID int64
 		}
 		// UpdateSchedule holds details about calls to the UpdateSchedule method.
 		UpdateSchedule []struct {
@@ -149,7 +183,9 @@ type StoreMock struct {
 	lockClaimDueSchedules     sync.RWMutex
 	lockCreateEvent           sync.RWMutex
 	lockCreateTask            sync.RWMutex
+	lockGetAgent              sync.RWMutex
 	lockGetWorkspaceVariables sync.RWMutex
+	lockLockLiveAgent         sync.RWMutex
 	lockUpdateSchedule        sync.RWMutex
 	lockWithTx                sync.RWMutex
 }
@@ -322,6 +358,50 @@ func (mock *StoreMock) CreateTaskCalls() []struct {
 	return calls
 }
 
+// GetAgent calls GetAgentFunc.
+func (mock *StoreMock) GetAgent(ctx context.Context, tx *sql.Tx, orgID int64, id int64) (*model.Agent, error) {
+	if mock.GetAgentFunc == nil {
+		panic("StoreMock.GetAgentFunc: method is nil but Store.GetAgent was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Tx    *sql.Tx
+		OrgID int64
+		ID    int64
+	}{
+		Ctx:   ctx,
+		Tx:    tx,
+		OrgID: orgID,
+		ID:    id,
+	}
+	mock.lockGetAgent.Lock()
+	mock.calls.GetAgent = append(mock.calls.GetAgent, callInfo)
+	mock.lockGetAgent.Unlock()
+	return mock.GetAgentFunc(ctx, tx, orgID, id)
+}
+
+// GetAgentCalls gets all the calls that were made to GetAgent.
+// Check the length with:
+//
+//	len(mockedStore.GetAgentCalls())
+func (mock *StoreMock) GetAgentCalls() []struct {
+	Ctx   context.Context
+	Tx    *sql.Tx
+	OrgID int64
+	ID    int64
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Tx    *sql.Tx
+		OrgID int64
+		ID    int64
+	}
+	mock.lockGetAgent.RLock()
+	calls = mock.calls.GetAgent
+	mock.lockGetAgent.RUnlock()
+	return calls
+}
+
 // GetWorkspaceVariables calls GetWorkspaceVariablesFunc.
 func (mock *StoreMock) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error) {
 	if mock.GetWorkspaceVariablesFunc == nil {
@@ -367,6 +447,50 @@ func (mock *StoreMock) GetWorkspaceVariablesCalls() []struct {
 	mock.lockGetWorkspaceVariables.RLock()
 	calls = mock.calls.GetWorkspaceVariables
 	mock.lockGetWorkspaceVariables.RUnlock()
+	return calls
+}
+
+// LockLiveAgent calls LockLiveAgentFunc.
+func (mock *StoreMock) LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error {
+	if mock.LockLiveAgentFunc == nil {
+		panic("StoreMock.LockLiveAgentFunc: method is nil but Store.LockLiveAgent was just called")
+	}
+	callInfo := struct {
+		Ctx   context.Context
+		Tx    *sql.Tx
+		OrgID int64
+		ID    int64
+	}{
+		Ctx:   ctx,
+		Tx:    tx,
+		OrgID: orgID,
+		ID:    id,
+	}
+	mock.lockLockLiveAgent.Lock()
+	mock.calls.LockLiveAgent = append(mock.calls.LockLiveAgent, callInfo)
+	mock.lockLockLiveAgent.Unlock()
+	return mock.LockLiveAgentFunc(ctx, tx, orgID, id)
+}
+
+// LockLiveAgentCalls gets all the calls that were made to LockLiveAgent.
+// Check the length with:
+//
+//	len(mockedStore.LockLiveAgentCalls())
+func (mock *StoreMock) LockLiveAgentCalls() []struct {
+	Ctx   context.Context
+	Tx    *sql.Tx
+	OrgID int64
+	ID    int64
+} {
+	var calls []struct {
+		Ctx   context.Context
+		Tx    *sql.Tx
+		OrgID int64
+		ID    int64
+	}
+	mock.lockLockLiveAgent.RLock()
+	calls = mock.calls.LockLiveAgent
+	mock.lockLockLiveAgent.RUnlock()
 	return calls
 }
 

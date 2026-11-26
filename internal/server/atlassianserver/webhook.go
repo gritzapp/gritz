@@ -229,7 +229,7 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error)
 		description := strings.TrimSpace(payload.Issue.Fields.Description)
 		var events []eventrouter.InputEvent
 		// Emit a single event carrying all added labels in the "label" attr so
-		// routing rules can match a specific label via a label condition.
+		// triggers can match a specific label via a label condition.
 		if added := payload.AddedLabels(); len(added) > 0 {
 			events = append(events, eventrouter.InputEvent{
 				Source:      "atlassian",

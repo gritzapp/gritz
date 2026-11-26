@@ -34,7 +34,7 @@ var (
 	}
 )
 
-func TestSchemaRegistryValidate(t *testing.T) {
+func TestSchemaRegistryValidateAgent_Trigger(t *testing.T) {
 	reg := NewSchemaRegistry()
 	reg.MustRegister(testComment)
 	reg.MustRegister(testLabel)
@@ -42,21 +42,20 @@ func TestSchemaRegistryValidate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		rule    model.RoutingRule
+		trigger model.AgentTrigger
 		wantErr bool
 	}{
 		{
-			name: "default body-prefix rule",
-			rule: model.RoutingRule{
+			name: "body-prefix trigger",
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
-				Wakeup:     true,
 			},
 		},
 		{
 			name: "mention equals on comment",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "alice"}},
@@ -64,7 +63,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "label equals on label",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "label",
 				Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "bug"}},
@@ -72,14 +71,14 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "empty type is rejected",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}},
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty source is rejected",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "alice"}},
 			},
@@ -87,7 +86,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "url and body valid on any type",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: "test",
 				Type:   "opened",
 				Conditions: []model.Condition{
@@ -98,7 +97,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "unknown op",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "body", Op: "regex", Value: "x"}},
@@ -107,7 +106,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "valid glob",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "label",
 				Conditions: []model.Condition{{Attr: "label", Op: "glob", Value: "team-{a,b}/**"}},
@@ -115,7 +114,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "malformed glob",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "label",
 				Conditions: []model.Condition{{Attr: "label", Op: "glob", Value: "team-[a"}},
@@ -124,7 +123,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "unknown attr",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "reviewer", Op: "equals", Value: "alice"}},
@@ -133,7 +132,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "attr not emitted by selected type",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "bug"}},
@@ -142,7 +141,7 @@ func TestSchemaRegistryValidate(t *testing.T) {
 		},
 		{
 			name: "unknown event type",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: "test",
 				Type:   "star_added",
 			},
@@ -151,9 +150,9 @@ func TestSchemaRegistryValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := reg.Validate(tt.rule)
+			err := reg.ValidateAgent(&model.Agent{Triggers: []model.AgentTrigger{tt.trigger}})
 			if tt.wantErr {
-				assert.Assert(t, err != nil, "Validate() = nil, want error")
+				assert.Assert(t, err != nil, "ValidateAgent() = nil, want error")
 			} else {
 				assert.NilError(t, err)
 			}
@@ -519,7 +518,7 @@ func TestValidateCustomEventTypes(t *testing.T) {
 	}
 }
 
-func TestSchemaRegistryValidateCustom(t *testing.T) {
+func TestSchemaRegistryValidateAgent_CustomTrigger(t *testing.T) {
 	builtin := NewSchemaRegistry()
 	builtin.MustRegister(testComment)
 	reg := builtin.With(model.EventTypeDef{
@@ -532,13 +531,13 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 	tests := []struct {
 		name    string
 		reg     *SchemaRegistry
-		rule    model.RoutingRule
+		trigger model.AgentTrigger
 		wantErr string
 	}{
 		{
-			name: "public rule on custom type",
+			name: "public trigger on custom type",
 			reg:  reg,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     SourceCustom,
 				Type:       "problem",
 				Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
@@ -548,7 +547,7 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 		{
 			name: "derived body and url on custom type",
 			reg:  reg,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: SourceCustom,
 				Type:   "problem",
 				Conditions: []model.Condition{
@@ -559,19 +558,19 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 			},
 		},
 		{
-			name: "member-only rule on custom type",
+			name: "member-only trigger on custom type",
 			reg:  reg,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     SourceCustom,
 				Type:       "problem",
 				Conditions: []model.Condition{{Attr: "severity", Op: "equals", Value: "critical"}},
 			},
-			wantErr: "custom event rules must be public",
+			wantErr: "custom event triggers must be public",
 		},
 		{
-			name: "member-only rule on built-in type",
+			name: "member-only trigger on built-in type",
 			reg:  reg,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
 				Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "alice"}},
@@ -580,7 +579,7 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 		{
 			name: "attr not declared by custom type",
 			reg:  reg,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     SourceCustom,
 				Type:       "problem",
 				Conditions: []model.Condition{{Attr: "host", Op: "equals", Value: "db1"}},
@@ -591,7 +590,7 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 		{
 			name: "unknown custom type",
 			reg:  reg,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: SourceCustom,
 				Type:   "deploy",
 				Public: true,
@@ -601,7 +600,7 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 		{
 			name: "custom type absent from the built-in registry",
 			reg:  builtin,
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: SourceCustom,
 				Type:   "problem",
 				Public: true,
@@ -611,7 +610,7 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.reg.Validate(tt.rule)
+			err := tt.reg.ValidateAgent(&model.Agent{Triggers: []model.AgentTrigger{tt.trigger}})
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 			} else {

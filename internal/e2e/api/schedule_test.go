@@ -26,7 +26,7 @@ func TestCreateSchedule(t *testing.T) {
 		Name:      "nightly",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Namespace: "reviewbot",
+		AgentId:   h.Org.DefaultAgent.Id,
 		Instructions: []*gritzv1.Instruction{
 			{Text: "bump deps", Url: "https://example.com/deps"},
 		},
@@ -45,7 +45,7 @@ func TestCreateSchedule(t *testing.T) {
 		Name:      "nightly",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Namespace: "reviewbot",
+		AgentId:   h.Org.DefaultAgent.Id,
 		Instructions: []*gritzv1.Instruction{
 			{Text: "bump deps", Url: "https://example.com/deps"},
 		},
@@ -74,6 +74,7 @@ func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
@@ -98,6 +99,7 @@ func TestCreateSchedule_DefaultTimezone(t *testing.T) {
 
 	// Act - an empty timezone defaults to UTC.
 	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
@@ -115,6 +117,7 @@ func TestCreateSchedule_InvalidCron(t *testing.T) {
 
 	// Act
 	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		CronExpr:  "not a cron",
@@ -133,6 +136,7 @@ func TestCreateSchedule_InvalidTimezone(t *testing.T) {
 
 	// Act
 	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
@@ -150,6 +154,7 @@ func TestCreateSchedule_BadWorkspace(t *testing.T) {
 
 	// Act
 	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Workspace: "fake-workspace",
 		Runner:    harness.DefaultRunner,
 		CronExpr:  "0 9 * * *",
@@ -315,6 +320,7 @@ func TestUpdateSchedule(t *testing.T) {
 
 	// Act - rename and move the spec to a new time; next_run_at recomputes.
 	updated, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Id:        sched.Id,
 		Name:      "renamed",
 		Workspace: harness.DefaultWorkspace,
@@ -332,6 +338,7 @@ func TestUpdateSchedule(t *testing.T) {
 		&gritzv1.Schedule{
 			Id:          sched.Id,
 			Name:        "renamed",
+			AgentId:     h.Org.DefaultAgent.Id,
 			Workspace:   harness.DefaultWorkspace,
 			Runner:      harness.DefaultRunner,
 			CronExpr:    "30 2 * * *",
@@ -363,6 +370,7 @@ func TestUpdateSchedule_InvalidCron(t *testing.T) {
 
 	// Act
 	_, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Id:        sched.Id,
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
@@ -398,6 +406,7 @@ func TestSchedule_Variables(t *testing.T) {
 		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 	updated, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
+		AgentId:   h.Org.DefaultAgent.Id,
 		Id:        sched.Id,
 		Runner:    "runner-1",
 		Workspace: "story",
@@ -461,12 +470,14 @@ func TestSchedule_InvalidVariables(t *testing.T) {
 
 			// Act
 			_, createErr := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
+				AgentId:   h.Org.DefaultAgent.Id,
 				Runner:    "runner-1",
 				Workspace: "story",
 				CronExpr:  "@daily",
 				Variables: tt.variables,
 			})
 			_, updateErr := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
+				AgentId:   h.Org.DefaultAgent.Id,
 				Id:        sched.Id,
 				Runner:    "runner-1",
 				Workspace: "story",
@@ -497,8 +508,7 @@ func TestRunSchedule(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	before := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:      "nightly",
-		Namespace: "reviewbot",
+		Name: "nightly",
 		Instructions: []*gritzv1.Instruction{
 			{Text: "bump deps", Url: "https://example.com/deps"},
 			{Text: "groom changelog"},
@@ -533,10 +543,10 @@ func TestRunSchedule(t *testing.T) {
 			Name:      "nightly",
 			Workspace: harness.DefaultWorkspace,
 			Runner:    harness.DefaultRunner,
-			Namespace: "reviewbot",
+			AgentId:   h.Org.DefaultAgent.Id,
 		}},
 		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "namespace"),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
 	)
 	// The created event first (ScheduleActor) and the start command, then one
 	// wake instruction event per template instruction — identical to a scheduled

@@ -37,8 +37,9 @@ func (a *Agent) Link(kind string) (AgentLink, bool) {
 	return AgentLink{}, false
 }
 
-// AgentTrigger creates a task of its agent when a matching event arrives. Source,
-// Type, Conditions and Public select events as they do on a RoutingRule.
+// AgentTrigger creates a task of its agent when a matching event arrives. Source
+// and Type select an event type (empty is a wildcard), every Condition must hold,
+// and Public admits events from actors who aren't members of the org.
 type AgentTrigger struct {
 	Source     string      `json:"source,omitempty"`
 	Type       string      `json:"type,omitempty"`
@@ -91,7 +92,7 @@ func (a *Agent) Proto() *gritzv1.Agent {
 		pb.Triggers = append(pb.Triggers, &gritzv1.AgentTrigger{
 			Source:     t.Source,
 			Type:       t.Type,
-			Conditions: conditionsProto(t.Conditions),
+			Conditions: ProtoMap(t.Conditions),
 			Public:     t.Public,
 			YieldTo:    t.YieldTo,
 			Link:       t.Link,

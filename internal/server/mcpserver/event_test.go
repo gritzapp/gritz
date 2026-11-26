@@ -254,7 +254,7 @@ func TestDeleteCustomEventType_FailedPrecondition(t *testing.T) {
 			return &gritzv1.GetCustomEventTypesResponse{EventTypes: []*gritzv1.EventTypeDef{{Source: "custom", Type: "alert"}}}, nil
 		},
 		SetCustomEventTypesFunc: func(ctx context.Context, req *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(`routing rule 1: unknown event type "custom:alert"`))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(`agent 3 (responder): trigger 1: unknown event type "custom:alert"`))
 		},
 	}
 	session := setupSession(t, client)
@@ -268,7 +268,7 @@ func TestDeleteCustomEventType_FailedPrecondition(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.Assert(t, result.IsError)
-	assert.Assert(t, cmp.Contains(mcptest.CallToolResultText(t, result), `routing rule 1: unknown event type "custom:alert"`))
+	assert.Assert(t, cmp.Contains(mcptest.CallToolResultText(t, result), `agent 3 (responder): trigger 1: unknown event type "custom:alert"`))
 }
 
 func TestTestEvent(t *testing.T) {
@@ -276,7 +276,7 @@ func TestTestEvent(t *testing.T) {
 	client := &gritzclient.ClientMock{
 		TestEventFunc: func(ctx context.Context, req *gritzv1.TestEventRequest) (*gritzv1.TestEventResponse, error) {
 			return &gritzv1.TestEventResponse{
-				Matches: []*gritzv1.TestEventMatch{{OrgId: 7, RuleIndex: 2, WouldWake: true}},
+				Agents: []*gritzv1.TestEventAgent{{AgentId: 7, TriggerIndex: 2}},
 			}, nil
 		},
 	}
@@ -311,7 +311,7 @@ func TestTestEvent(t *testing.T) {
 	var got map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &got)
 	assert.DeepEqual(t, got, map[string]any{
-		"matches": []any{map[string]any{"orgId": "7", "ruleIndex": float64(2), "wouldWake": true}},
+		"agents": []any{map[string]any{"agentId": "7", "triggerIndex": float64(2)}},
 	})
 }
 

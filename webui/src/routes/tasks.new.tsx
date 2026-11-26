@@ -1,23 +1,13 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useMutation, useQuery } from '@connectrpc/connect-query'
-import { createTask, listWorkspaces } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
+import { useMutation } from '@connectrpc/connect-query'
+import { createTask } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgLocalStorage } from '@/hooks/use-org-local-storage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { VariableFields } from '@/components/variable-fields'
-import { durationFromHours } from '@/lib/duration'
-import { variablesToSet } from '@/lib/variables'
 
 export const Route = createFileRoute('/tasks/new')({
   component: NewTaskPage,
@@ -28,31 +18,7 @@ function NewTaskPage() {
   const orgId = useOrgId()
 
   const [name, setName] = useState('')
-  const [runner, setRunner] = useOrgLocalStorage('gritz-last-runner', '')
-  const [workspace, setWorkspace] = useOrgLocalStorage('gritz-last-workspace', '')
-  const [namespace, setNamespace] = useState('')
-  const [autoArchive, setAutoArchive] = useState<string>('') // empty = never
-  const [variables, setVariables] = useState<Record<string, string>>({})
-
-  const { data: workspacesData } = useQuery(listWorkspaces, {})
-
-  // Derive unique runners from workspaces
-  const runners = [...new Set(workspacesData?.workspaces.map((ws) => ws.runnerId) ?? [])]
-
-  // Filter workspaces by selected runner
-  const workspaces = workspacesData?.workspaces.filter((ws) => ws.runnerId === runner) ?? []
-  const variableDecls = workspaces.find((ws) => ws.name === workspace)?.variables ?? []
-
-  const handleRunnerChange = (newRunner: string) => {
-    setRunner(newRunner)
-    setWorkspace('')
-    setVariables({})
-  }
-
-  const handleWorkspaceChange = (newWorkspace: string) => {
-    setWorkspace(newWorkspace)
-    setVariables({})
-  }
+  const [agentId, setAgentId] = useOrgLocalStorage('gritz-last-agent', '')
 
   const mutation = useMutation(createTask, {
     onSuccess: (data) => {
@@ -70,19 +36,15 @@ function NewTaskPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!runner.trim() || !workspace.trim()) return
+    if (!/^\d+$/.test(agentId.trim())) return
 
     // Created as a draft: nothing is launched for it. The first instruction is
     // sent from the composer on the task page, which is where every instruction
     // after it goes anyway.
     await mutation.mutateAsync({
       name: name.trim(),
-      runner: runner.trim(),
-      workspace: workspace.trim(),
-      namespace: namespace.trim(),
+      agentId: BigInt(agentId.trim()),
       draft: true,
-      autoArchive: durationFromHours(autoArchive),
-      variables: variablesToSet(variables),
     })
   }
 
@@ -104,79 +66,19 @@ function NewTaskPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="runner">Runner</Label>
-              <Select value={runner} onValueChange={handleRunnerChange} required>
-                <SelectTrigger id="runner">
-                  <SelectValue placeholder="Select a runner" />
-                </SelectTrigger>
-                <SelectContent>
-                  {runners.map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="workspace">Workspace</Label>
-              <Select
-                value={workspace}
-                onValueChange={handleWorkspaceChange}
-                required
-                disabled={!runner}
-              >
-                <SelectTrigger id="workspace">
-                  <SelectValue
-                    placeholder={runner ? 'Select a workspace' : 'Select a runner first'}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {workspaces.map((ws) => (
-                    <SelectItem key={ws.name} value={ws.name}>
-                      <span>{ws.name}</span>
-                      {ws.description && (
-                        <span className="text-muted-foreground text-xs ml-2">{ws.description}</span>
-                      )}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <VariableFields decls={variableDecls} values={variables} onChange={setVariables} />
-
-            <div className="space-y-2">
-              <Label htmlFor="namespace">Namespace (optional)</Label>
+              <Label htmlFor="agent">Agent ID</Label>
               <Input
-                id="namespace"
-                placeholder="Default namespace"
-                value={namespace}
-                onChange={(e) => setNamespace(e.target.value)}
+                id="agent"
+                inputMode="numeric"
+                pattern="[0-9]+"
+                placeholder="Enter an agent ID"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                required
               />
               <p className="text-muted-foreground text-xs">
-                Partitions subscription matching for routing rules. Leave empty for the default
-                namespace.
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="auto-archive">Auto-archive (optional)</Label>
-              <Select value={autoArchive} onValueChange={setAutoArchive}>
-                <SelectTrigger id="auto-archive">
-                  <SelectValue placeholder="Never (default)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="never">Never</SelectItem>
-                  <SelectItem value="1">1 hour</SelectItem>
-                  <SelectItem value="24">24 hours</SelectItem>
-                  <SelectItem value="168">7 days</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">
-                Once the task reaches a terminal status (completed, failed, cancelled), the server
-                will archive it after this delay so the container is reclaimed.
+                The task runs with the agent&apos;s workspace, runner, auto-archive delay and
+                variables.
               </p>
             </div>
 

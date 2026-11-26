@@ -24,11 +24,14 @@ func TestGetEvent(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	fired := h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -37,7 +40,7 @@ func TestGetEvent(t *testing.T) {
 		Body:        `{"status": "closed"}`,
 		Fire:        true,
 	})
-	eventID := fired.Matches[0].EventIds[0]
+	eventID := fired.Agents[0].Deliveries[0].EventId
 
 	// Act
 	resp, err := h.Org.Client.GetEvent(t.Context(), &gritzv1.GetEventRequest{Id: eventID})
@@ -47,6 +50,7 @@ func TestGetEvent(t *testing.T) {
 	assert.DeepEqual(t, resp.Event, &gritzv1.Event{
 		Id:     eventID,
 		TaskId: task.ID,
+		Wake:   true,
 		Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 			Description: "Issue updated",
 			Url:         url,
@@ -64,11 +68,14 @@ func TestGetEvent_Permissions(t *testing.T) {
 	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	fired := h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -78,7 +85,7 @@ func TestGetEvent_Permissions(t *testing.T) {
 	})
 
 	// Act
-	_, err := other.Client.GetEvent(t.Context(), &gritzv1.GetEventRequest{Id: fired.Matches[0].EventIds[0]})
+	_, err := other.Client.GetEvent(t.Context(), &gritzv1.GetEventRequest{Id: fired.Agents[0].Deliveries[0].EventId})
 
 	// Assert
 	assert.ErrorContains(t, err, "not found")
@@ -89,11 +96,14 @@ func TestListEvents(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	for _, description := range []string{"Event 1", "Event 2"} {
 		h.Org.TestEvent(&gritzv1.TestEventRequest{
 			Source:      "github",
@@ -114,6 +124,7 @@ func TestListEvents(t *testing.T) {
 		[]*gritzv1.Event{
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "Event 2",
 					Url:         url,
@@ -123,6 +134,7 @@ func TestListEvents(t *testing.T) {
 			},
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "Event 1",
 					Url:         url,
@@ -142,14 +154,18 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 	// CreateLink; both belong to the org but are not org-feed rows.
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/pull/1"
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
+	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		AgentId:      agent.Id,
 		Draft:        true,
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.pr"})
 	h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -169,6 +185,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 		[]*gritzv1.Event{
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "PR comment",
 					Url:         url,
@@ -187,11 +204,14 @@ func TestListEventsWithLimit(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	for i := range 5 {
 		h.Org.TestEvent(&gritzv1.TestEventRequest{
 			Source:      "github",
@@ -214,6 +234,7 @@ func TestListEventsWithLimit(t *testing.T) {
 		[]*gritzv1.Event{
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "Event 5",
 					Url:         url,
@@ -223,6 +244,7 @@ func TestListEventsWithLimit(t *testing.T) {
 			},
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "Event 4",
 					Url:         url,
@@ -246,11 +268,14 @@ func TestListEvents_Permissions(t *testing.T) {
 		h.Org: {"Org A's event 1", "Org A's event 2"},
 		other: {"Org B's event"},
 	} {
-		task := org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-		org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-		org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-			Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-		})
+		agent := org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+			Name:      "watcher",
+			Workspace: harness.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+		}})
+		task := org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+		org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 		for _, description := range descriptions {
 			org.TestEvent(&gritzv1.TestEventRequest{
 				Source:      "github",
@@ -278,11 +303,14 @@ func TestDeleteEvent(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	fired := h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -290,7 +318,7 @@ func TestDeleteEvent(t *testing.T) {
 		Url:         url,
 		Fire:        true,
 	})
-	eventID := fired.Matches[0].EventIds[0]
+	eventID := fired.Agents[0].Deliveries[0].EventId
 
 	// Act
 	_, err := h.Org.Client.DeleteEvent(t.Context(), &gritzv1.DeleteEventRequest{Id: eventID})
@@ -307,11 +335,14 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	fired := h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -319,7 +350,7 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 		Url:         url,
 		Fire:        true,
 	})
-	eventID := fired.Matches[0].EventIds[0]
+	eventID := fired.Agents[0].Deliveries[0].EventId
 
 	// Act
 	_, err := other.Client.DeleteEvent(t.Context(), &gritzv1.DeleteEventRequest{Id: eventID})
@@ -335,11 +366,14 @@ func TestListEventsByTask(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	for _, description := range []string{"Event 1", "Event 2"} {
 		h.Org.TestEvent(&gritzv1.TestEventRequest{
 			Source:      "github",
@@ -373,11 +407,14 @@ func TestListEventsByTask_Paged(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	for i := range 5 {
 		h.Org.TestEvent(&gritzv1.TestEventRequest{
 			Source:      "github",
@@ -430,16 +467,20 @@ func TestListEventsByTask_Paged(t *testing.T) {
 func TestListEventsByTask_More(t *testing.T) {
 	t.Parallel()
 	// Arrange - the task's stream starts with its lifecycle CREATED and link
-	// events; add 4 externals for 6 total, an exact multiple of page size 2 so
-	// the oldest page is full (the exact-page_size boundary).
+	// events; 3 externals, the first of which starts the draft and so adds its
+	// start command, make 6 total, an exact multiple of page size 2 so the
+	// oldest page is full (the exact-page_size boundary).
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
-	for i := range 4 {
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
+	for i := range 3 {
 		h.Org.TestEvent(&gritzv1.TestEventRequest{
 			Source:      "github",
 			Type:        "issue_comment",
@@ -483,11 +524,14 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	fire := &gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -538,6 +582,7 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 		[]*gritzv1.Event{
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "Event 2",
 					Url:         url,
@@ -558,14 +603,18 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 	// external.
 	h := harness.New(t, nil)
 	url := "https://github.com/example/repo/pull/1"
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
+	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
+		AgentId:      agent.Id,
 		Draft:        true,
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 	})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.pr"})
 	h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",
@@ -595,6 +644,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 		[]*gritzv1.Event{
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "PR comment",
 					Url:         url,
@@ -627,6 +677,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 			},
 			{
 				TaskId: task.ID,
+				Wake:   true,
 				Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 					Description: "PR comment",
 					Url:         url,
@@ -667,11 +718,14 @@ func TestListEventsByTask_Permissions(t *testing.T) {
 	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
 	url := "https://github.com/example/repo/issues/42"
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
-	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Subscribe: true})
-	h.Org.SetRoutingRules(&gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{{Source: "github", Type: "issue_comment"}},
-	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "watcher",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
 	h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
 		Type:        "issue_comment",

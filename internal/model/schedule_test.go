@@ -110,7 +110,7 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 		Name:        "nightly",
 		Runner:      "r",
 		Workspace:   "w",
-		Namespace:   "ns",
+		AgentID:     3,
 		AutoArchive: time.Hour,
 		Instructions: []model.ScheduleInstruction{
 			{Text: "bump deps", URL: "https://example.com/deps"},
@@ -123,7 +123,7 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 		Name:        "nightly",
 		Runner:      "r",
 		Workspace:   "w",
-		Namespace:   "ns",
+		AgentID:     3,
 		Status:      model.TaskStatusPending,
 		Command:     model.TaskCommandStart,
 		Version:     1,

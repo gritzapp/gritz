@@ -43,10 +43,12 @@ type Schedule struct {
 	CreatedBy string `json:"created_by"`
 	Name      string `json:"name"`
 
-	// Task template — the same shape CreateTask takes.
+	// AgentID is the agent the schedule's tasks belong to.
+	AgentID int64 `json:"agent_id"`
+
+	// Task template.
 	Workspace    string                `json:"workspace"`
 	Runner       string                `json:"runner"`
-	Namespace    string                `json:"namespace,omitempty"`
 	Instructions []ScheduleInstruction `json:"instructions"`
 	AutoArchive  time.Duration         `json:"auto_archive,omitempty"`
 	Variables    map[string]string     `json:"variables,omitempty"`
@@ -66,7 +68,7 @@ type Schedule struct {
 }
 
 // Task builds the occurrence task from the schedule's template: a fresh
-// pending/start task carrying the template's runner/workspace/namespace and
+// pending/start task carrying the template's runner/workspace, agent and
 // auto-archive. It is the schedule -> task half of a fire; the scheduler inserts
 // it, then seeds Events(task). The result is byte-for-byte the shape CreateTask
 // produces, so a scheduled task is indistinguishable from a hand-created one.
@@ -75,7 +77,7 @@ func (s *Schedule) Task() *Task {
 		Name:        s.Name,
 		Runner:      s.Runner,
 		Workspace:   s.Workspace,
-		Namespace:   s.Namespace,
+		AgentID:     s.AgentID,
 		Status:      TaskStatusPending,
 		Command:     TaskCommandStart,
 		Version:     1,
@@ -157,7 +159,7 @@ func (s *Schedule) Proto() *gritzv1.Schedule {
 		Name:         s.Name,
 		Workspace:    s.Workspace,
 		Runner:       s.Runner,
-		Namespace:    s.Namespace,
+		AgentId:      s.AgentID,
 		Instructions: make([]*gritzv1.Instruction, len(s.Instructions)),
 		CronExpr:     s.CronExpr,
 		Timezone:     s.Timezone,

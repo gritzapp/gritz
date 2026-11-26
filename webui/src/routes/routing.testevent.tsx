@@ -25,11 +25,12 @@ function TestEventPage() {
           <ArrowLeft className="h-4 w-4" />
           Back
         </Button>
-        <h1 className="text-2xl font-bold">Test a Routing Rule</h1>
+        <h1 className="text-2xl font-bold">Test an Event</h1>
       </div>
       <p className="text-muted-foreground max-w-2xl">
-        Compose a synthetic event and see what your routing rules would do with it. Dry run reports
-        which rule matches without touching anything; firing routes the event for real.
+        Compose a synthetic event and see what your agents would do with it. Dry run reports each
+        agent&apos;s matching trigger and the tasks the event reaches without touching anything;
+        firing routes the event for real.
       </p>
 
       <Card>

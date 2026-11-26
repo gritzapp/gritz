@@ -23,6 +23,8 @@ service GritzService {
   rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
   rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
   rpc ArchiveTask(ArchiveTaskRequest) returns (ArchiveTaskResponse);
+  // UnarchiveTask fails with `failed_precondition` when the task's agent is
+  // deleted.
   rpc UnarchiveTask(UnarchiveTaskRequest) returns (UnarchiveTaskResponse);
   rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
   rpc RestartTask(RestartTaskRequest) returns (RestartTaskResponse);
@@ -71,8 +73,6 @@ service GritzService {
   rpc ListOrgMembers(ListOrgMembersRequest) returns (ListOrgMembersResponse);
   rpc GetOrgSettings(GetOrgSettingsRequest) returns (GetOrgSettingsResponse);
   rpc GenerateAtlassianWebhookSecret(GenerateAtlassianWebhookSecretRequest) returns (GenerateAtlassianWebhookSecretResponse);
-  rpc GetRoutingRules(GetRoutingRulesRequest) returns (GetRoutingRulesResponse);
-  rpc SetRoutingRules(SetRoutingRulesRequest) returns (SetRoutingRulesResponse);
   rpc GetEventTypes(GetEventTypesRequest) returns (GetEventTypesResponse);
   rpc GetCustomEventTypes(GetCustomEventTypesRequest) returns (GetCustomEventTypesResponse);
   rpc SetCustomEventTypes(SetCustomEventTypesRequest) returns (SetCustomEventTypesResponse);
@@ -95,6 +95,9 @@ service GritzService {
   rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
   rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
+  // DeleteAgent fails with `failed_precondition` while an unarchived task or
+  // a schedule belongs to the agent. A deleted agent is gone from every agent
+  // RPC; its archived tasks keep its id.
   rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
 }
 
@@ -168,12 +171,7 @@ message Task {
   // set by OpenShell. Empty for an ordinary run.
   string shell_session = 16;
 
-  // See docs/src/content/docs/proposals/implemented/task-namespaces.md.
-
-  // The task's namespace: only routing rules in the same namespace see its
-  // subscriptions. Empty is the default namespace. Set at creation and can't be
-  // changed.
-  string namespace = 17;
+  reserved 17;  // Previously: namespace (replaced by agents)
 
   // The image URL of the task's shields.io badge. Agents sign what they post
   // with it, linked to url.
@@ -183,6 +181,10 @@ message Task {
   // environment variable GRITZ_VAR_<name>. Set at creation and can't be
   // changed.
   map<string, string> variables = 19;
+
+  // The agent the task belongs to. Its workspace, runner, auto-archive and
+  // variables were copied from the agent when the task was created.
+  int64 agent_id = 20;
 }
 
 message McpServer {
@@ -242,22 +244,18 @@ message ListRunnerEventsResponse {
   bool more = 3;
 }
 
+// CreateTaskRequest creates a task of an agent: its workspace, runner,
+// auto-archive and variables are the agent's.
 message CreateTaskRequest {
   string name = 1;
   reserved 2;  // Previously: parent (child tasks removed)
-  string workspace = 3;
+  reserved 3, 5, 6, 7, 9;  // Previously: workspace, runner, auto_archive, namespace, variables (now the agent's)
   repeated Instruction instructions = 4;
-  string runner = 5;  // Runner ID that should handle this task
-  google.protobuf.Duration auto_archive = 6;
-  // The task's namespace; empty is the default namespace. See Task.namespace.
-  string namespace = 7;
   // Create the task as a DRAFT: no runner picks it up until an UpdateTask with
   // start set, such as the first instruction sent from the task page, starts it.
   // False (the default) starts the task immediately.
   bool draft = 8;
-  // The task's variables, by name. Each must be declared by the workspace;
-  // declared defaults fill the rest.
-  map<string, string> variables = 9;
+  int64 agent_id = 10;  // The agent the task belongs to.
 }
 
 message CreateTaskResponse {
@@ -388,22 +386,33 @@ message TaskLink {
   int64 id = 1;
   int64 task_id = 2;
   string relevance = 3;
+  // For a link with a kind, the canonical URL of the resource it names.
   string url = 4;
   string title = 5;
-  bool subscribe = 6;
+  reserved 6, 8;  // Previously: subscribe, routing_key (replaced by kind)
   google.protobuf.Timestamp created_at = 7;
-  // The key events are matched against, derived from url by the server.
-  // Read-only.
-  string routing_key = 8;
+  // The link kind of the task's agent the link was created with. A link with a
+  // kind is subscribed: it receives the events its kind lists. Empty for a
+  // plain reference link, which receives no events.
+  string kind = 9;
+  // The claim the link holds on its URL while its task is unarchived, copied
+  // from its kind when it was created. Empty for none.
+  string claim = 10;
 }
 
+// CreateLinkRequest links a task to a resource. With a kind, the link is
+// subscribed: kind must be a link kind of the task's agent and url a resource
+// of the kind's link type, and the link stores the resource's canonical URL.
+// Without one, it is a plain reference that receives no events, stored as
+// given. It fails with `failed_precondition` on an archived task.
 message CreateLinkRequest {
   int64 task_id = 1;
   string relevance = 2;
   string url = 3;
   string title = 4;
-  bool subscribe = 5;
+  reserved 5;  // Previously: subscribe (replaced by kind)
   reserved 6;
+  string kind = 7;
 }
 
 message CreateLinkResponse {
@@ -460,7 +469,7 @@ message ExternalPayload {
   // Extra context defined by the event's source, shown to the agent by
   // get_my_task and on the task's timeline. GitHub review comments set `path`,
   // `line`, `side` and `diff_hunk`; other sources set their own keys or none.
-  // These are not the attributes routing rules match on.
+  // These are not the attributes triggers match on.
   map<string, string> details = 4;
   // Where the event came from, such as "github" or "jira".
   string source = 5;
@@ -488,7 +497,9 @@ message LinkPayload {
   string relevance = 2;
   string url = 3;
   string title = 4;
-  bool subscribe = 5;
+  reserved 5;  // Previously: subscribe (replaced by kind)
+  string kind = 6;   // The link's kind; empty for a plain reference link.
+  string claim = 7;  // The link's claim; empty for none.
 }
 
 // It is written in the same transaction as the tasks row, so the event log
@@ -817,67 +828,19 @@ message RuleCondition {
   string value = 3;
 }
 
-message RoutingRule {
-  reserved 3, 4, 6, 7, 8;  // Previously: prefix, mention, assignee, url_prefix, value (legacy flat matchers)
-  string source = 1;
-  string type = 2;
-  CreateTaskAction create = 5;
-  // Whether a match starts the subscribed tasks again to handle the event.
-  // When false, the event is added to their timelines without starting them.
-  // Rules created in the web UI default to true.
-  bool wakeup = 9;
-  // Conditions the event must meet, all of them. Empty source and type match
-  // any; no conditions match every event of the selected type.
-  repeated RuleCondition conditions = 10;
-  // Whether the rule also acts on events from people who aren't members of the
-  // org. False (the default) acts only on members' events.
-  bool public = 11;
-  // The rule's namespace: a match looks for subscribed tasks only in it, and a
-  // task the rule creates is in it. Empty is the default namespace.
-  string namespace = 12;
-}
-
-message CreateTaskAction {
-  string workspace = 1;
-  string runner = 2;
-  string prompt = 3;
-  // The auto-archive delay of the tasks the rule creates, as in
-  // Task.auto_archive.
-  google.protobuf.Duration auto_archive = 4;
-  // Variables of the tasks the rule creates, by name, as saved. Each must be
-  // declared by the workspace, and every required one set. Each task gets
-  // them as they are; the runner fills in the workspace's defaults, and fails
-  // the task if the workspace no longer accepts them, when it starts it.
-  map<string, string> variables = 5;
-}
-
-message GetRoutingRulesRequest {}
-
-message GetRoutingRulesResponse {
-  repeated RoutingRule rules = 1;
-}
-
-message SetRoutingRulesRequest {
-  repeated RoutingRule rules = 1;
-}
-
-message SetRoutingRulesResponse {
-  repeated RoutingRule rules = 1;
-}
-
-// AttrDef is an event attribute a routing rule can have a condition on.
+// AttrDef is an event attribute a trigger can have a condition on.
 message AttrDef {
   string key = 1;  // The name a RuleCondition's attr refers to.
-  string label = 2;        // The attribute's name in the routing-rule editor.
-  string help = 3;         // Help text for the attribute in the routing-rule editor.
-  string placeholder = 4;  // Placeholder for the attribute's value in the routing-rule editor.
+  string label = 2;        // The attribute's name in the trigger editor.
+  string help = 3;         // Help text for the attribute in the trigger editor.
+  string placeholder = 4;  // Placeholder for the attribute's value in the trigger editor.
 }
 
 // It mirrors the eventrouter registry entry, exposing only the client-relevant
 // fields (the shipped default rules are intentionally omitted).
 
 // EventTypeDef is an event type, identified by its source and type, and every
-// attribute a routing rule can have a condition on for it.
+// attribute a trigger can have a condition on for it.
 message EventTypeDef {
   string source = 1;
   string type = 2;
@@ -912,7 +875,7 @@ message GetCustomEventTypesResponse {
 
 // SetCustomEventTypesRequest replaces the org's custom event types. It fails
 // with `invalid_argument` if a type is malformed, and `failed_precondition` if
-// an existing routing rule or agent would no longer be valid with the new types.
+// an existing agent would no longer be valid with the new types.
 message SetCustomEventTypesRequest {
   repeated EventTypeDef event_types = 1;
 }
@@ -921,12 +884,13 @@ message SetCustomEventTypesResponse {
   repeated EventTypeDef event_types = 1;
 }
 
-// TestEventRequest composes an event and routes it through the org's routing
-// rules, as a dry run or for real. Every event is validated against its type:
-// it fails with `invalid_argument` for an unknown source or type, a missing or
+// TestEventRequest composes an event and routes it through the org's agents,
+// as a dry run or for real. Every event is validated against its type: it
+// fails with `invalid_argument` for an unknown source or type, a missing or
 // non-absolute http(s) url, or an attr the type doesn't declare. An event of a
 // built-in source routes as the caller. A custom event routes like one posted
-// to the custom event webhook: it has no actor, so only public rules match it.
+// to the custom event webhook: it has no actor, so only public triggers and
+// link kinds admit it.
 message TestEventRequest {
   string source = 1;                // The event type's source, such as "github".
   string type = 2;                  // The event type, such as "issue_comment".
@@ -936,8 +900,8 @@ message TestEventRequest {
   string description = 4;           // Optional description shown on the task's timeline; defaults to the event type's label.
   bool fire = 5;                    // False (the default) for a dry run; true to act on the matches.
   map<string, string> details = 6;  // Stored as the event's ExternalPayload.details.
-  string body = 7;                  // The event's text, matched by rules on the "body" attr.
-  string url = 8;                   // The event's resource URL, matched by rules on the "url" attr and by subscribed links.
+  string body = 7;                  // The event's text, matched by triggers on the "body" attr.
+  string url = 8;                   // The event's resource URL, matched by triggers on the "url" attr and by subscribed links.
 }
 
 // AttrValues is the values of one event attribute.
@@ -946,18 +910,39 @@ message AttrValues {
 }
 
 message TestEventResponse {
-  repeated TestEventMatch matches = 1;  // The match in the caller's org, if any.
-  bool fired = 2;                       // Whether the matches were acted on.
+  reserved 1;  // Previously: matches (per routing rule)
+  bool fired = 2;  // Whether the event was acted on.
+  // What the event did, or would do, for each of the org's agents it reached,
+  // in the order ListAgents returns them.
+  repeated TestEventAgent agents = 3;
 }
 
-// TestEventMatch is what a matching routing rule did, or would do.
-message TestEventMatch {
-  int64 org_id = 1;
-  int32 rule_index = 2;      // The index of the rule that matched, or -1 for a built-in default rule.
-  bool would_wake = 3;       // The matched rule's wakeup.
-  bool would_create = 5;     // Whether a task would be, or was, created.
-  repeated int64 created_task_ids = 6;   // The tasks created; set only when fired.
-  repeated int64 event_ids = 7;          // The events added; set only when fired.
+// TestEventAgent is what an event did, or would do, for one agent: the
+// agent's trigger that matched, and the agent's tasks the event was delivered
+// to. An agent the event did neither for is left out.
+message TestEventAgent {
+  int64 agent_id = 1;
+  // The index of the agent's first trigger that matched, or -1 if none did.
+  int32 trigger_index = 2;
+  // The unarchived tasks holding a claim the matched trigger yields to. When
+  // any are listed, the trigger creates no task.
+  repeated int64 yielded_to = 3;
+  // The task the matched trigger created; set only when fired, and 0 if it
+  // yielded.
+  int64 created_task_id = 4;
+  // The event the matched trigger added to the task it created; set only when
+  // fired.
+  int64 created_event_id = 5;
+  // The agent's tasks the event was, or would be, delivered to.
+  repeated TestEventDelivery deliveries = 6;
+}
+
+// TestEventDelivery is a task an event was, or would be, delivered to through
+// one of its subscribed links.
+message TestEventDelivery {
+  int64 task_id = 1;
+  string kind = 2;      // The link kind that matched.
+  int64 event_id = 3;   // The event added to the task; set only when fired.
 }
 
 message CreateGitHubTokenRequest {}
@@ -977,7 +962,7 @@ message Schedule {
   string name = 2;
   string workspace = 3;
   string runner = 4;
-  string namespace = 5;
+  reserved 5;  // Previously: namespace (replaced by agents)
   repeated Instruction instructions = 6;
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; default "UTC".
@@ -993,13 +978,14 @@ message Schedule {
   // as they are; the runner fills in the workspace's defaults, and fails the
   // task if the workspace no longer accepts them, when it starts it.
   map<string, string> variables = 17;
+  int64 agent_id = 18;  // The agent its tasks belong to.
 }
 
 message CreateScheduleRequest {
   string name = 1;
   string workspace = 2;
   string runner = 3;
-  string namespace = 4;
+  reserved 4;  // Previously: namespace (replaced by agents)
   repeated Instruction instructions = 5;
   string cron_expr = 6;
   string timezone = 7;                      // IANA name; empty defaults to "UTC".
@@ -1010,6 +996,7 @@ message CreateScheduleRequest {
   // Variables of the tasks it creates, by name. Each must be declared by the
   // workspace, and every required one set.
   map<string, string> variables = 10;
+  int64 agent_id = 11;  // The agent its tasks belong to.
 }
 
 message CreateScheduleResponse {
@@ -1038,7 +1025,7 @@ message UpdateScheduleRequest {
   string name = 2;
   string workspace = 3;
   string runner = 4;
-  string namespace = 5;
+  reserved 5;  // Previously: namespace (replaced by agents)
   repeated Instruction instructions = 6;
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; empty defaults to "UTC".
@@ -1046,6 +1033,7 @@ message UpdateScheduleRequest {
   // Variables of the tasks it creates, by name. Each must be declared by the
   // workspace, and every required one set.
   map<string, string> variables = 10;
+  int64 agent_id = 11;  // The agent its tasks belong to.
 }
 
 message UpdateScheduleResponse {

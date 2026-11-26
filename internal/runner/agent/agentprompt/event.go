@@ -49,7 +49,7 @@ func renderEvent(event *gritzv1.Event) string {
 		b.WriteString("### " + lifecycleSummary(event) + " — " + ts)
 	case *gritzv1.Event_Link:
 		p := arm.Link
-		b.WriteString(linkBlock(p.GetTitle(), ts, p.GetRelevance(), p.GetUrl(), p.GetSubscribe()))
+		b.WriteString(linkBlock(p.GetTitle(), ts, p.GetRelevance(), p.GetUrl(), p.GetKind()))
 	case *gritzv1.Event_Report:
 		b.WriteString("### Report — " + ts + "\n")
 		b.WriteString(arm.Report.GetContent())
@@ -60,18 +60,18 @@ func renderEvent(event *gritzv1.Event) string {
 }
 
 // linkBlock formats a link as the shared `### Link: {title} — {time}` /
-// relevance / url · (subscribed) block. It is the one formatter behind both the
+// relevance / url · (subscribed: {kind}) block. It is the one formatter behind both the
 // renderEvent link arm (over a LinkPayload) and the task's standing links (over
 // *TaskLink) appended at the end of the first-run brief, so the two emit
 // byte-identical blocks. The returned block has no trailing newline; callers
 // join blocks with blank lines.
-func linkBlock(title, ts, relevance, url string, subscribe bool) string {
+func linkBlock(title, ts, relevance, url, kind string) string {
 	var b strings.Builder
 	b.WriteString("### Link: " + title + " — " + ts + "\n")
 	b.WriteString(relevance + "\n")
 	b.WriteString(url)
-	if subscribe {
-		b.WriteString(" · (subscribed)")
+	if kind != "" {
+		b.WriteString(" · (subscribed: " + kind + ")")
 	}
 	return b.String()
 }

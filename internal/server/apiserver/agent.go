@@ -13,11 +13,12 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
-// Agents are org configuration, like the routing rules they replace: reading
-// one needs OpOrgRead and changing one OpOrgWrite.
+// Agents are org configuration: reading one needs OpOrgRead and changing one
+// OpOrgWrite.
 
 func (s *Server) CreateAgent(ctx context.Context, req *gritzv1.CreateAgentRequest) (*gritzv1.CreateAgentResponse, error) {
 	caller := apiauth.MustCaller(ctx)
@@ -73,7 +74,7 @@ func (s *Server) ListAgents(ctx context.Context, req *gritzv1.ListAgentsRequest)
 	if !caller.Scopes.Allow(authscope.OpOrgRead) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read org"))
 	}
-	agents, err := s.store.ListAgentsForOrgs(ctx, nil, []int64{caller.OrgID})
+	agents, err := s.store.ListAgents(ctx, nil, caller.OrgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -123,9 +124,18 @@ func (s *Server) DeleteAgent(ctx context.Context, req *gritzv1.DeleteAgentReques
 	if !caller.Scopes.Allow(authscope.OpOrgWrite) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write org"))
 	}
-	if err := s.store.DeleteAgent(ctx, nil, caller.OrgID, req.Id); err != nil {
+	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.store.DeleteAgent(ctx, tx, caller.OrgID, req.Id); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent %d not found", req.Id))
+		}
+		if errors.Is(err, store.ErrAgentInUse) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d has unarchived tasks or schedules: archive its tasks and repoint or delete its schedules first", req.Id))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

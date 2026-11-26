@@ -2,17 +2,14 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/mcpx"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
-// addOrgTools registers the org tools: members, keys, settings and routing
-// rules.
+// addOrgTools registers the org tools: members, keys and settings.
 func (h *handlers) addOrgTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_members",
@@ -37,22 +34,6 @@ func (h *handlers) addOrgTools(server *mcp.Server) {
 			ReadOnlyHint: true,
 		},
 	}, h.getOrgSettings)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "get_routing_rules",
-		Description: "Get the org's routing rules, which decide what an incoming event does: wake the tasks subscribed to its URL, create a task, or both",
-		Annotations: &mcp.ToolAnnotations{
-			ReadOnlyHint: true,
-		},
-	}, h.getRoutingRules)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "set_routing_rules",
-		Description: "Replace every routing rule in the org with the given list, in the shape get_routing_rules returns. A rule missing from the list is deleted, so read the rules with get_routing_rules, edit them, and write the whole list back. Returns the stored rules.",
-		Annotations: &mcp.ToolAnnotations{
-			DestructiveHint: new(true),
-		},
-	}, h.setRoutingRules)
 }
 
 type listMembersInput struct{}
@@ -121,39 +102,4 @@ func (h *handlers) getOrgSettings(ctx context.Context, req *mcp.CallToolRequest,
 		GitHubAppURL:         resp.GithubAppUrl,
 		GitHubInstallationID: resp.GithubInstallationId,
 	}), nil, nil
-}
-
-type getRoutingRulesInput struct{}
-
-func (h *handlers) getRoutingRules(ctx context.Context, req *mcp.CallToolRequest, input getRoutingRulesInput) (*mcp.CallToolResult, any, error) {
-	service := h.service()
-	resp, err := service.GetRoutingRules(ctx, &gritzv1.GetRoutingRulesRequest{})
-	if err != nil {
-		return mcpx.ErrorResult("failed to get routing rules: %v", err), nil, nil
-	}
-	return mcpx.ProtoJSONResult(resp), nil, nil
-}
-
-type setRoutingRulesInput struct {
-	Rules []map[string]any `json:"rules" jsonschema:"Every routing rule of the org, as get_routing_rules returns them. An empty list deletes every rule."`
-}
-
-func (h *handlers) setRoutingRules(ctx context.Context, req *mcp.CallToolRequest, input setRoutingRulesInput) (*mcp.CallToolResult, any, error) {
-	service := h.service()
-	rules := make([]*gritzv1.RoutingRule, len(input.Rules))
-	for i, r := range input.Rules {
-		b, err := json.Marshal(r)
-		if err != nil {
-			return mcpx.ErrorResult("invalid rule %d: %v", i+1, err), nil, nil
-		}
-		rules[i] = &gritzv1.RoutingRule{}
-		if err := protojson.Unmarshal(b, rules[i]); err != nil {
-			return mcpx.ErrorResult("invalid rule %d: %v", i+1, err), nil, nil
-		}
-	}
-	resp, err := service.SetRoutingRules(ctx, &gritzv1.SetRoutingRulesRequest{Rules: rules})
-	if err != nil {
-		return mcpx.ErrorResult("failed to set routing rules: %v", err), nil, nil
-	}
-	return mcpx.ProtoJSONResult(resp), nil, nil
 }

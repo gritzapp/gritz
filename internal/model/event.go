@@ -110,7 +110,8 @@ type LinkPayload struct {
 	Relevance string `json:"relevance"`
 	URL       string `json:"url"`
 	Title     string `json:"title,omitempty"`
-	Subscribe bool   `json:"subscribe"`
+	Kind      string `json:"kind,omitempty"`
+	Claim     string `json:"claim,omitempty"`
 }
 
 func (*LinkPayload) Type() string    { return EventTypeLink }
@@ -122,7 +123,8 @@ func (p *LinkPayload) SetPayloadProto(pb *gritzv1.Event) {
 		Relevance: p.Relevance,
 		Url:       p.URL,
 		Title:     p.Title,
-		Subscribe: p.Subscribe,
+		Kind:      p.Kind,
+		Claim:     p.Claim,
 	}}
 }
 
@@ -172,7 +174,7 @@ const (
 func UserActor(name string) Actor { return Actor{Kind: ActorKindUser, Name: name} }
 
 // RunnerActor, RouterActor, and ScheduleActor are the server-internal actors for
-// container lifecycle transitions, routing-rule-created tasks, and
+// container lifecycle transitions, trigger-created tasks, and
 // scheduler-fired tasks respectively.
 var (
 	RunnerActor   = Actor{Kind: ActorKindRunner}
@@ -246,7 +248,7 @@ func (p *LifecyclePayload) SetPayloadProto(pb *gritzv1.Event) {
 }
 
 // Summary renders a lifecycle event as a human-readable timeline line — e.g.
-// "Created by icholy", "Created by routing rule", "Cancelled", "Sandbox exited
+// "Created by icholy", "Created by trigger", "Cancelled", "Sandbox exited
 // (Running -> Completed)", "Sandbox failed: <message>". It is the Go-side
 // renderer (used by the local MCP get_my_task tool); the web UI timeline has a
 // parallel renderer in TypeScript.
@@ -296,7 +298,7 @@ func (p *LifecyclePayload) Summary() string {
 	case p.Actor.Kind == ActorKindUser && p.Actor.Name != "":
 		s += " by " + p.Actor.Name
 	case p.Actor.Kind == ActorKindRouter:
-		s += " by routing rule"
+		s += " by trigger"
 	}
 	return s
 }
@@ -394,7 +396,8 @@ func EventPayloadFromProto(pb *gritzv1.Event) EventPayload {
 			Relevance: arm.Link.Relevance,
 			URL:       arm.Link.Url,
 			Title:     arm.Link.Title,
-			Subscribe: arm.Link.Subscribe,
+			Kind:      arm.Link.Kind,
+			Claim:     arm.Link.Claim,
 		}
 	case *gritzv1.Event_Command:
 		return &CommandPayload{

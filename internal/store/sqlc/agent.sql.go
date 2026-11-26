@@ -7,10 +7,35 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/lib/pq"
 )
+
+const agentInUse = `-- name: AgentInUse :one
+SELECT (EXISTS (
+    SELECT 1 FROM tasks t
+    WHERE t.agent_id = $1 AND t.org_id = $2 AND t.archived = FALSE
+) OR EXISTS (
+    SELECT 1 FROM schedules s
+    WHERE s.agent_id = $1 AND s.org_id = $2
+))::boolean AS in_use
+`
+
+type AgentInUseParams struct {
+	AgentID int64 `json:"agent_id"`
+	OrgID   int64 `json:"org_id"`
+}
+
+// Whether an unarchived task or a schedule references the agent.
+func (q *Queries) AgentInUse(ctx context.Context, arg AgentInUseParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, agentInUse, arg.AgentID, arg.OrgID)
+	var in_use bool
+	err := row.Scan(&in_use)
+	return in_use, err
+}
 
 const createAgent = `-- name: CreateAgent :one
 INSERT INTO agents (org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links)
@@ -47,8 +72,9 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (int64
 	return id, err
 }
 
-const deleteAgent = `-- name: DeleteAgent :execrows
-DELETE FROM agents WHERE id = $1 AND org_id = $2
+const deleteAgent = `-- name: DeleteAgent :exec
+UPDATE agents SET deleted_at = now(), updated_at = now()
+WHERE id = $1 AND org_id = $2
 `
 
 type DeleteAgentParams struct {
@@ -56,18 +82,16 @@ type DeleteAgentParams struct {
 	OrgID int64 `json:"org_id"`
 }
 
-func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAgent, arg.ID, arg.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+// Soft-deletes the agent: archived tasks keep referencing its row.
+func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAgent, arg.ID, arg.OrgID)
+	return err
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
 FROM agents
-WHERE org_id = $1 AND id = $2
+WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 `
 
 type GetAgentParams struct {
@@ -91,19 +115,20 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 		&i.Links,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
 
-const listAgentsForOrgs = `-- name: ListAgentsForOrgs :many
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at
+const listAgents = `-- name: ListAgents :many
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
 FROM agents
-WHERE org_id = ANY($1::BIGINT[])
-ORDER BY org_id, name, id
+WHERE org_id = $1 AND deleted_at IS NULL
+ORDER BY name, id
 `
 
-func (q *Queries) ListAgentsForOrgs(ctx context.Context, orgIds []int64) ([]Agent, error) {
-	rows, err := q.db.QueryContext(ctx, listAgentsForOrgs, pq.Array(orgIds))
+func (q *Queries) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) {
+	rows, err := q.db.QueryContext(ctx, listAgents, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +149,7 @@ func (q *Queries) ListAgentsForOrgs(ctx context.Context, orgIds []int64) ([]Agen
 			&i.Links,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DeletedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -138,11 +164,140 @@ func (q *Queries) ListAgentsForOrgs(ctx context.Context, orgIds []int64) ([]Agen
 	return items, nil
 }
 
+const listAgentsForEvent = `-- name: ListAgentsForEvent :many
+WITH event_orgs AS (
+    SELECT o.id, TRUE::boolean AS is_member
+    FROM orgs o
+    JOIN org_members m ON m.org_id = o.id
+    WHERE m.user_id = $1 AND o.archived = FALSE
+    UNION
+    SELECT o.id, FALSE::boolean AS is_member
+    FROM orgs o
+    WHERE o.id = ANY($2::BIGINT[])
+      AND o.archived = FALSE
+      AND NOT EXISTS (
+          SELECT 1 FROM org_members m
+          WHERE m.org_id = o.id AND m.user_id = $1
+      )
+)
+SELECT a.id, a.org_id, a.name, a.workspace, a.runner, a.prompt, a.auto_archive, a.variables, a.triggers, a.links, a.created_at, a.updated_at, a.deleted_at, e.is_member
+FROM agents a
+JOIN event_orgs e ON e.id = a.org_id
+WHERE a.deleted_at IS NULL
+ORDER BY a.org_id, a.name, a.id
+`
+
+type ListAgentsForEventParams struct {
+	UserID string  `json:"user_id"`
+	OrgIds []int64 `json:"org_ids"`
+}
+
+type ListAgentsForEventRow struct {
+	ID          int64           `json:"id"`
+	OrgID       int64           `json:"org_id"`
+	Name        string          `json:"name"`
+	Workspace   string          `json:"workspace"`
+	Runner      string          `json:"runner"`
+	Prompt      string          `json:"prompt"`
+	AutoArchive int64           `json:"auto_archive"`
+	Variables   json.RawMessage `json:"variables"`
+	Triggers    json.RawMessage `json:"triggers"`
+	Links       json.RawMessage `json:"links"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	DeletedAt   sql.NullTime    `json:"deleted_at"`
+	IsMember    bool            `json:"is_member"`
+}
+
+// The live agents of every org an event routes in, with whether the actor is
+// a member of the org. Member orgs (joined via org_members) have is_member =
+// TRUE. The orgs in org_ids (the event's orgs) that the actor is NOT a member
+// of have is_member = FALSE; the caller admits only public triggers and link
+// kinds in them. Membership wins on overlap (the NOT EXISTS drops a passed org
+// the actor already belongs to). An empty org_ids reduces this to the member
+// orgs; an empty user_id yields just the non-member branch.
+func (q *Queries) ListAgentsForEvent(ctx context.Context, arg ListAgentsForEventParams) ([]ListAgentsForEventRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentsForEvent, arg.UserID, pq.Array(arg.OrgIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAgentsForEventRow{}
+	for rows.Next() {
+		var i ListAgentsForEventRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.Workspace,
+			&i.Runner,
+			&i.Prompt,
+			&i.AutoArchive,
+			&i.Variables,
+			&i.Triggers,
+			&i.Links,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.IsMember,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockAgentForDelete = `-- name: LockAgentForDelete :one
+SELECT id FROM agents
+WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockAgentForDeleteParams struct {
+	OrgID int64 `json:"org_id"`
+	ID    int64 `json:"id"`
+}
+
+func (q *Queries) LockAgentForDelete(ctx context.Context, arg LockAgentForDeleteParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lockAgentForDelete, arg.OrgID, arg.ID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockLiveAgent = `-- name: LockLiveAgent :one
+SELECT id FROM agents
+WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
+FOR SHARE
+`
+
+type LockLiveAgentParams struct {
+	OrgID int64 `json:"org_id"`
+	ID    int64 `json:"id"`
+}
+
+// Share-locks a live agent until the transaction ends, so DeleteAgent (which
+// locks it for update) can't delete it while a task of it is created or
+// unarchived.
+func (q *Queries) LockLiveAgent(ctx context.Context, arg LockLiveAgentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lockLiveAgent, arg.OrgID, arg.ID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const updateAgent = `-- name: UpdateAgent :execrows
 UPDATE agents
 SET name = $1, workspace = $2, runner = $3, prompt = $4, auto_archive = $5,
     variables = $6, triggers = $7, links = $8, updated_at = now()
-WHERE id = $9 AND org_id = $10
+WHERE id = $9 AND org_id = $10 AND deleted_at IS NULL
 `
 
 type UpdateAgentParams struct {

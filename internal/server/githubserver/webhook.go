@@ -420,7 +420,7 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 			senderLogin := event.Sender.GetLogin()
 			number := event.PullRequest.GetNumber()
 			// GitHub fires "closed" for both merges and plain closes; the
-			// "state" attr carries which, so a routing rule can target merges.
+			// "state" attr carries which, so a trigger can target merges.
 			state := "closed"
 			if event.PullRequest.GetMerged() {
 				state = "merged"

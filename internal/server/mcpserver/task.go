@@ -91,7 +91,7 @@ func (h *handlers) addTaskTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_link",
-		Description: "Link an external resource, such as a pull request or an issue, to a task. With subscribe, the resource's events are routed to the task.",
+		Description: "Link an external resource, such as a pull request or an issue, to a task. With a kind, a link kind of the task's agent, the link is subscribed: the resource's events that the kind lists are delivered to the task.",
 	}, h.createLink)
 }
 
@@ -120,14 +120,10 @@ func (h *handlers) listWorkspaces(ctx context.Context, req *mcp.CallToolRequest,
 }
 
 type createTaskInput struct {
-	Name        string            `json:"name,omitempty" jsonschema:"A short name for the task"`
-	Workspace   string            `json:"workspace" jsonschema:"The workspace to run the task in"`
-	Instruction string            `json:"instruction,omitempty" jsonschema:"The instruction text for the task. Required unless draft is set."`
-	Runner      string            `json:"runner" jsonschema:"Runner ID to target"`
-	AutoArchive string            `json:"auto_archive,omitempty" jsonschema:"Auto-archive the task this long after it reaches a terminal status, as a Go duration string (e.g. \"30m\", \"1h\"). \"0\" = never, a negative value like \"-1s\" = archive immediately on terminal status, positive = delay. When omitted, the server default is used."`
-	Namespace   string            `json:"namespace,omitempty" jsonschema:"The task's namespace: only routing rules in the same namespace see its subscriptions. Empty is the default namespace. It can't be changed later."`
-	Draft       bool              `json:"draft,omitempty" jsonschema:"Create the task as a draft, which doesn't run until update_task starts it"`
-	Variables   map[string]string `json:"variables,omitempty" jsonschema:"The task's variables, by name. Each must be declared by the workspace; declared defaults fill the rest. The task's sandbox sees variable NAME as the environment variable GRITZ_VAR_NAME. They can't be changed later."`
+	Name        string `json:"name,omitempty" jsonschema:"A short name for the task"`
+	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent the task belongs to. The task runs in the agent's workspace and runner, with its auto-archive delay and variables."`
+	Instruction string `json:"instruction,omitempty" jsonschema:"The instruction text for the task. Required unless draft is set."`
+	Draft       bool   `json:"draft,omitempty" jsonschema:"Create the task as a draft, which doesn't run until update_task starts it"`
 }
 
 func (h *handlers) createTask(ctx context.Context, _ *mcp.CallToolRequest, input createTaskInput) (*mcp.CallToolResult, any, error) {
@@ -136,23 +132,12 @@ func (h *handlers) createTask(ctx context.Context, _ *mcp.CallToolRequest, input
 		return mcpx.ErrorResult("instruction is required unless draft is set"), nil, nil
 	}
 	req := &gritzv1.CreateTaskRequest{
-		Name:        input.Name,
-		Workspace:   input.Workspace,
-		Runner:      input.Runner,
-		Namespace:   input.Namespace,
-		Draft:       input.Draft,
-		AutoArchive: h.defaultAutoArchive,
-		Variables:   input.Variables,
+		Name:    input.Name,
+		AgentId: input.AgentID,
+		Draft:   input.Draft,
 	}
 	if input.Instruction != "" {
 		req.Instructions = []*gritzv1.Instruction{{Text: input.Instruction}}
-	}
-	if input.AutoArchive != "" {
-		d, err := parseAutoArchive(input.AutoArchive)
-		if err != nil {
-			return mcpx.ErrorResult("%v", err), nil, nil
-		}
-		req.AutoArchive = d
 	}
 	resp, err := service.CreateTask(ctx, req)
 	if err != nil {
@@ -171,7 +156,8 @@ type taskLink struct {
 	Relevance string `json:"relevance"`
 	URL       string `json:"url"`
 	Title     string `json:"title,omitempty"`
-	Subscribe bool   `json:"subscribe"`
+	Kind      string `json:"kind,omitempty"`
+	Claim     string `json:"claim,omitempty"`
 }
 
 func taskLinkOf(l *gritzv1.TaskLink) taskLink {
@@ -180,7 +166,8 @@ func taskLinkOf(l *gritzv1.TaskLink) taskLink {
 		Relevance: l.Relevance,
 		URL:       l.Url,
 		Title:     l.Title,
-		Subscribe: l.Subscribe,
+		Kind:      l.Kind,
+		Claim:     l.Claim,
 	}
 }
 
@@ -445,7 +432,7 @@ type createLinkInput struct {
 	URL       string `json:"url" jsonschema:"The resource's URL"`
 	Title     string `json:"title,omitempty" jsonschema:"A title for the link"`
 	Relevance string `json:"relevance" jsonschema:"Why the resource matters to the task, such as \"PR for the fix\""`
-	Subscribe bool   `json:"subscribe,omitempty" jsonschema:"Route the resource's events, such as PR comments, to the task"`
+	Kind      string `json:"kind,omitempty" jsonschema:"A link kind of the task's agent: the resource's events the kind lists, such as PR comments, are delivered to the task. Omit for a plain reference link, which receives no events."`
 }
 
 func (h *handlers) createLink(ctx context.Context, req *mcp.CallToolRequest, input createLinkInput) (*mcp.CallToolResult, any, error) {
@@ -455,7 +442,7 @@ func (h *handlers) createLink(ctx context.Context, req *mcp.CallToolRequest, inp
 		Url:       input.URL,
 		Title:     input.Title,
 		Relevance: input.Relevance,
-		Subscribe: input.Subscribe,
+		Kind:      input.Kind,
 	})
 	if err != nil {
 		return mcpx.ErrorResult("failed to create link: %v", err), nil, nil

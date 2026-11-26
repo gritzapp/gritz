@@ -143,12 +143,6 @@ const (
 	// GritzServiceGenerateAtlassianWebhookSecretProcedure is the fully-qualified name of the
 	// GritzService's GenerateAtlassianWebhookSecret RPC.
 	GritzServiceGenerateAtlassianWebhookSecretProcedure = "/gritz.v1.GritzService/GenerateAtlassianWebhookSecret"
-	// GritzServiceGetRoutingRulesProcedure is the fully-qualified name of the GritzService's
-	// GetRoutingRules RPC.
-	GritzServiceGetRoutingRulesProcedure = "/gritz.v1.GritzService/GetRoutingRules"
-	// GritzServiceSetRoutingRulesProcedure is the fully-qualified name of the GritzService's
-	// SetRoutingRules RPC.
-	GritzServiceSetRoutingRulesProcedure = "/gritz.v1.GritzService/SetRoutingRules"
 	// GritzServiceGetEventTypesProcedure is the fully-qualified name of the GritzService's
 	// GetEventTypes RPC.
 	GritzServiceGetEventTypesProcedure = "/gritz.v1.GritzService/GetEventTypes"
@@ -213,6 +207,8 @@ type GritzServiceClient interface {
 	GetTask(context.Context, *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
 	UpdateTask(context.Context, *v1.UpdateTaskRequest) (*v1.UpdateTaskResponse, error)
 	ArchiveTask(context.Context, *v1.ArchiveTaskRequest) (*v1.ArchiveTaskResponse, error)
+	// UnarchiveTask fails with `failed_precondition` when the task's agent is
+	// deleted.
 	UnarchiveTask(context.Context, *v1.UnarchiveTaskRequest) (*v1.UnarchiveTaskResponse, error)
 	CancelTask(context.Context, *v1.CancelTaskRequest) (*v1.CancelTaskResponse, error)
 	RestartTask(context.Context, *v1.RestartTaskRequest) (*v1.RestartTaskResponse, error)
@@ -261,8 +257,6 @@ type GritzServiceClient interface {
 	ListOrgMembers(context.Context, *v1.ListOrgMembersRequest) (*v1.ListOrgMembersResponse, error)
 	GetOrgSettings(context.Context, *v1.GetOrgSettingsRequest) (*v1.GetOrgSettingsResponse, error)
 	GenerateAtlassianWebhookSecret(context.Context, *v1.GenerateAtlassianWebhookSecretRequest) (*v1.GenerateAtlassianWebhookSecretResponse, error)
-	GetRoutingRules(context.Context, *v1.GetRoutingRulesRequest) (*v1.GetRoutingRulesResponse, error)
-	SetRoutingRules(context.Context, *v1.SetRoutingRulesRequest) (*v1.SetRoutingRulesResponse, error)
 	GetEventTypes(context.Context, *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error)
 	GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error)
 	SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error)
@@ -285,6 +279,9 @@ type GritzServiceClient interface {
 	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
 	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
 	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
+	// DeleteAgent fails with `failed_precondition` while an unarchived task or
+	// a schedule belongs to the agent. A deleted agent is gone from every agent
+	// RPC; its archived tasks keep its id.
 	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
 }
 
@@ -557,18 +554,6 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(gritzServiceMethods.ByName("GenerateAtlassianWebhookSecret")),
 			connect.WithClientOptions(opts...),
 		),
-		getRoutingRules: connect.NewClient[v1.GetRoutingRulesRequest, v1.GetRoutingRulesResponse](
-			httpClient,
-			baseURL+GritzServiceGetRoutingRulesProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("GetRoutingRules")),
-			connect.WithClientOptions(opts...),
-		),
-		setRoutingRules: connect.NewClient[v1.SetRoutingRulesRequest, v1.SetRoutingRulesResponse](
-			httpClient,
-			baseURL+GritzServiceSetRoutingRulesProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("SetRoutingRules")),
-			connect.WithClientOptions(opts...),
-		),
 		getEventTypes: connect.NewClient[v1.GetEventTypesRequest, v1.GetEventTypesResponse](
 			httpClient,
 			baseURL+GritzServiceGetEventTypesProcedure,
@@ -719,8 +704,6 @@ type gritzServiceClient struct {
 	listOrgMembers                 *connect.Client[v1.ListOrgMembersRequest, v1.ListOrgMembersResponse]
 	getOrgSettings                 *connect.Client[v1.GetOrgSettingsRequest, v1.GetOrgSettingsResponse]
 	generateAtlassianWebhookSecret *connect.Client[v1.GenerateAtlassianWebhookSecretRequest, v1.GenerateAtlassianWebhookSecretResponse]
-	getRoutingRules                *connect.Client[v1.GetRoutingRulesRequest, v1.GetRoutingRulesResponse]
-	setRoutingRules                *connect.Client[v1.SetRoutingRulesRequest, v1.SetRoutingRulesResponse]
 	getEventTypes                  *connect.Client[v1.GetEventTypesRequest, v1.GetEventTypesResponse]
 	getCustomEventTypes            *connect.Client[v1.GetCustomEventTypesRequest, v1.GetCustomEventTypesResponse]
 	setCustomEventTypes            *connect.Client[v1.SetCustomEventTypesRequest, v1.SetCustomEventTypesResponse]
@@ -1127,24 +1110,6 @@ func (c *gritzServiceClient) GenerateAtlassianWebhookSecret(ctx context.Context,
 	return nil, err
 }
 
-// GetRoutingRules calls gritz.v1.GritzService.GetRoutingRules.
-func (c *gritzServiceClient) GetRoutingRules(ctx context.Context, req *v1.GetRoutingRulesRequest) (*v1.GetRoutingRulesResponse, error) {
-	response, err := c.getRoutingRules.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// SetRoutingRules calls gritz.v1.GritzService.SetRoutingRules.
-func (c *gritzServiceClient) SetRoutingRules(ctx context.Context, req *v1.SetRoutingRulesRequest) (*v1.SetRoutingRulesResponse, error) {
-	response, err := c.setRoutingRules.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
 // GetEventTypes calls gritz.v1.GritzService.GetEventTypes.
 func (c *gritzServiceClient) GetEventTypes(ctx context.Context, req *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error) {
 	response, err := c.getEventTypes.CallUnary(ctx, connect.NewRequest(req))
@@ -1312,6 +1277,8 @@ type GritzServiceHandler interface {
 	GetTask(context.Context, *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
 	UpdateTask(context.Context, *v1.UpdateTaskRequest) (*v1.UpdateTaskResponse, error)
 	ArchiveTask(context.Context, *v1.ArchiveTaskRequest) (*v1.ArchiveTaskResponse, error)
+	// UnarchiveTask fails with `failed_precondition` when the task's agent is
+	// deleted.
 	UnarchiveTask(context.Context, *v1.UnarchiveTaskRequest) (*v1.UnarchiveTaskResponse, error)
 	CancelTask(context.Context, *v1.CancelTaskRequest) (*v1.CancelTaskResponse, error)
 	RestartTask(context.Context, *v1.RestartTaskRequest) (*v1.RestartTaskResponse, error)
@@ -1360,8 +1327,6 @@ type GritzServiceHandler interface {
 	ListOrgMembers(context.Context, *v1.ListOrgMembersRequest) (*v1.ListOrgMembersResponse, error)
 	GetOrgSettings(context.Context, *v1.GetOrgSettingsRequest) (*v1.GetOrgSettingsResponse, error)
 	GenerateAtlassianWebhookSecret(context.Context, *v1.GenerateAtlassianWebhookSecretRequest) (*v1.GenerateAtlassianWebhookSecretResponse, error)
-	GetRoutingRules(context.Context, *v1.GetRoutingRulesRequest) (*v1.GetRoutingRulesResponse, error)
-	SetRoutingRules(context.Context, *v1.SetRoutingRulesRequest) (*v1.SetRoutingRulesResponse, error)
 	GetEventTypes(context.Context, *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error)
 	GetCustomEventTypes(context.Context, *v1.GetCustomEventTypesRequest) (*v1.GetCustomEventTypesResponse, error)
 	SetCustomEventTypes(context.Context, *v1.SetCustomEventTypesRequest) (*v1.SetCustomEventTypesResponse, error)
@@ -1384,6 +1349,9 @@ type GritzServiceHandler interface {
 	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
 	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
 	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
+	// DeleteAgent fails with `failed_precondition` while an unarchived task or
+	// a schedule belongs to the agent. A deleted agent is gone from every agent
+	// RPC; its archived tasks keep its id.
 	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
 }
 
@@ -1652,18 +1620,6 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(gritzServiceMethods.ByName("GenerateAtlassianWebhookSecret")),
 		connect.WithHandlerOptions(opts...),
 	)
-	gritzServiceGetRoutingRulesHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceGetRoutingRulesProcedure,
-		svc.GetRoutingRules,
-		connect.WithSchema(gritzServiceMethods.ByName("GetRoutingRules")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceSetRoutingRulesHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceSetRoutingRulesProcedure,
-		svc.SetRoutingRules,
-		connect.WithSchema(gritzServiceMethods.ByName("SetRoutingRules")),
-		connect.WithHandlerOptions(opts...),
-	)
 	gritzServiceGetEventTypesHandler := connect.NewUnaryHandlerSimple(
 		GritzServiceGetEventTypesProcedure,
 		svc.GetEventTypes,
@@ -1854,10 +1810,6 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceGetOrgSettingsHandler.ServeHTTP(w, r)
 		case GritzServiceGenerateAtlassianWebhookSecretProcedure:
 			gritzServiceGenerateAtlassianWebhookSecretHandler.ServeHTTP(w, r)
-		case GritzServiceGetRoutingRulesProcedure:
-			gritzServiceGetRoutingRulesHandler.ServeHTTP(w, r)
-		case GritzServiceSetRoutingRulesProcedure:
-			gritzServiceSetRoutingRulesHandler.ServeHTTP(w, r)
 		case GritzServiceGetEventTypesProcedure:
 			gritzServiceGetEventTypesHandler.ServeHTTP(w, r)
 		case GritzServiceGetCustomEventTypesProcedure:
@@ -2071,14 +2023,6 @@ func (UnimplementedGritzServiceHandler) GetOrgSettings(context.Context, *v1.GetO
 
 func (UnimplementedGritzServiceHandler) GenerateAtlassianWebhookSecret(context.Context, *v1.GenerateAtlassianWebhookSecretRequest) (*v1.GenerateAtlassianWebhookSecretResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GenerateAtlassianWebhookSecret is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) GetRoutingRules(context.Context, *v1.GetRoutingRulesRequest) (*v1.GetRoutingRulesResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetRoutingRules is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) SetRoutingRules(context.Context, *v1.SetRoutingRulesRequest) (*v1.SetRoutingRulesResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.SetRoutingRules is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) GetEventTypes(context.Context, *v1.GetEventTypesRequest) (*v1.GetEventTypesResponse, error) {

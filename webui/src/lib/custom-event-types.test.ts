@@ -43,7 +43,7 @@ describe('jsonSchema', () => {
         attrs: {
           type: 'object',
           additionalProperties: false,
-          description: 'Values routing rules can match on. Each value is a list of strings.',
+          description: 'Values triggers can match on. Each value is a list of strings.',
           properties: {
             severity: {
               type: 'array',

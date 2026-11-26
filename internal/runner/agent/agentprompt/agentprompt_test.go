@@ -51,11 +51,10 @@ func TestRenderGolden(t *testing.T) {
 		Name:      "first-run-brief L2",
 		Status:    gritzv1.TaskStatus_RUNNING,
 		Workspace: "gritz",
-		Namespace: "team-core",
 		Url:       "https://gritz.dev/ui/tasks/1302?org=12",
 		BadgeUrl:  "https://img.shields.io/endpoint?url=https://gritz.dev/badge/1302.json",
 	}
-	// A field-complete brief: named task with url/namespace, an instruction event,
+	// A field-complete brief: named task with url, an instruction event,
 	// an external event, and a link. Exercises every field the first-run brief
 	// renders (Task, Events, Links). The task reuses `task` above.
 	briefEvents := []*gritzv1.Event{
@@ -85,7 +84,7 @@ func TestRenderGolden(t *testing.T) {
 			Relevance: "the PR this task opened",
 			Url:       "https://github.com/icholy/gritz/pull/1394",
 			Title:     "feat(agent): first-run brief",
-			Subscribe: true,
+			Kind:      "owned-pr",
 			CreatedAt: timestamppb.New(time.Unix(1_700_000_050, 0).UTC()),
 		},
 	}

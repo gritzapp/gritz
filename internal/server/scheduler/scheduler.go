@@ -41,6 +41,8 @@ type Store interface {
 	AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64, adv store.ScheduleAdvance) error
 	UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
 	GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error)
+	GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error)
+	LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 }
 
 // DefaultInterval is how often the scheduler tick fires when no override is set.
@@ -161,11 +163,18 @@ func IsInvalidError(err error) bool {
 }
 
 // Validate checks a schedule before it is saved: its cron expression and
-// timezone, that its workspace is registered, and its variables against the
-// workspace's declarations. IsInvalidError tells a rejection from a store error.
+// timezone, that its agent is one of its org's, that its workspace is
+// registered, and its variables against the workspace's declarations.
+// IsInvalidError tells a rejection from a store error.
 func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) error {
 	if err := sched.Validate(); err != nil {
 		return &invalidError{err: err}
+	}
+	if _, err := st.GetAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &invalidError{err: fmt.Errorf("agent %d not found", sched.AgentID)}
+		}
+		return err
 	}
 	decls, err := st.GetWorkspaceVariables(ctx, tx, sched.Runner, sched.Workspace, sched.OrgID)
 	if err != nil {
@@ -194,6 +203,10 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*mo
 	// The schedule owns the template -> task/events mapping. Insert the task, then
 	// seed its events (Events needs the assigned task.ID), so a scheduled task is
 	// indistinguishable from a hand-created one downstream.
+	// Hold the agent so a concurrent DeleteAgent sees this task.
+	if err := st.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
+		return nil, model.Notification{}, err
+	}
 	task := sched.Task()
 	if err := st.CreateTask(ctx, tx, task); err != nil {
 		return nil, model.Notification{}, err

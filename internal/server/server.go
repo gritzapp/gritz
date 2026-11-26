@@ -97,12 +97,13 @@ func New(opts Options) *Server {
 		AppKey:         opts.AppKey,
 		Shells:         shell,
 		MaxOrgsPerUser: opts.MaxOrgsPerUser,
-		// Router powers TestEvent's dry-run matcher. It only reads (Router.Plan),
-		// so OnRouteOutcome is intentionally left unset.
+		// Router powers TestEvent. It fires no outbound side effects, so
+		// OnRouteOutcome is intentionally left unset.
 		Router: &eventrouter.Router{
 			Log:       log,
 			Store:     opts.Store,
 			Publisher: opts.Publisher,
+			Registry:  eventrouter.DefaultSchemaRegistry,
 		},
 	}
 	// Only populate GitHub when configured: assigning a typed-nil

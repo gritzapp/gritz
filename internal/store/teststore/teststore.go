@@ -51,19 +51,19 @@ type Org struct {
 
 // LinkOptions configures a link created with a task.
 type LinkOptions struct {
-	URL        string
-	RoutingKey string
-	Title      string
-	Subscribe  bool
+	URL   string
+	Title string
+	Kind  string
+	Claim string
 }
 
 // TaskOptions configures CreateTask behavior. Zero values are replaced
-// with sensible defaults.
+// with sensible defaults; a zero AgentID creates an agent for the task.
 type TaskOptions struct {
 	Status    model.TaskStatus
 	Runner    string
 	Workspace string
-	Namespace string
+	AgentID   int64
 	Version   int64
 	Links     []LinkOptions
 }
@@ -74,12 +74,15 @@ func CreateTask(t *testing.T, s *store.Store, org *Org, opts *TaskOptions) *mode
 	if opts == nil {
 		opts = &TaskOptions{}
 	}
+	if opts.AgentID == 0 {
+		opts.AgentID = CreateAgent(t, s, org, nil).ID
+	}
 	task := &model.Task{
 		OrgID:     org.OrgID,
 		Status:    cmp.Or(opts.Status, model.TaskStatusPending),
 		Runner:    opts.Runner,
 		Workspace: cmp.Or(opts.Workspace, "default"),
-		Namespace: opts.Namespace,
+		AgentID:   opts.AgentID,
 		Version:   opts.Version,
 	}
 	if err := s.CreateTask(t.Context(), nil, task); err != nil {
@@ -88,12 +91,12 @@ func CreateTask(t *testing.T, s *store.Store, org *Org, opts *TaskOptions) *mode
 	for _, lo := range opts.Links {
 		url := cmp.Or(lo.URL, "https://example.com")
 		link := &model.Link{
-			TaskID:     task.ID,
-			URL:        url,
-			RoutingKey: cmp.Or(lo.RoutingKey, model.RoutingKey(url)),
-			Title:      cmp.Or(lo.Title, "test link"),
-			Subscribe:  lo.Subscribe,
-			CreatedAt:  time.Now(),
+			TaskID:    task.ID,
+			URL:       url,
+			Title:     cmp.Or(lo.Title, "test link"),
+			Kind:      lo.Kind,
+			Claim:     lo.Claim,
+			CreatedAt: time.Now(),
 		}
 		if err := s.CreateLink(t.Context(), nil, link); err != nil {
 			t.Fatal(err)
@@ -109,6 +112,23 @@ func CreateTask(t *testing.T, s *store.Store, org *Org, opts *TaskOptions) *mode
 		}
 	}
 	return task
+}
+
+// CreateAgent creates agent in the given org, filling its OrgID, and a name,
+// workspace and runner where agent leaves them unset. agent may be nil.
+func CreateAgent(t *testing.T, s *store.Store, org *Org, agent *model.Agent) *model.Agent {
+	t.Helper()
+	if agent == nil {
+		agent = &model.Agent{}
+	}
+	agent.OrgID = org.OrgID
+	agent.Name = cmp.Or(agent.Name, "test-agent")
+	agent.Workspace = cmp.Or(agent.Workspace, "default")
+	agent.Runner = cmp.Or(agent.Runner, "test-runner")
+	if err := s.CreateAgent(t.Context(), nil, agent); err != nil {
+		t.Fatal(err)
+	}
+	return agent
 }
 
 // WorkspaceOptions configures a workspace created with an org.

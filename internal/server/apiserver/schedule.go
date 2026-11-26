@@ -44,7 +44,7 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 		Name:         req.Name,
 		Workspace:    req.Workspace,
 		Runner:       req.Runner,
-		Namespace:    req.Namespace,
+		AgentID:      req.AgentId,
 		Instructions: model.ScheduleInstructionsFromProto(req.Instructions),
 		CronExpr:     req.CronExpr,
 		Timezone:     cmp.Or(req.Timezone, "UTC"),
@@ -142,7 +142,7 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 		existing.Name = req.Name
 		existing.Workspace = req.Workspace
 		existing.Runner = req.Runner
-		existing.Namespace = req.Namespace
+		existing.AgentID = req.AgentId
 		existing.Instructions = model.ScheduleInstructionsFromProto(req.Instructions)
 		existing.CronExpr = req.CronExpr
 		existing.Timezone = timezone

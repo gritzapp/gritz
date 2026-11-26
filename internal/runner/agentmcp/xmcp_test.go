@@ -102,7 +102,6 @@ func TestGetMyTask(t *testing.T) {
 		"name":      "test task",
 		"status":    "UNSPECIFIED",
 		"workspace": "",
-		"namespace": "",
 		"url":       "",
 		"links":     []any{},
 		"events": []any{

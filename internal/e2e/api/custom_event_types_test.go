@@ -93,8 +93,11 @@ func TestSetCustomEventTypes_RejectsDeletingTypeInUse(t *testing.T) {
 		EventTypes: []*gritzv1.EventTypeDef{problem},
 	})
 	assert.NilError(t, err)
-	_, err = h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "investigator",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers: []*gritzv1.AgentTrigger{
 			{
 				Source:     "github",
 				Type:       "issue_comment",
@@ -104,19 +107,17 @@ func TestSetCustomEventTypes_RejectsDeletingTypeInUse(t *testing.T) {
 				Source:     "custom",
 				Type:       "problem",
 				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
-				Wakeup:     true,
 				Public:     true,
 			},
 		},
-	})
-	assert.NilError(t, err)
+	}})
 
 	// Act
 	_, err = h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{})
 
 	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-	assert.ErrorContains(t, err, `routing rule 2: unknown event type: source="custom" type="problem"`)
+	assert.ErrorContains(t, err, fmt.Sprintf(`agent %d (investigator): trigger 2: unknown event type: source="custom" type="problem"`, agent.Id))
 	resp, err := h.Org.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, resp.EventTypes, []*gritzv1.EventTypeDef{problem}, protocmp.Transform())
@@ -140,8 +141,11 @@ func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
 		EventTypes: []*gritzv1.EventTypeDef{problem},
 	})
 	assert.NilError(t, err)
-	_, err = h.Org.Client.SetRoutingRules(t.Context(), &gritzv1.SetRoutingRulesRequest{
-		Rules: []*gritzv1.RoutingRule{
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "investigator",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Triggers: []*gritzv1.AgentTrigger{
 			{
 				Source:     "github",
 				Type:       "issue_comment",
@@ -151,14 +155,12 @@ func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
 				Source:     "custom",
 				Type:       "problem",
 				Conditions: []*gritzv1.RuleCondition{{Attr: "severity", Op: "equals", Value: "critical"}},
-				Wakeup:     true,
 				Public:     true,
 			},
 		},
-	})
-	assert.NilError(t, err)
+	}})
 
-	// Act: drop the "severity" attr the rule's condition uses.
+	// Act: drop the "severity" attr the trigger's condition uses.
 	_, err = h.Org.Client.SetCustomEventTypes(t.Context(), &gritzv1.SetCustomEventTypesRequest{
 		EventTypes: []*gritzv1.EventTypeDef{
 			{
@@ -172,7 +174,7 @@ func TestSetCustomEventTypes_RejectsRemovingAttrInUse(t *testing.T) {
 
 	// Assert
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-	assert.ErrorContains(t, err, `routing rule 2: attr "severity" not valid for event type "custom"/"problem"`)
+	assert.ErrorContains(t, err, fmt.Sprintf(`agent %d (investigator): trigger 2: attr "severity" not valid for event type "custom"/"problem"`, agent.Id))
 	resp, err := h.Org.Client.GetCustomEventTypes(t.Context(), &gritzv1.GetCustomEventTypesRequest{})
 	assert.NilError(t, err)
 	assert.DeepEqual(t, resp.EventTypes, []*gritzv1.EventTypeDef{problem}, protocmp.Transform())
