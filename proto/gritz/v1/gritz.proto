@@ -404,7 +404,7 @@ message TaskLink {
 // subscribed: kind must be a link kind of the task's agent and url a resource
 // of the kind's link type, and the link stores the resource's canonical URL.
 // Without one, it is a plain reference that receives no events, stored as
-// given.
+// given. It fails with `failed_precondition` on an archived task.
 message CreateLinkRequest {
   int64 task_id = 1;
   string relevance = 2;

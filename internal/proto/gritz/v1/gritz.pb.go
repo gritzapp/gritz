@@ -2565,7 +2565,7 @@ func (x *TaskLink) GetClaim() string {
 // subscribed: kind must be a link kind of the task's agent and url a resource
 // of the kind's link type, and the link stores the resource's canonical URL.
 // Without one, it is a plain reference that receives no events, stored as
-// given.
+// given. It fails with `failed_precondition` on an archived task.
 type CreateLinkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`

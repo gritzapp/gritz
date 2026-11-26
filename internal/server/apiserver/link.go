@@ -36,6 +36,9 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 	if !caller.Scopes.Allow(authscope.OpTaskWrite, task.ScopeAttr()...) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write task"))
 	}
+	if task.Archived {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("task %d is archived", task.ID))
+	}
 	link := &model.Link{
 		TaskID:    req.TaskId,
 		Relevance: req.Relevance,
