@@ -212,7 +212,7 @@ message Agent {
   google.protobuf.Duration auto_archive = 6;
   map<string, string> variables = 7;
   repeated Trigger triggers = 8;
-  repeated LinkKind links = 9;
+  repeated AgentLink links = 9;
 }
 
 message Trigger {
@@ -224,7 +224,7 @@ message Trigger {
   string link = 6;  // a kind of the same agent
 }
 
-message LinkKind {
+message AgentLink {
   string type = 1;            // a registered link type, e.g. "github.pr"
   string kind = 2;            // defaults to type
   string claim = 3;
@@ -271,11 +271,11 @@ type Agent struct {
 	AutoArchive time.Duration
 	Variables   map[string]string
 	Triggers    []Trigger
-	Links       []LinkKind
+	Links       []AgentLink
 }
 
-// Kind returns the link kind named name, and false if the agent has none. // new
-func (a *Agent) Kind(name string) (LinkKind, bool)
+// Link returns the entry whose kind is kind, and false if the agent has none. // new
+func (a *Agent) Link(kind string) (AgentLink, bool)
 
 // Trigger creates a task of its agent when a matching event arrives. // new
 type Trigger struct {
@@ -287,8 +287,8 @@ type Trigger struct {
 	Link       string
 }
 
-// LinkKind is a kind of subscribed link an agent's tasks may create. // new
-type LinkKind struct {
+// AgentLink is an entry of an agent's links: a kind of link its tasks may create, and what it delivers. // new
+type AgentLink struct {
 	Type   string
 	Kind   string
 	Claim  string
@@ -297,7 +297,7 @@ type LinkKind struct {
 }
 
 // Name returns Kind, or Type when Kind is empty. // new
-func (k LinkKind) Name() string
+func (l AgentLink) Name() string
 
 // LinkTypeDef describes a resource that links can name. // new
 type LinkTypeDef struct {
