@@ -4,7 +4,7 @@ import {hideTask, workflowsLayout} from '../../layouts/workflows';
 import {Colors} from '../../theme';
 
 // An external event resolves a workflow instance and starts its first task,
-// traced from docs/src/content/docs/proposals/draft/event-workflows.md (Start,
+// traced from docs/src/content/docs/proposals/rejected/event-workflows.md (Start,
 // Storage, Events, Links, Publish steps 1-8). The org has two workflows:
 // jira-feature (a trigger on the gritz label, a planner and an implementer)
 // and responder (a trigger on bot mentions that yields to pr-owner). The

@@ -4,7 +4,7 @@ import {hideTask, workflowsLayout} from '../../layouts/workflows';
 import {Colors} from '../../theme';
 
 // Tasks reach each other on the instance bus, traced from
-// docs/src/content/docs/proposals/draft/event-workflows.md (Start, Links,
+// docs/src/content/docs/proposals/rejected/event-workflows.md (Start, Links,
 // Publish steps 4-8, EmitEvent under Starting and closing an instance): the
 // planner's emit starts an implementer keyed by the subject, the implementer
 // links its pull request and holds a claim on it, and events come back to the
