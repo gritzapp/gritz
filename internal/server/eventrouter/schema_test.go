@@ -566,3 +566,91 @@ func TestSchemaRegistryValidateCustom(t *testing.T) {
 		})
 	}
 }
+
+func TestSchemaRegistryLinkTypes(t *testing.T) {
+	reg := NewSchemaRegistry()
+	reg.MustRegisterLinkType(model.LinkTypeDef{Name: "test.issue", Source: "test", Label: "Test: Issue"})
+	reg.MustRegisterLinkType(model.LinkTypeDef{Name: "test.pr", Source: "test", Label: "Test: PR"})
+
+	var names []string
+	for _, def := range reg.LinkTypes() {
+		names = append(names, def.Name)
+	}
+	pr, ok := reg.LinkType("test.pr")
+	_, missing := reg.LinkType("test.run")
+
+	assert.DeepEqual(t, names, []string{"test.issue", "test.pr"})
+	assert.Assert(t, ok)
+	assert.Equal(t, pr.Label, "Test: PR")
+	assert.Assert(t, !missing)
+}
+
+func TestSchemaRegistryCanonicalURL(t *testing.T) {
+	reg := NewSchemaRegistry()
+	reg.MustRegisterLinkType(model.LinkTypeDef{
+		Name:   "test.issue",
+		Source: "test",
+		Canonical: func(raw string) (string, bool) {
+			rest, ok := strings.CutPrefix(raw, "https://test.example/issues/")
+			if !ok {
+				return "", false
+			}
+			id, _, _ := strings.Cut(rest, "#")
+			return "https://test.example/issues/" + id, true
+		},
+	})
+	reg.MustRegisterLinkType(model.LinkTypeDef{
+		Name:   "test.pr",
+		Source: "test",
+		Canonical: func(raw string) (string, bool) {
+			return raw, strings.HasPrefix(raw, "https://test.example/pr/")
+		},
+	})
+	comment := model.EventTypeDef{Source: "test", Type: "comment", LinkTypes: []string{"test.issue", "test.pr"}}
+	push := model.EventTypeDef{Source: "test", Type: "push"}
+
+	tests := []struct {
+		name string
+		def  model.EventTypeDef
+		raw  string
+		want string
+		ok   bool
+	}{
+		{"first link type", comment, "https://test.example/issues/5#c-1", "https://test.example/issues/5", true},
+		{"second link type", comment, "https://test.example/pr/5", "https://test.example/pr/5", true},
+		{"no link type accepts", comment, "https://test.example/other/5", "", false},
+		{"no link types", push, "https://test.example/issues/5", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := reg.CanonicalURL(tt.def, tt.raw)
+
+			assert.Equal(t, got, tt.want)
+			assert.Equal(t, ok, tt.ok)
+		})
+	}
+}
+
+func TestSchemaRegistryWith_LinkTypes(t *testing.T) {
+	builtin := NewSchemaRegistry()
+	builtin.MustRegisterLinkType(model.LinkTypeDef{
+		Name:      "custom.url",
+		Source:    SourceCustom,
+		Canonical: func(raw string) (string, bool) { return raw, true },
+	})
+
+	reg := builtin.With(model.EventTypeDef{
+		Source:    SourceCustom,
+		Type:      "problem",
+		Label:     "Custom: Problem",
+		Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+		LinkTypes: []string{"custom.url"},
+	})
+	def, ok := reg.EventTypeFor(SourceCustom, "problem")
+	assert.Assert(t, ok)
+	got, ok := reg.CanonicalURL(def, "https://dynatrace.example.com/problems/1")
+
+	assert.Assert(t, ok)
+	assert.Equal(t, got, "https://dynatrace.example.com/problems/1")
+	assert.Equal(t, len(reg.LinkTypes()), 1)
+}

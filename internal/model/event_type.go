@@ -33,6 +33,21 @@ type EventTypeDef struct {
 	Type   string    `json:"type"`
 	Label  string    `json:"label,omitempty"` // human label, e.g. "GitHub: Issue/PR Comment"
 	Attrs  []AttrDef `json:"attrs,omitempty"` // complete valid attr set, including derived body/url
+	// LinkTypes names the link types an event of this type's URL can name,
+	// e.g. github.issue and github.pr for an issue or PR comment. Empty when
+	// the URL names no linkable resource (a push's head commit).
+	LinkTypes []string `json:"link_types,omitempty"`
+}
+
+// LinkTypeDef describes a resource that links can name, registered by the
+// integration that owns it beside its event types.
+type LinkTypeDef struct {
+	Name   string // e.g. "github.pr"
+	Source string // the event source of the integration, e.g. "github"
+	Label  string // human label, e.g. "GitHub: Pull Request"
+	// Canonical returns the resource's canonical URL, and false if raw isn't
+	// one. Every URL naming the same resource has the same canonical URL.
+	Canonical func(raw string) (string, bool)
 }
 
 // ValidateEvent checks an event of this type: url must be an absolute http or

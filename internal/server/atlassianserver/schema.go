@@ -3,7 +3,12 @@ package atlassianserver
 import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/x/atlassian"
 )
+
+// LinkTypeIssue is the link type of a Jira issue, the resource every
+// atlassianserver event is about.
+const LinkTypeIssue = "jira.issue"
 
 // init registers atlassianserver's schemas on the process-wide default registry.
 func init() {
@@ -11,18 +16,25 @@ func init() {
 }
 
 // RegisterSchemas records the eventrouter schema for every event type
-// atlassianserver emits (see toInputEvents) on reg. Each schema declares the
-// complete valid attr set for its type (the derived body/url plus its emitted
-// dimensions). Every AttrDef is declared inline per event type so its display
-// copy (label/help/placeholder) speaks to that specific event rather than
-// sharing a single generic definition. It is exported so tests (e.g.
+// atlassianserver emits (see toInputEvents) on reg, after the link type they
+// name. Each schema declares the complete valid attr set for its type (the
+// derived body/url plus its emitted dimensions). Every AttrDef is declared
+// inline per event type so its display copy (label/help/placeholder) speaks to
+// that specific event rather than sharing a single generic definition. It is exported so tests (e.g.
 // eventrouter's Route tests) can populate an isolated registry with the real
 // producer schemas.
 func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
+	reg.MustRegisterLinkType(model.LinkTypeDef{
+		Name:      LinkTypeIssue,
+		Source:    "atlassian",
+		Label:     "Jira: Issue",
+		Canonical: atlassian.CanonicalIssue,
+	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "atlassian",
-		Type:   EventTypeCommentCreated,
-		Label:  "Jira: Issue Comment",
+		Source:    "atlassian",
+		Type:      EventTypeCommentCreated,
+		Label:     "Jira: Issue Comment",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -51,9 +63,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "atlassian",
-		Type:   EventTypeIssueCreated,
-		Label:  "Jira: Issue Created",
+		Source:    "atlassian",
+		Type:      EventTypeIssueCreated,
+		Label:     "Jira: Issue Created",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -88,9 +101,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "atlassian",
-		Type:   EventTypeLabelAdded,
-		Label:  "Jira: Label Added",
+		Source:    "atlassian",
+		Type:      EventTypeLabelAdded,
+		Label:     "Jira: Label Added",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -119,9 +133,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "atlassian",
-		Type:   EventTypeIssueAssigned,
-		Label:  "Jira: Issue Assigned",
+		Source:    "atlassian",
+		Type:      EventTypeIssueAssigned,
+		Label:     "Jira: Issue Assigned",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",

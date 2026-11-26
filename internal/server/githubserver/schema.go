@@ -3,6 +3,14 @@ package githubserver
 import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/x/githubx"
+)
+
+// Link types githubserver registers, one per resource its events' URLs name.
+const (
+	LinkTypeIssue       = "github.issue"
+	LinkTypePullRequest = "github.pr"
+	LinkTypeWorkflowRun = "github.workflow_run"
 )
 
 // init registers githubserver's schemas on the process-wide default registry.
@@ -11,19 +19,39 @@ func init() {
 }
 
 // RegisterSchemas records the eventrouter schema for every event type
-// githubserver emits (see toInputEvents) on reg. Each schema declares the
-// complete valid attr set for its type (the derived body/url plus its emitted
-// dimensions). Every AttrDef is declared inline per event type so its display
-// copy (label/help/placeholder) speaks to that specific event: a "Body" on an
-// issue comment is the comment text, on an opened PR it is the description,
-// rather than sharing a single generic definition. It is exported so tests
+// githubserver emits (see toInputEvents) on reg, after the link types they
+// name. Each schema declares the complete valid attr set for its type (the
+// derived body/url plus its emitted dimensions). Every AttrDef is declared
+// inline per event type so its display copy (label/help/placeholder) speaks to
+// that specific event: a "Body" on an issue comment is the comment text, on an
+// opened PR it is the description, rather than sharing a single generic
+// definition. It is exported so tests
 // (e.g. eventrouter's Route tests) can populate an isolated registry with the
 // real producer schemas.
 func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
+	reg.MustRegisterLinkType(model.LinkTypeDef{
+		Name:      LinkTypeIssue,
+		Source:    "github",
+		Label:     "GitHub: Issue",
+		Canonical: githubx.CanonicalIssue,
+	})
+	reg.MustRegisterLinkType(model.LinkTypeDef{
+		Name:      LinkTypePullRequest,
+		Source:    "github",
+		Label:     "GitHub: Pull Request",
+		Canonical: githubx.CanonicalPullRequest,
+	})
+	reg.MustRegisterLinkType(model.LinkTypeDef{
+		Name:      LinkTypeWorkflowRun,
+		Source:    "github",
+		Label:     "GitHub: Workflow Run",
+		Canonical: githubx.CanonicalWorkflowRun,
+	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypeIssueComment,
-		Label:  "GitHub: Issue/PR Comment",
+		Source:    "github",
+		Type:      EventTypeIssueComment,
+		Label:     "GitHub: Issue/PR Comment",
+		LinkTypes: []string{LinkTypeIssue, LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -52,9 +80,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypePullRequestReviewComment,
-		Label:  "GitHub: PR Review Comment",
+		Source:    "github",
+		Type:      EventTypePullRequestReviewComment,
+		Label:     "GitHub: PR Review Comment",
+		LinkTypes: []string{LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -83,9 +112,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypePullRequestReview,
-		Label:  "GitHub: PR Review",
+		Source:    "github",
+		Type:      EventTypePullRequestReview,
+		Label:     "GitHub: PR Review",
+		LinkTypes: []string{LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -114,9 +144,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypeIssueAssigned,
-		Label:  "GitHub: Issue Assigned",
+		Source:    "github",
+		Type:      EventTypeIssueAssigned,
+		Label:     "GitHub: Issue Assigned",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -145,9 +176,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypePullRequestAssigned,
-		Label:  "GitHub: PR Assigned",
+		Source:    "github",
+		Type:      EventTypePullRequestAssigned,
+		Label:     "GitHub: PR Assigned",
+		LinkTypes: []string{LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -176,9 +208,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypePullRequestOpened,
-		Label:  "GitHub: PR Opened",
+		Source:    "github",
+		Type:      EventTypePullRequestOpened,
+		Label:     "GitHub: PR Opened",
+		LinkTypes: []string{LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -201,9 +234,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypePullRequestClosed,
-		Label:  "GitHub: PR Closed",
+		Source:    "github",
+		Type:      EventTypePullRequestClosed,
+		Label:     "GitHub: PR Closed",
+		LinkTypes: []string{LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -232,9 +266,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypeLabelAdded,
-		Label:  "GitHub: Label Added",
+		Source:    "github",
+		Type:      EventTypeLabelAdded,
+		Label:     "GitHub: Label Added",
+		LinkTypes: []string{LinkTypeIssue, LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -306,9 +341,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypeCheckRunCompleted,
-		Label:  "GitHub: Check Run Completed",
+		Source:    "github",
+		Type:      EventTypeCheckRunCompleted,
+		Label:     "GitHub: Check Run Completed",
+		LinkTypes: []string{LinkTypeWorkflowRun},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -361,9 +397,10 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 		},
 	})
 	reg.MustRegister(model.EventTypeDef{
-		Source: "github",
-		Type:   EventTypePullRequestCheckRunCompleted,
-		Label:  "GitHub: PR Check Run Completed",
+		Source:    "github",
+		Type:      EventTypePullRequestCheckRunCompleted,
+		Label:     "GitHub: PR Check Run Completed",
+		LinkTypes: []string{LinkTypePullRequest},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
