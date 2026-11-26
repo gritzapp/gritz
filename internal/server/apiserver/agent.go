@@ -42,7 +42,14 @@ func (s *Server) CreateAgent(ctx context.Context, req *gritzv1.CreateAgentReques
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "agent created", "id", agent.ID, "name", agent.Name)
-	s.publishAgentChange(caller, "created", agent.ID)
+	s.publish(model.Notification{
+		Type:      "change",
+		Resources: []model.NotificationResource{{Action: "created", Type: "agent", ID: agent.ID}},
+		OrgID:     caller.OrgID,
+		UserID:    caller.ID,
+		ClientID:  caller.ClientID,
+		Time:      time.Now(),
+	})
 	return &gritzv1.CreateAgentResponse{Agent: agent.Proto()}, nil
 }
 
@@ -100,7 +107,14 @@ func (s *Server) UpdateAgent(ctx context.Context, req *gritzv1.UpdateAgentReques
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "agent updated", "id", agent.ID, "name", agent.Name)
-	s.publishAgentChange(caller, "updated", agent.ID)
+	s.publish(model.Notification{
+		Type:      "change",
+		Resources: []model.NotificationResource{{Action: "updated", Type: "agent", ID: agent.ID}},
+		OrgID:     caller.OrgID,
+		UserID:    caller.ID,
+		ClientID:  caller.ClientID,
+		Time:      time.Now(),
+	})
 	return &gritzv1.UpdateAgentResponse{Agent: agent.Proto()}, nil
 }
 
@@ -116,7 +130,14 @@ func (s *Server) DeleteAgent(ctx context.Context, req *gritzv1.DeleteAgentReques
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	s.log.InfoContext(ctx, "agent deleted", "id", req.Id)
-	s.publishAgentChange(caller, "deleted", req.Id)
+	s.publish(model.Notification{
+		Type:      "change",
+		Resources: []model.NotificationResource{{Action: "deleted", Type: "agent", ID: req.Id}},
+		OrgID:     caller.OrgID,
+		UserID:    caller.ID,
+		ClientID:  caller.ClientID,
+		Time:      time.Now(),
+	})
 	return &gritzv1.DeleteAgentResponse{}, nil
 }
 
@@ -150,16 +171,4 @@ func (s *Server) validateAgent(ctx context.Context, tx *sql.Tx, agent *model.Age
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", agent.Workspace, err))
 	}
 	return nil
-}
-
-// publishAgentChange refreshes the Web UI after an agent changes.
-func (s *Server) publishAgentChange(caller *apiauth.UserInfo, action string, id int64) {
-	s.publish(model.Notification{
-		Type:      "change",
-		Resources: []model.NotificationResource{{Action: action, Type: "agent", ID: id}},
-		OrgID:     caller.OrgID,
-		UserID:    caller.ID,
-		ClientID:  caller.ClientID,
-		Time:      time.Now(),
-	})
 }
