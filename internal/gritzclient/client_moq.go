@@ -34,6 +34,9 @@ var _ Client = &ClientMock{}
 //			ClearWorkspacesFunc: func(contextMoqParam context.Context, clearWorkspacesRequest *gritzv1.ClearWorkspacesRequest) (*gritzv1.ClearWorkspacesResponse, error) {
 //				panic("mock out the ClearWorkspaces method")
 //			},
+//			CreateAgentFunc: func(contextMoqParam context.Context, createAgentRequest *gritzv1.CreateAgentRequest) (*gritzv1.CreateAgentResponse, error) {
+//				panic("mock out the CreateAgent method")
+//			},
 //			CreateGitHubTokenFunc: func(contextMoqParam context.Context, createGitHubTokenRequest *gritzv1.CreateGitHubTokenRequest) (*gritzv1.CreateGitHubTokenResponse, error) {
 //				panic("mock out the CreateGitHubToken method")
 //			},
@@ -55,6 +58,9 @@ var _ Client = &ClientMock{}
 //			CreateTaskTokenFunc: func(contextMoqParam context.Context, createTaskTokenRequest *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error) {
 //				panic("mock out the CreateTaskToken method")
 //			},
+//			DeleteAgentFunc: func(contextMoqParam context.Context, deleteAgentRequest *gritzv1.DeleteAgentRequest) (*gritzv1.DeleteAgentResponse, error) {
+//				panic("mock out the DeleteAgent method")
+//			},
 //			DeleteEventFunc: func(contextMoqParam context.Context, deleteEventRequest *gritzv1.DeleteEventRequest) (*gritzv1.DeleteEventResponse, error) {
 //				panic("mock out the DeleteEvent method")
 //			},
@@ -69,6 +75,9 @@ var _ Client = &ClientMock{}
 //			},
 //			GenerateAtlassianWebhookSecretFunc: func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error) {
 //				panic("mock out the GenerateAtlassianWebhookSecret method")
+//			},
+//			GetAgentFunc: func(contextMoqParam context.Context, getAgentRequest *gritzv1.GetAgentRequest) (*gritzv1.GetAgentResponse, error) {
+//				panic("mock out the GetAgent method")
 //			},
 //			GetCallerFunc: func(contextMoqParam context.Context, getCallerRequest *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error) {
 //				panic("mock out the GetCaller method")
@@ -102,6 +111,9 @@ var _ Client = &ClientMock{}
 //			},
 //			LinkGitHubInstallationFunc: func(contextMoqParam context.Context, linkGitHubInstallationRequest *gritzv1.LinkGitHubInstallationRequest) (*gritzv1.LinkGitHubInstallationResponse, error) {
 //				panic("mock out the LinkGitHubInstallation method")
+//			},
+//			ListAgentsFunc: func(contextMoqParam context.Context, listAgentsRequest *gritzv1.ListAgentsRequest) (*gritzv1.ListAgentsResponse, error) {
+//				panic("mock out the ListAgents method")
 //			},
 //			ListEventsByTaskFunc: func(contextMoqParam context.Context, listEventsByTaskRequest *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error) {
 //				panic("mock out the ListEventsByTask method")
@@ -181,6 +193,9 @@ var _ Client = &ClientMock{}
 //			UnlinkGitHubAccountFunc: func(contextMoqParam context.Context, unlinkGitHubAccountRequest *gritzv1.UnlinkGitHubAccountRequest) (*gritzv1.UnlinkGitHubAccountResponse, error) {
 //				panic("mock out the UnlinkGitHubAccount method")
 //			},
+//			UpdateAgentFunc: func(contextMoqParam context.Context, updateAgentRequest *gritzv1.UpdateAgentRequest) (*gritzv1.UpdateAgentResponse, error) {
+//				panic("mock out the UpdateAgent method")
+//			},
 //			UpdateScheduleFunc: func(contextMoqParam context.Context, updateScheduleRequest *gritzv1.UpdateScheduleRequest) (*gritzv1.UpdateScheduleResponse, error) {
 //				panic("mock out the UpdateSchedule method")
 //			},
@@ -212,6 +227,9 @@ type ClientMock struct {
 	// ClearWorkspacesFunc mocks the ClearWorkspaces method.
 	ClearWorkspacesFunc func(contextMoqParam context.Context, clearWorkspacesRequest *gritzv1.ClearWorkspacesRequest) (*gritzv1.ClearWorkspacesResponse, error)
 
+	// CreateAgentFunc mocks the CreateAgent method.
+	CreateAgentFunc func(contextMoqParam context.Context, createAgentRequest *gritzv1.CreateAgentRequest) (*gritzv1.CreateAgentResponse, error)
+
 	// CreateGitHubTokenFunc mocks the CreateGitHubToken method.
 	CreateGitHubTokenFunc func(contextMoqParam context.Context, createGitHubTokenRequest *gritzv1.CreateGitHubTokenRequest) (*gritzv1.CreateGitHubTokenResponse, error)
 
@@ -233,6 +251,9 @@ type ClientMock struct {
 	// CreateTaskTokenFunc mocks the CreateTaskToken method.
 	CreateTaskTokenFunc func(contextMoqParam context.Context, createTaskTokenRequest *gritzv1.CreateTaskTokenRequest) (*gritzv1.CreateTaskTokenResponse, error)
 
+	// DeleteAgentFunc mocks the DeleteAgent method.
+	DeleteAgentFunc func(contextMoqParam context.Context, deleteAgentRequest *gritzv1.DeleteAgentRequest) (*gritzv1.DeleteAgentResponse, error)
+
 	// DeleteEventFunc mocks the DeleteEvent method.
 	DeleteEventFunc func(contextMoqParam context.Context, deleteEventRequest *gritzv1.DeleteEventRequest) (*gritzv1.DeleteEventResponse, error)
 
@@ -247,6 +268,9 @@ type ClientMock struct {
 
 	// GenerateAtlassianWebhookSecretFunc mocks the GenerateAtlassianWebhookSecret method.
 	GenerateAtlassianWebhookSecretFunc func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error)
+
+	// GetAgentFunc mocks the GetAgent method.
+	GetAgentFunc func(contextMoqParam context.Context, getAgentRequest *gritzv1.GetAgentRequest) (*gritzv1.GetAgentResponse, error)
 
 	// GetCallerFunc mocks the GetCaller method.
 	GetCallerFunc func(contextMoqParam context.Context, getCallerRequest *gritzv1.GetCallerRequest) (*gritzv1.GetCallerResponse, error)
@@ -280,6 +304,9 @@ type ClientMock struct {
 
 	// LinkGitHubInstallationFunc mocks the LinkGitHubInstallation method.
 	LinkGitHubInstallationFunc func(contextMoqParam context.Context, linkGitHubInstallationRequest *gritzv1.LinkGitHubInstallationRequest) (*gritzv1.LinkGitHubInstallationResponse, error)
+
+	// ListAgentsFunc mocks the ListAgents method.
+	ListAgentsFunc func(contextMoqParam context.Context, listAgentsRequest *gritzv1.ListAgentsRequest) (*gritzv1.ListAgentsResponse, error)
 
 	// ListEventsByTaskFunc mocks the ListEventsByTask method.
 	ListEventsByTaskFunc func(contextMoqParam context.Context, listEventsByTaskRequest *gritzv1.ListEventsByTaskRequest) (*gritzv1.ListEventsByTaskResponse, error)
@@ -359,6 +386,9 @@ type ClientMock struct {
 	// UnlinkGitHubAccountFunc mocks the UnlinkGitHubAccount method.
 	UnlinkGitHubAccountFunc func(contextMoqParam context.Context, unlinkGitHubAccountRequest *gritzv1.UnlinkGitHubAccountRequest) (*gritzv1.UnlinkGitHubAccountResponse, error)
 
+	// UpdateAgentFunc mocks the UpdateAgent method.
+	UpdateAgentFunc func(contextMoqParam context.Context, updateAgentRequest *gritzv1.UpdateAgentRequest) (*gritzv1.UpdateAgentResponse, error)
+
 	// UpdateScheduleFunc mocks the UpdateSchedule method.
 	UpdateScheduleFunc func(contextMoqParam context.Context, updateScheduleRequest *gritzv1.UpdateScheduleRequest) (*gritzv1.UpdateScheduleResponse, error)
 
@@ -404,6 +434,13 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// ClearWorkspacesRequest is the clearWorkspacesRequest argument value.
 			ClearWorkspacesRequest *gritzv1.ClearWorkspacesRequest
+		}
+		// CreateAgent holds details about calls to the CreateAgent method.
+		CreateAgent []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// CreateAgentRequest is the createAgentRequest argument value.
+			CreateAgentRequest *gritzv1.CreateAgentRequest
 		}
 		// CreateGitHubToken holds details about calls to the CreateGitHubToken method.
 		CreateGitHubToken []struct {
@@ -454,6 +491,13 @@ type ClientMock struct {
 			// CreateTaskTokenRequest is the createTaskTokenRequest argument value.
 			CreateTaskTokenRequest *gritzv1.CreateTaskTokenRequest
 		}
+		// DeleteAgent holds details about calls to the DeleteAgent method.
+		DeleteAgent []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// DeleteAgentRequest is the deleteAgentRequest argument value.
+			DeleteAgentRequest *gritzv1.DeleteAgentRequest
+		}
 		// DeleteEvent holds details about calls to the DeleteEvent method.
 		DeleteEvent []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -488,6 +532,13 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// GenerateAtlassianWebhookSecretRequest is the generateAtlassianWebhookSecretRequest argument value.
 			GenerateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest
+		}
+		// GetAgent holds details about calls to the GetAgent method.
+		GetAgent []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// GetAgentRequest is the getAgentRequest argument value.
+			GetAgentRequest *gritzv1.GetAgentRequest
 		}
 		// GetCaller holds details about calls to the GetCaller method.
 		GetCaller []struct {
@@ -565,6 +616,13 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// LinkGitHubInstallationRequest is the linkGitHubInstallationRequest argument value.
 			LinkGitHubInstallationRequest *gritzv1.LinkGitHubInstallationRequest
+		}
+		// ListAgents holds details about calls to the ListAgents method.
+		ListAgents []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// ListAgentsRequest is the listAgentsRequest argument value.
+			ListAgentsRequest *gritzv1.ListAgentsRequest
 		}
 		// ListEventsByTask holds details about calls to the ListEventsByTask method.
 		ListEventsByTask []struct {
@@ -748,6 +806,13 @@ type ClientMock struct {
 			// UnlinkGitHubAccountRequest is the unlinkGitHubAccountRequest argument value.
 			UnlinkGitHubAccountRequest *gritzv1.UnlinkGitHubAccountRequest
 		}
+		// UpdateAgent holds details about calls to the UpdateAgent method.
+		UpdateAgent []struct {
+			// ContextMoqParam is the contextMoqParam argument value.
+			ContextMoqParam context.Context
+			// UpdateAgentRequest is the updateAgentRequest argument value.
+			UpdateAgentRequest *gritzv1.UpdateAgentRequest
+		}
 		// UpdateSchedule holds details about calls to the UpdateSchedule method.
 		UpdateSchedule []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -775,6 +840,7 @@ type ClientMock struct {
 	lockArchiveTask                    sync.RWMutex
 	lockCancelTask                     sync.RWMutex
 	lockClearWorkspaces                sync.RWMutex
+	lockCreateAgent                    sync.RWMutex
 	lockCreateGitHubToken              sync.RWMutex
 	lockCreateKey                      sync.RWMutex
 	lockCreateLink                     sync.RWMutex
@@ -782,11 +848,13 @@ type ClientMock struct {
 	lockCreateSchedule                 sync.RWMutex
 	lockCreateTask                     sync.RWMutex
 	lockCreateTaskToken                sync.RWMutex
+	lockDeleteAgent                    sync.RWMutex
 	lockDeleteEvent                    sync.RWMutex
 	lockDeleteKey                      sync.RWMutex
 	lockDeleteOrg                      sync.RWMutex
 	lockDeleteSchedule                 sync.RWMutex
 	lockGenerateAtlassianWebhookSecret sync.RWMutex
+	lockGetAgent                       sync.RWMutex
 	lockGetCaller                      sync.RWMutex
 	lockGetCustomEventTypes            sync.RWMutex
 	lockGetEvent                       sync.RWMutex
@@ -798,6 +866,7 @@ type ClientMock struct {
 	lockGetSchedule                    sync.RWMutex
 	lockGetTask                        sync.RWMutex
 	lockLinkGitHubInstallation         sync.RWMutex
+	lockListAgents                     sync.RWMutex
 	lockListEventsByTask               sync.RWMutex
 	lockListExternalEvents             sync.RWMutex
 	lockListKeys                       sync.RWMutex
@@ -824,6 +893,7 @@ type ClientMock struct {
 	lockUnarchiveTask                  sync.RWMutex
 	lockUnlinkAtlassianAccount         sync.RWMutex
 	lockUnlinkGitHubAccount            sync.RWMutex
+	lockUpdateAgent                    sync.RWMutex
 	lockUpdateSchedule                 sync.RWMutex
 	lockUpdateTask                     sync.RWMutex
 	lockUploadLogs                     sync.RWMutex
@@ -1006,6 +1076,42 @@ func (mock *ClientMock) ClearWorkspacesCalls() []struct {
 	mock.lockClearWorkspaces.RLock()
 	calls = mock.calls.ClearWorkspaces
 	mock.lockClearWorkspaces.RUnlock()
+	return calls
+}
+
+// CreateAgent calls CreateAgentFunc.
+func (mock *ClientMock) CreateAgent(contextMoqParam context.Context, createAgentRequest *gritzv1.CreateAgentRequest) (*gritzv1.CreateAgentResponse, error) {
+	if mock.CreateAgentFunc == nil {
+		panic("ClientMock.CreateAgentFunc: method is nil but Client.CreateAgent was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam    context.Context
+		CreateAgentRequest *gritzv1.CreateAgentRequest
+	}{
+		ContextMoqParam:    contextMoqParam,
+		CreateAgentRequest: createAgentRequest,
+	}
+	mock.lockCreateAgent.Lock()
+	mock.calls.CreateAgent = append(mock.calls.CreateAgent, callInfo)
+	mock.lockCreateAgent.Unlock()
+	return mock.CreateAgentFunc(contextMoqParam, createAgentRequest)
+}
+
+// CreateAgentCalls gets all the calls that were made to CreateAgent.
+// Check the length with:
+//
+//	len(mockedClient.CreateAgentCalls())
+func (mock *ClientMock) CreateAgentCalls() []struct {
+	ContextMoqParam    context.Context
+	CreateAgentRequest *gritzv1.CreateAgentRequest
+} {
+	var calls []struct {
+		ContextMoqParam    context.Context
+		CreateAgentRequest *gritzv1.CreateAgentRequest
+	}
+	mock.lockCreateAgent.RLock()
+	calls = mock.calls.CreateAgent
+	mock.lockCreateAgent.RUnlock()
 	return calls
 }
 
@@ -1261,6 +1367,42 @@ func (mock *ClientMock) CreateTaskTokenCalls() []struct {
 	return calls
 }
 
+// DeleteAgent calls DeleteAgentFunc.
+func (mock *ClientMock) DeleteAgent(contextMoqParam context.Context, deleteAgentRequest *gritzv1.DeleteAgentRequest) (*gritzv1.DeleteAgentResponse, error) {
+	if mock.DeleteAgentFunc == nil {
+		panic("ClientMock.DeleteAgentFunc: method is nil but Client.DeleteAgent was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam    context.Context
+		DeleteAgentRequest *gritzv1.DeleteAgentRequest
+	}{
+		ContextMoqParam:    contextMoqParam,
+		DeleteAgentRequest: deleteAgentRequest,
+	}
+	mock.lockDeleteAgent.Lock()
+	mock.calls.DeleteAgent = append(mock.calls.DeleteAgent, callInfo)
+	mock.lockDeleteAgent.Unlock()
+	return mock.DeleteAgentFunc(contextMoqParam, deleteAgentRequest)
+}
+
+// DeleteAgentCalls gets all the calls that were made to DeleteAgent.
+// Check the length with:
+//
+//	len(mockedClient.DeleteAgentCalls())
+func (mock *ClientMock) DeleteAgentCalls() []struct {
+	ContextMoqParam    context.Context
+	DeleteAgentRequest *gritzv1.DeleteAgentRequest
+} {
+	var calls []struct {
+		ContextMoqParam    context.Context
+		DeleteAgentRequest *gritzv1.DeleteAgentRequest
+	}
+	mock.lockDeleteAgent.RLock()
+	calls = mock.calls.DeleteAgent
+	mock.lockDeleteAgent.RUnlock()
+	return calls
+}
+
 // DeleteEvent calls DeleteEventFunc.
 func (mock *ClientMock) DeleteEvent(contextMoqParam context.Context, deleteEventRequest *gritzv1.DeleteEventRequest) (*gritzv1.DeleteEventResponse, error) {
 	if mock.DeleteEventFunc == nil {
@@ -1438,6 +1580,42 @@ func (mock *ClientMock) GenerateAtlassianWebhookSecretCalls() []struct {
 	mock.lockGenerateAtlassianWebhookSecret.RLock()
 	calls = mock.calls.GenerateAtlassianWebhookSecret
 	mock.lockGenerateAtlassianWebhookSecret.RUnlock()
+	return calls
+}
+
+// GetAgent calls GetAgentFunc.
+func (mock *ClientMock) GetAgent(contextMoqParam context.Context, getAgentRequest *gritzv1.GetAgentRequest) (*gritzv1.GetAgentResponse, error) {
+	if mock.GetAgentFunc == nil {
+		panic("ClientMock.GetAgentFunc: method is nil but Client.GetAgent was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam context.Context
+		GetAgentRequest *gritzv1.GetAgentRequest
+	}{
+		ContextMoqParam: contextMoqParam,
+		GetAgentRequest: getAgentRequest,
+	}
+	mock.lockGetAgent.Lock()
+	mock.calls.GetAgent = append(mock.calls.GetAgent, callInfo)
+	mock.lockGetAgent.Unlock()
+	return mock.GetAgentFunc(contextMoqParam, getAgentRequest)
+}
+
+// GetAgentCalls gets all the calls that were made to GetAgent.
+// Check the length with:
+//
+//	len(mockedClient.GetAgentCalls())
+func (mock *ClientMock) GetAgentCalls() []struct {
+	ContextMoqParam context.Context
+	GetAgentRequest *gritzv1.GetAgentRequest
+} {
+	var calls []struct {
+		ContextMoqParam context.Context
+		GetAgentRequest *gritzv1.GetAgentRequest
+	}
+	mock.lockGetAgent.RLock()
+	calls = mock.calls.GetAgent
+	mock.lockGetAgent.RUnlock()
 	return calls
 }
 
@@ -1834,6 +2012,42 @@ func (mock *ClientMock) LinkGitHubInstallationCalls() []struct {
 	mock.lockLinkGitHubInstallation.RLock()
 	calls = mock.calls.LinkGitHubInstallation
 	mock.lockLinkGitHubInstallation.RUnlock()
+	return calls
+}
+
+// ListAgents calls ListAgentsFunc.
+func (mock *ClientMock) ListAgents(contextMoqParam context.Context, listAgentsRequest *gritzv1.ListAgentsRequest) (*gritzv1.ListAgentsResponse, error) {
+	if mock.ListAgentsFunc == nil {
+		panic("ClientMock.ListAgentsFunc: method is nil but Client.ListAgents was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam   context.Context
+		ListAgentsRequest *gritzv1.ListAgentsRequest
+	}{
+		ContextMoqParam:   contextMoqParam,
+		ListAgentsRequest: listAgentsRequest,
+	}
+	mock.lockListAgents.Lock()
+	mock.calls.ListAgents = append(mock.calls.ListAgents, callInfo)
+	mock.lockListAgents.Unlock()
+	return mock.ListAgentsFunc(contextMoqParam, listAgentsRequest)
+}
+
+// ListAgentsCalls gets all the calls that were made to ListAgents.
+// Check the length with:
+//
+//	len(mockedClient.ListAgentsCalls())
+func (mock *ClientMock) ListAgentsCalls() []struct {
+	ContextMoqParam   context.Context
+	ListAgentsRequest *gritzv1.ListAgentsRequest
+} {
+	var calls []struct {
+		ContextMoqParam   context.Context
+		ListAgentsRequest *gritzv1.ListAgentsRequest
+	}
+	mock.lockListAgents.RLock()
+	calls = mock.calls.ListAgents
+	mock.lockListAgents.RUnlock()
 	return calls
 }
 
@@ -2770,6 +2984,42 @@ func (mock *ClientMock) UnlinkGitHubAccountCalls() []struct {
 	mock.lockUnlinkGitHubAccount.RLock()
 	calls = mock.calls.UnlinkGitHubAccount
 	mock.lockUnlinkGitHubAccount.RUnlock()
+	return calls
+}
+
+// UpdateAgent calls UpdateAgentFunc.
+func (mock *ClientMock) UpdateAgent(contextMoqParam context.Context, updateAgentRequest *gritzv1.UpdateAgentRequest) (*gritzv1.UpdateAgentResponse, error) {
+	if mock.UpdateAgentFunc == nil {
+		panic("ClientMock.UpdateAgentFunc: method is nil but Client.UpdateAgent was just called")
+	}
+	callInfo := struct {
+		ContextMoqParam    context.Context
+		UpdateAgentRequest *gritzv1.UpdateAgentRequest
+	}{
+		ContextMoqParam:    contextMoqParam,
+		UpdateAgentRequest: updateAgentRequest,
+	}
+	mock.lockUpdateAgent.Lock()
+	mock.calls.UpdateAgent = append(mock.calls.UpdateAgent, callInfo)
+	mock.lockUpdateAgent.Unlock()
+	return mock.UpdateAgentFunc(contextMoqParam, updateAgentRequest)
+}
+
+// UpdateAgentCalls gets all the calls that were made to UpdateAgent.
+// Check the length with:
+//
+//	len(mockedClient.UpdateAgentCalls())
+func (mock *ClientMock) UpdateAgentCalls() []struct {
+	ContextMoqParam    context.Context
+	UpdateAgentRequest *gritzv1.UpdateAgentRequest
+} {
+	var calls []struct {
+		ContextMoqParam    context.Context
+		UpdateAgentRequest *gritzv1.UpdateAgentRequest
+	}
+	mock.lockUpdateAgent.RLock()
+	calls = mock.calls.UpdateAgent
+	mock.lockUpdateAgent.RUnlock()
 	return calls
 }
 

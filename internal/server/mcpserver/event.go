@@ -144,9 +144,10 @@ type attrDefInput struct {
 }
 
 type putCustomEventTypeInput struct {
-	Type  string         `json:"type" jsonschema:"The type's name, which senders put in the event's type: a lowercase letter, then up to 63 lowercase letters, digits and underscores"`
-	Label string         `json:"label" jsonschema:"The type's name in the routing rule editor and on task timelines"`
-	Attrs []attrDefInput `json:"attrs" jsonschema:"The attributes routing rules can match on. Must include \"body\" and \"url\"; keys follow the same rules as the type."`
+	Type      string         `json:"type" jsonschema:"The type's name, which senders put in the event's type: a lowercase letter, then up to 63 lowercase letters, digits and underscores"`
+	Label     string         `json:"label" jsonschema:"The type's name in the routing rule editor and on task timelines"`
+	Attrs     []attrDefInput `json:"attrs" jsonschema:"The attributes routing rules can match on. Must include \"body\" and \"url\"; keys follow the same rules as the type."`
+	LinkTypes []string       `json:"link_types,omitempty" jsonschema:"The link types the event's URL can name: \"custom.url\", or none"`
 }
 
 func (h *handlers) putCustomEventType(ctx context.Context, req *mcp.CallToolRequest, input putCustomEventTypeInput) (*mcp.CallToolResult, any, error) {
@@ -156,9 +157,10 @@ func (h *handlers) putCustomEventType(ctx context.Context, req *mcp.CallToolRequ
 		return mcpx.ErrorResult("failed to get custom event types: %v", err), nil, nil
 	}
 	def := &gritzv1.EventTypeDef{
-		Source: "custom",
-		Type:   input.Type,
-		Label:  input.Label,
+		Source:    "custom",
+		Type:      input.Type,
+		Label:     input.Label,
+		LinkTypes: input.LinkTypes,
 	}
 	for _, a := range input.Attrs {
 		def.Attrs = append(def.Attrs, &gritzv1.AttrDef{

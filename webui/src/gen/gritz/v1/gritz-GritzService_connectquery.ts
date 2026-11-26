@@ -315,3 +315,33 @@ export const setScheduleEnabled = GritzService.method.setScheduleEnabled;
  * @generated from rpc gritz.v1.GritzService.RunSchedule
  */
 export const runSchedule = GritzService.method.runSchedule;
+
+/**
+ * CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
+ * workspace isn't registered on its runner, the workspace doesn't accept its
+ * variables, or a trigger or link kind doesn't check out against the org's
+ * event and link types.
+ *
+ * @generated from rpc gritz.v1.GritzService.CreateAgent
+ */
+export const createAgent = GritzService.method.createAgent;
+
+/**
+ * @generated from rpc gritz.v1.GritzService.GetAgent
+ */
+export const getAgent = GritzService.method.getAgent;
+
+/**
+ * @generated from rpc gritz.v1.GritzService.ListAgents
+ */
+export const listAgents = GritzService.method.listAgents;
+
+/**
+ * @generated from rpc gritz.v1.GritzService.UpdateAgent
+ */
+export const updateAgent = GritzService.method.updateAgent;
+
+/**
+ * @generated from rpc gritz.v1.GritzService.DeleteAgent
+ */
+export const deleteAgent = GritzService.method.deleteAgent;

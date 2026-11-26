@@ -20,7 +20,8 @@ import (
 // clients (the routing-rule editor UI) can discover the valid (source, type)
 // event kinds and the attributes a rule may condition on for each: the global
 // registry populated by the producer packages' init (githubserver,
-// atlassianserver) plus the org's custom event types.
+// atlassianserver) plus the org's custom event types. It also returns the
+// registered link types, which the event types and agent link kinds name.
 func (s *Server) GetEventTypes(ctx context.Context, req *gritzv1.GetEventTypesRequest) (*gritzv1.GetEventTypesResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	if !caller.Scopes.Allow(authscope.OpOrgRead) {
@@ -33,6 +34,7 @@ func (s *Server) GetEventTypes(ctx context.Context, req *gritzv1.GetEventTypesRe
 	reg := eventrouter.DefaultSchemaRegistry.With(custom...)
 	return &gritzv1.GetEventTypesResponse{
 		EventTypes: model.ProtoMap(reg.EventTypes()),
+		LinkTypes:  model.ProtoMap(reg.LinkTypes()),
 	}, nil
 }
 
@@ -51,9 +53,10 @@ func (s *Server) GetCustomEventTypes(ctx context.Context, req *gritzv1.GetCustom
 }
 
 // SetCustomEventTypes replaces the caller's org's custom event types. Every
-// stored routing rule of the org is re-validated against the new set under the
-// org lock, so deleting a type or removing an attr that a rule still uses is
-// rejected rather than leaving a rule that can never match.
+// stored routing rule and agent of the org is re-validated against the new set
+// under the org lock, so deleting a type, or removing an attr or link type
+// that a rule or agent still uses, is rejected rather than leaving a rule or
+// trigger that can never match.
 func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	if !caller.Scopes.Allow(authscope.OpOrgWrite) {
@@ -63,7 +66,7 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 	for i, pb := range req.EventTypes {
 		defs[i] = model.EventTypeDefFromProto(pb)
 	}
-	if err := eventrouter.ValidateCustomEventTypes(defs); err != nil {
+	if err := eventrouter.DefaultSchemaRegistry.ValidateCustomEventTypes(defs); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
@@ -78,6 +81,15 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 		for i, rule := range rules {
 			if err := reg.Validate(rule); err != nil {
 				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("routing rule %d: %w", i+1, err))
+			}
+		}
+		agents, err := s.store.ListAgentsForOrgs(ctx, tx, []int64{caller.OrgID})
+		if err != nil {
+			return err
+		}
+		for _, agent := range agents {
+			if err := reg.ValidateAgent(agent); err != nil {
+				return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d (%s): %w", agent.ID, agent.Name, err))
 			}
 		}
 		if err := s.store.SetOrgCustomEventTypes(ctx, tx, caller.OrgID, defs); err != nil {

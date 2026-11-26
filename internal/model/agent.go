@@ -1,6 +1,11 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"google.golang.org/protobuf/types/known/durationpb"
+)
 
 // Agent is a named task template with the triggers and link kinds that create
 // and wake its tasks.
@@ -69,4 +74,71 @@ func (l AgentLink) Name() string {
 		return l.Kind
 	}
 	return l.Type
+}
+
+// Proto converts a to its protobuf representation.
+func (a *Agent) Proto() *gritzv1.Agent {
+	pb := &gritzv1.Agent{
+		Id:          a.ID,
+		Name:        a.Name,
+		Workspace:   a.Workspace,
+		Runner:      a.Runner,
+		Prompt:      a.Prompt,
+		AutoArchive: durationpb.New(a.AutoArchive),
+		Variables:   a.Variables,
+	}
+	for _, t := range a.Triggers {
+		pb.Triggers = append(pb.Triggers, &gritzv1.AgentTrigger{
+			Source:     t.Source,
+			Type:       t.Type,
+			Conditions: conditionsProto(t.Conditions),
+			Public:     t.Public,
+			YieldTo:    t.YieldTo,
+			Link:       t.Link,
+		})
+	}
+	for _, l := range a.Links {
+		pb.Links = append(pb.Links, &gritzv1.AgentLink{
+			Type:   l.Type,
+			Kind:   l.Kind,
+			Claim:  l.Claim,
+			Events: l.Events,
+			Public: l.Public,
+		})
+	}
+	return pb
+}
+
+// AgentFromProto converts a protobuf Agent of org orgID to the model type.
+func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
+	a := &Agent{
+		ID:          pb.GetId(),
+		OrgID:       orgID,
+		Name:        pb.GetName(),
+		Workspace:   pb.GetWorkspace(),
+		Runner:      pb.GetRunner(),
+		Prompt:      pb.GetPrompt(),
+		AutoArchive: pb.GetAutoArchive().AsDuration(),
+		Variables:   pb.GetVariables(),
+	}
+	for _, t := range pb.GetTriggers() {
+		a.Triggers = append(a.Triggers, AgentTrigger{
+			Source:     t.GetSource(),
+			Type:       t.GetType(),
+			Conditions: conditionsFromProto(t.GetConditions()),
+			Public:     t.GetPublic(),
+			YieldTo:    t.GetYieldTo(),
+			Link:       t.GetLink(),
+		})
+	}
+	for _, l := range pb.GetLinks() {
+		a.Links = append(a.Links, AgentLink{
+			Type:   l.GetType(),
+			Kind:   l.GetKind(),
+			Claim:  l.GetClaim(),
+			Events: l.GetEvents(),
+			Public: l.GetPublic(),
+		})
+	}
+	return a
 }
