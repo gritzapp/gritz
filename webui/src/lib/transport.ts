@@ -87,9 +87,13 @@ export class AuthTransport {
   async fetchToken(orgId?: string): Promise<string> {
     const id = orgId ?? this.getOrgId()
     const resp = await fetch(`/auth/token?org_id=${encodeURIComponent(id)}`)
+    // 401 means the session expired. Reload rather than going to /auth/login:
+    // the UI route requires a session, so the server starts the login itself
+    // and returns to the requested URL afterwards, ?org included. The org is
+    // kept so a URL without ?org still lands in it.
     if (resp.status === 401) {
-      this.clearToken()
-      window.location.href = '/auth/login'
+      this.removeItem(TOKEN_KEY)
+      window.location.reload()
       throw new Error('session expired')
     }
     // 403 means the user isn't a member of the requested org (or has no
