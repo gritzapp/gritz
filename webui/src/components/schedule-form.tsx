@@ -27,7 +27,8 @@ export interface ScheduleFormValues {
   name: string
   runner: string
   workspace: string
-  namespace: string
+  // The decimal ID of the agent the schedule's tasks belong to.
+  agentId: string
   instruction: string
   cronExpr: string
   timezone: string
@@ -43,7 +44,7 @@ export function emptyScheduleValues(): ScheduleFormValues {
     name: '',
     runner: '',
     workspace: '',
-    namespace: '',
+    agentId: '',
     instruction: '',
     cronExpr: DEFAULT_CRON,
     timezone: browserTimezone(),
@@ -124,6 +125,7 @@ export function ScheduleForm({
     workspacesData &&
     values.runner.trim() &&
     values.workspace.trim() &&
+    /^\d+$/.test(values.agentId.trim()) &&
     values.instruction.trim() &&
     values.cronExpr.trim() &&
     values.timezone.trim()
@@ -136,7 +138,7 @@ export function ScheduleForm({
       name: values.name.trim(),
       runner: values.runner.trim(),
       workspace: values.workspace.trim(),
-      namespace: values.namespace.trim(),
+      agentId: values.agentId.trim(),
       instruction: values.instruction.trim(),
       cronExpr: values.cronExpr.trim(),
       timezone: values.timezone.trim(),
@@ -261,13 +263,17 @@ export function ScheduleForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="namespace">Namespace (optional)</Label>
+        <Label htmlFor="agent">Agent ID</Label>
         <Input
-          id="namespace"
-          placeholder="Default namespace"
-          value={values.namespace}
-          onChange={(e) => set('namespace', e.target.value)}
+          id="agent"
+          inputMode="numeric"
+          pattern="[0-9]+"
+          placeholder="Enter an agent ID"
+          value={values.agentId}
+          onChange={(e) => set('agentId', e.target.value)}
+          required
         />
+        <p className="text-muted-foreground text-xs">The agent its tasks belong to.</p>
       </div>
 
       <div className="space-y-2">

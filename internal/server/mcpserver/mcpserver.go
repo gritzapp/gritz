@@ -19,22 +19,9 @@ const Instructions = "gritz is an async agent orchestrator that runs AI coding a
 	"Workspaces define the container image, volumes, environment variables, and MCP servers available to agents.\n" +
 	"Each task runs an AI coding agent with access to the codebase and configured tools.\n" +
 	"Agents attach links to their tasks for external resources they create, such as GitHub PRs or Jira issues.\n" +
-	"The server also administers the organisation's events, custom event types, schedules and routing rules, and reads its members, API keys and settings.\n" +
+	"The server also administers the organisation's events, custom event types, schedules and agents, and reads its members, API keys and settings.\n" +
 	"To send a custom event, fire it with test_event.\n" +
 	"The gritz documentation is at https://docs.gritz.dev; https://docs.gritz.dev/llms.txt lists it for agents."
-
-// Option configures the behaviour of the registered tools.
-type Option func(*handlers)
-
-// WithDefaultAutoArchive sets the default auto_archive applied to tasks
-// created via create_task when the call omits the auto_archive param. See
-// Task.auto_archive for the value semantics (zero/unset = never, negative
-// = archive immediately on terminal status, positive = delay).
-func WithDefaultAutoArchive(d time.Duration) Option {
-	return func(h *handlers) {
-		h.defaultAutoArchive = durationpb.New(d)
-	}
-}
 
 // ServiceFunc returns the service a tool call goes to; each handler calls it
 // once, at its start, and uses that value for every RPC it makes.
@@ -48,14 +35,14 @@ func Static(s gritzv1connect.GritzServiceHandler) ServiceFunc {
 // NewServer builds an MCP server with the user-facing gritz tools
 // registered. The same setup is used by the HTTP handler and by the
 // local stdio command.
-func NewServer(service gritzv1connect.GritzServiceHandler, opts ...Option) *mcp.Server {
+func NewServer(service gritzv1connect.GritzServiceHandler) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "gritz",
 		Version: "1.0.0",
 	}, &mcp.ServerOptions{
 		Instructions: Instructions,
 	})
-	AddTools(server, Static(service), opts...)
+	AddTools(server, Static(service))
 	return server
 }
 
@@ -64,11 +51,8 @@ func NewServer(service gritzv1connect.GritzServiceHandler, opts ...Option) *mcp.
 // either an in-process GritzServiceHandler (server-side) or the generated
 // Connect client (remote) since both interfaces share the same method
 // signatures.
-func AddTools(server *mcp.Server, service ServiceFunc, opts ...Option) {
+func AddTools(server *mcp.Server, service ServiceFunc) {
 	h := &handlers{service: service}
-	for _, opt := range opts {
-		opt(h)
-	}
 
 	h.addTaskTools(server)
 	h.addEventTools(server)
@@ -93,10 +77,6 @@ func Handler(service gritzv1connect.GritzServiceHandler) http.Handler {
 
 type handlers struct {
 	service ServiceFunc
-	// defaultAutoArchive is applied to create_task when the call omits the
-	// auto_archive param. nil means no default is sent (server behavior
-	// unchanged).
-	defaultAutoArchive *durationpb.Duration
 }
 
 type taskSummary struct {
@@ -104,7 +84,7 @@ type taskSummary struct {
 	Name      string    `json:"name"`
 	Workspace string    `json:"workspace"`
 	Runner    string    `json:"runner,omitempty"`
-	Namespace string    `json:"namespace,omitempty"`
+	AgentID   int64     `json:"agent_id,omitempty"`
 	Status    string    `json:"status"`
 	Archived  bool      `json:"archived"`
 	URL       string    `json:"url,omitempty"`
@@ -118,7 +98,7 @@ func taskSummaryOf(t *gritzv1.Task) taskSummary {
 		Name:      t.Name,
 		Workspace: t.Workspace,
 		Runner:    t.Runner,
-		Namespace: t.Namespace,
+		AgentID:   t.AgentId,
 		Status:    t.Status.String(),
 		Archived:  t.Archived,
 		URL:       t.Url,

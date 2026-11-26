@@ -96,7 +96,7 @@ func TestRenderEvent(t *testing.T) {
 					Title:     "feat(agent): first-run brief",
 					Relevance: "the PR this task opened",
 					Url:       "https://github.com/icholy/gritz/pull/1394",
-					Subscribe: true,
+					Kind:      "owned-pr",
 				}},
 			},
 			golden: "event-link.golden",

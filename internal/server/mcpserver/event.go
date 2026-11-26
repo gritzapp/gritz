@@ -39,7 +39,7 @@ func (h *handlers) addEventTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_event_types",
-		Description: "List the event types routing rules can match, built-in and custom, with the attributes a rule can have conditions on",
+		Description: "List the event types agent triggers can match, built-in and custom, with the attributes a trigger can have conditions on",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
@@ -52,7 +52,7 @@ func (h *handlers) addEventTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_custom_event_type",
-		Description: "Delete a custom event type. It fails while a routing rule uses the type.",
+		Description: "Delete a custom event type. It fails while an agent uses the type.",
 		Annotations: &mcp.ToolAnnotations{
 			DestructiveHint: new(true),
 		},
@@ -60,7 +60,7 @@ func (h *handlers) addEventTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "test_event",
-		Description: "Test the routing rules with an event of any type: report which rule matches and whether it would wake or create a task. With fire, act on the match for real. A built-in event routes as you; a custom event has no actor, so only public rules match it, exactly as from the custom events webhook. Firing a custom event is how to send one.",
+		Description: "Test the org's agents with an event of any type: report, per agent, the trigger that matches and whether it would create a task or yield, and the tasks the event would be delivered to. With fire, act on it for real. A built-in event routes as you; a custom event has no actor, so only public triggers and link kinds admit it, exactly as from the custom events webhook. Firing a custom event is how to send one.",
 	}, h.testEvent)
 }
 
@@ -137,16 +137,16 @@ func (h *handlers) listEventTypes(ctx context.Context, req *mcp.CallToolRequest,
 }
 
 type attrDefInput struct {
-	Key         string `json:"key" jsonschema:"The attribute's name, which routing rule conditions refer to"`
-	Label       string `json:"label,omitempty" jsonschema:"The attribute's name in the routing rule editor"`
-	Help        string `json:"help,omitempty" jsonschema:"Help text for the attribute in the routing rule editor"`
-	Placeholder string `json:"placeholder,omitempty" jsonschema:"Placeholder for the attribute's value in the routing rule editor"`
+	Key         string `json:"key" jsonschema:"The attribute's name, which trigger conditions refer to"`
+	Label       string `json:"label,omitempty" jsonschema:"The attribute's name in the trigger editor"`
+	Help        string `json:"help,omitempty" jsonschema:"Help text for the attribute in the trigger editor"`
+	Placeholder string `json:"placeholder,omitempty" jsonschema:"Placeholder for the attribute's value in the trigger editor"`
 }
 
 type putCustomEventTypeInput struct {
 	Type      string         `json:"type" jsonschema:"The type's name, which senders put in the event's type: a lowercase letter, then up to 63 lowercase letters, digits and underscores"`
-	Label     string         `json:"label" jsonschema:"The type's name in the routing rule editor and on task timelines"`
-	Attrs     []attrDefInput `json:"attrs" jsonschema:"The attributes routing rules can match on. Must include \"body\" and \"url\"; keys follow the same rules as the type."`
+	Label     string         `json:"label" jsonschema:"The type's name in the trigger editor and on task timelines"`
+	Attrs     []attrDefInput `json:"attrs" jsonschema:"The attributes triggers can match on. Must include \"body\" and \"url\"; keys follow the same rules as the type."`
 	LinkTypes []string       `json:"link_types,omitempty" jsonschema:"The link types the event's URL can name: \"custom.url\", or none"`
 }
 
@@ -209,12 +209,12 @@ func setCustomEventTypes(ctx context.Context, service gritzv1connect.GritzServic
 type testEventInput struct {
 	Source      string              `json:"source" jsonschema:"The event type's source, such as \"github\", \"jira\" or \"custom\""`
 	Type        string              `json:"type" jsonschema:"The event type, such as \"issue_comment\""`
-	Body        string              `json:"body,omitempty" jsonschema:"The event's text, matched by rules on the \"body\" attribute"`
-	URL         string              `json:"url" jsonschema:"The absolute http or https URL of the resource the event is about. Events with the same url wake the same tasks."`
+	Body        string              `json:"body,omitempty" jsonschema:"The event's text, matched by triggers on the \"body\" attribute"`
+	URL         string              `json:"url" jsonschema:"The absolute http or https URL of the resource the event is about. Events are delivered to the tasks subscribed to the resource it names."`
 	Attrs       map[string][]string `json:"attrs,omitempty" jsonschema:"Values of the type's other attributes, each a list of strings. Not \"body\" or \"url\"."`
 	Description string              `json:"description,omitempty" jsonschema:"A description shown on the timeline of a task the event reaches; defaults to the event type's label"`
-	Details     map[string]string   `json:"details,omitempty" jsonschema:"Extra context shown with the event; routing rules don't match on it"`
-	Fire        bool                `json:"fire,omitempty" jsonschema:"Act on the match for real: wake or create tasks. False (the default) is a dry run."`
+	Details     map[string]string   `json:"details,omitempty" jsonschema:"Extra context shown with the event; triggers don't match on it"`
+	Fire        bool                `json:"fire,omitempty" jsonschema:"Act on it for real: wake or create tasks. False (the default) is a dry run."`
 }
 
 func (h *handlers) testEvent(ctx context.Context, req *mcp.CallToolRequest, input testEventInput) (*mcp.CallToolResult, any, error) {

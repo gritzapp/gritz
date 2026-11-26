@@ -63,8 +63,7 @@ func TestArchiveTask(t *testing.T) {
 func TestCreateTask_UsesServerURL(t *testing.T) {
 	client := &gritzclient.ClientMock{
 		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
-			assert.Equal(t, req.Workspace, "ws")
-			assert.Equal(t, req.Runner, "r1")
+			assert.Equal(t, req.AgentId, int64(5))
 			assert.Equal(t, len(req.Instructions), 1)
 			assert.Equal(t, req.Instructions[0].Text, "do it")
 			return &gritzv1.CreateTaskResponse{
@@ -72,6 +71,7 @@ func TestCreateTask_UsesServerURL(t *testing.T) {
 					Id:        42,
 					Name:      "test",
 					Workspace: "ws",
+					AgentId:   5,
 					Status:    gritzv1.TaskStatus_PENDING,
 					Url:       "https://gritz.example.com/ui/tasks/42?org=7",
 				},
@@ -83,9 +83,8 @@ func TestCreateTask_UsesServerURL(t *testing.T) {
 	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "create_task",
 		Arguments: map[string]any{
-			"workspace":   "ws",
+			"agent_id":    5,
 			"instruction": "do it",
-			"runner":      "r1",
 		},
 	})
 	assert.NilError(t, err)
@@ -96,95 +95,11 @@ func TestCreateTask_UsesServerURL(t *testing.T) {
 		"id":        float64(42),
 		"name":      "test",
 		"workspace": "ws",
+		"agent_id":  float64(5),
 		"status":    "PENDING",
 		"archived":  false,
 		"url":       "https://gritz.example.com/ui/tasks/42?org=7",
 	})
-}
-
-func TestCreateTask_AutoArchiveParam(t *testing.T) {
-	// With no server default: a provided param is parsed and forwarded, and
-	// omitting it leaves auto_archive unset.
-	var got *gritzv1.CreateTaskRequest
-	client := &gritzclient.ClientMock{
-		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
-			got = req
-			return &gritzv1.CreateTaskResponse{
-				Task: &gritzv1.Task{Id: 1, Workspace: "ws", Status: gritzv1.TaskStatus_PENDING},
-			}, nil
-		},
-	}
-	session := setupSession(t, client)
-
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "create_task",
-		Arguments: map[string]any{
-			"workspace":    "ws",
-			"instruction":  "do it",
-			"runner":       "r1",
-			"auto_archive": "30m",
-		},
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
-	assert.Assert(t, got.AutoArchive != nil)
-	assert.Equal(t, got.AutoArchive.AsDuration(), 30*time.Minute)
-
-	got = nil
-	result, err = session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "create_task",
-		Arguments: map[string]any{
-			"workspace":   "ws",
-			"instruction": "do it",
-			"runner":      "r1",
-		},
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
-	assert.Assert(t, got.AutoArchive == nil, "auto_archive should be unset when neither param nor default is set")
-}
-
-func TestCreateTask_DefaultAutoArchive(t *testing.T) {
-	// With a server default: it applies when the param is omitted, and the
-	// per-call param overrides it.
-	var got *gritzv1.CreateTaskRequest
-	client := &gritzclient.ClientMock{
-		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
-			got = req
-			return &gritzv1.CreateTaskResponse{
-				Task: &gritzv1.Task{Id: 1, Workspace: "ws", Status: gritzv1.TaskStatus_PENDING},
-			}, nil
-		},
-	}
-	session := setupSession(t, client, WithDefaultAutoArchive(time.Hour))
-
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "create_task",
-		Arguments: map[string]any{
-			"workspace":   "ws",
-			"instruction": "do it",
-			"runner":      "r1",
-		},
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
-	assert.Assert(t, got.AutoArchive != nil)
-	assert.Equal(t, got.AutoArchive.AsDuration(), time.Hour)
-
-	got = nil
-	result, err = session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "create_task",
-		Arguments: map[string]any{
-			"workspace":    "ws",
-			"instruction":  "do it",
-			"runner":       "r1",
-			"auto_archive": "-1s",
-		},
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
-	assert.Assert(t, got.AutoArchive != nil)
-	assert.Equal(t, got.AutoArchive.AsDuration(), -time.Second)
 }
 
 func TestGetTask_EventNative(t *testing.T) {
@@ -230,7 +145,7 @@ func TestGetTask_EventNative(t *testing.T) {
 			assert.Equal(t, req.TaskId, int64(7))
 			return &gritzv1.ListLinksResponse{
 				Links: []*gritzv1.TaskLink{
-					{Id: 10, Relevance: "pr", Url: "https://example.com/pr/1", Subscribe: true},
+					{Id: 10, Relevance: "pr", Url: "https://example.com/pr/1", Kind: "github.pr"},
 				},
 			}, nil
 		},
@@ -285,7 +200,7 @@ func TestCreateTask_Draft(t *testing.T) {
 		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
 			got = req
 			return &gritzv1.CreateTaskResponse{
-				Task: &gritzv1.Task{Id: 1, Workspace: "ws", Namespace: "ns", Status: gritzv1.TaskStatus_DRAFT},
+				Task: &gritzv1.Task{Id: 1, Workspace: "ws", AgentId: 5, Status: gritzv1.TaskStatus_DRAFT},
 			}, nil
 		},
 	}
@@ -294,49 +209,20 @@ func TestCreateTask_Draft(t *testing.T) {
 	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "create_task",
 		Arguments: map[string]any{
-			"workspace": "ws",
-			"runner":    "r1",
-			"namespace": "ns",
-			"draft":     true,
+			"agent_id": 5,
+			"draft":    true,
 		},
 	})
 
 	assert.NilError(t, err)
 	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
 	assert.Equal(t, got.Draft, true)
-	assert.Equal(t, got.Namespace, "ns")
+	assert.Equal(t, got.AgentId, int64(5))
 	assert.Equal(t, len(got.Instructions), 0)
 	var summary map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &summary)
 	assert.Equal(t, summary["status"], "DRAFT")
-	assert.Equal(t, summary["namespace"], "ns")
-}
-
-func TestCreateTask_Variables(t *testing.T) {
-	var got *gritzv1.CreateTaskRequest
-	client := &gritzclient.ClientMock{
-		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
-			got = req
-			return &gritzv1.CreateTaskResponse{
-				Task: &gritzv1.Task{Id: 1, Workspace: "ws", Status: gritzv1.TaskStatus_PENDING},
-			}, nil
-		},
-	}
-	session := setupSession(t, client)
-
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "create_task",
-		Arguments: map[string]any{
-			"workspace":   "ws",
-			"runner":      "r1",
-			"instruction": "do it",
-			"variables":   map[string]any{"JIRA_ISSUE": "APP-142", "EMPTY": ""},
-		},
-	})
-
-	assert.NilError(t, err)
-	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
-	assert.DeepEqual(t, got.Variables, map[string]string{"JIRA_ISSUE": "APP-142", "EMPTY": ""})
+	assert.Equal(t, summary["agent_id"], float64(5))
 }
 
 func TestCreateTask_InstructionRequired(t *testing.T) {
@@ -345,8 +231,7 @@ func TestCreateTask_InstructionRequired(t *testing.T) {
 	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "create_task",
 		Arguments: map[string]any{
-			"workspace": "ws",
-			"runner":    "r1",
+			"agent_id": 5,
 		},
 	})
 
@@ -365,7 +250,7 @@ func TestGetTask(t *testing.T) {
 					Name:        "test",
 					Workspace:   "ws",
 					Runner:      "r1",
-					Namespace:   "ns",
+					AgentId:     5,
 					Status:      gritzv1.TaskStatus_COMPLETED,
 					Archived:    true,
 					AutoArchive: durationpb.New(30 * time.Minute),
@@ -402,7 +287,7 @@ func TestGetTask(t *testing.T) {
 		"name":         "test",
 		"workspace":    "ws",
 		"runner":       "r1",
-		"namespace":    "ns",
+		"agent_id":     float64(5),
 		"status":       "COMPLETED",
 		"archived":     true,
 		"created_at":   "2026-01-02T03:04:05Z",
@@ -740,7 +625,7 @@ func TestCreateLink(t *testing.T) {
 			assert.Equal(t, req.Url, "https://github.com/o/r/pull/1")
 			assert.Equal(t, req.Title, "PR 1")
 			assert.Equal(t, req.Relevance, "the fix")
-			assert.Equal(t, req.Subscribe, true)
+			assert.Equal(t, req.Kind, "github.pr")
 			return &gritzv1.CreateLinkResponse{
 				Link: &gritzv1.TaskLink{
 					Id:        3,
@@ -748,7 +633,7 @@ func TestCreateLink(t *testing.T) {
 					Url:       req.Url,
 					Title:     req.Title,
 					Relevance: req.Relevance,
-					Subscribe: req.Subscribe,
+					Kind:      req.Kind,
 				},
 			}, nil
 		},
@@ -762,7 +647,7 @@ func TestCreateLink(t *testing.T) {
 			"url":       "https://github.com/o/r/pull/1",
 			"title":     "PR 1",
 			"relevance": "the fix",
-			"subscribe": true,
+			"kind":      "github.pr",
 		},
 	})
 
@@ -774,6 +659,6 @@ func TestCreateLink(t *testing.T) {
 		"url":       "https://github.com/o/r/pull/1",
 		"title":     "PR 1",
 		"relevance": "the fix",
-		"subscribe": true,
+		"kind":      "github.pr",
 	})
 }

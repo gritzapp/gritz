@@ -8,9 +8,9 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func setupSession(t *testing.T, client *gritzclient.ClientMock, opts ...Option) *mcp.ClientSession {
+func setupSession(t *testing.T, client *gritzclient.ClientMock) *mcp.ClientSession {
 	t.Helper()
-	srv := NewServer(client, opts...)
+	srv := NewServer(client)
 
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	_, err := srv.Connect(t.Context(), serverTransport, nil)
@@ -44,7 +44,6 @@ func TestListTools(t *testing.T) {
 		"delete_schedule",
 		"get_event",
 		"get_org_settings",
-		"get_routing_rules",
 		"get_schedule",
 		"get_task",
 		"get_task_log",
@@ -59,7 +58,6 @@ func TestListTools(t *testing.T) {
 		"reset_sandbox",
 		"restart_task",
 		"run_schedule",
-		"set_routing_rules",
 		"set_schedule_enabled",
 		"test_event",
 		"unarchive_task",

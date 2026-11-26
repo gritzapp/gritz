@@ -20,8 +20,6 @@ import { Route as KeysIndexRouteImport } from './routes/keys.index'
 import { Route as KeysNewRouteImport } from './routes/keys.new'
 import { Route as MembersIndexRouteImport } from './routes/members.index'
 import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
-import { Route as RoutingIndexRouteImport } from './routes/routing.$index'
-import { Route as RoutingNewRouteImport } from './routes/routing.new'
 import { Route as RoutingTesteventRouteImport } from './routes/routing.testevent'
 import { Route as SchedulesIndexRouteImport } from './routes/schedules.index'
 import { Route as SchedulesNewRouteImport } from './routes/schedules.new'
@@ -86,16 +84,6 @@ const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
   path: '/oauth/authorize',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RoutingIndexRoute = RoutingIndexRouteImport.update({
-  id: '/routing/$index',
-  path: '/routing/$index',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RoutingNewRoute = RoutingNewRouteImport.update({
-  id: '/routing/new',
-  path: '/routing/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const RoutingTesteventRoute = RoutingTesteventRouteImport.update({
   id: '/routing/testevent',
   path: '/routing/testevent',
@@ -146,8 +134,6 @@ export interface FileRoutesByFullPath {
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/routing/$index': typeof RoutingIndexRoute
-  '/routing/new': typeof RoutingNewRoute
   '/routing/testevent': typeof RoutingTesteventRoute
   '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
@@ -169,8 +155,6 @@ export interface FileRoutesByTo {
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/routing/$index': typeof RoutingIndexRoute
-  '/routing/new': typeof RoutingNewRoute
   '/routing/testevent': typeof RoutingTesteventRoute
   '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
@@ -193,8 +177,6 @@ export interface FileRoutesById {
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/routing/$index': typeof RoutingIndexRoute
-  '/routing/new': typeof RoutingNewRoute
   '/routing/testevent': typeof RoutingTesteventRoute
   '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
@@ -218,8 +200,6 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/routing/$index'
-    | '/routing/new'
     | '/routing/testevent'
     | '/schedules/new'
     | '/tasks/$id'
@@ -241,8 +221,6 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/routing/$index'
-    | '/routing/new'
     | '/routing/testevent'
     | '/schedules/new'
     | '/tasks/$id'
@@ -264,8 +242,6 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/routing/$index'
-    | '/routing/new'
     | '/routing/testevent'
     | '/schedules/new'
     | '/tasks/$id'
@@ -288,8 +264,6 @@ export interface RootRouteChildren {
   GithubSetupRoute: typeof GithubSetupRoute
   KeysNewRoute: typeof KeysNewRoute
   OauthAuthorizeRoute: typeof OauthAuthorizeRoute
-  RoutingIndexRoute: typeof RoutingIndexRoute
-  RoutingNewRoute: typeof RoutingNewRoute
   RoutingTesteventRoute: typeof RoutingTesteventRoute
   SchedulesNewRoute: typeof SchedulesNewRoute
   TasksIdRoute: typeof TasksIdRoute
@@ -382,20 +356,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthAuthorizeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/routing/$index': {
-      id: '/routing/$index'
-      path: '/routing/$index'
-      fullPath: '/routing/$index'
-      preLoaderRoute: typeof RoutingIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/routing/new': {
-      id: '/routing/new'
-      path: '/routing/new'
-      fullPath: '/routing/new'
-      preLoaderRoute: typeof RoutingNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/routing/testevent': {
       id: '/routing/testevent'
       path: '/routing/testevent'
@@ -464,8 +424,6 @@ const rootRouteChildren: RootRouteChildren = {
   GithubSetupRoute: GithubSetupRoute,
   KeysNewRoute: KeysNewRoute,
   OauthAuthorizeRoute: OauthAuthorizeRoute,
-  RoutingIndexRoute: RoutingIndexRoute,
-  RoutingNewRoute: RoutingNewRoute,
   RoutingTesteventRoute: RoutingTesteventRoute,
   SchedulesNewRoute: SchedulesNewRoute,
   TasksIdRoute: TasksIdRoute,

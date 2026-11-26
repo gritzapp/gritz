@@ -53,7 +53,7 @@ function LinkCard({ link }: { link: TaskLink }) {
           {link.relevance && (
             <span className="text-xs leading-snug text-muted-foreground">{link.relevance}</span>
           )}
-          {link.subscribe && (
+          {link.kind !== '' && (
             <span className="mt-0.5 self-start">
               <SubscribedBadge />
             </span>
@@ -75,7 +75,7 @@ function SubscribedBadge() {
           subscribed
         </Badge>
       </TooltipTrigger>
-      <TooltipContent>Events on this URL wake the task</TooltipContent>
+      <TooltipContent>Events its link kind lists wake the task</TooltipContent>
     </Tooltip>
   )
 }

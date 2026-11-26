@@ -185,7 +185,7 @@ export function TaskSidebar({
             <dl className="flex flex-col gap-2">
               <Detail label="Runner">{task.runner}</Detail>
               <Detail label="Workspace">{task.workspace}</Detail>
-              <Detail label="Namespace">{task.namespace || 'default'}</Detail>
+              <Detail label="Agent">{String(task.agentId)}</Detail>
               <Detail label="Created">
                 {task.createdAt ? <RelativeTime date={timestampDate(task.createdAt)} /> : '-'}
               </Detail>

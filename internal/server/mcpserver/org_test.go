@@ -2,20 +2,15 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/gritzclient"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/mcptest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gotest.tools/v3/assert"
-	"gotest.tools/v3/assert/cmp"
 )
 
 func TestListMembers(t *testing.T) {
@@ -106,124 +101,4 @@ func TestGetOrgSettings(t *testing.T) {
 		"github_app_url":         "https://github.com/apps/gritz",
 		"github_installation_id": float64(42),
 	})
-}
-
-func TestGetRoutingRules(t *testing.T) {
-	// Arrange
-	client := &gritzclient.ClientMock{
-		GetRoutingRulesFunc: func(ctx context.Context, req *gritzv1.GetRoutingRulesRequest) (*gritzv1.GetRoutingRulesResponse, error) {
-			return &gritzv1.GetRoutingRulesResponse{Rules: []*gritzv1.RoutingRule{{
-				Source:     "github",
-				Type:       "pr_comment",
-				Wakeup:     true,
-				Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "contains", Value: "@gritz"}},
-			}}}, nil
-		},
-	}
-	session := setupSession(t, client)
-
-	// Act
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "get_routing_rules"})
-
-	// Assert
-	assert.NilError(t, err)
-	var got map[string]any
-	mcptest.UnmarshalCallToolResult(t, result, &got)
-	assert.DeepEqual(t, got, map[string]any{
-		"rules": []any{map[string]any{
-			"source":     "github",
-			"type":       "pr_comment",
-			"wakeup":     true,
-			"conditions": []any{map[string]any{"attr": "body", "op": "contains", "value": "@gritz"}},
-		}},
-	})
-}
-
-func TestSetRoutingRules(t *testing.T) {
-	// Arrange
-	client := &gritzclient.ClientMock{
-		SetRoutingRulesFunc: func(ctx context.Context, req *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error) {
-			return &gritzv1.SetRoutingRulesResponse{Rules: req.Rules}, nil
-		},
-	}
-	session := setupSession(t, client)
-
-	// Act
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name: "set_routing_rules",
-		Arguments: map[string]any{"rules": []map[string]any{
-			{
-				"source":     "github",
-				"type":       "pr_comment",
-				"wakeup":     true,
-				"conditions": []map[string]any{{"attr": "body", "op": "contains", "value": "@gritz"}},
-			},
-			{
-				"source":    "custom",
-				"type":      "alert",
-				"public":    true,
-				"namespace": "ops",
-				"create":    map[string]any{"workspace": "ws", "runner": "r1", "prompt": "triage", "autoArchive": "3600s", "variables": map[string]any{"SERVICE": "api"}},
-			},
-		}},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Assert(t, !result.IsError, "unexpected error result: %v", result.Content)
-	assert.Equal(t, len(client.SetRoutingRulesCalls()), 1)
-	assert.DeepEqual(t, client.SetRoutingRulesCalls()[0].SetRoutingRulesRequest, &gritzv1.SetRoutingRulesRequest{Rules: []*gritzv1.RoutingRule{
-		{
-			Source:     "github",
-			Type:       "pr_comment",
-			Wakeup:     true,
-			Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "contains", Value: "@gritz"}},
-		},
-		{
-			Source:    "custom",
-			Type:      "alert",
-			Public:    true,
-			Namespace: "ops",
-			Create:    &gritzv1.CreateTaskAction{Workspace: "ws", Runner: "r1", Prompt: "triage", AutoArchive: durationpb.New(time.Hour), Variables: map[string]string{"SERVICE": "api"}},
-		},
-	}}, protocmp.Transform())
-	var got map[string]any
-	mcptest.UnmarshalCallToolResult(t, result, &got)
-	assert.Equal(t, len(got["rules"].([]any)), 2)
-}
-
-func TestSetRoutingRules_DestructiveHint(t *testing.T) {
-	session := setupSession(t, &gritzclient.ClientMock{})
-
-	resp, err := session.ListTools(t.Context(), &mcp.ListToolsParams{})
-	assert.NilError(t, err)
-
-	for _, tool := range resp.Tools {
-		if tool.Name == "set_routing_rules" {
-			assert.Assert(t, tool.Annotations.DestructiveHint != nil && *tool.Annotations.DestructiveHint)
-			return
-		}
-	}
-	t.Fatal("set_routing_rules not registered")
-}
-
-func TestSetRoutingRules_InvalidArgument(t *testing.T) {
-	// Arrange
-	client := &gritzclient.ClientMock{
-		SetRoutingRulesFunc: func(ctx context.Context, req *gritzv1.SetRoutingRulesRequest) (*gritzv1.SetRoutingRulesResponse, error) {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New(`rule 0: unknown event type "custom/deploy"`))
-		},
-	}
-	session := setupSession(t, client)
-
-	// Act
-	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
-		Name:      "set_routing_rules",
-		Arguments: map[string]any{"rules": []map[string]any{{"source": "custom", "type": "deploy"}}},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Assert(t, result.IsError)
-	assert.Assert(t, cmp.Contains(mcptest.CallToolResultText(t, result), `unknown event type "custom/deploy"`))
 }

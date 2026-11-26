@@ -83,7 +83,7 @@ type createScheduleInput struct {
 	Name        string            `json:"name,omitempty" jsonschema:"The name of every task the schedule creates"`
 	Workspace   string            `json:"workspace" jsonschema:"The workspace its tasks run in"`
 	Runner      string            `json:"runner" jsonschema:"Runner ID to target"`
-	Namespace   string            `json:"namespace,omitempty" jsonschema:"Its tasks' namespace. Empty is the default namespace."`
+	AgentID     int64             `json:"agent_id" jsonschema:"The ID of the agent its tasks belong to"`
 	Instruction string            `json:"instruction" jsonschema:"The instruction every task it creates starts with"`
 	CronExpr    string            `json:"cron_expr" jsonschema:"When to create a task: a five-field cron expression (minute, hour, day of month, month, day of week) or @yearly, @monthly, @weekly, @daily, @hourly"`
 	Timezone    string            `json:"timezone,omitempty" jsonschema:"The IANA timezone the cron expression is read in, such as \"Europe/Paris\" (default \"UTC\")"`
@@ -98,7 +98,7 @@ func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest,
 		Name:         input.Name,
 		Workspace:    input.Workspace,
 		Runner:       input.Runner,
-		Namespace:    input.Namespace,
+		AgentId:      input.AgentID,
 		Instructions: []*gritzv1.Instruction{{Text: input.Instruction}},
 		CronExpr:     input.CronExpr,
 		Timezone:     input.Timezone,
@@ -124,7 +124,7 @@ type updateScheduleInput struct {
 	Name        *string            `json:"name,omitempty" jsonschema:"A new name for the tasks it creates"`
 	Workspace   *string            `json:"workspace,omitempty" jsonschema:"A new workspace for its tasks"`
 	Runner      *string            `json:"runner,omitempty" jsonschema:"A new runner ID for its tasks"`
-	Namespace   *string            `json:"namespace,omitempty" jsonschema:"A new namespace for its tasks"`
+	AgentID     *int64             `json:"agent_id,omitempty" jsonschema:"The ID of a new agent for its tasks"`
 	Instruction *string            `json:"instruction,omitempty" jsonschema:"An instruction that replaces every instruction of the schedule"`
 	CronExpr    *string            `json:"cron_expr,omitempty" jsonschema:"A new cron expression, as in create_schedule"`
 	Timezone    *string            `json:"timezone,omitempty" jsonschema:"A new IANA timezone for the cron expression"`
@@ -146,7 +146,7 @@ func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest,
 		Name:         s.Name,
 		Workspace:    s.Workspace,
 		Runner:       s.Runner,
-		Namespace:    s.Namespace,
+		AgentId:      s.AgentId,
 		Instructions: s.Instructions,
 		CronExpr:     s.CronExpr,
 		Timezone:     s.Timezone,
@@ -162,8 +162,8 @@ func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest,
 	if input.Runner != nil {
 		updateReq.Runner = *input.Runner
 	}
-	if input.Namespace != nil {
-		updateReq.Namespace = *input.Namespace
+	if input.AgentID != nil {
+		updateReq.AgentId = *input.AgentID
 	}
 	if input.Instruction != nil {
 		updateReq.Instructions = []*gritzv1.Instruction{{Text: *input.Instruction}}

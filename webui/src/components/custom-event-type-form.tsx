@@ -87,7 +87,7 @@ export function CustomEventTypeForm({
             required
           />
           <p className="text-muted-foreground text-xs">
-            Shown in the routing rule editor and the event timeline.
+            Shown in the trigger editor and the event timeline.
           </p>
         </div>
       </div>
@@ -96,8 +96,8 @@ export function CustomEventTypeForm({
         <div className="space-y-1">
           <Label>Attributes</Label>
           <p className="text-muted-foreground text-xs">
-            The values routing rules can match on. <code>body</code> and <code>url</code> come from
-            every event and are always present.
+            The values triggers can match on. <code>body</code> and <code>url</code> come from every
+            event and are always present.
           </p>
         </div>
 

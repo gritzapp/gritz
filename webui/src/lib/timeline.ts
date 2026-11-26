@@ -111,7 +111,7 @@ function hostname(url: string): string {
 }
 
 // lifecycleSummary turns a lifecycle event into a readable activity line, e.g.
-// "Created by icholy", "Created by routing rule", "Cancelled", "Sandbox exited",
+// "Created by icholy", "Created by trigger", "Cancelled", "Sandbox exited",
 // "Sandbox failed: <message>". It mirrors the Go-side LifecyclePayload.Summary,
 // minus the status transition the Go side appends to "Sandbox exited".
 export function lifecycleSummary(p: LifecyclePayload): string {
@@ -160,7 +160,7 @@ export function lifecycleSummary(p: LifecyclePayload): string {
       s = 'Lifecycle event'
   }
   if (p.actor?.kind === 'user' && p.actor.name) s += ` by ${p.actor.name}`
-  else if (p.actor?.kind === 'router') s += ' by routing rule'
+  else if (p.actor?.kind === 'router') s += ' by trigger'
   return s
 }
 
@@ -255,7 +255,7 @@ export function eventsToTimeline(events: Event[]): TimelineItem[] {
           url: v.url,
           source: sourceFromUrl(v.url),
           relevance: v.relevance || undefined,
-          subscribed: v.subscribe,
+          subscribed: v.kind !== '',
         })
         break
       }

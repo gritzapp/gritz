@@ -13,7 +13,7 @@ import (
 )
 
 // renderHeader renders the task header block: the `# Task {id} · {name}` title
-// plus the workspace/namespace and task url lines. It deliberately omits status
+// plus the workspace and task url lines. It deliberately omits status
 // — a task reading this prompt is by definition running, so status is noise (see
 // docs/src/content/docs/proposals/implemented/hybrid-prompt-rendering.md). The
 // returned block has no trailing newline; callers join blocks with blank lines.
@@ -21,7 +21,7 @@ import (
 func renderHeader(task *gritzv1.Task) string {
 	var b strings.Builder
 	b.WriteString("# Task " + strconv.FormatInt(task.GetId(), 10) + " · " + task.GetName() + "\n\n")
-	b.WriteString("- Workspace: " + task.GetWorkspace() + " · Namespace: " + task.GetNamespace() + "\n")
+	b.WriteString("- Workspace: " + task.GetWorkspace() + "\n")
 	b.WriteString("- Task: " + task.GetUrl())
 	return b.String()
 }
@@ -34,7 +34,7 @@ func renderHeader(task *gritzv1.Task) string {
 func renderLink(link *gritzv1.TaskLink) string {
 	return linkBlock(
 		link.GetTitle(), formatEventTime(link.GetCreatedAt()),
-		link.GetRelevance(), link.GetUrl(), link.GetSubscribe())
+		link.GetRelevance(), link.GetUrl(), link.GetKind())
 }
 
 //go:embed PROMPT.md

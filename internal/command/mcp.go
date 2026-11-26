@@ -31,10 +31,6 @@ var McpCommand = &cli.Command{
 			Name:  "channel",
 			Usage: "Enable experimental claude/channel support",
 		},
-		&cli.DurationFlag{
-			Name:  "auto-archive",
-			Usage: "Default auto-archive delay for tasks created via create_task when the call omits auto_archive. 0 = never, negative = archive immediately on terminal status, positive = delay (e.g. 1h, 24h). The per-call auto_archive param overrides this.",
-		},
 	}),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		// One stable id per bridge process. It is sent on every mutation
@@ -84,11 +80,7 @@ var McpCommand = &cli.Command{
 			Instructions: mcpserver.Instructions + mcpbridge.OrgsInstructions,
 			Capabilities: &capabilities,
 		})
-		var toolOpts []mcpserver.Option
-		if cmd.IsSet("auto-archive") {
-			toolOpts = append(toolOpts, mcpserver.WithDefaultAutoArchive(cmd.Duration("auto-archive")))
-		}
-		mcpserver.AddTools(server, switcher.Service, toolOpts...)
+		mcpserver.AddTools(server, switcher.Service)
 		switcher.AddTools(server)
 		if ch != nil {
 			ch.AddTools(server)

@@ -330,7 +330,7 @@ func TestDriverRun_GritzRPC(t *testing.T) {
 		GritzRPC:   &GritzRPCOptions{Command: exe},
 	})
 	driver.Env = []string{"GRITZRPC_TEST_AGENT=ok", "GRITZRPC_TEST_OUT=" + out}
-	link := &gritzv1.TaskLink{Id: 881, TaskId: 1, Relevance: "PR", Url: "https://github.com/acme/repo/pull/1", Subscribe: true}
+	link := &gritzv1.TaskLink{Id: 881, TaskId: 1, Relevance: "PR", Url: "https://github.com/acme/repo/pull/1", Kind: "github.pr"}
 	mock.ListLinksFunc = func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
 		return &gritzv1.ListLinksResponse{Links: []*gritzv1.TaskLink{link}}, nil
 	}
