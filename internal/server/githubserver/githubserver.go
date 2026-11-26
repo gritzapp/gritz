@@ -167,6 +167,7 @@ func (s *Server) WebhookHandler() http.Handler {
 			Log:       s.log,
 			Store:     s.store,
 			Publisher: s.publisher,
+			Registry:  eventrouter.DefaultSchemaRegistry,
 			OnRouteOutcome: func(ctx context.Context, o eventrouter.RouteOutcome) {
 				// react is synchronous; the goroutine + detached context +
 				// timeout keep a slow GitHub round-trip off the webhook path.

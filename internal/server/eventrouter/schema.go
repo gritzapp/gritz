@@ -73,7 +73,7 @@ func (r *SchemaRegistry) ValidateCustomEventTypes(defs []model.EventTypeDef) err
 // NewSchemaRegistry, which initializes the index map.
 type SchemaRegistry struct {
 	// eventTypes holds every registered schema in registration order. It is the
-	// machine-readable contract that the router, rule validation, and (later) the
+	// machine-readable contract that the router, agent validation, and (later) the
 	// UI derive from, replacing hand-synced copies of the (source, type) pairs
 	// and their applicable attrs.
 	eventTypes []model.EventTypeDef
@@ -176,24 +176,18 @@ func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 	return reg
 }
 
-// Validate checks the rule against the event-type registry, returning a wrapped
-// error naming the first offending selector, op, or attr. Every rule must name
-// exactly one registered (Source, Type) event type: an empty Type is rejected,
-// and — because the registry is keyed by (Source, Type) and label_added exists
-// under multiple sources — an empty Source is rejected too. Each condition's op
-// must be equals/prefix/contains/glob, a glob's value must be a well-formed
-// pattern, and its attr must be one of the selected event type's valid attrs
-// (its Attrs set, which includes the derived body/url).
-// A custom rule must also be Public: custom events are ingested without an
-// actor, so routing only considers the org's public rules for them.
-func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
-	_, err := r.validateSelector("rule", rule.Source, rule.Type, rule.Conditions, rule.Public)
-	return err
-}
-
-// validateSelector checks an event selector, a rule's or a trigger's, as
-// Validate describes, and returns the event type it selects. what names the
-// selector in the custom-must-be-public error.
+// validateSelector checks a trigger's event selector against the registry and
+// returns the event type it selects, or an error naming the first offending
+// selector, op, or attr. The selector must name exactly one registered
+// (Source, Type) event type: an empty Type is rejected, and — because the
+// registry is keyed by (Source, Type) and label_added exists under multiple
+// sources — an empty Source is rejected too. Each condition's op must be
+// equals/prefix/contains/glob, a glob's value must be a well-formed pattern,
+// and its attr must be one of the selected event type's valid attrs (its Attrs
+// set, which includes the derived body/url). A custom selector must also be
+// public: custom events are ingested without an actor, so routing only admits
+// them through public triggers. what names the selector in the
+// custom-must-be-public error.
 func (r *SchemaRegistry) validateSelector(what, source, typ string, conds []model.Condition, public bool) (model.EventTypeDef, error) {
 	if typ == "" {
 		return model.EventTypeDef{}, fmt.Errorf("%s must select an event type: empty type", what)
@@ -230,7 +224,7 @@ func (r *SchemaRegistry) validateSelector(what, source, typ string, conds []mode
 // entry's Type must be a registered link type, its kind (see
 // model.AgentLink.Name) unique in the agent, and each of its Events an event
 // type of the link type's source that declares the link type. Every trigger's
-// selector is checked as Validate checks a rule's, and its Link, when set,
+// selector is checked by validateSelector, and its Link, when set,
 // must be a kind of the agent whose type the trigger's event type declares.
 // Claims and YieldTo names aren't checked: they are free-form, org-wide names.
 func (r *SchemaRegistry) ValidateAgent(a *model.Agent) error {
@@ -277,6 +271,6 @@ func (r *SchemaRegistry) ValidateAgent(a *model.Agent) error {
 // DefaultSchemaRegistry is the process-wide registry of built-in event types.
 // The producer packages (githubserver, atlassianserver, customserver) populate
 // it, link types included, from their init functions via their
-// RegisterSchemas helper. Handlers that validate rules
+// RegisterSchemas helper. Handlers that validate agents
 // or list event types combine it with an org's custom types through With.
 var DefaultSchemaRegistry = NewSchemaRegistry()

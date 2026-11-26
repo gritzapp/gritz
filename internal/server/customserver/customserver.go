@@ -43,7 +43,7 @@ func New(opts Options) *Server {
 // response's routed count is the sender's feedback.
 func (s *Server) WebhookHandler() http.Handler {
 	return &WebhookHandler{
-		Router: &eventrouter.Router{Log: s.log, Store: s.store, Publisher: s.publisher},
+		Router: &eventrouter.Router{Log: s.log, Store: s.store, Publisher: s.publisher, Registry: eventrouter.DefaultSchemaRegistry},
 		Store:  s.store,
 	}
 }

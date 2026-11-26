@@ -7,61 +7,61 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-func TestMatchRule(t *testing.T) {
+func TestMatch(t *testing.T) {
 	tests := []struct {
-		name  string
-		rule  model.RoutingRule
-		event InputEvent
-		want  bool
+		name    string
+		trigger model.AgentTrigger
+		event   InputEvent
+		want    bool
 	}{
 		// --- selector: source/type ---
 		{
-			name:  "empty rule matches everything",
-			rule:  model.RoutingRule{},
-			event: InputEvent{Source: "github", Type: "issue_comment", Data: "hello"},
-			want:  true,
+			name:    "empty trigger matches everything",
+			trigger: model.AgentTrigger{},
+			event:   InputEvent{Source: "github", Type: "issue_comment", Data: "hello"},
+			want:    true,
 		},
 		{
-			name:  "source match",
-			rule:  model.RoutingRule{Source: "github"},
-			event: InputEvent{Source: "github"},
-			want:  true,
+			name:    "source match",
+			trigger: model.AgentTrigger{Source: "github"},
+			event:   InputEvent{Source: "github"},
+			want:    true,
 		},
 		{
-			name:  "source mismatch",
-			rule:  model.RoutingRule{Source: "github"},
-			event: InputEvent{Source: "atlassian"},
-			want:  false,
+			name:    "source mismatch",
+			trigger: model.AgentTrigger{Source: "github"},
+			event:   InputEvent{Source: "atlassian"},
+			want:    false,
 		},
 		{
-			name:  "type match",
-			rule:  model.RoutingRule{Type: "issue_comment"},
-			event: InputEvent{Source: "github", Type: "issue_comment"},
-			want:  true,
+			name:    "type match",
+			trigger: model.AgentTrigger{Type: "issue_comment"},
+			event:   InputEvent{Source: "github", Type: "issue_comment"},
+			want:    true,
 		},
 		{
-			name:  "type mismatch",
-			rule:  model.RoutingRule{Type: "issue_comment"},
-			event: InputEvent{Source: "github", Type: "pull_request_review"},
-			want:  false,
+			name:    "type mismatch",
+			trigger: model.AgentTrigger{Type: "issue_comment"},
+			event:   InputEvent{Source: "github", Type: "pull_request_review"},
+			want:    false,
 		},
 		{
-			name:  "empty source is a wildcard",
-			rule:  model.RoutingRule{Type: "issue_comment"},
-			event: InputEvent{Source: "atlassian", Type: "issue_comment"},
-			want:  true,
+			name:    "empty source is a wildcard",
+			trigger: model.AgentTrigger{Type: "issue_comment"},
+			event:   InputEvent{Source: "atlassian", Type: "issue_comment"},
+			want:    true,
 		},
 		{
-			name:  "empty type is a wildcard",
-			rule:  model.RoutingRule{Source: "github"},
-			event: InputEvent{Source: "github", Type: "anything"},
-			want:  true,
+			name:    "empty type is a wildcard",
+			trigger: model.AgentTrigger{Source: "github"},
+			event:   InputEvent{Source: "github", Type: "anything"},
+			want:    true,
 		},
 
 		// --- Prefix -> {body, prefix} ---
 		{
 			name: "prefix match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "body", Op: "prefix", Value: "gritz:"},
 				},
@@ -71,7 +71,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "prefix mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "body", Op: "prefix", Value: "gritz:"},
 				},
@@ -85,7 +85,7 @@ func TestMatchRule(t *testing.T) {
 		// rather than the router parsing @-syntax out of Data.
 		{
 			name: "github mention match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "botuser"},
 				},
@@ -97,7 +97,7 @@ func TestMatchRule(t *testing.T) {
 			// DELTA: legacy Mention matching was case-insensitive; conditions
 			// are literal, so BotUser no longer matches an extracted "botuser".
 			name: "github mention is now case sensitive",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "BotUser"},
 				},
@@ -107,7 +107,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "github mention no substring match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "bot"},
 				},
@@ -117,7 +117,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "github mention mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "botuser"},
 				},
@@ -127,7 +127,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "atlassian mention match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "abc123"},
 				},
@@ -137,7 +137,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "atlassian mention mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "abc123"},
 				},
@@ -149,7 +149,7 @@ func TestMatchRule(t *testing.T) {
 			// A mention condition against an event that carries no mention
 			// attr fails, regardless of what's in Data.
 			name: "mention condition on event without mention attr fails",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "mention", Op: "equals", Value: "user"},
 				},
@@ -161,7 +161,7 @@ func TestMatchRule(t *testing.T) {
 		// --- Assignee -> {assignee, equals} ---
 		{
 			name: "github assignee match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
 				},
@@ -177,7 +177,7 @@ func TestMatchRule(t *testing.T) {
 			// DELTA: legacy Assignee matching was case-insensitive; conditions
 			// are literal, so Icholy-Bot no longer matches "icholy-bot".
 			name: "github assignee is now case sensitive",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
 				},
@@ -191,7 +191,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "github assignee mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
 				},
@@ -207,7 +207,7 @@ func TestMatchRule(t *testing.T) {
 			// Replaces the legacy "assignee empty on non-assignment event"
 			// case: an event that carries no assignee attr fails the condition.
 			name: "assignee condition on event without assignee attr fails",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
 				},
@@ -218,14 +218,14 @@ func TestMatchRule(t *testing.T) {
 
 		// --- URLPrefix -> {url, prefix} ---
 		{
-			name:  "empty url prefix (no condition) matches any url",
-			rule:  model.RoutingRule{},
-			event: InputEvent{URL: "https://github.com/icholy/gritz/pull/1"},
-			want:  true,
+			name:    "empty url prefix (no condition) matches any url",
+			trigger: model.AgentTrigger{},
+			event:   InputEvent{URL: "https://github.com/icholy/gritz/pull/1"},
+			want:    true,
 		},
 		{
 			name: "url prefix match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
 				},
@@ -235,7 +235,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "url prefix mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
 				},
@@ -245,7 +245,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "url prefix mismatch on empty url",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
 				},
@@ -255,7 +255,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "url prefix is independent of body",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "url", Op: "prefix", Value: "https://github.com/icholy/gritz/"},
 				},
@@ -268,7 +268,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "body prefix is independent of url",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "body", Op: "prefix", Value: "gritz:"},
 				},
@@ -283,7 +283,7 @@ func TestMatchRule(t *testing.T) {
 		// --- Value -> {label, equals} ---
 		{
 			name: "label match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "label", Op: "equals", Value: "gritz"},
 				},
@@ -293,7 +293,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "label no match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "label", Op: "equals", Value: "gritz"},
 				},
@@ -302,14 +302,14 @@ func TestMatchRule(t *testing.T) {
 			want:  false,
 		},
 		{
-			name:  "no label condition is a wildcard",
-			rule:  model.RoutingRule{},
-			event: InputEvent{Attrs: Attrs{"label": {"gritz"}}},
-			want:  true,
+			name:    "no label condition is a wildcard",
+			trigger: model.AgentTrigger{},
+			event:   InputEvent{Attrs: Attrs{"label": {"gritz"}}},
+			want:    true,
 		},
 		{
 			name: "label condition with empty event labels no match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "label", Op: "equals", Value: "gritz"},
 				},
@@ -319,7 +319,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "label equals requires exact membership not substring",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "label", Op: "equals", Value: "agent"},
 				},
@@ -331,7 +331,7 @@ func TestMatchRule(t *testing.T) {
 		// --- section 2 semantics: AND, missing attr, multi-value, contains ---
 		{
 			name: "multiple conditions AND together (all match)",
-			rule: model.RoutingRule{Conditions: []model.Condition{
+			trigger: model.AgentTrigger{Conditions: []model.Condition{
 				{Attr: "body", Op: "prefix", Value: "gritz:"},
 				{Attr: "label", Op: "equals", Value: "urgent"},
 			}},
@@ -340,7 +340,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "multiple conditions AND together (one fails)",
-			rule: model.RoutingRule{Conditions: []model.Condition{
+			trigger: model.AgentTrigger{Conditions: []model.Condition{
 				{Attr: "body", Op: "prefix", Value: "gritz:"},
 				{Attr: "label", Op: "equals", Value: "urgent"},
 			}},
@@ -349,7 +349,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "condition on a missing attr fails even when others match",
-			rule: model.RoutingRule{Conditions: []model.Condition{
+			trigger: model.AgentTrigger{Conditions: []model.Condition{
 				{Attr: "body", Op: "prefix", Value: "gritz:"},
 				{Attr: "assignee", Op: "equals", Value: "icholy-bot"},
 			}},
@@ -358,7 +358,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "multi-value attr membership: any value matches",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "label", Op: "equals", Value: "urgent"},
 				},
@@ -368,7 +368,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "contains op matches a substring of a value",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "body", Op: "contains", Value: "please"},
 				},
@@ -378,7 +378,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "contains op mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "body", Op: "contains", Value: "please"},
 				},
@@ -390,7 +390,7 @@ func TestMatchRule(t *testing.T) {
 		// --- combined selector + conditions ---
 		{
 			name: "combined source type label all match",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "atlassian",
 				Type:       "label_added",
 				Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "gritz"}},
@@ -404,7 +404,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "combined label mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source:     "atlassian",
 				Type:       "label_added",
 				Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "gritz"}},
@@ -418,7 +418,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "combined gate type mismatch short-circuits conditions",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: "github",
 				Type:   "pull_request_assigned",
 				Conditions: []model.Condition{
@@ -434,7 +434,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "combined gate assignee condition mismatch",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Source: "github",
 				Type:   "pull_request_assigned",
 				Conditions: []model.Condition{
@@ -452,7 +452,7 @@ func TestMatchRule(t *testing.T) {
 		// --- glob ---
 		{
 			name: "glob holds when any of many values matches",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "path", Op: "glob", Value: "docs/**/*.md"},
 				},
@@ -462,7 +462,7 @@ func TestMatchRule(t *testing.T) {
 		},
 		{
 			name: "glob fails when no value matches",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "path", Op: "glob", Value: "docs/**/*.md"},
 				},
@@ -474,7 +474,7 @@ func TestMatchRule(t *testing.T) {
 		// --- unknown op never matches ---
 		{
 			name: "unknown op never matches",
-			rule: model.RoutingRule{
+			trigger: model.AgentTrigger{
 				Conditions: []model.Condition{
 					{Attr: "body", Op: "regex", Value: "gritz:"},
 				},
@@ -485,7 +485,7 @@ func TestMatchRule(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.DeepEqual(t, Match(tt.rule, tt.event), tt.want)
+			assert.DeepEqual(t, Match(tt.trigger, tt.event), tt.want)
 		})
 	}
 }

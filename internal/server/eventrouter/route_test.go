@@ -3,862 +3,412 @@ package eventrouter_test
 import (
 	"context"
 	"log/slog"
-	"slices"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/model"
+	"github.com/gritzapp/gritz/internal/server/customserver"
 	"github.com/gritzapp/gritz/internal/server/eventrouter"
+	"github.com/gritzapp/gritz/internal/server/githubserver"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store/teststore"
-	"github.com/gritzapp/gritz/internal/taskvar"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
 
-func TestPlanMatchesRulePerOrgWithoutSideEffects(t *testing.T) {
-	t.Parallel()
+// registry holds the real producer schemas, registered on an isolated
+// registry.
+var registry = func() *eventrouter.SchemaRegistry {
+	reg := eventrouter.NewSchemaRegistry()
+	githubserver.RegisterSchemas(reg)
+	customserver.RegisterSchemas(reg)
+	return reg
+}()
 
-	// Plan is the read-only matcher Route consumes: it reports the matched rule
-	// per org and writes nothing. Each case exercises a distinct outcome — a
-	// configured rule matches (RuleIndex points at its position) and a configured
-	// rule does not match (org dropped). A ruleless org has no shipped-default
-	// fallback, so it never matches (covered by TestRouteRuleLessOrgRoutesNothing).
-	// Neither case touches the store.
-	const url = "https://github.com/owner/repo/issues/1"
+func TestPlanWritesNothing(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+	// Act
+	plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		URL:    "https://github.com/o/r/issues/1",
+		UserID: org.UserID,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, plan, &eventrouter.Plan{
+		Triggers: []eventrouter.TriggerMatch{{OrgID: org.OrgID, Agent: agent, TriggerIndex: 0}},
+	})
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(tasks, 0))
+}
+
+func TestRouteDeliversByKind(t *testing.T) {
+	t.Parallel()
+	const url = "https://github.com/o/r/pull/1"
 	tests := []struct {
 		name      string
-		rules     []model.RoutingRule
-		data      string
-		wantMatch bool
+		agentLink model.AgentLink
+		taskLink  teststore.LinkOptions
+		delivered bool
 	}{
 		{
-			name: "configured rule matches",
-			rules: []model.RoutingRule{
-				{
-					Source: "github",
-					Type:   "issue_comment",
-					Conditions: []model.Condition{
-						{Attr: "body", Op: "prefix", Value: "gritz:"},
-					},
-				},
-			},
-			data:      "gritz: do it",
-			wantMatch: true,
+			name:      "kind lists the event type",
+			agentLink: model.AgentLink{Type: "github.pr", Events: []string{"issue_comment"}},
+			taskLink:  teststore.LinkOptions{URL: url, Kind: "github.pr"},
+			delivered: true,
 		},
 		{
-			name: "configured rule does not match",
-			rules: []model.RoutingRule{
-				{
-					Source: "github",
-					Type:   "issue_comment",
-					Conditions: []model.Condition{
-						{Attr: "body", Op: "prefix", Value: "bot:"},
-					},
-				},
-			},
-			data:      "gritz: do it",
-			wantMatch: false,
+			name:      "kind lists no event types",
+			agentLink: model.AgentLink{Type: "github.pr", Kind: "owned-pr"},
+			taskLink:  teststore.LinkOptions{URL: url, Kind: "owned-pr"},
+			delivered: true,
+		},
+		{
+			name:      "kind doesn't list the event type",
+			agentLink: model.AgentLink{Type: "github.pr", Events: []string{"pull_request_closed"}},
+			taskLink:  teststore.LinkOptions{URL: url, Kind: "github.pr"},
+		},
+		{
+			name:      "plain reference link",
+			agentLink: model.AgentLink{Type: "github.pr"},
+			taskLink:  teststore.LinkOptions{URL: url},
+		},
+		{
+			name:      "kind the agent no longer has",
+			agentLink: model.AgentLink{Type: "github.pr"},
+			taskLink:  teststore.LinkOptions{URL: url, Kind: "owned-pr"},
+		},
+		{
+			name:      "link to another resource",
+			agentLink: model.AgentLink{Type: "github.pr"},
+			taskLink:  teststore.LinkOptions{URL: "https://github.com/o/r/pull/2", Kind: "github.pr"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
 			// Arrange
 			s := teststore.New(t)
 			org := teststore.CreateOrg(t, s, nil)
-			assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, tt.rules))
-			r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-			// Act
-			matches, err := r.Plan(t.Context(), eventrouter.InputEvent{
-				Source: "github",
-				Type:   "issue_comment",
-				Data:   tt.data,
-				URL:    url,
-				UserID: org.UserID,
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{tt.agentLink}})
+			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+				AgentID: agent.ID,
+				Status:  model.TaskStatusCompleted,
+				Links:   []teststore.LinkOptions{tt.taskLink},
 			})
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 
-			// Assert
-			assert.NilError(t, err)
-			if !tt.wantMatch {
-				assert.Assert(t, cmp.Len(matches, 0))
-			} else {
-				assert.Assert(t, cmp.Len(matches, 1))
-				assert.Equal(t, matches[0].OrgID, org.OrgID)
-				assert.Equal(t, matches[0].Rule.Source, "github")
-				// A single configured rule that matched sits at index 0.
-				assert.Equal(t, matches[0].RuleIndex, 0)
-			}
-
-			// Plan is read-only: no tasks (and therefore no events) are written.
-			tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-			assert.NilError(t, err)
-			assert.Assert(t, cmp.Len(tasks, 0))
-		})
-	}
-}
-
-func TestPlanReturnsMatchPerMemberOrg(t *testing.T) {
-	t.Parallel()
-
-	// Plan evaluates every org the event belongs to: an actor in two member orgs
-	// that both match gets a RouteMatch for each. Scoping the result to a single
-	// org is the caller's job (layer 3), not Plan's.
-	s := teststore.New(t)
-	orgA := teststore.CreateOrg(t, s, nil)
-	orgB := teststore.CreateOrg(t, s, nil)
-	assert.NilError(t, s.AddOrgMember(t.Context(), nil, &model.OrgMember{
-		OrgID: orgB.OrgID, UserID: orgA.UserID, Role: "member",
-	}))
-	rule := []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-		},
-	}
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgA.OrgID, rule))
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgB.OrgID, rule))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	matches, err := r.Plan(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do it",
-		URL:    "https://github.com/owner/repo/issues/1",
-		UserID: orgA.UserID,
-	})
-
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(matches, 2))
-	gotOrgs := map[int64]bool{}
-	for _, m := range matches {
-		gotOrgs[m.OrgID] = true
-	}
-	assert.Assert(t, gotOrgs[orgA.OrgID] && gotOrgs[orgB.OrgID])
-}
-
-func TestRouteCreatesEventAndStartsTask(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/1"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	// A wake rule reproducing the former shipped default (gritz: body-prefix).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}))
-	r := &eventrouter.Router{
-		Log:   slog.Default(),
-		Store: s,
-	}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "testuser commented on PR #1",
-		Data:        "gritz: fix tests",
-		URL:         url,
-		UserID:      org.UserID,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusPending)
-}
-
-func TestRouteNonCanonicalURLMatchesByRoutingKey(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a subscribed link stored under the canonical issue key. The
-	// incoming event carries a non-canonical comment URL — the router must
-	// derive the same routing key from it to match. A raw-URL lookup would miss.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	canonical := "https://github.com/o/r/issues/5"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: canonical, Subscribe: true}},
-	})
-	// A wake rule reproducing the former shipped default (gritz: body-prefix).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}))
-	r := &eventrouter.Router{
-		Log:   slog.Default(),
-		Store: s,
-	}
-
-	// Act: event URL is the comment permalink, not the canonical issue URL.
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: fix tests",
-		URL:    "https://github.com/o/r/issues/5#issuecomment-9",
-		UserID: org.UserID,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusPending)
-}
-
-func TestRouteDeduplicatesTasksWithMultipleLinks(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/1"
-	teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links: []teststore.LinkOptions{
-			{URL: url, Subscribe: true},
-			{URL: url, Subscribe: true},
-		},
-	})
-	// A wake rule reproducing the former shipped default (gritz: body-prefix).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}))
-	r := &eventrouter.Router{
-		Log:   slog.Default(),
-		Store: s,
-	}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do something",
-		URL:    url,
-		UserID: org.UserID,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-}
-
-func TestRouteNoOp(t *testing.T) {
-	t.Parallel()
-
-	// Each case exercises the full Route path but ends in a no-op (n == 0) for a
-	// different reason: no subscribed link at the URL, an empty URL that can never
-	// match a link, and a body that the default rule's "gritz:" prefix rejects.
-	// (Attribute-level matching semantics themselves are covered by TestMatchRule.)
-	const url = "https://github.com/owner/repo/pull/1"
-	tests := []struct {
-		name string
-		link bool // seed a subscribed done task at url
-		data string
-		url  string
-	}{
-		{name: "no subscribed link at url", data: "gritz: do something", url: url},
-		{name: "empty url never matches a link", data: "gritz: do something", url: ""},
-		{
-			name: "body without gritz: prefix is not matched",
-			link: true,
-			data: "just a regular comment",
-			url:  url,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Arrange
-			s := teststore.New(t)
-			org := teststore.CreateOrg(t, s, nil)
-			var task *model.Task
-			if tt.link {
-				task = teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-					Status: model.TaskStatusCompleted,
-					Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-				})
-			}
-			r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-			// Act
+			// Act - a comment's URL names the PR it is on.
 			n, err := r.Route(t.Context(), eventrouter.InputEvent{
 				Source: "github",
 				Type:   "issue_comment",
-				Data:   tt.data,
-				URL:    tt.url,
+				Data:   "looks good",
+				URL:    url + "#issuecomment-9",
 				UserID: org.UserID,
 			})
 
 			// Assert
 			assert.NilError(t, err)
-			assert.Equal(t, n, 0)
-			if task != nil {
-				updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-				assert.NilError(t, err)
-				assert.Equal(t, updated.Status, model.TaskStatusCompleted)
+			got, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
+			assert.NilError(t, err)
+			if tt.delivered {
+				assert.Equal(t, n, 1)
+				assert.Equal(t, got.Status, model.TaskStatusPending)
+			} else {
+				assert.Equal(t, n, 0)
+				assert.Equal(t, got.Status, model.TaskStatusCompleted)
 			}
 		})
 	}
 }
 
-func TestRouteOrgRulesOverrideDefaults(t *testing.T) {
+func TestRouteDeliversOncePerTask(t *testing.T) {
 	t.Parallel()
-
-	// Arrange
+	// Arrange - a task with two links of different kinds on the PR.
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/1"
+	const url = "https://github.com/o/r/pull/1"
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{
+		{Type: "github.pr"},
+		{Type: "github.pr", Kind: "owned-pr"},
+	}})
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "bot:"},
-			},
+		AgentID: agent.ID,
+		Links: []teststore.LinkOptions{
+			{URL: url, Kind: "github.pr"},
+			{URL: url, Kind: "owned-pr"},
 		},
 	})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{
-		Log:   slog.Default(),
-		Store: s,
-	}
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 
-	// Act - "gritz:" prefix should NOT match because the org overrode the defaults
+	// Act
 	n, err := r.Route(t.Context(), eventrouter.InputEvent{
 		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do something",
+		Type:   "pull_request_closed",
 		URL:    url,
 		UserID: org.UserID,
 	})
 
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusCompleted)
-}
-
-func TestRouter_AttachSetsWakeMessage(t *testing.T) {
-	t.Parallel()
-
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
-	})
-	url := "https://github.com/owner/repo/pull/1#issuecomment-1"
-	teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusCompleted,
-		Links:     []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	// A wake rule reproducing the former shipped default (gritz: body-prefix).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}))
-	pub := &pubsub.PublisherMock{
-		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
-	}
-	r := &eventrouter.Router{
-		Log:       slog.Default(),
-		Store:     s,
-		Publisher: pub,
-	}
-
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "PR comment from alice",
-		Data:        "gritz: fix tests",
-		URL:         url,
-		UserID:      org.UserID,
-	})
+	// Assert - one event, through the first link.
 	assert.NilError(t, err)
 	assert.Equal(t, n, 1)
-
-	notifications := pub.PublishedNotifications()
-	assert.Assert(t, cmp.Len(notifications, 1))
-	msg := notifications[0].ChannelMessage
-	assert.Assert(t, msg != "", "expected non-empty ChannelMessage, got empty")
-	assert.Assert(t, strings.Contains(msg, "Task "), "expected task id in message: %q", msg)
-	assert.Assert(t, strings.Contains(msg, "woken by event"), "expected wake phrase in message: %q", msg)
-	assert.Assert(t, strings.Contains(msg, "PR comment from alice"), "expected description in message: %q", msg)
-	assert.Assert(t, strings.Contains(msg, url), "expected URL in message: %q", msg)
-}
-
-func TestRouter_AttachToRunningTaskStaysSilent(t *testing.T) {
-	t.Parallel()
-
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
-	})
-	url := "https://github.com/owner/repo/pull/1#issuecomment-1"
-	teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusRunning,
-		Links:     []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	// A wake rule reproducing the former shipped default (gritz: body-prefix).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}))
-	pub := &pubsub.PublisherMock{
-		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
-	}
-	r := &eventrouter.Router{
-		Log:       slog.Default(),
-		Store:     s,
-		Publisher: pub,
-	}
-
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "PR comment from alice",
-		Data:        "gritz: fix tests",
-		URL:         url,
-		UserID:      org.UserID,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	// The notification still publishes with the usual resources so the FE
-	// invalidates, but ChannelMessage is empty — PR #725's gate keeps the
-	// agent channel silent on a no-transition attach.
-	notifications := pub.PublishedNotifications()
-	assert.Assert(t, cmp.Len(notifications, 1))
-	assert.Equal(t, notifications[0].ChannelMessage, "")
-	assert.Equal(t, len(notifications[0].Resources), 3)
-}
-
-func TestRouteNoWakeAttachesEventWithoutRestart(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a matching rule that opts out of waking via Wakeup{Enable:false},
-	// and a done task subscribed to the event URL.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
-	})
-	url := "https://github.com/owner/repo/pull/1#issuecomment-1"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusCompleted,
-		Links:     []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{Source: "github", Wakeup: false},
-	}))
-	pub := &pubsub.PublisherMock{
-		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
-	}
-	r := &eventrouter.Router{Log: slog.Default(), Store: s, Publisher: pub}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "PR comment from alice",
-		Data:        "anything",
-		URL:         url,
-		UserID:      org.UserID,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	// The task is NOT restarted — its status stays done.
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusCompleted)
-
-	// The event was still attached to the task.
 	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
 	assert.NilError(t, err)
-	assert.Equal(t, len(events), 1)
-
-	// A channel notification is published unconditionally so the event isn't
-	// silently swallowed, even though the task wasn't restarted.
-	notifications := pub.PublishedNotifications()
-	assert.Assert(t, cmp.Len(notifications, 1))
-	msg := notifications[0].ChannelMessage
-	assert.Assert(t, msg != "", "expected non-empty ChannelMessage, got empty")
-	assert.Assert(t, strings.Contains(msg, "PR comment from alice"), "expected description in message: %q", msg)
-	assert.Assert(t, strings.Contains(msg, url), "expected URL in message: %q", msg)
+	assert.Assert(t, cmp.Len(events, 1))
+	assert.Equal(t, events[0].Wake, true)
 }
 
-func TestRouteWakeEnabledRestartsTask(t *testing.T) {
+func TestPlanDeliveryAdmission(t *testing.T) {
 	t.Parallel()
-
-	// Arrange: same setup but with Wakeup:true — the task IS restarted, the
-	// current behavior.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
-	})
-	url := "https://github.com/owner/repo/pull/1#issuecomment-1"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusCompleted,
-		Links:     []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{Source: "github", Wakeup: true},
-	}))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "PR comment from alice",
-		Data:        "anything",
-		URL:         url,
-		UserID:      org.UserID,
-	})
-
-	// Assert: the task was restarted.
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusPending)
-
-	// Waking a done task records the external trigger that drove the restart. No
-	// RESTARTED lifecycle event is emitted: it would be redundant with the
-	// external event, which already explains why the task woke. Restarted
-	// lifecycle events are reserved for user-initiated restarts via RestartTask.
-	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeExternal, model.EventTypeLifecycle),
-		[]model.EventPayload{
-			&model.ExternalPayload{
-				Description: "PR comment from alice",
-				URL:         url,
-				Data:        "anything",
-				Source:      "github",
-				EventType:   "issue_comment",
-			},
-		},
-	)
-	// The wake is a start command for the next run.
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeCommand),
-		[]model.EventPayload{
-			&model.CommandPayload{Command: model.TaskCommandStart, Version: 1, Runner: "r", Workspace: "w"},
-		},
-	)
-}
-
-func TestRouteCreateRuleSpawnsTask(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source:     "github",
-		Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "icholy-bot"}},
-		Create: &model.CreateTaskAction{
-			Workspace: "default",
-			Runner:    "test-runner",
-			Prompt:    "Triage this issue.",
-		},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "alice commented on issue #1",
-		Data:        "@icholy-bot please look at this",
-		URL:         url,
-		UserID:      org.UserID,
-		Attrs:       eventrouter.Attrs{"mention": {"icholy-bot"}},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	task := tasks[0]
-	assert.Equal(t, task.Workspace, "default")
-	assert.Equal(t, task.Runner, "test-runner")
-	assert.Equal(t, task.Status, model.TaskStatusPending)
-	assert.Equal(t, task.Command, model.TaskCommandStart)
-	// A custom prompt replaces the default preamble entirely — the task gets
-	// exactly the configured prompt and nothing else.
-	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeInstruction})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeInstruction),
-		[]model.EventPayload{
-			&model.InstructionPayload{Text: "Triage this issue."},
-		},
-	)
-
-	// The subscription link keeps the trigger URL but carries no title — the
-	// trigger's description lives on the external event instead, so the link no
-	// longer double-duties as the trigger label.
-	links, err := s.ListLinksByTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(links), 1)
-	assert.Equal(t, links[0].URL, url)
-	assert.Equal(t, links[0].Subscribe, true)
-	assert.Equal(t, links[0].Title, "")
-
-	// The create path appends a link event mirroring the task_links row (the
-	// timeline source of truth; task_links is the projection), alongside the
-	// instruction event it already seeds.
-	linkEvents, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeLink})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(linkEvents, model.EventTypeLink),
-		[]model.EventPayload{
-			&model.LinkPayload{
-				LinkID:    links[0].ID,
-				Relevance: "trigger",
-				URL:       url,
-				Subscribe: true,
-			},
-		},
-	)
-	assert.Equal(t, linkEvents[0].Wake, false)
-
-	// The timeline (ordered by event id) must read
-	// External -> Created -> Link -> Instruction: the trigger event that caused
-	// the task to exist first (the same way a woken task surfaces its trigger),
-	// then the lifecycle event, the link that triggered the task, and finally the
-	// prompt the agent acts on. The start command is written beside the Created
-	// lifecycle event.
-	allEvents, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
-	assert.NilError(t, err)
-	var types []string
-	for _, e := range allEvents {
-		types = append(types, e.Payload.Type())
-	}
-	assert.DeepEqual(t, types, []string{
-		model.EventTypeExternal,
-		model.EventTypeLifecycle,
-		model.EventTypeCommand,
-		model.EventTypeLink,
-		model.EventTypeInstruction,
-	})
-
-	// The trigger surfaces as an external event carrying the webhook payload,
-	// mirroring the wake path (attach).
-	externalEvents, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(externalEvents, model.EventTypeExternal),
-		[]model.EventPayload{
-			&model.ExternalPayload{
-				Description: "alice commented on issue #1",
-				URL:         url,
-				Data:        "@icholy-bot please look at this",
-				Source:      "github",
-				EventType:   "issue_comment",
-			},
-		},
-	)
-}
-
-func TestRouteCreateRuleCopiesVariablesUnresolved(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{
-		RunnerID: "r",
-		Name:     "default",
-		OrgID:    org.OrgID,
-		Variables: []taskvar.Decl{
-			{Name: "REPO", Required: true},
-			{Name: "BRANCH", Default: "main"},
-		},
-	}))
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Create: &model.CreateTaskAction{
-			Workspace: "default",
-			Runner:    "r",
-			Variables: map[string]string{"REPO": "gritz"},
-		},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		URL:    "https://github.com/owner/repo/issues/1",
-		UserID: org.UserID,
-	})
-
-	// Assert - the rule's values as saved, without BRANCH's default.
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	assert.DeepEqual(t, tasks[0].Variables, map[string]string{"REPO": "gritz"})
-}
-
-func TestRouteCreateRuleWithoutPromptUsesDefaultPreamble(t *testing.T) {
-	t.Parallel()
-
-	// Arrange — a create rule with no custom prompt falls back to the default
-	// preamble orienting the agent with the event source/type. It seeds exactly
-	// one instruction (no custom prompt appended).
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "test-runner"},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "issue_comment",
-		Description: "alice commented on issue #1",
-		Data:        "@icholy-bot please look at this",
-		URL:         url,
-		UserID:      org.UserID,
-		Attrs:       eventrouter.Attrs{"mention": {"icholy-bot"}},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	task := tasks[0]
-	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeInstruction})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeInstruction),
-		[]model.EventPayload{
-			&model.InstructionPayload{
-				Text: "You were created by a routing rule in response to a github issue_comment event.",
-			},
-		},
-	)
-}
-
-func TestRouteCreateRuleAutoArchive(t *testing.T) {
-	t.Parallel()
-
-	// A create rule carries its AutoArchive through to the spawned task; omitting
-	// it leaves the task at the "never auto-archive" default (zero duration).
 	tests := []struct {
-		name        string
-		autoArchive time.Duration
-		want        time.Duration
+		name      string
+		public    bool
+		delivered bool
 	}{
-		{name: "explicit duration is applied", autoArchive: 24 * time.Hour, want: 24 * time.Hour},
-		{name: "omitted defaults to never", autoArchive: 0, want: 0},
+		{name: "public kind", public: true, delivered: true},
+		{name: "member-only kind"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
 			// Arrange
 			s := teststore.New(t)
 			org := teststore.CreateOrg(t, s, nil)
-			url := "https://github.com/owner/repo/issues/1"
-			err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-				Source: "github",
-				Create: &model.CreateTaskAction{
-					Workspace:   "default",
-					Runner:      "test-runner",
-					AutoArchive: tt.autoArchive,
-				},
+			const url = "https://github.com/o/r/pull/1"
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{
+				{Type: "github.pr", Public: tt.public},
 			}})
+			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+				AgentID: agent.ID,
+				Links:   []teststore.LinkOptions{{URL: url, Kind: "github.pr"}},
+			})
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+			// Act - an actor who isn't a member of the event's org.
+			plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+				Source: "github",
+				Type:   "issue_comment",
+				URL:    url,
+				Orgs:   []int64{org.OrgID},
+			})
+
+			// Assert
 			assert.NilError(t, err)
-			r := &eventrouter.Router{Log: slog.Default(), Store: s}
+			var want []eventrouter.Delivery
+			if tt.delivered {
+				want = []eventrouter.Delivery{{OrgID: org.OrgID, AgentID: agent.ID, TaskID: task.ID, Kind: "github.pr"}}
+			}
+			assert.DeepEqual(t, plan.Deliveries, want)
+		})
+	}
+}
+
+func TestRouteDeliveryWakeMessage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		status  model.TaskStatus
+		message string
+	}{
+		{
+			name:    "finished task",
+			status:  model.TaskStatusCompleted,
+			message: "woken by event",
+		},
+		{
+			// The notification still publishes so the FE invalidates, but the
+			// agent channel stays silent for a task that is already running.
+			name:   "running task",
+			status: model.TaskStatusRunning,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			const url = "https://github.com/o/r/pull/1"
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{{Type: "github.pr"}}})
+			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+				AgentID: agent.ID,
+				Status:  tt.status,
+				Links:   []teststore.LinkOptions{{URL: url, Kind: "github.pr"}},
+			})
+			pub := &pubsub.PublisherMock{
+				PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
+			}
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry, Publisher: pub}
+
+			// Act
+			_, err := r.Route(t.Context(), eventrouter.InputEvent{
+				Source:      "github",
+				Type:        "issue_comment",
+				Description: "PR comment from alice",
+				URL:         url,
+				UserID:      org.UserID,
+			})
+
+			// Assert
+			assert.NilError(t, err)
+			notifications := pub.PublishedNotifications()
+			assert.Assert(t, cmp.Len(notifications, 1))
+			assert.Assert(t, cmp.Len(notifications[0].Resources, 3))
+			assert.Equal(t, notifications[0].Resources[0].ID, task.ID)
+			if tt.message == "" {
+				assert.Equal(t, notifications[0].ChannelMessage, "")
+			} else {
+				assert.Assert(t, cmp.Contains(notifications[0].ChannelMessage, tt.message))
+				assert.Assert(t, cmp.Contains(notifications[0].ChannelMessage, "PR comment from alice"))
+			}
+		})
+	}
+}
+
+func TestRouteTriggerCreatesTask(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{
+		Workspace:   "w",
+		Runner:      "r",
+		Prompt:      "Review this PR.",
+		AutoArchive: time.Hour,
+		Variables:   map[string]string{"BRANCH": "${env:BRANCH}"},
+		Triggers: []model.AgentTrigger{{
+			Source:     "github",
+			Type:       "issue_comment",
+			Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "gritz"}},
+			Link:       "owned-pr",
+		}},
+		Links: []model.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+	// Act
+	n, err := r.Route(t.Context(), eventrouter.InputEvent{
+		Source:      "github",
+		Type:        "issue_comment",
+		Description: "alice commented on PR #1",
+		Data:        "@gritz please review",
+		URL:         "https://github.com/o/r/pull/1#issuecomment-9",
+		UserID:      org.UserID,
+		Attrs:       eventrouter.Attrs{"mention": {"gritz"}},
+	})
+
+	// Assert - a task of the agent, from its template; variables are copied
+	// as saved, for the runner to resolve.
+	assert.NilError(t, err)
+	assert.Equal(t, n, 1)
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(tasks, 1))
+	task := tasks[0]
+	assert.DeepEqual(t, task, &model.Task{
+		ID:          task.ID,
+		Runner:      "r",
+		Workspace:   "w",
+		Status:      model.TaskStatusPending,
+		Command:     model.TaskCommandStart,
+		Version:     1,
+		OrgID:       org.OrgID,
+		AgentID:     agent.ID,
+		AutoArchive: time.Hour,
+		Variables:   map[string]string{"BRANCH": "${env:BRANCH}"},
+	}, cmpopts.IgnoreFields(model.Task{}, "CreatedAt", "UpdatedAt"))
+
+	// The trigger's link: the kind and its claim, on the PR's canonical URL.
+	links, err := s.ListLinksByTask(t.Context(), nil, task.ID, org.OrgID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, links, []*model.Link{{
+		ID:        links[0].ID,
+		TaskID:    task.ID,
+		Relevance: "trigger",
+		URL:       "https://github.com/o/r/pull/1",
+		Kind:      "owned-pr",
+		Claim:     "pr-owner",
+	}}, cmpopts.IgnoreFields(model.Link{}, "CreatedAt"))
+
+	// The timeline reads External -> Created -> Command -> Link -> Instruction.
+	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
+	assert.NilError(t, err)
+	var payloads []model.EventPayload
+	for _, e := range events {
+		payloads = append(payloads, e.Payload)
+	}
+	assert.DeepEqual(t, payloads, []model.EventPayload{
+		&model.ExternalPayload{
+			Description: "alice commented on PR #1",
+			URL:         "https://github.com/o/r/pull/1#issuecomment-9",
+			Data:        "@gritz please review",
+			Source:      "github",
+			EventType:   "issue_comment",
+		},
+		&model.LifecyclePayload{
+			Kind:     model.LifecycleKindCreated,
+			Actor:    model.RouterActor,
+			ToStatus: model.TaskStatusPending.Label(),
+		},
+		&model.CommandPayload{
+			Command:   model.TaskCommandStart,
+			Version:   1,
+			Runner:    "r",
+			Workspace: "w",
+		},
+		&model.LinkPayload{
+			LinkID:    links[0].ID,
+			Relevance: "trigger",
+			URL:       "https://github.com/o/r/pull/1",
+			Kind:      "owned-pr",
+			Claim:     "pr-owner",
+		},
+		&model.InstructionPayload{Text: "Review this PR."},
+	})
+}
+
+func TestRouteTriggerLink(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		link  string
+		url   string
+		links int
+	}{
+		{name: "no link", url: "https://github.com/o/r/pull/1"},
+		{name: "link kind accepts the URL", link: "github.pr", url: "https://github.com/o/r/pull/1", links: 1},
+		// A comment on an issue names no PR: the task is still created.
+		{name: "link kind doesn't accept the URL", link: "github.pr", url: "https://github.com/o/r/issues/1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			teststore.CreateAgent(t, s, org, &model.Agent{
+				Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Link: tt.link}},
+				Links:    []model.AgentLink{{Type: "github.pr"}},
+			})
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 
 			// Act
 			n, err := r.Route(t.Context(), eventrouter.InputEvent{
 				Source: "github",
 				Type:   "issue_comment",
-				Data:   "hello",
-				URL:    url,
+				URL:    tt.url,
 				UserID: org.UserID,
 			})
 
@@ -867,1055 +417,400 @@ func TestRouteCreateRuleAutoArchive(t *testing.T) {
 			assert.Equal(t, n, 1)
 			tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
 			assert.NilError(t, err)
-			assert.Equal(t, len(tasks), 1)
-			assert.Equal(t, tasks[0].AutoArchive, tt.want)
+			assert.Assert(t, cmp.Len(tasks, 1))
+			links, err := s.ListLinksByTask(t.Context(), nil, tasks[0].ID, org.OrgID)
+			assert.NilError(t, err)
+			assert.Assert(t, cmp.Len(links, tt.links))
 		})
 	}
 }
 
-func TestRouteCreateRuleThatDoesNotMatch(t *testing.T) {
+func TestRouteTriggerWithoutPromptUsesPreamble(t *testing.T) {
 	t.Parallel()
-
-	// Arrange: a create-rule that requires a mention, an event without one.
+	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/8"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source:     "github",
-		Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "bot"}},
-		Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}})
+	teststore.CreateAgent(t, s, org, &model.Agent{
+		Name:     "responder",
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+	// Act
+	_, err := r.Route(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		URL:    "https://github.com/o/r/issues/1",
+		UserID: org.UserID,
+	})
+
+	// Assert
 	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(tasks, 1))
+	events, err := s.ListEventsByTask(t.Context(), nil, tasks[0].ID, org.OrgID, []string{model.EventTypeInstruction})
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		model.FilterPayloads(events, model.EventTypeInstruction),
+		[]model.EventPayload{&model.InstructionPayload{
+			Text: `You were created by a trigger of agent "responder" in response to a github issue_comment event.`,
+		}},
+	)
+}
+
+func TestPlanFirstTriggerWins(t *testing.T) {
+	t.Parallel()
+	// Arrange - the first trigger doesn't match; the second and third do.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{
+		Triggers: []model.AgentTrigger{
+			{Source: "github", Type: "pull_request_closed"},
+			{Source: "github", Type: "issue_comment", Conditions: []model.Condition{{Attr: "body", Op: "prefix", Value: "gritz:"}}},
+			{Source: "github", Type: "issue_comment"},
+		},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+	// Act
+	plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		Data:   "gritz: fix it",
+		URL:    "https://github.com/o/r/issues/1",
+		UserID: org.UserID,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, plan.Triggers, []eventrouter.TriggerMatch{{OrgID: org.OrgID, Agent: agent, TriggerIndex: 1}})
+}
+
+func TestRouteTwoAgentsOnOneEvent(t *testing.T) {
+	t.Parallel()
+	// Arrange - an implementer and a reviewer both trigger on the same event.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	implementer := teststore.CreateAgent(t, s, org, &model.Agent{
+		Name:     "implementer",
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "pull_request_opened"}},
+	})
+	reviewer := teststore.CreateAgent(t, s, org, &model.Agent{
+		Name:     "reviewer",
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "pull_request_opened"}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 
 	// Act
 	n, err := r.Route(t.Context(), eventrouter.InputEvent{
 		Source: "github",
-		Type:   "issue_comment",
-		Data:   "no mention here",
-		URL:    url,
+		Type:   "pull_request_opened",
+		URL:    "https://github.com/o/r/pull/1",
 		UserID: org.UserID,
 	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 0)
-}
 
-func TestRouteRedeliveryDedup(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: sequential replay. The first Route creates the task and a
-	// subscribed link; the second Route sees that link via the routing-level
-	// FindSubscribedLinksForOrgs lookup and takes the wake path instead of
-	// creating a duplicate. (Genuinely-concurrent overlapping txns can still
-	// produce duplicates — accepted as a v1 limitation.)
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/3"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	input := eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "trigger",
-		URL:    url,
-		UserID: org.UserID,
-	}
-
-	// Act: two back-to-back identical events
-	_, err = r.Route(t.Context(), input)
-	assert.NilError(t, err)
-	_, err = r.Route(t.Context(), input)
-	assert.NilError(t, err)
-
-	// Assert: only one task and one subscribed link exist
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	links, err := s.FindSubscribedLinksForOrgs(t.Context(), nil, url, []int64{org.OrgID})
-	assert.NilError(t, err)
-	assert.Equal(t, len(links[org.OrgID]), 1)
-}
-
-func TestRoutePushCreatesTaskOnce(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a push rule scoped by branch and changed path.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/commit/ccc"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Type:   "push",
-		Conditions: []model.Condition{
-			{Attr: "branch", Op: "equals", Value: "master"},
-			{Attr: "path", Op: "glob", Value: "internal/store/sql/migrations/**"},
-		},
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	input := eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "push",
-		Description: "alice pushed 1 commit to master",
-		Data:        "add migration",
-		URL:         url,
-		UserID:      org.UserID,
-		Attrs: eventrouter.Attrs{
-			"repo":   {"owner/repo"},
-			"branch": {"master"},
-			"path":   {"README.md", "internal/store/sql/migrations/0042_add.sql"},
-			"user":   {"alice"},
-		},
-	}
-
-	// Act: the push, then a redelivery of it.
-	n, err := r.Route(t.Context(), input)
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	_, err = r.Route(t.Context(), input)
-	assert.NilError(t, err)
-
-	// Assert: one task, triggered by the head commit URL.
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	links, err := s.ListLinksByTask(t.Context(), nil, tasks[0].ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(links), 1)
-	assert.Equal(t, links[0].URL, url)
-	assert.Equal(t, links[0].Subscribe, true)
-}
-
-func TestRouteCheckRunFailureCreatesTask(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: the public create rule for failed checks on master. The sender
-	// is usually unlinked, so the event reaches the org through the App
-	// installation only.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Type:   "check_run_completed",
-		Public: true,
-		Conditions: []model.Condition{
-			{Attr: "conclusion", Op: "equals", Value: "failure"},
-			{Attr: "repo", Op: "equals", Value: "owner/repo"},
-			{Attr: "branch", Op: "equals", Value: "master"},
-		},
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-	checkRun := func(job, conclusion string) eventrouter.InputEvent {
-		return eventrouter.InputEvent{
-			Source:      "github",
-			Type:        "check_run_completed",
-			Description: `check "test" completed on master (abc1234)`,
-			URL:         "https://github.com/owner/repo/actions/runs/11/job/" + job,
-			Orgs:        []int64{org.OrgID},
-			Attrs: eventrouter.Attrs{
-				"repo":       {"owner/repo"},
-				"branch":     {"master"},
-				"conclusion": {conclusion},
-				"check":      {"test"},
-				"app":        {"github-actions"},
-				"user":       {"alice"},
-			},
-		}
-	}
-
-	// Act: a successful check, then a failed one.
-	n, err := r.Route(t.Context(), checkRun("21", "success"))
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	n, err = r.Route(t.Context(), checkRun("22", "failure"))
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	// Assert: one task, triggered by the failed job.
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	links, err := s.ListLinksByTask(t.Context(), nil, tasks[0].ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(links), 1)
-	assert.Equal(t, links[0].URL, "https://github.com/owner/repo/actions/runs/11/job/22")
-}
-
-func TestRouteCheckRunFailuresOfOneRunShareTask(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: the public create rule for failed checks on master.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Type:   "check_run_completed",
-		Public: true,
-		Conditions: []model.Condition{
-			{Attr: "conclusion", Op: "equals", Value: "failure"},
-			{Attr: "branch", Op: "equals", Value: "master"},
-		},
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-	failedJob := func(job, check string) eventrouter.InputEvent {
-		return eventrouter.InputEvent{
-			Source:      "github",
-			Type:        "check_run_completed",
-			Description: `check "` + check + `" failed on master (abc1234)`,
-			URL:         "https://github.com/owner/repo/actions/runs/11/job/" + job,
-			Orgs:        []int64{org.OrgID},
-			Attrs: eventrouter.Attrs{
-				"repo":       {"owner/repo"},
-				"branch":     {"master"},
-				"conclusion": {"failure"},
-				"check":      {check},
-				"app":        {"github-actions"},
-				"user":       {"alice"},
-			},
-		}
-	}
-
-	// Act: two failing jobs of the same workflow run.
-	n, err := r.Route(t.Context(), failedJob("21", "test"))
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	n, err = r.Route(t.Context(), failedJob("22", "lint"))
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	// Assert: one task, carrying both failures.
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	events, err := s.ListEventsByTask(t.Context(), nil, tasks[0].ID, org.OrgID, []string{model.EventTypeExternal})
-	assert.NilError(t, err)
-	var urls []string
-	for _, e := range events {
-		urls = append(urls, e.Payload.(*model.ExternalPayload).URL)
-	}
-	slices.Sort(urls)
-	assert.DeepEqual(t, urls, []string{
-		"https://github.com/owner/repo/actions/runs/11/job/21",
-		"https://github.com/owner/repo/actions/runs/11/job/22",
-	})
-}
-
-func TestRoutePullRequestCheckRunFailureWakesTask(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a done task subscribed to the PR it opened, and the public
-	// waking rule for its failed checks.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, &teststore.OrgOptions{
-		Workspaces: []teststore.WorkspaceOptions{{RunnerID: "r", Name: "w"}},
-	})
-	url := "https://github.com/owner/repo/pull/12"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusCompleted,
-		Links:     []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Type:   "pull_request_check_run_completed",
-		Public: true,
-		Conditions: []model.Condition{
-			{Attr: "conclusion", Op: "equals", Value: "failure"},
-			{Attr: "repo", Op: "equals", Value: "owner/repo"},
-		},
-		Wakeup: true,
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-	checkRun := func(conclusion string) eventrouter.InputEvent {
-		return eventrouter.InputEvent{
-			Source:      "github",
-			Type:        "pull_request_check_run_completed",
-			Description: `check "test" completed on PR #12 (abc1234)`,
-			URL:         url,
-			Orgs:        []int64{org.OrgID},
-			Attrs: eventrouter.Attrs{
-				"repo":       {"owner/repo"},
-				"branch":     {"feature"},
-				"conclusion": {conclusion},
-				"check":      {"test"},
-				"app":        {"github-actions"},
-				"user":       {"alice"},
-			},
-		}
-	}
-
-	// Act: a successful check leaves the task untouched and unattached.
-	n, err := r.Route(t.Context(), checkRun("success"))
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
-	assert.NilError(t, err)
-	assert.Equal(t, len(events), 0)
-
-	// Act: a failed check wakes it.
-	n, err = r.Route(t.Context(), checkRun("failure"))
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	// Assert: the task is restarted, carrying only the failure.
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusPending)
-	events, err = s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
-	assert.NilError(t, err)
-	assert.Equal(t, len(events), 1)
-	assert.Equal(t, events[0].Payload.(*model.ExternalPayload).EventType, "pull_request_check_run_completed")
-}
-
-func TestRouteFirstMatchingRuleWins(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: wake-only rule ordered before create-rule shadows the create.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/4"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{Source: "github"}, // wake-only, matches
-		{Source: "github", Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"}},
-	})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "hi",
-		URL:    url,
-		UserID: org.UserID,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 0)
-
-	// Reorder so the create-rule comes first.
-	err = s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{Source: "github", Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"}},
-		{Source: "github"},
-	})
-	assert.NilError(t, err)
-	n, err = r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "hi",
-		URL:    url,
-		UserID: org.UserID,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	tasks, err = s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-}
-
-func TestRoutePerOrgIsolation(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: user in org A (matching link, no create rule) and org B (no link, create rule).
-	s := teststore.New(t)
-	orgA := teststore.CreateOrg(t, s, nil)
-	orgB := teststore.CreateOrg(t, s, nil)
-	assert.NilError(t, s.AddOrgMember(t.Context(), nil, &model.OrgMember{
-		OrgID: orgB.OrgID, UserID: orgA.UserID, Role: "member",
-	}))
-	url := "https://github.com/owner/repo/issues/5"
-	teststore.CreateTask(t, s, orgA, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	// Org A has a wake rule reproducing the former shipped default (gritz: body-prefix).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgA.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}))
-	err := s.SetOrgRoutingRules(t.Context(), nil, orgB.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do it", // matches org A's wake rule; matches org B's source-only rule
-		URL:    url,
-		UserID: orgA.UserID,
-	})
+	// Assert - a task of each.
 	assert.NilError(t, err)
 	assert.Equal(t, n, 2)
-
-	tasksA, err := s.ListTasks(t.Context(), nil, orgA.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasksA), 1)
-	assert.Equal(t, tasksA[0].Status, model.TaskStatusPending)
-
-	tasksB, err := s.ListTasks(t.Context(), nil, orgB.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasksB), 1)
-	assert.Equal(t, tasksB[0].Status, model.TaskStatusPending)
-}
-
-func TestRouteLinkQueryScopedToMatchedOrgs(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: user in orgs A, B, C. Only B has a matching rule. A has a link
-	// at the URL, C has no rule and no link. A's link must NOT cause a wake
-	// because no rule matched in A.
-	s := teststore.New(t)
-	orgA := teststore.CreateOrg(t, s, nil)
-	orgB := teststore.CreateOrg(t, s, nil)
-	orgC := teststore.CreateOrg(t, s, nil)
-	assert.NilError(t, s.AddOrgMember(t.Context(), nil, &model.OrgMember{
-		OrgID: orgB.OrgID, UserID: orgA.UserID, Role: "member",
-	}))
-	assert.NilError(t, s.AddOrgMember(t.Context(), nil, &model.OrgMember{
-		OrgID: orgC.OrgID, UserID: orgA.UserID, Role: "member",
-	}))
-	url := "https://github.com/owner/repo/issues/6"
-	taskA := teststore.CreateTask(t, s, orgA, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	// Org A has rules that don't match this event (mention required, none present).
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgA.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Conditions: []model.Condition{
-				{Attr: "mention", Op: "equals", Value: "someone-else"},
-			},
-		},
-	}))
-	// Org B has a matching create rule.
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgB.OrgID, []model.RoutingRule{
-		{Source: "github", Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"}},
-	}))
-	// Org C has empty rules — a ruleless org matches nothing.
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "no mention, no gritz prefix",
-		URL:    url,
-		UserID: orgA.UserID,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1) // only org B creates
-
-	// Org A's task is untouched.
-	updated, err := s.GetTask(t.Context(), nil, taskA.ID, orgA.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusCompleted)
-
-	// Org B has the newly created task.
-	tasksB, err := s.ListTasks(t.Context(), nil, orgB.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasksB), 1)
-
-	// Org C has no tasks.
-	tasksC, err := s.ListTasks(t.Context(), nil, orgC.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasksC), 0)
-}
-
-func TestRouteRuleLessOrgRoutesNothing(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a member org with no routing rules. The producers no longer ship
-	// default rules, so even a body carrying the former default's "gritz:" prefix
-	// routes nothing and the subscribed task stays put.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/7"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do it",
-		URL:    url,
-		UserID: org.UserID,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusCompleted)
-}
-
-func TestRouteAssignmentCreatesTaskAndLink(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: create-rule gated on assignee for pull_request_assigned events.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/9"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source:     "github",
-		Type:       "pull_request_assigned",
-		Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}},
-		Create: &model.CreateTaskAction{
-			Workspace: "default",
-			Runner:    "r",
-			Prompt:    "Review it.",
-		},
-	}})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source:      "github",
-		Type:        "pull_request_assigned",
-		Description: "alice assigned PR #9 to @icholy-bot",
-		URL:         url,
-		UserID:      org.UserID,
-		Attrs:       eventrouter.Attrs{"assignee": {"icholy-bot"}},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
 	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
 	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	assert.Equal(t, tasks[0].Workspace, "default")
-	assert.Equal(t, tasks[0].Runner, "r")
-
-	links, err := s.FindSubscribedLinksForOrgs(t.Context(), nil, url, []int64{org.OrgID})
-	assert.NilError(t, err)
-	assert.Equal(t, len(links[org.OrgID]), 1)
-	assert.Equal(t, links[org.OrgID][0].URL, url)
-	// The router derives routing_key so the created link is matchable; for an
-	// already-canonical URL it equals url.
-	assert.Equal(t, links[org.OrgID][0].RoutingKey, url)
-}
-
-func TestRouteAssignmentCreateThenCommentWakes(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: two rules — an assignment create-rule and a comment wake-rule. This
-	// exercises the create-then-wake path across event types: the first event
-	// (assignment) creates the task and a subscribed link; a later comment on the
-	// same URL matches a different rule and wakes the existing task instead of
-	// spawning a duplicate.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/9"
-	err := s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{
-			Source:     "github",
-			Type:       "pull_request_assigned",
-			Conditions: []model.Condition{{Attr: "assignee", Op: "equals", Value: "icholy-bot"}},
-			Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-		},
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	})
-	assert.NilError(t, err)
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act: first event creates the task and a subscribed link.
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "pull_request_assigned",
-		URL:    url,
-		UserID: org.UserID,
-		Attrs:  eventrouter.Attrs{"assignee": {"icholy-bot"}},
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	created := tasks[0]
-
-	// Bring the task back to a wakeable state so the wake path is observable.
-	created.Status = model.TaskStatusCompleted
-	created.Command = model.TaskCommandNone
-	assert.NilError(t, s.UpdateTask(t.Context(), nil, created))
-
-	// Act: a subsequent comment on the same URL wakes the existing task —
-	// no second task is created.
-	n, err = r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: please look",
-		URL:    url,
-		UserID: org.UserID,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	tasks, err = s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-	updated, err := s.GetTask(t.Context(), nil, created.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusPending)
-	assert.Equal(t, updated.Command, model.TaskCommandStart)
-}
-
-func TestRouteNonMemberOrgMatchesOnlyPublicRule(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: an org the actor is NOT a member of, named in input.Orgs. It has a
-	// non-public rule and a public one. Only the public rule is eligible.
-	s := teststore.New(t)
-	actorOrg := teststore.CreateOrg(t, s, nil) // supplies a valid non-member actor
-	nonMemberOrg := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, nonMemberOrg.OrgID, []model.RoutingRule{
-		// Non-public rule matches the event but must be skipped for a non-member.
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "mention", Op: "equals", Value: "icholy-bot"},
-			},
-		},
-		// Public create-rule is the only eligible one.
-		{
-			Source:     "github",
-			Type:       "issue_comment",
-			Public:     true,
-			Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "icholy-bot"}},
-			Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-		},
-	}))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "@icholy-bot please look",
-		URL:    url,
-		UserID: actorOrg.UserID,
-		Orgs:   []int64{nonMemberOrg.OrgID},
-		Attrs:  eventrouter.Attrs{"mention": {"icholy-bot"}},
-	})
-
-	// Assert: the public rule fired and created a task in the non-member org.
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	tasks, err := s.ListTasks(t.Context(), nil, nonMemberOrg.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-}
-
-func TestRouteNonMemberOrgWithoutPublicRuleIsNoOp(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a non-member org whose matching rule is not public — it must not
-	// fire.
-	s := teststore.New(t)
-	actorOrg := teststore.CreateOrg(t, s, nil)
-	nonMemberOrg := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, nonMemberOrg.OrgID, []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-		},
-	}))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do it",
-		URL:    url,
-		UserID: actorOrg.UserID,
-		Orgs:   []int64{nonMemberOrg.OrgID},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-	tasks, err := s.ListTasks(t.Context(), nil, nonMemberOrg.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 0)
-}
-
-func TestRouteRuleLessNonMemberOrgRoutesNothing(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: a non-member org with no routing rules at all. A ruleless org
-	// matches nothing, so nothing routes even though the body carries the
-	// "gritz:" prefix a rule could otherwise match.
-	s := teststore.New(t)
-	actorOrg := teststore.CreateOrg(t, s, nil)
-	nonMemberOrg := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	teststore.CreateTask(t, s, nonMemberOrg, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "gritz: do it",
-		URL:    url,
-		UserID: actorOrg.UserID,
-		Orgs:   []int64{nonMemberOrg.OrgID},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 0)
-}
-
-func TestRouteEmptyUserWithOrgsRoutesPublicRule(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: an unlinked actor (empty UserID) — the member branch returns
-	// nothing, so routing is driven entirely by input.Orgs and public rules.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source: "github",
-		Type:   "issue_comment",
-		Public: true,
-		Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}}))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "@icholy-bot please look",
-		URL:    url,
-		UserID: "",
-		Orgs:   []int64{org.OrgID},
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 1)
-}
-
-func TestRouteMemberOrgInOrgsUsesFullRuleSet(t *testing.T) {
-	t.Parallel()
-
-	// Arrange: an org that is both the actor's member org AND named in input.Orgs.
-	// Membership wins (the store returns it once, IsMember=true), so its
-	// non-public rule is still eligible — the actor is not down-scoped to the
-	// public subset.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/issues/1"
-	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	// A non-public wake rule — only eligible if the org is treated as a member org.
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{
-		{Source: "github", Type: "issue_comment", Wakeup: true},
-	}))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act: pass the member org's own id in Orgs.
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		Data:   "anything",
-		URL:    url,
-		UserID: org.UserID,
-		Orgs:   []int64{org.OrgID},
-	})
-
-	// Assert: the non-public rule matched and woke the task.
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-	updated, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusPending)
-}
-
-func TestRouteNamespacedCreateRuleFiresPastDefaultSubscriber(t *testing.T) {
-	t.Parallel()
-
-	// The motivating scenario: an implementing task in the default namespace already
-	// subscribes to the PR. A reviewbot-namespace create rule (wakeup off) must still
-	// spawn a reviewer instead of silently attaching to that default subscriber,
-	// because the subscription check is now scoped to the rule's namespace.
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/1"
-
-	// Default-namespace subscriber (the implementing task) present on the PR.
-	implementer := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-
-	// A reviewbot-namespace create rule keyed on the reviewbot label.
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, []model.RoutingRule{{
-		Source:     "github",
-		Type:       "label_added",
-		Namespace:  "reviewbot",
-		Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "reviewbot"}},
-		Create:     &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-	}}))
-	r := &eventrouter.Router{Log: slog.Default(), Store: s}
-
-	// Act
-	n, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "label_added",
-		URL:    url,
-		UserID: org.UserID,
-		Attrs:  eventrouter.Attrs{"label": {"reviewbot"}},
-	})
-
-	// Assert: the reviewer was created, not attached to the implementer.
-	assert.NilError(t, err)
-	assert.Equal(t, n, 1)
-
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, len(tasks), 2)
-
-	// The default-namespace implementer is untouched — the reviewbot rule never saw it.
-	updated, err := s.GetTask(t.Context(), nil, implementer.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.Equal(t, updated.Status, model.TaskStatusCompleted)
-	assert.Equal(t, updated.Namespace, "")
-
-	// The freshly created reviewer is stamped with the rule's namespace.
-	var reviewer *model.Task
-	for _, tk := range tasks {
-		if tk.ID != implementer.ID {
-			reviewer = tk
-		}
+	var agents []int64
+	for _, task := range tasks {
+		agents = append(agents, task.AgentID)
 	}
-	assert.Assert(t, reviewer != nil)
-	assert.Equal(t, reviewer.Namespace, "reviewbot")
-	assert.Equal(t, reviewer.Status, model.TaskStatusPending)
+	assert.DeepEqual(t, agents, []int64{implementer.ID, reviewer.ID}, cmpopts.SortSlices(func(a, b int64) bool { return a < b }))
 }
 
-func TestRouteOnRouteOutcome(t *testing.T) {
+func TestRouteTriggerYields(t *testing.T) {
 	t.Parallel()
-
-	// The OnRouteOutcome callback reports what Route did per matched org. Each
-	// case drives a different terminal state: a create-rule fires it with
-	// Created=true, a subscribed link fires it with Created=false, a wake-only
-	// rule with no link fires it "matched but nothing done", and an event that
-	// matches no rule never fires it at all.
-	const url = "https://github.com/owner/repo/issues/1"
+	const url = "https://github.com/o/r/pull/1"
 	tests := []struct {
-		name        string
-		rules       []model.RoutingRule
-		link        bool // seed a subscribed done task at url
-		data        string
-		wantN       int
-		wantFire    bool
-		wantCreated bool
-		wantTaskIDs int
+		name     string
+		claim    string
+		archived bool
+		yields   bool
 	}{
-		{
-			name: "fires on create",
-			rules: []model.RoutingRule{
-				{
-					Source: "github",
-					Create: &model.CreateTaskAction{Workspace: "default", Runner: "r"},
-				},
-			},
-			data:        "hello",
-			wantN:       1,
-			wantFire:    true,
-			wantCreated: true,
-			wantTaskIDs: 1,
-		},
-		{
-			name: "fires on wake",
-			rules: []model.RoutingRule{
-				{
-					Source: "github",
-					Type:   "issue_comment",
-					Conditions: []model.Condition{
-						{Attr: "body", Op: "prefix", Value: "gritz:"},
-					},
-					Wakeup: true,
-				},
-			},
-			link:        true,
-			data:        "gritz: fix tests",
-			wantN:       1,
-			wantFire:    true,
-			wantCreated: false,
-			wantTaskIDs: 1,
-		},
-		{
-			name:        "fires on match with nothing to do",
-			rules:       []model.RoutingRule{{Source: "github"}},
-			data:        "no link, no create",
-			wantN:       0,
-			wantFire:    true,
-			wantCreated: false,
-			wantTaskIDs: 0,
-		},
-		{
-			name:     "does not fire when no rule matches",
-			link:     true,
-			data:     "just a regular comment",
-			wantN:    0,
-			wantFire: false,
-		},
+		{name: "unarchived holder", claim: "pr-owner", yields: true},
+		{name: "archived holder", claim: "pr-owner", archived: true},
+		{name: "link without the claim"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			// Arrange
+			// Arrange - an implementer's task owns the PR; a responder yields
+			// to its owner.
 			s := teststore.New(t)
 			org := teststore.CreateOrg(t, s, nil)
-			if tt.link {
-				teststore.CreateTask(t, s, org, &teststore.TaskOptions{
-					Status: model.TaskStatusCompleted,
-					Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-				})
+			implementer := teststore.CreateAgent(t, s, org, &model.Agent{
+				Name:  "implementer",
+				Links: []model.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: tt.claim, Events: []string{"pull_request_review"}}},
+			})
+			holder := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+				AgentID: implementer.ID,
+				Status:  model.TaskStatusCompleted,
+				Links:   []teststore.LinkOptions{{URL: url, Kind: "owned-pr", Claim: tt.claim}},
+			})
+			if tt.archived {
+				holder.Archived = true
+				assert.NilError(t, s.UpdateTask(t.Context(), nil, holder))
 			}
-			if tt.rules != nil {
-				assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, org.OrgID, tt.rules))
-			}
-			var outcomes []eventrouter.RouteOutcome
-			r := &eventrouter.Router{
-				Log:   slog.Default(),
-				Store: s,
-				OnRouteOutcome: func(_ context.Context, o eventrouter.RouteOutcome) {
-					outcomes = append(outcomes, o)
-				},
+			responder := teststore.CreateAgent(t, s, org, &model.Agent{
+				Name:     "responder",
+				Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", YieldTo: []string{"pr-owner"}}},
+			})
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+			input := eventrouter.InputEvent{
+				Source: "github",
+				Type:   "issue_comment",
+				URL:    url + "#issuecomment-9",
+				UserID: org.UserID,
 			}
 
 			// Act
-			n, err := r.Route(t.Context(), eventrouter.InputEvent{
-				Source: "github",
-				Type:   "issue_comment",
-				Data:   tt.data,
-				URL:    url,
-				UserID: org.UserID,
-			})
-
-			// Assert
+			plan, err := r.Plan(t.Context(), input)
 			assert.NilError(t, err)
-			assert.Equal(t, n, tt.wantN)
-			if !tt.wantFire {
-				assert.Equal(t, len(outcomes), 0)
-				return
+			outcomes := r.Apply(t.Context(), input, plan)
+
+			// Assert - a yield creates nothing, and doesn't forward the event
+			// to the holder, whose kind doesn't list it.
+			assert.Assert(t, cmp.Len(plan.Deliveries, 0))
+			match := eventrouter.TriggerMatch{OrgID: org.OrgID, Agent: responder, TriggerIndex: 0}
+			if tt.yields {
+				match.YieldedTo = []int64{holder.ID}
 			}
-			assert.Equal(t, len(outcomes), 1)
-			got := outcomes[0]
-			assert.Equal(t, got.OrgID, org.OrgID)
-			assert.Equal(t, got.Input.URL, url)
-			assert.Equal(t, got.Rule.Source, "github")
-			assert.Equal(t, got.Created, tt.wantCreated)
-			assert.Equal(t, got.Rule.Create != nil, tt.wantCreated)
-			assert.Equal(t, len(got.TaskIDs), tt.wantTaskIDs)
+			assert.DeepEqual(t, plan.Triggers, []eventrouter.TriggerMatch{match}, cmpopts.EquateEmpty())
+			assert.Assert(t, cmp.Len(outcomes, 1))
+			assert.Equal(t, outcomes[0].Created(), !tt.yields)
 		})
 	}
 }
 
-func TestRouteOnRouteOutcomeFiresOncePerMatchedOrg(t *testing.T) {
+func TestRouteTriggerAndDeliveryAreIndependent(t *testing.T) {
 	t.Parallel()
+	// Arrange - a watcher's task subscribed to the PR, and a responder whose
+	// trigger matches the same event.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	const url = "https://github.com/o/r/pull/1"
+	watcher := teststore.CreateAgent(t, s, org, &model.Agent{
+		Name:  "watcher",
+		Links: []model.AgentLink{{Type: "github.pr"}},
+	})
+	watching := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+		AgentID: watcher.ID,
+		Links:   []teststore.LinkOptions{{URL: url, Kind: "github.pr"}},
+	})
+	responder := teststore.CreateAgent(t, s, org, &model.Agent{
+		Name:     "responder",
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+	input := eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		URL:    url,
+		UserID: org.UserID,
+	}
 
-	// Arrange: user in two orgs, both with a subscribed link at the URL. This also
-	// covers the multi-org wake fan-out (n == 2, one woken task per org).
+	// Act
+	plan, err := r.Plan(t.Context(), input)
+	assert.NilError(t, err)
+	outcomes := r.Apply(t.Context(), input, plan)
+
+	// Assert
+	assert.Assert(t, cmp.Len(outcomes, 1))
+	assert.DeepEqual(t, outcomes[0].Deliveries, []eventrouter.Delivery{
+		{OrgID: org.OrgID, AgentID: watcher.ID, TaskID: watching.ID, Kind: "github.pr"},
+	}, cmpopts.IgnoreFields(eventrouter.Delivery{}, "EventID"))
+	assert.Assert(t, outcomes[0].Delivered())
+	assert.Assert(t, cmp.Len(outcomes[0].Triggers, 1))
+	assert.Equal(t, outcomes[0].Triggers[0].Agent.ID, responder.ID)
+	assert.Assert(t, outcomes[0].Created())
+}
+
+func TestRouteTriggerThenDeliveryThroughItsLink(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent whose trigger links the task to the PR it was
+	// created for, with a kind that delivers reviews.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "pull_request_opened", Link: "github.pr"}},
+		Links:    []model.AgentLink{{Type: "github.pr", Events: []string{"pull_request_review"}}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+	_, err := r.Route(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "pull_request_opened",
+		URL:    "https://github.com/o/r/pull/1",
+		UserID: org.UserID,
+	})
+	assert.NilError(t, err)
+	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.Len(tasks, 1))
+
+	// Act - a review on the PR, at its review URL.
+	plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "pull_request_review",
+		URL:    "https://github.com/o/r/pull/1#pullrequestreview-5",
+		UserID: org.UserID,
+	})
+
+	// Assert - delivered to the created task through its link.
+	assert.NilError(t, err)
+	assert.DeepEqual(t, plan, &eventrouter.Plan{
+		Deliveries: []eventrouter.Delivery{{OrgID: org.OrgID, AgentID: agent.ID, TaskID: tasks[0].ID, Kind: "github.pr"}},
+	})
+}
+
+func TestPlanNonMemberOnlyPublicTriggers(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	teststore.CreateAgent(t, s, org, &model.Agent{
+		Name:     "members",
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
+	})
+	public := teststore.CreateAgent(t, s, org, &model.Agent{
+		Name: "public",
+		Triggers: []model.AgentTrigger{
+			{Source: "github", Type: "issue_comment"},
+			{Source: "github", Type: "issue_comment", Public: true},
+		},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+	// Act - an actor who isn't a member of the event's org.
+	plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		URL:    "https://github.com/o/r/issues/1",
+		Orgs:   []int64{org.OrgID},
+	})
+
+	// Assert - only the public trigger admits it.
+	assert.NilError(t, err)
+	assert.DeepEqual(t, plan.Triggers, []eventrouter.TriggerMatch{{OrgID: org.OrgID, Agent: public, TriggerIndex: 1}})
+}
+
+func TestPlanEveryMemberOrg(t *testing.T) {
+	t.Parallel()
+	// Arrange - the actor is a member of two orgs with a matching trigger each.
 	s := teststore.New(t)
 	orgA := teststore.CreateOrg(t, s, nil)
 	orgB := teststore.CreateOrg(t, s, nil)
-	url := "https://github.com/owner/repo/pull/1"
-	taskA := teststore.CreateTask(t, s, orgA, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
-	taskB := teststore.CreateTask(t, s, orgB, &teststore.TaskOptions{
-		Status: model.TaskStatusCompleted,
-		Links:  []teststore.LinkOptions{{URL: url, Subscribe: true}},
-	})
 	assert.NilError(t, s.AddOrgMember(t.Context(), nil, &model.OrgMember{
-		OrgID:  orgB.OrgID,
-		UserID: orgA.UserID,
-		Role:   "member",
+		OrgID: orgB.OrgID, UserID: orgA.UserID, Role: "member",
 	}))
-	// Both orgs carry a wake rule reproducing the former shipped default.
-	wakeRule := []model.RoutingRule{
-		{
-			Source: "github",
-			Type:   "issue_comment",
-			Conditions: []model.Condition{
-				{Attr: "body", Op: "prefix", Value: "gritz:"},
-			},
-			Wakeup: true,
-		},
-	}
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgA.OrgID, wakeRule))
-	assert.NilError(t, s.SetOrgRoutingRules(t.Context(), nil, orgB.OrgID, wakeRule))
+	agentA := teststore.CreateAgent(t, s, orgA, &model.Agent{
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
+	})
+	agentB := teststore.CreateAgent(t, s, orgB, &model.Agent{
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
+	})
+	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 
-	byOrg := map[int64]eventrouter.RouteOutcome{}
+	// Act
+	plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+		Source: "github",
+		Type:   "issue_comment",
+		URL:    "https://github.com/o/r/issues/1",
+		UserID: orgA.UserID,
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, plan.Triggers, []eventrouter.TriggerMatch{
+		{OrgID: orgA.OrgID, Agent: agentA, TriggerIndex: 0},
+		{OrgID: orgB.OrgID, Agent: agentB, TriggerIndex: 0},
+	})
+}
+
+func TestRouteCustomEventDelivery(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		linkTypes []string
+		delivered bool
+	}{
+		{name: "type declares custom.url", linkTypes: []string{"custom.url"}, delivered: true},
+		{name: "type declares no link type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			assert.NilError(t, s.SetOrgCustomEventTypes(t.Context(), nil, org.OrgID, []model.EventTypeDef{{
+				Source:    eventrouter.SourceCustom,
+				Type:      "problem",
+				Label:     "Problem",
+				Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+				LinkTypes: tt.linkTypes,
+			}}))
+			const url = "https://dynatrace.example.com/problems/1"
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{
+				Links: []model.AgentLink{{Type: "custom.url", Public: true}},
+			})
+			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
+				AgentID: agent.ID,
+				Links:   []teststore.LinkOptions{{URL: url, Kind: "custom.url"}},
+			})
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+
+			// Act - a custom event has no actor.
+			plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
+				Source: eventrouter.SourceCustom,
+				Type:   "problem",
+				URL:    url,
+				Orgs:   []int64{org.OrgID},
+			})
+
+			// Assert
+			assert.NilError(t, err)
+			var want []eventrouter.Delivery
+			if tt.delivered {
+				want = []eventrouter.Delivery{{OrgID: org.OrgID, AgentID: agent.ID, TaskID: task.ID, Kind: "custom.url"}}
+			}
+			assert.DeepEqual(t, plan.Deliveries, want)
+		})
+	}
+}
+
+func TestRouteOnRouteOutcome(t *testing.T) {
+	t.Parallel()
+	// Arrange - in one org a trigger creates a task; in another the event is
+	// delivered; a third org has an agent the event does nothing for.
+	s := teststore.New(t)
+	creating := teststore.CreateOrg(t, s, nil)
+	delivering := teststore.CreateOrg(t, s, nil)
+	idle := teststore.CreateOrg(t, s, nil)
+	const url = "https://github.com/o/r/pull/1"
+	teststore.CreateAgent(t, s, creating, &model.Agent{
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Public: true}},
+	})
+	agent := teststore.CreateAgent(t, s, delivering, &model.Agent{
+		Links: []model.AgentLink{{Type: "github.pr", Public: true}},
+	})
+	teststore.CreateTask(t, s, delivering, &teststore.TaskOptions{
+		AgentID: agent.ID,
+		Links:   []teststore.LinkOptions{{URL: url, Kind: "github.pr"}},
+	})
+	teststore.CreateAgent(t, s, idle, &model.Agent{
+		Triggers: []model.AgentTrigger{{Source: "github", Type: "pull_request_closed", Public: true}},
+	})
+	var got []eventrouter.RouteOutcome
 	r := &eventrouter.Router{
-		Log:   slog.Default(),
-		Store: s,
+		Log:      slog.Default(),
+		Store:    s,
+		Registry: registry,
 		OnRouteOutcome: func(_ context.Context, o eventrouter.RouteOutcome) {
-			byOrg[o.OrgID] = o
+			got = append(got, o)
 		},
 	}
 
@@ -1923,17 +818,22 @@ func TestRouteOnRouteOutcomeFiresOncePerMatchedOrg(t *testing.T) {
 	n, err := r.Route(t.Context(), eventrouter.InputEvent{
 		Source: "github",
 		Type:   "issue_comment",
-		Data:   "gritz: do something",
 		URL:    url,
-		UserID: orgA.UserID,
+		Orgs:   []int64{creating.OrgID, delivering.OrgID, idle.OrgID},
+		Meta:   "meta",
 	})
 
-	// Assert: fired once per matched org with the right woken task.
+	// Assert - one outcome per org the event did something in, with its Meta.
 	assert.NilError(t, err)
 	assert.Equal(t, n, 2)
-	assert.Equal(t, len(byOrg), 2)
-	assert.DeepEqual(t, byOrg[orgA.OrgID].TaskIDs, []int64{taskA.ID})
-	assert.DeepEqual(t, byOrg[orgB.OrgID].TaskIDs, []int64{taskB.ID})
-	assert.Equal(t, byOrg[orgA.OrgID].Created, false)
-	assert.Equal(t, byOrg[orgB.OrgID].Created, false)
+	assert.Assert(t, cmp.Len(got, 2))
+	byOrg := map[int64]eventrouter.RouteOutcome{}
+	for _, o := range got {
+		assert.Equal(t, o.Input.Meta, "meta")
+		byOrg[o.OrgID] = o
+	}
+	assert.Assert(t, byOrg[creating.OrgID].Created())
+	assert.Assert(t, !byOrg[creating.OrgID].Delivered())
+	assert.Assert(t, byOrg[delivering.OrgID].Delivered())
+	assert.Assert(t, !byOrg[delivering.OrgID].Created())
 }
