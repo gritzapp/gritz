@@ -25,7 +25,7 @@ func TestAgentCRUD(t *testing.T) {
 		Prompt:      "Implement the issue and open a pull request.",
 		AutoArchive: 24 * time.Hour,
 		Variables:   map[string]string{"REPO": "gritz"},
-		Triggers: []model.Trigger{{
+		Triggers: []model.AgentTrigger{{
 			Source:     "atlassian",
 			Type:       "label_added",
 			Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "build-it"}},

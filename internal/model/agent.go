@@ -17,7 +17,7 @@ type Agent struct {
 	// Variables are the variables of the agent's tasks, by name, as saved.
 	Variables map[string]string
 	// Triggers create tasks of the agent; the first one matching an event wins.
-	Triggers []Trigger
+	Triggers []AgentTrigger
 	// Links are the kinds of subscribed link the agent's tasks may create.
 	Links []AgentLink
 }
@@ -32,9 +32,9 @@ func (a *Agent) Link(kind string) (AgentLink, bool) {
 	return AgentLink{}, false
 }
 
-// Trigger creates a task of its agent when a matching event arrives. Source,
+// AgentTrigger creates a task of its agent when a matching event arrives. Source,
 // Type, Conditions and Public select events as they do on a RoutingRule.
-type Trigger struct {
+type AgentTrigger struct {
 	Source     string      `json:"source,omitempty"`
 	Type       string      `json:"type,omitempty"`
 	Conditions []Condition `json:"conditions,omitempty"`
