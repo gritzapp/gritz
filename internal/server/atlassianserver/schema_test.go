@@ -66,3 +66,56 @@ func TestSchemaRegistration(t *testing.T) {
 	}
 	assert.DeepEqual(t, keys, []string{"body", "url", "label", "assignee", "user"})
 }
+
+func TestLinkTypeCanonical(t *testing.T) {
+	reg := eventrouter.NewSchemaRegistry()
+	RegisterSchemas(reg)
+	lt, found := reg.LinkType(LinkTypeIssue)
+	assert.Assert(t, found)
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+		ok   bool
+	}{
+		{"browse", "https://site.atlassian.net/browse/X-1", "https://site.atlassian.net/browse/X-1", true},
+		{
+			"browse focused comment",
+			"https://site.atlassian.net/browse/X-1?focusedCommentId=2",
+			"https://site.atlassian.net/browse/X-1",
+			true,
+		},
+		{"api", "https://site.atlassian.net/rest/api/2/issue/X-1", "https://site.atlassian.net/browse/X-1", true},
+		{"api v3", "https://site.atlassian.net/rest/api/3/issue/X-1", "https://site.atlassian.net/browse/X-1", true},
+		{
+			"api comment",
+			"https://site.atlassian.net/rest/api/2/issue/X-1/comment/9",
+			"https://site.atlassian.net/browse/X-1",
+			true,
+		},
+		{"api numeric id", "https://site.atlassian.net/rest/api/2/issue/12345", "", false},
+		{"browse without key", "https://site.atlassian.net/browse/", "", false},
+		{"other host", "https://example.com/browse/X-1", "", false},
+		{"github", "https://github.com/o/r/issues/5", "", false},
+		{"empty", "", "", false},
+		{"plain text", "not a url", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := lt.Canonical(tt.raw)
+
+			assert.Equal(t, got, tt.want)
+			assert.Equal(t, ok, tt.ok)
+		})
+	}
+}
+
+func TestSchemaLinkTypes(t *testing.T) {
+	reg := eventrouter.NewSchemaRegistry()
+	RegisterSchemas(reg)
+
+	for _, def := range reg.EventTypes() {
+		assert.DeepEqual(t, def.LinkTypes, []string{LinkTypeIssue})
+	}
+}

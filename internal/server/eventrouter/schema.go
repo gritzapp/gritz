@@ -70,23 +70,38 @@ type SchemaRegistry struct {
 
 	// eventTypeByKey indexes eventTypes by "source:type" for O(1) lookup.
 	eventTypeByKey map[string]model.EventTypeDef
+
+	// linkTypes holds every registered link type in registration order.
+	linkTypes []model.LinkTypeDef
+
+	// linkTypeByName indexes linkTypes by name.
+	linkTypeByName map[string]model.LinkTypeDef
 }
 
 // NewSchemaRegistry returns an empty registry ready for registration, with its
-// source:type index map initialized.
+// index maps initialized.
 func NewSchemaRegistry() *SchemaRegistry {
 	return &SchemaRegistry{
 		eventTypeByKey: map[string]model.EventTypeDef{},
+		linkTypeByName: map[string]model.LinkTypeDef{},
 	}
 }
 
 // MustRegister records def as the schema for its (Source, Type) event kind,
 // making it available to EventTypeFor and EventTypes. It panics if a def with
-// the same (Source, Type) is already registered.
+// the same (Source, Type) is already registered, or if one of its LinkTypes
+// isn't registered under the same source: an integration registers its link
+// types before the event types that name them.
 func (r *SchemaRegistry) MustRegister(def model.EventTypeDef) {
 	key := def.Source + ":" + def.Type
 	if _, dup := r.eventTypeByKey[key]; dup {
 		panic(fmt.Sprintf("eventrouter: duplicate schema registration for source=%q type=%q", def.Source, def.Type))
+	}
+	for _, name := range def.LinkTypes {
+		lt, ok := r.linkTypeByName[name]
+		if !ok || lt.Source != def.Source {
+			panic(fmt.Sprintf("eventrouter: event type source=%q type=%q names link type %q not registered for its source", def.Source, def.Type, name))
+		}
 	}
 	r.eventTypes = append(r.eventTypes, def)
 	r.eventTypeByKey[key] = def
@@ -105,11 +120,46 @@ func (r *SchemaRegistry) EventTypes() []model.EventTypeDef {
 	return slices.Clone(r.eventTypes)
 }
 
-// With returns a new registry holding r's schemas followed by defs, leaving r
-// unchanged. It panics, like MustRegister, if a def duplicates a registered
-// (Source, Type) or another def.
+// MustRegisterLinkType records def, making it available to LinkType, LinkTypes
+// and the event types that name it. It panics on a duplicate name.
+func (r *SchemaRegistry) MustRegisterLinkType(def model.LinkTypeDef) {
+	if _, dup := r.linkTypeByName[def.Name]; dup {
+		panic(fmt.Sprintf("eventrouter: duplicate link type registration %q", def.Name))
+	}
+	r.linkTypes = append(r.linkTypes, def)
+	r.linkTypeByName[def.Name] = def
+}
+
+// LinkType returns the link type named name, and false if none is registered.
+func (r *SchemaRegistry) LinkType(name string) (model.LinkTypeDef, bool) {
+	def, ok := r.linkTypeByName[name]
+	return def, ok
+}
+
+// LinkTypes returns every registered link type in registration order.
+func (r *SchemaRegistry) LinkTypes() []model.LinkTypeDef {
+	return slices.Clone(r.linkTypes)
+}
+
+// CanonicalURL returns the canonical URL of an event of type def at raw: that
+// of the first of def's link types that accepts raw, and false if none does.
+func (r *SchemaRegistry) CanonicalURL(def model.EventTypeDef, raw string) (string, bool) {
+	for _, name := range def.LinkTypes {
+		if canonical, ok := r.linkTypeByName[name].Canonical(raw); ok {
+			return canonical, true
+		}
+	}
+	return "", false
+}
+
+// With returns a new registry holding r's link types and schemas followed by
+// defs, leaving r unchanged. It panics, like MustRegister, if a def duplicates
+// a registered (Source, Type) or another def.
 func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 	reg := NewSchemaRegistry()
+	for _, def := range r.linkTypes {
+		reg.MustRegisterLinkType(def)
+	}
 	for _, def := range slices.Concat(r.eventTypes, defs) {
 		reg.MustRegister(def)
 	}
@@ -158,7 +208,8 @@ func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
 }
 
 // DefaultSchemaRegistry is the process-wide registry of built-in event types.
-// The producer packages (githubserver, atlassianserver) populate it from their
-// init functions via their RegisterSchemas helper. Handlers that validate rules
+// The producer packages (githubserver, atlassianserver, customserver) populate
+// it, link types included, from their init functions via their
+// RegisterSchemas helper. Handlers that validate rules
 // or list event types combine it with an org's custom types through With.
 var DefaultSchemaRegistry = NewSchemaRegistry()
