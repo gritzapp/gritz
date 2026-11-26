@@ -16,13 +16,15 @@ const SourceCustom = "custom"
 // style of the built-in names, e.g. "comment_created".
 var reCustomName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
-// ValidateCustomEventTypes checks an org's full list of custom event types,
-// returning an error naming the first offending def or attr. Every def must
-// have Source SourceCustom, a Type matching reCustomName that is unique
-// in defs, and a non-empty Label. Every attr Key must match reCustomName
-// and be unique within its def, and each def must declare the derived "body"
-// and "url" attrs (see InputEvent.Attr); they are never added on its behalf.
-func ValidateCustomEventTypes(defs []model.EventTypeDef) error {
+// ValidateCustomEventTypes checks an org's full list of custom event types
+// against r, the built-in registry, returning an error naming the first
+// offending def, attr or link type. Every def must have Source SourceCustom, a
+// Type matching reCustomName that is unique in defs, and a non-empty Label.
+// Every attr Key must match reCustomName and be unique within its def, and
+// each def must declare the derived "body" and "url" attrs (see
+// InputEvent.Attr); they are never added on its behalf. Its LinkTypes must be
+// distinct link types registered in r under SourceCustom.
+func (r *SchemaRegistry) ValidateCustomEventTypes(defs []model.EventTypeDef) error {
 	types := map[string]bool{}
 	for i, def := range defs {
 		if def.Source != SourceCustom {
@@ -51,6 +53,14 @@ func ValidateCustomEventTypes(defs []model.EventTypeDef) error {
 		for _, key := range []string{"body", "url"} {
 			if !keys[key] {
 				return fmt.Errorf("event type %q: missing required attr %q", def.Type, key)
+			}
+		}
+		for i, name := range def.LinkTypes {
+			if lt, ok := r.LinkType(name); !ok || lt.Source != SourceCustom {
+				return fmt.Errorf("event type %q: unknown link type %q", def.Type, name)
+			}
+			if slices.Contains(def.LinkTypes[:i], name) {
+				return fmt.Errorf("event type %q: duplicate link type %q", def.Type, name)
 			}
 		}
 	}
@@ -177,31 +187,88 @@ func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 // A custom rule must also be Public: custom events are ingested without an
 // actor, so routing only considers the org's public rules for them.
 func (r *SchemaRegistry) Validate(rule model.RoutingRule) error {
-	if rule.Type == "" {
-		return fmt.Errorf("rule must select an event type: empty type")
+	_, err := r.validateSelector("rule", rule.Source, rule.Type, rule.Conditions, rule.Public)
+	return err
+}
+
+// validateSelector checks an event selector, a rule's or a trigger's, as
+// Validate describes, and returns the event type it selects. what names the
+// selector in the custom-must-be-public error.
+func (r *SchemaRegistry) validateSelector(what, source, typ string, conds []model.Condition, public bool) (model.EventTypeDef, error) {
+	if typ == "" {
+		return model.EventTypeDef{}, fmt.Errorf("%s must select an event type: empty type", what)
 	}
-	if rule.Source == "" {
-		return fmt.Errorf("rule must select an event source: empty source for type %q", rule.Type)
+	if source == "" {
+		return model.EventTypeDef{}, fmt.Errorf("%s must select an event source: empty source for type %q", what, typ)
 	}
-	if rule.Source == SourceCustom && !rule.Public {
-		return fmt.Errorf("custom event rules must be public: custom events have no actor, so a member-only rule would never fire")
+	if source == SourceCustom && !public {
+		return model.EventTypeDef{}, fmt.Errorf("custom event %ss must be public: custom events have no actor, so a member-only %s would never fire", what, what)
 	}
-	def, ok := r.EventTypeFor(rule.Source, rule.Type)
+	def, ok := r.EventTypeFor(source, typ)
 	if !ok {
-		return fmt.Errorf("unknown event type: source=%q type=%q", rule.Source, rule.Type)
+		return model.EventTypeDef{}, fmt.Errorf("unknown event type: source=%q type=%q", source, typ)
 	}
-	for _, cond := range rule.Conditions {
+	for _, cond := range conds {
 		switch cond.Op {
 		case "equals", "prefix", "contains":
 		case "glob":
 			if !doublestar.ValidatePattern(cond.Value) {
-				return fmt.Errorf("invalid glob %q on attr %q", cond.Value, cond.Attr)
+				return model.EventTypeDef{}, fmt.Errorf("invalid glob %q on attr %q", cond.Value, cond.Attr)
 			}
 		default:
-			return fmt.Errorf("unknown op %q on attr %q", cond.Op, cond.Attr)
+			return model.EventTypeDef{}, fmt.Errorf("unknown op %q on attr %q", cond.Op, cond.Attr)
 		}
 		if !def.HasAttr(cond.Attr) {
-			return fmt.Errorf("attr %q not valid for event type %q/%q", cond.Attr, rule.Source, rule.Type)
+			return model.EventTypeDef{}, fmt.Errorf("attr %q not valid for event type %q/%q", cond.Attr, source, typ)
+		}
+	}
+	return def, nil
+}
+
+// ValidateAgent checks an agent's link kinds and triggers against the
+// registry, returning an error naming the first offending entry. Every link
+// entry's Type must be a registered link type, its kind (see
+// model.AgentLink.Name) unique in the agent, and each of its Events an event
+// type of the link type's source that declares the link type. Every trigger's
+// selector is checked as Validate checks a rule's, and its Link, when set,
+// must be a kind of the agent whose type the trigger's event type declares.
+// Claims and YieldTo names aren't checked: they are free-form, org-wide names.
+func (r *SchemaRegistry) ValidateAgent(a *model.Agent) error {
+	kinds := map[string]bool{}
+	for i, l := range a.Links {
+		lt, ok := r.LinkType(l.Type)
+		if !ok {
+			return fmt.Errorf("link %d: unknown link type %q", i+1, l.Type)
+		}
+		kind := l.Name()
+		if kinds[kind] {
+			return fmt.Errorf("link %d: duplicate kind %q", i+1, kind)
+		}
+		kinds[kind] = true
+		for _, typ := range l.Events {
+			def, ok := r.EventTypeFor(lt.Source, typ)
+			if !ok {
+				return fmt.Errorf("link kind %q: unknown event type: source=%q type=%q", kind, lt.Source, typ)
+			}
+			if !slices.Contains(def.LinkTypes, l.Type) {
+				return fmt.Errorf("link kind %q: event type %q/%q doesn't declare link type %q", kind, lt.Source, typ, l.Type)
+			}
+		}
+	}
+	for i, t := range a.Triggers {
+		def, err := r.validateSelector("trigger", t.Source, t.Type, t.Conditions, t.Public)
+		if err != nil {
+			return fmt.Errorf("trigger %d: %w", i+1, err)
+		}
+		if t.Link == "" {
+			continue
+		}
+		l, ok := a.Link(t.Link)
+		if !ok {
+			return fmt.Errorf("trigger %d: unknown link kind %q", i+1, t.Link)
+		}
+		if !slices.Contains(def.LinkTypes, l.Type) {
+			return fmt.Errorf("trigger %d: event type %q/%q doesn't declare link type %q of kind %q", i+1, t.Source, t.Type, l.Type, t.Link)
 		}
 	}
 	return nil

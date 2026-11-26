@@ -215,6 +215,9 @@ func TestSchemaRegistryWith(t *testing.T) {
 }
 
 func TestValidateCustomEventTypes(t *testing.T) {
+	reg := NewSchemaRegistry()
+	reg.MustRegisterLinkType(model.LinkTypeDef{Name: "custom.url", Source: SourceCustom})
+	reg.MustRegisterLinkType(model.LinkTypeDef{Name: "test.issue", Source: "test"})
 	tests := []struct {
 		name    string
 		defs    []model.EventTypeDef
@@ -452,10 +455,61 @@ func TestValidateCustomEventTypes(t *testing.T) {
 			},
 			wantErr: `event type "alert": empty label`,
 		},
+		{
+			name: "custom link type",
+			defs: []model.EventTypeDef{
+				{
+					Source:    SourceCustom,
+					Type:      "problem",
+					Label:     "Custom: Problem",
+					Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+					LinkTypes: []string{"custom.url"},
+				},
+			},
+		},
+		{
+			name: "unknown link type",
+			defs: []model.EventTypeDef{
+				{
+					Source:    SourceCustom,
+					Type:      "problem",
+					Label:     "Custom: Problem",
+					Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+					LinkTypes: []string{"custom.issue"},
+				},
+			},
+			wantErr: `event type "problem": unknown link type "custom.issue"`,
+		},
+		{
+			name: "link type of another source",
+			defs: []model.EventTypeDef{
+				{
+					Source:    SourceCustom,
+					Type:      "problem",
+					Label:     "Custom: Problem",
+					Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+					LinkTypes: []string{"test.issue"},
+				},
+			},
+			wantErr: `event type "problem": unknown link type "test.issue"`,
+		},
+		{
+			name: "duplicate link type",
+			defs: []model.EventTypeDef{
+				{
+					Source:    SourceCustom,
+					Type:      "problem",
+					Label:     "Custom: Problem",
+					Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+					LinkTypes: []string{"custom.url", "custom.url"},
+				},
+			},
+			wantErr: `event type "problem": duplicate link type "custom.url"`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateCustomEventTypes(tt.defs)
+			err := reg.ValidateCustomEventTypes(tt.defs)
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 			} else {
@@ -653,4 +707,166 @@ func TestSchemaRegistryWith_LinkTypes(t *testing.T) {
 	assert.Assert(t, ok)
 	assert.Equal(t, got, "https://dynatrace.example.com/problems/1")
 	assert.Equal(t, len(reg.LinkTypes()), 1)
+}
+
+func TestSchemaRegistryValidateAgent(t *testing.T) {
+	builtin := NewSchemaRegistry()
+	builtin.MustRegisterLinkType(model.LinkTypeDef{Name: "test.issue", Source: "test"})
+	builtin.MustRegisterLinkType(model.LinkTypeDef{Name: "test.pr", Source: "test"})
+	builtin.MustRegisterLinkType(model.LinkTypeDef{Name: "custom.url", Source: SourceCustom})
+	builtin.MustRegister(model.EventTypeDef{
+		Source:    "test",
+		Type:      "comment",
+		Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}, {Key: "mention"}},
+		LinkTypes: []string{"test.issue", "test.pr"},
+	})
+	builtin.MustRegister(model.EventTypeDef{
+		Source:    "test",
+		Type:      "review",
+		Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+		LinkTypes: []string{"test.pr"},
+	})
+	builtin.MustRegister(model.EventTypeDef{
+		Source: "test",
+		Type:   "push",
+		Attrs:  []model.AttrDef{{Key: "body"}, {Key: "url"}},
+	})
+	reg := builtin.With(model.EventTypeDef{
+		Source:    SourceCustom,
+		Type:      "problem",
+		Attrs:     []model.AttrDef{{Key: "body"}, {Key: "url"}},
+		LinkTypes: []string{"custom.url"},
+	})
+
+	tests := []struct {
+		name    string
+		agent   model.Agent
+		wantErr string
+	}{
+		{
+			name: "no triggers or links",
+		},
+		{
+			name: "triggers and links",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{
+					{
+						Source:     "test",
+						Type:       "comment",
+						Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "gritz"}},
+						YieldTo:    []string{"pr-owner"},
+						Link:       "test.pr",
+					},
+					{Source: "test", Type: "push"},
+					{Source: SourceCustom, Type: "problem", Public: true, Link: "custom.url"},
+				},
+				Links: []model.AgentLink{
+					{Type: "test.pr", Kind: "owned-pr", Claim: "pr-owner", Events: []string{"comment", "review"}},
+					{Type: "test.pr", Events: []string{"review"}},
+					{Type: "test.issue"},
+					{Type: "custom.url", Events: []string{"problem"}},
+				},
+			},
+		},
+		{
+			name: "trigger with an invalid selector",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{
+					{Source: "test", Type: "push"},
+					{Source: "test", Type: "comment", Conditions: []model.Condition{{Attr: "label", Op: "equals", Value: "bug"}}},
+				},
+			},
+			wantErr: `trigger 2: attr "label" not valid for event type "test"/"comment"`,
+		},
+		{
+			name: "trigger on an unknown event type",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{{Source: "test", Type: "opened"}},
+			},
+			wantErr: `trigger 1: unknown event type: source="test" type="opened"`,
+		},
+		{
+			name: "member-only custom trigger",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{{Source: SourceCustom, Type: "problem"}},
+			},
+			wantErr: "trigger 1: custom event triggers must be public: custom events have no actor, so a member-only trigger would never fire",
+		},
+		{
+			name: "trigger link to an unknown kind",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{{Source: "test", Type: "comment", Link: "owned-pr"}},
+				Links:    []model.AgentLink{{Type: "test.pr"}},
+			},
+			wantErr: `trigger 1: unknown link kind "owned-pr"`,
+		},
+		{
+			name: "trigger link to a kind its event type doesn't declare",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{{Source: "test", Type: "review", Link: "test.issue"}},
+				Links:    []model.AgentLink{{Type: "test.issue"}},
+			},
+			wantErr: `trigger 1: event type "test"/"review" doesn't declare link type "test.issue" of kind "test.issue"`,
+		},
+		{
+			name: "trigger link on an event type without link types",
+			agent: model.Agent{
+				Triggers: []model.AgentTrigger{{Source: "test", Type: "push", Link: "test.pr"}},
+				Links:    []model.AgentLink{{Type: "test.pr"}},
+			},
+			wantErr: `trigger 1: event type "test"/"push" doesn't declare link type "test.pr" of kind "test.pr"`,
+		},
+		{
+			name: "unknown link type",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.issue"}, {Type: "test.run"}},
+			},
+			wantErr: `link 2: unknown link type "test.run"`,
+		},
+		{
+			name: "duplicate kind",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.pr"}, {Type: "test.pr", Events: []string{"review"}}},
+			},
+			wantErr: `link 2: duplicate kind "test.pr"`,
+		},
+		{
+			name: "explicit kind duplicating a defaulted one",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.pr"}, {Type: "test.issue", Kind: "test.pr"}},
+			},
+			wantErr: `link 2: duplicate kind "test.pr"`,
+		},
+		{
+			name: "link event of an unknown type",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.pr", Kind: "owned-pr", Events: []string{"merged"}}},
+			},
+			wantErr: `link kind "owned-pr": unknown event type: source="test" type="merged"`,
+		},
+		{
+			name: "link event that doesn't declare the link type",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.issue", Events: []string{"comment", "review"}}},
+			},
+			wantErr: `link kind "test.issue": event type "test"/"review" doesn't declare link type "test.issue"`,
+		},
+		{
+			name: "link event of another source",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "custom.url", Events: []string{"comment"}}},
+			},
+			wantErr: `link kind "custom.url": unknown event type: source="custom" type="comment"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := reg.ValidateAgent(&tt.agent)
+			if tt.wantErr != "" {
+				assert.Error(t, err, tt.wantErr)
+			} else {
+				assert.NilError(t, err)
+			}
+		})
+	}
 }

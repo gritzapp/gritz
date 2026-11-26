@@ -93,13 +93,7 @@ func (r *RoutingRule) Proto() *gritzv1.RoutingRule {
 		Public:    r.Public,
 		Namespace: r.Namespace,
 	}
-	for _, c := range r.Conditions {
-		pb.Conditions = append(pb.Conditions, &gritzv1.RuleCondition{
-			Attr:  c.Attr,
-			Op:    c.Op,
-			Value: c.Value,
-		})
-	}
+	pb.Conditions = conditionsProto(r.Conditions)
 	if r.Create != nil {
 		pb.Create = r.Create.Proto()
 	}
@@ -109,19 +103,37 @@ func (r *RoutingRule) Proto() *gritzv1.RoutingRule {
 // RoutingRuleFromProto converts a protobuf RoutingRule to the model type.
 func RoutingRuleFromProto(pb *gritzv1.RoutingRule) RoutingRule {
 	rule := RoutingRule{
-		Source:    pb.Source,
-		Type:      pb.Type,
-		Create:    CreateTaskActionFromProto(pb.Create),
-		Wakeup:    pb.Wakeup,
-		Public:    pb.Public,
-		Namespace: pb.Namespace,
+		Source:     pb.Source,
+		Type:       pb.Type,
+		Create:     CreateTaskActionFromProto(pb.Create),
+		Wakeup:     pb.Wakeup,
+		Public:     pb.Public,
+		Namespace:  pb.Namespace,
+		Conditions: conditionsFromProto(pb.Conditions),
 	}
-	for _, c := range pb.Conditions {
-		rule.Conditions = append(rule.Conditions, Condition{
+	return rule
+}
+
+func conditionsProto(conds []Condition) []*gritzv1.RuleCondition {
+	var pb []*gritzv1.RuleCondition
+	for _, c := range conds {
+		pb = append(pb, &gritzv1.RuleCondition{
 			Attr:  c.Attr,
 			Op:    c.Op,
 			Value: c.Value,
 		})
 	}
-	return rule
+	return pb
+}
+
+func conditionsFromProto(pb []*gritzv1.RuleCondition) []Condition {
+	var conds []Condition
+	for _, c := range pb {
+		conds = append(conds, Condition{
+			Attr:  c.Attr,
+			Op:    c.Op,
+			Value: c.Value,
+		})
+	}
+	return conds
 }

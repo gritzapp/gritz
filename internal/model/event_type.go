@@ -50,6 +50,15 @@ type LinkTypeDef struct {
 	Canonical func(raw string) (string, bool)
 }
 
+// Proto converts def to its protobuf representation.
+func (def LinkTypeDef) Proto() *gritzv1.LinkTypeDef {
+	return &gritzv1.LinkTypeDef{
+		Name:   def.Name,
+		Source: def.Source,
+		Label:  def.Label,
+	}
+}
+
 // ValidateEvent checks an event of this type: url must be an absolute http or
 // https URL, and every attr must be declared by the type. "body" and "url"
 // can't be attrs; they are derived from the event's data and URL.
@@ -101,10 +110,11 @@ func (def EventTypeDef) Proto() *gritzv1.EventTypeDef {
 		}
 	}
 	return &gritzv1.EventTypeDef{
-		Source: def.Source,
-		Type:   def.Type,
-		Label:  def.Label,
-		Attrs:  attrs,
+		Source:    def.Source,
+		Type:      def.Type,
+		Label:     def.Label,
+		Attrs:     attrs,
+		LinkTypes: def.LinkTypes,
 	}
 }
 
@@ -112,9 +122,10 @@ func (def EventTypeDef) Proto() *gritzv1.EventTypeDef {
 // EventTypeDef.
 func EventTypeDefFromProto(pb *gritzv1.EventTypeDef) EventTypeDef {
 	def := EventTypeDef{
-		Source: pb.GetSource(),
-		Type:   pb.GetType(),
-		Label:  pb.GetLabel(),
+		Source:    pb.GetSource(),
+		Type:      pb.GetType(),
+		Label:     pb.GetLabel(),
+		LinkTypes: pb.GetLinkTypes(),
 	}
 	if len(pb.GetAttrs()) > 0 {
 		def.Attrs = make([]AttrDef, len(pb.GetAttrs()))

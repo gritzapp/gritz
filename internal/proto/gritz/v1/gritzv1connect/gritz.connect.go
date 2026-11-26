@@ -184,6 +184,19 @@ const (
 	// GritzServiceRunScheduleProcedure is the fully-qualified name of the GritzService's RunSchedule
 	// RPC.
 	GritzServiceRunScheduleProcedure = "/gritz.v1.GritzService/RunSchedule"
+	// GritzServiceCreateAgentProcedure is the fully-qualified name of the GritzService's CreateAgent
+	// RPC.
+	GritzServiceCreateAgentProcedure = "/gritz.v1.GritzService/CreateAgent"
+	// GritzServiceGetAgentProcedure is the fully-qualified name of the GritzService's GetAgent RPC.
+	GritzServiceGetAgentProcedure = "/gritz.v1.GritzService/GetAgent"
+	// GritzServiceListAgentsProcedure is the fully-qualified name of the GritzService's ListAgents RPC.
+	GritzServiceListAgentsProcedure = "/gritz.v1.GritzService/ListAgents"
+	// GritzServiceUpdateAgentProcedure is the fully-qualified name of the GritzService's UpdateAgent
+	// RPC.
+	GritzServiceUpdateAgentProcedure = "/gritz.v1.GritzService/UpdateAgent"
+	// GritzServiceDeleteAgentProcedure is the fully-qualified name of the GritzService's DeleteAgent
+	// RPC.
+	GritzServiceDeleteAgentProcedure = "/gritz.v1.GritzService/DeleteAgent"
 )
 
 // GritzServiceClient is a client for the gritz.v1.GritzService service.
@@ -264,6 +277,15 @@ type GritzServiceClient interface {
 	DeleteSchedule(context.Context, *v1.DeleteScheduleRequest) (*v1.DeleteScheduleResponse, error)
 	SetScheduleEnabled(context.Context, *v1.SetScheduleEnabledRequest) (*v1.SetScheduleEnabledResponse, error)
 	RunSchedule(context.Context, *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error)
+	// CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
+	// workspace isn't registered on its runner, the workspace doesn't accept its
+	// variables, or a trigger or link kind doesn't check out against the org's
+	// event and link types.
+	CreateAgent(context.Context, *v1.CreateAgentRequest) (*v1.CreateAgentResponse, error)
+	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
+	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
+	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
+	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
 }
 
 // NewGritzServiceClient constructs a client for the gritz.v1.GritzService service. By default, it
@@ -619,6 +641,36 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(gritzServiceMethods.ByName("RunSchedule")),
 			connect.WithClientOptions(opts...),
 		),
+		createAgent: connect.NewClient[v1.CreateAgentRequest, v1.CreateAgentResponse](
+			httpClient,
+			baseURL+GritzServiceCreateAgentProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("CreateAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		getAgent: connect.NewClient[v1.GetAgentRequest, v1.GetAgentResponse](
+			httpClient,
+			baseURL+GritzServiceGetAgentProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("GetAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		listAgents: connect.NewClient[v1.ListAgentsRequest, v1.ListAgentsResponse](
+			httpClient,
+			baseURL+GritzServiceListAgentsProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("ListAgents")),
+			connect.WithClientOptions(opts...),
+		),
+		updateAgent: connect.NewClient[v1.UpdateAgentRequest, v1.UpdateAgentResponse](
+			httpClient,
+			baseURL+GritzServiceUpdateAgentProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("UpdateAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteAgent: connect.NewClient[v1.DeleteAgentRequest, v1.DeleteAgentResponse](
+			httpClient,
+			baseURL+GritzServiceDeleteAgentProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("DeleteAgent")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -681,6 +733,11 @@ type gritzServiceClient struct {
 	deleteSchedule                 *connect.Client[v1.DeleteScheduleRequest, v1.DeleteScheduleResponse]
 	setScheduleEnabled             *connect.Client[v1.SetScheduleEnabledRequest, v1.SetScheduleEnabledResponse]
 	runSchedule                    *connect.Client[v1.RunScheduleRequest, v1.RunScheduleResponse]
+	createAgent                    *connect.Client[v1.CreateAgentRequest, v1.CreateAgentResponse]
+	getAgent                       *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
+	listAgents                     *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	updateAgent                    *connect.Client[v1.UpdateAgentRequest, v1.UpdateAgentResponse]
+	deleteAgent                    *connect.Client[v1.DeleteAgentRequest, v1.DeleteAgentResponse]
 }
 
 // Ping calls gritz.v1.GritzService.Ping.
@@ -1196,6 +1253,51 @@ func (c *gritzServiceClient) RunSchedule(ctx context.Context, req *v1.RunSchedul
 	return nil, err
 }
 
+// CreateAgent calls gritz.v1.GritzService.CreateAgent.
+func (c *gritzServiceClient) CreateAgent(ctx context.Context, req *v1.CreateAgentRequest) (*v1.CreateAgentResponse, error) {
+	response, err := c.createAgent.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// GetAgent calls gritz.v1.GritzService.GetAgent.
+func (c *gritzServiceClient) GetAgent(ctx context.Context, req *v1.GetAgentRequest) (*v1.GetAgentResponse, error) {
+	response, err := c.getAgent.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// ListAgents calls gritz.v1.GritzService.ListAgents.
+func (c *gritzServiceClient) ListAgents(ctx context.Context, req *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error) {
+	response, err := c.listAgents.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// UpdateAgent calls gritz.v1.GritzService.UpdateAgent.
+func (c *gritzServiceClient) UpdateAgent(ctx context.Context, req *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error) {
+	response, err := c.updateAgent.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
+// DeleteAgent calls gritz.v1.GritzService.DeleteAgent.
+func (c *gritzServiceClient) DeleteAgent(ctx context.Context, req *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error) {
+	response, err := c.deleteAgent.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // GritzServiceHandler is an implementation of the gritz.v1.GritzService service.
 type GritzServiceHandler interface {
 	Ping(context.Context, *v1.PingRequest) (*v1.PingResponse, error)
@@ -1274,6 +1376,15 @@ type GritzServiceHandler interface {
 	DeleteSchedule(context.Context, *v1.DeleteScheduleRequest) (*v1.DeleteScheduleResponse, error)
 	SetScheduleEnabled(context.Context, *v1.SetScheduleEnabledRequest) (*v1.SetScheduleEnabledResponse, error)
 	RunSchedule(context.Context, *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error)
+	// CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
+	// workspace isn't registered on its runner, the workspace doesn't accept its
+	// variables, or a trigger or link kind doesn't check out against the org's
+	// event and link types.
+	CreateAgent(context.Context, *v1.CreateAgentRequest) (*v1.CreateAgentResponse, error)
+	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
+	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
+	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
+	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
 }
 
 // NewGritzServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1625,6 +1736,36 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(gritzServiceMethods.ByName("RunSchedule")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gritzServiceCreateAgentHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceCreateAgentProcedure,
+		svc.CreateAgent,
+		connect.WithSchema(gritzServiceMethods.ByName("CreateAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceGetAgentHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceGetAgentProcedure,
+		svc.GetAgent,
+		connect.WithSchema(gritzServiceMethods.ByName("GetAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceListAgentsHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceListAgentsProcedure,
+		svc.ListAgents,
+		connect.WithSchema(gritzServiceMethods.ByName("ListAgents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceUpdateAgentHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceUpdateAgentProcedure,
+		svc.UpdateAgent,
+		connect.WithSchema(gritzServiceMethods.ByName("UpdateAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	gritzServiceDeleteAgentHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceDeleteAgentProcedure,
+		svc.DeleteAgent,
+		connect.WithSchema(gritzServiceMethods.ByName("DeleteAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gritz.v1.GritzService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case GritzServicePingProcedure:
@@ -1741,6 +1882,16 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceSetScheduleEnabledHandler.ServeHTTP(w, r)
 		case GritzServiceRunScheduleProcedure:
 			gritzServiceRunScheduleHandler.ServeHTTP(w, r)
+		case GritzServiceCreateAgentProcedure:
+			gritzServiceCreateAgentHandler.ServeHTTP(w, r)
+		case GritzServiceGetAgentProcedure:
+			gritzServiceGetAgentHandler.ServeHTTP(w, r)
+		case GritzServiceListAgentsProcedure:
+			gritzServiceListAgentsHandler.ServeHTTP(w, r)
+		case GritzServiceUpdateAgentProcedure:
+			gritzServiceUpdateAgentHandler.ServeHTTP(w, r)
+		case GritzServiceDeleteAgentProcedure:
+			gritzServiceDeleteAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1976,4 +2127,24 @@ func (UnimplementedGritzServiceHandler) SetScheduleEnabled(context.Context, *v1.
 
 func (UnimplementedGritzServiceHandler) RunSchedule(context.Context, *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.RunSchedule is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) CreateAgent(context.Context, *v1.CreateAgentRequest) (*v1.CreateAgentResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.CreateAgent is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetAgent is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.ListAgents is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.UpdateAgent is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.DeleteAgent is not implemented"))
 }

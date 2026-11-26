@@ -87,6 +87,15 @@ service GritzService {
   rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
   rpc SetScheduleEnabled(SetScheduleEnabledRequest) returns (SetScheduleEnabledResponse);
   rpc RunSchedule(RunScheduleRequest) returns (RunScheduleResponse);
+  // CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
+  // workspace isn't registered on its runner, the workspace doesn't accept its
+  // variables, or a trigger or link kind doesn't check out against the org's
+  // event and link types.
+  rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+  rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
+  rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
 }
 
 message PingRequest {}
@@ -874,12 +883,25 @@ message EventTypeDef {
   string type = 2;
   string label = 3;
   repeated AttrDef attrs = 4;
+  // The link types an event of this type's URL can name, such as "github.issue"
+  // and "github.pr" for a comment. Each is a link type of the same source; a
+  // custom event type may name "custom.url".
+  repeated string link_types = 5;
+}
+
+// LinkTypeDef is a kind of resource a link can name, such as a GitHub pull
+// request.
+message LinkTypeDef {
+  string name = 1;    // Such as "github.pr".
+  string source = 2;  // The event source it belongs to, such as "github".
+  string label = 3;
 }
 
 message GetEventTypesRequest {}
 
 message GetEventTypesResponse {
   repeated EventTypeDef event_types = 1;
+  repeated LinkTypeDef link_types = 2;
 }
 
 message GetCustomEventTypesRequest {}
@@ -890,7 +912,7 @@ message GetCustomEventTypesResponse {
 
 // SetCustomEventTypesRequest replaces the org's custom event types. It fails
 // with `invalid_argument` if a type is malformed, and `failed_precondition` if
-// an existing routing rule would no longer be valid with the new types.
+// an existing routing rule or agent would no longer be valid with the new types.
 message SetCustomEventTypesRequest {
   repeated EventTypeDef event_types = 1;
 }
@@ -1058,3 +1080,92 @@ message RunScheduleRequest {
 message RunScheduleResponse {
   Task task = 1;  // The task the run created.
 }
+
+// See docs/src/content/docs/proposals/draft/agents.md.
+
+// Agent is a task template plus the triggers that create its tasks and the
+// kinds of link its tasks may subscribe to. An agent is addressed by its id;
+// its name is a label, not unique in the org.
+message Agent {
+  int64 id = 1;
+  string name = 2;
+  string workspace = 3;
+  string runner = 4;
+  string prompt = 5;  // The first instruction of the tasks its triggers create.
+  // The auto-archive delay of its tasks, as in Task.auto_archive.
+  google.protobuf.Duration auto_archive = 6;
+  // Variables of its tasks, by name, as saved. Each must be declared by the
+  // workspace, and every required one set.
+  map<string, string> variables = 7;
+  // Create tasks of the agent. The first trigger that matches an event wins.
+  repeated AgentTrigger triggers = 8;
+  repeated AgentLink links = 9;
+}
+
+// AgentTrigger creates a task of its agent when an event matches it.
+message AgentTrigger {
+  string source = 1;
+  string type = 2;
+  repeated RuleCondition conditions = 3;  // All must hold.
+  // Whether it also matches events from people who aren't members of the org.
+  // Custom event triggers must be public: custom events have no actor.
+  bool public = 4;
+  // Claim names: the trigger creates no task while an unarchived task holds a
+  // link with one of these claims on the event's resource.
+  repeated string yield_to = 5;
+  // A link kind of the same agent whose type the event type declares. The
+  // created task gets a subscribed link of that kind to the event's resource.
+  string link = 6;
+}
+
+// AgentLink is a kind of subscribed link the agent's tasks may create, and the
+// events a link of that kind delivers.
+message AgentLink {
+  string type = 1;   // A link type, such as "github.pr".
+  string kind = 2;   // The kind's name, unique in the agent; empty means type.
+  string claim = 3;  // Stamped on every link of this kind.
+  // Event types of the link type's source, each declaring the link type.
+  // Empty means every event type that declares it.
+  repeated string events = 4;
+  // Whether it also delivers events from people who aren't members of the org.
+  bool public = 5;
+}
+
+// CreateAgentRequest creates agent in the caller's org. agent.id is ignored.
+message CreateAgentRequest {
+  Agent agent = 1;
+}
+
+message CreateAgentResponse {
+  Agent agent = 1;
+}
+
+message GetAgentRequest {
+  int64 id = 1;
+}
+
+message GetAgentResponse {
+  Agent agent = 1;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;  // Ordered by name, then id.
+}
+
+// UpdateAgentRequest replaces the agent with id agent.id with agent. Tasks
+// it already created keep their workspace, runner and variables.
+message UpdateAgentRequest {
+  Agent agent = 1;
+}
+
+message UpdateAgentResponse {
+  Agent agent = 1;
+}
+
+message DeleteAgentRequest {
+  int64 id = 1;
+}
+
+message DeleteAgentResponse {}

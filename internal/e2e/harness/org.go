@@ -501,3 +501,25 @@ func formatEvents(events []*gritzv1.Event) string {
 	}
 	return b.String()
 }
+
+// CreateAgent creates an agent, as the agents page does.
+func (o *Org) CreateAgent(req *gritzv1.CreateAgentRequest) *gritzv1.Agent {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.CreateAgent(t.Context(), req)
+	if err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	return resp.Agent
+}
+
+// GetAgent returns the agent.
+func (o *Org) GetAgent(req *gritzv1.GetAgentRequest) *gritzv1.Agent {
+	t := o.server.t
+	t.Helper()
+	resp, err := o.Client.GetAgent(t.Context(), req)
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	return resp.Agent
+}

@@ -36,6 +36,7 @@ func TestGetEventTypes(t *testing.T) {
 		keys = append(keys, a.Key)
 	}
 	assert.DeepEqual(t, keys, []string{"body", "url", "mention", "user"})
+	assert.DeepEqual(t, issueComment.LinkTypes, []string{"github.issue", "github.pr"})
 
 	// One type asserted whole to prove the AttrDef -> proto conversion carries
 	// every display field (label/placeholder/help), not just the key.
@@ -72,6 +73,16 @@ func TestGetEventTypes(t *testing.T) {
 	// whole global registry, not just one source.
 	_, ok = byKey["atlassian:comment_created"]
 	assert.Assert(t, ok, "expected atlassian/comment_created to be registered")
+
+	// Every registered link type comes through, with its source and label, in
+	// registration order.
+	assert.DeepEqual(t, resp.LinkTypes, []*gritzv1.LinkTypeDef{
+		{Name: "jira.issue", Source: "atlassian", Label: "Jira: Issue"},
+		{Name: "custom.url", Source: "custom", Label: "Custom: URL"},
+		{Name: "github.issue", Source: "github", Label: "GitHub: Issue"},
+		{Name: "github.pr", Source: "github", Label: "GitHub: Pull Request"},
+		{Name: "github.workflow_run", Source: "github", Label: "GitHub: Workflow Run"},
+	}, protocmp.Transform())
 }
 
 func TestGetEventTypes_IncludesOrgCustomTypes(t *testing.T) {
