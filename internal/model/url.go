@@ -33,15 +33,17 @@ func TaskBadgeURL(baseURL string, taskID int64) string {
 // that accepts raw (GitHub issues, PRs and workflow runs, Jira issues; see
 // githubx.CanonicalIssue and friends); anything else is returned unchanged.
 func RoutingKey(raw string) string {
-	for _, canonical := range []func(string) (string, bool){
-		githubx.CanonicalIssue,
-		githubx.CanonicalPullRequest,
-		githubx.CanonicalWorkflowRun,
-		atlassian.CanonicalIssue,
-	} {
-		if key, ok := canonical(raw); ok {
-			return key
-		}
+	if key, ok := githubx.CanonicalIssue(raw); ok {
+		return key
+	}
+	if key, ok := githubx.CanonicalPullRequest(raw); ok {
+		return key
+	}
+	if key, ok := githubx.CanonicalWorkflowRun(raw); ok {
+		return key
+	}
+	if key, ok := atlassian.CanonicalIssue(raw); ok {
+		return key
 	}
 	return raw
 }
