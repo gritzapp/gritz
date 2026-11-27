@@ -79,7 +79,10 @@ jobs:
           DATABASE_URL: postgres://gritz:gritz@localhost:5432/gritz?sslmode=disable
         run: go run ./cmd/migrate
 
+      # On master, -count=1 bypasses the test cache so every test runs: cached
+      # results can hide flaky tests until an unrelated change invalidates them.
       - name: Run tests
         env:
           TEST_DATABASE_URL: postgres://gritz:gritz@localhost:5432/gritz?sslmode=disable
-        run: go tool gotestsum --format github-actions -- -v ./...
+          TEST_FLAGS: ${{ github.event_name == 'push' && '-count=1' || '' }}
+        run: go tool gotestsum --format github-actions -- -v $TEST_FLAGS ./...
