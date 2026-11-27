@@ -212,11 +212,10 @@ func TestDeleteAgent_InUse(t *testing.T) {
 			name: "schedule",
 			using: func(t *testing.T, s *store.Store, org *teststore.Org, agentID int64) {
 				assert.NilError(t, s.CreateSchedule(t.Context(), nil, &model.Schedule{
-					OrgID:     org.OrgID,
-					CreatedBy: org.UserID,
-					AgentID:   agentID,
-					CronExpr:  "@daily",
-					Timezone:  "UTC",
+					OrgID:    org.OrgID,
+					AgentID:  agentID,
+					CronExpr: "@daily",
+					Timezone: "UTC",
 				}))
 			},
 			err: store.ErrAgentInUse,

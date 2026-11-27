@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
@@ -28,13 +27,8 @@ func TestScheduleCRUD(t *testing.T) {
 	agent := teststore.CreateAgent(t, s, org, nil)
 	sched := &model.Schedule{
 		OrgID:     org.OrgID,
-		CreatedBy: org.UserID,
 		Name:      "nightly",
 		AgentID:   agent.ID,
-		Instructions: []model.ScheduleInstruction{
-			{Text: "bump deps", URL: "https://example.com/deps"},
-			{Text: "groom changelog"},
-		},
 		CronExpr:  "0 9 * * *",
 		Timezone:  "America/Toronto",
 		Enabled:   true,
@@ -46,26 +40,25 @@ func TestScheduleCRUD(t *testing.T) {
 	// Get round-trips every field.
 	got, err := s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
 	assert.NilError(t, err)
-	assert.DeepEqual(t, got, sched, cmpopts.IgnoreFields(model.Schedule{}, "CreatedAt", "UpdatedAt"))
+	assert.DeepEqual(t, got, sched)
 
 	// A get from another org does not see it.
 	other := teststore.CreateOrg(t, s, nil)
 	_, err = s.GetSchedule(ctx, nil, sched.ID, other.OrgID)
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 
-	// Update mutates the agent, instructions and spec.
+	// Update mutates the agent and spec.
 	sched.Name = "nightly-v2"
 	sched.AgentID = teststore.CreateAgent(t, s, org, &model.Agent{Name: "other"}).ID
 	sched.CronExpr = "30 2 * * *"
 	sched.Timezone = "UTC"
 	sched.Enabled = false
 	sched.NextRunAt = nil
-	sched.Instructions = []model.ScheduleInstruction{{Text: "only this"}}
 	assert.NilError(t, s.UpdateSchedule(ctx, nil, sched))
 
 	got, err = s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
 	assert.NilError(t, err)
-	assert.DeepEqual(t, got, sched, cmpopts.IgnoreFields(model.Schedule{}, "CreatedAt", "UpdatedAt"))
+	assert.DeepEqual(t, got, sched)
 
 	// List is org-scoped.
 	list, err := s.ListSchedules(ctx, nil, org.OrgID)
@@ -83,6 +76,42 @@ func TestScheduleCRUD(t *testing.T) {
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 }
 
+// TestSchedulePosition checks that a new schedule goes last in its agent, and
+// that one moved to another agent goes last in that one.
+func TestSchedulePosition(t *testing.T) {
+	t.Parallel()
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ctx := t.Context()
+
+	agent := teststore.CreateAgent(t, s, org, nil)
+	other := teststore.CreateAgent(t, s, org, &model.Agent{Name: "other"})
+	create := func(agentID int64) *model.Schedule {
+		sched := &model.Schedule{OrgID: org.OrgID, AgentID: agentID, CronExpr: "@daily", Timezone: "UTC"}
+		assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
+		return sched
+	}
+	position := func(sched *model.Schedule) int {
+		pos, err := store.SchedulePosition(ctx, s, sched.ID)
+		assert.NilError(t, err)
+		return pos
+	}
+
+	first, second := create(agent.ID), create(agent.ID)
+	elsewhere := create(other.ID)
+	assert.Equal(t, position(first), 0)
+	assert.Equal(t, position(second), 1)
+	assert.Equal(t, position(elsewhere), 0)
+
+	// Renaming keeps the position; moving to another agent puts it last there.
+	first.Name = "renamed"
+	assert.NilError(t, s.UpdateSchedule(ctx, nil, first))
+	assert.Equal(t, position(first), 0)
+	first.AgentID = other.ID
+	assert.NilError(t, s.UpdateSchedule(ctx, nil, first))
+	assert.Equal(t, position(first), 1)
+}
+
 func TestAdvanceSchedule(t *testing.T) {
 	t.Parallel()
 	s := teststore.New(t)
@@ -94,7 +123,6 @@ func TestAdvanceSchedule(t *testing.T) {
 	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
 	sched := &model.Schedule{
 		OrgID:     org.OrgID,
-		CreatedBy: org.UserID,
 		AgentID:   teststore.CreateAgent(t, s, org, nil).ID,
 		CronExpr:  "0 9 * * *",
 		Timezone:  "UTC",
@@ -144,7 +172,6 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 		next := past.Add(time.Duration(i) * time.Minute)
 		sched := &model.Schedule{
 			OrgID:     org.OrgID,
-			CreatedBy: org.UserID,
 			AgentID:   agent.ID,
 			CronExpr:  "* * * * *",
 			Timezone:  "UTC",

@@ -1,6 +1,7 @@
 package model
 
 import (
+	"cmp"
 	"time"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -35,6 +36,51 @@ func (a *Agent) Link(kind string) (AgentLink, bool) {
 		}
 	}
 	return AgentLink{}, false
+}
+
+// Task builds a pending task of the agent named name, as a schedule creates
+// it: the agent's runner, workspace, auto-archive and variables, as saved; the
+// runner resolves the variables when it starts it. The caller inserts it, then
+// seeds Events(task, ...).
+func (a *Agent) Task(name string) *Task {
+	return &Task{
+		Name:        name,
+		Runner:      a.Runner,
+		Workspace:   a.Workspace,
+		AgentID:     a.ID,
+		Status:      TaskStatusPending,
+		Command:     TaskCommandStart,
+		Version:     1,
+		OrgID:       a.OrgID,
+		AutoArchive: a.AutoArchive,
+		Variables:   a.Variables,
+	}
+}
+
+// Events returns the events seeding task, a task Task built and the caller
+// inserted: a created lifecycle event attributed to actor, the task's start
+// command event, then one wake-carrying instruction with the agent's prompt, or
+// generated when the agent has none. The created event goes first, so the
+// timeline ordered by event id shows "Created" first.
+func (a *Agent) Events(task *Task, actor Actor, generated string) []*Event {
+	events := []*Event{{
+		TaskID: task.ID,
+		OrgID:  task.OrgID,
+		Payload: &LifecyclePayload{
+			Kind:     LifecycleKindCreated,
+			Actor:    actor,
+			ToStatus: task.Status.Label(),
+		},
+	}}
+	if ev, ok := task.CommandEvent(nil); ok {
+		events = append(events, ev)
+	}
+	return append(events, &Event{
+		TaskID:  task.ID,
+		OrgID:   task.OrgID,
+		Wake:    true,
+		Payload: &InstructionPayload{Text: cmp.Or(a.Prompt, generated)},
+	})
 }
 
 // AgentTrigger creates a task of its agent when a matching event arrives. Source

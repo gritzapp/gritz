@@ -20,34 +20,17 @@ var cronParser = cron.NewParser(
 	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
 
-// ScheduleInstruction is a single to-agent instruction stored in a schedule's
-// template. It is structurally identical to InstructionPayload (the instruction
-// event body) but is a distinct type: a template DTO, not an event payload. On
-// every occurrence it is seeded onto the new task as an InstructionPayload
-// event, so the field names round-trip through the instructions JSONB column as
-// [{text, url}].
-type ScheduleInstruction struct {
-	Text string `json:"text"`
-	URL  string `json:"url,omitempty"`
-}
-
-// Schedule names an agent and the instructions of the tasks it creates, plus a
-// cron spec. A server-side scheduler worker materializes a real task run of the
-// agent on each occurrence (see
-// docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
-// belongs to an org, not a user — CreatedBy is attribution only and carries no
-// permission semantics.
+// Schedule names an agent and a cron spec. A server-side scheduler worker
+// creates a task of the agent on each occurrence, starting with the agent's
+// prompt (see docs/src/content/docs/proposals/draft/agent-schedules.md).
 type Schedule struct {
-	ID        int64  `json:"id"`
-	OrgID     int64  `json:"org_id"`
-	CreatedBy string `json:"created_by"`
-	Name      string `json:"name"`
+	ID    int64  `json:"id"`
+	OrgID int64  `json:"org_id"`
+	Name  string `json:"name"`
 
 	// AgentID is the agent the schedule's tasks belong to; they take its
 	// template.
 	AgentID int64 `json:"agent_id"`
-	// Instructions are the first instructions of the schedule's tasks.
-	Instructions []ScheduleInstruction `json:"instructions"`
 
 	// Schedule spec.
 	CronExpr string `json:"cron_expr"`
@@ -58,64 +41,6 @@ type Schedule struct {
 	NextRunAt  *time.Time `json:"next_run_at,omitempty"` // UTC; nil when disabled/paused
 	LastRunAt  *time.Time `json:"last_run_at,omitempty"` // UTC
 	LastTaskID *int64     `json:"last_task_id,omitempty"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// Task builds the occurrence task from the schedule's agent: a fresh
-// pending/start task carrying the agent's runner, workspace, auto-archive and
-// variables. It is the schedule -> task half of a fire; the scheduler inserts
-// it, then seeds Events(task). The task gets the agent's variables as saved;
-// the runner resolves them when it starts it.
-func (s *Schedule) Task(agent *Agent) *Task {
-	if agent.ID != s.AgentID {
-		panic(fmt.Sprintf("model: schedule %d of agent %d built with agent %d", s.ID, s.AgentID, agent.ID))
-	}
-	return &Task{
-		Name:        s.Name,
-		Runner:      agent.Runner,
-		Workspace:   agent.Workspace,
-		AgentID:     agent.ID,
-		Status:      TaskStatusPending,
-		Command:     TaskCommandStart,
-		Version:     1,
-		OrgID:       s.OrgID,
-		AutoArchive: agent.AutoArchive,
-		Variables:   agent.Variables,
-	}
-}
-
-// Events returns the events to seed onto task for one occurrence: a
-// LifecycleKindCreated event attributed to ScheduleActor and the task's start
-// command event, then one wake-carrying InstructionPayload event per template
-// instruction (created event first, so the timeline ordered by event id shows
-// "Created" first). Call it after the task has been inserted so task.ID is
-// populated.
-func (s *Schedule) Events(task *Task) []*Event {
-	var events []*Event
-	events = append(events, &Event{
-		TaskID: task.ID,
-		OrgID:  task.OrgID,
-		Payload: &LifecyclePayload{
-			Kind:     LifecycleKindCreated,
-			Actor:    ScheduleActor,
-			ToStatus: task.Status.Label(),
-		},
-	})
-	if ev, ok := task.CommandEvent(nil); ok {
-		events = append(events, ev)
-	}
-	for _, inst := range s.Instructions {
-		payload := InstructionPayload(inst)
-		events = append(events, &Event{
-			TaskID:  task.ID,
-			OrgID:   task.OrgID,
-			Wake:    true,
-			Payload: &payload,
-		})
-	}
-	return events
 }
 
 // Next returns the first occurrence strictly after `after`, evaluated in the
@@ -154,19 +79,12 @@ func (s *Schedule) Validate() error {
 // LastTaskID maps to 0 ("never run").
 func (s *Schedule) Proto() *gritzv1.Schedule {
 	pb := &gritzv1.Schedule{
-		Id:           s.ID,
-		Name:         s.Name,
-		AgentId:      s.AgentID,
-		Instructions: make([]*gritzv1.Instruction, len(s.Instructions)),
-		CronExpr:     s.CronExpr,
-		Timezone:     s.Timezone,
-		Enabled:      s.Enabled,
-		CreatedBy:    s.CreatedBy,
-		CreatedAt:    timestamppb.New(s.CreatedAt),
-		UpdatedAt:    timestamppb.New(s.UpdatedAt),
-	}
-	for i, inst := range s.Instructions {
-		pb.Instructions[i] = &gritzv1.Instruction{Text: inst.Text, Url: inst.URL}
+		Id:       s.ID,
+		Name:     s.Name,
+		AgentId:  s.AgentID,
+		CronExpr: s.CronExpr,
+		Timezone: s.Timezone,
+		Enabled:  s.Enabled,
 	}
 	if s.NextRunAt != nil {
 		pb.NextRunAt = timestamppb.New(*s.NextRunAt)
@@ -178,14 +96,4 @@ func (s *Schedule) Proto() *gritzv1.Schedule {
 		pb.LastTaskId = *s.LastTaskID
 	}
 	return pb
-}
-
-// ScheduleInstructionsFromProto converts proto Instruction messages to the
-// schedule's template DTOs (the [{text, url}] JSONB shape).
-func ScheduleInstructionsFromProto(instructions []*gritzv1.Instruction) []ScheduleInstruction {
-	out := make([]ScheduleInstruction, len(instructions))
-	for i, inst := range instructions {
-		out[i] = ScheduleInstruction{Text: inst.Text, URL: inst.Url}
-	}
-	return out
 }

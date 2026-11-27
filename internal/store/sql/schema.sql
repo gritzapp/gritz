@@ -197,18 +197,15 @@ ALTER SEQUENCE public.orgs_id_seq OWNED BY public.orgs.id;
 CREATE TABLE public.schedules (
     id bigint NOT NULL,
     org_id bigint NOT NULL,
-    created_by text NOT NULL,
     name text DEFAULT ''::text NOT NULL,
-    instructions jsonb DEFAULT '[]'::jsonb NOT NULL,
     cron_expr text NOT NULL,
     timezone text DEFAULT 'UTC'::text NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     next_run_at timestamp without time zone,
     last_run_at timestamp without time zone,
     last_task_id bigint,
-    created_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
-    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
-    agent_id bigint NOT NULL
+    agent_id bigint NOT NULL,
+    "position" integer DEFAULT 0 NOT NULL
 );
 
 
@@ -592,10 +589,10 @@ CREATE INDEX idx_orgs_owner ON public.orgs USING btree (owner);
 
 
 --
--- Name: idx_schedules_agent_id; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_schedules_agent_position; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_schedules_agent_id ON public.schedules USING btree (agent_id);
+CREATE INDEX idx_schedules_agent_position ON public.schedules USING btree (agent_id, "position");
 
 
 --
@@ -822,14 +819,6 @@ ALTER TABLE ONLY public.schedules
 
 
 --
--- Name: schedules schedules_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.schedules
-    ADD CONSTRAINT schedules_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
---
 -- Name: schedules schedules_last_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -903,4 +892,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261126000001'),
     ('20261127000001'),
     ('20261128000001'),
-    ('20261129000001');
+    ('20261129000001'),
+    ('20261130000001');

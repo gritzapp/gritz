@@ -958,24 +958,20 @@ message CreateGitHubTokenResponse {
 
 // See docs/src/content/docs/proposals/implemented/scheduled-tasks.md.
 
-// Schedule is an agent, instructions and a cron expression: the server creates
-// a task of the agent, with the instructions, at each time the expression
-// matches. A schedule belongs to its org, not to the user who created it.
+// Schedule is an agent and a cron expression: the server creates a task of the
+// agent at each time the expression matches. The task starts with the agent's
+// prompt.
 message Schedule {
   int64 id = 1;
   string name = 2;
   reserved 3, 4, 5, 10, 17;  // Previously: workspace, runner, namespace, auto_archive, variables (now the agent's)
-  // The first instructions of the tasks it creates.
-  repeated Instruction instructions = 6;
+  reserved 6, 14, 15, 16;    // Previously: instructions, created_by, created_at, updated_at
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; default "UTC".
   bool enabled = 9;
   google.protobuf.Timestamp next_run_at = 11;  // Unset when disabled.
   google.protobuf.Timestamp last_run_at = 12;  // Unset when it has never run.
   int64 last_task_id = 13;                  // 0 when it has never run.
-  string created_by = 14;                   // Who created it; grants no permissions.
-  google.protobuf.Timestamp created_at = 15;
-  google.protobuf.Timestamp updated_at = 16;
   // The agent its tasks belong to. Each task takes its workspace, runner,
   // auto-archive and variables from the agent when it is created.
   int64 agent_id = 18;
@@ -984,7 +980,7 @@ message Schedule {
 message CreateScheduleRequest {
   string name = 1;
   reserved 2, 3, 4, 9, 10;  // Previously: workspace, runner, namespace, auto_archive, variables (now the agent's)
-  repeated Instruction instructions = 5;
+  reserved 5;               // Previously: instructions
   string cron_expr = 6;
   string timezone = 7;                      // IANA name; empty defaults to "UTC".
   // Whether the schedule runs. False (the default) creates a schedule that
@@ -1011,14 +1007,14 @@ message ListSchedulesResponse {
   repeated Schedule schedules = 1;
 }
 
-// UpdateScheduleRequest replaces a schedule's name, agent, instructions, cron
-// expression and timezone. Changing cron_expr or timezone recomputes next_run_at.
+// UpdateScheduleRequest replaces a schedule's name, agent, cron expression and
+// timezone. Changing cron_expr or timezone recomputes next_run_at.
 // Use SetScheduleEnabled to enable or disable it.
 message UpdateScheduleRequest {
   int64 id = 1;
   string name = 2;
   reserved 3, 4, 5, 9, 10;  // Previously: workspace, runner, namespace, auto_archive, variables (now the agent's)
-  repeated Instruction instructions = 6;
+  reserved 6;               // Previously: instructions
   string cron_expr = 7;
   string timezone = 8;                      // IANA name; empty defaults to "UTC".
   int64 agent_id = 11;  // The agent its tasks belong to.
@@ -1067,7 +1063,7 @@ message Agent {
   string name = 2;
   string workspace = 3;
   string runner = 4;
-  string prompt = 5;  // The first instruction of the tasks its triggers create.
+  string prompt = 5;  // The first instruction of the tasks its triggers and schedules create.
   // The auto-archive delay of its tasks, as in Task.auto_archive.
   google.protobuf.Duration auto_archive = 6;
   // Variables of its tasks, by name, as saved. Each must be declared by the

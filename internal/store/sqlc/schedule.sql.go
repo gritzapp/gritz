@@ -8,14 +8,11 @@ package sqlc
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"time"
 )
 
 const advanceSchedule = `-- name: AdvanceSchedule :exec
 UPDATE schedules
-SET next_run_at = $1, last_run_at = $2, last_task_id = $3,
-    updated_at = (NOW() AT TIME ZONE 'UTC')
+SET next_run_at = $1, last_run_at = $2, last_task_id = $3
 WHERE id = $4 AND org_id = $5
 `
 
@@ -39,9 +36,9 @@ func (q *Queries) AdvanceSchedule(ctx context.Context, arg AdvanceScheduleParams
 }
 
 const claimDueSchedules = `-- name: ClaimDueSchedules :many
-SELECT id, org_id, created_by, name, instructions,
+SELECT id, org_id, name,
        cron_expr, timezone, enabled,
-       next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+       next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE enabled = TRUE
   AND next_run_at IS NOT NULL
@@ -68,18 +65,15 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
-			&i.CreatedBy,
 			&i.Name,
-			&i.Instructions,
 			&i.CronExpr,
 			&i.Timezone,
 			&i.Enabled,
 			&i.NextRunAt,
 			&i.LastRunAt,
 			&i.LastTaskID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 			&i.AgentID,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -95,42 +89,37 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 }
 
 const createSchedule = `-- name: CreateSchedule :one
-INSERT INTO schedules (org_id, created_by, name, agent_id, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+INSERT INTO schedules (org_id, name, agent_id, position, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id)
+VALUES ($1, $2, $3,
+        (SELECT COALESCE(MAX(position) + 1, 0) FROM schedules WHERE agent_id = $3),
+        $4, $5, $6, $7, $8, $9)
 RETURNING id
 `
 
 type CreateScheduleParams struct {
-	OrgID        int64           `json:"org_id"`
-	CreatedBy    string          `json:"created_by"`
-	Name         string          `json:"name"`
-	AgentID      int64           `json:"agent_id"`
-	Instructions json.RawMessage `json:"instructions"`
-	CronExpr     string          `json:"cron_expr"`
-	Timezone     string          `json:"timezone"`
-	Enabled      bool            `json:"enabled"`
-	NextRunAt    sql.NullTime    `json:"next_run_at"`
-	LastRunAt    sql.NullTime    `json:"last_run_at"`
-	LastTaskID   sql.NullInt64   `json:"last_task_id"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	OrgID      int64         `json:"org_id"`
+	Name       string        `json:"name"`
+	AgentID    int64         `json:"agent_id"`
+	CronExpr   string        `json:"cron_expr"`
+	Timezone   string        `json:"timezone"`
+	Enabled    bool          `json:"enabled"`
+	NextRunAt  sql.NullTime  `json:"next_run_at"`
+	LastRunAt  sql.NullTime  `json:"last_run_at"`
+	LastTaskID sql.NullInt64 `json:"last_task_id"`
 }
 
+// A new schedule goes last in its agent.
 func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, createSchedule,
 		arg.OrgID,
-		arg.CreatedBy,
 		arg.Name,
 		arg.AgentID,
-		arg.Instructions,
 		arg.CronExpr,
 		arg.Timezone,
 		arg.Enabled,
 		arg.NextRunAt,
 		arg.LastRunAt,
 		arg.LastTaskID,
-		arg.CreatedAt,
-		arg.UpdatedAt,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -153,7 +142,7 @@ func (q *Queries) DeleteSchedule(ctx context.Context, arg DeleteScheduleParams) 
 
 const disableSchedules = `-- name: DisableSchedules :exec
 UPDATE schedules
-SET enabled = FALSE, next_run_at = NULL, updated_at = (NOW() AT TIME ZONE 'UTC')
+SET enabled = FALSE, next_run_at = NULL
 WHERE org_id = $1
 `
 
@@ -163,7 +152,7 @@ func (q *Queries) DisableSchedules(ctx context.Context, orgID int64) error {
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE id = $1 AND org_id = $2
 `
@@ -179,24 +168,21 @@ func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (Sched
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
-		&i.CreatedBy,
 		&i.Name,
-		&i.Instructions,
 		&i.CronExpr,
 		&i.Timezone,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.LastRunAt,
 		&i.LastTaskID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.AgentID,
+		&i.Position,
 	)
 	return i, err
 }
 
 const getScheduleForUpdate = `-- name: GetScheduleForUpdate :one
-SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
@@ -213,27 +199,24 @@ func (q *Queries) GetScheduleForUpdate(ctx context.Context, arg GetScheduleForUp
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,
-		&i.CreatedBy,
 		&i.Name,
-		&i.Instructions,
 		&i.CronExpr,
 		&i.Timezone,
 		&i.Enabled,
 		&i.NextRunAt,
 		&i.LastRunAt,
 		&i.LastTaskID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
 		&i.AgentID,
+		&i.Position,
 	)
 	return i, err
 }
 
 const listSchedules = `-- name: ListSchedules :many
-SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE org_id = $1
-ORDER BY created_at DESC
+ORDER BY id DESC
 `
 
 func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, error) {
@@ -248,18 +231,15 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 		if err := rows.Scan(
 			&i.ID,
 			&i.OrgID,
-			&i.CreatedBy,
 			&i.Name,
-			&i.Instructions,
 			&i.CronExpr,
 			&i.Timezone,
 			&i.Enabled,
 			&i.NextRunAt,
 			&i.LastRunAt,
 			&i.LastTaskID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
 			&i.AgentID,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -275,38 +255,39 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 }
 
 const updateSchedule = `-- name: UpdateSchedule :exec
-UPDATE schedules
-SET name = $1, agent_id = $2, instructions = $3, cron_expr = $4, timezone = $5, enabled = $6, next_run_at = $7, last_run_at = $8, last_task_id = $9, updated_at = $10
-WHERE id = $11 AND org_id = $12
+UPDATE schedules u
+SET name = $1,
+    position = CASE WHEN u.agent_id = $2 THEN u.position
+                    ELSE (SELECT COALESCE(MAX(s.position) + 1, 0) FROM schedules s WHERE s.agent_id = $2) END,
+    agent_id = $2, cron_expr = $3, timezone = $4, enabled = $5,
+    next_run_at = $6, last_run_at = $7, last_task_id = $8
+WHERE u.id = $9 AND u.org_id = $10
 `
 
 type UpdateScheduleParams struct {
-	Name         string          `json:"name"`
-	AgentID      int64           `json:"agent_id"`
-	Instructions json.RawMessage `json:"instructions"`
-	CronExpr     string          `json:"cron_expr"`
-	Timezone     string          `json:"timezone"`
-	Enabled      bool            `json:"enabled"`
-	NextRunAt    sql.NullTime    `json:"next_run_at"`
-	LastRunAt    sql.NullTime    `json:"last_run_at"`
-	LastTaskID   sql.NullInt64   `json:"last_task_id"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	ID           int64           `json:"id"`
-	OrgID        int64           `json:"org_id"`
+	Name       string        `json:"name"`
+	AgentID    int64         `json:"agent_id"`
+	CronExpr   string        `json:"cron_expr"`
+	Timezone   string        `json:"timezone"`
+	Enabled    bool          `json:"enabled"`
+	NextRunAt  sql.NullTime  `json:"next_run_at"`
+	LastRunAt  sql.NullTime  `json:"last_run_at"`
+	LastTaskID sql.NullInt64 `json:"last_task_id"`
+	ID         int64         `json:"id"`
+	OrgID      int64         `json:"org_id"`
 }
 
+// A schedule moved to another agent goes last in it.
 func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error {
 	_, err := q.db.ExecContext(ctx, updateSchedule,
 		arg.Name,
 		arg.AgentID,
-		arg.Instructions,
 		arg.CronExpr,
 		arg.Timezone,
 		arg.Enabled,
 		arg.NextRunAt,
 		arg.LastRunAt,
 		arg.LastTaskID,
-		arg.UpdatedAt,
 		arg.ID,
 		arg.OrgID,
 	)

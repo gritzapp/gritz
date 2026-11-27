@@ -47,11 +47,10 @@ func TestGetSchedule(t *testing.T) {
 		GetScheduleFunc: func(ctx context.Context, req *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error) {
 			assert.Equal(t, req.Id, int64(3))
 			return &gritzv1.GetScheduleResponse{Schedule: &gritzv1.Schedule{
-				Id:           3,
-				Name:         "nightly",
-				Instructions: []*gritzv1.Instruction{{Text: "bump deps"}, {Text: "open a PR"}},
-				CronExpr:     "0 3 * * *",
-				Timezone:     "Europe/Paris",
+				Id:       3,
+				Name:     "nightly",
+				CronExpr: "0 3 * * *",
+				Timezone: "Europe/Paris",
 			}}, nil
 		},
 	}
@@ -68,11 +67,10 @@ func TestGetSchedule(t *testing.T) {
 	var got map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &got)
 	assert.DeepEqual(t, got, map[string]any{
-		"id":           "3",
-		"name":         "nightly",
-		"instructions": []any{map[string]any{"text": "bump deps"}, map[string]any{"text": "open a PR"}},
-		"cronExpr":     "0 3 * * *",
-		"timezone":     "Europe/Paris",
+		"id":       "3",
+		"name":     "nightly",
+		"cronExpr": "0 3 * * *",
+		"timezone": "Europe/Paris",
 	})
 }
 
@@ -89,11 +87,10 @@ func TestCreateSchedule(t *testing.T) {
 	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "create_schedule",
 		Arguments: map[string]any{
-			"name":        "nightly",
-			"agent_id":    5,
-			"instruction": "bump deps",
-			"cron_expr":   "0 3 * * *",
-			"timezone":    "Europe/Paris",
+			"name":      "nightly",
+			"agent_id":  5,
+			"cron_expr": "0 3 * * *",
+			"timezone":  "Europe/Paris",
 		},
 	})
 
@@ -103,11 +100,10 @@ func TestCreateSchedule(t *testing.T) {
 	assert.Equal(t, len(client.CreateScheduleCalls()), 1)
 	// enabled is left out, so the schedule is created disabled.
 	assert.DeepEqual(t, client.CreateScheduleCalls()[0].CreateScheduleRequest, &gritzv1.CreateScheduleRequest{
-		Name:         "nightly",
-		AgentId:      5,
-		Instructions: []*gritzv1.Instruction{{Text: "bump deps"}},
-		CronExpr:     "0 3 * * *",
-		Timezone:     "Europe/Paris",
+		Name:     "nightly",
+		AgentId:  5,
+		CronExpr: "0 3 * * *",
+		Timezone: "Europe/Paris",
 	}, protocmp.Transform())
 	var got map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &got)
@@ -116,13 +112,12 @@ func TestCreateSchedule(t *testing.T) {
 
 func TestUpdateSchedule(t *testing.T) {
 	stored := &gritzv1.Schedule{
-		Id:           3,
-		Name:         "nightly",
-		AgentId:      5,
-		Instructions: []*gritzv1.Instruction{{Text: "bump deps", Url: "https://example.com/issue/1"}, {Text: "open a PR"}},
-		CronExpr:     "0 3 * * *",
-		Timezone:     "Europe/Paris",
-		Enabled:      true,
+		Id:       3,
+		Name:     "nightly",
+		AgentId:  5,
+		CronExpr: "0 3 * * *",
+		Timezone: "Europe/Paris",
+		Enabled:  true,
 	}
 	tests := []struct {
 		name string
@@ -133,31 +128,28 @@ func TestUpdateSchedule(t *testing.T) {
 			name: "CronExprOnly",
 			args: map[string]any{"id": 3, "cron_expr": "0 9 * * *"},
 			want: &gritzv1.UpdateScheduleRequest{
-				Id:           3,
-				Name:         "nightly",
-				AgentId:      5,
-				Instructions: []*gritzv1.Instruction{{Text: "bump deps", Url: "https://example.com/issue/1"}, {Text: "open a PR"}},
-				CronExpr:     "0 9 * * *",
-				Timezone:     "Europe/Paris",
+				Id:       3,
+				Name:     "nightly",
+				AgentId:  5,
+				CronExpr: "0 9 * * *",
+				Timezone: "Europe/Paris",
 			},
 		},
 		{
 			name: "Every",
 			args: map[string]any{
-				"id":          3,
-				"name":        "daily",
-				"agent_id":    6,
-				"instruction": "check CI",
-				"cron_expr":   "@daily",
-				"timezone":    "UTC",
+				"id":        3,
+				"name":      "daily",
+				"agent_id":  6,
+				"cron_expr": "@daily",
+				"timezone":  "UTC",
 			},
 			want: &gritzv1.UpdateScheduleRequest{
-				Id:           3,
-				Name:         "daily",
-				AgentId:      6,
-				Instructions: []*gritzv1.Instruction{{Text: "check CI"}},
-				CronExpr:     "@daily",
-				Timezone:     "UTC",
+				Id:       3,
+				Name:     "daily",
+				AgentId:  6,
+				CronExpr: "@daily",
+				Timezone: "UTC",
 			},
 		},
 	}

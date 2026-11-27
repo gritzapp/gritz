@@ -34,14 +34,12 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create schedule"))
 	}
 	sched := &model.Schedule{
-		OrgID:        caller.OrgID,
-		CreatedBy:    caller.ID,
-		Name:         req.Name,
-		AgentID:      req.AgentId,
-		Instructions: model.ScheduleInstructionsFromProto(req.Instructions),
-		CronExpr:     req.CronExpr,
-		Timezone:     cmp.Or(req.Timezone, "UTC"),
-		Enabled:      req.Enabled,
+		OrgID:    caller.OrgID,
+		Name:     req.Name,
+		AgentID:  req.AgentId,
+		CronExpr: req.CronExpr,
+		Timezone: cmp.Or(req.Timezone, "UTC"),
+		Enabled:  req.Enabled,
 	}
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		// Validate before the write so an invalid schedule can never be stored.
@@ -137,7 +135,6 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 		}
 		existing.Name = req.Name
 		existing.AgentID = req.AgentId
-		existing.Instructions = model.ScheduleInstructionsFromProto(req.Instructions)
 		existing.CronExpr = req.CronExpr
 		existing.Timezone = timezone
 		agent, err := scheduler.Validate(ctx, tx, s.store, existing)

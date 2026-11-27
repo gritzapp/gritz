@@ -22,7 +22,6 @@ function NewSchedulePage() {
     await mutation.mutateAsync({
       name: values.name,
       agentId: BigInt(values.agentId),
-      instructions: [{ text: values.instruction, url: '' }],
       cronExpr: values.cronExpr,
       timezone: values.timezone,
       enabled: values.enabled,

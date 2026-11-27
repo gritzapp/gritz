@@ -19,10 +19,6 @@ function scheduleToValues(schedule: Schedule): ScheduleFormValues {
   return {
     name: schedule.name,
     agentId: String(schedule.agentId),
-    // A schedule stores a list of instructions but the form edits a single text
-    // block (the common case); join any extras with blank lines so nothing is
-    // silently dropped on save.
-    instruction: schedule.instructions.map((i) => i.text).join('\n\n'),
     cronExpr: schedule.cronExpr,
     timezone: schedule.timezone,
     enabled: schedule.enabled,
@@ -48,7 +44,6 @@ function EditSchedulePage() {
       id: schedule.id,
       name: values.name,
       agentId: BigInt(values.agentId),
-      instructions: [{ text: values.instruction, url: '' }],
       cronExpr: values.cronExpr,
       timezone: values.timezone,
     })
