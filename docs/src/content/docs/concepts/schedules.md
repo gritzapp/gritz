@@ -7,8 +7,8 @@ sidebar:
 
 A schedule creates a task on a cron schedule: a nightly dependency bump, a weekly
 report, an hourly check. Each time it fires it creates a new task of the
-[agent](/concepts/agents/) it names, with the schedule's instructions, and the task
-starts at once.
+[agent](/concepts/agents/) it names, starting with the agent's prompt, and the
+task starts at once.
 
 Schedules belong to the organisation, not to the member who created them. They
 are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
@@ -18,7 +18,6 @@ are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
 **Schedules → + Schedule** asks for:
 
 - **Name**: the name of every task it creates. Optional.
-- **Instructions**: the instruction every task starts with.
 - **Cron expression**: when to fire. See below.
 - **Timezone**: the timezone the cron expression is read in. Defaults to your
   browser's.
@@ -29,8 +28,9 @@ are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
 
 A schedule names one [agent](/concepts/agents/), and each task it creates
 takes the agent's runner, workspace,
-[auto-archive](/concepts/tasks/#auto-archive) delay and variables. The
-schedule's instructions take the place of the agent's prompt.
+[auto-archive](/concepts/tasks/#auto-archive) delay and variables. Its first
+instruction is the agent's prompt or, when the agent has none, a line naming
+the schedule and the agent.
 
 The agent is read each time the schedule fires, so a change to the agent applies
 to the schedule's next task. An agent can't be deleted while a schedule names
