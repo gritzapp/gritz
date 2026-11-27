@@ -8,8 +8,9 @@ sidebar:
 GitHub and Jira events reach gritz through their own integrations. Any other
 system can send events too: you define a custom event type, and the system
 `POST`s events of that type to the custom events webhook with an API key.
-Routing rules then decide what each event does, as they do for built-in events:
-create a task, wake a task that's already working on the same resource, or both.
+[Agents](/concepts/agents/) then decide what each event does, as they do for
+built-in events: create a task, wake a task that's already working on the same
+resource, or both.
 
 This page uses an alerting system as its example. It posts an `alert` event when
 an alert fires, and gritz creates a task to investigate it.
@@ -23,13 +24,19 @@ Open **Events → Custom Schemas** and add a type with **+ Type**:
   letters, digits and underscores (`^[a-z][a-z0-9_]{0,63}$`). It must be unique
   among your organisation's custom types, and it can't be renamed later: remove
   the type and add a new one instead.
-- **Label**: shown in the routing rule editor and on the task's timeline, for
+- **Label**: shown in the trigger editor and on the task's timeline, for
   example `Alert`. It can't be empty.
-- **Attributes**: the values routing rules can match on. Every type has `body`
+- **Attributes**: the values triggers can match on. Every type has `body`
   and `url`; the form adds both and doesn't let you remove them. Add one row per
   extra attribute, with a key that follows the same rules as the type name. The
   example declares `severity` and `service`. An attribute's label, help and
-  placeholder are only for display, in the rule editor and the JSON Schema.
+  placeholder are only for display, in the trigger editor and the JSON Schema.
+
+A type's events can also wake tasks subscribed to their `url` when the type
+declares the `custom.url` [link type](/reference/event-types/#link-types). The
+Web UI's form doesn't set it: declare it with the
+[`put_custom_event_type`](/integrations/mcp/#put_custom_event_type) MCP tool's
+`link_types`. A type without it can only create tasks.
 
 The **JSON Schema** button next to each type shows the request body the webhook
 accepts for it.
@@ -75,11 +82,11 @@ the key's value.
   type's label.
 - `url` identifies the resource the event is about; see
   [The URL is the subscription key](#the-url-is-the-subscription-key).
-- `body` is the event's text. The agent reads it, and rules can match on it.
+- `body` is the event's text. The agent reads it, and triggers can match on it.
 - `attrs` holds the values of the type's other attributes. Each value is a list
   of strings, even when there is only one.
 - `details` holds extra key/value context that is shown with the event but that
-  rules can't match on.
+  triggers can't match on.
 
 Unknown fields are rejected. The
 [envelope reference](/reference/custom-event-envelope/) lists every field and
@@ -99,60 +106,61 @@ The `test_event` [MCP tool](/integrations/mcp/#test_event) with `fire` set sends
 the same event with the sign-in or API key the MCP client already uses. It is
 checked the same way, and routes the same way.
 
-## 4. Add a routing rule
+## 4. Add an agent
 
-An event does nothing until a routing rule matches it. Open **Events → Routing
-Rules** and add a rule with **+ Rule**:
+An event does nothing until an agent acts on it. This step assumes the `alert`
+type declares the `custom.url` link type, as in step 1; without it, leave out
+the link kind and the trigger's link and yield, and every alert creates a task.
 
-- **Event type**: the type's label, here `Alert`.
-- **Conditions**: `severity` `equals` `critical`. A condition matches when any
-  of the attribute's values satisfies it, and the rule matches when every
-  condition does.
-- **Public**: on. Custom event rules must be public; see below.
-- **Wake up linked tasks**: on.
-- **Create a task**: on, with a runner, a workspace, and a prompt such as
-  "Investigate this alert and report the likely cause."
+Open **Agents** and add an agent with **+ Agent**, with a runner, a workspace, and a prompt such as
+"Investigate this alert and report the likely cause." Then:
 
-A task created by a rule is subscribed to the event's `url`. The next event with
-the same `url` wakes that task instead of creating another one.
+- **Link kinds**: add one with the link type **Custom: URL** and the claim
+  `alert-owner`. Leave its events unchecked to deliver every event type that
+  declares the link type, and turn on **Public**.
+- **Triggers**: add one with:
+  - **Event type**: the type's label, here `Alert`.
+  - **Conditions**: `severity` `equals` `critical`. A condition matches when
+    any of the attribute's values satisfies it, and the trigger matches when
+    every condition does.
+  - **Link**: `custom.url`, the link kind above.
+  - **Yield to claims**: `alert-owner`.
+  - **Public**: on. Custom event triggers must be public; see below.
 
-### Why custom event rules must be public
+The task the trigger creates is subscribed to the event's `url`. The next event
+with the same `url` wakes that task, and the trigger yields to it instead of
+creating another one.
 
-A rule that isn't public only fires for events whose actor is a member of the
-organisation, such as a GitHub comment by a member. A custom event has no actor:
-it belongs to the API key's organisation, and only that organisation's public
-rules are considered for it. A member-only rule for a custom type could never
-fire, so gritz rejects it when you save it.
+### Why custom event triggers must be public
+
+A trigger or link kind that isn't public only acts on events whose actor is a
+member of the organisation, such as a GitHub comment by a member. A custom event
+has no actor: it belongs to the API key's organisation, and only that
+organisation's public triggers and link kinds are considered for it. A
+member-only trigger for a custom type could never fire, so gritz rejects it when
+you save the agent. A member-only link kind never delivers custom events.
 
 ### Follow-up events
 
-For each event, rules are checked in the order shown on the Routing Rules tab
-(the arrows reorder them), and the first rule that matches wins. The rule above
-only matches critical alerts, so when the alerting system later posts a
-`resolved` event for the same alert, it matches nothing and never reaches the
-task.
-
-Add a second rule below the first: the same type, no conditions, public, **Wake
-up linked tasks** on and **Create a task** off. The resolved event matches it and
-wakes the task subscribed to its `url`. An event for an alert gritz never saw
-fire has no subscribed task, so this rule does nothing for it rather than create
-a task.
+The trigger above only matches critical alerts, but the link kind delivers
+every event about the alert. So when the alerting system later posts a
+`resolved` event for the same alert, it wakes the task. An event for an alert
+gritz never saw fire has no subscribed task, and matches no trigger, so it does
+nothing.
 
 ## The URL is the subscription key
 
-gritz decides which task an event belongs to by its `url`: an event wakes the
-tasks subscribed to that URL. A task is subscribed to the `url` of the event that
-created it, and to any link an agent creates with `subscribe=true`.
+gritz decides which task an event belongs to by its `url`: an event of a type
+that declares `custom.url` wakes the tasks subscribed to that URL with a
+`custom.url` link kind. A task is subscribed to the `url` of the event that
+created it when its trigger has a link, and to any link its agent creates with
+a `custom.url` kind.
 
-For most URLs, gritz uses the URL exactly as sent, so every event about the same
-resource must send the same URL, byte for byte. A different query string, a
-trailing slash or a different host name is a different resource, and the event
-won't wake the task the first event created.
-
-GitHub and Jira URLs are the exception: gritz normalises them as it does for
-their native events, so a custom event about a GitHub pull request or a Jira
-issue wakes the task subscribed to it, whichever form of the URL each side used.
-The [envelope reference](/reference/custom-event-envelope/#url) lists the forms.
+gritz uses the URL exactly as sent, so every event about the same resource must
+send the same URL, byte for byte. A different query string, a trailing slash or
+a different host name is a different resource, and the event won't wake the
+task the first event created. This holds for GitHub and Jira URLs too: a custom
+event never reaches a task's GitHub or Jira links.
 
 Pick a URL that a person can open, such as the alert's page in the alerting
 system, and send exactly that string in every event about the alert.
@@ -170,4 +178,4 @@ system, and send exactly that string in every event about the alert.
 | `401` | `bearer token required` | No `Authorization: Bearer …` header. A browser session cookie isn't accepted. |
 | `401` | `invalid or expired token` | The key is wrong, deleted or expired. |
 | `403` | `permission denied` | The token can't create events, for example a task's own token. Use an API key. |
-| `200` | `{"routed": 0}` | No public rule for the type matched the event, or a rule matched but no task is subscribed to the `url` and the rule doesn't create tasks. |
+| `200` | `{"routed": 0}` | No public trigger for the type matched the event, or the matching triggers yielded, and no task is subscribed to the `url` with a public link kind that delivers the type. |

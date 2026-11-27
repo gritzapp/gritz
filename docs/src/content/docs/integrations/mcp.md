@@ -172,7 +172,7 @@ up a `gritz login` made since.
 | `list_event_types` | Lists the event types agent triggers can match, with their attributes and link types. |
 | `put_custom_event_type` | Adds a custom event type, or replaces the one with the same name. |
 | `delete_custom_event_type` | Deletes a custom event type. |
-| `test_event` | Tests the routing rules with an event, or routes it for real. |
+| `test_event` | Tests the organisation's agents with an event, or routes it for real. |
 | `list_schedules` | Lists the organisation's schedules. |
 | `get_schedule` | Gets a schedule, with its instructions and its next and last run. |
 | `create_schedule` | Creates a schedule. |
@@ -193,8 +193,8 @@ gritz also points your agent at these docs, through
 [`llms.txt`](https://docs.gritz.dev/llms.txt), so it can look up how gritz
 works.
 
-Each tool that changes a task returns the task's ID, name, workspace, runner,
-namespace, status, whether it is archived, its URL, and when it was created and
+Each tool that changes a task returns the task's ID, name, agent ID, workspace,
+runner, status, whether it is archived, its URL, and when it was created and
 last updated. `list_tasks` returns the same for each task.
 
 ### `create_task`
@@ -272,14 +272,14 @@ task page's **Logs** tab, with [secrets](/operators/secrets/) masked; and
 | `url` | The resource's URL. Required. |
 | `relevance` | Why the resource matters to the task. |
 | `title` | A title for the link. |
-| `subscribe` | Route the resource's events, such as comments on a pull request, to the task. See [subscriptions](/concepts/events-and-links/#subscriptions). |
+| `kind` | A [link kind](/concepts/agents/#link-kinds) of the task's agent. The link is then subscribed: the resource's events that the kind lists, such as comments on a pull request, are delivered to the task. The URL must be a resource of the kind's link type. Leave it out for a plain reference link, which receives no events. |
 
 Use it to subscribe a task to something you made yourself, such as a pull
 request you opened by hand.
 
 ### Agents
 
-An [agent](/concepts/schedules/#the-agent) is the organisation's template for a
+An [agent](/concepts/agents/) is the organisation's template for a
 kind of task, together with the triggers that create its tasks from events and
 the kinds of subscribed link its tasks may create. `list_agents` returns every
 agent; `get_agent` takes an agent's `id` and returns it in full:
@@ -346,8 +346,9 @@ those `test_event` takes.
 | Argument | |
 | --- | --- |
 | `type` | The type's name, which senders put in the event's `type`. Required. |
-| `label` | The type's name in the routing rule editor and on task timelines. Required. |
-| `attrs` | The attributes rules can match on, each with a `key` and an optional `label`, `help` and `placeholder`. It must include `body` and `url`. |
+| `label` | The type's name in the trigger editor and on task timelines. Required. |
+| `attrs` | The attributes triggers can match on, each with a `key` and an optional `label`, `help` and `placeholder`. It must include `body` and `url`. |
+| `link_types` | The [link types](/reference/event-types/#link-types) the event's URL can name: `["custom.url"]`, so its events can be delivered to subscribed tasks, or none. |
 
 It adds the type, or replaces the custom type of the same name, and returns
 every custom type. The rules for names are in
@@ -355,7 +356,7 @@ every custom type. The rules for names are in
 
 ### `delete_custom_event_type`
 
-Takes the `type` to delete. It fails while a routing rule uses the type.
+Takes the `type` to delete. It fails while an agent uses the type.
 
 ### `test_event`
 
@@ -367,21 +368,25 @@ Takes the `type` to delete. It fails while a routing rule uses the type.
 | `body` | The event's text. |
 | `attrs` | The values of the type's other attributes, each a list of strings. |
 | `description` | A description shown on the timeline of a task the event reaches. It defaults to the type's label. |
-| `details` | Extra key/value context shown with the event. Rules don't match on it. |
-| `fire` | Act on the match: wake or create tasks. Without it, nothing changes. |
+| `details` | Extra key/value context shown with the event. Triggers don't match on it. |
+| `fire` | Act on it: wake or create tasks. Without it, nothing changes. |
 
 The event is checked against its type as the
 [custom events webhook](/integrations/custom-events/) checks an envelope. It
-returns the rule that matched, if any, and whether it wakes linked tasks or
-creates one. An event of a GitHub or Jira type has you as its actor. A custom
-event has none, so only public rules match it, as when it comes from the
-webhook: firing a custom event is how to send one.
+returns, for each agent the event concerns, the index of the trigger that
+matched and whether it creates a task or yields, with the tasks holding the
+claim it yields to, and the tasks the event is delivered to, each with the link
+kind that matched. With `fire`, it also returns the tasks and events it
+created. An event of a GitHub or Jira type has you as its actor. A custom event
+has none, so only public triggers and link kinds admit it, as when it comes from
+the webhook: firing a custom event is how to send one. See
+[Testing with a test event](/concepts/agents/#testing-with-a-test-event).
 
 ### `create_schedule`
 
 | Argument | |
 | --- | --- |
-| `agent_id` | The ID of the [agent](/concepts/schedules/#the-agent) its tasks belong to. They take its runner, workspace, auto-archive delay and variables. Required. |
+| `agent_id` | The ID of the [agent](/concepts/agents/) its tasks belong to. They take its runner, workspace, auto-archive delay and variables. Required. |
 | `instruction` | The instruction every task it creates starts with. Required. |
 | `cron_expr` | When to create a task: a five-field [cron expression](/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. Required. |
 | `timezone` | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Defaults to `UTC`. |
@@ -428,10 +433,9 @@ finishing without polling:
 The `org` attribute is the name of the `.gritz.yml` entry of the task's
 organisation; a session started with `--key` sends `org=""`.
 
-It sends a message when a task is created (by anyone, by a routing rule or by a
-schedule), when one is queued with new instructions, woken from a finished state
-by an event, given an event without being woken, completed, failed, cancelled,
-restarted or archived, and when a shell is opened in one. It leaves out the changes made through the same `gritz mcp` process, so
+It sends a message when a task is created (by anyone, by an agent's trigger or
+by a schedule), when one is queued with new instructions, woken from a finished
+state by an event, completed, failed, cancelled, restarted or archived, and when a shell is opened in one. It leaves out the changes made through the same `gritz mcp` process, so
 your Claude isn't told about the task it just created.
 
 It also tells your Claude when an organisation's notification stream goes down

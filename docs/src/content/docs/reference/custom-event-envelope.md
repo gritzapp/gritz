@@ -33,7 +33,7 @@ handles `POST`.
   not hold `event:create`.
 - The event belongs to the key's organisation and is checked against that
   organisation's custom event types. It has no actor, so only the
-  organisation's public routing rules can match it.
+  organisation's public triggers and link kinds can act on it.
 
 ### Body
 
@@ -57,7 +57,7 @@ type.
 | --- | --- | --- | --- |
 | `type` | string | yes | Must name one of the organisation's custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
 | `description` | string | no | The event's description on the task's timeline. Defaults to the type's label. |
-| `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. Only GitHub and Jira URLs are normalised: see [`url`](#url). |
+| `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. Used exactly as sent: see [`url`](#url). |
 | `body` | string | no | The event's text. Defaults to the empty string. |
 | `attrs` | object of string → array of strings | no | Every key must be an attribute the type declares, other than `body` and `url`. |
 | `details` | object of string → string | no | Not validated. |
@@ -70,37 +70,22 @@ empty.
 
 #### `url`
 
-The resource the event is about, and the key that routes it: an event wakes the
-tasks subscribed to its `url`, and a task created by the event is subscribed to
-it.
+The resource the event is about, and the key that routes it. If the type
+declares the `custom.url` [link type](/reference/event-types/#link-types), an
+event wakes the tasks subscribed to its `url` with a `custom.url` link kind, and
+a task created by a trigger with a link is subscribed to it.
 
-gritz normalises GitHub and Jira issue URLs to one key per issue, as it does for
-their native events, so a custom event about a GitHub pull request or a Jira
-issue wakes the task subscribed to it:
-
-| `url` | Key |
-| --- | --- |
-| `https://github.com/{owner}/{repo}/issues/{n}` or `/pull/{n}`, with any further path segments, query or fragment | `https://github.com/{owner}/{repo}/issues/{n}` or `/pull/{n}` |
-| `https://api.github.com/repos/{owner}/{repo}/issues/{n}` or `/pulls/{n}`, with any further path segments, query or fragment | `https://github.com/{owner}/{repo}/issues/{n}` or `/pull/{n}` |
-| `https://{site}.atlassian.net/browse/{KEY}`, with any further path segments, query or fragment | `https://{site}.atlassian.net/browse/{KEY}` |
-| `https://{site}.atlassian.net/rest/api/{version}/issue/{KEY}`, with any further path segments, query or fragment | `https://{site}.atlassian.net/browse/{KEY}` |
-
-The host must match exactly (`github.com`, not `www.github.com`), and the key
-always uses `https`. A Jira REST URL with a numeric issue id instead of a key,
-and a GitHub API comment URL (`/repos/{owner}/{repo}/issues/comments/{id}`), are
-not normalised.
-
-Every other URL is used exactly as sent, so events about the same resource must
-send the same URL byte for byte.
+The URL is used exactly as sent, GitHub and Jira URLs included, so events about
+the same resource must send the same URL byte for byte.
 
 #### `body`
 
-The event's text, passed to the agent. Rules match on it through the `body`
+The event's text, passed to the agent. Triggers match on it through the `body`
 attribute every custom type declares.
 
 #### `attrs`
 
-The values routing rule conditions match on, keyed by attribute. Each value is a
+The values trigger conditions match on, keyed by attribute. Each value is a
 list of strings; a condition matches when any value in the list satisfies it.
 An attribute the type declares may be omitted, in which case conditions on it
 don't match. Sending `body` or `url` here is an error: send them as the top-level
@@ -109,7 +94,7 @@ fields, from which their attributes are derived.
 #### `details`
 
 Free-form key/value strings stored with the event and shown with it to the agent
-and in the Web UI. Rules can't match on them.
+and in the Web UI. Triggers can't match on them.
 
 ## Response
 
@@ -119,10 +104,11 @@ A valid event gets `200 OK` with a JSON body:
 {"routed": 1}
 ```
 
-`routed` is the number of tasks the event was delivered to: tasks created by the
-matching rule, or existing tasks subscribed to the event's `url`. It is `0` when
-no public rule for the type matches, or when a rule matches but no task is
-subscribed to the `url` and the rule doesn't create tasks.
+`routed` is the number of tasks the event reached: tasks created by agents'
+triggers, and existing tasks subscribed to the event's `url`. It is `0` when no
+public trigger for the type matches, or every matching trigger yields, and no
+task is subscribed to the `url` through a public link kind that delivers the
+type.
 
 Errors are plain text.
 

@@ -7,16 +7,17 @@ sidebar:
 
 The GitHub integration turns activity on GitHub into
 [events](/concepts/events-and-links/): comments, reviews, assignments, labels,
-pull requests being opened or closed, pushes, and CI results. [Routing rules](/concepts/routing-rules/)
-then decide what each event does: wake the task that opened the pull request,
-create a new task for an issue, or nothing.
+pull requests being opened or closed, pushes, and CI results.
+[Agents](/concepts/agents/) then decide what each event does: wake the task that
+opened the pull request, create a new task for an issue, or nothing.
 
 It has two halves:
 
 - **The GitHub App**, installed on your repositories, is how GitHub sends gritz
   events. An organisation links the installation on **Settings → Organisation**.
 - **Your GitHub account**, linked on **Settings → Account**, tells gritz which
-  events are yours, so your organisation's member-only rules act on them.
+  events are yours, so your organisation's member-only triggers and link kinds
+  act on them.
 
 Both need the server's GitHub App to be configured. On a server where it isn't,
 **Settings → Organisation** has no **GitHub App** card; operators, see
@@ -74,16 +75,16 @@ gritz then works out which organisations it concerns:
   doesn't matter which organisation linked the installation.
 - **Everyone's events on your repositories.** An event from a repository whose
   installation your organisation linked also goes to your organisation, whoever
-  caused it. Only [public rules](/concepts/routing-rules/#public-rules) act on
-  events from people who aren't members.
+  caused it. Only [public](/concepts/agents/#members-and-public) triggers and
+  link kinds act on events from people who aren't members.
 
-Each organisation's own rules then decide what to do with it, as described in
-[Routing rules](/concepts/routing-rules/). An organisation with no rule for a
+Each organisation's own agents then decide what to do with it, as described in
+[Agents](/concepts/agents/). An organisation with no trigger or link kind for a
 GitHub event type ignores it.
 
 ## Events
 
-gritz turns these GitHub webhook deliveries into events. The rule form's
+gritz turns these GitHub webhook deliveries into events. The trigger form's
 **Event type** list names them as in the second column.
 
 | GitHub delivery | Event type | Its URL |
@@ -107,7 +108,7 @@ one delivery per label, so adding two labels sends two events.
 
 A check run is one check reported through GitHub's Checks API: for GitHub
 Actions, one job; other CI systems report theirs the same way. Every completed
-check sends GitHub: Check Run Completed, whatever its conclusion, so a rule
+check sends GitHub: Check Run Completed, whatever its conclusion, so a trigger
 filters with `conclusion`. A check of a pull request also sends GitHub: PR Check
 Run Completed, once for each open pull request in the repository whose head is
 the checked commit, so it reaches the task subscribed to that pull request. A
@@ -117,9 +118,11 @@ fork's checks carry no `branch`.
 A comment's or review's URL points at the comment itself, but gritz matches it
 to the issue or pull request it belongs to. So a task with a
 [subscribed link](/concepts/events-and-links/#subscriptions) to a pull request
-gets every comment, review and review comment on it. Likewise, every job of a
-GitHub Actions workflow run, and of its re-runs, matches the workflow run, so a
-task created for one failing job also gets the others.
+gets every comment, review and review comment on it that the link's kind lists.
+Likewise, every job of a GitHub Actions workflow run, and of its re-runs,
+matches the workflow run. The
+[link types](/reference/event-types/#link-types) list which event types each
+kind of resource can receive.
 
 The attributes each type offers for conditions, such as `mention`, `user`,
 `label`, `branch`, `path` or `conclusion`, are listed in
@@ -129,10 +132,10 @@ The attributes each type offers for conditions, such as `mention`, `user`,
 
 Agents push too, and their pushes are events like anyone else's, from the
 GitHub user whose [credentials](#github-credentials-for-agents) the workspace
-gives them. A push rule that creates tasks can therefore feed itself: the task
-it creates pushes a branch, and that push creates another task. Give every push
-rule a `branch` condition, such as `branch equals master`, that the branches
-agents push don't match.
+gives them. A push trigger can therefore feed itself: the task it creates
+pushes a branch, and that push creates another task. Give every push trigger a
+`branch` condition, such as `branch equals master`, that the branches agents
+push don't match.
 
 ### What the agent sees
 
@@ -157,74 +160,70 @@ agent can open the failing job's log. The agent gets all of it at the start of i
 When a GitHub event acts on your organisation, gritz reacts to what caused it,
 as the GitHub App:
 
-- 🚀 when a rule created a task for it;
+- 🚀 when a trigger created a task for it;
 - 👀 when it woke one or more subscribed tasks.
 
 The reaction goes on the comment, the review, or the issue or pull request for
-the other event types; a push or a check run gets none. An event that matched a rule but
-neither created nor woke a task gets no reaction, and neither does one that matched no rule. Reactions
-need the organisation to have linked an installation.
+the other event types; a push or a check run gets none. An event that neither
+created nor woke a task gets no reaction, including one whose trigger yielded.
+Reactions need the organisation to have linked an installation.
 
 A reaction is the quickest way to tell that a comment such as
 `gritz: fix the failing test` was picked up.
 
 ## Examples
 
-Wake the task that opened a pull request whenever a member comments on it:
+Wake the task that opened a pull request whenever a member comments on it or
+reviews it. Give the agent a link kind:
 
-- **Event type**: GitHub: Issue/PR Comment
-- **Wake up linked tasks**: on
+- **Link type**: GitHub: Pull Request
+- **Events**: GitHub: Issue/PR Comment, GitHub: PR Review, GitHub: PR Review
+  Comment
 
-Add the same rule for GitHub: PR Review and GitHub: PR Review Comment to also
-pass on reviews.
+The agent links the pull requests its tasks open with that kind, `github.pr`.
 
-Start a task for every issue a member labels `gritz`, in one repository:
+Start a task for every issue a member labels `gritz`, in one repository, and
+keep it up to date with the issue's comments:
 
-- **Event type**: GitHub: Label Added
-- **Conditions**: `label equals gritz`, `url prefix https://github.com/example/app/`
-- **Create a task**: on, with a runner, a workspace and a prompt such as "Fix
-  the issue and open a pull request."
-- **Wake up linked tasks**: on, so labelling the issue again wakes the same task
+- **Link kind**: link type GitHub: Issue, events GitHub: Issue/PR Comment.
+- **Trigger**: event type GitHub: Label Added, conditions `label equals gritz`
+  and `url prefix https://github.com/example/app/issues/`, link `github.issue`.
+- **Prompt**: "Fix the issue and open a pull request."
+
+To stop labelling the issue again from starting a second task, give the link
+kind a claim, such as `issue-owner`, and have the trigger yield to it.
 
 Start a task whenever a push to `master` changes a database migration:
 
-- **Event type**: GitHub: Push
-- **Conditions**: `repo equals example/app`, `branch equals master`,
-  `path glob internal/store/sql/migrations/**`
-- **Create a task**: on, with a runner, a workspace and a prompt such as "A
-  migration changed; check that it is safe to run on a live database."
+- **Trigger**: event type GitHub: Push, conditions `repo equals example/app`,
+  `branch equals master` and `path glob internal/store/sql/migrations/**`.
+- **Prompt**: "A migration changed; check that it is safe to run on a live
+  database."
 
 Wake the task that opened a pull request when one of the pull request's checks
-fails:
+fails. Give its pull request link kind the event GitHub: PR Check Run Completed,
+and make it **Public**, so the checks of pushes by agents and bots count too.
+Every completed check is delivered, successes included; the agent sees the
+`conclusion` and can ignore a success.
 
-- **Event type**: GitHub: PR Check Run Completed
-- **Conditions**: `conclusion glob {failure,timed_out,startup_failure}`,
-  `repo equals example/app`
-- **Public**: on, so the checks of pushes by agents and bots count too
-- **Wake up linked tasks**: on
+Start one task when a workflow run fails on `master`:
 
-A successful check matches no rule and leaves the task alone. To also put
-successes on the task's timeline without waking it, add a second rule for the
-same event type with no `conclusion` condition and **Wake up linked tasks** off,
-ordered after the first, since
-[the first match wins](/concepts/routing-rules/#the-first-match-wins).
+- **Link kind**: link type GitHub: Workflow Run, claim `ci-fixer`, events GitHub:
+  Check Run Completed.
+- **Trigger**: event type GitHub: Check Run Completed, conditions
+  `conclusion glob {failure,timed_out,startup_failure}`,
+  `repo equals example/app` and `branch equals master`, **Public** on, link
+  `github.workflow_run`, yield to `ci-fixer`.
+- **Prompt**: "CI failed on master. Find the cause and propose a fix."
 
-Start a task when a check fails on `master`:
+The first failing job creates the task and links it to the workflow run. The
+run's other jobs, failing or not, then reach that task instead of creating
+another.
 
-- **Event type**: GitHub: Check Run Completed
-- **Conditions**: `conclusion glob {failure,timed_out,startup_failure}`,
-  `repo equals example/app`, `branch equals master`
-- **Public**: on, so a failure after a bot's push or merge counts too
-- **Create a task**: on, with a runner, a workspace and a prompt such as "CI
-  failed on master. Find the cause and propose a fix."
-
-Let anyone, members or not, ask for a change on your repositories' pull
-requests by starting a comment with `gritz:`:
-
-- **Event type**: GitHub: Issue/PR Comment
-- **Conditions**: `body prefix gritz:`
-- **Public**: on
-- **Wake up linked tasks**: on
+Let anyone, members or not, ask for a change on a pull request a task opened by
+starting a comment with `gritz:`: make the pull request link kind **Public**.
+Its tasks then also get every comment from non-members, so tell the agent in the
+prompt to act only on those that start with `gritz:`.
 
 ## GitHub credentials for agents
 

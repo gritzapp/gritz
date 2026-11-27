@@ -1,6 +1,6 @@
 ---
 title: Web UI
-description: A tour of the gritz Web UI, the task list and task page, schedules, events and routing rules, workspaces, members, keys and settings.
+description: A tour of the gritz Web UI, the task list and task page, agents, schedules, events, workspaces, members, keys and settings.
 sidebar:
   order: 1
 ---
@@ -22,20 +22,17 @@ status is an action the runner hasn't carried out yet. Turn on **Show
 archived** to include archived tasks, and archive or unarchive a task from its
 row.
 
-**+ Task** creates a task. Pick a runner, then one of its workspaces; the name,
-[namespace](/concepts/namespaces/) and
-[auto-archive](/concepts/tasks/#auto-archive) delay are optional. If the
-workspace declares [variables](/operators/workspaces-yaml/#variables), the form
-shows a field for each, with its description below it and its default as the
-placeholder; a required one is marked with `*`. Leave an optional field empty
-to use the default. The form remembers the last runner and workspace you used. The task is created as a
-draft, and starts when you send its first instruction.
+**+ Task** creates a task. Pick its [agent](/concepts/agents/); the name is
+optional. The task runs with the agent's runner, workspace, auto-archive delay
+and variables. The task is created as a draft, and starts when you send its
+first instruction.
 
 ## The task page
 
 The sidebar on the left holds the task's status and name, its three views, its
-details (runner, workspace, namespace, created and updated times), its
-variables, its links, and its actions:
+details (agent, runner, workspace, created and updated times), its
+variables, its links with their [kind and claim](/concepts/agents/#link-kinds),
+and its actions:
 
 - **Archive** or **Unarchive**. When an auto-archive delay is counting down, the
   time left shows next to it.
@@ -72,6 +69,23 @@ can be opened once the task has finished, and works like
 [`gritz shell`](/using/cli/#gritz-shell): the runner starts the sandbox again
 with a shell in place of the agent.
 
+## Agents
+
+**Agents** lists the organisation's [agents](/concepts/agents/) with their
+runner and workspace, their triggers and their link kinds. **+ Agent** creates
+one, and each row has buttons to edit or delete it. The agent form has three
+sections:
+
+- **Template**: name, runner, workspace, variables, prompt and auto-archive
+  delay.
+- **Triggers**: each with an event type, conditions, a link kind, claims to
+  yield to, and **Public**. The arrows reorder them.
+- **Link kinds**: each with a link type, a kind name, a claim, the events it
+  delivers, and **Public**.
+
+**Test event** composes an event and shows what each agent would do with it, or
+fires it. See [Testing with a test event](/concepts/agents/#testing-with-a-test-event).
+
 ## Schedules
 
 **Schedules** lists the organisation's [schedules](/concepts/schedules/) with
@@ -81,14 +95,11 @@ delete it. **+ Schedule** creates one.
 
 ## Events
 
-**Events** has three tabs:
+**Events** has two tabs:
 
-- **Routing Rules**: the organisation's [routing rules](/concepts/routing-rules/),
-  in the order they are checked, with their event type, conditions and action.
-  Reorder them with the arrows, edit or remove them, add one with **+ Rule**, or
-  try an event against them with **Test**.
 - **Recent Events**: the latest events delivered to the organisation's tasks.
-  Open one to see its description, URL, data and the task it reached.
+  Open one to see its description, URL, data and the task it reached. **Test**
+  opens the [test event](/concepts/agents/#testing-with-a-test-event) form.
 - **Custom Schemas**: the organisation's custom event types. See
   [Custom events](/integrations/custom-events/).
 
@@ -113,7 +124,7 @@ keys and creates and deletes them. See
 - **Account**: the organisations you own, where you create new ones and delete
   them, and your linked [Atlassian](/integrations/jira/#link-your-atlassian-account)
   and [GitHub](/integrations/github/#link-your-github-account) accounts. Linking them lets
-  [routing rules](/concepts/routing-rules/#public-rules) recognise your comments
+  [agents](/concepts/agents/#members-and-public) recognise your comments
   as a member's.
 - **Organisation**: the URLs and settings that connect the organisation to
   other systems: the [MCP server URL](/integrations/mcp/) for MCP clients, the

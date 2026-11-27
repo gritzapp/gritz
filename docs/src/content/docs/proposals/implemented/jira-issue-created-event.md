@@ -84,7 +84,7 @@ gritz`) can be paired with a second on Issue Created to catch both paths.
 Automation files issues as an integration user, which has no linked gritz
 account. The handler already handles this: `GetUserByAtlassianAccountID`
 returns `sql.ErrNoRows`, `UserID` stays empty, and the event routes on
-`Orgs: [orgID]`, so only [public rules](/concepts/routing-rules/#public-rules)
+`Orgs: [orgID]`, so only [public rules](/concepts/agents/#members-and-public)
 act on it. No handler change is needed; a test pins the behaviour for this
 event type.
 

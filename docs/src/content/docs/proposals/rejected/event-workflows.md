@@ -5,7 +5,7 @@ description: "Tasks cannot emit events, subscribe to anything but a resource URL
 
 Issue: https://github.com/gritzapp/gritz/issues/2203
 
-> **Status: rejected.** Superseded by [Agents](/proposals/draft/agents/).
+> **Status: rejected.** Superseded by [Agents](/proposals/implemented/agents/).
 
 ## Problem
 

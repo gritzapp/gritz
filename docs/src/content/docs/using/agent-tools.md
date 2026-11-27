@@ -35,8 +35,8 @@ See [Instructions and runs](/concepts/tasks/#instructions-and-runs).
 
 ### `get_my_task`
 
-Returns the task: its ID, name, status, workspace, [namespace](/concepts/namespaces/)
-and URL, its links, and its instructions and events in order. Reports and status
+Returns the task: its ID, name, status, workspace and URL, its links with their
+kinds and claims, and its instructions and events in order. Reports and status
 changes aren't included.
 
 ### `update_my_task`
@@ -58,8 +58,10 @@ in its sidebar.
 
 A link with a kind is how a task hears about review comments on its pull request,
 or replies on its Jira issue. Which events reach it is up to the kind, as
-defined on the task's agent. See
-[Events and links](/concepts/events-and-links/).
+defined on the task's [agent](/concepts/agents/#link-kinds). The URL must be a
+resource of the kind's link type, such as a pull request for a `github.pr` kind,
+and the link stores the resource's own URL; an unknown kind fails, listing the
+agent's kinds. See [Events and links](/concepts/events-and-links/).
 
 ### `report`
 

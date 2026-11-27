@@ -7,7 +7,7 @@ sidebar:
 
 A schedule creates a task on a cron schedule: a nightly dependency bump, a weekly
 report, an hourly check. Each time it fires it creates a new task of the
-[agent](#the-agent) it names, with the schedule's instructions, and the task
+[agent](/concepts/agents/) it names, with the schedule's instructions, and the task
 starts at once.
 
 Schedules belong to the organisation, not to the member who created them. They
@@ -22,15 +22,13 @@ are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
 - **Cron expression**: when to fire. See below.
 - **Timezone**: the timezone the cron expression is read in. Defaults to your
   browser's.
-- **Agent ID**: the [agent](#the-agent) its tasks belong to.
+- **Agent**: the [agent](#the-agent) its tasks belong to.
 - **Enabled**: a disabled schedule is saved but doesn't fire.
 
 ## The agent
 
-An agent is the organisation's saved template for a kind of task: a runner and
-workspace, an auto-archive delay, values for the workspace's
-[variables](/operators/workspaces-yaml/#variables), and a prompt. A schedule
-names one agent, and each task it creates takes the agent's runner, workspace,
+A schedule names one [agent](/concepts/agents/), and each task it creates
+takes the agent's runner, workspace,
 [auto-archive](/concepts/tasks/#auto-archive) delay and variables. The
 schedule's instructions take the place of the agent's prompt.
 

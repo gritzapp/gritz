@@ -7,7 +7,7 @@ sidebar:
 
 The Jira integration turns activity on Jira Cloud issues into
 [events](/concepts/events-and-links/): new comments, new issues, added labels
-and new assignees. [Routing rules](/concepts/routing-rules/) then decide what each event
+and new assignees. [Agents](/concepts/agents/) then decide what each event
 does: wake the task working on the issue, create a new task for it, or nothing.
 
 It has two halves:
@@ -15,7 +15,8 @@ It has two halves:
 - **A Jira webhook**, pointed at your organisation's Atlassian webhook URL, is
   how Jira sends gritz events. It is set up once per gritz organisation.
 - **Your Atlassian account**, linked on **Settings → Account**, tells gritz which
-  events are yours, so your organisation's member-only rules act on them.
+  events are yours, so your organisation's member-only triggers and link kinds
+  act on them.
 
 The server must have the Atlassian integration configured; operators, see
 [Atlassian](/operators/server/#atlassian).
@@ -72,10 +73,10 @@ Every event sent to your organisation's webhook belongs to your organisation,
 whoever caused it:
 
 - If the person who caused it has linked their Atlassian account and is a member,
-  your organisation's member-only rules can act on it. It also goes to the other
-  organisations they are a member of.
-- Otherwise, only your [public rules](/concepts/routing-rules/#public-rules) act
-  on it.
+  your organisation's member-only triggers and link kinds can act on it. It also
+  goes to the other organisations they are a member of.
+- Otherwise, only your [public](/concepts/agents/#members-and-public) triggers
+  and link kinds act on it.
 
 ## Events
 
@@ -96,8 +97,8 @@ issue sends nothing.
 
 A comment's URL points at the comment, but gritz matches it to its issue. So a
 task with a [subscribed link](/concepts/events-and-links/#subscriptions) to
-`https://your-domain.atlassian.net/browse/PROJ-123` gets every comment on
-`PROJ-123`.
+`https://your-domain.atlassian.net/browse/PROJ-123`, of a kind that lists
+Jira: Issue Comment, gets every comment on `PROJ-123`.
 
 Jira identifies people by account ID rather than by name, and so do the `user`,
 `mention` and `assignee` attributes. Enter the bare ID, such as
@@ -111,34 +112,35 @@ text, or the issue's description for the other events. gritz doesn't post anythi
 
 ## Examples
 
-Wake the task working on an issue whenever a member comments on it:
+Wake the task working on an issue whenever a member comments on it. Give the
+agent a link kind:
 
-- **Event type**: Jira: Issue Comment
-- **Wake up linked tasks**: on
+- **Link type**: Jira: Issue
+- **Events**: Jira: Issue Comment
 
-Start a task for every issue in one project that is labelled `gritz`:
+Start a task for every issue in one project that is labelled `gritz`, and keep
+it up to date with the issue's comments:
 
-- **Event type**: Jira: Label Added
-- **Conditions**: `label equals gritz`,
-  `url prefix https://your-domain.atlassian.net/browse/PROJ-`
-- **Create a task**: on, with a runner, a workspace and a prompt
-- **Wake up linked tasks**: on
+- **Link kind**: link type Jira: Issue, claim `issue-owner`, events Jira: Issue
+  Comment.
+- **Trigger**: event type Jira: Label Added, conditions `label equals gritz` and
+  `url prefix https://your-domain.atlassian.net/browse/PROJ-`, link
+  `jira.issue`, yield to `issue-owner`, so labelling the issue again doesn't
+  start a second task.
+- **Prompt**: "Implement the issue and open a pull request."
 
 Start a task when an issue is assigned to a bot account, whoever assigns it:
 
-- **Event type**: Jira: Issue Assigned
-- **Conditions**: `assignee equals <the bot's account ID>`
-- **Create a task**: on
-- **Public**: on
+- **Trigger**: event type Jira: Issue Assigned, condition
+  `assignee equals <the bot's account ID>`, **Public** on.
 
 Start a task for every issue an integration, such as a security scanner, files
 in one project:
 
-- **Event type**: Jira: Issue Created
-- **Conditions**: `user equals <the integration's account ID>`,
-  `url prefix https://your-domain.atlassian.net/browse/SEC-`
-- **Create a task**: on
-- **Public**: on, since the integration's account isn't linked to a member
+- **Trigger**: event type Jira: Issue Created, conditions
+  `user equals <the integration's account ID>` and
+  `url prefix https://your-domain.atlassian.net/browse/SEC-`, **Public** on,
+  since the integration's account isn't linked to a member.
 
 The agent needs its own Jira credentials, from its
 [workspace](/concepts/workspaces/), to read the issue or reply to it.
