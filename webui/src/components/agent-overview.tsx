@@ -1,16 +1,8 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import type {
-  Agent,
-  AgentLink,
-  AgentSchedule,
-  AgentTrigger,
-  EventTypeDef,
-  LinkTypeDef,
-  RuleCondition,
-} from '@/gen/gritz/v1/gritz_pb'
+import type { Agent, AgentSchedule, EventTypeDef, LinkTypeDef } from '@/gen/gritz/v1/gritz_pb'
 import { AtlassianIcon } from '@/components/atlassian-icon'
-import { DeleteAgentDialog } from '@/components/delete-agent-action'
+import { DeleteAgentDialog } from '@/components/delete-agent-dialog'
 import { GithubIcon } from '@/components/github-icon'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,6 +37,41 @@ export interface AgentsViewProps {
   agents: Agent[]
   eventTypes: EventTypeDef[]
   linkTypes: LinkTypeDef[]
+}
+
+// The views below are what the components here draw. A saved agent's triggers
+// and link kinds satisfy them, and so do the agent editor's drafts, so the
+// editor summarises what is being typed the way the agents page lists it.
+export interface ConditionView {
+  attr: string
+  op: string
+  value: string
+}
+
+export interface TriggerView {
+  source: string
+  type: string
+  conditions: ConditionView[]
+  public: boolean
+  yieldTo: string[]
+  link: string
+}
+
+export interface LinkKindView {
+  type: string
+  kind: string
+  claim: string
+  events: { type: string; conditions: ConditionView[] }[]
+  public: boolean
+}
+
+// SectionLabel is the small caps label over a group.
+export function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-muted-foreground text-[11px] font-medium tracking-wider uppercase">
+      {children}
+    </div>
+  )
 }
 
 // shortLabel drops the "Source: " prefix of an event or link type label; the
@@ -153,7 +180,7 @@ export function Conditions({
   conditions,
   stacked = false,
 }: {
-  conditions: RuleCondition[]
+  conditions: ConditionView[]
   stacked?: boolean
 }) {
   if (conditions.length === 0) return null
@@ -170,7 +197,7 @@ export function Conditions({
             {c.attr} {opLabel(c.op)}
           </span>
           <code className="text-foreground truncate font-mono" title={c.value}>
-            {c.value}
+            {c.value || '""'}
           </code>
         </span>
       ))}
@@ -187,8 +214,10 @@ function opLabel(op: string): string {
 function PublicMark() {
   return (
     <Tooltip>
-      <TooltipTrigger className="text-muted-foreground cursor-default">
-        <Globe className="size-3.5" aria-label="Public" />
+      <TooltipTrigger asChild>
+        <span className="text-muted-foreground">
+          <Globe className="size-3.5" aria-label="Public" />
+        </span>
       </TooltipTrigger>
       <TooltipContent>Also matches events from people outside the org</TooltipContent>
     </Tooltip>
@@ -203,7 +232,7 @@ export function TriggerItem({
   eventTypes,
   detail = false,
 }: {
-  trigger: AgentTrigger
+  trigger: TriggerView
   eventTypes: EventTypeDef[]
   detail?: boolean
 }) {
@@ -288,7 +317,7 @@ export function LinkKindChip({
   eventTypes,
   linkTypes,
 }: {
-  link: AgentLink
+  link: LinkKindView
   eventTypes: EventTypeDef[]
   linkTypes: LinkTypeDef[]
 }) {
@@ -310,18 +339,26 @@ export function LinkKindChip({
 }
 
 // linkKindLabel is the kind's own name when it has one, else what it links to.
-function linkKindLabel(link: AgentLink, linkTypes: LinkTypeDef[]): string {
+function linkKindLabel(link: LinkKindView, linkTypes: LinkTypeDef[]): string {
   return link.kind.trim() || linkTypeName(linkTypes, link.type)
 }
 
 function linkEventsText(
-  link: AgentLink,
+  link: LinkKindView,
   eventTypes: EventTypeDef[],
   linkTypes: LinkTypeDef[],
 ): string {
   if (link.events.length === 0) return 'Delivers nothing'
   const source = linkTypes.find((t) => t.name === link.type)?.source ?? ''
-  return `Delivers ${link.events.map((e) => eventName(eventTypes, source, e.type)).join(', ')}`
+  const events = link.events.map((e) => {
+    const name = eventName(eventTypes, source, e.type)
+    if (e.conditions.length === 0) return name
+    const [c] = e.conditions
+    return e.conditions.length === 1
+      ? `${name} if ${c.attr} ${opLabel(c.op)} ${c.value || '""'}`
+      : `${name} if ${e.conditions.length} conditions hold`
+  })
+  return `Delivers ${events.join(', ')}`
 }
 
 // LinkKindItem is a link kind on its own line with the events it delivers
@@ -331,7 +368,7 @@ export function LinkKindItem({
   eventTypes,
   linkTypes,
 }: {
-  link: AgentLink
+  link: LinkKindView
   eventTypes: EventTypeDef[]
   linkTypes: LinkTypeDef[]
 }) {

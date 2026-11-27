@@ -1,5 +1,3 @@
-import { useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
 import { useMutation } from '@connectrpc/connect-query'
 import { deleteAgent } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { Button } from '@/components/ui/button'
@@ -11,7 +9,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useOrgId } from '@/hooks/use-org-id'
 import { useInvalidateAgents } from '@/lib/agents'
 import { Loader2, Trash2 } from 'lucide-react'
 
@@ -75,35 +72,5 @@ export function DeleteAgentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-// DeleteAgentAction is the agent page's delete button and its confirmation
-// dialog. It returns to the agents list once the agent is gone.
-export function DeleteAgentAction({ agentId, name }: { agentId: bigint; name: string }) {
-  const orgId = useOrgId()
-  const navigate = useNavigate()
-  const [open, setOpen] = useState(false)
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="text-destructive hover:text-destructive"
-        onClick={() => setOpen(true)}
-      >
-        <Trash2 className="h-4 w-4" />
-        Delete
-      </Button>
-      <DeleteAgentDialog
-        agentId={agentId}
-        name={name}
-        open={open}
-        onOpenChange={setOpen}
-        onDeleted={() => navigate({ to: '/agents', search: { org: orgId } })}
-      />
-    </>
   )
 }

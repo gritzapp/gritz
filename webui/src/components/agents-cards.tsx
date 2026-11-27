@@ -2,17 +2,10 @@ import {
   AgentActions,
   AgentName,
   LinkKindItem,
+  SectionLabel,
   Starters,
   type AgentsViewProps,
 } from '@/components/agent-overview'
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-muted-foreground mb-2 text-[11px] font-medium tracking-wider uppercase">
-      {children}
-    </div>
-  )
-}
 
 // AgentsCards is each agent as a card with everything written out: every
 // trigger's conditions and every link kind's events.
@@ -27,11 +20,15 @@ export function AgentsCards({ agents, eventTypes, linkTypes }: AgentsViewProps) 
           </div>
           <div className="grid flex-1 gap-x-6 gap-y-4 px-4 py-4 sm:grid-cols-2">
             <div className="min-w-0">
-              <SectionLabel>Starts on</SectionLabel>
+              <div className="mb-2">
+                <SectionLabel>Starts on</SectionLabel>
+              </div>
               <Starters agent={agent} eventTypes={eventTypes} detail />
             </div>
             <div className="min-w-0">
-              <SectionLabel>Follows</SectionLabel>
+              <div className="mb-2">
+                <SectionLabel>Follows</SectionLabel>
+              </div>
               {agent.links.length === 0 ? (
                 <span className="text-muted-foreground/70 text-sm">Nothing</span>
               ) : (

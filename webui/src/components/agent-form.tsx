@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@connectrpc/connect-query'
 import {
   getEventTypes,
@@ -28,9 +28,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Textarea } from '@/components/ui/textarea'
 import { VariableFields } from '@/components/variable-fields'
 import { Badge } from '@/components/ui/badge'
-import { FieldLabel, SaveBar, SectionHeading } from '@/components/form-layout'
-import { externalSourceStyle } from '@/components/external-source'
-import { DeleteAgentAction } from '@/components/delete-agent-action'
+import { FieldLabel, Hint, SaveBar, SectionHeading } from '@/components/form-layout'
+import { AgentMonogram, LinkKindItem, SectionLabel, TriggerItem } from '@/components/agent-overview'
+import { DeleteAgentDialog } from '@/components/delete-agent-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { RelativeTime } from '@/components/relative-time'
 import { useOrgId } from '@/hooks/use-org-id'
 import { cn } from '@/lib/utils'
@@ -42,12 +48,12 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  Ellipsis,
   FlaskConical,
-  Globe,
   Link2,
   MessageSquare,
+  Play,
   Plus,
-  Shield,
   Trash2,
   Zap,
 } from 'lucide-react'
@@ -59,7 +65,6 @@ import {
   emptySchedule,
   emptyTrigger,
   linkEventTypes,
-  linkKindName,
   OP_LABELS,
   splitClaims,
   triggerLinkKinds,
@@ -244,21 +249,30 @@ export function AgentForm({
                 Agents
               </Link>
               <div className="flex flex-wrap items-center gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Bot className="h-5 w-5" />
-                </span>
-                <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold tracking-tight">
-                  {title}
-                </h1>
+                <AgentMonogram name={title} className="size-10 rounded-lg text-sm" />
+                <div className="min-w-0 flex-1">
+                  <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
+                  {values.runner && values.workspace && (
+                    <div className="truncate font-mono text-xs text-muted-foreground">
+                      {values.runner}/{values.workspace}
+                    </div>
+                  )}
+                </div>
+                {agentId !== undefined && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link to="/tasks/new" search={{ org: orgId, agent: String(agentId) }}>
+                      <Play className="size-3.5" />
+                      Run
+                    </Link>
+                  </Button>
+                )}
                 <Button asChild variant="outline" size="sm">
                   <Link to="/agents/test-event" search={{ org: orgId }}>
                     <FlaskConical className="h-4 w-4" />
                     Test event
                   </Link>
                 </Button>
-                {agentId !== undefined && (
-                  <DeleteAgentAction agentId={agentId} name={initialValues.name} />
-                )}
+                {agentId !== undefined && <AgentMenu agentId={agentId} name={initialValues.name} />}
               </div>
             </header>
 
@@ -399,8 +413,8 @@ export function AgentForm({
 
             <section id="agent-links" className="scroll-mt-8 space-y-5">
               <SectionHeading
-                title="Links"
-                description="The links this agent's tasks may subscribe to, and the events each one delivers."
+                title="Follows"
+                description="The link kinds this agent's tasks may subscribe with, and the events each one delivers."
                 hint="An event on a subscribed link's resource wakes the task when the link's kind lists the event's type and the event satisfies that type's conditions."
                 action={
                   <Button type="button" variant="outline" size="sm" onClick={addLink}>
@@ -411,8 +425,8 @@ export function AgentForm({
               />
               {values.links.length === 0 ? (
                 <EmptyState icon={Link2}>
-                  No link kinds. This agent&apos;s tasks can only create plain reference links,
-                  which receive no events.
+                  Nothing. This agent&apos;s tasks can only create plain reference links, which
+                  receive no events.
                 </EmptyState>
               ) : (
                 <div className="space-y-3">
@@ -431,64 +445,66 @@ export function AgentForm({
               )}
             </section>
 
-            <section id="agent-triggers" className="scroll-mt-8 space-y-5">
+            <section id="agent-starts" className="scroll-mt-8 space-y-5">
               <SectionHeading
-                title="Triggers"
-                description="Each creates a task when a matching event arrives. Checked top to bottom; the first match wins."
-                hint="A trigger never wakes an existing task. Other agents' triggers are evaluated independently."
+                title="Starts on"
+                description="What creates this agent's tasks: triggers on events, and schedules."
                 action={
-                  <Button type="button" variant="outline" size="sm" onClick={addTrigger}>
-                    <Plus className="h-4 w-4" />
-                    Add trigger
-                  </Button>
+                  <div className="flex shrink-0 gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={addTrigger}>
+                      <Plus className="h-4 w-4" />
+                      Add trigger
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={addSchedule}>
+                      <Plus className="h-4 w-4" />
+                      Add schedule
+                    </Button>
+                  </div>
                 }
               />
-              {values.triggers.length === 0 ? (
+              {values.triggers.length === 0 && values.schedules.length === 0 && (
                 <EmptyState icon={Zap}>
-                  No triggers. Tasks of this agent are only created by hand or by its schedules.
+                  Manual only. Tasks of this agent are only created by hand.
                 </EmptyState>
-              ) : (
-                <ol className="relative ml-3 space-y-3 border-l pl-7">
-                  {values.triggers.map((trigger, index) => (
-                    <li key={triggerKeys[index]} className="relative">
-                      <span className="absolute -left-10 top-3.5 flex size-6 items-center justify-center rounded-full border bg-background text-xs font-semibold tabular-nums text-muted-foreground">
-                        {index + 1}
-                      </span>
-                      <TriggerEditor
-                        index={index}
-                        count={values.triggers.length}
-                        trigger={trigger}
-                        eventTypes={eventTypes}
-                        links={values.links}
-                        knownClaims={knownClaims}
-                        onChange={(t) => setTrigger(index, t)}
-                        onMove={(by) => moveTrigger(index, by)}
-                        onRemove={() => removeTrigger(index)}
-                      />
-                    </li>
-                  ))}
-                </ol>
               )}
-            </section>
-
-            <section id="agent-schedules" className="scroll-mt-8 space-y-5">
-              <SectionHeading
-                title="Schedules"
-                description="Each creates a task of this agent, starting with its prompt, whenever its cron expression matches."
-                hint="Renaming or reordering a schedule keeps its next run. Changing its cron expression, timezone or enabled switch counts the next run from the save."
-                action={
-                  <Button type="button" variant="outline" size="sm" onClick={addSchedule}>
-                    <Plus className="h-4 w-4" />
-                    Add schedule
-                  </Button>
-                }
-              />
-              {values.schedules.length === 0 ? (
-                <EmptyState icon={CalendarClock}>
-                  No schedules. Tasks of this agent are only created by hand or by its triggers.
-                </EmptyState>
-              ) : (
+              {values.triggers.length > 0 && (
                 <div className="space-y-3">
+                  <GroupLabel
+                    hint="A trigger never wakes an existing task. Other agents' triggers are evaluated independently."
+                    note="Each creates a task when a matching event arrives. Checked top to bottom; the first match wins."
+                  >
+                    Triggers
+                  </GroupLabel>
+                  <ol className="relative ml-3 space-y-3 border-l pl-7">
+                    {values.triggers.map((trigger, index) => (
+                      <li key={triggerKeys[index]} className="relative">
+                        <span className="absolute -left-10 top-3.5 flex size-6 items-center justify-center rounded-full border bg-background text-xs font-semibold tabular-nums text-muted-foreground">
+                          {index + 1}
+                        </span>
+                        <TriggerEditor
+                          index={index}
+                          count={values.triggers.length}
+                          trigger={trigger}
+                          eventTypes={eventTypes}
+                          links={values.links}
+                          knownClaims={knownClaims}
+                          onChange={(t) => setTrigger(index, t)}
+                          onMove={(by) => moveTrigger(index, by)}
+                          onRemove={() => removeTrigger(index)}
+                        />
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+              {values.schedules.length > 0 && (
+                <div className="space-y-3">
+                  <GroupLabel
+                    hint="Renaming or reordering a schedule keeps its next run. Changing its cron expression, timezone or enabled switch counts the next run from the save."
+                    note="Each creates a task, starting with the prompt, whenever its cron expression matches."
+                  >
+                    Schedules
+                  </GroupLabel>
                   {values.schedules.map((schedule, index) => (
                     <ScheduleEditor
                       key={scheduleKeys[index]}
@@ -598,6 +614,57 @@ function FeatureFields({
   )
 }
 
+// AgentMenu is the agent page's overflow menu, which holds Delete. Deleting
+// returns to the agents list.
+function AgentMenu({ agentId, name }: { agentId: bigint; name: string }) {
+  const orgId = useOrgId()
+  const navigate = useNavigate()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" aria-label="More actions">
+            <Ellipsis className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem variant="destructive" onSelect={() => setConfirmOpen(true)}>
+            <Trash2 />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DeleteAgentDialog
+        agentId={agentId}
+        name={name}
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        onDeleted={() => navigate({ to: '/agents', search: { org: orgId } })}
+      />
+    </>
+  )
+}
+
+// GroupLabel heads the triggers and the schedules inside "Starts on".
+function GroupLabel({
+  hint,
+  note,
+  children,
+}: {
+  hint: string
+  note: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <SectionLabel>{children}</SectionLabel>
+      <Hint>{hint}</Hint>
+      <span className="text-xs text-muted-foreground">{note}</span>
+    </div>
+  )
+}
+
 function EmptyState({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-dashed px-4 py-5 text-sm text-muted-foreground">
@@ -691,11 +758,6 @@ function EventTypeSelect({
       </SelectContent>
     </Select>
   )
-}
-
-// conditionText is a condition as its summary chip reads: "body contains x".
-function conditionText(c: ConditionDraft): string {
-  return `${c.attr} ${OP_LABELS[c.op as ConditionOp] ?? c.op} ${c.value || '""'}`
 }
 
 // ConditionsEditor edits conditions on an event type's attrs: a trigger's, or
@@ -818,65 +880,14 @@ function TriggerEditor({
       open={open}
       onToggle={() => setOpen(!open)}
       summary={
-        <>
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <span className="shrink-0 text-muted-foreground">
-              {trigger.source ? (
-                externalSourceStyle(trigger.source).icon
-              ) : (
-                <Zap className="h-4 w-4" />
-              )}
-            </span>
-            {trigger.type ? (
-              <span className="truncate">
-                {eventType?.label ?? `${trigger.source}/${trigger.type}`}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">New trigger</span>
-            )}
+        trigger.type ? (
+          <TriggerItem trigger={{ ...trigger, yieldTo }} eventTypes={eventTypes} detail />
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Zap className="h-4 w-4 shrink-0" />
+            New trigger
           </div>
-          {trigger.type && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              {trigger.conditions.length === 0 ? (
-                <span>Any event of this type</span>
-              ) : (
-                trigger.conditions.map((c, i) => (
-                  <Badge key={i} variant="secondary" className="font-mono font-normal">
-                    <span>{c.attr}</span>
-                    <span className="text-muted-foreground">
-                      {OP_LABELS[c.op as ConditionOp] ?? c.op}
-                    </span>
-                    <span className="max-w-48 truncate">{c.value || '""'}</span>
-                  </Badge>
-                ))
-              )}
-              {trigger.link && (
-                <Badge variant="outline" className="font-mono font-normal">
-                  <Link2 />
-                  {trigger.link}
-                </Badge>
-              )}
-              {yieldTo.length > 0 && (
-                <Badge variant="outline" className="font-mono font-normal">
-                  <Shield />
-                  yields to {yieldTo.join(', ')}
-                </Badge>
-              )}
-              {trigger.public && (
-                <Badge variant="outline" className="font-normal">
-                  <Globe />
-                  Public
-                </Badge>
-              )}
-              {trigger.prompt && (
-                <Badge variant="outline" className="font-normal">
-                  <MessageSquare />
-                  Prompt
-                </Badge>
-              )}
-            </div>
-          )}
-        </>
+        )
       }
       actions={
         <>
@@ -1052,7 +1063,7 @@ function ScheduleEditor({
       onToggle={() => setOpen(!open)}
       summary={
         <>
-          <div className="flex items-center gap-2 text-sm font-medium">
+          <div className="flex items-center gap-2 text-sm">
             <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
             {schedule.name.trim() ? (
               <span className="truncate">{schedule.name.trim()}</span>
@@ -1250,8 +1261,6 @@ function LinkKindEditor({
 }) {
   const [open, setOpen] = useState(!link.type)
   const deliverable = linkEventTypes(eventTypes, link.type)
-  const linkType = linkTypes.find((t) => t.name === link.type)
-  const name = linkKindName(link)
   const id = `link-${index}`
 
   const toggleEvent = (type: string, on: boolean) =>
@@ -1272,54 +1281,14 @@ function LinkKindEditor({
       open={open}
       onToggle={() => setOpen(!open)}
       summary={
-        <>
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <span className="shrink-0 text-muted-foreground">
-              {linkType ? externalSourceStyle(linkType.source).icon : <Link2 className="h-4 w-4" />}
-            </span>
-            {name ? (
-              <>
-                <span className="truncate font-mono">{name}</span>
-                {linkType && (
-                  <span className="truncate font-normal text-muted-foreground">
-                    {linkType.label}
-                  </span>
-                )}
-              </>
-            ) : (
-              <span className="text-muted-foreground">New link kind</span>
-            )}
+        link.type ? (
+          <LinkKindItem link={link} eventTypes={eventTypes} linkTypes={linkTypes} />
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Link2 className="h-4 w-4 shrink-0" />
+            New link kind
           </div>
-          {link.type && (
-            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              {link.events.length === 0 ? (
-                <span>Delivers nothing</span>
-              ) : (
-                link.events.map((event) => (
-                  <Badge key={event.type} variant="secondary" className="font-normal">
-                    {event.public && <Globe aria-label="Public" />}
-                    {!event.wake && <BellOff aria-label="Doesn't wake" />}
-                    {deliverable.find((t) => t.type === event.type)?.label ?? event.type}
-                    {event.conditions.length > 0 && (
-                      <span className="text-muted-foreground">
-                        if{' '}
-                        {event.conditions.length === 1
-                          ? conditionText(event.conditions[0])
-                          : `${event.conditions.length} conditions`}
-                      </span>
-                    )}
-                  </Badge>
-                ))
-              )}
-              {link.claim.trim() && (
-                <Badge variant="outline" className="font-mono font-normal">
-                  <Shield />
-                  claims {link.claim.trim()}
-                </Badge>
-              )}
-            </div>
-          )}
-        </>
+        )
       }
       actions={
         <Button
