@@ -60,7 +60,7 @@ func TestGetAgent(t *testing.T) {
 					Conditions: []*gritzv1.RuleCondition{{Attr: "label", Op: "equals", Value: "build-it"}},
 					Link:       "jira.issue",
 				}},
-				Links: []*gritzv1.AgentLink{{Type: "jira.issue", Events: []string{"comment_created"}}},
+				Links: []*gritzv1.AgentLink{{Type: "jira.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "comment_created"}}}},
 			}}, nil
 		},
 	}
@@ -88,7 +88,7 @@ func TestGetAgent(t *testing.T) {
 			"conditions": []any{map[string]any{"attr": "label", "op": "equals", "value": "build-it"}},
 			"link":       "jira.issue",
 		}},
-		"links": []any{map[string]any{"type": "jira.issue", "events": []any{"comment_created"}}},
+		"links": []any{map[string]any{"type": "jira.issue", "events": []any{map[string]any{"type": "comment_created"}}}},
 	})
 }
 
@@ -119,7 +119,7 @@ func TestPutAgentCreates(t *testing.T) {
 				"yield_to": []any{"pr-owner"},
 				"link":     "github.pr",
 			}},
-			"links": []any{map[string]any{"type": "github.pr", "events": []any{"issue_comment"}}},
+			"links": []any{map[string]any{"type": "github.pr", "events": []any{map[string]any{"type": "issue_comment"}}}},
 		}},
 	})
 
@@ -137,7 +137,7 @@ func TestPutAgentCreates(t *testing.T) {
 			YieldTo: []string{"pr-owner"},
 			Link:    "github.pr",
 		}},
-		Links: []*gritzv1.AgentLink{{Type: "github.pr", Events: []string{"issue_comment"}}},
+		Links: []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
 	}}, protocmp.Transform())
 	var out map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &out)

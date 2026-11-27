@@ -36,8 +36,8 @@ func TestAgentCRUD(t *testing.T) {
 			Link:       "jira.issue",
 		}},
 		Links: []model.AgentLink{
-			{Type: "jira.issue", Events: []string{"comment_created"}},
-			{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner", Events: []string{"pull_request_review", "pull_request_closed"}, Public: true},
+			{Type: "jira.issue", Events: []model.AgentLinkEvent{{Type: "comment_created"}}},
+			{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner", Events: []model.AgentLinkEvent{{Type: "pull_request_review"}, {Type: "pull_request_closed"}}, Public: true},
 		},
 	}
 	assert.NilError(t, s.CreateAgent(ctx, nil, agent))

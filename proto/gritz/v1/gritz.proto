@@ -1099,11 +1099,20 @@ message AgentLink {
   string type = 1;   // A link type, such as "github.pr".
   string kind = 2;   // The kind's name, unique in the agent; empty means type.
   string claim = 3;  // Stamped on every link of this kind.
-  // Event types of the link type's source, each declaring the link type.
-  // Empty means every event type that declares it.
-  repeated string events = 4;
+  // The event types a link of this kind delivers, each with the conditions
+  // its events must meet. A link of a kind with none delivers no event; it
+  // still holds its claim.
+  repeated AgentLinkEvent events = 4;
   // Whether it also delivers events from people who aren't members of the org.
   bool public = 5;
+}
+
+// AgentLinkEvent is an event type a link kind delivers.
+message AgentLinkEvent {
+  // An event type of the link type's source that declares the link type.
+  string type = 1;
+  // Validated as a trigger's conditions on the event type are.
+  repeated RuleCondition conditions = 2;  // All must hold.
 }
 
 // CreateAgentRequest creates agent in the caller's org. agent.id is ignored.

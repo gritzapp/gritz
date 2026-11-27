@@ -37,7 +37,7 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 			"public to also match events from non-members, yield_to claim names that stop it while an unarchived task holds one on the event's resource, " +
 			"and link, a link kind of this agent the created task subscribes to the event's resource with. The first matching trigger wins. " +
 			"links are the kinds of subscribed link its tasks may create: type (a link type from list_event_types, such as github.pr), kind (defaults to type, unique in the agent), " +
-			"claim stamped on its links, events (event types that declare the link type; empty means all of them) delivered to the task, and public. " +
+			"claim stamped on its links, events [{type, conditions}] it delivers to the task (event types that declare the link type, each with conditions as a trigger's; with none it delivers nothing), and public. " +
 			"Replacing an agent doesn't change the tasks it already created. Returns the stored agent.",
 	}, h.putAgent)
 
