@@ -5,7 +5,8 @@ import { getProfile } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { useAuthTransport } from '@/lib/services'
 import { OAuthAuthorization } from '@/lib/oauth'
 import { useOrgId } from '@/hooks/use-org-id'
-import { AgentMonogram, SectionLabel } from '@/components/agent-overview'
+import { AgentMonogram } from '@/components/agent-overview'
+import { DetailList, DetailRow } from '@/components/detail-list'
 import { Button } from '@/components/ui/button'
 import { Loader2, ShieldCheck } from 'lucide-react'
 
@@ -72,8 +73,8 @@ function OAuthAuthorizePage() {
         </p>
       </header>
 
-      <dl className="divide-y rounded-lg border">
-        <Row label="Signed in as">
+      <DetailList>
+        <DetailRow label="Signed in as">
           <AgentMonogram name={who} className="size-6 rounded-full text-[10px]" />
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{who}</div>
@@ -81,19 +82,19 @@ function OAuthAuthorizePage() {
               <div className="truncate text-xs text-muted-foreground">{profile.email}</div>
             )}
           </div>
-        </Row>
+        </DetailRow>
         {currentOrg && (
-          <Row label="Organisation">
+          <DetailRow label="Organisation">
             <AgentMonogram name={currentOrg.name} className="size-6 text-[10px]" />
             <div className="truncate text-sm font-medium">{currentOrg.name}</div>
-          </Row>
+          </DetailRow>
         )}
         {authz.redirectHost && (
-          <Row label="Returns to">
+          <DetailRow label="Returns to">
             <code className="truncate font-mono text-sm">{authz.redirectHost}</code>
-          </Row>
+          </DetailRow>
         )}
-      </dl>
+      </DetailList>
 
       {error && <div className="text-destructive text-sm">{error}</div>}
 
@@ -112,17 +113,6 @@ function OAuthAuthorizePage() {
           Deny
         </Button>
       </div>
-    </div>
-  )
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-4 px-4 py-3">
-      <dt className="w-28 shrink-0">
-        <SectionLabel>{label}</SectionLabel>
-      </dt>
-      <dd className="flex min-w-0 flex-1 items-center gap-2.5">{children}</dd>
     </div>
   )
 }
