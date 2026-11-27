@@ -40,7 +40,8 @@ type TasksSearch = { agent?: string }
 
 export const Route = createFileRoute('/tasks/')({
   validateSearch: (search: Record<string, unknown>): TasksSearch => ({
-    agent: typeof search.agent === 'string' && /^\d+$/.test(search.agent) ? search.agent : undefined,
+    agent:
+      typeof search.agent === 'string' && /^\d+$/.test(search.agent) ? search.agent : undefined,
   }),
   component: TasksPage,
 })
@@ -66,9 +67,7 @@ function TasksPage() {
       : storedAgents === ALL_AGENTS
         ? []
         : storedAgents.split(',')
-  ).filter(
-    (id) => agentsLoading || agents.some((a) => String(a.id) === id),
-  )
+  ).filter((id) => agentsLoading || agents.some((a) => String(a.id) === id))
 
   // Stack of page tokens for the pages navigated past the first. The current
   // page's token is the top of the stack; an empty stack is the first page.
@@ -170,7 +169,11 @@ function TasksPage() {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-56 justify-between font-normal" aria-label="Agents">
+              <Button
+                variant="outline"
+                className="w-56 justify-between font-normal"
+                aria-label="Agents"
+              >
                 <span className="truncate">{agentFilterLabel}</span>
                 <ChevronDown className="opacity-50" />
               </Button>

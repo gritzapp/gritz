@@ -57,14 +57,17 @@ export interface TriggerView {
   public: boolean
   yieldTo: string[]
   link: string
+  // An instruction the trigger adds after the agent's prompt, or '' for none.
+  prompt: string
 }
 
 export interface LinkKindView {
   type: string
   kind: string
   claim: string
-  events: { type: string; conditions: ConditionView[] }[]
-  public: boolean
+  // public admits the event from people outside the org; without wake the
+  // event reaches the task but doesn't start it.
+  events: { type: string; conditions: ConditionView[]; public: boolean; wake: boolean }[]
 }
 
 // SectionLabel is the small caps label over a group.
@@ -270,7 +273,7 @@ export function TriggerItem({
           {trigger.public && <PublicMark />}
         </div>
         {!compact && <Conditions conditions={trigger.conditions} stacked={detail} />}
-        {detail && (trigger.yieldTo.length > 0 || trigger.link) && (
+        {detail && (trigger.yieldTo.length > 0 || trigger.link || trigger.prompt) && (
           <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
             {trigger.link && (
               <span>
@@ -283,6 +286,7 @@ export function TriggerItem({
                 <code className="text-foreground font-mono">{trigger.yieldTo.join(', ')}</code>
               </span>
             )}
+            {trigger.prompt && <span>adds its own prompt</span>}
           </div>
         )}
       </div>
@@ -426,12 +430,14 @@ function linkEventsText(
   if (link.events.length === 0) return 'Delivers nothing'
   const source = linkTypes.find((t) => t.name === link.type)?.source ?? ''
   const events = link.events.map((e) => {
-    const name = eventName(eventTypes, source, e.type)
-    if (e.conditions.length === 0) return name
+    let text = eventName(eventTypes, source, e.type)
+    const notes = [e.public && 'public', !e.wake && "doesn't wake"].filter(Boolean)
+    if (notes.length > 0) text += ` (${notes.join(', ')})`
+    if (e.conditions.length === 0) return text
     const [c] = e.conditions
     return e.conditions.length === 1
-      ? `${name} if ${c.attr} ${opLabel(c.op)} ${c.value || '""'}`
-      : `${name} if ${e.conditions.length} conditions hold`
+      ? `${text} if ${c.attr} ${opLabel(c.op)} ${c.value || '""'}`
+      : `${text} if ${e.conditions.length} conditions hold`
   })
   return `Delivers ${events.join(', ')}`
 }
@@ -454,7 +460,6 @@ export function LinkKindItem({
         <div className="flex items-center gap-1.5 text-sm leading-5">
           <span className="truncate">{linkKindLabel(link, linkTypes)}</span>
           {link.claim && <span className="text-muted-foreground">as {link.claim}</span>}
-          {link.public && <PublicMark />}
         </div>
         <div className="text-muted-foreground text-xs">
           {linkEventsText(link, eventTypes, linkTypes)}

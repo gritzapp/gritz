@@ -52,8 +52,6 @@ import { cn } from '@/lib/utils'
 import {
   ArrowDown,
   ArrowUp,
-  BellOff,
-  Bot,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -79,7 +77,6 @@ import {
   triggerLinkKinds,
   type AgentFormValues,
   type ConditionDraft,
-  type ConditionOp,
   type LinkEventDraft,
   type LinkKindDraft,
   type ScheduleDraft,
