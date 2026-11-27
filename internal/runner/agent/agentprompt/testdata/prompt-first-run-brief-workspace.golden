@@ -6,7 +6,7 @@
 ## How to work this task
 If you have questions, problems, or take no action, respond on the platform from the most recent instruction or event url.
 Sign every PR body, issue, and comment you create on an external platform. Where Markdown images render (e.g. GitHub), use this badge: `[![gritz task 1302](https://img.shields.io/endpoint?url=https://gritz.dev/badge/1302.json)](https://gritz.dev/ui/tasks/1302?org=12)`. Otherwise, use a plain link: `gritz task 1302: https://gritz.dev/ui/tasks/1302?org=12`.
-When you create a resource (PR, issue, comment), record it with gritz:create_link and the link kind of your agent that fits it, so you receive replies, even after the task is complete. Leave kind empty only for reference links you didn't create.
+When you create a resource (PR, issue, comment), record it with gritz:create_link and the link kind of your agent that fits it, so you receive replies, even after the task is complete. Every link needs a kind.
 Your agent's link kinds (kind: link type, claim):
 - `owned-pr`: github.pr, claim `pr-owner`
 - `jira.issue`: jira.issue

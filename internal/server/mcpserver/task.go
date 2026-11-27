@@ -91,7 +91,7 @@ func (h *handlers) addTaskTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_link",
-		Description: "Link an external resource, such as a pull request or an issue, to a task. With a kind, a link kind of the task's agent, the link is subscribed: the resource's events that the kind lists are delivered to the task.",
+		Description: "Link an external resource, such as a pull request or an issue, to a task. kind is required and must be a link kind of the task's agent: the resource's events that the kind lists are delivered to the task. An invalid kind fails with the list of valid ones.",
 	}, h.createLink)
 }
 
@@ -440,7 +440,7 @@ type createLinkInput struct {
 	URL       string `json:"url" jsonschema:"The resource's URL"`
 	Title     string `json:"title,omitempty" jsonschema:"A title for the link"`
 	Relevance string `json:"relevance" jsonschema:"Why the resource matters to the task, such as \"PR for the fix\""`
-	Kind      string `json:"kind,omitempty" jsonschema:"A link kind of the task's agent: the resource's events the kind lists, such as PR comments, are delivered to the task. Omit for a plain reference link, which receives no events."`
+	Kind      string `json:"kind" jsonschema:"Required. A link kind of the task's agent: the resource's events the kind lists, such as PR comments, are delivered to the task."`
 }
 
 func (h *handlers) createLink(ctx context.Context, req *mcp.CallToolRequest, input createLinkInput) (*mcp.CallToolResult, any, error) {

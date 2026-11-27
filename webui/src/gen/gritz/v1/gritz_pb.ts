@@ -1095,7 +1095,7 @@ export type TaskLink = Message<"gritz.v1.TaskLink"> & {
   relevance: string;
 
   /**
-   * For a link with a kind, the canonical URL of the resource it names.
+   * The canonical URL of the resource the link names.
    *
    * @generated from field: string url = 4;
    */
@@ -1112,9 +1112,8 @@ export type TaskLink = Message<"gritz.v1.TaskLink"> & {
   createdAt?: Timestamp | undefined;
 
   /**
-   * The link kind of the task's agent the link was created with. A link with a
-   * kind is subscribed: it receives the events its kind lists. Empty for a
-   * plain reference link, which receives no events.
+   * The link kind of the task's agent the link was created with. The link
+   * receives the events its kind lists.
    *
    * @generated from field: string kind = 9;
    */
@@ -1137,11 +1136,12 @@ export const TaskLinkSchema: GenMessage<TaskLink> = /*@__PURE__*/
   messageDesc(file_gritz_v1_gritz, 41);
 
 /**
- * CreateLinkRequest links a task to a resource. With a kind, the link is
- * subscribed: kind must be a link kind of the task's agent and url a resource
- * of the kind's link type, and the link stores the resource's canonical URL.
- * Without one, it is a plain reference that receives no events, stored as
- * given. It fails with `failed_precondition` on an archived task.
+ * CreateLinkRequest links a task to a resource. kind is required: it must be
+ * a link kind of the task's agent and url a resource of the kind's link type,
+ * and the link stores the resource's canonical URL. An empty or unknown kind
+ * fails with `invalid_argument` and a message listing the agent's link kinds;
+ * a task whose agent has none cannot create links. It fails with
+ * `failed_precondition` on an archived task.
  *
  * @generated from message gritz.v1.CreateLinkRequest
  */
@@ -1440,7 +1440,7 @@ export type LinkPayload = Message<"gritz.v1.LinkPayload"> & {
   title: string;
 
   /**
-   * The link's kind; empty for a plain reference link.
+   * The link's kind.
    *
    * @generated from field: string kind = 6;
    */

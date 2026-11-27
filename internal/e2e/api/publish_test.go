@@ -176,14 +176,21 @@ func TestCreateLink_Publishes(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", Draft: true})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "test", AgentId: agent.Id, Draft: true})
 	notifications := h.Org.Subscribe()
 
 	// Act
 	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
 		TaskId: task.ID,
-		Url:    "https://example.com",
+		Url:    "https://github.com/example/repo/pull/1",
 		Title:  "test",
+		Kind:   "github.pr",
 	})
 	assert.NilError(t, err)
 

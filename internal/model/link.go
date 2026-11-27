@@ -15,9 +15,8 @@ type Link struct {
 	URL       string    `json:"url"`
 	Title     string    `json:"title"`
 	CreatedAt time.Time `json:"created_at"`
-	// Kind is the link kind of the task's agent the link was created with: a
-	// link with a kind is subscribed, and URL is the canonical URL of the
-	// kind's link type. Empty for a plain reference link.
+	// Kind is the link kind of the task's agent the link was created with;
+	// URL is the canonical URL of the kind's link type.
 	Kind string `json:"kind,omitempty"`
 	// Claim is copied from the kind when the link is created. The task holds
 	// it on URL while it is unarchived.
