@@ -24,7 +24,7 @@ const (
 func (h *handlers) addTaskTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_workspaces",
-		Description: "List available workspaces",
+		Description: "List available workspaces, with the features each declares for its agents to select",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
@@ -32,7 +32,7 @@ func (h *handlers) addTaskTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_task",
-		Description: "Create a new task and start it, or create it as a draft that update_task with start set starts later",
+		Description: "Create a new task of an agent and start it, or create it as a draft that update_task with start set starts later. The task gets the agent's variables and features.",
 	}, h.createTask)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -103,10 +103,15 @@ func (h *handlers) listWorkspaces(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return mcpx.ErrorResult("failed to list workspaces: %v", err), nil, nil
 	}
-	type workspace struct {
+	type feature struct {
 		Name        string `json:"name"`
-		Description string `json:"description"`
-		RunnerID    string `json:"runner_id"`
+		Description string `json:"description,omitempty"`
+	}
+	type workspace struct {
+		Name        string    `json:"name"`
+		Description string    `json:"description"`
+		RunnerID    string    `json:"runner_id"`
+		Features    []feature `json:"features,omitempty"`
 	}
 	result := make([]workspace, len(resp.Workspaces))
 	for i, ws := range resp.Workspaces {
@@ -115,13 +120,16 @@ func (h *handlers) listWorkspaces(ctx context.Context, req *mcp.CallToolRequest,
 			Description: ws.Description,
 			RunnerID:    ws.RunnerId,
 		}
+		for _, f := range ws.Features {
+			result[i].Features = append(result[i].Features, feature{Name: f.Name, Description: f.Description})
+		}
 	}
 	return mcpx.JSONResult(result), nil, nil
 }
 
 type createTaskInput struct {
 	Name        string `json:"name,omitempty" jsonschema:"A short name for the task"`
-	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent the task belongs to (see list_agents). The task runs in the agent's workspace and runner, with its auto-archive delay and variables."`
+	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent the task belongs to (see list_agents). The task runs in the agent's workspace and runner, with its auto-archive delay, variables and features."`
 	Instruction string `json:"instruction,omitempty" jsonschema:"The instruction text for the task. Required unless draft is set."`
 	Draft       bool   `json:"draft,omitempty" jsonschema:"Create the task as a draft, which doesn't run until update_task starts it"`
 }

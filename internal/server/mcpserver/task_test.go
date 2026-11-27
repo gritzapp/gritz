@@ -60,6 +60,37 @@ func TestArchiveTask(t *testing.T) {
 	})
 }
 
+func TestListWorkspaces(t *testing.T) {
+	// Arrange
+	client := &gritzclient.ClientMock{
+		ListWorkspacesFunc: func(ctx context.Context, req *gritzv1.ListWorkspacesRequest) (*gritzv1.ListWorkspacesResponse, error) {
+			return &gritzv1.ListWorkspacesResponse{Workspaces: []*gritzv1.RegisteredWorkspace{
+				{Name: "gritz", Description: "The gritz repo", RunnerId: "main", Features: []*gritzv1.FeatureDecl{
+					{Name: "codex", Description: "Run on Codex"},
+					{Name: "jira"},
+				}},
+				{Name: "scratch", RunnerId: "main"},
+			}}, nil
+		},
+	}
+	session := setupSession(t, client)
+
+	// Act
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "list_workspaces"})
+
+	// Assert
+	assert.NilError(t, err)
+	var got []any
+	mcptest.UnmarshalCallToolResult(t, result, &got)
+	assert.DeepEqual(t, got, []any{
+		map[string]any{"name": "gritz", "description": "The gritz repo", "runner_id": "main", "features": []any{
+			map[string]any{"name": "codex", "description": "Run on Codex"},
+			map[string]any{"name": "jira"},
+		}},
+		map[string]any{"name": "scratch", "description": "", "runner_id": "main"},
+	})
+}
+
 func TestCreateTask_UsesServerURL(t *testing.T) {
 	client := &gritzclient.ClientMock{
 		CreateTaskFunc: func(ctx context.Context, req *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
@@ -72,6 +103,7 @@ func TestCreateTask_UsesServerURL(t *testing.T) {
 					Name:      "test",
 					Workspace: "ws",
 					AgentId:   5,
+					Features:  []string{"jira", "codex"},
 					Status:    gritzv1.TaskStatus_PENDING,
 					Url:       "https://gritz.example.com/ui/tasks/42?org=7",
 				},
@@ -96,6 +128,7 @@ func TestCreateTask_UsesServerURL(t *testing.T) {
 		"name":      "test",
 		"workspace": "ws",
 		"agent_id":  float64(5),
+		"features":  []any{"jira", "codex"},
 		"status":    "PENDING",
 		"archived":  false,
 		"url":       "https://gritz.example.com/ui/tasks/42?org=7",

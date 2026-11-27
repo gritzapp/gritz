@@ -27,7 +27,7 @@ var TaskCreateCommand = &cli.Command{
 		&cli.Int64Flag{
 			Name:     "agent",
 			Aliases:  []string{"a"},
-			Usage:    "ID of the agent the task belongs to; the task runs with its workspace, runner, auto-archive and variables",
+			Usage:    "ID of the agent the task belongs to; the task runs with its workspace, runner, auto-archive, variables and features",
 			Required: true,
 		},
 		&cli.StringSliceFlag{

@@ -14,7 +14,7 @@ import (
 func (h *handlers) addAgentTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_agents",
-		Description: "List the org's agents. An agent is a task template (workspace, runner, prompt, auto-archive, variables) plus the triggers that create its tasks from events and the link kinds its tasks may subscribe to.",
+		Description: "List the org's agents. An agent is a task template (workspace, runner, prompt, auto-archive, variables, features) plus the triggers that create its tasks from events and the link kinds its tasks may subscribe to.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
@@ -32,7 +32,8 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 		Name: "put_agent",
 		Description: "Create an agent, or replace the agent with the given id, in the shape get_agent returns. " +
 			"Fields: name; workspace and runner its tasks run in (see list_workspaces); prompt, the first instruction of the tasks its triggers and schedules create; " +
-			"auto_archive, a duration in seconds such as \"86400s\" (0 never archives); variables, declared by the workspace. " +
+			"auto_archive, a duration in seconds such as \"86400s\" (0 never archives); variables, declared by the workspace; " +
+			"features, names of features the workspace declares (see list_workspaces), merged onto the workspace in list order: where two set the same environment variable, secret or MCP server, or both have their own agent config, the later one wins. " +
 			"triggers create a task when an event matches: source and type (see list_event_types), conditions [{attr, op, value}] that must all hold (op is equals, prefix, contains or glob), " +
 			"public to also match events from non-members, yield_to claim names that stop it while an unarchived task holds one on the event's resource, " +
 			"and link, a link kind of this agent the created task subscribes to the event's resource with. The first matching trigger wins. " +
@@ -40,7 +41,7 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 			"claim stamped on its links, events [{type, conditions}] it delivers to the task (event types that declare the link type, each with conditions as a trigger's; with none it delivers nothing), and public. " +
 			"schedules [{id, name, cron_expr, timezone, enabled}] each create a task of the agent named name, starting with its prompt, whenever the 5-field cron expression matches in the IANA timezone (default UTC). " +
 			"Keep a schedule's id to keep its last run, leave it out to add one, and leave a schedule out to delete it; next_run_at, last_run_at and last_task_id are set by the server. " +
-			"Replacing an agent doesn't change the tasks it already created. Returns the stored agent.",
+			"Its tasks copy its variables and features when they are created, so replacing an agent doesn't change the tasks it already created. Returns the stored agent.",
 	}, h.putAgent)
 
 	mcp.AddTool(server, &mcp.Tool{
