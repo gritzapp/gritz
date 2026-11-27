@@ -135,7 +135,9 @@ function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' 
       label={`${src.label} event`}
       meta={item.wakes && <WakeMark />}
       at={item.at}
-      className="border-l-2 border-l-amber-500 bg-amber-50/50 dark:border-l-amber-400 dark:bg-amber-950/15"
+      // The tint is a flat gradient over the card's own opaque background, so
+      // the rail behind the card doesn't show through it.
+      className="border-l-2 border-l-amber-500 bg-linear-to-r from-amber-50/50 to-amber-50/50 dark:border-l-amber-400 dark:from-amber-950/15 dark:to-amber-950/15"
     >
       <p className="text-sm font-medium text-foreground">{item.description}</p>
       {item.data && (
