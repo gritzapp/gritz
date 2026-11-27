@@ -120,21 +120,10 @@ function WorkspacesPage() {
                 <TableCell className="text-muted-foreground">
                   {workspace.description || '-'}
                 </TableCell>
-                <TableCell>
-                  {workspace.features.length === 0 ? (
-                    <span className="text-muted-foreground">-</span>
-                  ) : (
-                    <dl className="space-y-1 text-sm">
-                      {workspace.features.map((f) => (
-                        <div key={f.name}>
-                          <dt className="font-mono">{f.name}</dt>
-                          {f.description && (
-                            <dd className="text-muted-foreground text-xs">{f.description}</dd>
-                          )}
-                        </div>
-                      ))}
-                    </dl>
-                  )}
+                <TableCell className="text-muted-foreground">
+                  {workspace.features.length === 0
+                    ? '-'
+                    : `${workspace.features.length} ${workspace.features.length === 1 ? 'feature' : 'features'}`}
                 </TableCell>
                 <TableCell className="text-muted-foreground font-mono text-sm">
                   {workspace.runnerId || '-'}
