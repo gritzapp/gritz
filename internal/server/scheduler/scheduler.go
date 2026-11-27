@@ -180,7 +180,8 @@ func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule)
 	adv := store.ScheduleAdvance{LastRunAt: new(now.UTC()), LastTaskID: &task.ID}
 	if next, err := sched.Next(now); err != nil {
 		// The spec was valid when written, so this only happens if the tz database
-		// dropped the schedule's timezone under us. Rather than let the row wedge as
+		// dropped the schedule's timezone under us, or the expression's dates ran
+		// out. Rather than let the row wedge as
 		// permanently due, leave NextRunAt nil, which disables it, so the claim
 		// query skips it. The due occurrence still fired above — creating its task
 		// never needed Next(); only advancing did.
