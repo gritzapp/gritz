@@ -48,25 +48,22 @@ events. Save the agent.
 
 ## 5. Create a task
 
-Open **Tasks** and click **+ Task**:
+Open **Tasks** and click **+ Task**. The new task's page opens:
 
-- **Name** is optional. The agent names the task itself if you leave it blank.
-- **Agent** is the agent you just created. The task runs with its runner,
-  workspace, auto-archive delay and variables.
-
-**Create Task** opens the task's page. The task is a draft: nothing runs yet.
-
-## 6. Send the first instruction
+- **Agent**, in the middle of the page, is the agent you just created. The task
+  runs with its runner, workspace, auto-archive delay and variables.
+- **Name**, at the top of the sidebar, is optional. The agent names the task
+  itself if you leave it blank.
 
 Type what you want the agent to do in the box at the bottom of the page and
 press Enter (Shift+Enter adds a new line):
 
 > Add a `--json` flag to the `list` command and open a pull request.
 
-The task moves to **pending** while the runner prepares its sandbox, then to
-**running** when the agent starts.
+Sending the first instruction creates the task. It moves to **pending** while
+the runner prepares its sandbox, then to **running** when the agent starts.
 
-## 7. Watch it run
+## 6. Watch it run
 
 The task page has three views, in the sidebar on the left:
 
@@ -81,7 +78,7 @@ When the agent is done, the task moves to **completed**, or to **failed** if a
 setup command, the agent or the sandbox failed. The [task lifecycle](/concepts/tasks/#statuses) lists
 every status.
 
-## 8. Follow up
+## 7. Follow up
 
 Send another instruction from the same box: "Also update the README". A finished
 task starts again, in the same sandbox, and the agent continues the same
@@ -94,7 +91,7 @@ comments, and when it opens a pull request it links it to the task with that
 kind: a review comment on the pull request then wakes the task up. See
 [Events and links](/concepts/events-and-links/).
 
-## 9. Archive it
+## 8. Archive it
 
 When you are done with the task, click **Archive** in the sidebar. The runner
 destroys the task's sandbox and the task leaves the task list; turn on **Show

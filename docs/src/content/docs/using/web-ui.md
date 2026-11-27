@@ -23,10 +23,10 @@ agent filter to list only its tasks, or **All agents** for every task. Turn on
 **Show archived** to include archived tasks, and archive or unarchive a task
 from its row. The filters are remembered per organisation.
 
-**+ Task** creates a task. Pick its [agent](/concepts/agents/); the name is
-optional. The task runs with the agent's runner, workspace, auto-archive delay
-and variables. The task is created as a draft, and starts when you send its
-first instruction.
+**+ Task** opens the page of a new task. Pick its [agent](/concepts/agents/);
+the name is optional. The task runs with the agent's runner, workspace,
+auto-archive delay and variables. Sending the first instruction creates the
+task and starts it.
 
 ## The task page
 
