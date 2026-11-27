@@ -96,8 +96,8 @@ interface AgentFormProps {
 }
 
 // AgentForm is the agent page: a header with the agent's name and actions,
-// and a column that edits its task template, its triggers, its schedules and
-// its link kinds. The trigger and link kind editors are driven by
+// and a column that edits its task template, its link kinds, its triggers and
+// its schedules. The trigger and link kind editors are driven by
 // GetEventTypes.
 export function AgentForm({
   agentId,
@@ -379,6 +379,40 @@ export function AgentForm({
               </div>
             </section>
 
+            <section id="agent-links" className="scroll-mt-8 space-y-5">
+              <SectionHeading
+                title="Link kinds"
+                description="The links this agent's tasks may subscribe to, and the events each one delivers."
+                hint="An event on a subscribed link's resource wakes the task when the link's kind lists the event's type and the event satisfies that type's conditions."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={addLink}>
+                    <Plus className="h-4 w-4" />
+                    Add link kind
+                  </Button>
+                }
+              />
+              {values.links.length === 0 ? (
+                <EmptyState icon={Link2}>
+                  No link kinds. This agent&apos;s tasks can only create plain reference links,
+                  which receive no events.
+                </EmptyState>
+              ) : (
+                <div className="space-y-3">
+                  {values.links.map((link, index) => (
+                    <LinkKindEditor
+                      key={linkKeys[index]}
+                      index={index}
+                      link={link}
+                      eventTypes={eventTypes}
+                      linkTypes={linkTypes}
+                      onChange={(l) => setLink(index, l)}
+                      onRemove={() => removeLink(index)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
             <section id="agent-triggers" className="scroll-mt-8 space-y-5">
               <SectionHeading
                 title="Triggers"
@@ -448,40 +482,6 @@ export function AgentForm({
                       onChange={(s) => setSchedule(index, s)}
                       onMove={(by) => moveSchedule(index, by)}
                       onRemove={() => removeSchedule(index)}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section id="agent-links" className="scroll-mt-8 space-y-5">
-              <SectionHeading
-                title="Link kinds"
-                description="The links this agent's tasks may subscribe to, and the events each one delivers."
-                hint="An event on a subscribed link's resource wakes the task when the link's kind lists the event's type and the event satisfies that type's conditions."
-                action={
-                  <Button type="button" variant="outline" size="sm" onClick={addLink}>
-                    <Plus className="h-4 w-4" />
-                    Add link kind
-                  </Button>
-                }
-              />
-              {values.links.length === 0 ? (
-                <EmptyState icon={Link2}>
-                  No link kinds. This agent&apos;s tasks can only create plain reference links,
-                  which receive no events.
-                </EmptyState>
-              ) : (
-                <div className="space-y-3">
-                  {values.links.map((link, index) => (
-                    <LinkKindEditor
-                      key={linkKeys[index]}
-                      index={index}
-                      link={link}
-                      eventTypes={eventTypes}
-                      linkTypes={linkTypes}
-                      onChange={(l) => setLink(index, l)}
-                      onRemove={() => removeLink(index)}
                     />
                   ))}
                 </div>
