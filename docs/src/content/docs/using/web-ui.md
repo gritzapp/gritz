@@ -75,10 +75,9 @@ with a shell in place of the agent.
 ## Schedules
 
 **Schedules** lists the organisation's [schedules](/concepts/schedules/) with
-their cron expression, timezone, next run and workspace, and the task each
-created last. From each row you can turn a schedule on or off, run it now,
-edit it or delete it. **+ Schedule** creates one; like **+ Task**, its form has
-a field for each variable the workspace declares.
+their cron expression, timezone, next run and agent, and the task each created
+last. From each row you can turn a schedule on or off, run it now, edit it or
+delete it. **+ Schedule** creates one.
 
 ## Events
 

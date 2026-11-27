@@ -173,7 +173,7 @@ up a `gritz login` made since.
 | `list_schedules` | Lists the organisation's schedules. |
 | `get_schedule` | Gets a schedule, with its instructions and its next and last run. |
 | `create_schedule` | Creates a schedule. |
-| `update_schedule` | Changes a schedule's template, cron expression or timezone. |
+| `update_schedule` | Changes a schedule's name, agent, instruction, cron expression or timezone. |
 | `set_schedule_enabled` | Enables or disables a schedule. |
 | `run_schedule` | Creates a task from a schedule now. |
 | `delete_schedule` | Deletes a schedule. |
@@ -334,16 +334,12 @@ webhook: firing a custom event is how to send one.
 
 | Argument | |
 | --- | --- |
-| `workspace` | The workspace of the tasks it creates. Required. |
-| `runner` | The runner that offers it. Required. |
+| `agent_id` | The ID of the [agent](/concepts/schedules/#the-agent) its tasks belong to. They take its runner, workspace, auto-archive delay and variables. Required. |
 | `instruction` | The instruction every task it creates starts with. Required. |
 | `cron_expr` | When to create a task: a five-field [cron expression](/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. Required. |
 | `timezone` | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Defaults to `UTC`. |
 | `name` | The name of every task it creates. |
-| `namespace` | Its tasks' namespace. |
-| `auto_archive` | Its tasks' auto-archive delay, as in `create_task`. |
 | `enabled` | Whether the schedule runs. Without it, the schedule is created disabled. |
-| `variables` | The [variables](/concepts/schedules/#variables) of every task it creates, as in `create_task`. |
 
 It returns the [schedule](/concepts/schedules/). `list_schedules`,
 `get_schedule`, `update_schedule` and `set_schedule_enabled` return schedules
@@ -353,8 +349,7 @@ in the same shape.
 
 Takes the schedule's `id` and any of `create_schedule`'s arguments except
 `enabled`. The arguments left out keep their current values. `instruction`
-replaces every instruction of the schedule, and `variables` replaces all of
-its variables: `{}` removes them.
+replaces every instruction of the schedule.
 
 ### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
 
