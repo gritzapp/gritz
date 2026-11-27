@@ -6,23 +6,43 @@ import { type Agent, type AgentLink, AgentSchema, type EventTypeDef } from '@/ge
 import { autoArchiveSelectValue, durationFromAutoArchiveSelect } from '@/lib/duration'
 import { browserTimezone, DEFAULT_CRON } from '@/lib/schedule'
 
-// The condition operators the backend understands. Comparisons are exact and
-// case-sensitive; "glob" matches a path-style pattern against the whole value —
-// see RuleCondition in the proto.
-export const CONDITION_OPS = ['equals', 'prefix', 'contains', 'glob'] as const
-export type ConditionOp = (typeof CONDITION_OPS)[number]
+// CONDITION_OPS are the operator choices for a condition, one row per choice:
+// the ops the backend understands, then each negated. Comparisons are exact and
+// case-sensitive; "glob" matches a path-style pattern against the whole value,
+// and a negated condition holds exactly when the same condition without negate
+// does not, including on an event that lacks the attribute — see RuleCondition
+// in the proto. label is the choice in the editor's operator select, phrase
+// the wording in a sentence such as "label is bug". This table is the only
+// place operator wording lives.
+export const CONDITION_OPS: readonly ConditionOp[] = [
+  { op: 'equals', negate: false, label: 'equals', phrase: 'is' },
+  { op: 'prefix', negate: false, label: 'starts with', phrase: 'starts with' },
+  { op: 'contains', negate: false, label: 'contains', phrase: 'contains' },
+  { op: 'glob', negate: false, label: 'matches glob', phrase: 'matches' },
+  { op: 'equals', negate: true, label: 'does not equal', phrase: 'is not' },
+  { op: 'prefix', negate: true, label: 'does not start with', phrase: 'does not start with' },
+  { op: 'contains', negate: true, label: 'does not contain', phrase: 'does not contain' },
+  { op: 'glob', negate: true, label: 'does not match glob', phrase: 'does not match' },
+]
 
-export const OP_LABELS: Record<ConditionOp, string> = {
-  equals: 'equals',
-  prefix: 'starts with',
-  contains: 'contains',
-  glob: 'matches glob',
+export interface ConditionOp {
+  op: string
+  negate: boolean
+  label: string
+  phrase: string
+}
+
+// findConditionOp returns the CONDITION_OPS row for a condition's op and
+// negate, or undefined for an op the table doesn't list.
+export function findConditionOp(c: { op: string; negate: boolean }): ConditionOp | undefined {
+  return CONDITION_OPS.find((row) => row.op === c.op && row.negate === c.negate)
 }
 
 export interface ConditionDraft {
   attr: string
   op: string
   value: string
+  negate: boolean
 }
 
 export interface TriggerDraft {
@@ -147,7 +167,12 @@ export function agentFormValues(agent: Agent): AgentFormValues {
     triggers: agent.triggers.map((t) => ({
       source: t.source,
       type: t.type,
-      conditions: t.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+      conditions: t.conditions.map((c) => ({
+        attr: c.attr,
+        op: c.op,
+        value: c.value,
+        negate: c.negate,
+      })),
       public: t.public,
       yieldTo: t.yieldTo.join(', '),
       link: t.link,
@@ -168,7 +193,12 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       description: l.description,
       events: l.events.map((e) => ({
         type: e.type,
-        conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+        conditions: e.conditions.map((c) => ({
+          attr: c.attr,
+          op: c.op,
+          value: c.value,
+          negate: c.negate,
+        })),
         public: e.public,
         wake: e.wake,
       })),
@@ -204,7 +234,12 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
     triggers: values.triggers.map((t) => ({
       source: t.source,
       type: t.type,
-      conditions: t.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+      conditions: t.conditions.map((c) => ({
+        attr: c.attr,
+        op: c.op,
+        value: c.value,
+        negate: c.negate,
+      })),
       public: t.public,
       yieldTo: splitClaims(t.yieldTo),
       link: t.link,
@@ -225,7 +260,12 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       description: l.description.trim(),
       events: l.events.map((e) => ({
         type: e.type,
-        conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+        conditions: e.conditions.map((c) => ({
+          attr: c.attr,
+          op: c.op,
+          value: c.value,
+          negate: c.negate,
+        })),
         public: e.public,
         wake: e.wake,
       })),

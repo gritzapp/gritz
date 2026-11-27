@@ -73,7 +73,6 @@ import {
   emptySchedule,
   emptyTrigger,
   linkEventTypes,
-  OP_LABELS,
   splitClaims,
   triggerLinkKinds,
   type AgentFormValues,
@@ -767,14 +766,24 @@ function ConditionsEditor({
                   )}
                 </SelectContent>
               </Select>
-              <Select value={condition.op} onValueChange={(op) => setCondition(i, { op })}>
-                <SelectTrigger className="w-36" aria-label="Operator">
+              <Select
+                value={String(
+                  CONDITION_OPS.findIndex(
+                    (row) => row.op === condition.op && row.negate === condition.negate,
+                  ),
+                )}
+                onValueChange={(v) => {
+                  const { op, negate } = CONDITION_OPS[Number(v)]
+                  setCondition(i, { op, negate })
+                }}
+              >
+                <SelectTrigger className="w-44" aria-label="Operator">
                   <SelectValue placeholder="Operator" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CONDITION_OPS.map((op) => (
-                    <SelectItem key={op} value={op}>
-                      {OP_LABELS[op]}
+                  {CONDITION_OPS.map((row, j) => (
+                    <SelectItem key={j} value={String(j)}>
+                      {row.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -807,7 +816,9 @@ function ConditionsEditor({
         size="sm"
         className="-ml-2 text-muted-foreground"
         disabled={attrs.length === 0}
-        onClick={() => onChange([...conditions, { attr: attrs[0].key, op: 'equals', value: '' }])}
+        onClick={() =>
+          onChange([...conditions, { attr: attrs[0].key, op: 'equals', value: '', negate: false }])
+        }
       >
         <Plus className="h-4 w-4" />
         Add condition

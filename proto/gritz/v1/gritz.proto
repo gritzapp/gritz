@@ -843,6 +843,9 @@ message RuleCondition {
   string attr = 1;
   string op = 2;  // One of "equals", "prefix", "contains" or "glob".
   string value = 3;
+  // Inverts the condition: it holds exactly when the same condition without
+  // negate does not, so it holds on an event that lacks the attribute.
+  bool negate = 4;
 }
 
 // AttrDef is an event attribute a trigger can have a condition on.

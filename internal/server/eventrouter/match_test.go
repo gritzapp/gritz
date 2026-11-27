@@ -471,6 +471,138 @@ func TestMatch(t *testing.T) {
 			want:  false,
 		},
 
+		// --- negate holds exactly when the condition without it does not ---
+		{
+			name: "negated equals holds when no value equals",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "bot", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"alice", "bob"}}},
+			want:  true,
+		},
+		{
+			name: "negated equals fails when any value equals",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "equals", Value: "bob", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"alice", "bob"}}},
+			want:  false,
+		},
+		{
+			name: "negated prefix holds when no value has the prefix",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "prefix", Value: "team-", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"bug", "urgent"}}},
+			want:  true,
+		},
+		{
+			name: "negated prefix fails when a value has the prefix",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "prefix", Value: "team-", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"bug", "team-a"}}},
+			want:  false,
+		},
+		{
+			name: "negated contains holds when no value contains",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "contains", Value: "skip", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"bug"}}},
+			want:  true,
+		},
+		{
+			name: "negated contains fails when a value contains",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "contains", Value: "skip", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"ci-skip"}}},
+			want:  false,
+		},
+		{
+			name: "negated glob holds when no value matches",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "docs/**/*.md", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/diagram.svg"}}},
+			want:  true,
+		},
+		{
+			name: "negated glob fails when any of many values matches",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "glob", Value: "docs/**/*.md", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/src/index.md"}}},
+			want:  false,
+		},
+		{
+			name: "negated equals holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "x", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "negated prefix holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "prefix", Value: "x", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "negated contains holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "contains", Value: "x", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "negated glob holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "glob", Value: "x", Negate: true},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "negated prefix fails on a derived attr that has the prefix",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "prefix", Value: "gritz:", Negate: true},
+				},
+			},
+			event: InputEvent{Data: "gritz: fix it"},
+			want:  false,
+		},
+
 		// --- unknown op never matches ---
 		{
 			name: "unknown op never matches",

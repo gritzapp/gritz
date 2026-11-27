@@ -6262,10 +6262,13 @@ func (x *GenerateAtlassianWebhookSecretResponse) GetWebhookUrl() string {
 // segment matches any number of segments, "[a-z]" matches a character class and
 // "{a,b}" either alternative.
 type RuleCondition struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Attr          string                 `protobuf:"bytes,1,opt,name=attr,proto3" json:"attr,omitempty"`
-	Op            string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"` // One of "equals", "prefix", "contains" or "glob".
-	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Attr  string                 `protobuf:"bytes,1,opt,name=attr,proto3" json:"attr,omitempty"`
+	Op    string                 `protobuf:"bytes,2,opt,name=op,proto3" json:"op,omitempty"` // One of "equals", "prefix", "contains" or "glob".
+	Value string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	// Inverts the condition: it holds exactly when the same condition without
+	// negate does not, so it holds on an event that lacks the attribute.
+	Negate        bool `protobuf:"varint,4,opt,name=negate,proto3" json:"negate,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6319,6 +6322,13 @@ func (x *RuleCondition) GetValue() string {
 		return x.Value
 	}
 	return ""
+}
+
+func (x *RuleCondition) GetNegate() bool {
+	if x != nil {
+		return x.Negate
+	}
+	return false
 }
 
 // AttrDef is an event attribute a trigger can have a condition on.
@@ -8582,11 +8592,12 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"&GenerateAtlassianWebhookSecretResponse\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\tR\x06secret\x12\x1f\n" +
 	"\vwebhook_url\x18\x02 \x01(\tR\n" +
-	"webhookUrl\"I\n" +
+	"webhookUrl\"a\n" +
 	"\rRuleCondition\x12\x12\n" +
 	"\x04attr\x18\x01 \x01(\tR\x04attr\x12\x0e\n" +
 	"\x02op\x18\x02 \x01(\tR\x02op\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\tR\x05value\"g\n" +
+	"\x05value\x18\x03 \x01(\tR\x05value\x12\x16\n" +
+	"\x06negate\x18\x04 \x01(\bR\x06negate\"g\n" +
 	"\aAttrDef\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +

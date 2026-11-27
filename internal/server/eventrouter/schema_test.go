@@ -122,6 +122,37 @@ func TestSchemaRegistryValidateAgent_Trigger(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "valid negated conditions",
+			trigger: model.AgentTrigger{
+				Source: "test",
+				Type:   "label",
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "equals", Value: "wip", Negate: true},
+					{Attr: "label", Op: "prefix", Value: "team-", Negate: true},
+					{Attr: "label", Op: "contains", Value: "skip", Negate: true},
+					{Attr: "label", Op: "glob", Value: "team-{a,b}/**", Negate: true},
+				},
+			},
+		},
+		{
+			name: "malformed negated glob",
+			trigger: model.AgentTrigger{
+				Source:     "test",
+				Type:       "label",
+				Conditions: []model.Condition{{Attr: "label", Op: "glob", Value: "team-[a", Negate: true}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "negated unknown op",
+			trigger: model.AgentTrigger{
+				Source:     "test",
+				Type:       "comment",
+				Conditions: []model.Condition{{Attr: "body", Op: "regex", Value: "x", Negate: true}},
+			},
+			wantErr: true,
+		},
+		{
 			name: "unknown attr",
 			trigger: model.AgentTrigger{
 				Source:     "test",
