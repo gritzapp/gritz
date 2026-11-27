@@ -112,6 +112,25 @@ func TestDriverRun_PromptFromEventFile(t *testing.T) {
 	assert.Equal(t, cfg.PromptedEventID, int64(4))
 }
 
+func TestDriverRun_PromptLinkKinds(t *testing.T) {
+	t.Parallel()
+	// Arrange - the task's agent has a link kind
+	driver, mock := setupDriver(t, &Config{Type: TypeDummy})
+	mock.ListLinksFunc = func(_ context.Context, req *gritzv1.ListLinksRequest) (*gritzv1.ListLinksResponse, error) {
+		return &gritzv1.ListLinksResponse{
+			Kinds: []*gritzv1.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"}},
+		}, nil
+	}
+	_, err := driver.Events.Append([]*gritzv1.Event{instruction(5, "do the thing")})
+	assert.NilError(t, err)
+
+	// Act
+	prompt := runPrompt(t, driver)
+
+	// Assert - the brief lists it
+	assert.Assert(t, cmp.Contains(prompt, "- `owned-pr`: github.pr, claim `pr-owner`"))
+}
+
 func TestDriverRun_PromptedEventNotAdvancedOnError(t *testing.T) {
 	t.Parallel()
 	// Arrange - a run whose agent errors. The read advances the cursor in

@@ -217,12 +217,14 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// Events instead). See
 	// docs/src/content/docs/proposals/implemented/first-run-brief-injection.md.
 	var promptLinks []*gritzv1.TaskLink
+	var promptLinkKinds []*gritzv1.AgentLink
 	if !cfg.Started {
 		resp, err := d.Client.ListLinks(ctx, &gritzv1.ListLinksRequest{TaskId: d.TaskID})
 		if err != nil {
 			return fmt.Errorf("failed to fetch task links: %w", err)
 		}
 		promptLinks = resp.GetLinks()
+		promptLinkKinds = resp.GetKinds()
 	}
 
 	// Start agent
@@ -255,11 +257,12 @@ func (d *Driver) runAgent(ctx context.Context, task *gritzv1.Task) error {
 	// The links are attached only on the first run. A wake with nothing pending
 	// renders without either.
 	prompt, err := agentprompt.Render(agentprompt.Options{
-		Started: cfg.Started,
-		Prompt:  cfg.Prompt,
-		Task:    task, // header line, and gates the first-run brief
-		Events:  events,
-		Links:   promptLinks,
+		Started:   cfg.Started,
+		Prompt:    cfg.Prompt,
+		Task:      task, // header line, and gates the first-run brief
+		Events:    events,
+		Links:     promptLinks,
+		LinkKinds: promptLinkKinds,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to build prompt: %w", err)

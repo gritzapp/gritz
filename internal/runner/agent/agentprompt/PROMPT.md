@@ -18,6 +18,10 @@ The task was updated. Continue.
 {{ end }}If you have questions, problems, or take no action, respond on the platform from the most recent instruction or event url.
 Sign every PR body, issue, and comment you create on an external platform. Where Markdown images render (e.g. GitHub), use this badge: `[![gritz task {{ .Task.GetId }}]({{ .Task.GetBadgeUrl }})]({{ .Task.GetUrl }})`. Otherwise, use a plain link: `gritz task {{ .Task.GetId }}: {{ .Task.GetUrl }}`.
 When you create a resource (PR, issue, comment), record it with gritz:create_link and the link kind of your agent that fits it, so you receive replies, even after the task is complete. Leave kind empty only for reference links you didn't create.
+{{ if .LinkKinds }}Your agent's link kinds (kind: link type, claim):
+{{ range .LinkKinds }}{{ renderLinkKind . }}
+{{ end }}{{ else }}Your agent has no link kinds, so leave kind empty: your links receive no events.
+{{ end -}}
 Prefer web URLs a user can visit over API URLs.
 Use gritz:report to log important observations. Your text responses are not visible to users — only tool calls are.
 If you need to re-check for updates mid-run, call gritz:get_my_task.

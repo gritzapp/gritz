@@ -425,6 +425,9 @@ message ListLinksRequest {
 
 message ListLinksResponse {
   repeated TaskLink links = 1;
+  // The link kinds of the task's agent: the kinds CreateLink accepts for the
+  // task.
+  repeated AgentLink kinds = 2;
 }
 
 message Event {
