@@ -11,17 +11,32 @@ import { browserTimezone, DEFAULT_CRON } from '@/lib/schedule'
 // case-sensitive; "glob" matches a path-style pattern against the whole value,
 // and a negated condition holds exactly when the same condition without negate
 // does not, including on an event that lacks the attribute — see RuleCondition
-// in the proto.
-export const CONDITION_OPS: readonly { op: string; negate: boolean; label: string }[] = [
-  { op: 'equals', negate: false, label: 'equals' },
-  { op: 'prefix', negate: false, label: 'starts with' },
-  { op: 'contains', negate: false, label: 'contains' },
-  { op: 'glob', negate: false, label: 'matches glob' },
-  { op: 'equals', negate: true, label: 'does not equal' },
-  { op: 'prefix', negate: true, label: 'does not start with' },
-  { op: 'contains', negate: true, label: 'does not contain' },
-  { op: 'glob', negate: true, label: 'does not match glob' },
+// in the proto. label is the choice in the editor's operator select, phrase
+// the wording in a sentence such as "label is bug". This table is the only
+// place operator wording lives.
+export const CONDITION_OPS: readonly ConditionOp[] = [
+  { op: 'equals', negate: false, label: 'equals', phrase: 'is' },
+  { op: 'prefix', negate: false, label: 'starts with', phrase: 'starts with' },
+  { op: 'contains', negate: false, label: 'contains', phrase: 'contains' },
+  { op: 'glob', negate: false, label: 'matches glob', phrase: 'matches' },
+  { op: 'equals', negate: true, label: 'does not equal', phrase: 'is not' },
+  { op: 'prefix', negate: true, label: 'does not start with', phrase: 'does not start with' },
+  { op: 'contains', negate: true, label: 'does not contain', phrase: 'does not contain' },
+  { op: 'glob', negate: true, label: 'does not match glob', phrase: 'does not match' },
 ]
+
+export interface ConditionOp {
+  op: string
+  negate: boolean
+  label: string
+  phrase: string
+}
+
+// findConditionOp returns the CONDITION_OPS row for a condition's op and
+// negate, or undefined for an op the table doesn't list.
+export function findConditionOp(c: { op: string; negate: boolean }): ConditionOp | undefined {
+  return CONDITION_OPS.find((row) => row.op === c.op && row.negate === c.negate)
+}
 
 export interface ConditionDraft {
   attr: string
