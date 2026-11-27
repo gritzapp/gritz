@@ -472,9 +472,15 @@ type Task struct {
 	// environment variable GRITZ_VAR_<name>. Set at creation and can't be
 	// changed.
 	Variables map[string]string `protobuf:"bytes,19,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// The agent the task belongs to. Its workspace, runner, auto-archive and
-	// variables were copied from the agent when the task was created.
-	AgentId       int64 `protobuf:"varint,20,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// The agent the task belongs to. Its workspace, runner, auto-archive,
+	// variables and features were copied from the agent when the task was
+	// created.
+	AgentId int64 `protobuf:"varint,20,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	// The task's features, by name, in the order they merge, copied from its
+	// agent when the task was created. Their environment, secrets, MCP servers
+	// and commands are added to the workspace's in its sandbox, and the last one
+	// with an agent config replaces the workspace's. Can't be changed.
+	Features      []string `protobuf:"bytes,21,rep,name=features,proto3" json:"features,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -626,6 +632,13 @@ func (x *Task) GetAgentId() int64 {
 		return x.AgentId
 	}
 	return 0
+}
+
+func (x *Task) GetFeatures() []string {
+	if x != nil {
+		return x.Features
+	}
+	return nil
 }
 
 type McpServer struct {
@@ -1194,7 +1207,9 @@ func (x *ListRunnerEventsResponse) GetMore() bool {
 }
 
 // CreateTaskRequest creates a task of an agent: its workspace, runner,
-// auto-archive and variables are the agent's.
+// auto-archive, variables and features are the agent's. Fails with
+// failed_precondition when the agent's workspace no longer declares one of its
+// features.
 type CreateTaskRequest struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	Name         string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -8143,7 +8158,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\arestart\x18\x03 \x01(\bR\arestart\x12\x14\n" +
 	"\x05start\x18\x04 \x01(\bR\x05start\x12\x1c\n" +
 	"\tunarchive\x18\x05 \x01(\bR\tunarchive\x12\x14\n" +
-	"\x05reset\x18\x06 \x01(\bR\x05reset\"\xd6\x05\n" +
+	"\x05reset\x18\x06 \x01(\bR\x05reset\"\xf2\x05\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
@@ -8164,7 +8179,8 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\rshell_session\x18\x10 \x01(\tR\fshellSession\x12\x1b\n" +
 	"\tbadge_url\x18\x12 \x01(\tR\bbadgeUrl\x12;\n" +
 	"\tvariables\x18\x13 \x03(\v2\x1d.gritz.v1.Task.VariablesEntryR\tvariables\x12\x19\n" +
-	"\bagent_id\x18\x14 \x01(\x03R\aagentId\x1a<\n" +
+	"\bagent_id\x18\x14 \x01(\x03R\aagentId\x12\x1a\n" +
+	"\bfeatures\x18\x15 \x03(\tR\bfeatures\x1a<\n" +
 	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x03\x10\x04J\x04\b\x06\x10\aJ\x04\b\x11\x10\x12\"\xb5\x01\n" +

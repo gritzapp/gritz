@@ -74,9 +74,10 @@ type Task struct {
 	Archived  bool        `json:"archived"`
 	CreatedAt time.Time   `json:"created_at"`
 	UpdatedAt time.Time   `json:"updated_at"`
-	// AgentID is the agent the task belongs to. Runner, Workspace, AutoArchive
-	// and Variables were copied from it at creation, so editing the agent
-	// doesn't move the task. Set at creation and never changed.
+	// AgentID is the agent the task belongs to. Runner, Workspace,
+	// AutoArchive, Variables and Features were copied from it at creation, so
+	// editing the agent doesn't move the task. Set at creation and never
+	// changed.
 	AgentID int64 `json:"agent_id"`
 	// AutoArchive controls auto-archive after the task reaches a terminal
 	// status. 0 = never (default); <0 = archive immediately; >0 = delay.
@@ -91,12 +92,16 @@ type Task struct {
 	// sandbox as GRITZ_VAR_<NAME>. Set at creation and never changed. Nil
 	// when the task has none.
 	Variables map[string]string `json:"variables,omitempty"`
+	// Features are the task's features, by name, in the order they merge onto
+	// its workspace. Set at creation and never changed. Nil when the task has
+	// none.
+	Features []string `json:"features,omitempty"`
 }
 
-// Clone returns an independent copy of the task. Every field but Variables is
-// value-typed, and Variables is never mutated, so a shallow struct copy is a
-// complete snapshot — callers can retain it across in-place mutations (e.g.
-// the ApplyRunnerEvent fold).
+// Clone returns an independent copy of the task. Every field but Variables and
+// Features is value-typed, and neither is ever mutated, so a shallow struct
+// copy is a complete snapshot — callers can retain it across in-place
+// mutations (e.g. the ApplyRunnerEvent fold).
 func (t *Task) Clone() *Task {
 	c := *t
 	return &c
@@ -147,6 +152,7 @@ func (t *Task) Proto(baseURL string) *gritzv1.Task {
 		ShellSession: t.ShellSession,
 		AgentId:      t.AgentID,
 		Variables:    t.Variables,
+		Features:     t.Features,
 		Actions: &gritzv1.TaskActions{
 			Archive:   t.CanArchive(),
 			Unarchive: t.CanUnarchive(),
@@ -182,6 +188,7 @@ func TaskFromProto(pb *gritzv1.Task) *Task {
 		ShellSession: pb.ShellSession,
 		AgentID:      pb.AgentId,
 		Variables:    pb.Variables,
+		Features:     pb.Features,
 	}
 }
 

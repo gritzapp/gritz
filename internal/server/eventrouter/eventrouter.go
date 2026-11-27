@@ -524,9 +524,10 @@ func (r *Router) create(ctx context.Context, input InputEvent, match TriggerMatc
 			OrgID:       match.OrgID,
 			AgentID:     agent.ID,
 			AutoArchive: agent.AutoArchive,
-			// The task gets the agent's variables as saved; the runner resolves
-			// them when it starts it.
+			// The task gets the agent's variables and features as saved; the
+			// runner resolves and applies them when it starts it.
 			Variables: agent.Variables,
+			Features:  agent.Features,
 		}
 		if err := r.Store.CreateTask(ctx, tx, task); err != nil {
 			return err

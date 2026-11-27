@@ -37,5 +37,6 @@ func (s *Server) GetRunSpecInputs(ctx context.Context, req *gritzv1.GetRunSpecIn
 	return &gritzv1.GetRunSpecInputsResponse{
 		Token:     tokenResp.Token,
 		Variables: task.Variables,
+		Features:  task.Features,
 	}, nil
 }

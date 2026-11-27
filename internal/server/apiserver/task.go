@@ -85,6 +85,9 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d: workspace %q: %w", agent.ID, agent.Workspace, err))
 	}
+	if err := ws.CheckFeatures(agent.Features); err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d: workspace %q: %w", agent.ID, agent.Workspace, err))
+	}
 	task := &model.Task{
 		Name:        req.Name,
 		Runner:      agent.Runner,
@@ -96,6 +99,7 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 		OrgID:       caller.OrgID,
 		AutoArchive: agent.AutoArchive,
 		Variables:   variables,
+		Features:    agent.Features,
 	}
 	// A draft has no command and no run — no runner picks it up and nothing is
 	// launched. Version 0 is "never provisioned", so its first start is run 1.

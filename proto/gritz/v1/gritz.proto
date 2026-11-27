@@ -175,9 +175,16 @@ message Task {
   // changed.
   map<string, string> variables = 19;
 
-  // The agent the task belongs to. Its workspace, runner, auto-archive and
-  // variables were copied from the agent when the task was created.
+  // The agent the task belongs to. Its workspace, runner, auto-archive,
+  // variables and features were copied from the agent when the task was
+  // created.
   int64 agent_id = 20;
+
+  // The task's features, by name, in the order they merge, copied from its
+  // agent when the task was created. Their environment, secrets, MCP servers
+  // and commands are added to the workspace's in its sandbox, and the last one
+  // with an agent config replaces the workspace's. Can't be changed.
+  repeated string features = 21;
 }
 
 message McpServer {
@@ -239,7 +246,9 @@ message ListRunnerEventsResponse {
 }
 
 // CreateTaskRequest creates a task of an agent: its workspace, runner,
-// auto-archive and variables are the agent's.
+// auto-archive, variables and features are the agent's. Fails with
+// failed_precondition when the agent's workspace no longer declares one of its
+// features.
 message CreateTaskRequest {
   string name = 1;
   reserved 2;  // Previously: parent (child tasks removed)

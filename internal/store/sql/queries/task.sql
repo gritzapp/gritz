@@ -1,21 +1,21 @@
 -- name: CreateTask :one
-INSERT INTO tasks (name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO tasks (name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id, features)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING id;
 
 -- name: GetTask :one
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id
+SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id, features
 FROM tasks
 WHERE id = $1 AND org_id = $2;
 
 -- name: GetTaskForUpdate :one
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id
+SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id, features
 FROM tasks
 WHERE id = $1 AND org_id = $2
 FOR UPDATE;
 
 -- name: ListTasks :many
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id
+SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id, features
 FROM tasks
 WHERE archived = FALSE AND org_id = $1
 ORDER BY created_at DESC;
@@ -24,7 +24,7 @@ ORDER BY created_at DESC;
 SELECT EXISTS (SELECT 1 FROM tasks WHERE org_id = $1 AND archived = FALSE);
 
 -- name: ListTasksPage :many
-SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id
+SELECT id, name, runner, workspace, status, command, version, org_id, archived, created_at, updated_at, auto_archive, shell_session, variables, agent_id, features
 FROM tasks
 WHERE org_id = sqlc.arg(org_id)
   AND (sqlc.arg(archived)::bool OR archived = FALSE)
