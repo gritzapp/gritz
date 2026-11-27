@@ -89,7 +89,7 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 			expected: []eventrouter.InputEvent{{
 				Source:      "github",
-				Type:        "issue_comment",
+				Type:        "pull_request_comment",
 				Description: "pruser commented on PR #2",
 				Data:        "gritz: review this",
 				URL:         "https://github.com/owner/repo/pull/2#issuecomment-556",
@@ -880,7 +880,7 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 			expected: []eventrouter.InputEvent{{
 				Source:      "github",
-				Type:        "label_added",
+				Type:        "issue_label_added",
 				Description: `octocat labeled issue #7 "gritz"`,
 				Data:        "gritz: triage",
 				Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"octocat"}},
@@ -929,7 +929,7 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 			expected: []eventrouter.InputEvent{{
 				Source:      "github",
-				Type:        "label_added",
+				Type:        "pull_request_label_added",
 				Description: `alice labeled PR #12 "needs-review"`,
 				Data:        "Adds the thing.",
 				Attrs:       eventrouter.Attrs{"label": {"needs-review"}, "user": {"alice"}},
@@ -1154,7 +1154,7 @@ func TestHandleGitHubWebhookRoutesToTask(t *testing.T) {
 
 	assert.DeepEqual(t, router.RoutedInputs(), []eventrouter.InputEvent{{
 		Source:      "github",
-		Type:        "issue_comment",
+		Type:        "pull_request_comment",
 		Description: "testuser commented on PR #10",
 		Data:        "gritz: please fix the tests",
 		URL:         "https://github.com/owner/repo/pull/10#issuecomment-1000",

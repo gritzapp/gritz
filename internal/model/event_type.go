@@ -31,11 +31,11 @@ type AttrDef struct {
 type EventTypeDef struct {
 	Source string    `json:"source"`
 	Type   string    `json:"type"`
-	Label  string    `json:"label,omitempty"` // human label, e.g. "GitHub: Issue/PR Comment"
+	Label  string    `json:"label,omitempty"` // human label, e.g. "GitHub: PR Comment"
 	Attrs  []AttrDef `json:"attrs,omitempty"` // complete valid attr set, including derived body/url
 	// LinkTypes names the link types an event of this type's URL can name,
-	// e.g. github.issue and github.pr for an issue or PR comment. Empty when
-	// the URL names no linkable resource (a push's head commit).
+	// e.g. github.pr for a PR comment. Empty when the URL names no linkable
+	// resource (a push's head commit).
 	LinkTypes []string `json:"link_types,omitempty"`
 }
 

@@ -162,7 +162,7 @@ func TestTestEventYield(t *testing.T) {
 		Runner:    harness.DefaultRunner,
 		Triggers: []*gritzv1.AgentTrigger{{
 			Source:  "github",
-			Type:    "issue_comment",
+			Type:    "pull_request_comment",
 			YieldTo: []string{"pr-owner"},
 		}},
 	}})
@@ -170,7 +170,7 @@ func TestTestEventYield(t *testing.T) {
 	// Act
 	resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
 		Source: "github",
-		Type:   "issue_comment",
+		Type:   "pull_request_comment",
 		Url:    "https://github.com/o/r/pull/1#issuecomment-9",
 		Fire:   true,
 	})

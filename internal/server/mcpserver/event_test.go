@@ -30,7 +30,7 @@ func TestListEvents(t *testing.T) {
 					CreatedAt: timestamppb.New(created),
 					Payload: &gritzv1.Event_External{External: &gritzv1.ExternalPayload{
 						Source:      "github",
-						Type:        "issue_comment",
+						Type:        "pull_request_comment",
 						Description: "octocat commented on PR #1",
 						Url:         "https://github.com/o/r/pull/1",
 						Data:        "please fix the tests",
@@ -57,7 +57,7 @@ func TestListEvents(t *testing.T) {
 		"id":          float64(5),
 		"task_id":     float64(42),
 		"source":      "github",
-		"type":        "issue_comment",
+		"type":        "pull_request_comment",
 		"description": "octocat commented on PR #1",
 		"url":         "https://github.com/o/r/pull/1",
 		"created_at":  "2026-11-08T12:00:00Z",

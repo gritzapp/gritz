@@ -30,42 +30,42 @@ func TestGetEventTypes(t *testing.T) {
 	// RPC surfaces it.
 	issueComment, ok := byKey["github:issue_comment"]
 	assert.Assert(t, ok, "expected github/issue_comment to be registered")
-	assert.Equal(t, issueComment.Label, "GitHub: Issue/PR Comment")
+	assert.Equal(t, issueComment.Label, "GitHub: Issue Comment")
 	var keys []string
 	for _, a := range issueComment.Attrs {
 		keys = append(keys, a.Key)
 	}
 	assert.DeepEqual(t, keys, []string{"body", "url", "mention", "user"})
-	assert.DeepEqual(t, issueComment.LinkTypes, []string{"github.issue", "github.pr"})
+	assert.DeepEqual(t, issueComment.LinkTypes, []string{"github.issue"})
 
 	// One type asserted whole to prove the AttrDef -> proto conversion carries
 	// every display field (label/placeholder/help), not just the key.
-	labelAdded, ok := byKey["github:label_added"]
-	assert.Assert(t, ok, "expected github/label_added to be registered")
+	labelAdded, ok := byKey["github:pull_request_label_added"]
+	assert.Assert(t, ok, "expected github/pull_request_label_added to be registered")
 	assert.DeepEqual(t, labelAdded.Attrs, []*gritzv1.AttrDef{
 		{
 			Key:         "body",
-			Label:       "Issue/PR Body",
+			Label:       "PR Body",
 			Placeholder: "gritz:",
-			Help:        "Matched against the description of the labeled issue or PR.",
+			Help:        "Matched against the description of the labeled pull request.",
 		},
 		{
 			Key:         "url",
-			Label:       "Issue/PR URL",
-			Placeholder: "https://github.com/owner/repo/",
-			Help:        "Matched against the labeled issue or PR URL, e.g. to scope a rule to a single repo.",
+			Label:       "PR URL",
+			Placeholder: "https://github.com/owner/repo/pull/123",
+			Help:        "Matched against the labeled PR URL, e.g. to scope a rule to a single repo.",
 		},
 		{
 			Key:         "label",
 			Label:       "Label",
 			Placeholder: "gritz",
-			Help:        "The label added to the issue or PR.",
+			Help:        "The label added to the pull request.",
 		},
 		{
 			Key:         "user",
 			Label:       "User",
 			Placeholder: "octocat",
-			Help:        "The GitHub username of the user who added the label (no leading @).",
+			Help:        "The GitHub username of the user who added the label to the pull request (no leading @).",
 		},
 	}, protocmp.Transform())
 

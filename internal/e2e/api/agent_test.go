@@ -40,7 +40,7 @@ func TestCreateAgent(t *testing.T) {
 			},
 			{
 				Source:     "github",
-				Type:       "issue_comment",
+				Type:       "pull_request_comment",
 				Conditions: []*gritzv1.RuleCondition{{Attr: "mention", Op: "equals", Value: "gritz"}},
 				Public:     true,
 				Link:       "owned-pr",
@@ -204,7 +204,7 @@ func TestCreateAgent_Invalid(t *testing.T) {
 				Name:      "a",
 				Workspace: "story",
 				Runner:    "runner-1",
-				Triggers:  []*gritzv1.AgentTrigger{{Source: "github", Type: "issue_comment", Link: "owned-pr"}},
+				Triggers:  []*gritzv1.AgentTrigger{{Source: "github", Type: "pull_request_comment", Link: "owned-pr"}},
 				Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
 			},
 			want: `trigger 1: unknown link kind "owned-pr"`,

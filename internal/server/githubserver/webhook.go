@@ -139,11 +139,13 @@ type GitHubMeta struct {
 	InstallationID int64
 
 	// NodeID is the GraphQL global node ID of this event's reactable target: the
-	// comment for issue_comment and pull_request_review_comment events, the
-	// review summary for pull_request_review events, and the issue/PR for
-	// issue_assigned and pull_request_assigned events. All reactions go through
-	// the GraphQL addReaction mutation, which accepts any reactable node
-	// uniformly, so this single ID is all react needs regardless of event type.
+	// comment for issue_comment, pull_request_comment and
+	// pull_request_review_comment events, the review summary for
+	// pull_request_review events, and the issue/PR for issue_assigned,
+	// pull_request_assigned, issue_label_added and pull_request_label_added
+	// events. All reactions go through the GraphQL addReaction mutation, which
+	// accepts any reactable node uniformly, so this single ID is all react needs
+	// regardless of event type.
 	// It is empty when the event has no reactable target.
 	NodeID string
 }
@@ -153,13 +155,15 @@ type GitHubMeta struct {
 // dispatches on InputEvent.Type.
 const (
 	EventTypeIssueComment             = "issue_comment"
+	EventTypePullRequestComment       = "pull_request_comment"
 	EventTypePullRequestReviewComment = "pull_request_review_comment"
 	EventTypePullRequestReview        = "pull_request_review"
 	EventTypeIssueAssigned            = "issue_assigned"
 	EventTypePullRequestAssigned      = "pull_request_assigned"
 	EventTypePullRequestOpened        = "pull_request_opened"
 	EventTypePullRequestClosed        = "pull_request_closed"
-	EventTypeLabelAdded               = "label_added"
+	EventTypeIssueLabelAdded          = "issue_label_added"
+	EventTypePullRequestLabelAdded    = "pull_request_label_added"
 	EventTypePush                     = "push"
 	EventTypeCheckRunCompleted        = "check_run_completed"
 	// EventTypePullRequestCheckRunCompleted is a completed check run keyed by
@@ -185,13 +189,14 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 		body := strings.TrimSpace(*event.Comment.Body)
 		login := event.Comment.User.GetLogin()
 		number := event.Issue.GetNumber()
-		description := fmt.Sprintf("%s commented on issue #%d", login, number)
+		// GitHub sends comments on a PR's conversation as issue comments too.
+		typ, description := EventTypeIssueComment, fmt.Sprintf("%s commented on issue #%d", login, number)
 		if event.Issue.IsPullRequest() {
-			description = fmt.Sprintf("%s commented on PR #%d", login, number)
+			typ, description = EventTypePullRequestComment, fmt.Sprintf("%s commented on PR #%d", login, number)
 		}
 		return []eventrouter.InputEvent{{
 			Source:      "github",
-			Type:        EventTypeIssueComment,
+			Type:        typ,
 			Description: description,
 			Data:        body,
 			// The expressive trigger URL is the comment itself; the router
@@ -328,7 +333,7 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 			// attr carries the single added label for a label condition to match.
 			return []eventrouter.InputEvent{{
 				Source:      "github",
-				Type:        EventTypeLabelAdded,
+				Type:        EventTypeIssueLabelAdded,
 				Description: fmt.Sprintf("%s labeled issue #%d %q", senderLogin, number, label),
 				Data:        strings.TrimSpace(event.Issue.GetBody()),
 				Attrs:       eventrouter.Attrs{"label": {label}, "user": {senderLogin}},
@@ -401,7 +406,7 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 			// attr carries the single added label for a label condition to match.
 			return []eventrouter.InputEvent{{
 				Source:      "github",
-				Type:        EventTypeLabelAdded,
+				Type:        EventTypePullRequestLabelAdded,
 				Description: fmt.Sprintf("%s labeled PR #%d %q", senderLogin, number, label),
 				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				Attrs:       eventrouter.Attrs{"label": {label}, "user": {senderLogin}},
