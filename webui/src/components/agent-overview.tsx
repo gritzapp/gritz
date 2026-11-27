@@ -65,6 +65,7 @@ export interface LinkKindView {
   type: string
   kind: string
   claim: string
+  description: string
   // public admits the event from people outside the org; without wake the
   // event reaches the task but doesn't start it.
   events: { type: string; conditions: ConditionView[]; public: boolean; wake: boolean }[]
@@ -461,6 +462,9 @@ export function LinkKindItem({
           <span className="truncate">{linkKindLabel(link, linkTypes)}</span>
           {link.claim && <span className="text-muted-foreground">as {link.claim}</span>}
         </div>
+        {link.description && (
+          <div className="text-muted-foreground text-xs">{link.description}</div>
+        )}
         <div className="text-muted-foreground text-xs">
           {linkEventsText(link, eventTypes, linkTypes)}
         </div>

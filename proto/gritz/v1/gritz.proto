@@ -1048,6 +1048,9 @@ message AgentLink {
   repeated AgentLinkEvent events = 4;
   reserved 5;
   reserved "public";
+  // Free text on what the kind is for and when a task should create a link of
+  // it. Shown to the agent's tasks with their link kinds.
+  string description = 6;
 }
 
 // AgentLinkEvent is an event type a link kind delivers.

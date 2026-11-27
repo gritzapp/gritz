@@ -124,6 +124,9 @@ type AgentLink struct {
 	Kind string `json:"kind,omitempty"`
 	// Claim is stamped on every link of this kind.
 	Claim string `json:"claim,omitempty"`
+	// Description is free text on what the kind is for, shown to the agent's
+	// tasks with their link kinds.
+	Description string `json:"description,omitempty"`
 	// Events are the event types a link of this kind delivers, each with
 	// the conditions its events must meet. With none, it delivers nothing.
 	Events []AgentLinkEvent `json:"events,omitempty"`
@@ -183,9 +186,10 @@ func (a *Agent) Proto() *gritzv1.Agent {
 	}
 	for _, l := range a.Links {
 		link := &gritzv1.AgentLink{
-			Type:  l.Type,
-			Kind:  l.Kind,
-			Claim: l.Claim,
+			Type:        l.Type,
+			Kind:        l.Kind,
+			Claim:       l.Claim,
+			Description: l.Description,
 		}
 		for _, e := range l.Events {
 			link.Events = append(link.Events, &gritzv1.AgentLinkEvent{
@@ -229,9 +233,10 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 	}
 	for _, l := range pb.GetLinks() {
 		link := AgentLink{
-			Type:  l.GetType(),
-			Kind:  l.GetKind(),
-			Claim: l.GetClaim(),
+			Type:        l.GetType(),
+			Kind:        l.GetKind(),
+			Claim:       l.GetClaim(),
+			Description: l.GetDescription(),
 		}
 		for _, e := range l.GetEvents() {
 			link.Events = append(link.Events, AgentLinkEvent{

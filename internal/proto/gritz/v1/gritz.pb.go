@@ -7615,7 +7615,10 @@ type AgentLink struct {
 	// The event types a link of this kind delivers, each with the conditions
 	// its events must meet. A link of a kind with none delivers no event; it
 	// still holds its claim.
-	Events        []*AgentLinkEvent `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
+	Events []*AgentLinkEvent `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
+	// Free text on what the kind is for and when a task should create a link of
+	// it. Shown to the agent's tasks with their link kinds.
+	Description   string `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7676,6 +7679,13 @@ func (x *AgentLink) GetEvents() []*AgentLinkEvent {
 		return x.Events
 	}
 	return nil
+}
+
+func (x *AgentLink) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
 }
 
 // AgentLinkEvent is an event type a link kind delivers.
@@ -8687,12 +8697,13 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x06public\x18\x04 \x01(\bR\x06public\x12\x19\n" +
 	"\byield_to\x18\x05 \x03(\tR\ayieldTo\x12\x12\n" +
 	"\x04link\x18\x06 \x01(\tR\x04link\x12\x16\n" +
-	"\x06prompt\x18\a \x01(\tR\x06prompt\"\x89\x01\n" +
+	"\x06prompt\x18\a \x01(\tR\x06prompt\"\xab\x01\n" +
 	"\tAgentLink\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05claim\x18\x03 \x01(\tR\x05claim\x120\n" +
-	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06eventsJ\x04\b\x05\x10\x06R\x06public\"\x89\x01\n" +
+	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06events\x12 \n" +
+	"\vdescription\x18\x06 \x01(\tR\vdescriptionJ\x04\b\x05\x10\x06R\x06public\"\x89\x01\n" +
 	"\x0eAgentLinkEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x127\n" +
 	"\n" +
