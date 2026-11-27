@@ -46,10 +46,8 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 		Title:     req.Title,
 		CreatedAt: time.Now(),
 	}
-	if req.Kind != "" {
-		if err := s.subscribeLink(ctx, task, link, req.Kind); err != nil {
-			return nil, err
-		}
+	if err := s.subscribeLink(ctx, task, link, req.Kind); err != nil {
+		return nil, err
 	}
 	// task_links is the subscription/list projection; the link event is the
 	// timeline source of truth. Upsert the projection and append the event in one
@@ -87,10 +85,11 @@ func (s *Server) CreateLink(ctx context.Context, req *gritzv1.CreateLinkRequest)
 	}, nil
 }
 
-// subscribeLink makes link a subscribed link of kind, a link kind of the
+// subscribeLink makes link a link of kind, which must be a link kind of the
 // task's agent: it stamps the kind and its claim, and replaces the URL with
 // the canonical URL of the kind's link type, rejecting one the type doesn't
-// accept.
+// accept. An empty or unknown kind is rejected with the agent's valid kinds,
+// which is how a caller discovers them.
 func (s *Server) subscribeLink(ctx context.Context, task *model.Task, link *model.Link, kind string) error {
 	agent, err := s.store.GetAgent(ctx, nil, task.OrgID, task.AgentID)
 	if err != nil {
@@ -98,14 +97,18 @@ func (s *Server) subscribeLink(ctx context.Context, task *model.Task, link *mode
 	}
 	entry, ok := agent.Link(kind)
 	if !ok {
+		problem := fmt.Sprintf("unknown link kind %q", kind)
+		if kind == "" {
+			problem = "kind is required"
+		}
 		var kinds []string
 		for _, l := range agent.Links {
 			kinds = append(kinds, strconv.Quote(l.Name()))
 		}
 		if len(kinds) == 0 {
-			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown link kind %q: agent %q has no link kinds", kind, agent.Name))
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s: agent %q has no link kinds, so its tasks cannot create links", problem, agent.Name))
 		}
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unknown link kind %q: agent %q has link kinds %s", kind, agent.Name, strings.Join(kinds, ", ")))
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s: agent %q has link kinds %s", problem, agent.Name, strings.Join(kinds, ", ")))
 	}
 	lt, ok := eventrouter.DefaultSchemaRegistry.LinkType(entry.Type)
 	if !ok {

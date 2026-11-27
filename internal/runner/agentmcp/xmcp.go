@@ -36,7 +36,7 @@ func (s *Server) hasCapability(capability string) bool {
 func (s *Server) AddTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_link",
-		Description: "Associate an external resource (PR, Jira ticket, etc.) with the current task",
+		Description: "Associate an external resource (PR, Jira ticket, etc.) with the current task. kind is required and must be one of your agent's link kinds; an invalid kind fails with the list of valid ones.",
 	}, s.createLink)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -66,7 +66,7 @@ type createLinkInput struct {
 	Relevance string `json:"relevance" jsonschema:"Describe how this link is relevant to the task"`
 	URL       string `json:"url" jsonschema:"URL of the external resource"`
 	Title     string `json:"title,omitempty" jsonschema:"Optional display title for the link"`
-	Kind      string `json:"kind,omitempty" jsonschema:"A link kind of your agent: the link then receives the events the kind lists. Omit for a plain reference link, which receives no events"`
+	Kind      string `json:"kind" jsonschema:"Required. A link kind of your agent: the link receives the events the kind lists"`
 }
 
 func (s *Server) createLink(ctx context.Context, req *mcp.CallToolRequest, input createLinkInput) (*mcp.CallToolResult, any, error) {

@@ -59,7 +59,7 @@ function LinkCard({ link }: { link: TaskLink }) {
 }
 
 // LinkKindMark says how a link is subscribed: its kind, and the claim it holds
-// ("github.pr as owner"). A plain reference link shows nothing.
+// ("github.pr as owner"). A link stored without a kind shows nothing.
 export function LinkKindMark({ kind, claim }: { kind: string; claim: string }) {
   if (kind === '') return null
   return (

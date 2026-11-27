@@ -154,7 +154,7 @@ func (c *Channel) AddTools(server *mcp.Server) {
 			"Muting is per organisation: pass org, as shown in the channel's org " +
 			"attribute. Muting is per " +
 			"bridge session and resets when the session restarts. " +
-			"Distinct from create_link(subscribe=true), which routes external " +
+			"Distinct from create_link, which routes external " +
 			"events INTO a task.",
 	}, c.muteTool)
 

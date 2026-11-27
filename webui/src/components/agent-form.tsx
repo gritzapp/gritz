@@ -422,8 +422,7 @@ export function AgentForm({
               />
               {values.links.length === 0 ? (
                 <EmptyState icon={Link2}>
-                  Nothing. This agent&apos;s tasks can only create plain reference links, which
-                  receive no events.
+                  Nothing. Every link needs a kind, so this agent&apos;s tasks cannot create links.
                 </EmptyState>
               ) : (
                 <div className="space-y-3">

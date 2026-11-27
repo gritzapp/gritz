@@ -73,7 +73,7 @@ The runner injects an `gritz` MCP server into each agent, providing these tools:
 
 - `get_my_task` - Get current task instructions, links, and events
 - `update_my_task` - Update the current task's name
-- `create_link` - Associate external resources (PRs, Jira tickets) with the task; with a `kind` of the task's agent, the link is subscribed to that kind's events
+- `create_link` - Associate external resources (PRs, Jira tickets) with the task; `kind` is required and must be a link kind of the task's agent, whose events the link then receives
 - `report` - Log messages visible in the Web UI
 
 ### Event System
@@ -82,12 +82,12 @@ Tasks can be notified about external events through the event system:
 
 - **Events** represent external triggers (GitHub PR comments, Jira issue updates, etc.)
 - **Triggers** create a task of their agent when an event matches their event type and conditions. Each agent's first matching trigger wins, and agents are evaluated independently. A trigger's `yield_to` lists claims: it creates nothing while an unarchived task holds one of them on the event's resource
-- **Link kinds** are the only links an agent's tasks may subscribe with. A link created with a `kind` receives an event when the event's canonical URL equals the link's URL, the kind lists the event's type, and that entry's conditions hold. A kind that lists no events delivers nothing; a link without a kind is a plain reference
+- **Link kinds** are the only links an agent's tasks may subscribe with. A link created with a `kind` receives an event when the event's canonical URL equals the link's URL, the kind lists the event's type, and that entry's conditions hold. A kind that lists no events delivers nothing. Every link needs a kind: `CreateLink` rejects an empty one, listing the agent's valid kinds
 - Delivery adds the event to the task, and wakes it when the matching event entry has `wake`; without it the task sees the event the next time something else wakes it. A kind's `claim` is stamped on its links and is what triggers yield to. `public` (on a trigger, or on one event entry of a link kind) admits events from actors who aren't org members
 - Events appear in `get_my_task` output and provide additional context to agents
 - GitHub (the GitHub App's webhook, `internal/server/githubserver`) and Jira (`internal/server/atlassianserver`) deliver webhooks to the server, which turns them into events and routes them (`internal/server/eventrouter`); custom events arrive at `/webhook/custom`. There is no poller
 
-Use `create_link` with a `kind` for resources that may need follow-up (PRs awaiting review, issues awaiting response, etc.)
+Use `create_link` with the fitting `kind` for resources that may need follow-up (PRs awaiting review, issues awaiting response, etc.)
 
 ### CLI Subcommands
 

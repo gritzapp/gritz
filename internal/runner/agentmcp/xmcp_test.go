@@ -125,9 +125,9 @@ func TestCreateLink(t *testing.T) {
 			want: &gritzv1.CreateLinkRequest{TaskId: 123, Relevance: "the PR I opened", Url: "https://github.com/acme/repo/pull/1", Kind: "owned-pr"},
 		},
 		{
-			name: "plain reference",
-			args: map[string]any{"relevance": "background", "url": "https://example.com/doc", "title": "Doc"},
-			want: &gritzv1.CreateLinkRequest{TaskId: 123, Relevance: "background", Url: "https://example.com/doc", Title: "Doc"},
+			name: "with a title",
+			args: map[string]any{"relevance": "the issue I opened", "url": "https://github.com/acme/repo/issues/2", "title": "Bug", "kind": "github.issue"},
+			want: &gritzv1.CreateLinkRequest{TaskId: 123, Relevance: "the issue I opened", Url: "https://github.com/acme/repo/issues/2", Title: "Bug", Kind: "github.issue"},
 		},
 	}
 	for _, tt := range tests {

@@ -51,31 +51,6 @@ func TestCreateLink(t *testing.T) {
 	)
 }
 
-func TestCreateLink_Reference(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Link", Draft: true})
-
-	// Act - no kind: a plain reference link.
-	resp, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
-		TaskId: task.ID,
-		Url:    "https://github.com/example/repo/pull/123#issuecomment-9",
-	})
-
-	// Assert - stored as given.
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		resp.Link,
-		&gritzv1.TaskLink{
-			TaskId: task.ID,
-			Url:    "https://github.com/example/repo/pull/123#issuecomment-9",
-		},
-		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.TaskLink{}, "id", "created_at"),
-	)
-}
-
 func TestCreateLink_Invalid(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -89,6 +64,11 @@ func TestCreateLink_Invalid(t *testing.T) {
 			url:  "https://github.com/example/repo/pull/123",
 			kind: "github.issue",
 			err:  `unknown link kind "github.issue": agent "implementer" has link kinds "github.pr", "owned-pr"`,
+		},
+		{
+			name: "empty kind",
+			url:  "https://github.com/example/repo/pull/123",
+			err:  `kind is required: agent "implementer" has link kinds "github.pr", "owned-pr"`,
 		},
 		{
 			name: "url not of the kind's link type",
@@ -128,28 +108,29 @@ func TestCreateLink_Invalid(t *testing.T) {
 	}
 }
 
-func TestCreateLink_ArchivedTask(t *testing.T) {
+func TestCreateLink_AgentWithoutKinds(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
 		kind string
+		err  string
 	}{
-		{name: "plain link"},
-		{name: "link with a kind", kind: "github.pr"},
+		{
+			name: "empty kind",
+			err:  `kind is required: agent "default" has no link kinds, so its tasks cannot create links`,
+		},
+		{
+			name: "unknown kind",
+			kind: "github.pr",
+			err:  `unknown link kind "github.pr": agent "default" has no link kinds, so its tasks cannot create links`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			// Arrange
+			// Arrange - the default agent has no link kinds.
 			h := harness.New(t, nil)
-			agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
-				Name:      "implementer",
-				Workspace: harness.DefaultWorkspace,
-				Runner:    harness.DefaultRunner,
-				Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
-			}})
-			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
-			h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
+			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Draft: true})
 
 			// Act
 			_, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
@@ -159,11 +140,37 @@ func TestCreateLink_ArchivedTask(t *testing.T) {
 			})
 
 			// Assert
-			assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
-			assert.ErrorContains(t, err, fmt.Sprintf("task %d is archived", task.ID))
+			assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+			assert.ErrorContains(t, err, tt.err)
 			assert.Assert(t, cmp.Len(h.Org.ListLinks(&gritzv1.ListLinksRequest{TaskId: task.ID}), 0))
 		})
 	}
+}
+
+func TestCreateLink_ArchivedTask(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+	h.Org.ArchiveTask(&gritzv1.ArchiveTaskRequest{Id: task.ID})
+
+	// Act
+	_, err := h.Org.Client.CreateLink(t.Context(), &gritzv1.CreateLinkRequest{
+		TaskId: task.ID,
+		Url:    "https://github.com/example/repo/pull/123",
+		Kind:   "github.pr",
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.ErrorContains(t, err, fmt.Sprintf("task %d is archived", task.ID))
+	assert.Assert(t, cmp.Len(h.Org.ListLinks(&gritzv1.ListLinksRequest{TaskId: task.ID}), 0))
 }
 
 func TestCreateLink_AppendsLinkEvent(t *testing.T) {
@@ -235,16 +242,24 @@ func TestListLinks(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Links", Draft: true})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task with Links", AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
 		Relevance: "Link 1",
 		Url:       "https://github.com/example/repo/pull/1",
+		Kind:      "github.pr",
 	})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
 		Relevance: "Link 2",
 		Url:       "https://github.com/example/repo/pull/2",
+		Kind:      "github.pr",
 	})
 
 	// Act
@@ -288,11 +303,18 @@ func TestListLinks_Permissions(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	other := h.Server.CreateOrg()
-	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", Draft: true})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr"}},
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "User A's Task", AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{
 		TaskId:    task.ID,
 		Relevance: "User A's Link",
 		Url:       "https://github.com/example/repo/pull/1",
+		Kind:      "github.pr",
 	})
 
 	// Act

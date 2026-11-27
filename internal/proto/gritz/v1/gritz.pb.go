@@ -2483,13 +2483,12 @@ type TaskLink struct {
 	Id        int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	TaskId    int64                  `protobuf:"varint,2,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Relevance string                 `protobuf:"bytes,3,opt,name=relevance,proto3" json:"relevance,omitempty"`
-	// For a link with a kind, the canonical URL of the resource it names.
+	// The canonical URL of the resource the link names.
 	Url       string                 `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
 	Title     string                 `protobuf:"bytes,5,opt,name=title,proto3" json:"title,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// The link kind of the task's agent the link was created with. A link with a
-	// kind is subscribed: it receives the events its kind lists. Empty for a
-	// plain reference link, which receives no events.
+	// The link kind of the task's agent the link was created with. The link
+	// receives the events its kind lists.
 	Kind string `protobuf:"bytes,9,opt,name=kind,proto3" json:"kind,omitempty"`
 	// The claim the link holds on its URL while its task is unarchived, copied
 	// from its kind when it was created. Empty for none.
@@ -2584,11 +2583,12 @@ func (x *TaskLink) GetClaim() string {
 	return ""
 }
 
-// CreateLinkRequest links a task to a resource. With a kind, the link is
-// subscribed: kind must be a link kind of the task's agent and url a resource
-// of the kind's link type, and the link stores the resource's canonical URL.
-// Without one, it is a plain reference that receives no events, stored as
-// given. It fails with `failed_precondition` on an archived task.
+// CreateLinkRequest links a task to a resource. kind is required: it must be
+// a link kind of the task's agent and url a resource of the kind's link type,
+// and the link stores the resource's canonical URL. An empty or unknown kind
+// fails with `invalid_argument` and a message listing the agent's link kinds;
+// a task whose agent has none cannot create links. It fails with
+// `failed_precondition` on an archived task.
 type CreateLinkRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
@@ -3186,7 +3186,7 @@ type LinkPayload struct {
 	Relevance     string                 `protobuf:"bytes,2,opt,name=relevance,proto3" json:"relevance,omitempty"`
 	Url           string                 `protobuf:"bytes,3,opt,name=url,proto3" json:"url,omitempty"`
 	Title         string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
-	Kind          string                 `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`   // The link's kind; empty for a plain reference link.
+	Kind          string                 `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`   // The link's kind.
 	Claim         string                 `protobuf:"bytes,7,opt,name=claim,proto3" json:"claim,omitempty"` // The link's claim; empty for none.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

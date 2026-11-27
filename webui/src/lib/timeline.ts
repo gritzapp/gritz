@@ -78,7 +78,7 @@ export type TimelineItem =
       // inferred from the URL via sourceFromUrl.
       source: string
       relevance?: string
-      // The link's kind and claim; empty for a plain reference link.
+      // The link's kind and claim; empty for a link stored without a kind.
       linkKind: string
       claim: string
     }
