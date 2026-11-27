@@ -81,7 +81,7 @@ func (h *handlers) getSchedule(ctx context.Context, req *mcp.CallToolRequest, in
 
 type createScheduleInput struct {
 	Name        string `json:"name,omitempty" jsonschema:"The name of every task the schedule creates"`
-	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent its tasks belong to"`
+	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent its tasks belong to (see list_agents). Each task takes the agent's workspace, runner, auto-archive delay and variables."`
 	Instruction string `json:"instruction" jsonschema:"The instruction every task it creates starts with"`
 	CronExpr    string `json:"cron_expr" jsonschema:"When to create a task: a five-field cron expression (minute, hour, day of month, month, day of week) or @yearly, @monthly, @weekly, @daily, @hourly"`
 	Timezone    string `json:"timezone,omitempty" jsonschema:"The IANA timezone the cron expression is read in, such as \"Europe/Paris\" (default \"UTC\")"`

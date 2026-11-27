@@ -121,7 +121,7 @@ func (h *handlers) listWorkspaces(ctx context.Context, req *mcp.CallToolRequest,
 
 type createTaskInput struct {
 	Name        string `json:"name,omitempty" jsonschema:"A short name for the task"`
-	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent the task belongs to. The task runs in the agent's workspace and runner, with its auto-archive delay and variables."`
+	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent the task belongs to (see list_agents). The task runs in the agent's workspace and runner, with its auto-archive delay and variables."`
 	Instruction string `json:"instruction,omitempty" jsonschema:"The instruction text for the task. Required unless draft is set."`
 	Draft       bool   `json:"draft,omitempty" jsonschema:"Create the task as a draft, which doesn't run until update_task starts it"`
 }

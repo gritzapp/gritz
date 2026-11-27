@@ -57,6 +57,7 @@ func AddTools(server *mcp.Server, service ServiceFunc) {
 	h.addTaskTools(server)
 	h.addEventTools(server)
 	h.addScheduleTools(server)
+	h.addAgentTools(server)
 	h.addOrgTools(server)
 }
 
