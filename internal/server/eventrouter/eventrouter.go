@@ -509,10 +509,11 @@ func (r *Router) create(ctx context.Context, input InputEvent, match TriggerMatc
 		// The agent's prompt, then the trigger's, as separate instructions.
 		// With neither, the task starts from the triggering event alone.
 		var prompts []string
-		for _, p := range []string{agent.Prompt, trigger.Prompt} {
-			if p != "" {
-				prompts = append(prompts, p)
-			}
+		if agent.Prompt != "" {
+			prompts = append(prompts, agent.Prompt)
+		}
+		if trigger.Prompt != "" {
+			prompts = append(prompts, trigger.Prompt)
 		}
 		// Hold the agent so a concurrent DeleteAgent sees this task; one
 		// deleted since the plan creates nothing.
