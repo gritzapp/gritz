@@ -7102,6 +7102,7 @@ type TestEventDelivery struct {
 	TaskId        int64                  `protobuf:"varint,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
 	Kind          string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`                       // The link kind that matched.
 	EventId       int64                  `protobuf:"varint,3,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"` // The event added to the task; set only when fired.
+	Wake          bool                   `protobuf:"varint,4,opt,name=wake,proto3" json:"wake,omitempty"`                      // Whether the delivery starts the task.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7155,6 +7156,13 @@ func (x *TestEventDelivery) GetEventId() int64 {
 		return x.EventId
 	}
 	return 0
+}
+
+func (x *TestEventDelivery) GetWake() bool {
+	if x != nil {
+		return x.Wake
+	}
+	return false
 }
 
 type CreateGitHubTokenRequest struct {
@@ -7679,7 +7687,10 @@ type AgentLinkEvent struct {
 	Conditions []*RuleCondition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"` // All must hold.
 	// Whether it also delivers events of this type from people who aren't
 	// members of the org.
-	Public        bool `protobuf:"varint,3,opt,name=public,proto3" json:"public,omitempty"`
+	Public bool `protobuf:"varint,3,opt,name=public,proto3" json:"public,omitempty"`
+	// Whether delivering an event of this type starts the task. Without it, the
+	// event is added to the task and the task is left as it is.
+	Wake          bool `protobuf:"varint,4,opt,name=wake,proto3" json:"wake,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7731,6 +7742,13 @@ func (x *AgentLinkEvent) GetConditions() []*RuleCondition {
 func (x *AgentLinkEvent) GetPublic() bool {
 	if x != nil {
 		return x.Public
+	}
+	return false
+}
+
+func (x *AgentLinkEvent) GetWake() bool {
+	if x != nil {
+		return x.Wake
 	}
 	return false
 }
@@ -8622,11 +8640,12 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x10created_event_id\x18\x05 \x01(\x03R\x0ecreatedEventId\x12;\n" +
 	"\n" +
 	"deliveries\x18\x06 \x03(\v2\x1b.gritz.v1.TestEventDeliveryR\n" +
-	"deliveries\"[\n" +
+	"deliveries\"o\n" +
 	"\x11TestEventDelivery\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x19\n" +
-	"\bevent_id\x18\x03 \x01(\x03R\aeventId\"\x1a\n" +
+	"\bevent_id\x18\x03 \x01(\x03R\aeventId\x12\x12\n" +
+	"\x04wake\x18\x04 \x01(\bR\x04wake\"\x1a\n" +
 	"\x18CreateGitHubTokenRequest\"l\n" +
 	"\x19CreateGitHubTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x129\n" +
@@ -8673,13 +8692,14 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05claim\x18\x03 \x01(\tR\x05claim\x120\n" +
-	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06eventsJ\x04\b\x05\x10\x06R\x06public\"u\n" +
+	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06eventsJ\x04\b\x05\x10\x06R\x06public\"\x89\x01\n" +
 	"\x0eAgentLinkEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x127\n" +
 	"\n" +
 	"conditions\x18\x02 \x03(\v2\x17.gritz.v1.RuleConditionR\n" +
 	"conditions\x12\x16\n" +
-	"\x06public\x18\x03 \x01(\bR\x06public\";\n" +
+	"\x06public\x18\x03 \x01(\bR\x06public\x12\x12\n" +
+	"\x04wake\x18\x04 \x01(\bR\x04wake\";\n" +
 	"\x12CreateAgentRequest\x12%\n" +
 	"\x05agent\x18\x01 \x01(\v2\x0f.gritz.v1.AgentR\x05agent\"<\n" +
 	"\x13CreateAgentResponse\x12%\n" +

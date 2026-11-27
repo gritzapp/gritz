@@ -31,7 +31,7 @@ func (s *Server) react(ctx context.Context, outcome eventrouter.RouteOutcome) er
 	switch {
 	case outcome.Created():
 		content = githubv4.ReactionContentRocket
-	case outcome.Delivered():
+	case outcome.Woke():
 		content = githubv4.ReactionContentEyes
 	default:
 		return nil

@@ -62,9 +62,17 @@ func TestRouteDeliversByKind(t *testing.T) {
 		agentLink model.AgentLink
 		taskLink  teststore.LinkOptions
 		delivered bool
+		woken     bool
 	}{
 		{
 			name:      "kind lists the event type",
+			agentLink: model.AgentLink{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Wake: true}}},
+			taskLink:  teststore.LinkOptions{URL: url, Kind: "github.pr"},
+			delivered: true,
+			woken:     true,
+		},
+		{
+			name:      "kind lists the event type without wake",
 			agentLink: model.AgentLink{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}},
 			taskLink:  teststore.LinkOptions{URL: url, Kind: "github.pr"},
 			delivered: true,
@@ -74,9 +82,11 @@ func TestRouteDeliversByKind(t *testing.T) {
 			agentLink: model.AgentLink{Type: "github.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{
 				Type:       "issue_comment",
 				Conditions: []model.Condition{{Attr: "body", Op: "contains", Value: "good"}},
+				Wake:       true,
 			}}},
 			taskLink:  teststore.LinkOptions{URL: url, Kind: "owned-pr"},
 			delivered: true,
+			woken:     true,
 		},
 		{
 			name: "kind's conditions on the event type don't hold",
@@ -139,11 +149,19 @@ func TestRouteDeliversByKind(t *testing.T) {
 			assert.NilError(t, err)
 			got, err := s.GetTask(t.Context(), nil, task.ID, org.OrgID)
 			assert.NilError(t, err)
+			events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, []string{model.EventTypeExternal})
+			assert.NilError(t, err)
 			if tt.delivered {
 				assert.Equal(t, n, 1)
-				assert.Equal(t, got.Status, model.TaskStatusPending)
+				assert.Assert(t, cmp.Len(events, 1))
+				assert.Equal(t, events[0].Wake, tt.woken)
 			} else {
 				assert.Equal(t, n, 0)
+				assert.Assert(t, cmp.Len(events, 0))
+			}
+			if tt.woken {
+				assert.Equal(t, got.Status, model.TaskStatusPending)
+			} else {
 				assert.Equal(t, got.Status, model.TaskStatusCompleted)
 			}
 		})
@@ -157,8 +175,8 @@ func TestRouteDeliversOncePerTask(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	const url = "https://github.com/o/r/pull/1"
 	agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{
-		{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed"}}},
-		{Type: "github.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed"}}},
+		{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed", Wake: true}}},
+		{Type: "github.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed", Wake: true}}},
 	}})
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 		AgentID: agent.ID,
@@ -236,11 +254,13 @@ func TestRouteDeliveryWakeMessage(t *testing.T) {
 	tests := []struct {
 		name    string
 		status  model.TaskStatus
+		wake    bool
 		message string
 	}{
 		{
 			name:    "finished task",
 			status:  model.TaskStatusCompleted,
+			wake:    true,
 			message: "woken by event",
 		},
 		{
@@ -248,6 +268,13 @@ func TestRouteDeliveryWakeMessage(t *testing.T) {
 			// agent channel stays silent for a task that is already running.
 			name:   "running task",
 			status: model.TaskStatusRunning,
+			wake:   true,
+		},
+		{
+			// An event that doesn't wake leaves the finished task as it is,
+			// and the agent channel silent.
+			name:   "finished task, event without wake",
+			status: model.TaskStatusCompleted,
 		},
 	}
 	for _, tt := range tests {
@@ -257,7 +284,7 @@ func TestRouteDeliveryWakeMessage(t *testing.T) {
 			s := teststore.New(t)
 			org := teststore.CreateOrg(t, s, nil)
 			const url = "https://github.com/o/r/pull/1"
-			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}}}})
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Wake: tt.wake}}}}})
 			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: agent.ID,
 				Status:  tt.status,
@@ -646,7 +673,7 @@ func TestRouteTriggerAndDeliveryAreIndependent(t *testing.T) {
 	const url = "https://github.com/o/r/pull/1"
 	watcher := teststore.CreateAgent(t, s, org, &model.Agent{
 		Name:  "watcher",
-		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	})
 	watching := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 		AgentID: watcher.ID,
@@ -672,9 +699,9 @@ func TestRouteTriggerAndDeliveryAreIndependent(t *testing.T) {
 	// Assert
 	assert.Assert(t, cmp.Len(outcomes, 1))
 	assert.DeepEqual(t, outcomes[0].Deliveries, []eventrouter.Delivery{
-		{OrgID: org.OrgID, AgentID: watcher.ID, TaskID: watching.ID, Kind: "github.pr"},
+		{OrgID: org.OrgID, AgentID: watcher.ID, TaskID: watching.ID, Kind: "github.pr", Wake: true},
 	}, cmpopts.IgnoreFields(eventrouter.Delivery{}, "EventID"))
-	assert.Assert(t, outcomes[0].Delivered())
+	assert.Assert(t, outcomes[0].Woke())
 	assert.Assert(t, cmp.Len(outcomes[0].Triggers, 1))
 	assert.Equal(t, outcomes[0].Triggers[0].Agent.ID, responder.ID)
 	assert.Assert(t, outcomes[0].Created())
@@ -836,20 +863,29 @@ func TestRouteCustomEventDelivery(t *testing.T) {
 func TestRouteOnRouteOutcome(t *testing.T) {
 	t.Parallel()
 	// Arrange - in one org a trigger creates a task; in another the event is
-	// delivered; a third org has an agent the event does nothing for.
+	// delivered, waking the task; in a third it is delivered without waking;
+	// a fourth org has an agent the event does nothing for.
 	s := teststore.New(t)
 	creating := teststore.CreateOrg(t, s, nil)
 	delivering := teststore.CreateOrg(t, s, nil)
+	quiet := teststore.CreateOrg(t, s, nil)
 	idle := teststore.CreateOrg(t, s, nil)
 	const url = "https://github.com/o/r/pull/1"
 	teststore.CreateAgent(t, s, creating, &model.Agent{
 		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Public: true}},
 	})
 	agent := teststore.CreateAgent(t, s, delivering, &model.Agent{
-		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Public: true}}}},
+		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Public: true, Wake: true}}}},
 	})
 	teststore.CreateTask(t, s, delivering, &teststore.TaskOptions{
 		AgentID: agent.ID,
+		Links:   []teststore.LinkOptions{{URL: url, Kind: "github.pr"}},
+	})
+	quietAgent := teststore.CreateAgent(t, s, quiet, &model.Agent{
+		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Public: true}}}},
+	})
+	teststore.CreateTask(t, s, quiet, &teststore.TaskOptions{
+		AgentID: quietAgent.ID,
 		Links:   []teststore.LinkOptions{{URL: url, Kind: "github.pr"}},
 	})
 	teststore.CreateAgent(t, s, idle, &model.Agent{
@@ -870,21 +906,23 @@ func TestRouteOnRouteOutcome(t *testing.T) {
 		Source: "github",
 		Type:   "issue_comment",
 		URL:    url,
-		Orgs:   []int64{creating.OrgID, delivering.OrgID, idle.OrgID},
+		Orgs:   []int64{creating.OrgID, delivering.OrgID, quiet.OrgID, idle.OrgID},
 		Meta:   "meta",
 	})
 
 	// Assert - one outcome per org the event did something in, with its Meta.
 	assert.NilError(t, err)
-	assert.Equal(t, n, 2)
-	assert.Assert(t, cmp.Len(got, 2))
+	assert.Equal(t, n, 3)
+	assert.Assert(t, cmp.Len(got, 3))
 	byOrg := map[int64]eventrouter.RouteOutcome{}
 	for _, o := range got {
 		assert.Equal(t, o.Input.Meta, "meta")
 		byOrg[o.OrgID] = o
 	}
 	assert.Assert(t, byOrg[creating.OrgID].Created())
-	assert.Assert(t, !byOrg[creating.OrgID].Delivered())
-	assert.Assert(t, byOrg[delivering.OrgID].Delivered())
+	assert.Assert(t, !byOrg[creating.OrgID].Woke())
+	assert.Assert(t, byOrg[delivering.OrgID].Woke())
 	assert.Assert(t, !byOrg[delivering.OrgID].Created())
+	assert.Assert(t, cmp.Len(byOrg[quiet.OrgID].Deliveries, 1))
+	assert.Assert(t, !byOrg[quiet.OrgID].Woke())
 }

@@ -26,7 +26,7 @@ func TestTestEvent(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: watcher.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -68,7 +68,7 @@ func TestTestEvent(t *testing.T) {
 				{
 					AgentId:      watcher.Id,
 					TriggerIndex: -1,
-					Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: task.ID, Kind: "github.issue"}},
+					Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: task.ID, Kind: "github.issue", Wake: true}},
 				},
 			},
 		},
@@ -290,7 +290,7 @@ func TestTestEventFireWakesThroughTriggerLink(t *testing.T) {
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		Triggers:  []*gritzv1.AgentTrigger{{Source: "github", Type: "pull_request_opened", Link: "github.pr"}},
-		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_review"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_review", Wake: true}}}},
 	}})
 	created := h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source: "github",
@@ -335,7 +335,7 @@ func TestTestEventFireWakesThroughTriggerLink(t *testing.T) {
 			Agents: []*gritzv1.TestEventAgent{{
 				AgentId:      agent.Id,
 				TriggerIndex: -1,
-				Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: taskID, Kind: "github.pr"}},
+				Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: taskID, Kind: "github.pr", Wake: true}},
 			}},
 		},
 		protocmp.Transform(),

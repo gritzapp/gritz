@@ -131,11 +131,13 @@ type AgentLink struct {
 
 // AgentLinkEvent is an event type a link kind delivers, and the conditions,
 // all of which must hold, its events must meet. Public allows delivery of its
-// events from actors who aren't org members.
+// events from actors who aren't org members. Wake starts the task on delivery;
+// without it, the event is only added to the task.
 type AgentLinkEvent struct {
 	Type       string      `json:"type"`
 	Conditions []Condition `json:"conditions,omitempty"`
 	Public     bool        `json:"public,omitempty"`
+	Wake       bool        `json:"wake,omitempty"`
 }
 
 // Event returns the entry whose type is typ, and false if l lists none.
@@ -190,6 +192,7 @@ func (a *Agent) Proto() *gritzv1.Agent {
 				Type:       e.Type,
 				Conditions: ProtoMap(e.Conditions),
 				Public:     e.Public,
+				Wake:       e.Wake,
 			})
 		}
 		pb.Links = append(pb.Links, link)
@@ -235,6 +238,7 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 				Type:       e.GetType(),
 				Conditions: conditionsFromProto(e.GetConditions()),
 				Public:     e.GetPublic(),
+				Wake:       e.GetWake(),
 			})
 		}
 		a.Links = append(a.Links, link)
