@@ -21,7 +21,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { VariableFields } from '@/components/variable-fields'
 import { Badge } from '@/components/ui/badge'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { FieldLabel, SaveBar, SectionHeading } from '@/components/form-layout'
 import { externalSourceStyle } from '@/components/external-source'
 import { DeleteAgentAction } from '@/components/delete-agent-action'
 import { useOrgId } from '@/hooks/use-org-id'
@@ -34,9 +34,7 @@ import {
   ChevronRight,
   FlaskConical,
   Globe,
-  Info,
   Link2,
-  Loader2,
   Plus,
   Shield,
   Trash2,
@@ -425,87 +423,16 @@ export function AgentForm({
           </div>
         </div>
 
-        <div className="shrink-0 border-t bg-background">
-          <div className="mx-auto flex max-w-3xl items-center gap-2 px-6 py-3">
-            <span
-              className={cn(
-                'min-w-0 flex-1 truncate text-sm',
-                error ? 'text-destructive' : 'text-muted-foreground',
-              )}
-            >
-              {error ?? formError ?? (dirty ? 'Unsaved changes' : 'No changes')}
-            </span>
-            <Button type="button" variant="ghost" disabled={!dirty} onClick={discard}>
-              Discard
-            </Button>
-            <Button type="submit" disabled={isSubmitting || formError !== null || !dirty}>
-              {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {submitLabel}
-            </Button>
-          </div>
-        </div>
+        <SaveBar
+          error={error}
+          invalid={formError}
+          dirty={dirty}
+          isSubmitting={isSubmitting}
+          submitLabel={submitLabel}
+          onDiscard={discard}
+        />
       </div>
     </form>
-  )
-}
-
-function SectionHeading({
-  title,
-  description,
-  hint,
-  action,
-}: {
-  title: string
-  description: string
-  hint?: string
-  action?: React.ReactNode
-}) {
-  return (
-    <div className="flex items-end justify-between gap-4 border-b pb-3">
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5">
-          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-          {hint && <Hint>{hint}</Hint>}
-        </div>
-        <p className="text-muted-foreground text-sm">{description}</p>
-      </div>
-      {action}
-    </div>
-  )
-}
-
-// Hint tucks a field's longer explanation behind an info icon.
-function Hint({ children }: { children: React.ReactNode }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label="Help"
-          className="text-muted-foreground/70 transition-colors hover:text-foreground"
-        >
-          <Info className="h-3.5 w-3.5" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs">{children}</TooltipContent>
-    </Tooltip>
-  )
-}
-
-function FieldLabel({
-  htmlFor,
-  hint,
-  children,
-}: {
-  htmlFor?: string
-  hint?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Label htmlFor={htmlFor}>{children}</Label>
-      {hint && <Hint>{hint}</Hint>}
-    </div>
   )
 }
 

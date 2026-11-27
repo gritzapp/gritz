@@ -88,10 +88,22 @@ export function isValidCustomName(name: string): boolean {
   return NAME_RE.test(name.trim())
 }
 
-export function isCustomEventTypeFormValid(values: CustomEventTypeFormValues): boolean {
-  if (!isValidCustomName(values.type) || values.label.trim() === '') return false
+// customEventTypeFormError returns why the draft can't be saved, or null. The
+// server validates the type fully; this catches bad names and duplicate keys
+// before sending.
+export function customEventTypeFormError(values: CustomEventTypeFormValues): string | null {
+  if (!values.type.trim()) return 'Give the type a name.'
+  if (!isValidCustomName(values.type)) {
+    return 'The type must start with a letter and use lowercase letters, digits and underscores.'
+  }
+  if (!values.label.trim()) return 'Give the type a label.'
   const keys = values.attrs.map((a) => a.key.trim())
-  return keys.every(isValidCustomName) && new Set(keys).size === keys.length
+  if (keys.some((k) => !k)) return 'Every attribute needs a key.'
+  const bad = keys.find((k) => !isValidCustomName(k))
+  if (bad) return `Attribute key "${bad}" must use lowercase letters, digits and underscores.`
+  const dup = keys.find((k, i) => keys.indexOf(k) !== i)
+  if (dup) return `Attribute "${dup}" is defined twice.`
+  return null
 }
 
 // Returns a draft 2020-12 JSON Schema for the envelope /webhook/custom

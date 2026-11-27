@@ -1,8 +1,7 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@connectrpc/connect-query'
 import { getCustomEventTypes } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import { Card, CardContent } from '@/components/ui/card'
 import { useOrgId } from '@/hooks/use-org-id'
 import { CustomEventTypeForm } from '@/components/custom-event-type-form'
 import {
@@ -22,6 +21,8 @@ function EditCustomEventTypePage() {
   const orgId = useOrgId()
   const { data, isLoading } = useQuery(getCustomEventTypes, {})
   const mutation = useSetCustomEventTypes()
+  // Bumped after each save, so the form is reseeded from the saved type.
+  const [revision, setRevision] = useState(0)
 
   const eventTypes = data?.eventTypes ?? []
   const eventType = eventTypes.find((t) => t.type === type)
@@ -37,7 +38,7 @@ function EditCustomEventTypePage() {
       existing.type === type ? buildEventTypeDef(values) : existing,
     )
     await mutation.mutateAsync({ eventTypes: updated })
-    navigate({ to: '/events', search: { tab: 'schemas', org: orgId } })
+    setRevision((r) => r + 1)
   }
 
   const initialValues = useMemo(
@@ -45,31 +46,23 @@ function EditCustomEventTypePage() {
     [eventType],
   )
 
-  const handleCancel = () => {
-    navigate({ to: '/events', search: { tab: 'schemas', org: orgId } })
+  if (!initialValues) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-muted-foreground">Loading custom event type...</div>
+      </div>
+    )
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-6">
-      <h1 className="text-2xl font-bold mb-6">Edit Custom Event Type</h1>
-
-      <Card>
-        <CardContent>
-          {isLoading || !initialValues ? (
-            <div className="text-muted-foreground">Loading...</div>
-          ) : (
-            <CustomEventTypeForm
-              initialValues={initialValues}
-              typeReadOnly
-              submitLabel={mutation.isPending ? 'Saving...' : 'Save Changes'}
-              isSubmitting={mutation.isPending}
-              error={mutation.error?.message ?? null}
-              onSubmit={handleSubmit}
-              onCancel={handleCancel}
-            />
-          )}
-        </CardContent>
-      </Card>
-    </div>
+    <CustomEventTypeForm
+      key={`${type}-${revision}`}
+      initialValues={initialValues}
+      typeReadOnly
+      submitLabel={mutation.isPending ? 'Saving...' : 'Save changes'}
+      isSubmitting={mutation.isPending}
+      error={mutation.error?.message ?? null}
+      onSubmit={handleSubmit}
+    />
   )
 }
