@@ -368,3 +368,86 @@ func TestListTasksPage_DefaultTokenWireCompatible(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, !strings.Contains(string(raw), `"a"`), "default token must not carry the archived field: %s", raw)
 }
+
+func TestListTasksPage_AgentFilter(t *testing.T) {
+	t.Parallel()
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	agentA := teststore.CreateAgent(t, s, org, nil)
+	agentB := teststore.CreateAgent(t, s, org, nil)
+
+	// Interleave the two agents' tasks; keyset order is newest-created first.
+	var wantA []int64
+	for i := range 4 {
+		task := &model.Task{
+			Runner:    "r",
+			Workspace: "w",
+			Status:    model.TaskStatusCompleted,
+			OrgID:     org.OrgID,
+			AgentID:   agentA.ID,
+		}
+		if i%2 == 1 {
+			task.AgentID = agentB.ID
+		}
+		assert.NilError(t, s.CreateTask(t.Context(), nil, task))
+		if task.AgentID == agentA.ID {
+			wantA = append([]int64{task.ID}, wantA...)
+		}
+	}
+
+	// Page through agent A's tasks one at a time.
+	var got []int64
+	token := ""
+	for {
+		page, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{
+			OrgID:     org.OrgID,
+			PageSize:  1,
+			PageToken: token,
+			AgentID:   agentA.ID,
+		})
+		assert.NilError(t, err)
+		got = append(got, testx.ExtractField(page.Items, "ID").([]int64)...)
+		if page.NextToken == "" {
+			break
+		}
+		token = page.NextToken
+	}
+	assert.DeepEqual(t, got, wantA)
+
+	all, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{OrgID: org.OrgID})
+	assert.NilError(t, err)
+	assert.Equal(t, len(all.Items), 4)
+}
+
+func TestListTasksPage_TokenBindsAgentFilter(t *testing.T) {
+	t.Parallel()
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	orgAgent := teststore.CreateAgent(t, s, org, nil)
+
+	for range 2 {
+		assert.NilError(t, s.CreateTask(t.Context(), nil, &model.Task{
+			Runner:    "r",
+			Workspace: "w",
+			Status:    model.TaskStatusCompleted,
+			OrgID:     org.OrgID,
+			AgentID:   orgAgent.ID,
+		}))
+	}
+
+	agentPage, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{
+		OrgID:    org.OrgID,
+		PageSize: 1,
+		AgentID:  orgAgent.ID,
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, agentPage.NextToken != "")
+
+	// Replaying an agent-minted token for every agent is rejected.
+	_, err = s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{
+		OrgID:     org.OrgID,
+		PageSize:  1,
+		PageToken: agentPage.NextToken,
+	})
+	assert.Assert(t, cmp.ErrorIs(err, pagination.ErrInvalidRequest))
+}
