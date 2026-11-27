@@ -375,16 +375,13 @@ func (o *Org) ListLogChunksByTask(req *gritzv1.ListLogChunksByTaskRequest) []*gr
 	return resp.Chunks
 }
 
-// CreateSchedule creates a schedule, as the schedules page does. It fills the
-// harness defaults where req leaves them unset: the org's DefaultAgent, and
-// its e2e runner and workspace.
+// CreateSchedule creates a schedule, as the schedules page does. It names the
+// org's DefaultAgent where req names no agent.
 func (o *Org) CreateSchedule(req *gritzv1.CreateScheduleRequest) *gritzv1.Schedule {
 	t := o.server.t
 	t.Helper()
 	req = proto.CloneOf(req)
 	req.AgentId = cmp.Or(req.AgentId, o.DefaultAgent.GetId())
-	req.Runner = cmp.Or(req.Runner, DefaultRunner)
-	req.Workspace = cmp.Or(req.Workspace, DefaultWorkspace)
 	resp, err := o.Client.CreateSchedule(t.Context(), req)
 	if err != nil {
 		t.Fatalf("CreateSchedule: %v", err)

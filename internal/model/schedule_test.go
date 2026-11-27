@@ -99,26 +99,33 @@ func TestScheduleNext_Invalid(t *testing.T) {
 }
 
 // TestScheduleTaskAndEvents pins the schedule -> task/events mapping a fire
-// materializes: a pending/start task carrying the template fields, then a
-// created-by-ScheduleActor event followed by one wake instruction event per
-// template instruction, in that order.
+// materializes: a pending/start task carrying the agent's template and the
+// schedule's name, then a created-by-ScheduleActor event followed by one wake
+// instruction event per schedule instruction, in that order.
 func TestScheduleTaskAndEvents(t *testing.T) {
 	t.Parallel()
 
 	sched := &model.Schedule{
-		OrgID:       7,
-		Name:        "nightly",
-		Runner:      "r",
-		Workspace:   "w",
-		AgentID:     3,
-		AutoArchive: time.Hour,
+		OrgID:   7,
+		Name:    "nightly",
+		AgentID: 3,
 		Instructions: []model.ScheduleInstruction{
 			{Text: "bump deps", URL: "https://example.com/deps"},
 			{Text: "groom changelog"},
 		},
 	}
+	agent := &model.Agent{
+		ID:          3,
+		OrgID:       7,
+		Name:        "deps",
+		Runner:      "r",
+		Workspace:   "w",
+		Prompt:      "not a schedule's instruction",
+		AutoArchive: time.Hour,
+		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+	}
 
-	task := sched.Task()
+	task := sched.Task(agent)
 	assert.DeepEqual(t, task, &model.Task{
 		Name:        "nightly",
 		Runner:      "r",
@@ -129,6 +136,7 @@ func TestScheduleTaskAndEvents(t *testing.T) {
 		Version:     1,
 		OrgID:       7,
 		AutoArchive: time.Hour,
+		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 
 	// Events reference the inserted task; simulate the id the store would assign.

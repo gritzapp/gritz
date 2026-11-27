@@ -10,7 +10,6 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store"
-	"github.com/gritzapp/gritz/internal/taskvar"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 )
@@ -22,8 +21,9 @@ func passthroughTx(_ context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) erro
 }
 
 // TestScheduler_Tick_FiresDueSchedule is the happy path: a due schedule claimed
-// in the tick creates one task (a created event attributed to ScheduleActor, then
-// one instruction event per template instruction), advances next_run_at to the
+// in the tick creates one task of its agent (a created event attributed to
+// ScheduleActor, then one instruction event per schedule instruction), advances
+// next_run_at to the
 // first occurrence after now (skip-only), and the change notification is published
 // after the transaction.
 func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
@@ -35,12 +35,10 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 	// rather than to the occurrence after the stored time.
 	stale := before.Add(-72 * time.Hour)
 	sched := &model.Schedule{
-		ID:        1,
-		OrgID:     7,
-		AgentID:   3,
-		Name:      "nightly",
-		Workspace: "w",
-		Runner:    "r",
+		ID:      1,
+		OrgID:   7,
+		AgentID: 3,
+		Name:    "nightly",
 		Instructions: []model.ScheduleInstruction{
 			{Text: "bump deps", URL: "https://example.com/deps"},
 			{Text: "groom changelog"},
@@ -49,7 +47,16 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 		Timezone:  "UTC",
 		Enabled:   true,
 		NextRunAt: &stale,
-		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+	}
+	agent := &model.Agent{
+		ID:          3,
+		OrgID:       7,
+		Name:        "deps",
+		Workspace:   "w",
+		Runner:      "r",
+		Prompt:      "not a schedule's instruction",
+		AutoArchive: time.Hour,
+		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	st := &StoreMock{
 		WithTxFunc: passthroughTx,
@@ -57,6 +64,9 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 			return []*model.Schedule{sched}, nil
 		},
 		LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
+		GetAgentFunc: func(_ context.Context, _ *sql.Tx, orgID, id int64) (*model.Agent, error) {
+			return agent, nil
+		},
 		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, task *model.Task) error {
 			task.ID = 42 // the store assigns the id the events and advance then reference
 			return nil
@@ -71,25 +81,37 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 	sc := New(Options{Store: st, Publisher: pub})
 	assert.NilError(t, sc.Tick(ctx))
 
-	// Exactly one pending/start task carrying the template.
+	// The agent is share-locked and read in the schedule's org.
+	lockCalls := st.LockLiveAgentCalls()
+	assert.Assert(t, cmp.Len(lockCalls, 1))
+	assert.Equal(t, lockCalls[0].OrgID, int64(7))
+	assert.Equal(t, lockCalls[0].ID, int64(3))
+	agentCalls := st.GetAgentCalls()
+	assert.Assert(t, cmp.Len(agentCalls, 1))
+	assert.Equal(t, agentCalls[0].OrgID, int64(7))
+	assert.Equal(t, agentCalls[0].ID, int64(3))
+
+	// Exactly one pending/start task of the agent, with its template and the
+	// schedule's name.
 	taskCalls := st.CreateTaskCalls()
 	assert.Assert(t, cmp.Len(taskCalls, 1))
 	assert.DeepEqual(t, taskCalls[0].Task, &model.Task{
-		ID:        42,
-		Name:      "nightly",
-		Runner:    "r",
-		Workspace: "w",
-		Status:    model.TaskStatusPending,
-		Command:   model.TaskCommandStart,
-		Version:   1,
-		OrgID:     7,
-		AgentID:   3,
-		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+		ID:          42,
+		Name:        "nightly",
+		Runner:      "r",
+		Workspace:   "w",
+		Status:      model.TaskStatusPending,
+		Command:     model.TaskCommandStart,
+		Version:     1,
+		OrgID:       7,
+		AgentID:     3,
+		AutoArchive: time.Hour,
+		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
 	})
 
 	// The created event first (ScheduleActor) and the start command, then one
-	// wake instruction event per template instruction, all against the assigned
-	// task id.
+	// wake instruction event per schedule instruction — not the agent's prompt —
+	// all against the assigned task id.
 	assert.DeepEqual(t, eventPayloads(st.CreateEventCalls()), []*model.Event{
 		{
 			TaskID: 42,
@@ -159,9 +181,8 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 	sched := &model.Schedule{
 		ID:        5,
 		OrgID:     7,
+		AgentID:   3,
 		Name:      "nightly",
-		Workspace: "w",
-		Runner:    "r",
 		CronExpr:  "0 9 * * *",
 		Timezone:  "Nowhere/Bad",
 		Enabled:   true,
@@ -172,7 +193,10 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
 			return []*model.Schedule{sched}, nil
 		},
-		LockLiveAgentFunc:  func(context.Context, *sql.Tx, int64, int64) error { return nil },
+		LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
+		GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
+			return &model.Agent{ID: 3, OrgID: 7, Workspace: "w", Runner: "r"}, nil
+		},
 		CreateTaskFunc:     func(_ context.Context, _ *sql.Tx, task *model.Task) error { task.ID = 99; return nil },
 		CreateEventFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
 		UpdateScheduleFunc: func(_ context.Context, _ *sql.Tx, _ *model.Schedule) error { return nil },
@@ -211,8 +235,7 @@ func TestScheduler_Tick_ErrorPropagatesWithoutPublishing(t *testing.T) {
 	sched := &model.Schedule{
 		ID:        3,
 		OrgID:     7,
-		Workspace: "w",
-		Runner:    "r",
+		AgentID:   3,
 		CronExpr:  "* * * * *",
 		Timezone:  "UTC",
 		Enabled:   true,
@@ -225,7 +248,10 @@ func TestScheduler_Tick_ErrorPropagatesWithoutPublishing(t *testing.T) {
 			return []*model.Schedule{sched}, nil
 		},
 		LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
-		CreateTaskFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
+		GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
+			return &model.Agent{ID: 3, OrgID: 7, Workspace: "w", Runner: "r"}, nil
+		},
+		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, _ *model.Task) error { return boom },
 	}
 	pub := &pubsub.PublisherMock{
 		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
@@ -254,56 +280,45 @@ func eventPayloads(calls []struct {
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	storeErr := errors.New("db down")
+	agent := &model.Agent{ID: 3, OrgID: 7, Workspace: "w", Runner: "r"}
 	tests := []struct {
-		name     string
-		sched    *model.Schedule
-		decls    []taskvar.Decl
-		agentErr error
-		err      error
-		check    func(t *testing.T, err error)
+		name    string
+		sched   *model.Schedule
+		lockErr error
+		check   func(t *testing.T, got *model.Agent, err error)
 	}{
 		{
 			name:  "valid",
-			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Variables: map[string]string{"JIRA_ISSUE": "APP-142"}},
-			decls: []taskvar.Decl{{Name: "JIRA_ISSUE", Required: true}},
-			check: func(t *testing.T, err error) { assert.NilError(t, err) },
+			sched: &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "UTC"},
+			check: func(t *testing.T, got *model.Agent, err error) {
+				assert.NilError(t, err)
+				assert.Equal(t, got, agent)
+			},
 		},
 		{
 			name:  "invalid cron",
-			sched: &model.Schedule{CronExpr: "nonsense", Timezone: "UTC"},
-			check: func(t *testing.T, err error) { assert.Assert(t, IsInvalidError(err), err) },
+			sched: &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "nonsense", Timezone: "UTC"},
+			check: func(t *testing.T, _ *model.Agent, err error) { assert.Assert(t, IsInvalidError(err), err) },
 		},
 		{
-			name:     "unknown agent",
-			sched:    &model.Schedule{CronExpr: "@daily", Timezone: "UTC", AgentID: 3},
-			agentErr: sql.ErrNoRows,
-			check: func(t *testing.T, err error) {
+			name:  "invalid timezone",
+			sched: &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "Nowhere/Bad"},
+			check: func(t *testing.T, _ *model.Agent, err error) { assert.Assert(t, IsInvalidError(err), err) },
+		},
+		{
+			name:    "unknown agent",
+			sched:   &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "UTC"},
+			lockErr: sql.ErrNoRows,
+			check: func(t *testing.T, _ *model.Agent, err error) {
 				assert.Assert(t, IsInvalidError(err), err)
 				assert.Error(t, err, "agent 3 not found")
 			},
 		},
 		{
-			name:  "invalid variable",
-			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Variables: map[string]string{"JIRA": "APP-142"}},
-			check: func(t *testing.T, err error) {
-				assert.Assert(t, IsInvalidError(err), err)
-				assert.ErrorContains(t, err, `variable "JIRA": not declared by the workspace`)
-			},
-		},
-		{
-			name:  "unregistered workspace",
-			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC", Runner: "r", Workspace: "w"},
-			err:   sql.ErrNoRows,
-			check: func(t *testing.T, err error) {
-				assert.Assert(t, IsInvalidError(err), err)
-				assert.Error(t, err, `workspace "w" not found on runner "r"`)
-			},
-		},
-		{
-			name:  "store error",
-			sched: &model.Schedule{CronExpr: "@daily", Timezone: "UTC"},
-			err:   storeErr,
-			check: func(t *testing.T, err error) {
+			name:    "store error",
+			sched:   &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "UTC"},
+			lockErr: storeErr,
+			check: func(t *testing.T, _ *model.Agent, err error) {
 				assert.ErrorIs(t, err, storeErr)
 				assert.Assert(t, !IsInvalidError(err))
 			},
@@ -313,14 +328,15 @@ func TestValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			st := &StoreMock{
-				GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
-					return &model.Agent{}, tt.agentErr
+				LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error {
+					return tt.lockErr
 				},
-				GetWorkspaceVariablesFunc: func(context.Context, *sql.Tx, string, string, int64) ([]taskvar.Decl, error) {
-					return tt.decls, tt.err
+				GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
+					return agent, nil
 				},
 			}
-			tt.check(t, Validate(t.Context(), nil, st, tt.sched))
+			got, err := Validate(t.Context(), nil, st, tt.sched)
+			tt.check(t, got, err)
 		})
 	}
 }

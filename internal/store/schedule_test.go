@@ -30,19 +30,15 @@ func TestScheduleCRUD(t *testing.T) {
 		OrgID:     org.OrgID,
 		CreatedBy: org.UserID,
 		Name:      "nightly",
-		Workspace: "w",
-		Runner:    "r",
 		AgentID:   agent.ID,
 		Instructions: []model.ScheduleInstruction{
 			{Text: "bump deps", URL: "https://example.com/deps"},
 			{Text: "groom changelog"},
 		},
-		AutoArchive: time.Hour,
-		CronExpr:    "0 9 * * *",
-		Timezone:    "America/Toronto",
-		Enabled:     true,
-		NextRunAt:   &next,
-		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+		CronExpr:  "0 9 * * *",
+		Timezone:  "America/Toronto",
+		Enabled:   true,
+		NextRunAt: &next,
 	}
 	assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
 	assert.Assert(t, sched.ID != 0)
@@ -57,7 +53,7 @@ func TestScheduleCRUD(t *testing.T) {
 	_, err = s.GetSchedule(ctx, nil, sched.ID, other.OrgID)
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 
-	// Update mutates the template and spec.
+	// Update mutates the agent, instructions and spec.
 	sched.Name = "nightly-v2"
 	sched.AgentID = teststore.CreateAgent(t, s, org, &model.Agent{Name: "other"}).ID
 	sched.CronExpr = "30 2 * * *"
@@ -65,7 +61,6 @@ func TestScheduleCRUD(t *testing.T) {
 	sched.Enabled = false
 	sched.NextRunAt = nil
 	sched.Instructions = []model.ScheduleInstruction{{Text: "only this"}}
-	sched.Variables = map[string]string{"JIRA_ISSUE": "APP-143", "LABEL": ""}
 	assert.NilError(t, s.UpdateSchedule(ctx, nil, sched))
 
 	got, err = s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
@@ -101,8 +96,6 @@ func TestAdvanceSchedule(t *testing.T) {
 		OrgID:     org.OrgID,
 		CreatedBy: org.UserID,
 		AgentID:   teststore.CreateAgent(t, s, org, nil).ID,
-		Workspace: "w",
-		Runner:    "r",
 		CronExpr:  "0 9 * * *",
 		Timezone:  "UTC",
 		Enabled:   true,
@@ -153,8 +146,6 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 			OrgID:     org.OrgID,
 			CreatedBy: org.UserID,
 			AgentID:   agent.ID,
-			Workspace: "w",
-			Runner:    "r",
 			CronExpr:  "* * * * *",
 			Timezone:  "UTC",
 			Enabled:   true,

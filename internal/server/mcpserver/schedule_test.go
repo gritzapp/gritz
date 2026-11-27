@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/gritzclient"
@@ -12,7 +11,6 @@ import (
 	"github.com/gritzapp/gritz/internal/x/mcptest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/testing/protocmp"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"gotest.tools/v3/assert"
 )
 
@@ -91,15 +89,11 @@ func TestCreateSchedule(t *testing.T) {
 	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
 		Name: "create_schedule",
 		Arguments: map[string]any{
-			"name":         "nightly",
-			"workspace":    "ws",
-			"runner":       "r1",
-			"agent_id":     5,
-			"instruction":  "bump deps",
-			"cron_expr":    "0 3 * * *",
-			"timezone":     "Europe/Paris",
-			"auto_archive": "1h",
-			"variables":    map[string]any{"JIRA_ISSUE": "APP-142"},
+			"name":        "nightly",
+			"agent_id":    5,
+			"instruction": "bump deps",
+			"cron_expr":   "0 3 * * *",
+			"timezone":    "Europe/Paris",
 		},
 	})
 
@@ -110,14 +104,10 @@ func TestCreateSchedule(t *testing.T) {
 	// enabled is left out, so the schedule is created disabled.
 	assert.DeepEqual(t, client.CreateScheduleCalls()[0].CreateScheduleRequest, &gritzv1.CreateScheduleRequest{
 		Name:         "nightly",
-		Workspace:    "ws",
-		Runner:       "r1",
 		AgentId:      5,
 		Instructions: []*gritzv1.Instruction{{Text: "bump deps"}},
 		CronExpr:     "0 3 * * *",
 		Timezone:     "Europe/Paris",
-		AutoArchive:  durationpb.New(time.Hour),
-		Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 	}, protocmp.Transform())
 	var got map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &got)
@@ -128,15 +118,11 @@ func TestUpdateSchedule(t *testing.T) {
 	stored := &gritzv1.Schedule{
 		Id:           3,
 		Name:         "nightly",
-		Workspace:    "ws",
-		Runner:       "r1",
 		AgentId:      5,
 		Instructions: []*gritzv1.Instruction{{Text: "bump deps", Url: "https://example.com/issue/1"}, {Text: "open a PR"}},
 		CronExpr:     "0 3 * * *",
 		Timezone:     "Europe/Paris",
 		Enabled:      true,
-		AutoArchive:  durationpb.New(time.Hour),
-		Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	tests := []struct {
 		name string
@@ -149,56 +135,29 @@ func TestUpdateSchedule(t *testing.T) {
 			want: &gritzv1.UpdateScheduleRequest{
 				Id:           3,
 				Name:         "nightly",
-				Workspace:    "ws",
-				Runner:       "r1",
 				AgentId:      5,
 				Instructions: []*gritzv1.Instruction{{Text: "bump deps", Url: "https://example.com/issue/1"}, {Text: "open a PR"}},
 				CronExpr:     "0 9 * * *",
 				Timezone:     "Europe/Paris",
-				AutoArchive:  durationpb.New(time.Hour),
-				Variables:    map[string]string{"JIRA_ISSUE": "APP-142"},
 			},
 		},
 		{
 			name: "Every",
 			args: map[string]any{
-				"id":           3,
-				"name":         "daily",
-				"workspace":    "ws2",
-				"runner":       "r2",
-				"agent_id":     6,
-				"instruction":  "check CI",
-				"cron_expr":    "@daily",
-				"timezone":     "UTC",
-				"auto_archive": "0",
-				"variables":    map[string]any{"BRANCH": "dev"},
+				"id":          3,
+				"name":        "daily",
+				"agent_id":    6,
+				"instruction": "check CI",
+				"cron_expr":   "@daily",
+				"timezone":    "UTC",
 			},
 			want: &gritzv1.UpdateScheduleRequest{
 				Id:           3,
 				Name:         "daily",
-				Workspace:    "ws2",
-				Runner:       "r2",
 				AgentId:      6,
 				Instructions: []*gritzv1.Instruction{{Text: "check CI"}},
 				CronExpr:     "@daily",
 				Timezone:     "UTC",
-				AutoArchive:  durationpb.New(0),
-				Variables:    map[string]string{"BRANCH": "dev"},
-			},
-		},
-		{
-			name: "ClearVariables",
-			args: map[string]any{"id": 3, "variables": map[string]any{}},
-			want: &gritzv1.UpdateScheduleRequest{
-				Id:           3,
-				Name:         "nightly",
-				Workspace:    "ws",
-				Runner:       "r1",
-				AgentId:      5,
-				Instructions: []*gritzv1.Instruction{{Text: "bump deps", Url: "https://example.com/issue/1"}, {Text: "open a PR"}},
-				CronExpr:     "0 3 * * *",
-				Timezone:     "Europe/Paris",
-				AutoArchive:  durationpb.New(time.Hour),
 			},
 		},
 	}

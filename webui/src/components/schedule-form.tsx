@@ -1,6 +1,4 @@
 import { useState } from 'react'
-import { useQuery } from '@connectrpc/connect-query'
-import { listWorkspaces } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,28 +11,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { VariableFields } from '@/components/variable-fields'
 import { DEFAULT_CRON, browserTimezone, timezoneOptions } from '@/lib/schedule'
-import { variablesToSet } from '@/lib/variables'
-import { AUTO_ARCHIVE_IMMEDIATE, AUTO_ARCHIVE_NEVER, formatCountdown } from '@/lib/duration'
 
-// ScheduleFormValues is the full editable state of a schedule template + spec.
-// It is intentionally UI-shaped: `instruction` is a single text block (the
-// common case, mirroring the Create Task form) and `autoArchive` is the
-// autoArchiveSelectValue string the auto-archive Select uses. The route maps
-// this to the proto request(s).
+// ScheduleFormValues is the full editable state of a schedule. It is
+// intentionally UI-shaped: `instruction` is a single text block (the common
+// case, mirroring the Create Task form). The route maps this to the proto
+// request(s).
 export interface ScheduleFormValues {
   name: string
-  runner: string
-  workspace: string
   // The decimal ID of the agent the schedule's tasks belong to.
   agentId: string
   instruction: string
   cronExpr: string
   timezone: string
   enabled: boolean
-  autoArchive: string
-  variables: Record<string, string>
 }
 
 // emptyScheduleValues seeds a fresh create form: a valid daily cron, the
@@ -42,27 +32,13 @@ export interface ScheduleFormValues {
 export function emptyScheduleValues(): ScheduleFormValues {
   return {
     name: '',
-    runner: '',
-    workspace: '',
     agentId: '',
     instruction: '',
     cronExpr: DEFAULT_CRON,
     timezone: browserTimezone(),
     enabled: true,
-    autoArchive: AUTO_ARCHIVE_NEVER,
-    variables: {},
   }
 }
-
-// The auto-archive presets offered in the Select. Positive values are keyed by
-// their whole-second count to match autoArchiveSelectValue's lossless encoding.
-const AUTO_ARCHIVE_OPTIONS: { value: string; label: string }[] = [
-  { value: AUTO_ARCHIVE_NEVER, label: 'Never' },
-  { value: AUTO_ARCHIVE_IMMEDIATE, label: 'Immediately' },
-  { value: String(60 * 60), label: '1 hour' },
-  { value: String(24 * 60 * 60), label: '24 hours' },
-  { value: String(7 * 24 * 60 * 60), label: '7 days' },
-]
 
 interface ScheduleFormProps {
   initialValues: ScheduleFormValues
@@ -84,47 +60,16 @@ export function ScheduleForm({
   const [values, setValues] = useState<ScheduleFormValues>(initialValues)
   const timezones = timezoneOptions()
 
-  const { data: workspacesData } = useQuery(listWorkspaces, {})
-  const runners = [...new Set(workspacesData?.workspaces.map((ws) => ws.runnerId) ?? [])]
-  const workspaces = workspacesData?.workspaces.filter((ws) => ws.runnerId === values.runner) ?? []
-  const variableDecls = workspaces.find((ws) => ws.name === values.workspace)?.variables ?? []
-
   // Keep the initial timezone selectable even if it isn't in the offered list
   // (a zone the server accepts but this browser's Intl doesn't enumerate).
   const timezoneChoices = timezones.includes(values.timezone)
     ? timezones
     : [values.timezone, ...timezones]
 
-  // A schedule's auto_archive can be any duration the API set, not just a
-  // preset (e.g. 30m). Keep the initial value selectable so editing the
-  // schedule shows and preserves it.
-  const autoArchiveOptions = AUTO_ARCHIVE_OPTIONS.some(
-    (opt) => opt.value === initialValues.autoArchive,
-  )
-    ? AUTO_ARCHIVE_OPTIONS
-    : [
-        ...AUTO_ARCHIVE_OPTIONS,
-        {
-          value: initialValues.autoArchive,
-          label: formatCountdown(Number(initialValues.autoArchive) * 1000),
-        },
-      ]
-
   const set = <K extends keyof ScheduleFormValues>(key: K, value: ScheduleFormValues[K]) =>
     setValues((prev) => ({ ...prev, [key]: value }))
 
-  const handleRunnerChange = (runner: string) => {
-    setValues((prev) => ({ ...prev, runner, workspace: '', variables: {} }))
-  }
-
-  const handleWorkspaceChange = (workspace: string) => {
-    setValues((prev) => ({ ...prev, workspace, variables: {} }))
-  }
-
   const isValid =
-    workspacesData &&
-    values.runner.trim() &&
-    values.workspace.trim() &&
     /^\d+$/.test(values.agentId.trim()) &&
     values.instruction.trim() &&
     values.cronExpr.trim() &&
@@ -136,17 +81,10 @@ export function ScheduleForm({
     await onSubmit({
       ...values,
       name: values.name.trim(),
-      runner: values.runner.trim(),
-      workspace: values.workspace.trim(),
       agentId: values.agentId.trim(),
       instruction: values.instruction.trim(),
       cronExpr: values.cronExpr.trim(),
       timezone: values.timezone.trim(),
-      variables: variablesToSet(
-        Object.fromEntries(
-          variableDecls.map((decl) => [decl.name, values.variables[decl.name] ?? '']),
-        ),
-      ),
     })
   }
 
@@ -161,54 +99,6 @@ export function ScheduleForm({
           onChange={(e) => set('name', e.target.value)}
         />
       </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="runner">Runner</Label>
-        <Select value={values.runner} onValueChange={handleRunnerChange} required>
-          <SelectTrigger id="runner">
-            <SelectValue placeholder="Select a runner" />
-          </SelectTrigger>
-          <SelectContent>
-            {runners.map((r) => (
-              <SelectItem key={r} value={r}>
-                {r}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="workspace">Workspace</Label>
-        <Select
-          value={values.workspace}
-          onValueChange={handleWorkspaceChange}
-          required
-          disabled={!values.runner}
-        >
-          <SelectTrigger id="workspace">
-            <SelectValue
-              placeholder={values.runner ? 'Select a workspace' : 'Select a runner first'}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {workspaces.map((ws) => (
-              <SelectItem key={ws.name} value={ws.name}>
-                <span>{ws.name}</span>
-                {ws.description && (
-                  <span className="text-muted-foreground text-xs ml-2">{ws.description}</span>
-                )}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <VariableFields
-        decls={variableDecls}
-        values={values.variables}
-        onChange={(variables) => set('variables', variables)}
-      />
 
       <div className="space-y-2">
         <Label htmlFor="instruction">Instructions</Label>
@@ -273,26 +163,9 @@ export function ScheduleForm({
           onChange={(e) => set('agentId', e.target.value)}
           required
         />
-        <p className="text-muted-foreground text-xs">The agent its tasks belong to.</p>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="auto-archive">Auto-archive (optional)</Label>
-        <Select value={values.autoArchive} onValueChange={(v) => set('autoArchive', v)}>
-          <SelectTrigger id="auto-archive">
-            <SelectValue placeholder="Never (default)" />
-          </SelectTrigger>
-          <SelectContent>
-            {autoArchiveOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <p className="text-muted-foreground text-xs">
-          Scheduled runs are usually unowned, so a short auto-archive keeps each occurrence
-          self-cleaning.
+          The agent its tasks belong to. They run on its runner and workspace, with its auto-archive
+          and variables.
         </p>
       </div>
 

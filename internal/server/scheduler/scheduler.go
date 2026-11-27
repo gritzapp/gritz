@@ -25,7 +25,6 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store"
-	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 //go:generate go tool moq -out store_moq_test.go . Store
@@ -40,7 +39,6 @@ type Store interface {
 	CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event) error
 	AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64, adv store.ScheduleAdvance) error
 	UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
-	GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error)
 	GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error)
 	LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 }
@@ -145,8 +143,8 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	return nil
 }
 
-// invalidError is a schedule Validate rejects: an invalid cron expression,
-// timezone or variable, or a workspace that isn't registered on its runner.
+// invalidError is a schedule Validate rejects: an invalid cron expression or
+// timezone, or an agent that isn't one of its org's.
 type invalidError struct {
 	err error
 }
@@ -162,52 +160,50 @@ func IsInvalidError(err error) bool {
 	return ok
 }
 
-// Validate checks a schedule before it is saved: its cron expression and
-// timezone, that its agent is one of its org's, that its workspace is
-// registered, and its variables against the workspace's declarations.
-// IsInvalidError tells a rejection from a store error.
-func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) error {
+// Validate checks a schedule before it is saved in tx: its cron expression
+// and timezone, and that its agent is a live one of its org's. It returns the
+// agent, share-locked as Agent does, so the caller can authorize on its
+// target. IsInvalidError tells a rejection from a store error.
+func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Agent, error) {
 	if err := sched.Validate(); err != nil {
-		return &invalidError{err: err}
+		return nil, &invalidError{err: err}
 	}
-	if _, err := st.GetAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return &invalidError{err: fmt.Errorf("agent %d not found", sched.AgentID)}
-		}
-		return err
-	}
-	decls, err := st.GetWorkspaceVariables(ctx, tx, sched.Runner, sched.Workspace, sched.OrgID)
+	agent, err := Agent(ctx, tx, st, sched)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return &invalidError{err: fmt.Errorf("workspace %q not found on runner %q", sched.Workspace, sched.Runner)}
+			return nil, &invalidError{err: fmt.Errorf("agent %d not found", sched.AgentID)}
 		}
-		return err
+		return nil, err
 	}
-	if _, err := taskvar.Resolve(decls, sched.Variables); err != nil {
-		return &invalidError{err: fmt.Errorf("workspace %q: %w", sched.Workspace, err)}
-	}
-	return nil
+	return agent, nil
 }
 
-// Fire materializes one schedule occurrence inside tx: it creates the template
-// task and seeds its events exactly as CreateTask does (Pending/Start, a created
-// event attributed to model.ScheduleActor, one instruction event per template
-// instruction), and returns the created task plus the change notification to
+// Agent returns the schedule's agent, share-locked until tx ends so a
+// concurrent DeleteAgent sees the schedule or the task about to be created of
+// it. It returns sql.ErrNoRows when the agent is deleted.
+func Agent(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Agent, error) {
+	if err := st.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
+		return nil, err
+	}
+	return st.GetAgent(ctx, tx, sched.OrgID, sched.AgentID)
+}
+
+// Fire materializes one schedule occurrence inside tx: it creates a task of
+// agent, the schedule's agent as Agent returned it in tx, and seeds its events
+// exactly as CreateTask does (Pending/Start, a created event attributed to
+// model.ScheduleActor, one instruction event per schedule instruction), and
+// returns the created task plus the change notification to
 // publish once tx commits. It writes nothing to the schedule row — the caller
 // decides what, if anything, happens to the cadence: the worker's Scheduler.fire
 // advances next_run_at via AdvanceSchedule, while a one-off manual run
 // (RunSchedule) records nothing on the schedule at all. Sharing this function is
 // what makes a manual run and a scheduled run produce a byte-for-byte identical
 // task.
-func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Task, model.Notification, error) {
-	// The schedule owns the template -> task/events mapping. Insert the task, then
+func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule, agent *model.Agent) (*model.Task, model.Notification, error) {
+	// The schedule owns the agent -> task/events mapping. Insert the task, then
 	// seed its events (Events needs the assigned task.ID), so a scheduled task is
 	// indistinguishable from a hand-created one downstream.
-	// Hold the agent so a concurrent DeleteAgent sees this task.
-	if err := st.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
-		return nil, model.Notification{}, err
-	}
-	task := sched.Task()
+	task := sched.Task(agent)
 	if err := st.CreateTask(ctx, tx, task); err != nil {
 		return nil, model.Notification{}, err
 	}
@@ -240,7 +236,11 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*mo
 // commits.
 func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule) (model.Notification, error) {
 	now := time.Now()
-	task, note, err := Fire(ctx, tx, s.store, sched)
+	agent, err := Agent(ctx, tx, s.store, sched)
+	if err != nil {
+		return model.Notification{}, fmt.Errorf("agent %d: %w", sched.AgentID, err)
+	}
+	task, note, err := Fire(ctx, tx, s.store, sched, agent)
 	if err != nil {
 		return model.Notification{}, err
 	}

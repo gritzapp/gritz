@@ -85,7 +85,7 @@ function SchedulesPage() {
               <TableHead>Cron</TableHead>
               <TableHead className="hidden md:table-cell">Timezone</TableHead>
               <TableHead className="hidden md:table-cell">Next run</TableHead>
-              <TableHead className="hidden lg:table-cell">Workspace</TableHead>
+              <TableHead className="hidden lg:table-cell">Agent</TableHead>
               <TableHead>Enabled</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -167,7 +167,7 @@ function ScheduleRow({ schedule, onUpdate }: { schedule: Schedule; onUpdate: () 
       <TableCell className="hidden md:table-cell text-muted-foreground">
         {nextRunLabel(schedule.nextRunAt)}
       </TableCell>
-      <TableCell className="hidden lg:table-cell">{schedule.workspace}</TableCell>
+      <TableCell className="hidden lg:table-cell">{String(schedule.agentId)}</TableCell>
       <TableCell>
         <Switch
           checked={schedule.enabled}
