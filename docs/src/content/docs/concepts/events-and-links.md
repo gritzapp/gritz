@@ -67,8 +67,10 @@ organisation it belongs to, gritz:
 
 1. **Delivers it to subscribed tasks.** Every task with a subscribed link to the
    event's resource gets the event, if the link's kind lists the event's type,
-   the event meets that type's conditions, and the event's author is a member or the kind is
-   [public](/concepts/agents/#members-and-public). Delivery wakes the task.
+   the event meets that type's conditions, and the event's author is a member or the kind
+   marks that type [public](/concepts/agents/#members-and-public). Delivery
+   wakes the task if the kind marks that type **Wake**; otherwise the event
+   waits on the task until something else wakes it.
 2. **Runs every agent's triggers.** Each [agent](/concepts/agents/) whose
    trigger matches the event creates a task of its own, with the event as its
    first event, unless the trigger
@@ -87,8 +89,9 @@ gets the event at the start of its next run.
 - **The task's timeline** shows each event delivered to the task, with its
   source, description, URL and text, next to the instructions and the agent's
   reports.
-- **Events → Recent Events** in the [Web UI](/using/web-ui/#events) lists the
-  organisation's latest delivered events, each linked to its task. Events that
+- **Events → Recent** in the [Web UI](/using/web-ui/#events) lists the
+  organisation's latest delivered events. Each one's page shows the task it
+  was delivered to. Events that
   reached no task aren't stored, so they don't appear.
 - **The test event form** on the **Agents** page shows what an event would do
   before you rely on it. See

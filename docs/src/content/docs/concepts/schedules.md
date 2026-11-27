@@ -7,31 +7,35 @@ sidebar:
 
 A schedule creates a task on a cron schedule: a nightly dependency bump, a weekly
 report, an hourly check. Each time it fires it creates a new task of the
-[agent](/concepts/agents/) it names, starting with the agent's prompt, and the
-task starts at once.
+[agent](/concepts/agents/) it names, starting with the agent's prompt and then
+the schedule's own, and the task starts at once.
 
-A schedule belongs to its agent, and is edited with it: in the **Schedules**
-section of the agent form on the [Web UI](/using/web-ui/#agents)'s **Agents**
-page, or with [`put_agent`](/integrations/mcp/#agents).
+A schedule belongs to its agent, and is edited with it: under **Starts on** in
+the agent form on the [Web UI](/using/web-ui/#agents)'s **Agents** page, or
+with [`put_agent`](/integrations/mcp/#agents).
 
 ## Creating a schedule
 
-**Add schedule** in the agent form's **Schedules** section adds one, saved with the
+**Add schedule** under the agent form's **Starts on** adds one, saved with the
 agent. Each schedule has:
 
 - **Name**: the name of every task it creates. Optional.
 - **Cron expression**: when to fire. See below.
 - **Timezone**: the timezone the cron expression is read in. Defaults to your
   browser's.
-- **Enabled**: a disabled schedule is saved but doesn't fire.
+- **Prompt**: an instruction for the tasks this schedule creates, after the
+  agent's prompt. Optional.
+- **On/off**: the switch on the schedule's header. A schedule that is off is
+  saved but doesn't fire.
 
 ## The agent
 
 A schedule names one [agent](/concepts/agents/), and each task it creates
 takes the agent's runner, workspace,
-[auto-archive](/concepts/tasks/#auto-archive) delay, variables and features. Its first
-instruction is the agent's prompt or, when the agent has none, a line naming
-the schedule and the agent.
+[auto-archive](/concepts/tasks/#auto-archive) delay, variables and features. Its
+instructions are the agent's prompt, then the schedule's, each only when it is
+set. A task whose agent and schedule both have no prompt starts with no
+instruction.
 
 The agent is read each time the schedule fires, so a change to the agent applies
 to the schedule's next task. Deleting the agent deletes its schedules.
@@ -69,13 +73,13 @@ from the next due time.
 Every time a schedule fires it creates a new task. It doesn't reuse or wait for
 the previous one, so if the last run is still going, the two run side by side.
 The agent form shows each saved schedule's next run, and links to the task it
-created the last time it fired. The **Agents** list shows the earliest next run
-among each agent's schedules.
+created the last time it fired. The **Agents** list shows an agent's schedules,
+with their next runs, under **Starts on**.
 
 ## Run now
 
-To run a schedule's agent without waiting for the schedule, use the agent's run
-button on the **Agents** page in the Web UI: it opens a new task of the agent
+To run a schedule's agent without waiting for the schedule, use the agent's
+**Run** button, on the **Agents** page or the agent's page in the Web UI: it opens a new task of the agent
 with its prompt filled in. The schedule's next run and last run don't change.
 
 ## Editing, disabling and deleting

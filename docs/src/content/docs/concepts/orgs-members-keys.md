@@ -44,7 +44,7 @@ and can't be added once they belong to the maximum number of organisations.
 The owner can't be removed.
 
 Membership also decides whose GitHub and Jira activity counts as the
-organisation's: a trigger or link kind that isn't public acts on events from members who have
+organisation's: a trigger or a link kind's event type that isn't public acts on events from members who have
 linked their [GitHub](/integrations/github/#link-your-github-account) or
 [Atlassian](/integrations/jira/#link-your-atlassian-account) account under
 **Settings → Account**. See

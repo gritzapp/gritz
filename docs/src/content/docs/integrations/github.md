@@ -20,13 +20,13 @@ It has two halves:
   act on them.
 
 Both need the server's GitHub App to be configured. On a server where it isn't,
-**Settings → Organisation** has no **GitHub App** card; operators, see
+**Settings → Organisation** has no **GitHub App** section; operators, see
 [GitHub App](/operators/server/#github-app).
 
 ## Link your GitHub account
 
-On **Settings → Account**, in the **GitHub Account** card, click **Link GitHub
-Account** and approve the request on GitHub. gritz only asks to read your
+On **Settings → Account**, under **Connected accounts**, click **Link** on the
+**GitHub** row and approve the request on GitHub. gritz only asks to read your
 profile; it records your GitHub user ID and username.
 
 Once linked, events you cause on GitHub, such as your comments, reviews and
@@ -38,17 +38,17 @@ GitHub identity.
 
 ## Install the GitHub App
 
-On **Settings → Organisation**, the **GitHub App** card shows whether the
+On **Settings → Organisation**, the **GitHub App** section shows whether the
 organisation has an installation.
 
-**Install GitHub App** opens the App's page on GitHub. Pick the account or
+**Install** opens the App's page on GitHub. Pick the account or
 organisation and the repositories it may see. When GitHub sends you back to
-gritz, the **Link GitHub App Installation** page shows who you are signed in as
+gritz, the **Link GitHub App** page shows who you are signed in as
 and the gritz organisation the installation will be linked to; **Approve** links
 it.
 
 If the App is already installed on your GitHub organisation, for example by a
-colleague for another gritz organisation, use **Link existing installation**
+colleague for another gritz organisation, use **Link existing**
 instead and enter the installation's ID. It is the number at the end of the
 installation's settings URL on GitHub,
 `github.com/settings/installations/<id>` (for an organisation,
@@ -61,7 +61,7 @@ gritz links an installation only if your linked GitHub account may use it:
 - for an installation on a personal account, it must be your account.
 
 Several gritz organisations can link the same installation. Once linked, the
-card shows **Installed** and a **Manage** button that opens the installation's
+section shows **Installed** and a **Manage** button that opens the installation's
 settings on GitHub, where you change its repositories or uninstall it.
 Uninstalling the App on GitHub unlinks it from every gritz organisation.
 
@@ -202,8 +202,8 @@ Start a task whenever a push to `master` changes a database migration:
 
 Wake the task that opened a pull request when one of the pull request's checks
 fails. Give its pull request link kind the event GitHub: PR Check Run Completed
-with the condition `conclusion glob {failure,timed_out,startup_failure}`, and make it
-**Public**, so the checks of pushes by agents and bots count too. Without the
+with the condition `conclusion glob {failure,timed_out,startup_failure}`, and turn
+on its **Public**, so the checks of pushes by agents and bots count too. Without the
 condition, every completed check is delivered, successes included.
 
 Start one task when a workflow run fails on `master`:
@@ -221,9 +221,10 @@ run's other jobs, failing or not, then reach that task instead of creating
 another.
 
 Let anyone, members or not, ask for a change on a pull request a task opened by
-starting a comment with `gritz:`: make the pull request link kind **Public**.
-Its tasks then also get every comment from non-members, so tell the agent in the
-prompt to act only on those that start with `gritz:`.
+starting a comment with `gritz:`: turn on **Public** for the comment event types
+of the pull request link kind. Its tasks then also get every comment from
+non-members, so tell the agent in the prompt to act only on those that start
+with `gritz:`.
 
 ## GitHub credentials for agents
 

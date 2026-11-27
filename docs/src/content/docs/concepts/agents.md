@@ -25,8 +25,8 @@ set by the task's [workspace](/concepts/workspaces/), or by one of the
 [features](#the-template) the agent picks, not here.
 
 Agents are on the **Agents** page of the [Web UI](/using/web-ui/#agents).
-**+ Agent** creates one, the edit button on each row changes it, and the run
-button opens a new task of the agent with its prompt filled in. MCP clients
+**+ Agent** creates one, clicking an agent's name opens it for editing, and its
+**Run** button opens a new task of the agent with its prompt filled in. MCP clients
 manage them with [`put_agent`](/integrations/mcp/#agents) and the other agent
 tools.
 
@@ -53,10 +53,12 @@ no link kinds is just a template for tasks you create yourself.
   the end, turn it off and on again. Changing the runner or workspace clears
   the features, as it clears the variables.
 - **Prompt**: the first instruction of the tasks its triggers and
-  [schedules](/concepts/schedules/) create. Left blank, the instruction only
-  says which trigger or schedule created the task. A triggered task's first
-  event is the one that created it, so the agent gets the event's text either
-  way. Tasks you create by hand get their own instructions instead.
+  [schedules](/concepts/schedules/) create. A trigger or schedule can add
+  [its own prompt](#the-triggers-prompt) as a second instruction. Left blank,
+  the tasks start with only the trigger's or schedule's prompt, or with no
+  instruction when that is blank too. A triggered task's first event is the one
+  that created it, so the agent gets the event's text either way. Tasks you
+  create by hand get their own instructions instead.
 - **Auto-archive**: the [auto-archive](/concepts/tasks/#auto-archive) delay of
   its tasks.
 
@@ -151,6 +153,14 @@ the link.
 Without a link, the created task isn't subscribed to anything unless its agent
 creates links itself.
 
+### The trigger's prompt
+
+A trigger can have its own **Prompt**, an instruction for the tasks it creates
+only. The task gets it after the agent's prompt, as a second instruction, or as
+its only one when the agent has none. Use it when an agent's triggers need
+different instructions, such as "Review the pull request" on one and "Answer
+the comment" on another, while the agent's prompt holds what they share.
+
 ## Link kinds
 
 A link kind is a kind of subscribed link the agent's tasks may create. An agent
@@ -171,14 +181,20 @@ Each link kind has:
 - **Events**: the event types a link of this kind delivers, each with optional
   conditions on the event's attributes, as a [trigger's](#triggers). Only event
   types that can name the link type are offered. A kind with no events checked
-  delivers nothing; its links still hold its claim.
-- **Public**: also deliver events from people who aren't members of the
-  organisation. See [Members and public](#members-and-public).
+  delivers nothing; its links still hold its claim. Each event type also has:
+  - **Wake**: delivering one of its events wakes the task. On for a new event
+    type.
+  - **Public**: also deliver its events from people who aren't members of the
+    organisation. See [Members and public](#members-and-public).
 
 An event on a subscribed link's resource is delivered to the task when the
 link's kind lists the event's type and the event meets every condition on that
-type. Delivery always wakes the task: a finished
+type. When that event type has **Wake**, delivery wakes the task: a finished
 task starts a new run, and a running one runs again when its current run ends.
+Without it, the event is only added to the task, which is left as it is: the
+agent sees it the next time something else wakes the task, such as an
+instruction or an event that wakes. Use that for events worth knowing about but
+not worth a run, such as successful checks.
 A task with several links to the same resource gets each event once. Delivery
 doesn't depend on any trigger: an event can be delivered to one task and create
 another through a trigger, of the same agent or another one.
@@ -223,20 +239,21 @@ By default an agent only acts on events from members of the organisation: a
 GitHub or Jira event counts as a member's when its author has linked that
 account to a gritz user in the organisation.
 
-A **Public** trigger also creates tasks for events from anyone else, and a
-public link kind also delivers them, as long as the event belongs to the
-organisation:
+A **Public** trigger also creates tasks for events from anyone else, and a link
+kind delivers them for each event type it marks **Public**, as long as the
+event belongs to the organisation:
 
 - a GitHub event from a repository where the organisation installed the gritz
   GitHub App;
 - a Jira event sent to the organisation's Atlassian webhook;
 - a custom event sent with one of the organisation's API keys.
 
-Make a trigger or link kind public to let people outside the organisation, such
-as outside contributors or a team without gritz accounts, reach it. Custom
-events have no author, so triggers for custom types must be public: gritz
-refuses to save an agent with one that isn't, and only public link kinds deliver
-custom events. See
+Make a trigger or a link kind's event type public to let people outside the
+organisation, such as outside contributors or a team without gritz accounts,
+reach it. A link kind can deliver failed checks from anyone, say, while
+keeping comments to members. Custom events have no author, so triggers for
+custom types must be public: gritz refuses to save an agent with one that
+isn't, and a link kind only delivers custom events of a type it marks public. See
 [Why custom event triggers must be public](/integrations/custom-events/#why-custom-event-triggers-must-be-public).
 
 ## Testing with a test event
@@ -247,10 +264,11 @@ details.
 
 - **Dry run** shows, for each agent, which trigger would match the event and
   whether it would create a task or yield, and to which tasks, and which tasks
-  the event would be delivered to, through which link kind. It changes nothing.
+  the event would be delivered to, through which link kind, and whether it
+  would wake each one. It changes nothing.
 - **Fire** routes the event for real, as if it had arrived from its source: it
-  wakes or creates tasks and stores the event on them. It doesn't post anything
-  back to GitHub or Jira.
+  delivers the event to tasks, waking them where it would, and creates tasks.
+  It doesn't post anything back to GitHub or Jira.
 
 Both run the event only for the organisation you are in, and both reject an
 event that doesn't fit its type: the URL must be an absolute `http` or `https`
@@ -258,7 +276,8 @@ URL, and every attribute must be one the type declares. An event without a
 description gets its type's label. A GitHub or Jira event runs as yours, so
 member-only triggers and link kinds admit it. A
 [custom event](/integrations/custom-events/) is routed like one posted to the
-webhook: it has no actor, so only public triggers and link kinds admit it.
+webhook: it has no actor, so only public triggers and the public event types
+of link kinds admit it.
 
 ## Deleting an agent
 
