@@ -462,6 +462,11 @@ function AgentResult({
                 {claim && (
                   <span className="text-muted-foreground font-mono text-xs">claim: {claim}</span>
                 )}
+                {!d.wake && (
+                  <span className="text-muted-foreground text-xs">
+                    {fired ? 'without waking it' : "wouldn't wake it"}
+                  </span>
+                )}
               </li>
             )
           })}

@@ -39,11 +39,13 @@ export interface TriggerDraft {
 }
 
 // LinkEventDraft is an event type a link kind delivers, with the conditions
-// its events must meet and whether it delivers them from non-members.
+// its events must meet, whether it delivers them from non-members, and whether
+// delivering one starts the task.
 export interface LinkEventDraft {
   type: string
   conditions: ConditionDraft[]
   public: boolean
+  wake: boolean
 }
 
 export interface LinkKindDraft {
@@ -164,6 +166,7 @@ export function agentFormValues(agent: Agent): AgentFormValues {
         type: e.type,
         conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
         public: e.public,
+        wake: e.wake,
       })),
     })),
   }
@@ -206,6 +209,7 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
         type: e.type,
         conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
         public: e.public,
+        wake: e.wake,
       })),
     })),
   })

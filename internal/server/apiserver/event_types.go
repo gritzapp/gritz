@@ -235,6 +235,7 @@ func testEventAgents(agents []*model.Agent, plan *eventrouter.Plan) []*gritzv1.T
 					TaskId:  d.TaskID,
 					Kind:    d.Kind,
 					EventId: d.EventID,
+					Wake:    d.Wake,
 				})
 			}
 		}

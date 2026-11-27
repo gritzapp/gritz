@@ -72,6 +72,9 @@ type Delivery struct {
 	AgentID int64 // the task's agent
 	TaskID  int64
 	Kind    string
+	// Wake is whether the matched event entry starts the task; without it,
+	// the event is only added to the task.
+	Wake bool
 	// EventID is the external event Apply added to the task; zero in a Plan,
 	// and when Apply failed to add it.
 	EventID int64
@@ -122,9 +125,9 @@ func (o RouteOutcome) Created() bool {
 	return slices.ContainsFunc(o.Triggers, func(m TriggerMatch) bool { return m.TaskID != 0 })
 }
 
-// Delivered reports whether the event was added to a subscribed task.
-func (o RouteOutcome) Delivered() bool {
-	return slices.ContainsFunc(o.Deliveries, func(d Delivery) bool { return d.EventID != 0 })
+// Woke reports whether the event was added to a subscribed task it wakes.
+func (o RouteOutcome) Woke() bool {
+	return slices.ContainsFunc(o.Deliveries, func(d Delivery) bool { return d.EventID != 0 && d.Wake })
 }
 
 // Router routes events to the agents of the orgs they belong to: it delivers
@@ -152,7 +155,8 @@ type Router struct {
 //     URL its event type's link types give it — whose kind, on the task's
 //     agent, lists the event's type with conditions that all hold, and admits
 //     the actor: a member, or anyone when that event entry is public. Each
-//     task gets the event once, through its first matching link.
+//     task gets the event once, through its first matching link, and is
+//     woken by it only when that entry wakes.
 //   - Triggers: each agent's first trigger that matches the event and admits
 //     the actor (a public trigger, for a non-member). A trigger with YieldTo
 //     yields while an unarchived task holds one of those claims on the
@@ -248,6 +252,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 				AgentID: agent.ID,
 				TaskID:  link.Link.TaskID,
 				Kind:    link.Link.Kind,
+				Wake:    entry.Wake,
 			})
 		}
 	}
@@ -310,9 +315,10 @@ func (r *Router) eventTypes(ctx context.Context, input InputEvent, orgIDs []int6
 }
 
 // Apply is the write half of routing: it adds the event to every planned
-// delivery's task, waking it, and creates a task for every trigger match that
-// didn't yield. A task it fails to wake or create is logged and left without
-// IDs, so one bad task doesn't stop the rest. It returns one RouteOutcome per
+// delivery's task, waking it when the delivery wakes, and creates a task for
+// every trigger match that didn't yield. A task it fails to deliver to or
+// create is logged and left without IDs, so one bad task doesn't stop the
+// rest. It returns one RouteOutcome per
 // org of the plan, in the plan's order. It never invokes OnRouteOutcome; Route
 // layers that on top of the returned outcomes, and TestEvent's fire mode calls
 // Apply directly to route a synthetic event as an ordinary event without any
@@ -330,7 +336,7 @@ func (r *Router) Apply(ctx context.Context, input InputEvent, plan *Plan) []Rout
 		return &outcomes[i]
 	}
 	for _, d := range plan.Deliveries {
-		event, err := r.attach(ctx, d.TaskID, input, d.OrgID)
+		event, err := r.attach(ctx, d.TaskID, input, d.OrgID, d.Wake)
 		if err != nil {
 			r.Log.Error("failed to deliver event to task", "task_id", d.TaskID, "err", err)
 		} else {
@@ -356,8 +362,8 @@ func (r *Router) Apply(ctx context.Context, input InputEvent, plan *Plan) []Rout
 }
 
 // Route plans the event and applies the plan (see Plan and Apply), then hands
-// each org's outcome to OnRouteOutcome. Returns the number of tasks woken or
-// created.
+// each org's outcome to OnRouteOutcome. Returns the number of tasks the event
+// was added to or created.
 func (r *Router) Route(ctx context.Context, input InputEvent) (int, error) {
 	// The URL names the event's resource, which subscribed links and claims
 	// are keyed on.
@@ -399,19 +405,20 @@ func (r *Router) publish(ctx context.Context, n model.Notification) {
 	}
 }
 
-// attach adds an external event to a task, starts the task, and publishes a
-// change notification. It sets the wake ChannelMessage only when the attach
-// restarts a task that had finished its run (IsDone); an empty ChannelMessage
-// keeps the agent channel silent for already-running / already-queued tasks
-// while the FE still receives the same notification.
+// attach adds an external event to a task, starts the task when wake is set,
+// and publishes a change notification. It sets the wake ChannelMessage only
+// when the attach restarts a task that had finished its run (IsDone); an empty
+// ChannelMessage keeps the agent channel silent for already-running /
+// already-queued tasks, and for an event that doesn't wake, while the FE still
+// receives the notification.
 //
 // It returns the external event row it created so callers that report the
 // written rows (TestEvent's fire mode) can surface it.
-func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, orgID int64) (*model.Event, error) {
+func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, orgID int64, wake bool) (*model.Event, error) {
 	event := &model.Event{
 		TaskID: taskID,
 		OrgID:  orgID,
-		Wake:   true,
+		Wake:   wake,
 		Payload: &model.ExternalPayload{
 			Description: input.Description,
 			URL:         input.URL,
@@ -429,6 +436,16 @@ func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, org
 	err := r.Store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		if err := r.Store.CreateEvent(ctx, tx, event); err != nil {
 			return err
+		}
+		notification.Resources = []model.NotificationResource{
+			{Action: "updated", Type: "task", ID: taskID},
+			{Action: "updated", Type: "event", ID: event.ID},
+			{Action: "appended", Type: "task_events", ID: taskID},
+		}
+		// An event that doesn't wake leaves the task as it is: the task sees
+		// it the next time something else wakes it.
+		if !wake {
+			return tx.Commit()
 		}
 		task, err := r.Store.GetTaskForUpdate(ctx, tx, taskID, event.OrgID)
 		if err != nil {
@@ -450,11 +467,6 @@ func (r *Router) attach(ctx context.Context, taskID int64, input InputEvent, org
 		// the timeline already shows why the task woke. Restarted lifecycle events
 		// are reserved for user-initiated restarts (see RestartTask), where there's
 		// no external event to explain the transition.
-		notification.Resources = []model.NotificationResource{
-			{Action: "updated", Type: "task", ID: task.ID},
-			{Action: "updated", Type: "event", ID: event.ID},
-			{Action: "appended", Type: "task_events", ID: task.ID},
-		}
 		notification.Runner = task.PendingRunner()
 		if wasDone {
 			notification.ChannelMessage = fmt.Sprintf("Task %d woken by event %d: %s (%s)", task.ID, event.ID, input.Description, input.URL)

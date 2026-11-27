@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import {
   ArrowDown,
   ArrowUp,
+  BellOff,
   Bot,
   CalendarClock,
   ChevronLeft,
@@ -1009,8 +1010,9 @@ function TriggerEditor({
         />
       </div>
 
-      <PublicSwitch
+      <FlagSwitch
         id={`${id}-public`}
+        label="Public"
         checked={trigger.public}
         onChange={(checked) => onChange({ ...trigger, public: checked })}
         description="Also match events from people who aren't members of the org. Custom event triggers must be public: custom events have no actor."
@@ -1256,7 +1258,7 @@ function LinkKindEditor({
     onChange({
       ...link,
       events: on
-        ? [...link.events, { type, conditions: [], public: false }]
+        ? [...link.events, { type, conditions: [], public: false, wake: true }]
         : link.events.filter((e) => e.type !== type),
     })
   const setEvent = (type: string, update: Partial<LinkEventDraft>) =>
@@ -1296,6 +1298,7 @@ function LinkKindEditor({
                 link.events.map((event) => (
                   <Badge key={event.type} variant="secondary" className="font-normal">
                     {event.public && <Globe aria-label="Public" />}
+                    {!event.wake && <BellOff aria-label="Doesn't wake" />}
                     {deliverable.find((t) => t.type === event.type)?.label ?? event.type}
                     {event.conditions.length > 0 && (
                       <span className="text-muted-foreground">
@@ -1387,7 +1390,7 @@ function LinkKindEditor({
       </div>
 
       <div className="space-y-2">
-        <FieldLabel hint="The event types a link of this kind delivers, waking its task, each only when its events satisfy every condition added to it. With none on, links of this kind deliver nothing, though they still hold the claim.">
+        <FieldLabel hint="The event types a link of this kind delivers to its task, each only when its events satisfy every condition added to it. With none on, links of this kind deliver nothing, though they still hold the claim.">
           Events
         </FieldLabel>
         {!link.type ? (
@@ -1424,11 +1427,19 @@ function LinkKindEditor({
                         attrs={t.attrs}
                         onChange={(conditions) => setEvent(t.type, { conditions })}
                       />
-                      <PublicSwitch
+                      <FlagSwitch
                         id={`${cid}-public`}
+                        label="Public"
                         checked={event.public}
                         onChange={(checked) => setEvent(t.type, { public: checked })}
                         description="Also deliver events of this type from people who aren't members of the org."
+                      />
+                      <FlagSwitch
+                        id={`${cid}-wake`}
+                        label="Wake"
+                        checked={event.wake}
+                        onChange={(checked) => setEvent(t.type, { wake: checked })}
+                        description="Start the task when an event of this type is delivered. Off, the event is only added to the task, which sees it the next time something else wakes it."
                       />
                     </div>
                   )}
@@ -1442,13 +1453,15 @@ function LinkKindEditor({
   )
 }
 
-function PublicSwitch({
+function FlagSwitch({
   id,
+  label,
   checked,
   onChange,
   description,
 }: {
   id: string
+  label: string
   checked: boolean
   onChange: (checked: boolean) => void
   description: string
@@ -1456,7 +1469,7 @@ function PublicSwitch({
   return (
     <div className="flex items-center justify-between gap-4 rounded-md bg-muted/50 px-3 py-2.5">
       <FieldLabel htmlFor={id} hint={description}>
-        Public
+        {label}
       </FieldLabel>
       <Switch id={id} checked={checked} onCheckedChange={onChange} />
     </div>

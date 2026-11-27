@@ -28,7 +28,7 @@ func TestGetEvent(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -72,7 +72,7 @@ func TestGetEvent_Permissions(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -100,7 +100,7 @@ func TestListEvents(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -158,7 +158,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		AgentId:      agent.Id,
@@ -208,7 +208,7 @@ func TestListEventsWithLimit(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -272,7 +272,7 @@ func TestListEvents_Permissions(t *testing.T) {
 			Name:      "watcher",
 			Workspace: harness.DefaultWorkspace,
 			Runner:    harness.DefaultRunner,
-			Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+			Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 		}})
 		task := org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 		org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -307,7 +307,7 @@ func TestDeleteEvent(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -339,7 +339,7 @@ func TestDeleteEvent_Permissions(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -370,7 +370,7 @@ func TestListEventsByTask(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -411,7 +411,7 @@ func TestListEventsByTask_Paged(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -476,7 +476,7 @@ func TestListEventsByTask_More(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -528,7 +528,7 @@ func TestListEventsByTask_LiveFollow(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -607,7 +607,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		AgentId:      agent.Id,
@@ -722,7 +722,7 @@ func TestListEventsByTask_Permissions(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})

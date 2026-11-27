@@ -960,6 +960,7 @@ message TestEventDelivery {
   int64 task_id = 1;
   string kind = 2;      // The link kind that matched.
   int64 event_id = 3;   // The event added to the task; set only when fired.
+  bool wake = 4;        // Whether the delivery starts the task.
 }
 
 message CreateGitHubTokenRequest {}
@@ -1058,6 +1059,9 @@ message AgentLinkEvent {
   // Whether it also delivers events of this type from people who aren't
   // members of the org.
   bool public = 3;
+  // Whether delivering an event of this type starts the task. Without it, the
+  // event is added to the task and the task is left as it is.
+  bool wake = 4;
 }
 
 // CreateAgentRequest creates agent in the caller's org. agent.id is ignored.
