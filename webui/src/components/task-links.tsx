@@ -1,19 +1,18 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import type { TaskLink } from '@/gen/gritz/v1/gritz_pb'
-import { sourceFromUrl } from '@/lib/timeline'
-import { externalSourceStyle } from '@/components/external-source'
-import { Badge } from '@/components/ui/badge'
+import { linkTypeFromUrl } from '@/lib/timeline'
+import { LinkTypeIcon } from '@/components/agent-overview'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 // TaskLinks is the read-only links section of the task sidebar: a stack of
-// compact cards for the task's links (PRs, issues, tickets) with a source icon
-// and, for a subscribed link, its kind and claim. It binds directly to
+// compact cards for the task's links (PRs, issues, tickets), each with an icon
+// for what it points at and, for a subscribed link, its kind and claim. It binds directly to
 // listLinks.links — no mutations.
 export function TaskLinks({ links }: { links: TaskLink[] }) {
   if (links.length === 0) {
     return (
       <p className="text-xs leading-relaxed text-muted-foreground">
-        No links yet. The agent adds links (PRs, issues, tickets) as it works.
+        Nothing yet. The agent adds links (PRs, issues, tickets) as it works.
       </p>
     )
   }
@@ -35,7 +34,6 @@ function sortKey(link: TaskLink): number {
 }
 
 function LinkCard({ link }: { link: TaskLink }) {
-  const { icon } = externalSourceStyle(sourceFromUrl(link.url))
   return (
     <li>
       <a
@@ -45,56 +43,46 @@ function LinkCard({ link }: { link: TaskLink }) {
         title={link.url}
         className="flex items-start gap-2.5 rounded-lg border bg-card p-2.5 transition-colors hover:border-muted-foreground/40 hover:bg-accent/50"
       >
-        <span className="mt-0.5 shrink-0 text-foreground">{icon}</span>
+        <LinkTypeIcon type={linkTypeFromUrl(link.url)} className="mt-0.5" />
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span className="break-words text-[13px] font-semibold leading-snug text-foreground">
+          <span className="break-words text-[13px] font-medium leading-snug text-foreground">
             {link.title || link.url}
           </span>
           {link.relevance && (
             <span className="text-xs leading-snug text-muted-foreground">{link.relevance}</span>
           )}
-          {link.kind !== '' && (
-            <span className="mt-0.5 flex flex-wrap gap-1">
-              <KindBadge kind={link.kind} />
-              {link.claim && <ClaimBadge claim={link.claim} />}
-            </span>
-          )}
+          <LinkKindMark kind={link.kind} claim={link.claim} />
         </span>
       </a>
     </li>
   )
 }
 
-export function KindBadge({ kind }: { kind: string }) {
+// LinkKindMark says how a link is subscribed: its kind, and the claim it holds
+// ("github.pr as owner"). A plain reference link shows nothing.
+export function LinkKindMark({ kind, claim }: { kind: string; claim: string }) {
+  if (kind === '') return null
   return (
     <Tooltip>
-      <TooltipTrigger className="cursor-default">
-        <Badge
-          variant="outline"
-          className="border-blue-200 bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900 text-[10px] font-mono"
-        >
-          {kind}
-        </Badge>
+      <TooltipTrigger asChild>
+        <span className="w-fit text-xs text-muted-foreground">
+          <code className="font-mono">{kind}</code>
+          {claim && (
+            <>
+              {' '}
+              as <code className="font-mono">{claim}</code>
+            </>
+          )}
+        </span>
       </TooltipTrigger>
-      <TooltipContent>Subscribed: the events link kind {kind} lists wake the task</TooltipContent>
-    </Tooltip>
-  )
-}
-
-export function ClaimBadge({ claim }: { claim: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger className="cursor-default">
-        <Badge
-          variant="outline"
-          className="border-amber-200 bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900 text-[10px] font-mono"
-        >
-          claim: {claim}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent>
-        Held while the task is unarchived: triggers that yield to {claim} create no task for this
-        resource
+      <TooltipContent className="max-w-xs space-y-1">
+        <div>Subscribed: the events link kind {kind} lists wake the task.</div>
+        {claim && (
+          <div>
+            Holds the claim {claim} while the task is unarchived: triggers that yield to it create
+            no task for this resource.
+          </div>
+        )}
       </TooltipContent>
     </Tooltip>
   )

@@ -7,16 +7,18 @@ import {
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import type { Event } from '@/gen/gritz/v1/gritz_pb'
 import { timestampDate } from '@bufbuild/protobuf/wkt'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ListHead, ListTable } from '@/components/list-table'
+import { TableBody, TableCell, TableRow } from '@/components/ui/table'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { externalSourceStyle } from '@/components/external-source'
+import { sourceFromUrl } from '@/lib/timeline'
 import {
   Select,
   SelectContent,
@@ -27,8 +29,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RelativeTime } from '@/components/relative-time'
 import { useSetCustomEventTypes } from '@/lib/custom-event-types'
-import { CustomEventSchemaDialog } from '@/components/custom-event-schema-dialog'
-import { FlaskConical, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import {
+  Braces,
+  Ellipsis,
+  FlaskConical,
+  History,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  Webhook,
+} from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 
 type EventsTab = 'recent' | 'schemas'
@@ -64,12 +75,39 @@ function EventsPage() {
           })
         }
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <TabsList>
-            <TabsTrigger value="recent">Recent Events</TabsTrigger>
-            <TabsTrigger value="schemas">Custom Schemas</TabsTrigger>
-          </TabsList>
-          <div className="ml-auto flex items-center gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-2xl font-bold">Events</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <TabsList>
+              <TabsTrigger value="recent" className="px-2.5">
+                <History />
+                Recent
+              </TabsTrigger>
+              <TabsTrigger value="schemas" className="px-2.5">
+                <Braces />
+                Custom types
+              </TabsTrigger>
+            </TabsList>
+            {tab === 'recent' && (
+              <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
+                <SelectTrigger className="w-28" aria-label="Events shown">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[25, 50, 75, 100].map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      Last {n}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Link to="/agents/test-event" search={{ org: orgId }}>
+              <Button variant="outline">
+                <FlaskConical className="h-4 w-4" />
+                Test event
+              </Button>
+            </Link>
             {tab === 'schemas' && (
               <Link to="/custom-event-types/new" search={{ org: orgId }}>
                 <Button>
@@ -78,34 +116,12 @@ function EventsPage() {
                 </Button>
               </Link>
             )}
-            {tab === 'recent' && (
-              <div className="flex items-center gap-2">
-                <Link to="/agents/test-event" search={{ org: orgId }}>
-                  <Button variant="outline">
-                    <FlaskConical className="h-4 w-4" />
-                    Test
-                  </Button>
-                </Link>
-                <span className="text-sm text-muted-foreground">Show</span>
-                <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
-                  <SelectTrigger className="w-20">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="25">25</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="75">75</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
         </div>
-        <TabsContent value="recent" className="pt-2">
+        <TabsContent value="recent">
           <RecentEventsTab limit={limit} />
         </TabsContent>
-        <TabsContent value="schemas" className="pt-2">
+        <TabsContent value="schemas">
           <CustomSchemasTab />
         </TabsContent>
       </Tabs>
@@ -129,21 +145,21 @@ function RecentEventsTab({ limit }: { limit: number }) {
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="hidden md:table-cell">ID</TableHead>
-          <TableHead>Description</TableHead>
-          <TableHead>Data</TableHead>
-          <TableHead className="hidden md:table-cell">Created</TableHead>
-        </TableRow>
-      </TableHeader>
+    <ListTable
+      header={
+        <>
+          <ListHead>Event</ListHead>
+          <ListHead>Body</ListHead>
+          <ListHead className="hidden md:table-cell">Received</ListHead>
+        </>
+      }
+    >
       <TableBody>
         {events.map((event) => (
           <EventRow key={String(event.id)} event={event} />
         ))}
       </TableBody>
-    </Table>
+    </ListTable>
   )
 }
 
@@ -151,37 +167,48 @@ function EventRow({ event }: { event: Event }) {
   const orgId = useOrgId()
   // Only external events carry description/url/data; other arms render as '-'.
   const external = event.payload.case === 'external' ? event.payload.value : undefined
-  const dataContent = external?.data || '-'
-  const truncatedData = dataContent.length > 100 ? dataContent.slice(0, 100) + '...' : dataContent
+  // Custom events all persist source "custom", so their icon comes from the
+  // URL they point at.
+  const source = external?.source ?? ''
+  const { icon } = externalSourceStyle(
+    source === 'custom' && external?.url ? sourceFromUrl(external.url) : source,
+  )
 
   return (
     <TableRow>
-      <TableCell className="hidden md:table-cell">{String(event.id)}</TableCell>
-      <TableCell>
+      <TableCell className="w-1/2 max-w-0 py-2.5 pl-4">
         <Link
           to="/events/$id"
           search={{ org: orgId }}
           params={{ id: String(event.id) }}
-          className="text-primary hover:underline"
+          className="group flex min-w-0 items-start gap-2.5"
         >
-          {external?.description || '-'}
+          <span className="mt-0.5 shrink-0">{icon}</span>
+          <span className="min-w-0">
+            <span className="block truncate font-medium group-hover:underline">
+              {external?.description || external?.type || '-'}
+            </span>
+            <span className="text-muted-foreground block truncate font-mono text-xs">
+              #{String(event.id)}
+              {external?.type && ` · ${source}/${external.type}`}
+            </span>
+          </span>
         </Link>
       </TableCell>
-      <TableCell className="max-w-xs truncate">
-        {external?.url ? (
+      <TableCell className="w-1/2 max-w-0 py-2.5">
+        <div className="text-muted-foreground truncate">{external?.data || '-'}</div>
+        {external?.url && (
           <a
             href={external.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline"
+            className="text-muted-foreground hover:text-foreground block truncate text-xs hover:underline"
           >
-            {truncatedData}
+            {external.url}
           </a>
-        ) : (
-          truncatedData
         )}
       </TableCell>
-      <TableCell className="hidden md:table-cell text-muted-foreground">
+      <TableCell className="text-muted-foreground hidden w-px py-2.5 pr-4 whitespace-nowrap md:table-cell">
         {event.createdAt ? <RelativeTime date={timestampDate(event.createdAt)} /> : '-'}
       </TableCell>
     </TableRow>
@@ -213,60 +240,89 @@ function CustomSchemasTab() {
           No custom event types defined. Add one to route events your own systems submit.
         </div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Label</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead className="hidden md:table-cell">Attributes</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
+        <ListTable
+          header={
+            <>
+              <ListHead>Type</ListHead>
+              <ListHead className="hidden md:table-cell">Attributes</ListHead>
+              <ListHead />
+            </>
+          }
+        >
           <TableBody>
             {eventTypes.map((eventType) => (
               <TableRow key={eventType.type}>
-                <TableCell className="font-medium whitespace-nowrap">{eventType.label}</TableCell>
-                <TableCell className="font-mono">{eventType.type}</TableCell>
-                <TableCell className="hidden md:table-cell">
-                  <div className="flex flex-wrap gap-1">
+                <TableCell className="py-2.5 pl-4">
+                  <Link
+                    to="/custom-event-types/$type"
+                    params={{ type: eventType.type }}
+                    search={{ org: orgId }}
+                    className="group flex items-start gap-2.5"
+                  >
+                    <Webhook className="mt-0.5 size-4 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block font-medium group-hover:underline">
+                        {eventType.label}
+                      </span>
+                      <span className="text-muted-foreground block font-mono text-xs">
+                        custom/{eventType.type}
+                      </span>
+                    </span>
+                  </Link>
+                </TableCell>
+                <TableCell className="hidden py-2.5 whitespace-normal md:table-cell">
+                  <div className="text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-xs">
                     {eventType.attrs.map((attr) => (
-                      <Badge key={attr.key} variant="outline" className="font-mono">
+                      <span key={attr.key} title={attr.label}>
                         {attr.key}
-                      </Badge>
+                      </span>
                     ))}
                   </div>
                 </TableCell>
-                <TableCell>
-                  <div className="flex justify-end gap-1">
-                    <CustomEventSchemaDialog eventType={eventType} />
-                    <Link
-                      to="/custom-event-types/$type"
-                      params={{ type: eventType.type }}
-                      search={{ org: orgId }}
-                    >
-                      <Button variant="outline" size="sm" disabled={updateMutation.isPending}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDelete(eventType.type)}
-                      disabled={updateMutation.isPending}
-                      aria-label="Remove type"
-                    >
-                      {updateMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </Button>
+                <TableCell className="py-2.5 pr-3">
+                  <div className="flex items-center justify-end gap-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`More actions for ${eventType.label}`}
+                          disabled={updateMutation.isPending}
+                        >
+                          {updateMutation.isPending ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Ellipsis className="size-4" />
+                          )}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link
+                            to="/custom-event-types/$type"
+                            params={{ type: eventType.type }}
+                            search={{ org: orgId }}
+                          >
+                            <Pencil />
+                            Edit
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => handleDelete(eventType.type)}
+                        >
+                          <Trash2 />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+        </ListTable>
       )}
     </div>
   )

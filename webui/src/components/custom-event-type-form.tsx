@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { CustomEventSchemaDialog } from '@/components/custom-event-schema-dialog'
 import { FieldLabel, SaveBar, SectionHeading } from '@/components/form-layout'
 import { useOrgId } from '@/hooks/use-org-id'
-import { ChevronLeft, Lock, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, Lock, Plus, Trash2, Webhook } from 'lucide-react'
 import {
   CUSTOM_SOURCE,
   customEventTypeFormError,
   emptyAttr,
   type AttrDraft,
   type CustomEventTypeFormValues,
+  buildEventTypeDef,
 } from '@/lib/custom-event-types'
 
 // Keys for the attribute cards, so removing one doesn't shift focus onto its
@@ -88,14 +89,23 @@ export function CustomEventTypeForm({
               Custom event types
             </Link>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
-                {values.label.trim() || 'New custom event type'}
-              </h1>
-              {values.type.trim() && (
-                <Badge variant="secondary" className="font-mono font-normal">
-                  {CUSTOM_SOURCE}/{values.type.trim()}
-                </Badge>
-              )}
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-card">
+                <Webhook className="size-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-2xl font-semibold tracking-tight">
+                  {values.label.trim() || 'New custom event type'}
+                </h1>
+                {values.type.trim() && (
+                  <div className="truncate font-mono text-xs text-muted-foreground">
+                    {CUSTOM_SOURCE}/{values.type.trim()}
+                  </div>
+                )}
+              </div>
+              {/* The schema of the draft as it stands, once it would save. */}
+              <CustomEventSchemaDialog
+                eventType={invalid ? undefined : buildEventTypeDef(values)}
+              />
             </div>
           </header>
 
@@ -203,9 +213,7 @@ function AttrEditor({
           {attr.label.trim() || <span className="text-muted-foreground">New attribute</span>}
         </span>
         {attr.key.trim() && (
-          <Badge variant="outline" className="bg-background font-mono font-normal">
-            {attr.key.trim()}
-          </Badge>
+          <code className="font-mono text-xs text-muted-foreground">{attr.key.trim()}</code>
         )}
         <div className="ml-auto flex shrink-0 items-center">
           {attr.pinned ? (

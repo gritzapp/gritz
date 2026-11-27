@@ -57,15 +57,24 @@ export function ArchiveButton({
   const size = countdown ? (compact ? 'sm' : 'default') : compact ? 'icon-sm' : 'icon'
   return (
     <Button
-      variant="outline"
+      variant={compact ? 'ghost' : 'outline'}
       size={size}
+      // With a countdown, pr-2 matches the icon-only button's inset so the icons
+      // line up down the column.
+      className={
+        compact
+          ? countdown
+            ? 'text-muted-foreground gap-2.5 has-[>svg]:pr-2'
+            : 'text-muted-foreground'
+          : undefined
+      }
       onClick={unarchive ? onUnarchive : onArchive}
       disabled={(disabled ?? pending) || !canAct}
       aria-label={label}
       title={countdown ? `Auto-archives in ${countdown}` : label}
     >
-      {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
       {countdown && <span className="tabular-nums">{countdown}</span>}
+      {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
     </Button>
   )
 }

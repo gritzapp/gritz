@@ -16,27 +16,34 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RelativeTime } from '@/components/relative-time'
 import { externalSourceStyle } from '@/components/external-source'
-import { ClaimBadge, KindBadge } from '@/components/task-links'
-import { sourceFromUrl } from '@/lib/timeline'
+import { LinkKindMark } from '@/components/task-links'
+import { LinkTypeIcon } from '@/components/agent-overview'
+import { useAgent } from '@/components/agent-select'
+import { linkTypeFromUrl, sourceFromUrl } from '@/lib/timeline'
 import type { TimelineItem, LifecycleCategory } from '@/lib/timeline'
 
 // ----- top-level component ---------------------------------------------------
 
-export function TaskTimeline({ items }: { items: TimelineItem[] }) {
+// TaskTimeline is the task's activity in order: instructions, agent output,
+// events and links as cards, and the task's lifecycle as slim lines on the
+// rail between them.
+export function TaskTimeline({ items, agentId }: { items: TimelineItem[]; agentId: bigint }) {
+  // The agent may be deleted, for an archived task.
+  const agentName = useAgent(agentId)?.name ?? 'Agent'
+
   if (items.length === 0) {
     return <div className="text-muted-foreground">No activity yet.</div>
   }
 
   return (
     <ol className="relative space-y-3">
-      {/* the rail */}
-      <div className="absolute left-[24px] top-2 bottom-2 w-px bg-border" aria-hidden />
+      {/* the rail, through the centre of the card icons and lifecycle marks */}
+      <div className="absolute top-2 bottom-2 left-[24.5px] w-px bg-border" aria-hidden />
       {items.map((item) => (
-        <TimelineRow key={item.id} item={item} />
+        <TimelineRow key={item.id} item={item} agentName={agentName} />
       ))}
     </ol>
   )
@@ -44,13 +51,44 @@ export function TaskTimeline({ items }: { items: TimelineItem[] }) {
 
 // ----- row scaffolding ------------------------------------------------------
 
-// Card rows span the full width and sit on top of the rail; their icon lives in
-// the card header rather than in a marker on the rail.
-function Row({ children }: { children: React.ReactNode }) {
-  return <li className="relative z-10 min-w-0 bg-background">{children}</li>
+// The box a lifecycle mark sits in. LifecycleRow insets it so its centre is on
+// the rail, where the card icons are.
+const MARK = 'flex size-7 shrink-0 items-center justify-center'
+
+// Card is an entry that says something: it spans the width, on top of the
+// rail, under a header naming what it is and when. Each kind tints it its own
+// way.
+function Card({
+  icon,
+  label,
+  meta,
+  at,
+  className,
+  children,
+}: {
+  icon: React.ReactNode
+  label: React.ReactNode
+  meta?: React.ReactNode
+  at: Date
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <li className={cn('relative z-10 min-w-0 rounded-lg border bg-card', className)}>
+      <div className="flex items-center gap-2 px-4 pt-2.5 text-xs">
+        <span className="flex shrink-0 text-foreground">{icon}</span>
+        <span className="truncate font-medium text-foreground">{label}</span>
+        {meta}
+        <span className="ml-auto shrink-0 text-muted-foreground">
+          <RelativeTime date={at} />
+        </span>
+      </div>
+      <div className="px-4 pt-1.5 pb-3">{children}</div>
+    </li>
+  )
 }
 
-function TimelineRow({ item }: { item: TimelineItem }) {
+function TimelineRow({ item, agentName }: { item: TimelineItem; agentName: string }) {
   switch (item.kind) {
     case 'instruction':
       return <InstructionRow item={item} />
@@ -61,33 +99,31 @@ function TimelineRow({ item }: { item: TimelineItem }) {
     case 'link':
       return <LinkRow item={item} />
     case 'report':
-      return <ReportRow item={item} />
+      return <ReportRow item={item} agentName={agentName} />
   }
 }
 
 // ----- per-kind rows ---------------------------------------------------------
 
+// An instruction is what the task was told: tinted, so the asks stand out from
+// what came back.
 function InstructionRow({ item }: { item: Extract<TimelineItem, { kind: 'instruction' }> }) {
   return (
-    <Row>
-      <div className="rounded-lg border border-primary/30 bg-primary/5">
-        <div className="flex items-center gap-2 px-4 py-2 text-xs">
-          <MessageSquarePlus className="h-4 w-4 shrink-0 text-primary" />
-          <span className="font-medium text-foreground">Instruction</span>
-          {item.wakes && <WakeBadge />}
-          <span className="ml-auto text-muted-foreground">
-            <RelativeTime date={item.at} />
-          </span>
-        </div>
-        <div className="border-t border-primary/20 px-4 py-3">
-          <Prose text={item.text} />
-          {item.url && <SourceLink url={item.url} />}
-        </div>
-      </div>
-    </Row>
+    <Card
+      icon={<MessageSquarePlus className="size-4" />}
+      label="Instruction"
+      meta={item.wakes && <WakeMark />}
+      at={item.at}
+      className="border-foreground/15 bg-secondary"
+    >
+      <Prose text={item.text} />
+      {item.url && <SourceLink url={item.url} />}
+    </Card>
   )
 }
 
+// An external event is a notice from outside: an amber edge and a faint amber
+// tint.
 function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' }> }) {
   // Custom events all persist source "custom", so their style comes from the
   // URL they point at; unrecognized URLs keep the generic "External" style.
@@ -95,27 +131,24 @@ function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' 
     item.source === 'custom' && item.url ? sourceFromUrl(item.url) : item.source,
   )
   return (
-    <Row>
-      <div className="rounded-lg border border-amber-300/60 bg-amber-50/60 dark:border-amber-800/50 dark:bg-amber-950/20">
-        <div className="flex items-center gap-2 px-4 py-2 text-xs">
-          <span className="shrink-0 text-foreground">{src.icon}</span>
-          <span className="font-medium text-foreground">Event</span>
-          <span className="text-muted-foreground">· {src.label}</span>
-          {item.wakes && <WakeBadge />}
-          <span className="ml-auto text-muted-foreground">
-            <RelativeTime date={item.at} />
-          </span>
-        </div>
-        <div className="border-t border-amber-300/40 dark:border-amber-800/40 px-4 py-3">
-          <p className="text-sm font-medium text-foreground">{item.description}</p>
-          {item.data && (
-            <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{item.data}</p>
-          )}
-          {item.url && <SourceLink url={item.url} />}
-          {item.details && <EventDetails details={item.details} />}
-        </div>
-      </div>
-    </Row>
+    <Card
+      icon={src.icon}
+      label={`${src.label} event`}
+      meta={item.wakes && <WakeMark />}
+      at={item.at}
+      // The tint is a flat gradient over the card's own opaque background, so
+      // the rail behind the card doesn't show through it.
+      // The second pixel of the amber edge is an inset shadow, not border width,
+      // so the icon stays on the rail.
+      className="border-l-amber-500 bg-linear-to-r from-amber-50/50 to-amber-50/50 shadow-[inset_1px_0_0_var(--color-amber-500)] dark:border-l-amber-400 dark:from-amber-950/15 dark:to-amber-950/15 dark:shadow-[inset_1px_0_0_var(--color-amber-400)]"
+    >
+      <p className="text-sm font-medium text-foreground">{item.description}</p>
+      {item.data && (
+        <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{item.data}</p>
+      )}
+      {item.url && <SourceLink url={item.url} />}
+      {item.details && <EventDetails details={item.details} />}
+    </Card>
   )
 }
 
@@ -162,92 +195,79 @@ const lifecycleConfig: Record<LifecycleCategory, { icon: React.ReactNode; tone: 
   updated: { icon: <Info className="h-3.5 w-3.5" />, tone: 'text-muted-foreground' },
 }
 
-// Lifecycle entries are deliberately understated: a slim inline marker on the
-// rail rather than a full card.
+// Lifecycle entries are deliberately understated: a small mark on the rail and
+// one muted line, with only the icon carrying the colour of what happened.
 function LifecycleRow({ item }: { item: Extract<TimelineItem, { kind: 'lifecycle' }> }) {
   const cfg = lifecycleConfig[item.category]
   return (
-    <li className="relative flex items-center gap-3">
-      <div
-        className={cn(
-          'relative z-10 ml-[7px] flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-muted',
-          cfg.tone,
-        )}
-      >
-        {cfg.icon}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 text-xs">
-        <span className={cn('font-medium', cfg.tone)}>{item.summary}</span>
-        <span className="ml-auto text-muted-foreground">
-          <RelativeTime date={item.at} />
-        </span>
-      </div>
+    // The inset centres the mark on the rail, and the gap starts the summary
+    // where the card labels start.
+    <li className="relative flex items-center gap-0.5 pl-[11px] text-xs text-muted-foreground">
+      <span className={cn(MARK, 'z-10 rounded-full bg-background', cfg.tone)}>{cfg.icon}</span>
+      <span className="min-w-0 truncate" title={item.summary}>
+        {item.summary}
+      </span>
+      <span className="ml-auto shrink-0 pr-4">
+        <RelativeTime date={item.at} />
+      </span>
     </li>
   )
 }
 
+// A created link is a card too, a slim one: links are often what a task is
+// for.
 function LinkRow({ item }: { item: Extract<TimelineItem, { kind: 'link' }> }) {
-  const { icon } = externalSourceStyle(item.source)
   return (
-    <Row>
-      <div className="rounded-lg border bg-card px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="shrink-0 text-foreground">{icon}</span>
-          <span className="font-medium text-foreground">Link created</span>
-          {item.linkKind && <KindBadge kind={item.linkKind} />}
-          {item.claim && <ClaimBadge claim={item.claim} />}
-          <span className="ml-auto">
-            <RelativeTime date={item.at} />
-          </span>
-        </div>
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-1 block text-sm font-medium text-primary hover:underline break-words"
-        >
-          {item.title}
-        </a>
-        {item.relevance && <p className="mt-0.5 text-xs text-muted-foreground">{item.relevance}</p>}
-      </div>
-    </Row>
+    <Card
+      icon={<LinkTypeIcon type={linkTypeFromUrl(item.url)} />}
+      label="Link created"
+      meta={<LinkKindMark kind={item.linkKind} claim={item.claim} />}
+      at={item.at}
+    >
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block text-sm font-medium break-words hover:underline"
+      >
+        {item.title}
+      </a>
+      {item.relevance && <p className="mt-0.5 text-xs text-muted-foreground">{item.relevance}</p>}
+    </Card>
   )
 }
 
 // ----- report row ------------------------------------------------------------
 
 // Reports ARE the agent's output (written via the `report` tool). Each report
-// renders as its own entry.
-function ReportRow({ item }: { item: Extract<TimelineItem, { kind: 'report' }> }) {
+// renders as its own entry, under the agent's name.
+function ReportRow({
+  item,
+  agentName,
+}: {
+  item: Extract<TimelineItem, { kind: 'report' }>
+  agentName: string
+}) {
   return (
-    <Row>
-      <div className="rounded-lg border bg-card shadow-sm">
-        <div className="flex items-center gap-2 px-4 py-2 text-xs">
-          <Bot className="h-4 w-4 shrink-0 text-violet-700 dark:text-violet-400" />
-          <span className="font-medium text-foreground">Agent output</span>
-          <span className="ml-auto text-muted-foreground">
-            <RelativeTime date={item.at} />
-          </span>
-        </div>
-        <div className="border-t px-4 py-3">
-          <CollapsibleProse text={item.content} />
-        </div>
-      </div>
-    </Row>
+    <Card
+      icon={<Bot className="size-4 text-violet-700 dark:text-violet-400" />}
+      label={agentName}
+      at={item.at}
+      className="shadow-sm"
+    >
+      <CollapsibleProse text={item.content} />
+    </Card>
   )
 }
 
 // ----- small shared bits -----------------------------------------------------
 
-function WakeBadge() {
+function WakeMark() {
   return (
-    <Badge
-      variant="outline"
-      className="gap-1 border-orange-200 bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-900 text-[10px]"
-    >
-      <Zap className="h-3 w-3" />
+    <span className="inline-flex shrink-0 items-center gap-1 text-orange-700 dark:text-orange-400">
+      <Zap className="size-3" />
       woke task
-    </Badge>
+    </span>
   )
 }
 

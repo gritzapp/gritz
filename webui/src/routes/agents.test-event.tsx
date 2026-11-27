@@ -1,9 +1,7 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { TestEventForm } from '@/components/test-event-form'
 import { useOrgId } from '@/hooks/use-org-id'
-import { ArrowLeft } from 'lucide-react'
+import { ChevronLeft, FlaskConical } from 'lucide-react'
 
 export const Route = createFileRoute('/agents/test-event')({
   staticData: { orgSwitchRedirect: '/agents/test-event' },
@@ -11,33 +9,33 @@ export const Route = createFileRoute('/agents/test-event')({
 })
 
 function TestEventPage() {
-  const navigate = useNavigate()
   const orgId = useOrgId()
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-6">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => navigate({ to: '/agents', search: { org: orgId } })}
+    <div className="mx-auto max-w-3xl space-y-10 px-6 py-8">
+      <header className="space-y-3">
+        <Link
+          to="/agents"
+          search={{ org: orgId }}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
-        <h1 className="text-2xl font-bold">Test an Event</h1>
-      </div>
-      <p className="text-muted-foreground max-w-2xl">
-        Compose a synthetic event and see what your agents would do with it. Dry run reports each
-        agent&apos;s matching trigger and the tasks the event reaches without touching anything;
-        firing routes the event for real.
-      </p>
+          <ChevronLeft className="h-4 w-4" />
+          Agents
+        </Link>
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-card">
+            <FlaskConical className="size-5" />
+          </span>
+          <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">Test an event</h1>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Compose a synthetic event and see what your agents would do with it. Dry run reports each
+          agent&apos;s matching trigger and the tasks the event reaches without touching anything;
+          firing routes the event for real.
+        </p>
+      </header>
 
-      <Card>
-        <CardContent>
-          <TestEventForm />
-        </CardContent>
-      </Card>
+      <TestEventForm />
     </div>
   )
 }

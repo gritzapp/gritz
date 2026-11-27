@@ -15,6 +15,16 @@ export class OAuthAuthorization {
     this.responseType = params.get('response_type') ?? ''
   }
 
+  // redirectHost is the host the browser is sent back to once the request is
+  // approved or denied, or '' when the redirect URI doesn't parse.
+  get redirectHost(): string {
+    try {
+      return new URL(this.redirectUri).host
+    } catch {
+      return ''
+    }
+  }
+
   get isValid(): boolean {
     return !!(this.clientId && this.redirectUri && this.codeChallenge)
   }

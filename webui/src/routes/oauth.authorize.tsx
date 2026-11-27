@@ -5,8 +5,10 @@ import { getProfile } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { useAuthTransport } from '@/lib/services'
 import { OAuthAuthorization } from '@/lib/oauth'
 import { useOrgId } from '@/hooks/use-org-id'
-import { Card, CardContent } from '@/components/ui/card'
+import { AgentMonogram } from '@/components/agent-overview'
+import { DetailList, DetailRow } from '@/components/detail-list'
 import { Button } from '@/components/ui/button'
+import { Loader2, ShieldCheck } from 'lucide-react'
 
 export const Route = createFileRoute('/oauth/authorize')({
   component: OAuthAuthorizePage,
@@ -39,71 +41,78 @@ function OAuthAuthorizePage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-8 px-4">
-        <p className="text-muted-foreground">Loading...</p>
+      <div className="flex h-full items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
       </div>
     )
   }
 
   if (!authz.isValid) {
     return (
-      <div className="container mx-auto py-8 px-4">
-        <Card>
-          <CardContent>
-            <p className="text-destructive">Missing required OAuth parameters.</p>
-          </CardContent>
-        </Card>
+      <div className="flex h-full items-center justify-center">
+        <div className="text-destructive">Missing required OAuth parameters.</div>
       </div>
     )
   }
 
+  const who = profile?.name || profile?.email || 'Unknown'
+
   return (
-    <div className="container mx-auto py-8 px-4 max-w-md">
-      <h1 className="text-2xl font-bold mb-6">Authorize Application</h1>
+    <div className="mx-auto max-w-md space-y-8 px-6 py-12">
+      <header className="space-y-3">
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-card">
+            <ShieldCheck className="size-5" />
+          </span>
+          <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
+            Authorize application
+          </h1>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          An application is requesting access to your account.
+        </p>
+      </header>
 
-      <Card>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            An application is requesting access to your account.
-          </p>
-
-          <div className="space-y-2">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Signed in as: </span>
-              <span className="font-medium">{profile?.name || profile?.email || 'Unknown'}</span>
-            </div>
+      <DetailList>
+        <DetailRow label="Signed in as">
+          <AgentMonogram name={who} className="size-6 rounded-full text-[10px]" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{who}</div>
             {profile?.email && profile?.name && (
-              <div className="text-sm">
-                <span className="text-muted-foreground">Email: </span>
-                <span>{profile.email}</span>
-              </div>
-            )}
-            {currentOrg && (
-              <div className="text-sm">
-                <span className="text-muted-foreground">Organization: </span>
-                <span className="font-medium">{currentOrg.name}</span>
-              </div>
+              <div className="truncate text-xs text-muted-foreground">{profile.email}</div>
             )}
           </div>
+        </DetailRow>
+        {currentOrg && (
+          <DetailRow label="Organisation">
+            <AgentMonogram name={currentOrg.name} className="size-6 text-[10px]" />
+            <div className="truncate text-sm font-medium">{currentOrg.name}</div>
+          </DetailRow>
+        )}
+        {authz.redirectHost && (
+          <DetailRow label="Returns to">
+            <code className="truncate font-mono text-sm">{authz.redirectHost}</code>
+          </DetailRow>
+        )}
+      </DetailList>
 
-          {error && <div className="text-destructive text-sm">{error}</div>}
+      {error && <div className="text-destructive text-sm">{error}</div>}
 
-          <div className="flex gap-2 pt-2">
-            <Button onClick={handleApprove} disabled={submitting}>
-              {submitting ? 'Authorizing...' : 'Approve'}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                window.location.href = authz.denyRedirectUri
-              }}
-              disabled={submitting}
-            >
-              Deny
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex gap-2">
+        <Button onClick={handleApprove} disabled={submitting}>
+          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+          Approve
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            window.location.href = authz.denyRedirectUri
+          }}
+          disabled={submitting}
+        >
+          Deny
+        </Button>
+      </div>
     </div>
   )
 }

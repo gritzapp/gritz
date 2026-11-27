@@ -103,6 +103,24 @@ export function sourceFromUrl(url: string): string {
   return 'other'
 }
 
+// linkTypeFromUrl infers the link type a URL would be linked as (github.pr,
+// github.issue, github.workflow_run, jira.issue), or '' when it isn't
+// recognized. Links don't carry their type, only their kind, which an agent may
+// name anything.
+export function linkTypeFromUrl(url: string): string {
+  switch (sourceFromUrl(url)) {
+    case 'github':
+      if (/\/pull\/\d+/.test(url)) return 'github.pr'
+      if (/\/issues\/\d+/.test(url)) return 'github.issue'
+      if (/\/actions\/runs\/\d+/.test(url)) return 'github.workflow_run'
+      return ''
+    case 'jira':
+      return 'jira.issue'
+    default:
+      return ''
+  }
+}
+
 // hostname returns the URL's lowercased hostname, or '' if it doesn't parse.
 function hostname(url: string): string {
   try {

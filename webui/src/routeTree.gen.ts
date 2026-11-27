@@ -21,13 +21,13 @@ import { Route as EventsIndexRouteImport } from './routes/events.index'
 import { Route as EventsIdRouteImport } from './routes/events.$id'
 import { Route as GithubSetupRouteImport } from './routes/github.setup'
 import { Route as KeysIndexRouteImport } from './routes/keys.index'
-import { Route as KeysNewRouteImport } from './routes/keys.new'
 import { Route as MembersIndexRouteImport } from './routes/members.index'
 import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
 import { Route as TasksIndexRouteImport } from './routes/tasks.index'
 import { Route as TasksIdRouteImport } from './routes/tasks.$id'
 import { Route as TasksNewRouteImport } from './routes/tasks.new'
 import { Route as WorkspacesIndexRouteImport } from './routes/workspaces.index'
+import { Route as WorkspacesRunnerNameRouteImport } from './routes/workspaces.$runner.$name'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -89,11 +89,6 @@ const KeysIndexRoute = KeysIndexRouteImport.update({
   path: '/keys/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const KeysNewRoute = KeysNewRouteImport.update({
-  id: '/keys/new',
-  path: '/keys/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const MembersIndexRoute = MembersIndexRouteImport.update({
   id: '/members/',
   path: '/members/',
@@ -124,6 +119,11 @@ const WorkspacesIndexRoute = WorkspacesIndexRouteImport.update({
   path: '/workspaces/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspacesRunnerNameRoute = WorkspacesRunnerNameRouteImport.update({
+  id: '/workspaces/$runner/$name',
+  path: '/workspaces/$runner/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -135,7 +135,6 @@ export interface FileRoutesByFullPath {
   '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
-  '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
@@ -145,6 +144,7 @@ export interface FileRoutesByFullPath {
   '/members/': typeof MembersIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
+  '/workspaces/$runner/$name': typeof WorkspacesRunnerNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -156,7 +156,6 @@ export interface FileRoutesByTo {
   '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
-  '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
@@ -166,6 +165,7 @@ export interface FileRoutesByTo {
   '/members': typeof MembersIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/workspaces': typeof WorkspacesIndexRoute
+  '/workspaces/$runner/$name': typeof WorkspacesRunnerNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -178,7 +178,6 @@ export interface FileRoutesById {
   '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
-  '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
@@ -188,6 +187,7 @@ export interface FileRoutesById {
   '/members/': typeof MembersIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
+  '/workspaces/$runner/$name': typeof WorkspacesRunnerNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -201,7 +201,6 @@ export interface FileRouteTypes {
     | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
-    | '/keys/new'
     | '/oauth/authorize'
     | '/tasks/$id'
     | '/tasks/new'
@@ -211,6 +210,7 @@ export interface FileRouteTypes {
     | '/members/'
     | '/tasks/'
     | '/workspaces/'
+    | '/workspaces/$runner/$name'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -222,7 +222,6 @@ export interface FileRouteTypes {
     | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
-    | '/keys/new'
     | '/oauth/authorize'
     | '/tasks/$id'
     | '/tasks/new'
@@ -232,6 +231,7 @@ export interface FileRouteTypes {
     | '/members'
     | '/tasks'
     | '/workspaces'
+    | '/workspaces/$runner/$name'
   id:
     | '__root__'
     | '/'
@@ -243,7 +243,6 @@ export interface FileRouteTypes {
     | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
-    | '/keys/new'
     | '/oauth/authorize'
     | '/tasks/$id'
     | '/tasks/new'
@@ -253,6 +252,7 @@ export interface FileRouteTypes {
     | '/members/'
     | '/tasks/'
     | '/workspaces/'
+    | '/workspaces/$runner/$name'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -265,7 +265,6 @@ export interface RootRouteChildren {
   CustomEventTypesNewRoute: typeof CustomEventTypesNewRoute
   EventsIdRoute: typeof EventsIdRoute
   GithubSetupRoute: typeof GithubSetupRoute
-  KeysNewRoute: typeof KeysNewRoute
   OauthAuthorizeRoute: typeof OauthAuthorizeRoute
   TasksIdRoute: typeof TasksIdRoute
   TasksNewRoute: typeof TasksNewRoute
@@ -275,6 +274,7 @@ export interface RootRouteChildren {
   MembersIndexRoute: typeof MembersIndexRoute
   TasksIndexRoute: typeof TasksIndexRoute
   WorkspacesIndexRoute: typeof WorkspacesIndexRoute
+  WorkspacesRunnerNameRoute: typeof WorkspacesRunnerNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -363,13 +363,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KeysIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/keys/new': {
-      id: '/keys/new'
-      path: '/keys/new'
-      fullPath: '/keys/new'
-      preLoaderRoute: typeof KeysNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/members/': {
       id: '/members/'
       path: '/members'
@@ -412,6 +405,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workspaces/$runner/$name': {
+      id: '/workspaces/$runner/$name'
+      path: '/workspaces/$runner/$name'
+      fullPath: '/workspaces/$runner/$name'
+      preLoaderRoute: typeof WorkspacesRunnerNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -425,7 +425,6 @@ const rootRouteChildren: RootRouteChildren = {
   CustomEventTypesNewRoute: CustomEventTypesNewRoute,
   EventsIdRoute: EventsIdRoute,
   GithubSetupRoute: GithubSetupRoute,
-  KeysNewRoute: KeysNewRoute,
   OauthAuthorizeRoute: OauthAuthorizeRoute,
   TasksIdRoute: TasksIdRoute,
   TasksNewRoute: TasksNewRoute,
@@ -435,6 +434,7 @@ const rootRouteChildren: RootRouteChildren = {
   MembersIndexRoute: MembersIndexRoute,
   TasksIndexRoute: TasksIndexRoute,
   WorkspacesIndexRoute: WorkspacesIndexRoute,
+  WorkspacesRunnerNameRoute: WorkspacesRunnerNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
