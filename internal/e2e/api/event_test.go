@@ -158,7 +158,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		AgentId:      agent.Id,
@@ -168,7 +168,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.pr"})
 	h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
-		Type:        "issue_comment",
+		Type:        "pull_request_comment",
 		Description: "PR comment",
 		Url:         url,
 		Fire:        true,
@@ -190,7 +190,7 @@ func TestListEvents_ExternalOnly(t *testing.T) {
 					Description: "PR comment",
 					Url:         url,
 					Source:      "github",
-					Type:        "issue_comment",
+					Type:        "pull_request_comment",
 				}},
 			},
 		},
@@ -607,7 +607,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment", Wake: true}}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_comment", Wake: true}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{
 		AgentId:      agent.Id,
@@ -617,7 +617,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.pr"})
 	h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source:      "github",
-		Type:        "issue_comment",
+		Type:        "pull_request_comment",
 		Description: "PR comment",
 		Url:         url,
 		Fire:        true,
@@ -649,7 +649,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 					Description: "PR comment",
 					Url:         url,
 					Source:      "github",
-					Type:        "issue_comment",
+					Type:        "pull_request_comment",
 				}},
 			},
 		},
@@ -682,7 +682,7 @@ func TestListEventsByTask_TypesFilter(t *testing.T) {
 					Description: "PR comment",
 					Url:         url,
 					Source:      "github",
-					Type:        "issue_comment",
+					Type:        "pull_request_comment",
 				}},
 			},
 		},

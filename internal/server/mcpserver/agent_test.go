@@ -118,11 +118,11 @@ func TestPutAgentCreates(t *testing.T) {
 			"features":     []any{"jira", "codex"},
 			"triggers": []any{map[string]any{
 				"source":   "github",
-				"type":     "issue_comment",
+				"type":     "pull_request_comment",
 				"yield_to": []any{"pr-owner"},
 				"link":     "github.pr",
 			}},
-			"links": []any{map[string]any{"type": "github.pr", "events": []any{map[string]any{"type": "issue_comment"}}}},
+			"links": []any{map[string]any{"type": "github.pr", "events": []any{map[string]any{"type": "pull_request_comment"}}}},
 		}},
 	})
 
@@ -137,11 +137,11 @@ func TestPutAgentCreates(t *testing.T) {
 		Features:    []string{"jira", "codex"},
 		Triggers: []*gritzv1.AgentTrigger{{
 			Source:  "github",
-			Type:    "issue_comment",
+			Type:    "pull_request_comment",
 			YieldTo: []string{"pr-owner"},
 			Link:    "github.pr",
 		}},
-		Links: []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
+		Links: []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_comment"}}}},
 	}}, protocmp.Transform())
 	var out map[string]any
 	mcptest.UnmarshalCallToolResult(t, result, &out)

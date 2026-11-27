@@ -50,8 +50,8 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 	reg.MustRegister(model.EventTypeDef{
 		Source:    "github",
 		Type:      EventTypeIssueComment,
-		Label:     "GitHub: Issue/PR Comment",
-		LinkTypes: []string{LinkTypeIssue, LinkTypePullRequest},
+		Label:     "GitHub: Issue Comment",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
@@ -62,8 +62,8 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			{
 				Key:         "url",
 				Label:       "Comment URL",
-				Placeholder: "https://github.com/owner/repo/",
-				Help:        "Matched against the comment's own URL (the issue or PR URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
+				Placeholder: "https://github.com/owner/repo/issues/",
+				Help:        "Matched against the comment's own URL (the issue URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
 			},
 			{
 				Key:         "mention",
@@ -75,7 +75,39 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 				Key:         "user",
 				Label:       "User",
 				Placeholder: "octocat",
-				Help:        "The GitHub username of the user who commented (no leading @).",
+				Help:        "The GitHub username of the user who commented on the issue (no leading @).",
+			},
+		},
+	})
+	reg.MustRegister(model.EventTypeDef{
+		Source:    "github",
+		Type:      EventTypePullRequestComment,
+		Label:     "GitHub: PR Comment",
+		LinkTypes: []string{LinkTypePullRequest},
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Comment Body",
+				Placeholder: "gritz:",
+				Help:        "Matched against the text of the comment on the pull request's conversation.",
+			},
+			{
+				Key:         "url",
+				Label:       "Comment URL",
+				Placeholder: "https://github.com/owner/repo/pull/",
+				Help:        "Matched against the comment's own URL (the PR URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "mention",
+				Label:       "Mention",
+				Placeholder: "octocat",
+				Help:        "GitHub username @-mentioned in the comment (no leading @).",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username of the user who commented on the pull request (no leading @).",
 			},
 		},
 	})
@@ -267,33 +299,65 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 	})
 	reg.MustRegister(model.EventTypeDef{
 		Source:    "github",
-		Type:      EventTypeLabelAdded,
-		Label:     "GitHub: Label Added",
-		LinkTypes: []string{LinkTypeIssue, LinkTypePullRequest},
+		Type:      EventTypeIssueLabelAdded,
+		Label:     "GitHub: Issue Label Added",
+		LinkTypes: []string{LinkTypeIssue},
 		Attrs: []model.AttrDef{
 			{
 				Key:         "body",
-				Label:       "Issue/PR Body",
+				Label:       "Issue Body",
 				Placeholder: "gritz:",
-				Help:        "Matched against the description of the labeled issue or PR.",
+				Help:        "Matched against the description of the labeled issue.",
 			},
 			{
 				Key:         "url",
-				Label:       "Issue/PR URL",
-				Placeholder: "https://github.com/owner/repo/",
-				Help:        "Matched against the labeled issue or PR URL, e.g. to scope a rule to a single repo.",
+				Label:       "Issue URL",
+				Placeholder: "https://github.com/owner/repo/issues/123",
+				Help:        "Matched against the labeled issue URL, e.g. to scope a rule to a single repo.",
 			},
 			{
 				Key:         "label",
 				Label:       "Label",
 				Placeholder: "gritz",
-				Help:        "The label added to the issue or PR.",
+				Help:        "The label added to the issue.",
 			},
 			{
 				Key:         "user",
 				Label:       "User",
 				Placeholder: "octocat",
-				Help:        "The GitHub username of the user who added the label (no leading @).",
+				Help:        "The GitHub username of the user who added the label to the issue (no leading @).",
+			},
+		},
+	})
+	reg.MustRegister(model.EventTypeDef{
+		Source:    "github",
+		Type:      EventTypePullRequestLabelAdded,
+		Label:     "GitHub: PR Label Added",
+		LinkTypes: []string{LinkTypePullRequest},
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "PR Body",
+				Placeholder: "gritz:",
+				Help:        "Matched against the description of the labeled pull request.",
+			},
+			{
+				Key:         "url",
+				Label:       "PR URL",
+				Placeholder: "https://github.com/owner/repo/pull/123",
+				Help:        "Matched against the labeled PR URL, e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "label",
+				Label:       "Label",
+				Placeholder: "gritz",
+				Help:        "The label added to the pull request.",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username of the user who added the label to the pull request (no leading @).",
 			},
 		},
 	})

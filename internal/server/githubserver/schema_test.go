@@ -27,8 +27,8 @@ func TestSchemaRegistration(t *testing.T) {
 		{
 			Key:         "url",
 			Label:       "Comment URL",
-			Placeholder: "https://github.com/owner/repo/",
-			Help:        "Matched against the comment's own URL (the issue or PR URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
+			Placeholder: "https://github.com/owner/repo/issues/",
+			Help:        "Matched against the comment's own URL (the issue URL followed by #issuecomment-…), e.g. to scope a rule to a single repo.",
 		},
 		{
 			Key:         "mention",
@@ -40,13 +40,13 @@ func TestSchemaRegistration(t *testing.T) {
 			Key:         "user",
 			Label:       "User",
 			Placeholder: "octocat",
-			Help:        "The GitHub username of the user who commented (no leading @).",
+			Help:        "The GitHub username of the user who commented on the issue (no leading @).",
 		},
 	})
 
-	// Another type also registers.
-	_, ok = reg.EventTypeFor("github", EventTypeLabelAdded)
-	assert.Assert(t, ok, "EventTypeFor(github, %q) = _, false; want hit", EventTypeLabelAdded)
+	// Other types also register.
+	_, ok = reg.EventTypeFor("github", EventTypeIssueLabelAdded)
+	assert.Assert(t, ok, "EventTypeFor(github, %q) = _, false; want hit", EventTypeIssueLabelAdded)
 }
 
 func TestSchemaPushRule(t *testing.T) {
@@ -199,14 +199,16 @@ func TestSchemaLinkTypes(t *testing.T) {
 	}
 
 	assert.DeepEqual(t, got, map[string][]string{
-		EventTypeIssueComment:                 {LinkTypeIssue, LinkTypePullRequest},
+		EventTypeIssueComment:                 {LinkTypeIssue},
+		EventTypePullRequestComment:           {LinkTypePullRequest},
 		EventTypePullRequestReviewComment:     {LinkTypePullRequest},
 		EventTypePullRequestReview:            {LinkTypePullRequest},
 		EventTypeIssueAssigned:                {LinkTypeIssue},
 		EventTypePullRequestAssigned:          {LinkTypePullRequest},
 		EventTypePullRequestOpened:            {LinkTypePullRequest},
 		EventTypePullRequestClosed:            {LinkTypePullRequest},
-		EventTypeLabelAdded:                   {LinkTypeIssue, LinkTypePullRequest},
+		EventTypeIssueLabelAdded:              {LinkTypeIssue},
+		EventTypePullRequestLabelAdded:        {LinkTypePullRequest},
 		EventTypePush:                         nil,
 		EventTypeCheckRunCompleted:            {LinkTypeWorkflowRun},
 		EventTypePullRequestCheckRunCompleted: {LinkTypePullRequest},
