@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation } from '@connectrpc/connect-query'
 import { keepPreviousData } from '@tanstack/react-query'
 import {
+  listAgents,
   listTasks,
   archiveTask,
   unarchiveTask,
@@ -39,6 +40,9 @@ import { useOrgLocalStorage, useOrgLocalStorageBoolean } from '@/hooks/use-org-l
 
 const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100']
 
+// The agent filter's value for every agent; otherwise it's an agent's decimal ID.
+const ALL_AGENTS = 'all'
+
 export const Route = createFileRoute('/tasks/')({
   component: TasksPage,
 })
@@ -48,6 +52,13 @@ function TasksPage() {
 
   const [pageSize, setPageSize] = useOrgLocalStorage('tasks-page-size', '20')
   const [archived, setArchived] = useOrgLocalStorageBoolean('tasks-show-archived', false)
+  const [storedAgent, setAgent] = useOrgLocalStorage('tasks-agent', ALL_AGENTS)
+
+  const { data: agentsData, isLoading: agentsLoading } = useQuery(listAgents, {})
+  const agents = agentsData?.agents ?? []
+  // A remembered agent that's since been deleted filters nothing.
+  const agent =
+    agentsLoading || agents.some((a) => String(a.id) === storedAgent) ? storedAgent : ALL_AGENTS
 
   // Stack of page tokens for the pages navigated past the first. The current
   // page's token is the top of the stack; an empty stack is the first page.
@@ -56,10 +67,16 @@ function TasksPage() {
 
   const { data, isLoading, error, isPlaceholderData, refetch } = useQuery(
     listTasks,
-    { pageSize: Number(pageSize), pageToken, archived },
+    {
+      pageSize: Number(pageSize),
+      pageToken,
+      archived,
+      agentId: agent === ALL_AGENTS ? 0n : BigInt(agent),
+    },
     {
       placeholderData: keepPreviousData,
       refetchInterval: 60000,
+      enabled: !agentsLoading,
     },
   )
 
@@ -78,6 +95,11 @@ function TasksPage() {
     setTokens([])
   }
 
+  const handleAgentChange = (value: string) => {
+    setAgent(value)
+    setTokens([])
+  }
+
   const nextPageToken = data?.nextPageToken ?? ''
   const pageNumber = tokens.length + 1
   const goFirst = () => setTokens([])
@@ -86,7 +108,7 @@ function TasksPage() {
   }
   const goPrev = () => setTokens((t) => t.slice(0, -1))
 
-  if (isLoading) {
+  if (isLoading || agentsLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-muted-foreground">Loading tasks...</div>
@@ -117,6 +139,19 @@ function TasksPage() {
               onCheckedChange={handleShowArchivedChange}
             />
           </div>
+          <Select value={agent} onValueChange={handleAgentChange}>
+            <SelectTrigger className="w-48" aria-label="Agent">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_AGENTS}>All agents</SelectItem>
+              {agents.map((a) => (
+                <SelectItem key={String(a.id)} value={String(a.id)}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={pageSize} onValueChange={handlePageSizeChange}>
             <SelectTrigger className="w-32">
               <SelectValue />

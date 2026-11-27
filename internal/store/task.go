@@ -81,14 +81,15 @@ func (s *Store) HasUnarchivedTasks(ctx context.Context, tx *sql.Tx, orgID int64)
 }
 
 // taskCursor is the keyset a task page token encodes. created_at is not
-// unique, so id is the tiebreaker. Archived binds the token to the filter it
-// was minted under so a cursor can't be silently replayed across filters; the
-// omitempty tag keeps the common (false) token byte-compatible with tokens
-// minted before the archived filter existed.
+// unique, so id is the tiebreaker. Archived and AgentID bind the token to the
+// filters it was minted under so a cursor can't be silently replayed across
+// filters; the omitempty tags keep the unfiltered token byte-compatible with
+// tokens minted before the filters existed.
 type taskCursor struct {
 	CreatedAt time.Time `json:"c"`
 	ID        int64     `json:"i"`
 	Archived  bool      `json:"a,omitempty"`
+	AgentID   int64     `json:"g,omitempty"`
 }
 
 // ListTasksPageParams mirrors the RPC's pagination fields as plain values so
@@ -98,6 +99,7 @@ type ListTasksPageParams struct {
 	PageSize  int32  // 0 means the default (50); max 100
 	PageToken string // opaque token from a previous page; empty for the first page
 	Archived  bool   // include archived tasks alongside active ones
+	AgentID   int64  // only tasks of this agent; 0 for every agent
 }
 
 // taskSource implements pagination.CursorSource for the tasks table, walking
@@ -109,15 +111,20 @@ type taskSource struct {
 }
 
 func (src taskSource) Query(ctx context.Context, after *taskCursor, limit int) ([]*model.Task, error) {
-	// The token binds the filter it was minted under: a cursor whose Archived
-	// stamp disagrees with this request is a cross-filter replay, rejected as a
-	// bad request (→ CodeInvalidArgument) rather than silently resumed.
+	// The token binds the filters it was minted under: a cursor whose Archived
+	// or AgentID stamp disagrees with this request is a cross-filter replay,
+	// rejected as a bad request (→ CodeInvalidArgument) rather than silently
+	// resumed.
 	if after != nil && after.Archived != src.params.Archived {
 		return nil, fmt.Errorf("%w: page token does not match archived filter", pagination.ErrInvalidRequest)
+	}
+	if after != nil && after.AgentID != src.params.AgentID {
+		return nil, fmt.Errorf("%w: page token does not match agent filter", pagination.ErrInvalidRequest)
 	}
 	args := sqlc.ListTasksPageParams{
 		OrgID:     src.params.OrgID,
 		Archived:  src.params.Archived,
+		AgentID:   src.params.AgentID,
 		UseCursor: after != nil,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
 	}
@@ -133,16 +140,17 @@ func (src taskSource) Query(ctx context.Context, after *taskCursor, limit int) (
 }
 
 func (src taskSource) Cursor(t *model.Task) taskCursor {
-	return taskCursor{CreatedAt: t.CreatedAt, ID: t.ID, Archived: src.params.Archived}
+	return taskCursor{CreatedAt: t.CreatedAt, ID: t.ID, Archived: src.params.Archived, AgentID: src.params.AgentID}
 }
 
 // ListTasksPage returns a keyset-paginated page of tasks for the org, newest
 // first, plus the token for the next page (empty after the last). By default
 // only active tasks are returned; p.Archived includes archived tasks
-// interleaved by the same created_at DESC, id DESC ordering. It owns everything
+// interleaved by the same created_at DESC, id DESC ordering; a non-zero
+// p.AgentID keeps only that agent's tasks. It owns everything
 // pagination-related: the cursor keyset (created_at, id), the page-size bounds,
 // and the opaque token format. A bad PageSize, an undecodable PageToken, or a
-// token whose archived filter disagrees with the request surfaces as a wrapped
+// token whose filters disagree with the request surfaces as a wrapped
 // pagination.ErrInvalidRequest; query failures surface as-is.
 func (s *Store) ListTasksPage(ctx context.Context, tx *sql.Tx, p ListTasksPageParams) (*pagination.ListPage[*model.Task], error) {
 	return pagination.List(ctx, taskSource{store: s, tx: tx, params: p}, pagination.Options{

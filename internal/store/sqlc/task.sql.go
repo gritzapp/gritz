@@ -259,17 +259,19 @@ SELECT id, name, runner, workspace, status, command, version, org_id, archived, 
 FROM tasks
 WHERE org_id = $1
   AND ($2::bool OR archived = FALSE)
+  AND ($3::bigint = 0 OR agent_id = $3)
   AND (
-    NOT $3::bool
-    OR (created_at, id) < ($4::timestamp, $5::bigint)
+    NOT $4::bool
+    OR (created_at, id) < ($5::timestamp, $6::bigint)
   )
 ORDER BY created_at DESC, id DESC
-LIMIT $6
+LIMIT $7
 `
 
 type ListTasksPageParams struct {
 	OrgID           int64     `json:"org_id"`
 	Archived        bool      `json:"archived"`
+	AgentID         int64     `json:"agent_id"`
 	UseCursor       bool      `json:"use_cursor"`
 	CursorCreatedAt time.Time `json:"cursor_created_at"`
 	CursorID        int64     `json:"cursor_id"`
@@ -280,6 +282,7 @@ func (q *Queries) ListTasksPage(ctx context.Context, arg ListTasksPageParams) ([
 	rows, err := q.db.QueryContext(ctx, listTasksPage,
 		arg.OrgID,
 		arg.Archived,
+		arg.AgentID,
 		arg.UseCursor,
 		arg.CursorCreatedAt,
 		arg.CursorID,
