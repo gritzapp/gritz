@@ -312,7 +312,7 @@ Each link kind has:
 | `type` | A link type that `list_event_types` lists, such as `github.pr`. |
 | `kind` | The kind's name, unique in the agent. Defaults to `type`. |
 | `claim` | A claim stamped on every link of this kind, which triggers can `yield_to`. |
-| `events` | The event types, among those that declare the link type, that a link of this kind delivers to its task. Empty delivers all of them. |
+| `events` | The event types a link of this kind delivers to its task, each `{type, conditions}`: an event type that declares the link type, and conditions its events must all meet, in a trigger's shape. With none, it delivers nothing. |
 | `public` | Also deliver events from people who aren't members of the organisation. |
 
 `put_agent` takes `agent`, in the shape `get_agent` returns. With an `id`, it

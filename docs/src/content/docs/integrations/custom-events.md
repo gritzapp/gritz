@@ -116,8 +116,8 @@ Open **Agents** and add an agent with **+ Agent**, with a runner, a workspace, a
 "Investigate this alert and report the likely cause." Then:
 
 - **Link kinds**: add one with the link type **Custom: URL** and the claim
-  `alert-owner`. Leave its events unchecked to deliver every event type that
-  declares the link type, and turn on **Public**.
+  `alert-owner`. Check `Alert` in its events, with no conditions, and turn on
+  **Public**.
 - **Triggers**: add one with:
   - **Event type**: the type's label, here `Alert`.
   - **Conditions**: `severity` `equals` `critical`. A condition matches when
@@ -143,7 +143,7 @@ you save the agent. A member-only link kind never delivers custom events.
 ### Follow-up events
 
 The trigger above only matches critical alerts, but the link kind delivers
-every event about the alert. So when the alerting system later posts a
+every `alert` event about the alert, whatever its severity. So when the alerting system later posts a
 `resolved` event for the same alert, it wakes the task. An event for an alert
 gritz never saw fire has no subscribed task, and matches no trigger, so it does
 nothing.

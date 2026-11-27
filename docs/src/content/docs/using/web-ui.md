@@ -81,7 +81,7 @@ sections:
 - **Triggers**: each with an event type, conditions, a link kind, claims to
   yield to, and **Public**. The arrows reorder them.
 - **Link kinds**: each with a link type, a kind name, a claim, the events it
-  delivers, and **Public**.
+  delivers with conditions on each, and **Public**.
 
 **Test event** composes an event and shows what each agent would do with it, or
 fires it. See [Testing with a test event](/concepts/agents/#testing-with-a-test-event).
