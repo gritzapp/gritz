@@ -68,9 +68,8 @@ type Spec struct {
 	// Env is the run's environment, on top of the sandbox's own: what the setup
 	// commands and the agent CLI see.
 	Env map[string]string
-	// Secrets are the workspace's and the task's features' declared secrets, by
-	// name. They are added to the run's environment and masked in the log the
-	// driver ships.
+	// Secrets are the workspace's declared secrets, by name. They are added to
+	// the run's environment and masked in the log the driver ships.
 	Secrets map[string]string
 	Files   []File // agent config; the driver binary is the backend's job
 }

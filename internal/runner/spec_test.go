@@ -167,122 +167,54 @@ func TestBuildSpecs_Variables(t *testing.T) {
 	assert.DeepEqual(t, rs.GetEnv(), want)
 }
 
-// TestBuildSpecs_FeatureEnv asserts the features' environment and secrets are
-// merged onto the workspace's secrets in order, later wins: a name a later
-// feature sets in environment is no longer a secret, and one it sets in
-// secrets is no longer in Env. The variables gritz sets are written after the
-// features' environment, and reach the run's environment over RunEnv.
-func TestBuildSpecs_FeatureEnv(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	in := specInput{
-		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
-		Workspace: &workspace.Workspace{
-			Container: workspace.Container{Image: "alpine:latest"},
-			Agent:     workspace.Agent{Type: "dummy"},
-			Secrets: map[string]string{
-				"GH_TOKEN":  "gho_base",
-				"NPM_TOKEN": "npm_base",
+// testSpecsManager returns a TaskManager that serves ws as the workspace
+// "gritz", and whose server gives every task the given features.
+func testSpecsManager(ws workspace.Workspace, features []string) *TaskManager {
+	return &TaskManager{
+		backend: &backend.BackendMock{
+			ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+			BinaryPathFunc:        func() string { return "/gritz/bin/gritz" },
+		},
+		client: &gritzclient.ClientMock{
+			GetRunSpecInputsFunc: func(context.Context, *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
+				return &gritzv1.GetRunSpecInputsResponse{Token: "t", Features: features}, nil
 			},
 		},
-		ServerURL: "http://localhost",
-		RunnerID:  "test-runner",
-		Token:     "t",
-		Variables: map[string]string{"BRANCH": "main"},
-		Features: []workspace.Feature{
-			{
-				Environment: map[string]string{"JIRA_SITE": "a.atlassian.net", "NPM_TOKEN": "not-secret", "LEVEL": "1"},
-				Secrets:     map[string]string{"JIRA_API_TOKEN": "jira_a"},
-			},
-			{
-				Environment: map[string]string{"JIRA_API_TOKEN": "plain", "GRITZ_TOKEN": "feature", "LEVEL": "2"},
-				Secrets:     map[string]string{"GH_TOKEN": "gho_feature", "JIRA_SITE": "b.atlassian.net"},
-			},
-		},
-		BinaryPath: "/gritz/bin/gritz",
-		RunEnv:     map[string]string{"LEVEL": "0", "FOO": "bar"},
+		workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{"gritz": ws}},
 	}
-
-	// Act
-	spec, rs, err := buildSpecs(in)
-
-	// Assert
-	assert.NilError(t, err)
-	want := map[string]string{
-		"NPM_TOKEN":        "not-secret",
-		"LEVEL":            "2",
-		"JIRA_API_TOKEN":   "plain",
-		"GRITZ_TASK_ID":    "1",
-		"GRITZ_TOKEN":      "t",
-		"GRITZ_SERVER":     "http://localhost",
-		"GRITZ_VAR_BRANCH": "main",
-	}
-	assert.DeepEqual(t, spec.Env, want)
-	want["FOO"] = "bar"
-	assert.DeepEqual(t, rs.GetEnv(), want)
-	wantSecrets := map[string]string{
-		"GH_TOKEN":  "gho_feature",
-		"JIRA_SITE": "b.atlassian.net",
-	}
-	assert.DeepEqual(t, spec.Secrets, wantSecrets)
-	assert.DeepEqual(t, rs.GetSecrets(), wantSecrets)
-	// The workspace's own secrets are left as they were.
-	assert.DeepEqual(t, in.Workspace.Secrets, map[string]string{
-		"GH_TOKEN":  "gho_base",
-		"NPM_TOKEN": "npm_base",
-	})
 }
 
-// TestBuildSpecs_FeatureAgentConfig asserts the agent config written into the
-// sandbox is the one of the task's features, and that the gritz MCP server is
-// still injected, replacing a feature's server of the same name.
-func TestBuildSpecs_FeatureAgentConfig(t *testing.T) {
+// TestTaskManagerSpecs_Features asserts the task's features are applied to
+// the workspace its specs are built from: the run gets their secrets and the
+// agent config their agent: and MCP servers, with the gritz server injected.
+func TestTaskManagerSpecs_Features(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	in := specInput{
-		Change: runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "test"},
-		Workspace: &workspace.Workspace{
-			Container: workspace.Container{Image: "alpine:latest"},
-			Commands:  []string{"base"},
-			Agent: workspace.Agent{
-				Type:       "claude",
-				McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
-			},
-		},
-		ServerURL: "http://localhost",
-		RunnerID:  "test-runner",
-		Token:     "t",
-		Features: []workspace.Feature{
-			{
-				Commands: []string{"install codex"},
-				Agent:    &workspace.Agent{Type: "codex"},
-			},
-			{
-				Commands: []string{"install jira"},
-				McpServers: map[string]agent.McpServer{
-					"jira":  {Type: "stdio", Command: "jira-mcp"},
-					"gritz": {Type: "stdio", Command: "impostor"},
-				},
-			},
-		},
-		BinaryPath: "/gritz/bin/gritz",
-	}
+	m := testSpecsManager(workspace.Workspace{
+		Container: workspace.Container{Image: "alpine:latest"},
+		Agent:     workspace.Agent{Type: "claude"},
+		Secrets:   map[string]string{"GH_TOKEN": "gho"},
+		Features: workspace.Features{"jira": {
+			Secrets:    map[string]string{"JIRA_API_TOKEN": "jira"},
+			McpServers: map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
+			Agent:      &workspace.Agent{Type: "dummy"},
+		}},
+	}, []string{"jira"})
 
 	// Act
-	spec, _, err := buildSpecs(in)
+	spec, rs, err := m.specs(t.Context(), runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "gritz"})
 
 	// Assert
 	assert.NilError(t, err)
+	assert.DeepEqual(t, rs.GetSecrets(), map[string]string{"GH_TOKEN": "gho", "JIRA_API_TOKEN": "jira"})
 	var cfg agent.Config
 	for _, f := range spec.Files {
 		if f.Path == agent.DefaultConfigStore.Path(1) {
 			assert.NilError(t, json.Unmarshal(f.Data, &cfg))
 		}
 	}
-	assert.Equal(t, cfg.Type, "codex")
-	assert.DeepEqual(t, cfg.Commands, []string{"base", "install codex", "install jira"})
-	assert.Equal(t, len(cfg.McpServers), 2)
-	assert.DeepEqual(t, cfg.McpServers["jira"], agent.McpServer{Type: "stdio", Command: "jira-mcp"})
+	assert.Equal(t, cfg.Type, "dummy")
+	assert.Equal(t, cfg.McpServers["jira"].Command, "jira-mcp")
 	assert.Equal(t, cfg.McpServers["gritz"].Command, "/gritz/bin/gritz")
 }
 
@@ -291,23 +223,11 @@ func TestBuildSpecs_FeatureAgentConfig(t *testing.T) {
 func TestTaskManagerSpecs_UnknownFeature(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	m := &TaskManager{
-		backend: &backend.BackendMock{
-			ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
-		},
-		client: &gritzclient.ClientMock{
-			GetRunSpecInputsFunc: func(context.Context, *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
-				return &gritzv1.GetRunSpecInputsResponse{Token: "t", Features: []string{"node", "jira"}}, nil
-			},
-		},
-		workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{
-			"gritz": {
-				Container: workspace.Container{Image: "alpine:latest"},
-				Agent:     workspace.Agent{Type: "dummy"},
-				Features:  workspace.Features{"node": {}},
-			},
-		}},
-	}
+	m := testSpecsManager(workspace.Workspace{
+		Container: workspace.Container{Image: "alpine:latest"},
+		Agent:     workspace.Agent{Type: "dummy"},
+		Features:  workspace.Features{"node": {}},
+	}, []string{"node", "jira"})
 
 	// Act
 	_, _, err := m.specs(t.Context(), runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "gritz"})

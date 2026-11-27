@@ -132,18 +132,186 @@ type Feature struct {
 // Features are a workspace's features by name.
 type Features map[string]Feature
 
-// Select returns the named features in the order of names. It fails on a
-// name the workspace doesn't declare.
-func (w *Workspace) Select(names []string) ([]Feature, error) {
-	var selected []Feature
+// WithFeatures returns a copy of w with the named features applied in the
+// order of names, later wins. The result is an ordinary workspace whose own
+// fields hold the merged config:
+//
+//   - A feature's environment is set in the container's and the Lambda
+//     MicroVM's environment, and its secrets in Secrets. A name set in one is
+//     removed from the other, so the later feature decides both the value and
+//     whether it is a secret.
+//   - The agent: of the last feature that has one replaces Agent as a whole.
+//     Each feature's mcp_servers are then merged into Agent.McpServers.
+//   - Each feature's commands are appended to Commands.
+//
+// It fails on a name w doesn't declare.
+func (w *Workspace) WithFeatures(names []string) (*Workspace, error) {
+	ws := w.Clone()
+	var features []Feature
 	for _, name := range names {
-		f, ok := w.Features[name]
+		f, ok := ws.Features[name]
 		if !ok {
 			return nil, fmt.Errorf("unknown feature %q", name)
 		}
-		selected = append(selected, f)
+		features = append(features, f)
 	}
-	return selected, nil
+	for _, f := range features {
+		if f.Agent != nil {
+			ws.Agent = f.Agent.clone()
+		}
+	}
+	for _, f := range features {
+		for name, value := range f.Environment {
+			ws.Container.Environment = set(ws.Container.Environment, name, value)
+			if ws.LambdaMicroVM != nil {
+				ws.LambdaMicroVM.Environment = set(ws.LambdaMicroVM.Environment, name, value)
+			}
+			delete(ws.Secrets, name)
+		}
+		for name, value := range f.Secrets {
+			ws.Secrets = set(ws.Secrets, name, value)
+			delete(ws.Container.Environment, name)
+			if ws.LambdaMicroVM != nil {
+				delete(ws.LambdaMicroVM.Environment, name)
+			}
+		}
+		for name, srv := range f.McpServers {
+			ws.Agent.McpServers = set(ws.Agent.McpServers, name, srv.Clone())
+		}
+		ws.Commands = append(ws.Commands, f.Commands...)
+	}
+	return ws, nil
+}
+
+// set sets m[k] to v, allocating m if it is nil, and returns m.
+func set[V any](m map[string]V, k string, v V) map[string]V {
+	if m == nil {
+		m = map[string]V{}
+	}
+	m[k] = v
+	return m
+}
+
+// Clone returns a deep copy of w, which a caller can change without touching
+// w.
+func (w *Workspace) Clone() *Workspace {
+	c := *w
+	c.Container = w.Container.clone()
+	if w.LambdaMicroVM != nil {
+		l := *w.LambdaMicroVM
+		l.Environment = maps.Clone(l.Environment)
+		c.LambdaMicroVM = &l
+	}
+	c.Agent = w.Agent.clone()
+	c.Commands = slices.Clone(w.Commands)
+	c.Capabilities = slices.Clone(w.Capabilities)
+	c.Secrets = maps.Clone(w.Secrets)
+	c.Variables = maps.Clone(w.Variables)
+	if w.Features != nil {
+		c.Features = make(Features, len(w.Features))
+		for name, f := range w.Features {
+			c.Features[name] = f.clone()
+		}
+	}
+	return &c
+}
+
+func (c Container) clone() Container {
+	c.Volumes = slices.Clone(c.Volumes)
+	c.Networks = slices.Clone(c.Networks)
+	c.GroupAdd = slices.Clone(c.GroupAdd)
+	c.Environment = maps.Clone(c.Environment)
+	return c
+}
+
+func (f Feature) clone() Feature {
+	f.Environment = maps.Clone(f.Environment)
+	f.Secrets = maps.Clone(f.Secrets)
+	f.McpServers = cloneMcpServers(f.McpServers)
+	f.Commands = slices.Clone(f.Commands)
+	if f.Agent != nil {
+		a := f.Agent.clone()
+		f.Agent = &a
+	}
+	return f
+}
+
+func (a Agent) clone() Agent {
+	a.McpServers = cloneMcpServers(a.McpServers)
+	a.Claude = clonePtr(a.Claude)
+	a.Codex = clonePtr(a.Codex)
+	a.Copilot = clonePtr(a.Copilot)
+	a.Cursor = clonePtr(a.Cursor)
+	a.Sloppy = clonePtr(a.Sloppy)
+	if a.Process != nil {
+		p := *a.Process
+		p.Command = slices.Clone(p.Command)
+		a.Process = &p
+	}
+	if a.GritzRPC != nil {
+		g := *a.GritzRPC
+		g.Args = slices.Clone(g.Args)
+		a.GritzRPC = &g
+	}
+	if a.Dummy != nil {
+		d := *a.Dummy
+		d.ToolCalls = slices.Clone(d.ToolCalls)
+		for i := range d.ToolCalls {
+			if args := d.ToolCalls[i].Arguments; args != nil {
+				d.ToolCalls[i].Arguments = cloneValue(args).(map[string]any)
+			}
+		}
+		d.Commands = slices.Clone(d.Commands)
+		a.Dummy = &d
+	}
+	a.Puppet = clonePtr(a.Puppet)
+	return a
+}
+
+func cloneMcpServers(m map[string]agent.McpServer) map[string]agent.McpServer {
+	if m == nil {
+		return nil
+	}
+	c := make(map[string]agent.McpServer, len(m))
+	for name, srv := range m {
+		c[name] = srv.Clone()
+	}
+	return c
+}
+
+// clonePtr returns a copy of *p, for a p whose type holds no maps or slices.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	return &c
+}
+
+// cloneValue deep-copies a value decoded from YAML: its maps and slices.
+func cloneValue(v any) any {
+	switch v := v.(type) {
+	case map[string]any:
+		if v == nil {
+			return v
+		}
+		m := make(map[string]any, len(v))
+		for k, e := range v {
+			m[k] = cloneValue(e)
+		}
+		return m
+	case []any:
+		if v == nil {
+			return v
+		}
+		s := make([]any, len(v))
+		for i, e := range v {
+			s[i] = cloneValue(e)
+		}
+		return s
+	default:
+		return v
+	}
 }
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
@@ -470,91 +638,70 @@ func (c *Config) Get(name string) (*Workspace, error) {
 	return &ws, nil
 }
 
-// AgentConfig returns the agent config of a task with the given features, in
-// the order Select returned them. The agent: of the last feature that has one
-// replaces the workspace's as a whole. The features' mcp_servers are added on
-// top in order, a later server replacing an earlier one of the same name, and
-// their commands run after the workspace's, in order.
-func (w *Workspace) AgentConfig(features []Feature) agent.Config {
-	a := &w.Agent
-	for _, f := range features {
-		if f.Agent != nil {
-			a = f.Agent
-		}
-	}
-	cfg := a.config()
-	cfg.Commands = slices.Clone(w.Commands)
-	cfg.Capabilities = w.Capabilities
-	for _, f := range features {
-		maps.Copy(cfg.McpServers, f.McpServers)
-		cfg.Commands = append(cfg.Commands, f.Commands...)
-	}
-	return cfg
-}
-
-// config converts the agent configuration into an agent.Config, without the
-// workspace-level commands and capabilities.
-func (a *Agent) config() agent.Config {
+// AgentConfig converts the workspace agent configuration into an agent.Config.
+func (w *Workspace) AgentConfig() agent.Config {
 	cfg := agent.Config{
-		Type:       a.Type,
-		Cwd:        a.Cwd,
-		Prompt:     a.Prompt,
-		Verbose:    a.Verbose,
-		McpServers: make(map[string]agent.McpServer),
+		Type:         w.Agent.Type,
+		Cwd:          w.Agent.Cwd,
+		Prompt:       w.Agent.Prompt,
+		Verbose:      w.Agent.Verbose,
+		McpServers:   make(map[string]agent.McpServer),
+		Commands:     w.Commands,
+		Capabilities: w.Capabilities,
 	}
-	if a.Claude != nil {
+	if w.Agent.Claude != nil {
 		cfg.Claude = &agent.ClaudeOptions{
-			Model: a.Claude.Model,
-			Bin:   a.Claude.Bin,
+			Model: w.Agent.Claude.Model,
+			Bin:   w.Agent.Claude.Bin,
 		}
 	}
-	if a.Codex != nil {
+	if w.Agent.Codex != nil {
 		cfg.Codex = &agent.CodexOptions{
-			Model: a.Codex.Model,
-			Bin:   a.Codex.Bin,
+			Model: w.Agent.Codex.Model,
+			Bin:   w.Agent.Codex.Bin,
 		}
 	}
-	if a.Copilot != nil {
+	if w.Agent.Copilot != nil {
 		cfg.Copilot = &agent.CopilotOptions{
-			Model: a.Copilot.Model,
-			Bin:   a.Copilot.Bin,
+			Model: w.Agent.Copilot.Model,
+			Bin:   w.Agent.Copilot.Bin,
 		}
 	}
-	if a.Cursor != nil {
+	if w.Agent.Cursor != nil {
 		cfg.Cursor = &agent.CursorOptions{
-			Model: a.Cursor.Model,
-			Bin:   a.Cursor.Bin,
+			Model: w.Agent.Cursor.Model,
+			Bin:   w.Agent.Cursor.Bin,
 		}
 	}
-	if a.Sloppy != nil {
+	if w.Agent.Sloppy != nil {
 		cfg.Sloppy = &agent.SloppyOptions{
-			Bin: a.Sloppy.Bin,
+			Bin: w.Agent.Sloppy.Bin,
 		}
 	}
-	if a.Process != nil {
+	if w.Agent.Process != nil {
 		cfg.Process = &agent.ProcessOptions{
-			Command: a.Process.Command,
+			Command: w.Agent.Process.Command,
 		}
 	}
-	if a.GritzRPC != nil {
+	if w.Agent.GritzRPC != nil {
 		cfg.GritzRPC = &agent.GritzRPCOptions{
-			Command: a.GritzRPC.Command,
-			Args:    a.GritzRPC.Args,
+			Command: w.Agent.GritzRPC.Command,
+			Args:    w.Agent.GritzRPC.Args,
 		}
 	}
-	if a.Dummy != nil {
+	if w.Agent.Dummy != nil {
 		cfg.Dummy = &agent.DummyOptions{
-			Sleep:     a.Dummy.Sleep,
-			ToolCalls: a.Dummy.ToolCalls,
-			Commands:  a.Dummy.Commands,
-			Error:     a.Dummy.Error,
+			Sleep:     w.Agent.Dummy.Sleep,
+			ToolCalls: w.Agent.Dummy.ToolCalls,
+			Commands:  w.Agent.Dummy.Commands,
+			Error:     w.Agent.Dummy.Error,
 		}
 	}
-	if a.Puppet != nil {
+	if w.Agent.Puppet != nil {
 		cfg.Puppet = &puppet.Options{
-			URL: a.Puppet.URL,
+			URL: w.Agent.Puppet.URL,
 		}
 	}
-	maps.Copy(cfg.McpServers, a.McpServers)
+	maps.Copy(cfg.McpServers, w.Agent.McpServers)
 	return cfg
 }
