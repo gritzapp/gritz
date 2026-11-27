@@ -36,7 +36,9 @@ type Changelog struct {
 // changes, Field is "labels" and FromString/ToString hold the space-separated
 // label lists before and after the change. For assignee changes, Field is
 // "assignee", From/To hold the old and new assignee's account ids and
-// FromString/ToString their display names.
+// FromString/ToString their display names. For status changes, Field is
+// "status", From/To hold the old and new status ids and FromString/ToString
+// their names.
 type ChangelogItem struct {
 	Field      string `json:"field"`
 	From       string `json:"from"`
@@ -87,6 +89,22 @@ func (p *WebhookPayload) NewAssignee() *User {
 		return &User{AccountID: item.To, DisplayName: item.ToString}
 	}
 	return nil
+}
+
+// StatusChange returns the names of the issue's previous and new status when
+// this webhook event moved it between statuses. ok is false when the event
+// carries no status change.
+func (p *WebhookPayload) StatusChange() (from, to string, ok bool) {
+	if p.Changelog == nil {
+		return "", "", false
+	}
+	for _, item := range p.Changelog.Items {
+		if item.Field != "status" {
+			continue
+		}
+		return item.FromString, item.ToString, true
+	}
+	return "", "", false
 }
 
 // Comment represents a Jira issue comment from a webhook payload.

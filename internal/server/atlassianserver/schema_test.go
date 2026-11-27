@@ -65,6 +65,15 @@ func TestSchemaRegistration(t *testing.T) {
 		keys = append(keys, a.Key)
 	}
 	assert.DeepEqual(t, keys, []string{"body", "url", "label", "assignee", "user"})
+
+	// issue_status_changed matches on the new and previous status names.
+	def, ok = reg.EventTypeFor("atlassian", EventTypeIssueStatusChanged)
+	assert.Assert(t, ok, "EventTypeFor(atlassian, %q) = _, false; want hit", EventTypeIssueStatusChanged)
+	keys = nil
+	for _, a := range def.Attrs {
+		keys = append(keys, a.Key)
+	}
+	assert.DeepEqual(t, keys, []string{"body", "url", "status", "from", "user"})
 }
 
 func TestLinkTypeCanonical(t *testing.T) {

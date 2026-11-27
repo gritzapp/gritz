@@ -190,6 +190,54 @@ func TestNewAssignee(t *testing.T) {
 	}
 }
 
+func TestStatusChange(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  WebhookPayload
+		wantFrom string
+		wantTo   string
+		wantOK   bool
+	}{
+		{
+			name: "StatusChanged",
+			payload: WebhookPayload{
+				Changelog: &Changelog{
+					Items: []ChangelogItem{
+						{Field: "labels", FromString: "", ToString: "gritz"},
+						{Field: "status", From: "10000", FromString: "To Do", To: "3", ToString: "In Progress"},
+					},
+				},
+			},
+			wantFrom: "To Do",
+			wantTo:   "In Progress",
+			wantOK:   true,
+		},
+		{
+			name: "OtherFieldChange",
+			payload: WebhookPayload{
+				Changelog: &Changelog{
+					Items: []ChangelogItem{
+						{Field: "assignee", To: "bot456", ToString: "Gritz Bot"},
+					},
+				},
+			},
+		},
+		{
+			name:    "NoChangelog",
+			payload: WebhookPayload{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			from, to, ok := tt.payload.StatusChange()
+
+			assert.Equal(t, from, tt.wantFrom)
+			assert.Equal(t, to, tt.wantTo)
+			assert.Equal(t, ok, tt.wantOK)
+		})
+	}
+}
+
 func TestParseWebhookAssigneeChange(t *testing.T) {
 	// Jira sends account ids in from/to and null for an empty side.
 	body := []byte(`{"webhookEvent":"jira:issue_updated","changelog":{"items":[{"field":"assignee","fieldtype":"jira","fieldId":"assignee","from":null,"fromString":null,"to":"bot456","toString":"Gritz Bot"}]}}`)

@@ -219,7 +219,7 @@ func TestToAtlassianInputEvents(t *testing.T) {
 			meta: AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
 		},
 		{
-			name: "IssueUpdatedNoLabelChange",
+			name: "IssueUpdatedNoTrackedChange",
 			payload: atlassian.WebhookPayload{
 				WebhookEvent: "jira:issue_updated",
 				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
@@ -229,11 +229,37 @@ func TestToAtlassianInputEvents(t *testing.T) {
 				},
 				Changelog: &atlassian.Changelog{
 					Items: []atlassian.ChangelogItem{
-						{Field: "status", FromString: "To Do", ToString: "In Progress"},
+						{Field: "summary", FromString: "Old title", ToString: "New title"},
 					},
 				},
 			},
 			expected: nil,
+		},
+		{
+			name: "IssueStatusChanged",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_updated",
+				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
+				Issue: &atlassian.Issue{
+					Key:    "PROJ-10",
+					Self:   "https://mycompany.atlassian.net/rest/api/2/issue/10",
+					Fields: atlassian.IssueFields{Description: "gritz: ship it\n"},
+				},
+				Changelog: &atlassian.Changelog{
+					Items: []atlassian.ChangelogItem{
+						{Field: "status", From: "10000", FromString: "To Do", To: "3", ToString: "In Progress"},
+					},
+				},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "atlassian",
+				Type:        "issue_status_changed",
+				Description: `Test User moved PROJ-10 from "To Do" to "In Progress"`,
+				Data:        "gritz: ship it",
+				Attrs:       eventrouter.Attrs{"status": {"In Progress"}, "from": {"To Do"}, "user": {"abc123"}},
+				URL:         "https://mycompany.atlassian.net/browse/PROJ-10",
+			}},
+			meta: AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
 		},
 		{
 			name: "LabelRemovedIgnored",
@@ -328,6 +354,48 @@ func TestToAtlassianInputEvents(t *testing.T) {
 					Data:        "gritz: both",
 					Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"abc123"}},
 					URL:         "https://mycompany.atlassian.net/browse/PROJ-12",
+				},
+			},
+			meta: AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
+		},
+		{
+			name: "IssueStatusChangedAndLabelAddedAndAssigned",
+			payload: atlassian.WebhookPayload{
+				WebhookEvent: "jira:issue_updated",
+				User:         &atlassian.User{AccountID: "abc123", DisplayName: "Test User"},
+				Issue: &atlassian.Issue{
+					Key:  "PROJ-14",
+					Self: "https://mycompany.atlassian.net/rest/api/2/issue/14",
+				},
+				Changelog: &atlassian.Changelog{
+					Items: []atlassian.ChangelogItem{
+						{Field: "status", From: "3", FromString: "In Progress", To: "10001", ToString: "In Review"},
+						{Field: "labels", FromString: "", ToString: "gritz"},
+						{Field: "assignee", To: "bot456", ToString: "Gritz Bot"},
+					},
+				},
+			},
+			expected: []eventrouter.InputEvent{
+				{
+					Source:      "atlassian",
+					Type:        "label_added",
+					Description: `Test User added label(s) "gritz" to PROJ-14`,
+					Attrs:       eventrouter.Attrs{"label": {"gritz"}, "user": {"abc123"}},
+					URL:         "https://mycompany.atlassian.net/browse/PROJ-14",
+				},
+				{
+					Source:      "atlassian",
+					Type:        "issue_assigned",
+					Description: "Test User assigned PROJ-14 to Gritz Bot",
+					Attrs:       eventrouter.Attrs{"assignee": {"bot456"}, "user": {"abc123"}},
+					URL:         "https://mycompany.atlassian.net/browse/PROJ-14",
+				},
+				{
+					Source:      "atlassian",
+					Type:        "issue_status_changed",
+					Description: `Test User moved PROJ-14 from "In Progress" to "In Review"`,
+					Attrs:       eventrouter.Attrs{"status": {"In Review"}, "from": {"In Progress"}, "user": {"abc123"}},
+					URL:         "https://mycompany.atlassian.net/browse/PROJ-14",
 				},
 			},
 			meta: AtlassianMeta{AuthorAccountID: "abc123", AuthorDisplayName: "Test User"},
