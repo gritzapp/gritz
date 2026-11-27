@@ -18,9 +18,10 @@ Mac) anywhere to jump to a task by name.
 
 **Tasks** lists the organisation's tasks, newest first, with their runner,
 workspace and [status](/concepts/tasks/#statuses). A `command:` badge next to the
-status is an action the runner hasn't carried out yet. Turn on **Show
-archived** to include archived tasks, and archive or unarchive a task from its
-row.
+status is an action the runner hasn't carried out yet. Pick an agent in the
+agent filter to list only its tasks, or **All agents** for every task. Turn on
+**Show archived** to include archived tasks, and archive or unarchive a task
+from its row. The filters are remembered per organisation.
 
 **+ Task** creates a task. Pick its [agent](/concepts/agents/); the name is
 optional. The task runs with the agent's runner, workspace, auto-archive delay
