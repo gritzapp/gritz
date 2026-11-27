@@ -241,6 +241,38 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 	})
 	reg.MustRegister(model.EventTypeDef{
 		Source:    "github",
+		Type:      EventTypePullRequestReviewRequested,
+		Label:     "GitHub: PR Review Requested",
+		LinkTypes: []string{LinkTypePullRequest},
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "PR Body",
+				Placeholder: "gritz:",
+				Help:        "Matched against the pull request description text.",
+			},
+			{
+				Key:         "url",
+				Label:       "PR URL",
+				Placeholder: "https://github.com/owner/repo/pull/123",
+				Help:        "Matched against the URL of the PR the review is requested on, e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "reviewer",
+				Label:       "Reviewer",
+				Placeholder: "icholy-bot",
+				Help:        "The GitHub username whose review is requested (no leading @). Review requests for a team are not delivered.",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username of the user who requested the review (no leading @).",
+			},
+		},
+	})
+	reg.MustRegister(model.EventTypeDef{
+		Source:    "github",
 		Type:      EventTypePullRequestOpened,
 		Label:     "GitHub: PR Opened",
 		LinkTypes: []string{LinkTypePullRequest},

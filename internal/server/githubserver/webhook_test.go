@@ -831,6 +831,60 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 		},
 		{
+			name: "PullRequestEvent_ReviewRequested",
+			event: &github.PullRequestEvent{
+				Action: github.Ptr("review_requested"),
+				PullRequest: &github.PullRequest{
+					Number:  github.Ptr(12),
+					NodeID:  github.Ptr("PR_node12"),
+					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+					Body:    github.Ptr("gritz: review this\n"),
+				},
+				RequestedReviewer: &github.User{
+					Login: github.Ptr("icholy-bot"),
+				},
+				Sender: &github.User{
+					ID:    github.Ptr[int64](42),
+					Login: github.Ptr("alice"),
+				},
+				Installation: &github.Installation{ID: github.Ptr[int64](7)},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        "pull_request_review_requested",
+				Description: "alice requested a review of PR #12 from @icholy-bot",
+				Data:        "gritz: review this",
+				URL:         "https://github.com/owner/repo/pull/12",
+				Attrs:       eventrouter.Attrs{"reviewer": {"icholy-bot"}, "user": {"alice"}},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       42,
+				AuthorLogin:    "alice",
+				InstallationID: 7,
+				NodeID:         "PR_node12",
+			},
+		},
+		{
+			// A team review request names no user to put in the reviewer attr.
+			name: "PullRequestEvent_ReviewRequested_Team",
+			event: &github.PullRequestEvent{
+				Action: github.Ptr("review_requested"),
+				PullRequest: &github.PullRequest{
+					Number:  github.Ptr(12),
+					HTMLURL: github.Ptr("https://github.com/owner/repo/pull/12"),
+				},
+				RequestedTeam: &github.Team{
+					Name: github.Ptr("Reviewers"),
+					Slug: github.Ptr("reviewers"),
+				},
+				Sender: &github.User{
+					ID:    github.Ptr[int64](42),
+					Login: github.Ptr("alice"),
+				},
+			},
+			expected: nil,
+		},
+		{
 			name: "PullRequestEvent_WrongAction",
 			event: &github.PullRequestEvent{
 				Action: github.Ptr("synchronize"),

@@ -142,8 +142,8 @@ type GitHubMeta struct {
 	// comment for issue_comment, pull_request_comment and
 	// pull_request_review_comment events, the review summary for
 	// pull_request_review events, and the issue/PR for issue_assigned,
-	// pull_request_assigned, issue_label_added and pull_request_label_added
-	// events. All reactions go through the GraphQL addReaction mutation, which
+	// pull_request_assigned, pull_request_review_requested, issue_label_added and
+	// pull_request_label_added events. All reactions go through the GraphQL addReaction mutation, which
 	// accepts any reactable node uniformly, so this single ID is all react needs
 	// regardless of event type.
 	// It is empty when the event has no reactable target.
@@ -154,18 +154,19 @@ type GitHubMeta struct {
 // form a contract between the extractor (producer) and any consumer that
 // dispatches on InputEvent.Type.
 const (
-	EventTypeIssueComment             = "issue_comment"
-	EventTypePullRequestComment       = "pull_request_comment"
-	EventTypePullRequestReviewComment = "pull_request_review_comment"
-	EventTypePullRequestReview        = "pull_request_review"
-	EventTypeIssueAssigned            = "issue_assigned"
-	EventTypePullRequestAssigned      = "pull_request_assigned"
-	EventTypePullRequestOpened        = "pull_request_opened"
-	EventTypePullRequestClosed        = "pull_request_closed"
-	EventTypeIssueLabelAdded          = "issue_label_added"
-	EventTypePullRequestLabelAdded    = "pull_request_label_added"
-	EventTypePush                     = "push"
-	EventTypeCheckRunCompleted        = "check_run_completed"
+	EventTypeIssueComment               = "issue_comment"
+	EventTypePullRequestComment         = "pull_request_comment"
+	EventTypePullRequestReviewComment   = "pull_request_review_comment"
+	EventTypePullRequestReview          = "pull_request_review"
+	EventTypeIssueAssigned              = "issue_assigned"
+	EventTypePullRequestAssigned        = "pull_request_assigned"
+	EventTypePullRequestReviewRequested = "pull_request_review_requested"
+	EventTypePullRequestOpened          = "pull_request_opened"
+	EventTypePullRequestClosed          = "pull_request_closed"
+	EventTypeIssueLabelAdded            = "issue_label_added"
+	EventTypePullRequestLabelAdded      = "pull_request_label_added"
+	EventTypePush                       = "push"
+	EventTypeCheckRunCompleted          = "check_run_completed"
 	// EventTypePullRequestCheckRunCompleted is a completed check run keyed by
 	// one of the PRs it ran for, so it routes to the tasks subscribed to that PR.
 	EventTypePullRequestCheckRunCompleted = "pull_request_check_run_completed"
@@ -387,6 +388,32 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
 				URL:         *event.PullRequest.HTMLURL,
 				Attrs:       eventrouter.Attrs{"assignee": {assigneeLogin}, "user": {senderLogin}},
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetPullRequest().GetNodeID(),
+			}
+		case "review_requested":
+			// GitHub fires a separate delivery per requested reviewer. A team
+			// request carries requested_team instead of requested_reviewer; it is
+			// dropped, since the "reviewer" attr is a username and a team slug in
+			// it could match a trigger meant for a user of the same name.
+			if event.PullRequest == nil || event.PullRequest.HTMLURL == nil ||
+				event.RequestedReviewer == nil || event.RequestedReviewer.Login == nil ||
+				event.Sender == nil || event.Sender.ID == nil {
+				return nil, GitHubMeta{}
+			}
+			senderLogin := event.Sender.GetLogin()
+			reviewerLogin := event.RequestedReviewer.GetLogin()
+			number := event.PullRequest.GetNumber()
+			return []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        EventTypePullRequestReviewRequested,
+				Description: fmt.Sprintf("%s requested a review of PR #%d from @%s", senderLogin, number, reviewerLogin),
+				Data:        strings.TrimSpace(event.PullRequest.GetBody()),
+				URL:         *event.PullRequest.HTMLURL,
+				Attrs:       eventrouter.Attrs{"reviewer": {reviewerLogin}, "user": {senderLogin}},
 			}}, GitHubMeta{
 				AuthorID:       *event.Sender.ID,
 				AuthorLogin:    senderLogin,
