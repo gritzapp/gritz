@@ -68,9 +68,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import {
   agentFormError,
-  CONDITION_CHOICES,
-  conditionChoiceKey,
-  conditionOpLabel,
+  CONDITION_OPS,
   emptyLinkKind,
   emptySchedule,
   emptyTrigger,
@@ -769,19 +767,23 @@ function ConditionsEditor({
                 </SelectContent>
               </Select>
               <Select
-                value={conditionChoiceKey(condition.op, condition.negate)}
-                onValueChange={(key) => {
-                  const choice = CONDITION_CHOICES.find((c) => c.key === key)
-                  if (choice) setCondition(i, { op: choice.op, negate: choice.negate })
+                value={String(
+                  CONDITION_OPS.findIndex(
+                    (row) => row.op === condition.op && row.negate === condition.negate,
+                  ),
+                )}
+                onValueChange={(v) => {
+                  const { op, negate } = CONDITION_OPS[Number(v)]
+                  setCondition(i, { op, negate })
                 }}
               >
                 <SelectTrigger className="w-44" aria-label="Operator">
                   <SelectValue placeholder="Operator" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CONDITION_CHOICES.map((c) => (
-                    <SelectItem key={c.key} value={c.key}>
-                      {conditionOpLabel(c.op, c.negate)}
+                  {CONDITION_OPS.map((row, j) => (
+                    <SelectItem key={j} value={String(j)}>
+                      {row.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

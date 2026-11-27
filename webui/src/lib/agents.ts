@@ -6,43 +6,22 @@ import { type Agent, type AgentLink, AgentSchema, type EventTypeDef } from '@/ge
 import { autoArchiveSelectValue, durationFromAutoArchiveSelect } from '@/lib/duration'
 import { browserTimezone, DEFAULT_CRON } from '@/lib/schedule'
 
-// The condition operators the backend understands. Comparisons are exact and
-// case-sensitive; "glob" matches a path-style pattern against the whole value —
-// see RuleCondition in the proto.
-export const CONDITION_OPS = ['equals', 'prefix', 'contains', 'glob'] as const
-export type ConditionOp = (typeof CONDITION_OPS)[number]
-
-const OP_LABELS: Record<ConditionOp, string> = {
-  equals: 'equals',
-  prefix: 'starts with',
-  contains: 'contains',
-  glob: 'matches glob',
-}
-
-const NEGATED_OP_LABELS: Record<ConditionOp, string> = {
-  equals: 'does not equal',
-  prefix: 'does not start with',
-  contains: 'does not contain',
-  glob: 'does not match glob',
-}
-
-// conditionOpLabel describes an op, or its negation when negate is set: a
-// negated condition holds exactly when the same condition without negate does
-// not, including on an event that lacks the attribute.
-export function conditionOpLabel(op: string, negate: boolean): string {
-  const labels = negate ? NEGATED_OP_LABELS : OP_LABELS
-  return labels[op as ConditionOp] ?? (negate ? `not ${op}` : op)
-}
-
-// CONDITION_CHOICES are the operator choices the condition editor offers: each
-// op, then each op negated, keyed for a single select.
-export const CONDITION_CHOICES = [false, true].flatMap((negate) =>
-  CONDITION_OPS.map((op) => ({ key: conditionChoiceKey(op, negate), op, negate })),
-)
-
-export function conditionChoiceKey(op: string, negate: boolean): string {
-  return negate ? `not_${op}` : op
-}
+// CONDITION_OPS are the operator choices for a condition, one row per choice:
+// the ops the backend understands, then each negated. Comparisons are exact and
+// case-sensitive; "glob" matches a path-style pattern against the whole value,
+// and a negated condition holds exactly when the same condition without negate
+// does not, including on an event that lacks the attribute — see RuleCondition
+// in the proto.
+export const CONDITION_OPS: readonly { op: string; negate: boolean; label: string }[] = [
+  { op: 'equals', negate: false, label: 'equals' },
+  { op: 'prefix', negate: false, label: 'starts with' },
+  { op: 'contains', negate: false, label: 'contains' },
+  { op: 'glob', negate: false, label: 'matches glob' },
+  { op: 'equals', negate: true, label: 'does not equal' },
+  { op: 'prefix', negate: true, label: 'does not start with' },
+  { op: 'contains', negate: true, label: 'does not contain' },
+  { op: 'glob', negate: true, label: 'does not match glob' },
+]
 
 export interface ConditionDraft {
   attr: string
