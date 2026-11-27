@@ -979,7 +979,9 @@ message Agent {
   // Create tasks of the agent. The first trigger that matches an event wins.
   repeated AgentTrigger triggers = 8;
   repeated AgentLink links = 9;
-  // 10 is taken by the workspace features proposal (#2384).
+  // Features of its tasks, by name, in the order they merge: a later one wins
+  // over an earlier one. Each must be declared by the workspace.
+  repeated string features = 10;
   // Create tasks of the agent on a cron schedule, in this order in the editor.
   repeated AgentSchedule schedules = 11;
 }

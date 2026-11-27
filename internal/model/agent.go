@@ -22,6 +22,9 @@ type Agent struct {
 	AutoArchive time.Duration
 	// Variables are the variables of the agent's tasks, by name, as saved.
 	Variables map[string]string
+	// Features are the features of the agent's tasks, by name, in the order
+	// they merge, as saved.
+	Features []string
 	// Triggers create tasks of the agent; the first one matching an event wins.
 	Triggers []AgentTrigger
 	// Links are the kinds of subscribed link the agent's tasks may create.
@@ -153,6 +156,7 @@ func (a *Agent) Proto() *gritzv1.Agent {
 		Prompt:      a.Prompt,
 		AutoArchive: durationpb.New(a.AutoArchive),
 		Variables:   a.Variables,
+		Features:    a.Features,
 	}
 	for _, t := range a.Triggers {
 		pb.Triggers = append(pb.Triggers, &gritzv1.AgentTrigger{
@@ -196,6 +200,7 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 		Prompt:      pb.GetPrompt(),
 		AutoArchive: pb.GetAutoArchive().AsDuration(),
 		Variables:   pb.GetVariables(),
+		Features:    pb.GetFeatures(),
 	}
 	for _, t := range pb.GetTriggers() {
 		a.Triggers = append(a.Triggers, AgentTrigger{

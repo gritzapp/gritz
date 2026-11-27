@@ -7248,7 +7248,9 @@ type Agent struct {
 	// Create tasks of the agent. The first trigger that matches an event wins.
 	Triggers []*AgentTrigger `protobuf:"bytes,8,rep,name=triggers,proto3" json:"triggers,omitempty"`
 	Links    []*AgentLink    `protobuf:"bytes,9,rep,name=links,proto3" json:"links,omitempty"`
-	// 10 is taken by the workspace features proposal (#2384).
+	// Features of its tasks, by name, in the order they merge: a later one wins
+	// over an earlier one. Each must be declared by the workspace.
+	Features []string `protobuf:"bytes,10,rep,name=features,proto3" json:"features,omitempty"`
 	// Create tasks of the agent on a cron schedule, in this order in the editor.
 	Schedules     []*AgentSchedule `protobuf:"bytes,11,rep,name=schedules,proto3" json:"schedules,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -7344,6 +7346,13 @@ func (x *Agent) GetTriggers() []*AgentTrigger {
 func (x *Agent) GetLinks() []*AgentLink {
 	if x != nil {
 		return x.Links
+	}
+	return nil
+}
+
+func (x *Agent) GetFeatures() []string {
+	if x != nil {
+		return x.Features
 	}
 	return nil
 }
@@ -8585,7 +8594,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x19CreateGitHubTokenResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xc9\x03\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xe5\x03\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
@@ -8595,7 +8604,9 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\fauto_archive\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\vautoArchive\x12<\n" +
 	"\tvariables\x18\a \x03(\v2\x1e.gritz.v1.Agent.VariablesEntryR\tvariables\x122\n" +
 	"\btriggers\x18\b \x03(\v2\x16.gritz.v1.AgentTriggerR\btriggers\x12)\n" +
-	"\x05links\x18\t \x03(\v2\x13.gritz.v1.AgentLinkR\x05links\x125\n" +
+	"\x05links\x18\t \x03(\v2\x13.gritz.v1.AgentLinkR\x05links\x12\x1a\n" +
+	"\bfeatures\x18\n" +
+	" \x03(\tR\bfeatures\x125\n" +
 	"\tschedules\x18\v \x03(\v2\x17.gritz.v1.AgentScheduleR\tschedules\x1a<\n" +
 	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

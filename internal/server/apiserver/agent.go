@@ -218,5 +218,8 @@ func (s *Server) validateAgent(ctx context.Context, tx *sql.Tx, agent *model.Age
 	if _, err := taskvar.Resolve(ws.Variables, agent.Variables); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", agent.Workspace, err))
 	}
+	if err := ws.CheckFeatures(agent.Features); err != nil {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", agent.Workspace, err))
+	}
 	return nil
 }

@@ -36,7 +36,8 @@ CREATE TABLE public.agents (
     links jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    deleted_at timestamp with time zone
+    deleted_at timestamp with time zone,
+    features jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -895,4 +896,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261128000001'),
     ('20261129000001'),
     ('20261130000001'),
-    ('20261201000001');
+    ('20261201000001'),
+    ('20261202000001');

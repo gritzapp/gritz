@@ -165,6 +165,16 @@ func TestCreateAgent_Invalid(t *testing.T) {
 			want: `workspace "story": variable "JIRA": not declared by the workspace`,
 		},
 		{
+			name: "feature not declared by the workspace",
+			agent: &gritzv1.Agent{
+				Name:      "a",
+				Workspace: "story",
+				Runner:    "runner-1",
+				Features:  []string{"github", "jira"},
+			},
+			want: `workspace "story": feature "jira": not declared by the workspace (declared: ["github"])`,
+		},
+		{
 			name: "trigger on an unknown event type",
 			agent: &gritzv1.Agent{
 				Name:      "a",
@@ -257,8 +267,12 @@ func TestCreateAgent_Invalid(t *testing.T) {
 			// Arrange
 			h := harness.New(t, nil)
 			h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
-				RunnerId:   "runner-1",
-				Workspaces: []*gritzv1.RegisteredWorkspace{{Name: "story", Variables: []*gritzv1.VariableDecl{{Name: "BRANCH"}}}},
+				RunnerId: "runner-1",
+				Workspaces: []*gritzv1.RegisteredWorkspace{{
+					Name:      "story",
+					Variables: []*gritzv1.VariableDecl{{Name: "BRANCH"}},
+					Features:  []*gritzv1.FeatureDecl{{Name: "github"}},
+				}},
 			})
 			existing := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
 				Name:      "existing",
@@ -333,6 +347,7 @@ func TestUpdateAgent(t *testing.T) {
 		Workspaces: []*gritzv1.RegisteredWorkspace{{
 			Name:      "story",
 			Variables: []*gritzv1.VariableDecl{{Name: "JIRA_ISSUE", Required: true}},
+			Features:  []*gritzv1.FeatureDecl{{Name: "github"}, {Name: "jira"}, {Name: "slack"}},
 		}},
 	})
 	created := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
@@ -351,6 +366,7 @@ func TestUpdateAgent(t *testing.T) {
 		Prompt:      "Write the story.",
 		AutoArchive: durationpb.New(time.Hour),
 		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+		Features:    []string{"slack", "github"}, // not in declaration order
 		Triggers:    []*gritzv1.AgentTrigger{{Source: "atlassian", Type: "issue_created"}},
 	}
 
