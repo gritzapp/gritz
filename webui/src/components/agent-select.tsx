@@ -5,13 +5,7 @@ import type { Agent } from '@/gen/gritz/v1/gritz_pb'
 import { AgentMonogram } from '@/components/agent-overview'
 import { useOrgId } from '@/hooks/use-org-id'
 import { cn } from '@/lib/utils'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Combobox, type ComboboxOption } from '@/components/combobox'
 
 // AgentSelect picks one of the org's agents. value is the agent's decimal ID,
 // or '' for none.
@@ -30,30 +24,34 @@ export function AgentSelect({
   const selected = agents.some((a) => String(a.id) === value) ? value : ''
 
   return (
-    <Select value={selected} onValueChange={onChange} disabled={isLoading}>
-      <SelectTrigger id={id} className="w-full">
-        <SelectValue
-          placeholder={
-            isLoading
-              ? 'Loading agents…'
-              : agents.length === 0
-                ? 'No agents yet — create one first'
-                : 'Select an agent'
-          }
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {agents.map((agent) => (
-          <SelectItem key={String(agent.id)} value={String(agent.id)}>
-            <span>{agent.name}</span>
-            <span className="text-muted-foreground text-xs ml-2">
-              {agent.runner} / {agent.workspace}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Combobox
+      id={id}
+      value={selected}
+      onChange={onChange}
+      disabled={isLoading}
+      placeholder={
+        isLoading
+          ? 'Loading agents…'
+          : agents.length === 0
+            ? 'No agents yet — create one first'
+            : 'Select an agent'
+      }
+      searchPlaceholder="Search agents..."
+      emptyText="No agent found."
+      options={agents.map(agentOption)}
+    />
   )
+}
+
+// agentOption is an agent as a Combobox option: its monogram and name, with
+// where its tasks run.
+export function agentOption(agent: Agent): ComboboxOption {
+  return {
+    value: String(agent.id),
+    label: agent.name,
+    icon: <AgentMonogram name={agent.name} className="size-5 rounded text-[9px]" />,
+    description: `${agent.runner}/${agent.workspace}`,
+  }
 }
 
 // useAgent returns the org's live agent with the given ID, from ListAgents.

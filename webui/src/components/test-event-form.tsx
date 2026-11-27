@@ -17,6 +17,7 @@ import {
 } from '@/gen/gritz/v1/gritz_pb'
 import { AgentBadge } from '@/components/agent-select'
 import { SectionLabel, TriggerItem } from '@/components/agent-overview'
+import { EventTypePicker } from '@/components/event-type-picker'
 import { FieldLabel, SectionHeading } from '@/components/form-layout'
 import { LinkKindMark } from '@/components/task-links'
 import { cn } from '@/lib/utils'
@@ -24,13 +25,6 @@ import { linkKindName } from '@/lib/agents'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
@@ -75,9 +69,7 @@ export function TestEventForm() {
   const selectedId = selectedType ? eventTypeId(selectedType.source, selectedType.type) : ''
   const availableAttrs = selectedType?.attrs ?? []
 
-  const handleEventTypeChange = (id: string) => {
-    const target = eventTypes.find((t) => eventTypeId(t.source, t.type) === id)
-    if (!target) return
+  const handleEventTypeChange = (target: EventTypeDef) => {
     setSource(target.source)
     setType(target.type)
     mutation.reset()
@@ -139,29 +131,14 @@ export function TestEventForm() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="event-type">Event type</Label>
-              <Select
+              <EventTypePicker
+                id="event-type"
+                eventTypes={eventTypes}
                 value={selectedId}
-                onValueChange={handleEventTypeChange}
+                onChange={handleEventTypeChange}
                 disabled={eventTypesLoading}
-              >
-                <SelectTrigger id="event-type" className="w-full">
-                  <SelectValue
-                    placeholder={
-                      eventTypesLoading ? 'Loading event types…' : 'Select an event type'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {eventTypes.map((t) => {
-                    const id = eventTypeId(t.source, t.type)
-                    return (
-                      <SelectItem key={id} value={id}>
-                        {t.label}
-                      </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
+                placeholder={eventTypesLoading ? 'Loading event types…' : 'Select an event type'}
+              />
             </div>
             <div className="space-y-2">
               <FieldLabel

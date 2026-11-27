@@ -28,8 +28,17 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Textarea } from '@/components/ui/textarea'
 import { VariableFields } from '@/components/variable-fields'
 import { Badge } from '@/components/ui/badge'
+import { Combobox } from '@/components/combobox'
+import { EventTypePicker, SOURCE_LABELS } from '@/components/event-type-picker'
 import { FieldLabel, Hint, SaveBar, SectionHeading } from '@/components/form-layout'
-import { AgentMonogram, LinkKindItem, SectionLabel, TriggerItem } from '@/components/agent-overview'
+import {
+  AgentMonogram,
+  LinkKindItem,
+  LinkTypeIcon,
+  linkTypeName,
+  SectionLabel,
+  TriggerItem,
+} from '@/components/agent-overview'
 import { DeleteAgentDialog } from '@/components/delete-agent-dialog'
 import {
   DropdownMenu,
@@ -324,34 +333,25 @@ export function AgentForm({
 
                 <div className="space-y-2">
                   <Label htmlFor="agent-workspace">Workspace</Label>
-                  <Select
+                  <Combobox
+                    id="agent-workspace"
                     value={values.workspace}
-                    onValueChange={(ws) =>
+                    onChange={(ws) =>
                       setValues({ ...values, workspace: ws, variables: {}, features: [] })
                     }
                     disabled={!values.runner}
-                  >
-                    <SelectTrigger id="agent-workspace" className="w-full">
-                      <SelectValue
-                        placeholder={values.runner ? 'Select a workspace' : 'Select a runner first'}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {workspaces.map((ws) => (
-                        <SelectItem key={ws.name} value={ws.name}>
-                          <span>{ws.name}</span>
-                          {ws.description && (
-                            <span className="text-muted-foreground text-xs ml-2">
-                              {ws.description}
-                            </span>
-                          )}
-                        </SelectItem>
-                      ))}
-                      {values.workspace && !workspace && (
-                        <SelectItem value={values.workspace}>{values.workspace}</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                    placeholder={values.runner ? 'Select a workspace' : 'Select a runner first'}
+                    searchPlaceholder="Search workspaces..."
+                    emptyText="No workspace found."
+                    options={withCurrent(
+                      workspaces.map((ws) => ws.name),
+                      values.workspace,
+                    ).map((name) => ({
+                      value: name,
+                      label: name,
+                      description: workspaces.find((ws) => ws.name === name)?.description,
+                    }))}
+                  />
                 </div>
               </div>
 
@@ -724,42 +724,6 @@ function withCurrent(options: string[], current: string): string[] {
   return current && !options.includes(current) ? [...options, current] : options
 }
 
-function EventTypeSelect({
-  id,
-  eventTypes,
-  value,
-  onChange,
-}: {
-  id: string
-  eventTypes: EventTypeDef[]
-  value: string
-  onChange: (eventType: EventTypeDef) => void
-}) {
-  return (
-    <Select
-      value={value}
-      onValueChange={(v) => {
-        const target = eventTypes.find((t) => eventTypeId(t.source, t.type) === v)
-        if (target) onChange(target)
-      }}
-    >
-      <SelectTrigger id={id} className="w-full">
-        <SelectValue placeholder="Select an event type" />
-      </SelectTrigger>
-      <SelectContent>
-        {eventTypes.map((t) => {
-          const tid = eventTypeId(t.source, t.type)
-          return (
-            <SelectItem key={tid} value={tid}>
-              {t.label}
-            </SelectItem>
-          )
-        })}
-      </SelectContent>
-    </Select>
-  )
-}
-
 // ConditionsEditor edits conditions on an event type's attrs: a trigger's, or
 // those of an event type a link kind delivers.
 function ConditionsEditor({
@@ -926,7 +890,7 @@ function TriggerEditor({
     >
       <div className="space-y-2">
         <Label htmlFor={`${id}-type`}>Event type</Label>
-        <EventTypeSelect
+        <EventTypePicker
           id={`${id}-type`}
           eventTypes={eventTypes}
           value={eventType ? eventTypeId(eventType.source, eventType.type) : ''}
@@ -1170,21 +1134,20 @@ function ScheduleEditor({
 
         <div className="space-y-2">
           <Label htmlFor={`${id}-timezone`}>Timezone</Label>
-          <Select
+          <Combobox
+            id={`${id}-timezone`}
             value={schedule.timezone}
-            onValueChange={(timezone) => onChange({ ...schedule, timezone })}
-          >
-            <SelectTrigger id={`${id}-timezone`} className="w-full">
-              <SelectValue placeholder="Select a timezone" />
-            </SelectTrigger>
-            <SelectContent className="max-h-72">
-              {withCurrent(timezones, schedule.timezone).map((tz) => (
-                <SelectItem key={tz} value={tz}>
-                  {tz}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={(timezone) => onChange({ ...schedule, timezone })}
+            placeholder="Select a timezone"
+            searchPlaceholder="Search timezones..."
+            emptyText="No timezone found."
+            options={withCurrent(timezones, schedule.timezone).map((tz) => ({
+              value: tz,
+              label: tz,
+              // The region before the slash; UTC and the like stand alone.
+              group: tz.includes('/') ? tz.slice(0, tz.indexOf('/')) : undefined,
+            }))}
+          />
           <p className="text-muted-foreground text-xs">
             Cron fields are interpreted in this IANA timezone, correct across DST.
           </p>
@@ -1306,23 +1269,23 @@ function LinkKindEditor({
       <div className="grid gap-4 md:grid-cols-[1.5fr_1fr_1fr]">
         <div className="space-y-2">
           <Label htmlFor={`${id}-type`}>Link type</Label>
-          <Select
+          <Combobox
+            id={`${id}-type`}
             value={link.type}
             // The listed events belong to the old type's source.
-            onValueChange={(type) => onChange({ ...link, type, events: [] })}
-          >
-            <SelectTrigger id={`${id}-type`} className="w-full">
-              <SelectValue placeholder="Select a link type" />
-            </SelectTrigger>
-            <SelectContent>
-              {linkTypes.map((t) => (
-                <SelectItem key={t.name} value={t.name}>
-                  <span>{t.label}</span>
-                  <span className="text-muted-foreground font-mono text-xs ml-2">{t.name}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={(type) => onChange({ ...link, type, events: [] })}
+            placeholder="Select a link type"
+            searchPlaceholder="Search link types..."
+            emptyText="No link type found."
+            options={linkTypes.map((t) => ({
+              value: t.name,
+              label: linkTypeName(linkTypes, t.name),
+              group: SOURCE_LABELS[t.source] ?? t.source,
+              icon: <LinkTypeIcon type={t.name} />,
+              description: t.name,
+              keywords: [t.label],
+            }))}
+          />
         </div>
 
         <div className="space-y-2">
