@@ -26,6 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { StatusBadge } from '@/components/status-badge'
 import { ArchivedBadge } from '@/components/archived-badge'
 import { ArchiveButton } from '@/components/archive-button'
@@ -35,13 +42,14 @@ import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/relative-time'
 import { CommandBadge } from '@/components/command-badge'
 import { AgentRef } from '@/components/agent-select'
-import { Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgLocalStorage, useOrgLocalStorageBoolean } from '@/hooks/use-org-local-storage'
 
 const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100']
 
-// The agent filter's value for every agent; otherwise it's an agent's decimal ID.
+// The stored agent filter for every agent; otherwise it's a comma-separated
+// list of agent decimal IDs.
 const ALL_AGENTS = 'all'
 
 export const Route = createFileRoute('/tasks/')({
@@ -53,13 +61,15 @@ function TasksPage() {
 
   const [pageSize, setPageSize] = useOrgLocalStorage('tasks-page-size', '20')
   const [archived, setArchived] = useOrgLocalStorageBoolean('tasks-show-archived', false)
-  const [storedAgent, setAgent] = useOrgLocalStorage('tasks-agent', ALL_AGENTS)
+  const [storedAgents, setStoredAgents] = useOrgLocalStorage('tasks-agents', ALL_AGENTS)
 
   const { data: agentsData, isLoading: agentsLoading } = useQuery(listAgents, {})
   const agents = agentsData?.agents ?? []
-  // A remembered agent that's since been deleted filters nothing.
-  const agent =
-    agentsLoading || agents.some((a) => String(a.id) === storedAgent) ? storedAgent : ALL_AGENTS
+  // Remembered agents that have since been deleted filter nothing; an empty
+  // selection is every agent.
+  const selectedAgents = (storedAgents === ALL_AGENTS ? [] : storedAgents.split(',')).filter(
+    (id) => agentsLoading || agents.some((a) => String(a.id) === id),
+  )
 
   // Stack of page tokens for the pages navigated past the first. The current
   // page's token is the top of the stack; an empty stack is the first page.
@@ -72,7 +82,7 @@ function TasksPage() {
       pageSize: Number(pageSize),
       pageToken,
       archived,
-      agentId: agent === ALL_AGENTS ? 0n : BigInt(agent),
+      agentIds: selectedAgents.map(BigInt),
     },
     {
       placeholderData: keepPreviousData,
@@ -96,9 +106,15 @@ function TasksPage() {
     setTokens([])
   }
 
-  const handleAgentChange = (value: string) => {
-    setAgent(value)
+  const setSelectedAgents = (ids: string[]) => {
+    setStoredAgents(ids.length === 0 ? ALL_AGENTS : ids.join(','))
     setTokens([])
+  }
+
+  const handleAgentToggle = (id: string, checked: boolean) => {
+    setSelectedAgents(
+      checked ? [...selectedAgents, id] : selectedAgents.filter((selected) => selected !== id),
+    )
   }
 
   const nextPageToken = data?.nextPageToken ?? ''
@@ -126,6 +142,12 @@ function TasksPage() {
   }
 
   const tasks = data?.tasks ?? []
+  const agentFilterLabel =
+    selectedAgents.length === 0
+      ? 'All agents'
+      : selectedAgents.length === 1
+        ? (agents.find((a) => String(a.id) === selectedAgents[0])?.name ?? '1 agent')
+        : `${selectedAgents.length} agents`
 
   return (
     <div className="px-4 md:px-8 py-6">
@@ -140,19 +162,34 @@ function TasksPage() {
               onCheckedChange={handleShowArchivedChange}
             />
           </div>
-          <Select value={agent} onValueChange={handleAgentChange}>
-            <SelectTrigger className="w-48" aria-label="Agent">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_AGENTS}>All agents</SelectItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-48 justify-between" aria-label="Agents">
+                <span className="truncate">{agentFilterLabel}</span>
+                <ChevronDown className="opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuCheckboxItem
+                checked={selectedAgents.length === 0}
+                onCheckedChange={() => setSelectedAgents([])}
+                onSelect={(e) => e.preventDefault()}
+              >
+                All agents
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSeparator />
               {agents.map((a) => (
-                <SelectItem key={String(a.id)} value={String(a.id)}>
+                <DropdownMenuCheckboxItem
+                  key={String(a.id)}
+                  checked={selectedAgents.includes(String(a.id))}
+                  onCheckedChange={(checked) => handleAgentToggle(String(a.id), checked)}
+                  onSelect={(e) => e.preventDefault()}
+                >
                   {a.name}
-                </SelectItem>
+                </DropdownMenuCheckboxItem>
               ))}
-            </SelectContent>
-          </Select>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Select value={pageSize} onValueChange={handlePageSizeChange}>
             <SelectTrigger className="w-32">
               <SelectValue />

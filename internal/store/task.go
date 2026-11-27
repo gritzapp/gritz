@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json/v2"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/gritzapp/gritz/internal/model"
@@ -94,17 +95,17 @@ type taskCursor struct {
 	CreatedAt time.Time `json:"c"`
 	ID        int64     `json:"i"`
 	Archived  bool      `json:"a,omitempty"`
-	AgentID   int64     `json:"g,omitempty"`
+	AgentIDs  []int64   `json:"g,omitempty"`
 }
 
 // ListTasksPageParams mirrors the RPC's pagination fields as plain values so
 // the handler can pass them through untouched.
 type ListTasksPageParams struct {
 	OrgID     int64
-	PageSize  int32  // 0 means the default (50); max 100
-	PageToken string // opaque token from a previous page; empty for the first page
-	Archived  bool   // include archived tasks alongside active ones
-	AgentID   int64  // only tasks of this agent; 0 for every agent
+	PageSize  int32   // 0 means the default (50); max 100
+	PageToken string  // opaque token from a previous page; empty for the first page
+	Archived  bool    // include archived tasks alongside active ones
+	AgentIDs  []int64 // only tasks of these agents; empty for every agent
 }
 
 // taskSource implements pagination.CursorSource for the tasks table, walking
@@ -117,19 +118,19 @@ type taskSource struct {
 
 func (src taskSource) Query(ctx context.Context, after *taskCursor, limit int) ([]*model.Task, error) {
 	// The token binds the filters it was minted under: a cursor whose Archived
-	// or AgentID stamp disagrees with this request is a cross-filter replay,
+	// or AgentIDs stamp disagrees with this request is a cross-filter replay,
 	// rejected as a bad request (→ CodeInvalidArgument) rather than silently
 	// resumed.
 	if after != nil && after.Archived != src.params.Archived {
 		return nil, fmt.Errorf("%w: page token does not match archived filter", pagination.ErrInvalidRequest)
 	}
-	if after != nil && after.AgentID != src.params.AgentID {
+	if after != nil && !slices.Equal(after.AgentIDs, src.params.AgentIDs) {
 		return nil, fmt.Errorf("%w: page token does not match agent filter", pagination.ErrInvalidRequest)
 	}
 	args := sqlc.ListTasksPageParams{
 		OrgID:     src.params.OrgID,
 		Archived:  src.params.Archived,
-		AgentID:   src.params.AgentID,
+		AgentIds:  append([]int64{}, src.params.AgentIDs...), // nil would encode as SQL NULL, which the cardinality(...) = 0 guard does not match
 		UseCursor: after != nil,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
 	}
@@ -145,14 +146,14 @@ func (src taskSource) Query(ctx context.Context, after *taskCursor, limit int) (
 }
 
 func (src taskSource) Cursor(t *model.Task) taskCursor {
-	return taskCursor{CreatedAt: t.CreatedAt, ID: t.ID, Archived: src.params.Archived, AgentID: src.params.AgentID}
+	return taskCursor{CreatedAt: t.CreatedAt, ID: t.ID, Archived: src.params.Archived, AgentIDs: src.params.AgentIDs}
 }
 
 // ListTasksPage returns a keyset-paginated page of tasks for the org, newest
 // first, plus the token for the next page (empty after the last). By default
 // only active tasks are returned; p.Archived includes archived tasks
-// interleaved by the same created_at DESC, id DESC ordering; a non-zero
-// p.AgentID keeps only that agent's tasks. It owns everything
+// interleaved by the same created_at DESC, id DESC ordering; a non-empty
+// p.AgentIDs keeps only those agents' tasks. It owns everything
 // pagination-related: the cursor keyset (created_at, id), the page-size bounds,
 // and the opaque token format. A bad PageSize, an undecodable PageToken, or a
 // token whose filters disagree with the request surfaces as a wrapped
