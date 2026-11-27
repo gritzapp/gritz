@@ -16,9 +16,10 @@ light and dark theme toggle, the **Settings** gear and **Logout**. Press Ctrl+K
 
 ## Tasks
 
-**Tasks** lists the organisation's tasks, newest first: each one's name, ID,
-runner and workspace, its [agent](/concepts/agents/), its
-[status](/concepts/tasks/#statuses) and when it was created. Click the agent to
+**Tasks** lists the organisation's tasks, newest first: each one's
+[agent](/concepts/agents/) with the task's runner and workspace beneath it, its
+name and ID, its [status](/concepts/tasks/#statuses) and when it was created.
+On a narrow screen the agent shows only as its monogram. Click the agent to
 open its page. A `command:` badge next to the status is an action the runner
 hasn't carried out yet. Check one or more agents in the agent filter to list
 only their tasks, or pick **All agents** for every task. Turn on **Show
@@ -88,14 +89,17 @@ diagram of which events reach which agents and link types.
 [new task](#tasks) of the agent with its prompt as the first instruction, and a
 **⋯** menu to **Edit** or **Delete** it; clicking the name also opens it.
 
-An agent's page is its form, with **Run**, **Test event** and **⋯** (Delete) at
-the top. It has three sections:
+An agent's page is its form, with **Run**, **Test event** and **⋯** at the top.
+**⋯** holds **Delete** and **Clone**, which opens a new agent's form filled in
+with a copy of this one, named `<name> (copy)`; the copy is created only when
+you save it. The form has three sections:
 
 - **Template**: name, runner, workspace, variables,
   [features](/concepts/agents/#the-template), prompt and auto-archive delay.
 - **Follows**: the [link kinds](/concepts/agents/#link-kinds), each with a link
-  type, a kind name, a claim, and a switch per event type it delivers. A
-  switched-on event type has its conditions, **Public** and **Wake**.
+  type, a kind name, a claim, a description, and a switch per event type it
+  delivers. A switched-on event type has its conditions, **Public** and
+  **Wake**.
 - **Starts on**: **Add trigger** and **Add schedule**.
   - Each [trigger](/concepts/agents/#triggers) has an event type, conditions, a
     link kind, claims to yield to, a prompt and **Public**. Triggers are checked

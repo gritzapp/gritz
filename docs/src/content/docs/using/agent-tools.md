@@ -18,9 +18,10 @@ On a task's first run, before your instructions, gritz tells the agent to:
 - name the task with `update_my_task` if it has no name;
 - create a link with the fitting link kind of the task's agent for each
   resource it creates, such as a pull request, an issue or a comment, so replies
-  reach the task even after it finishes, and with no kind for reference links
-  it didn't create. gritz lists the agent's link kinds, each with its link type
-  and claim, or says the agent has none;
+  reach the task even after it finishes. Every link needs a kind. gritz lists
+  the agent's link kinds, each with its link type, claim and
+  [description](/concepts/agents/#link-kinds), or says the agent has none and
+  so can't create links;
 - prefer URLs a person can open over API URLs;
 - use `report` for anything you should see, since its text replies aren't shown;
 - answer questions or problems on the platform the latest instruction or event
@@ -54,14 +55,14 @@ in its sidebar.
 | `url` | The resource's URL. |
 | `relevance` | How the resource relates to the task, such as "PR implementing the fix". |
 | `title` | Optional. A title to show for the link. |
-| `kind` | Optional. A link kind of the task's agent, such as `owned-pr`. The link then receives the events that kind lists. Omit it for a plain reference link, which receives no events. |
+| `kind` | A link kind of the task's agent, such as `owned-pr`. The link receives the events that kind lists. |
 
-A link with a kind is how a task hears about review comments on its pull request,
+A link is how a task hears about review comments on its pull request,
 or replies on its Jira issue. Which events reach it is up to the kind, as
 defined on the task's [agent](/concepts/agents/#link-kinds). The URL must be a
 resource of the kind's link type, such as a pull request for a `github.pr` kind,
-and the link stores the resource's own URL; an unknown kind fails, listing the
-agent's kinds. See [Events and links](/concepts/events-and-links/).
+and the link stores the resource's own URL; a missing or unknown kind fails,
+listing the agent's kinds. See [Events and links](/concepts/events-and-links/).
 
 ### `report`
 
@@ -90,8 +91,6 @@ when you want something specific:
 - **To keep a task listening**: "Open a draft pull request and link it with
   the `owned-pr` kind." The task finishes, and a review comment on the pull
   request wakes it if the kind lists that event.
-- **To link context you gave it**: "Link the incident page as a reference, with
-  no kind."
 - **To name it predictably**: "Name this task `deps: bump <package>`."
 
 The agent's other tools, such as for GitHub or Jira, come from the MCP servers

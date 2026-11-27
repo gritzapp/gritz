@@ -1,13 +1,13 @@
 ---
 title: Jira
-description: Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, new issues, labels and assignments to tasks.
+description: Connect Jira to gritz with the organisation's Atlassian webhook URL and secret, link your Atlassian account, and route Jira comments, new issues, labels, assignments and status changes to tasks.
 sidebar:
   order: 2
 ---
 
 The Jira integration turns activity on Jira Cloud issues into
-[events](/concepts/events-and-links/): new comments, new issues, added labels
-and new assignees. [Agents](/concepts/agents/) then decide what each event
+[events](/concepts/events-and-links/): new comments, new issues, added labels,
+new assignees and status changes. [Agents](/concepts/agents/) then decide what each event
 does: wake the task working on the issue, create a new task for it, or nothing.
 
 It has two halves:
@@ -27,7 +27,7 @@ On **Settings → Account**, under **Connected accounts**, click **Link** on the
 **Atlassian** row and approve the request on Atlassian. gritz only asks to read
 your profile; it records your Atlassian account ID and name.
 
-Once linked, your comments, labels and assignments on Jira count as yours in
+Once linked, your comments, labels, assignments and status changes on Jira count as yours in
 every organisation you are a member of. **Unlink** removes the link.
 
 ## Connect Jira
@@ -86,12 +86,13 @@ whoever caused it:
 | Issue created | Jira: Issue Created | the issue, as `…/browse/PROJ-123` |
 | Issue updated, with labels added | Jira: Label Added | the issue |
 | Issue updated, with a new assignee | Jira: Issue Assigned | the issue |
+| Issue updated, with a new status | Jira: Issue Status Changed | the issue |
 
 Labels and an assignee set when an issue is created arrive on Issue Created, in
 its `label` and `assignee` attributes, not as Label Added or Issue Assigned.
-Other updates, such as a status change or an edited description, are ignored. One
-update can send two events: assigning an issue and adding a label in the same
-edit sends both. Adding several labels at once sends one Label Added event with
+Other updates, such as an edited description, are ignored. One update can send
+several events: assigning an issue and adding a label in the same edit sends
+both. Adding several labels at once sends one Label Added event with
 all of them, and a `label` condition holds if any of them matches. Unassigning an
 issue sends nothing.
 

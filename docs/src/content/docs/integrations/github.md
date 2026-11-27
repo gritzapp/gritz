@@ -6,8 +6,9 @@ sidebar:
 ---
 
 The GitHub integration turns activity on GitHub into
-[events](/concepts/events-and-links/): comments, reviews, assignments, labels,
-pull requests being opened or closed, pushes, and CI results.
+[events](/concepts/events-and-links/): comments, reviews and review requests,
+assignments, labels, issues and pull requests being opened or closed, pushes,
+and CI results.
 [Agents](/concepts/agents/) then decide what each event does: wake the task that
 opened the pull request, create a new task for an issue, or nothing.
 
@@ -93,8 +94,11 @@ gritz turns these GitHub webhook deliveries into events. The trigger form's
 | A comment on a pull request's conversation is created or edited | GitHub: PR Comment | the comment |
 | An inline review comment on a pull request is created or edited | GitHub: PR Review Comment | the review comment |
 | A pull request review is submitted with a summary | GitHub: PR Review | the review |
+| An issue is opened | GitHub: Issue Opened | the issue |
+| An issue is closed | GitHub: Issue Closed | the issue |
 | An issue is assigned | GitHub: Issue Assigned | the issue |
 | A pull request is assigned | GitHub: PR Assigned | the pull request |
+| A review of a pull request is requested from someone | GitHub: PR Review Requested | the pull request |
 | A pull request is opened | GitHub: PR Opened | the pull request |
 | A pull request is closed or merged | GitHub: PR Closed | the pull request |
 | A label is added to an issue | GitHub: Issue Label Added | the issue |
@@ -106,7 +110,8 @@ gritz turns these GitHub webhook deliveries into events. The trigger form's
 Every other delivery is ignored, including pushing a tag and deleting a
 branch. Editing a comment sends the event again, with the new text. A review submitted without a summary, such as a bare approval, is
 ignored, but its inline comments are still sent as review comments. GitHub sends
-one delivery per label, so adding two labels sends two events.
+one delivery per label and per requested reviewer, so adding two labels sends
+two events. A review requested from a team is ignored.
 
 A check run is one check reported through GitHub's Checks API: for GitHub
 Actions, one job; other CI systems report theirs the same way. Every completed

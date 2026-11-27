@@ -32,6 +32,7 @@ Every type has two attributes:
 
 Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
+A [negated](/concepts/agents/#matching) condition holds if none of them does.
 Conditions compare exactly and are case-sensitive; see
 [Matching](/concepts/agents/#matching).
 
@@ -90,6 +91,27 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 | `mention` | Mention | Each username @-mentioned in the summary. |
 | `user` | User | The username of the reviewer. |
 
+### `issue_opened`
+
+**GitHub: Issue Opened.** An issue is opened.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Issue Body | The issue's description. |
+| `url` | Issue URL | The issue's URL, such as `https://github.com/owner/repo/issues/123`. |
+| `user` | User | The username of who opened it. |
+
+### `issue_closed`
+
+**GitHub: Issue Closed.** An issue is closed.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Issue Body | The issue's description. |
+| `url` | Issue URL | The issue's URL. |
+| `state` | Close Reason | Why it was closed, as GitHub reports it: `completed`, `not_planned` or `duplicate`. Absent when GitHub gives no reason. |
+| `user` | User | The username of who closed it. |
+
 ### `issue_assigned`
 
 **GitHub: Issue Assigned.** An issue is assigned to someone.
@@ -111,6 +133,19 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 | `url` | PR URL | The pull request's URL, such as `https://github.com/owner/repo/pull/123`. |
 | `assignee` | Assignee | The username newly assigned. |
 | `user` | User | The username of who assigned it. |
+
+### `pull_request_review_requested`
+
+**GitHub: PR Review Requested.** Someone is asked to review a pull request.
+Requesting several reviewers sends one event per reviewer. A review requested
+from a team sends no event.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | PR Body | The pull request's description. |
+| `url` | PR URL | The pull request's URL, such as `https://github.com/owner/repo/pull/123`. |
+| `reviewer` | Reviewer | The username whose review is requested. |
+| `user` | User | The username of who requested it. |
 
 ### `pull_request_opened`
 
@@ -206,7 +241,8 @@ A matrix job's name carries its axes, so match `check` with `prefix` or `glob`,
 such as `check glob build*`.
 
 A condition on an absent attribute never holds, so a trigger with a `branch`
-condition never matches a check of a commit pushed to a fork.
+condition never matches a check of a commit pushed to a fork. A negated one,
+such as `branch` does not equal `master`, always holds on such a check.
 
 `user` is usually whoever pushed, but it is the bot when a bot pushed, including
 an agent pushing as the GitHub App, and none of these are gritz members. A
@@ -300,6 +336,19 @@ at once sends one event with all of them.
 | `assignee` | Assignee | The account ID of the new assignee. |
 | `user` | User | The account ID of who assigned it. |
 
+### `issue_status_changed`
+
+**Jira: Issue Status Changed.** An issue moves from one status to another, such
+as from **To Do** to **In Progress**.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Issue Description | The issue's description. |
+| `url` | Issue URL | The issue's URL. |
+| `status` | Status | The name of the status it moved to, as Jira shows it, such as `In Progress`. |
+| `from` | Previous Status | The name of the status it moved from. |
+| `user` | User | The account ID of who changed the status. |
+
 ## Link types
 
 A link type is a kind of resource that a [link kind](/concepts/agents/#link-kinds)
@@ -309,8 +358,8 @@ but is never delivered to a subscribed task.
 
 | Link type | Resource | Event types that can name it |
 | --- | --- | --- |
-| `github.issue` | A GitHub issue, `https://github.com/{owner}/{repo}/issues/{n}` | `issue_comment`, `issue_assigned`, `issue_label_added` |
-| `github.pr` | A GitHub pull request, `https://github.com/{owner}/{repo}/pull/{n}` | `pull_request_comment`, `pull_request_review_comment`, `pull_request_review`, `pull_request_assigned`, `pull_request_opened`, `pull_request_closed`, `pull_request_label_added`, `pull_request_check_run_completed` |
+| `github.issue` | A GitHub issue, `https://github.com/{owner}/{repo}/issues/{n}` | `issue_comment`, `issue_opened`, `issue_closed`, `issue_assigned`, `issue_label_added` |
+| `github.pr` | A GitHub pull request, `https://github.com/{owner}/{repo}/pull/{n}` | `pull_request_comment`, `pull_request_review_comment`, `pull_request_review`, `pull_request_assigned`, `pull_request_review_requested`, `pull_request_opened`, `pull_request_closed`, `pull_request_label_added`, `pull_request_check_run_completed` |
 | `github.workflow_run` | A GitHub Actions workflow run, `https://github.com/{owner}/{repo}/actions/runs/{id}` | `check_run_completed` |
 | `jira.issue` | A Jira issue, `https://{site}.atlassian.net/browse/{KEY}` | every Jira type |
 | `custom.url` | A custom event's URL, exactly as sent | the [custom types](/integrations/custom-events/) that declare it |
