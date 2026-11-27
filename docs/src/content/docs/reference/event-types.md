@@ -187,7 +187,7 @@ condition never matches a check of a commit pushed to a fork.
 
 `user` is usually whoever pushed, but it is the bot when a bot pushed, including
 an agent pushing as the GitHub App, and none of these are gritz members. A
-trigger or link kind for this type is therefore usually
+trigger for this type, or a link kind's entry for it, is therefore usually
 [public](/concepts/agents/#members-and-public);
 its `branch` condition keeps it to branches only people with push access to the
 repository can update.
@@ -217,8 +217,8 @@ A pull request opened from a fork gets none.
 | `user` | User | The username GitHub attributes the run to. |
 
 As with `check_run_completed`, use a `conclusion` condition to act only on
-failures, and make the trigger or link kind public so a bot's push still
-counts. Its URL is the pull request's, so a trigger for it can link the created
+failures, and make the trigger or the link kind's entry for it public so a
+bot's push still counts. Its URL is the pull request's, so a trigger for it can link the created
 task to the pull request.
 
 The event carries the same extra details as `check_run_completed`, and the pull

@@ -17,7 +17,7 @@ an alert fires, and gritz creates a task to investigate it.
 
 ## 1. Define a custom event type
 
-Open **Events → Custom Schemas** and add a type with **+ Type**:
+Open **Events → Custom types** and add a type with **+ Type**:
 
 - **Type**: the name senders put in the envelope's `type` field, for example
   `alert`. It must start with a lowercase letter, followed by up to 63 lowercase
@@ -38,13 +38,13 @@ Web UI's form doesn't set it: declare it with the
 [`put_custom_event_type`](/integrations/mcp/#put_custom_event_type) MCP tool's
 `link_types`. A type without it can only create tasks.
 
-The **JSON Schema** button next to each type shows the request body the webhook
+The **JSON Schema** button on a type's page shows the request body the webhook
 accepts for it.
 
 ## 2. Create an API key
 
-Senders authenticate with an API key. Create one on the **Keys** page
-(`https://gritz.dev/ui/keys/new`) and copy the token: it starts with `xat_` and
+Senders authenticate with an API key. Create one with **+ Key** on the **Keys**
+page (`https://gritz.dev/ui/keys`) and copy the token: it starts with `xat_` and
 is shown only once. The key belongs to the organisation you create it in, and so
 does every event sent with it.
 
@@ -54,8 +54,8 @@ Store the key as a secret in the sending system and send it as a bearer token:
 Authorization: Bearer xat_…
 ```
 
-The webhook URL is on **Settings → Organisation**, in the **Custom Events**
-card. For gritz.dev it is `https://gritz.dev/webhook/custom`.
+The webhook URL is on **Settings → Organisation**, in the **Custom events**
+section. For gritz.dev it is `https://gritz.dev/webhook/custom`.
 
 ## 3. Send an event
 
@@ -92,8 +92,8 @@ Unknown fields are rejected. The
 [envelope reference](/reference/custom-event-envelope/) lists every field and
 its validation.
 
-A valid event gets a `200` response with the number of tasks it created or
-woke:
+A valid event gets a `200` response with the number of tasks it created or was
+delivered to:
 
 ```json
 {"routed": 1}
@@ -117,7 +117,7 @@ Open **Agents** and add an agent with **+ Agent**, with a runner, a workspace, a
 
 - **Link kinds**: add one with the link type **Custom: URL** and the claim
   `alert-owner`. Check `Alert` in its events, with no conditions, and turn on
-  **Public**.
+  its **Wake** and **Public**.
 - **Triggers**: add one with:
   - **Event type**: the type's label, here `Alert`.
   - **Conditions**: `severity` `equals` `critical`. A condition matches when
@@ -133,12 +133,13 @@ creating another one.
 
 ### Why custom event triggers must be public
 
-A trigger or link kind that isn't public only acts on events whose actor is a
-member of the organisation, such as a GitHub comment by a member. A custom event
-has no actor: it belongs to the API key's organisation, and only that
-organisation's public triggers and link kinds are considered for it. A
-member-only trigger for a custom type could never fire, so gritz rejects it when
-you save the agent. A member-only link kind never delivers custom events.
+A trigger or a link kind's event type that isn't public only acts on events
+whose actor is a member of the organisation, such as a GitHub comment by a
+member. A custom event has no actor: it belongs to the API key's organisation,
+and only that organisation's public triggers and link kinds' public event types
+are considered for it. A member-only trigger for a custom type could never fire,
+so gritz rejects it when you save the agent. A link kind never delivers a custom
+event type it doesn't mark public.
 
 ### Follow-up events
 
@@ -170,7 +171,7 @@ system, and send exactly that string in every event about the alert.
 | Status | Response body | Cause |
 | --- | --- | --- |
 | `400` | `invalid envelope: …` | The body isn't valid JSON, has a field the envelope doesn't define, has a field of the wrong type (for example an attr value that is a string rather than a list), or is larger than 1 MiB. |
-| `400` | `unknown event type "…"` | `type` is empty or doesn't name one of the organisation's custom types. Check **Events → Custom Schemas**. |
+| `400` | `unknown event type "…"` | `type` is empty or doesn't name one of the organisation's custom types. Check **Events → Custom types**. |
 | `400` | `url is required` | `url` is missing or empty. |
 | `400` | `url "…" must be an absolute http or https URL` | `url` is relative, has no host, or uses another scheme. |
 | `400` | `attr "body" must be sent as the envelope's "body" field` | `body` or `url` was sent inside `attrs`. Send it as the top-level field. |
@@ -178,4 +179,4 @@ system, and send exactly that string in every event about the alert.
 | `401` | `bearer token required` | No `Authorization: Bearer …` header. A browser session cookie isn't accepted. |
 | `401` | `invalid or expired token` | The key is wrong, deleted or expired. |
 | `403` | `permission denied` | The token can't create events, for example a task's own token. Use an API key. |
-| `200` | `{"routed": 0}` | No public trigger for the type matched the event, or the matching triggers yielded, and no task is subscribed to the `url` with a public link kind that delivers the type. |
+| `200` | `{"routed": 0}` | No public trigger for the type matched the event, or the matching triggers yielded, and no task is subscribed to the `url` with a link kind that delivers the type and marks it public. |

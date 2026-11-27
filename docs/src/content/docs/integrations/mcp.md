@@ -28,8 +28,8 @@ agents running inside tasks are in [Agent tools](/using/agent-tools/).
 
 ## Connect over HTTP
 
-The server's MCP URL is on **Settings → Organisation**, in the **MCP Server**
-card: `https://gritz.dev/mcp` for gritz.dev. It uses the Streamable HTTP
+The server's MCP URL is on **Settings → Organisation**, in the **MCP server**
+section: `https://gritz.dev/mcp` for gritz.dev. It uses the Streamable HTTP
 transport.
 
 ### Claude Code
@@ -64,7 +64,7 @@ registers itself and needs no client ID.
 
 When the client first connects, it opens gritz in your browser. Sign in if you
 aren't already, check the organisation in the selector at the top, and click
-**Approve** on the **Authorize Application** page. The page shows the account
+**Approve** on the **Authorize application** page. The page shows the account
 and organisation the client will act as.
 
 The client then acts as you, in that organisation: it sees and changes what you
@@ -283,7 +283,7 @@ agent; `get_agent` takes an agent's `id` and returns it in full:
 | `id` | The agent's ID. |
 | `name` | The agent's name. |
 | `workspace`, `runner` | The [workspace](/concepts/workspaces/) its tasks run in, and the [runner](/concepts/runners/) that offers it. `list_workspaces` lists both. |
-| `prompt` | The first instruction of the tasks its triggers and schedules create. |
+| `prompt` | The first instruction of the tasks its triggers and schedules create, before the trigger's or schedule's own `prompt`. |
 | `auto_archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay of its tasks, in seconds, such as `"86400s"`. `0` never archives. |
 | `variables` | Values for the workspace's [variables](/operators/workspaces-yaml/#variables), an object of name to string value. Each must be declared by the workspace, and every required one set. |
 | `features` | Names of the workspace's [features](/operators/workspaces-yaml/#features) its tasks get, in order: where two set the same thing, the later one wins. Each must be declared by the workspace. |
@@ -300,6 +300,7 @@ Each trigger has:
 | `public` | Also match events from people who aren't members of the organisation. A trigger on a custom event type must be public: custom events have no actor. |
 | `yield_to` | Claim names: the trigger creates no task while an unarchived task holds a link with one of these claims on the event's resource. |
 | `link` | A link kind of the agent whose type the event type declares. The task it creates gets a subscribed link of that kind to the event's resource. |
+| `prompt` | A second instruction the task it creates gets, after the agent's `prompt`, or its only one when the agent has none. |
 
 Each link kind has:
 
@@ -308,8 +309,7 @@ Each link kind has:
 | `type` | A link type that `list_event_types` lists, such as `github.pr`. |
 | `kind` | The kind's name, unique in the agent. Defaults to `type`. |
 | `claim` | A claim stamped on every link of this kind, which triggers can `yield_to`. |
-| `events` | The event types a link of this kind delivers to its task, each `{type, conditions}`: an event type that declares the link type, and conditions its events must all meet, in a trigger's shape. With none, it delivers nothing. |
-| `public` | Also deliver events from people who aren't members of the organisation. |
+| `events` | The event types a link of this kind delivers to its task, each `{type, conditions, public, wake}`: an event type that declares the link type; conditions its events must all meet, in a trigger's shape; `public` to also deliver its events from people who aren't members of the organisation; and `wake` to start the task when one is delivered, without which the event is only added to the task. With none, it delivers nothing. |
 
 Each [schedule](/concepts/schedules/) has:
 
@@ -320,6 +320,7 @@ Each [schedule](/concepts/schedules/) has:
 | `cron_expr` | When to create a task: a five-field [cron expression](/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. |
 | `timezone` | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Empty is `UTC`. |
 | `enabled` | Whether the schedule runs. |
+| `prompt` | A second instruction every task it creates gets, after the agent's `prompt`, or its only one when the agent has none. |
 | `next_run_at`, `last_run_at`, `last_task_id` | When it next runs (unset while disabled), when it last ran, and the task it last created. Set by the server. |
 
 `put_agent` takes `agent`, in the shape `get_agent` returns. With an `id`, it
@@ -380,16 +381,17 @@ Takes the `type` to delete. It fails while an agent uses the type.
 | `attrs` | The values of the type's other attributes, each a list of strings. |
 | `description` | A description shown on the timeline of a task the event reaches. It defaults to the type's label. |
 | `details` | Extra key/value context shown with the event. Triggers don't match on it. |
-| `fire` | Act on it: wake or create tasks. Without it, nothing changes. |
+| `fire` | Act on it: deliver it to tasks and create tasks. Without it, nothing changes. |
 
 The event is checked against its type as the
 [custom events webhook](/integrations/custom-events/) checks an envelope. It
 returns, for each agent the event concerns, the index of the trigger that
 matched and whether it creates a task or yields, with the tasks holding the
 claim it yields to, and the tasks the event is delivered to, each with the link
-kind that matched. With `fire`, it also returns the tasks and events it
+kind that matched and whether the delivery wakes the task. With `fire`, it also returns the tasks and events it
 created. An event of a GitHub or Jira type has you as its actor. A custom event
-has none, so only public triggers and link kinds admit it, as when it comes from
+has none, so only public triggers and the public event types of link kinds
+admit it, as when it comes from
 the webhook: firing a custom event is how to send one. See
 [Testing with a test event](/concepts/agents/#testing-with-a-test-event).
 

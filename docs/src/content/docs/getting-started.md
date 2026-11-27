@@ -43,8 +43,9 @@ template for a kind of task. Open **Agents** and click **+ Agent**:
 - **Auto-archive** archives each task some time after it finishes. Leave it on
   **Never** for now.
 
-Leave the prompt, triggers and link kinds empty: they are for tasks created from
-events. Save the agent.
+Leave the prompt, **Follows** and **Starts on** empty: they are for tasks
+created from events and schedules. Click **Create agent** at the bottom of the
+page.
 
 ## 5. Create a task
 

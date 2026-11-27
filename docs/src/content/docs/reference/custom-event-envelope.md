@@ -17,7 +17,7 @@ Authorization: Bearer xat_…
 Content-Type: application/json
 ```
 
-The full URL is on **Settings → Organisation**, in the **Custom Events** card;
+The full URL is on **Settings → Organisation**, in the **Custom events** section;
 for gritz.dev it is `https://gritz.dev/webhook/custom`. The webhook only
 handles `POST`.
 
@@ -33,7 +33,8 @@ handles `POST`.
   not hold `event:create`.
 - The event belongs to the key's organisation and is checked against that
   organisation's custom event types. It has no actor, so only the
-  organisation's public triggers and link kinds can act on it.
+  organisation's public triggers, and link kinds that mark its type public, can
+  act on it.
 
 ### Body
 
@@ -55,7 +56,7 @@ type.
 
 | Field | Type | Required | Validation |
 | --- | --- | --- | --- |
-| `type` | string | yes | Must name one of the organisation's custom event types, as defined on **Events → Custom Schemas**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
+| `type` | string | yes | Must name one of the organisation's custom event types, as defined on **Events → Custom types**. A type named like a built-in GitHub or Jira type still only resolves to the custom one. |
 | `description` | string | no | The event's description on the task's timeline. Defaults to the type's label. |
 | `url` | string | yes | Must be non-empty and an absolute `http` or `https` URL with a host. Used exactly as sent: see [`url`](#url). |
 | `body` | string | no | The event's text. Defaults to the empty string. |
@@ -107,8 +108,8 @@ A valid event gets `200 OK` with a JSON body:
 `routed` is the number of tasks the event reached: tasks created by agents'
 triggers, and existing tasks subscribed to the event's `url`. It is `0` when no
 public trigger for the type matches, or every matching trigger yields, and no
-task is subscribed to the `url` through a public link kind that delivers the
-type.
+task is subscribed to the `url` through a link kind that delivers the type and
+marks it public.
 
 Errors are plain text.
 

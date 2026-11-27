@@ -23,8 +23,8 @@ The server must have the Atlassian integration configured; operators, see
 
 ## Link your Atlassian account
 
-On **Settings → Account**, in the **Atlassian Account** card, click **Link
-Atlassian Account** and approve the request on Atlassian. gritz only asks to read
+On **Settings → Account**, under **Connected accounts**, click **Link** on the
+**Atlassian** row and approve the request on Atlassian. gritz only asks to read
 your profile; it records your Atlassian account ID and name.
 
 Once linked, your comments, labels and assignments on Jira count as yours in
@@ -34,15 +34,15 @@ every organisation you are a member of. **Unlink** removes the link.
 
 ### 1. Generate the webhook secret
 
-On **Settings → Organisation**, the **Atlassian Webhook** card shows the
+On **Settings → Organisation**, the **Atlassian webhook** section shows the
 organisation's webhook URL:
 
 ```
 https://gritz.dev/webhook/atlassian?org=<org-id>
 ```
 
-Click **Generate Secret**. gritz rejects every Jira event for the organisation
-until it has a secret. **Regenerate Secret** replaces it; the old one stops
+Click **Generate secret**. gritz rejects every Jira event for the organisation
+until it has a secret. **Regenerate secret** replaces it; the old one stops
 working at once, so update the webhook in Jira straight after.
 
 ### 2. Create the webhook in Jira
@@ -50,8 +50,8 @@ working at once, so update the webhook in Jira straight after.
 As a Jira administrator, open **Settings → System → WebHooks** and create a
 webhook:
 
-- **URL**: the webhook URL from the card, including `?org=`.
-- **Secret**: the secret from the card.
+- **URL**: the webhook URL from that section, including `?org=`.
+- **Secret**: the secret from that section.
 - **Events**: under **Comment**, **created**; under **Issue**, **created** and
   **updated**. Add a JQL filter if you only want some projects' issues.
 
@@ -75,8 +75,8 @@ whoever caused it:
 - If the person who caused it has linked their Atlassian account and is a member,
   your organisation's member-only triggers and link kinds can act on it. It also
   goes to the other organisations they are a member of.
-- Otherwise, only your [public](/concepts/agents/#members-and-public) triggers
-  and link kinds act on it.
+- Otherwise, only your [public](/concepts/agents/#members-and-public) triggers,
+  and link kinds that mark its event type public, act on it.
 
 ## Events
 

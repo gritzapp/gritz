@@ -23,8 +23,8 @@ These steps run a runner against gritz.dev on a machine with Docker.
    [Install](/using/cli/#install) for the other ways to install it, with mise
    or from a release archive, and for how to update.
 
-2. **Create an API key** on the **Keys** page
-   (`https://gritz.dev/ui/keys/new`) and copy the `xat_…` token: it is shown only
+2. **Create an API key** with **+ Key** on the **Keys** page
+   (`https://gritz.dev/ui/keys`) and copy the `xat_…` token: it is shown only
    once. Log in with it:
 
    ```bash

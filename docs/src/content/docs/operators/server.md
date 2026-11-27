@@ -126,7 +126,7 @@ accept it on GitHub before the App receives the events that need it.
 
 The App ID, client ID and slug are on the App's page: the slug is the last part
 of its public URL, `https://github.com/apps/<slug>`. Without a slug, users have
-no **Install GitHub App** button and can only link an existing installation by
+no **Install** button for the GitHub App and can only link an existing installation by
 its ID. The server checks the App ID and private key when it starts, and fails
 to start if either is invalid.
 
