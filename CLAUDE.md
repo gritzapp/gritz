@@ -47,9 +47,11 @@ GRITZ is an async agent orchestrator using a central control plane architecture 
 
 ### Key Concepts
 
-- **Tasks** are the unit of work - contain workspace reference and prompts to execute
-- **Agents** run one-to-one with tasks inside containers named `gritz-{task-id}`
+- **Tasks** are the unit of work. Every task belongs to an agent and copies its workspace, runner, auto-archive delay, variables and features from it at creation
+- **Agents** (`internal/model/agent.go`) are org-level definitions of a kind of task: a template (workspace, runner, prompt, variables, features), **triggers** that create tasks from events, **link kinds** that decide which events reach its tasks, and **schedules** that create tasks on a cron. There are no routing rules and no standalone schedules
+- The **coding agent** (Claude Code, Codex, ...) is a different thing: it runs one-to-one with a task inside a container named `gritz-{task-id}`, and is set by the workspace's `agent:`
 - **Workspaces** define container config (image, volumes, env vars) and MCP servers in `workspaces.yaml`
+- **Features** are named additions a workspace declares (`environment`, `secrets`, `mcp_servers`, `commands`, an optional `agent:`). An agent lists the features its tasks get; the runner applies them in that order with `Workspace.WithFeatures`, later wins, and nothing checks for conflicts
 - The runner reaches the driver through the backend (Docker: an exec tunnel to `/gritz/driver.sock`; Lambda MicroVMs: the managed proxy); the driver reports to the server directly with a per-task token
 - Runner auto-injects an `gritz` MCP server (see below)
 - **Secrets** listed in a workspace's `secrets:` map are masked in the log shipped to the server (see below)
@@ -71,7 +73,7 @@ The runner injects an `gritz` MCP server into each agent, providing these tools:
 
 - `get_my_task` - Get current task instructions, links, and events
 - `update_my_task` - Update the current task's name
-- `create_link` - Associate external resources (PRs, Jira tickets) with the task
+- `create_link` - Associate external resources (PRs, Jira tickets) with the task; with a `kind` of the task's agent, the link is subscribed to that kind's events
 - `report` - Log messages visible in the Web UI
 
 ### Event System
@@ -79,12 +81,13 @@ The runner injects an `gritz` MCP server into each agent, providing these tools:
 Tasks can be notified about external events through the event system:
 
 - **Events** represent external triggers (GitHub PR comments, Jira issue updates, etc.)
-- **Links** created with `subscribe=true` route events to tasks when the event URL matches the link URL
-- When an event is processed, all tasks with matching subscribed links receive the event
+- **Triggers** create a task of their agent when an event matches their event type and conditions. Each agent's first matching trigger wins, and agents are evaluated independently. A trigger's `yield_to` lists claims: it creates nothing while an unarchived task holds one of them on the event's resource
+- **Link kinds** are the only links an agent's tasks may subscribe with. A link created with a `kind` receives an event when the event's canonical URL equals the link's URL, the kind lists the event's type, and that entry's conditions hold. A kind that lists no events delivers nothing; a link without a kind is a plain reference
+- Delivery always wakes the task. A kind's `claim` is stamped on its links and is what triggers yield to. `public` (on a trigger, or on a whole link kind) admits events from actors who aren't org members
 - Events appear in `get_my_task` output and provide additional context to agents
-- GitHub (the GitHub App's webhook, `internal/server/githubserver`) and Jira (`internal/server/atlassianserver`) deliver webhooks to the server, which turns them into events and routes them to linked tasks; custom events arrive at `/webhook/custom`. There is no poller
+- GitHub (the GitHub App's webhook, `internal/server/githubserver`) and Jira (`internal/server/atlassianserver`) deliver webhooks to the server, which turns them into events and routes them (`internal/server/eventrouter`); custom events arrive at `/webhook/custom`. There is no poller
 
-Use `create_link` with `subscribe=true` for resources that may need follow-up (PRs awaiting review, issues awaiting response, etc.)
+Use `create_link` with a `kind` for resources that may need follow-up (PRs awaiting review, issues awaiting response, etc.)
 
 ### CLI Subcommands
 
@@ -123,12 +126,12 @@ Design proposals are docs pages too, in `docs/src/content/docs/proposals/{draft,
 
 `docs-pages.yml` deploys master to the `gh-pages` root, and `docs-preview.yml` builds every PR that touches `docs/` or `diagrams/` under `/pr/<n>/` (diagrams included) and comments a preview link. Both publish through `.github/scripts/deploy-gh-pages.sh`, which force-pushes `gh-pages` as a single orphan commit, so the branch carries no history.
 
-**Code PRs don't update the user docs.** A routing rule creates a task for every push to `master` that changes code. The task reviews the push and opens a `docs:` PR when a page no longer describes behaviour a user or operator can see: a flag, a workspace field, an envelope field, a routing semantic, an MCP tool. Where the matching page doesn't exist yet, there is nothing to update. The table below and "What belongs in the docs" are that task's guide.
+**Code PRs don't update the user docs.** An agent with a push trigger creates a task for every push to `master` that changes code. The task reviews the push and opens a `docs:` PR when a page no longer describes behaviour a user or operator can see: a flag, a workspace field, an envelope field, a trigger or link-kind semantic, an MCP tool. Where the matching page doesn't exist yet, there is nothing to update. The table below and "What belongs in the docs" are that task's guide.
 
 | Code | Docs |
 | --- | --- |
 | `internal/server/customserver`, custom event types | `integrations/custom-events`, `reference/custom-event-envelope` |
-| `internal/server/eventrouter` (routing rules, built-in event types) | `concepts/routing-rules`, `reference/event-types` |
+| `internal/server/eventrouter` (agent triggers, link kinds, built-in event types), agents and their schedules | `concepts/agents`, `concepts/schedules`, `reference/event-types` |
 | `internal/server/githubserver`, `internal/server/atlassianserver` | `integrations/github`, `integrations/jira` |
 | `internal/server/mcpserver`, `gritz mcp` | `integrations/mcp` |
 | Agent MCP tools (`internal/runner/agentmcp`) | `using/agent-tools` |

@@ -232,7 +232,8 @@ You pick up a top-level issue the human has moved into **Ready**. Two cases:
 
 1. **Delegate the current layer.** Create one gritz task for the layer with a lean
    instruction (see [Writing a layer's task
-   instruction](#writing-a-layers-task-instruction)). Move the layer's sub-issue `Ready → In
+   instruction](#writing-a-layers-task-instruction)), on the agent the `gritz-task` skill
+   describes how to pick. Move the layer's sub-issue `Ready → In
    progress`. Immediately `channel_unmute(org=<org>, task_ids=[<new id>])`, and show the user the task URL.
 2. **Wait.** Because only this task is unmuted, its completion notification is your review
    signal.
@@ -277,11 +278,21 @@ yourself is a last resort (the user explicitly asks, or it's a trivial mechanica
 trip clearly isn't worth) — and even then, prefer relaying.
 
 **How it reaches the task.** The event system does the routing. When the agent opens the PR it
-subscribes to the PR link (`create_link(subscribe=true)`); commenting on or reviewing that PR
-delivers a GitHub App webhook, which the server routes to that link and which **wakes the task** — even though its
-sandbox has already exited — so it can push a fix. This is the same routing behind the `Task N
-woken by event …` notifications. During execution the task is already unmuted (you unmuted it at
-creation), so its wake and completion notifications land in your channel for free.
+subscribes to it by creating a link with one of its gritz agent's link kinds (`create_link` with
+`kind`); commenting on or reviewing that PR delivers a GitHub App webhook, which the server
+delivers to that link when the link kind lists the event and its conditions hold, and which
+**wakes the task** — even though its sandbox has already exited — so it can push a fix. This is
+the same routing behind the `Task N woken by event …` notifications. During execution the task is
+already unmuted (you unmuted it at creation), so its wake and completion notifications land in
+your channel for free.
+
+Two consequences of link kinds:
+
+- **The comment has to match the kind's conditions.** The agents here deliver comments and reviews
+  only when they mention the bot, so a relayed comment that doesn't tag `@icholy-bot` wakes nothing.
+- **A merge is not delivered** unless the task's link kind lists `pull_request_closed`. Don't wait
+  for a "merged" notification: check the PR's state with `gh pr view <n> --json state` when the
+  user says they merged, or when you come back to a layer.
 
 The loop:
 
