@@ -9,78 +9,6 @@ import (
 	"github.com/gritzapp/gritz/internal/store/sqlc"
 )
 
-func (s *Store) CreateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
-	id, err := s.q(tx).CreateSchedule(ctx, sqlc.CreateScheduleParams{
-		OrgID:      sched.OrgID,
-		Name:       sched.Name,
-		AgentID:    sched.AgentID,
-		CronExpr:   sched.CronExpr,
-		Timezone:   sched.Timezone,
-		Enabled:    sched.Enabled,
-		NextRunAt:  nullTime(sched.NextRunAt),
-		LastRunAt:  nullTime(sched.LastRunAt),
-		LastTaskID: nullInt64(sched.LastTaskID),
-	})
-	if err != nil {
-		return err
-	}
-	sched.ID = id
-	return nil
-}
-
-func (s *Store) GetSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64) (*model.Schedule, error) {
-	row, err := s.q(tx).GetSchedule(ctx, sqlc.GetScheduleParams{
-		ID:    id,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return toModelSchedule(row), nil
-}
-
-func (s *Store) GetScheduleForUpdate(ctx context.Context, tx *sql.Tx, id int64, orgID int64) (*model.Schedule, error) {
-	row, err := s.q(tx).GetScheduleForUpdate(ctx, sqlc.GetScheduleForUpdateParams{
-		ID:    id,
-		OrgID: orgID,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return toModelSchedule(row), nil
-}
-
-func (s *Store) ListSchedules(ctx context.Context, tx *sql.Tx, orgID int64) ([]*model.Schedule, error) {
-	rows, err := s.q(tx).ListSchedules(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	return toModelSchedules(rows), nil
-}
-
-// UpdateSchedule writes sched; moved to another agent, it goes last in it.
-func (s *Store) UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
-	return s.q(tx).UpdateSchedule(ctx, sqlc.UpdateScheduleParams{
-		Name:       sched.Name,
-		AgentID:    sched.AgentID,
-		CronExpr:   sched.CronExpr,
-		Timezone:   sched.Timezone,
-		Enabled:    sched.Enabled,
-		NextRunAt:  nullTime(sched.NextRunAt),
-		LastRunAt:  nullTime(sched.LastRunAt),
-		LastTaskID: nullInt64(sched.LastTaskID),
-		ID:         sched.ID,
-		OrgID:      sched.OrgID,
-	})
-}
-
-func (s *Store) DeleteSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64) error {
-	return s.q(tx).DeleteSchedule(ctx, sqlc.DeleteScheduleParams{
-		ID:    id,
-		OrgID: orgID,
-	})
-}
-
 // DisableSchedules disables all of the org's schedules.
 func (s *Store) DisableSchedules(ctx context.Context, tx *sql.Tx, orgID int64) error {
 	return s.q(tx).DisableSchedules(ctx, orgID)
@@ -110,11 +38,13 @@ type ScheduleAdvance struct {
 }
 
 // AdvanceSchedule records a fire: it sets next_run_at to the next occurrence,
-// last_run_at/last_task_id to the run just created. Called in
+// last_run_at/last_task_id to the run just created. A nil NextRunAt disables
+// the schedule. Called in
 // the same transaction as the fire so the advance and the task creation commit
 // together (exactly-once).
 func (s *Store) AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64, adv ScheduleAdvance) error {
 	return s.q(tx).AdvanceSchedule(ctx, sqlc.AdvanceScheduleParams{
+		Enabled:    adv.NextRunAt != nil,
 		NextRunAt:  nullTime(adv.NextRunAt),
 		LastRunAt:  nullTime(adv.LastRunAt),
 		LastTaskID: nullInt64(adv.LastTaskID),

@@ -80,13 +80,6 @@ service GritzService {
   // Called from a task's sandbox to get a GitHub token. The server doesn't
   // issue these tokens yet: every call fails with `unimplemented`.
   rpc CreateGitHubToken(CreateGitHubTokenRequest) returns (CreateGitHubTokenResponse);
-  rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
-  rpc GetSchedule(GetScheduleRequest) returns (GetScheduleResponse);
-  rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
-  rpc UpdateSchedule(UpdateScheduleRequest) returns (UpdateScheduleResponse);
-  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
-  rpc SetScheduleEnabled(SetScheduleEnabledRequest) returns (SetScheduleEnabledResponse);
-  rpc RunSchedule(RunScheduleRequest) returns (RunScheduleResponse);
   // CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
   // workspace isn't registered on its runner, the workspace doesn't accept its
   // variables, or a trigger or link kind doesn't check out against the org's
@@ -954,103 +947,6 @@ message CreateGitHubTokenRequest {}
 message CreateGitHubTokenResponse {
   string token = 1;
   google.protobuf.Timestamp expires_at = 2;
-}
-
-// See docs/src/content/docs/proposals/implemented/scheduled-tasks.md.
-
-// Schedule is an agent and a cron expression: the server creates a task of the
-// agent at each time the expression matches. The task starts with the agent's
-// prompt.
-message Schedule {
-  int64 id = 1;
-  string name = 2;
-  reserved 3, 4, 5, 10, 17;  // Previously: workspace, runner, namespace, auto_archive, variables (now the agent's)
-  reserved 6, 14, 15, 16;    // Previously: instructions, created_by, created_at, updated_at
-  string cron_expr = 7;
-  string timezone = 8;                      // IANA name; default "UTC".
-  bool enabled = 9;
-  google.protobuf.Timestamp next_run_at = 11;  // Unset when disabled.
-  google.protobuf.Timestamp last_run_at = 12;  // Unset when it has never run.
-  int64 last_task_id = 13;                  // 0 when it has never run.
-  // The agent its tasks belong to. Each task takes its workspace, runner,
-  // auto-archive and variables from the agent when it is created.
-  int64 agent_id = 18;
-}
-
-message CreateScheduleRequest {
-  string name = 1;
-  reserved 2, 3, 4, 9, 10;  // Previously: workspace, runner, namespace, auto_archive, variables (now the agent's)
-  reserved 5;               // Previously: instructions
-  string cron_expr = 6;
-  string timezone = 7;                      // IANA name; empty defaults to "UTC".
-  // Whether the schedule runs. False (the default) creates a schedule that
-  // never runs until SetScheduleEnabled enables it.
-  bool enabled = 8;
-  int64 agent_id = 11;  // The agent its tasks belong to.
-}
-
-message CreateScheduleResponse {
-  Schedule schedule = 1;
-}
-
-message GetScheduleRequest {
-  int64 id = 1;
-}
-
-message GetScheduleResponse {
-  Schedule schedule = 1;
-}
-
-message ListSchedulesRequest {}
-
-message ListSchedulesResponse {
-  repeated Schedule schedules = 1;
-}
-
-// UpdateScheduleRequest replaces a schedule's name, agent, cron expression and
-// timezone. Changing cron_expr or timezone recomputes next_run_at.
-// Use SetScheduleEnabled to enable or disable it.
-message UpdateScheduleRequest {
-  int64 id = 1;
-  string name = 2;
-  reserved 3, 4, 5, 9, 10;  // Previously: workspace, runner, namespace, auto_archive, variables (now the agent's)
-  reserved 6;               // Previously: instructions
-  string cron_expr = 7;
-  string timezone = 8;                      // IANA name; empty defaults to "UTC".
-  int64 agent_id = 11;  // The agent its tasks belong to.
-}
-
-message UpdateScheduleResponse {
-  Schedule schedule = 1;
-}
-
-message DeleteScheduleRequest {
-  int64 id = 1;
-}
-
-message DeleteScheduleResponse {}
-
-// SetScheduleEnabledRequest enables or disables a schedule. Enabling computes
-// next_run_at from now; disabling clears it, and the schedule stops running.
-message SetScheduleEnabledRequest {
-  int64 id = 1;
-  bool enabled = 2;
-}
-
-message SetScheduleEnabledResponse {
-  Schedule schedule = 1;
-}
-
-// RunScheduleRequest creates a task from a schedule now, once, in addition to
-// its regular runs. It leaves next_run_at, last_run_at and last_task_id
-// unchanged, and works on a disabled schedule too, so a schedule can be tried
-// out before it is enabled.
-message RunScheduleRequest {
-  int64 id = 1;
-}
-
-message RunScheduleResponse {
-  Task task = 1;  // The task the run created.
 }
 
 // See docs/src/content/docs/proposals/implemented/agents.md.

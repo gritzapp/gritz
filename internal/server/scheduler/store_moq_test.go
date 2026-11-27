@@ -39,9 +39,6 @@ var _ Store = &StoreMock{}
 //			LockLiveAgentFunc: func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error {
 //				panic("mock out the LockLiveAgent method")
 //			},
-//			UpdateScheduleFunc: func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
-//				panic("mock out the UpdateSchedule method")
-//			},
 //			WithTxFunc: func(ctx context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) error {
 //				panic("mock out the WithTx method")
 //			},
@@ -69,9 +66,6 @@ type StoreMock struct {
 
 	// LockLiveAgentFunc mocks the LockLiveAgent method.
 	LockLiveAgentFunc func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error
-
-	// UpdateScheduleFunc mocks the UpdateSchedule method.
-	UpdateScheduleFunc func(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
 
 	// WithTxFunc mocks the WithTx method.
 	WithTxFunc func(ctx context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) error
@@ -140,15 +134,6 @@ type StoreMock struct {
 			// ID is the id argument value.
 			ID int64
 		}
-		// UpdateSchedule holds details about calls to the UpdateSchedule method.
-		UpdateSchedule []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Tx is the tx argument value.
-			Tx *sql.Tx
-			// Sched is the sched argument value.
-			Sched *model.Schedule
-		}
 		// WithTx holds details about calls to the WithTx method.
 		WithTx []struct {
 			// Ctx is the ctx argument value.
@@ -165,7 +150,6 @@ type StoreMock struct {
 	lockCreateTask        sync.RWMutex
 	lockGetAgent          sync.RWMutex
 	lockLockLiveAgent     sync.RWMutex
-	lockUpdateSchedule    sync.RWMutex
 	lockWithTx            sync.RWMutex
 }
 
@@ -422,46 +406,6 @@ func (mock *StoreMock) LockLiveAgentCalls() []struct {
 	mock.lockLockLiveAgent.RLock()
 	calls = mock.calls.LockLiveAgent
 	mock.lockLockLiveAgent.RUnlock()
-	return calls
-}
-
-// UpdateSchedule calls UpdateScheduleFunc.
-func (mock *StoreMock) UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error {
-	if mock.UpdateScheduleFunc == nil {
-		panic("StoreMock.UpdateScheduleFunc: method is nil but Store.UpdateSchedule was just called")
-	}
-	callInfo := struct {
-		Ctx   context.Context
-		Tx    *sql.Tx
-		Sched *model.Schedule
-	}{
-		Ctx:   ctx,
-		Tx:    tx,
-		Sched: sched,
-	}
-	mock.lockUpdateSchedule.Lock()
-	mock.calls.UpdateSchedule = append(mock.calls.UpdateSchedule, callInfo)
-	mock.lockUpdateSchedule.Unlock()
-	return mock.UpdateScheduleFunc(ctx, tx, sched)
-}
-
-// UpdateScheduleCalls gets all the calls that were made to UpdateSchedule.
-// Check the length with:
-//
-//	len(mockedStore.UpdateScheduleCalls())
-func (mock *StoreMock) UpdateScheduleCalls() []struct {
-	Ctx   context.Context
-	Tx    *sql.Tx
-	Sched *model.Schedule
-} {
-	var calls []struct {
-		Ctx   context.Context
-		Tx    *sql.Tx
-		Sched *model.Schedule
-	}
-	mock.lockUpdateSchedule.RLock()
-	calls = mock.calls.UpdateSchedule
-	mock.lockUpdateSchedule.RUnlock()
 	return calls
 }
 

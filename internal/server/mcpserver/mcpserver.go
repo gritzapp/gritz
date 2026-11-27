@@ -19,7 +19,7 @@ const Instructions = "gritz is an async agent orchestrator that runs AI coding a
 	"Workspaces define the container image, volumes, environment variables, and MCP servers available to agents.\n" +
 	"Each task runs an AI coding agent with access to the codebase and configured tools.\n" +
 	"Agents attach links to their tasks for external resources they create, such as GitHub PRs or Jira issues.\n" +
-	"The server also administers the organisation's events, custom event types, schedules and agents, and reads its members, API keys and settings.\n" +
+	"The server also administers the organisation's events, custom event types and agents (with their schedules), and reads its members, API keys and settings.\n" +
 	"To send a custom event, fire it with test_event.\n" +
 	"The gritz documentation is at https://docs.gritz.dev; https://docs.gritz.dev/llms.txt lists it for agents."
 
@@ -56,7 +56,6 @@ func AddTools(server *mcp.Server, service ServiceFunc) {
 
 	h.addTaskTools(server)
 	h.addEventTools(server)
-	h.addScheduleTools(server)
 	h.addAgentTools(server)
 	h.addOrgTools(server)
 }

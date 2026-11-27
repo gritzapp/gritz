@@ -375,42 +375,6 @@ func (o *Org) ListLogChunksByTask(req *gritzv1.ListLogChunksByTaskRequest) []*gr
 	return resp.Chunks
 }
 
-// CreateSchedule creates a schedule, as the schedules page does. It names the
-// org's DefaultAgent where req names no agent.
-func (o *Org) CreateSchedule(req *gritzv1.CreateScheduleRequest) *gritzv1.Schedule {
-	t := o.server.t
-	t.Helper()
-	req = proto.CloneOf(req)
-	req.AgentId = cmp.Or(req.AgentId, o.DefaultAgent.GetId())
-	resp, err := o.Client.CreateSchedule(t.Context(), req)
-	if err != nil {
-		t.Fatalf("CreateSchedule: %v", err)
-	}
-	return resp.Schedule
-}
-
-// GetSchedule returns the schedule.
-func (o *Org) GetSchedule(req *gritzv1.GetScheduleRequest) *gritzv1.Schedule {
-	t := o.server.t
-	t.Helper()
-	resp, err := o.Client.GetSchedule(t.Context(), req)
-	if err != nil {
-		t.Fatalf("GetSchedule: %v", err)
-	}
-	return resp.Schedule
-}
-
-// ListSchedules returns the org's schedules.
-func (o *Org) ListSchedules(req *gritzv1.ListSchedulesRequest) []*gritzv1.Schedule {
-	t := o.server.t
-	t.Helper()
-	resp, err := o.Client.ListSchedules(t.Context(), req)
-	if err != nil {
-		t.Fatalf("ListSchedules: %v", err)
-	}
-	return resp.Schedules
-}
-
 // WaitTask waits until cond accepts task id, and returns it.
 func (o *Org) WaitTask(id int64, cond func(*gritzv1.Task) bool) *gritzv1.Task {
 	t := o.server.t

@@ -186,17 +186,23 @@ func TestDeleteOrg_DisablesSchedules(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	created := h.Org.CreateOrg(&gritzv1.CreateOrgRequest{Name: "has-schedules"})
-	sched := created.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: true})
+	agent := created.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "nightly",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{CronExpr: "0 9 * * *", Enabled: true}},
+	}})
 
 	// Act
 	_, err := h.Org.Client.DeleteOrg(t.Context(), &gritzv1.DeleteOrgRequest{Id: created.ID})
 
 	// Assert - read from the store: the org is archived, so no RPC reaches it.
 	assert.NilError(t, err)
-	got, err := h.Server.Store.GetSchedule(t.Context(), nil, sched.Id, created.ID)
+	got, err := h.Server.Store.GetAgent(t.Context(), nil, created.ID, agent.Id)
 	assert.NilError(t, err)
-	assert.Assert(t, !got.Enabled)
-	assert.Assert(t, got.NextRunAt == nil)
+	assert.Assert(t, cmp.Len(got.Schedules, 1))
+	assert.Assert(t, !got.Schedules[0].Enabled)
+	assert.Assert(t, got.Schedules[0].NextRunAt == nil)
 }
 
 func TestDeleteOrg_RejectsAtlassianWebhooks(t *testing.T) {

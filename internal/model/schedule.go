@@ -22,7 +22,7 @@ var cronParser = cron.NewParser(
 
 // Schedule names an agent and a cron spec. A server-side scheduler worker
 // creates a task of the agent on each occurrence, starting with the agent's
-// prompt (see docs/src/content/docs/proposals/draft/agent-schedules.md).
+// prompt (see docs/src/content/docs/proposals/implemented/agent-schedules.md).
 type Schedule struct {
 	ID    int64  `json:"id"`
 	OrgID int64  `json:"org_id"`
@@ -103,35 +103,12 @@ func (s *Schedule) Reschedule(prev *Schedule, now time.Time) error {
 }
 
 // AgentProto converts s to the AgentSchedule of its agent's protobuf
-// representation, with the same run state mapping as Proto.
+// representation. A nil next/last-run timestamp (disabled or never fired) maps
+// to an unset proto field; a nil LastTaskID maps to 0 ("never run").
 func (s *Schedule) AgentProto() *gritzv1.AgentSchedule {
 	pb := &gritzv1.AgentSchedule{
 		Id:       s.ID,
 		Name:     s.Name,
-		CronExpr: s.CronExpr,
-		Timezone: s.Timezone,
-		Enabled:  s.Enabled,
-	}
-	if s.NextRunAt != nil {
-		pb.NextRunAt = timestamppb.New(*s.NextRunAt)
-	}
-	if s.LastRunAt != nil {
-		pb.LastRunAt = timestamppb.New(*s.LastRunAt)
-	}
-	if s.LastTaskID != nil {
-		pb.LastTaskId = *s.LastTaskID
-	}
-	return pb
-}
-
-// Proto converts a Schedule to its protobuf representation. A nil next/last-run
-// timestamp (disabled or never fired) maps to an unset proto field; a nil
-// LastTaskID maps to 0 ("never run").
-func (s *Schedule) Proto() *gritzv1.Schedule {
-	pb := &gritzv1.Schedule{
-		Id:       s.ID,
-		Name:     s.Name,
-		AgentId:  s.AgentID,
 		CronExpr: s.CronExpr,
 		Timezone: s.Timezone,
 		Enabled:  s.Enabled,

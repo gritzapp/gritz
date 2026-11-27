@@ -157,7 +157,6 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 			assert.Assert(t, advCalls[0].Adv.NextRunAt.After(before), "next_run_at must realign to the future (skip-only)")
 			assert.Assert(t, advCalls[0].Adv.LastTaskID != nil)
 			assert.Equal(t, *advCalls[0].Adv.LastTaskID, int64(42))
-			assert.Assert(t, cmp.Len(st.UpdateScheduleCalls(), 0))
 
 			// The change notification is published after the transaction, and
 			// names the agent, whose schedule's run state moved.
@@ -175,9 +174,8 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 
 // TestScheduler_Tick_DisablesInvalidSchedule covers the invalid-at-fire-time edge
 // case: when Next fails (a timezone that can no longer be resolved) the due
-// occurrence still fires, then the schedule is disabled via UpdateSchedule
-// (enabled=false, next_run_at=nil) rather than advanced — and no report event is
-// emitted.
+// occurrence still fires, then the schedule is advanced with a nil next_run_at,
+// which disables it — and no report event is emitted.
 func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -202,9 +200,9 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 		GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
 			return &model.Agent{ID: 3, OrgID: 7, Workspace: "w", Runner: "r"}, nil
 		},
-		CreateTaskFunc:     func(_ context.Context, _ *sql.Tx, task *model.Task) error { task.ID = 99; return nil },
-		CreateEventFunc:    func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
-		UpdateScheduleFunc: func(_ context.Context, _ *sql.Tx, _ *model.Schedule) error { return nil },
+		CreateTaskFunc:      func(_ context.Context, _ *sql.Tx, task *model.Task) error { task.ID = 99; return nil },
+		CreateEventFunc:     func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
+		AdvanceScheduleFunc: func(_ context.Context, _ *sql.Tx, _, _ int64, _ store.ScheduleAdvance) error { return nil },
 	}
 	pub := &pubsub.PublisherMock{
 		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
@@ -220,13 +218,12 @@ func TestScheduler_Tick_DisablesInvalidSchedule(t *testing.T) {
 		assert.Assert(t, !isReport, "the invalid-fire path must not emit a report event")
 	}
 
-	// Disabled, not advanced.
-	assert.Assert(t, cmp.Len(st.AdvanceScheduleCalls(), 0))
-	updCalls := st.UpdateScheduleCalls()
-	assert.Assert(t, cmp.Len(updCalls, 1))
-	assert.Assert(t, !updCalls[0].Sched.Enabled, "an unresolvable schedule must be disabled")
-	assert.Assert(t, updCalls[0].Sched.NextRunAt == nil, "a disabled schedule must have a nil next_run_at")
-	assert.Assert(t, updCalls[0].Sched.LastTaskID != nil, "the fire that triggered the disable is still recorded")
+	// Disabled: advanced with no next occurrence.
+	advCalls := st.AdvanceScheduleCalls()
+	assert.Assert(t, cmp.Len(advCalls, 1))
+	assert.Assert(t, advCalls[0].Adv.NextRunAt == nil, "an unresolvable schedule must be disabled")
+	assert.Assert(t, advCalls[0].Adv.LastTaskID != nil, "the fire that triggered the disable is still recorded")
+	assert.Equal(t, *advCalls[0].Adv.LastTaskID, int64(99))
 }
 
 // TestScheduler_Tick_ErrorPropagatesWithoutPublishing proves publish-after-commit:
@@ -280,68 +277,4 @@ func eventPayloads(calls []struct {
 		events[i] = c.Event
 	}
 	return events
-}
-
-func TestValidate(t *testing.T) {
-	t.Parallel()
-	storeErr := errors.New("db down")
-	agent := &model.Agent{ID: 3, OrgID: 7, Workspace: "w", Runner: "r"}
-	tests := []struct {
-		name    string
-		sched   *model.Schedule
-		lockErr error
-		check   func(t *testing.T, got *model.Agent, err error)
-	}{
-		{
-			name:  "valid",
-			sched: &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "UTC"},
-			check: func(t *testing.T, got *model.Agent, err error) {
-				assert.NilError(t, err)
-				assert.Equal(t, got, agent)
-			},
-		},
-		{
-			name:  "invalid cron",
-			sched: &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "nonsense", Timezone: "UTC"},
-			check: func(t *testing.T, _ *model.Agent, err error) { assert.Assert(t, IsInvalidError(err), err) },
-		},
-		{
-			name:  "invalid timezone",
-			sched: &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "Nowhere/Bad"},
-			check: func(t *testing.T, _ *model.Agent, err error) { assert.Assert(t, IsInvalidError(err), err) },
-		},
-		{
-			name:    "unknown agent",
-			sched:   &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "UTC"},
-			lockErr: sql.ErrNoRows,
-			check: func(t *testing.T, _ *model.Agent, err error) {
-				assert.Assert(t, IsInvalidError(err), err)
-				assert.Error(t, err, "agent 3 not found")
-			},
-		},
-		{
-			name:    "store error",
-			sched:   &model.Schedule{OrgID: 7, AgentID: 3, CronExpr: "@daily", Timezone: "UTC"},
-			lockErr: storeErr,
-			check: func(t *testing.T, _ *model.Agent, err error) {
-				assert.ErrorIs(t, err, storeErr)
-				assert.Assert(t, !IsInvalidError(err))
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			st := &StoreMock{
-				LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error {
-					return tt.lockErr
-				},
-				GetAgentFunc: func(context.Context, *sql.Tx, int64, int64) (*model.Agent, error) {
-					return agent, nil
-				},
-			}
-			got, err := Validate(t.Context(), nil, st, tt.sched)
-			tt.check(t, got, err)
-		})
-	}
 }

@@ -14,138 +14,59 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-func TestScheduleCRUD(t *testing.T) {
-	t.Parallel()
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	ctx := t.Context()
-
-	// Create — a future next_run_at keeps this schedule out of the claim
-	// query's due set (see TestClaimDueSchedules_Concurrent, which owns the due
-	// set for this package). Relative to now so it can never rot into the past.
-	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
-	agent := teststore.CreateAgent(t, s, org, nil)
-	sched := &model.Schedule{
-		OrgID:     org.OrgID,
-		Name:      "nightly",
-		AgentID:   agent.ID,
-		CronExpr:  "0 9 * * *",
-		Timezone:  "America/Toronto",
-		Enabled:   true,
-		NextRunAt: &next,
-	}
-	assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
-	assert.Assert(t, sched.ID != 0)
-
-	// Get round-trips every field.
-	got, err := s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, got, sched)
-
-	// A get from another org does not see it.
-	other := teststore.CreateOrg(t, s, nil)
-	_, err = s.GetSchedule(ctx, nil, sched.ID, other.OrgID)
-	assert.ErrorIs(t, err, sql.ErrNoRows)
-
-	// Update mutates the agent and spec.
-	sched.Name = "nightly-v2"
-	sched.AgentID = teststore.CreateAgent(t, s, org, &model.Agent{Name: "other"}).ID
-	sched.CronExpr = "30 2 * * *"
-	sched.Timezone = "UTC"
-	sched.Enabled = false
-	sched.NextRunAt = nil
-	assert.NilError(t, s.UpdateSchedule(ctx, nil, sched))
-
-	got, err = s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, got, sched)
-
-	// List is org-scoped.
-	list, err := s.ListSchedules(ctx, nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(list, 1))
-	assert.Equal(t, list[0].ID, sched.ID)
-
-	empty, err := s.ListSchedules(ctx, nil, other.OrgID)
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(empty, 0))
-
-	// Delete removes it.
-	assert.NilError(t, s.DeleteSchedule(ctx, nil, sched.ID, org.OrgID))
-	_, err = s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
-	assert.ErrorIs(t, err, sql.ErrNoRows)
-}
-
-// TestSchedulePosition checks that a new schedule goes last in its agent, and
-// that one moved to another agent goes last in that one.
-func TestSchedulePosition(t *testing.T) {
-	t.Parallel()
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	ctx := t.Context()
-
-	agent := teststore.CreateAgent(t, s, org, nil)
-	other := teststore.CreateAgent(t, s, org, &model.Agent{Name: "other"})
-	create := func(agentID int64) *model.Schedule {
-		sched := &model.Schedule{OrgID: org.OrgID, AgentID: agentID, CronExpr: "@daily", Timezone: "UTC"}
-		assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
-		return sched
-	}
-	position := func(sched *model.Schedule) int {
-		pos, err := store.SchedulePosition(ctx, s, sched.ID)
-		assert.NilError(t, err)
-		return pos
-	}
-
-	first, second := create(agent.ID), create(agent.ID)
-	elsewhere := create(other.ID)
-	assert.Equal(t, position(first), 0)
-	assert.Equal(t, position(second), 1)
-	assert.Equal(t, position(elsewhere), 0)
-
-	// Renaming keeps the position; moving to another agent puts it last there.
-	first.Name = "renamed"
-	assert.NilError(t, s.UpdateSchedule(ctx, nil, first))
-	assert.Equal(t, position(first), 0)
-	first.AgentID = other.ID
-	assert.NilError(t, s.UpdateSchedule(ctx, nil, first))
-	assert.Equal(t, position(first), 1)
-}
-
 func TestAdvanceSchedule(t *testing.T) {
 	t.Parallel()
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	ctx := t.Context()
-
-	// Future next_run_at keeps this row out of the due set that
-	// TestClaimDueSchedules_Concurrent owns; relative to now so it can't rot.
-	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
-	sched := &model.Schedule{
-		OrgID:     org.OrgID,
-		AgentID:   teststore.CreateAgent(t, s, org, nil).ID,
-		CronExpr:  "0 9 * * *",
-		Timezone:  "UTC",
-		Enabled:   true,
-		NextRunAt: &next,
-	}
-	assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
-
-	// Advancing records the fire: new next_run_at, last_run_at, last_task_id.
-	task := teststore.CreateTask(t, s, org, nil)
 	newNext := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Microsecond)
-	firedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
-	assert.NilError(t, s.AdvanceSchedule(ctx, nil, sched.ID, org.OrgID, store.ScheduleAdvance{
-		NextRunAt:  &newNext,
-		LastRunAt:  &firedAt,
-		LastTaskID: &task.ID,
-	}))
+	tests := []struct {
+		name    string
+		next    *time.Time
+		enabled bool
+	}{
+		{name: "next occurrence", next: &newNext, enabled: true},
+		{name: "no next occurrence disables", next: nil, enabled: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - a future next_run_at keeps this row out of the due set
+			// that TestClaimDueSchedules_Concurrent owns; relative to now so it
+			// can't rot.
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			ctx := t.Context()
+			next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{Schedules: []*model.Schedule{
+				{CronExpr: "0 9 * * *", Timezone: "UTC", Enabled: true, NextRunAt: &next},
+			}})
+			sched := agent.Schedules[0]
+			task := teststore.CreateTask(t, s, org, nil)
+			firedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
 
-	got, err := s.GetSchedule(ctx, nil, sched.ID, org.OrgID)
-	assert.NilError(t, err)
-	assert.DeepEqual(t, *got.NextRunAt, newNext)
-	assert.DeepEqual(t, *got.LastRunAt, firedAt)
-	assert.Equal(t, *got.LastTaskID, task.ID)
+			// Act
+			err := s.AdvanceSchedule(ctx, nil, sched.ID, org.OrgID, store.ScheduleAdvance{
+				NextRunAt:  tt.next,
+				LastRunAt:  &firedAt,
+				LastTaskID: &task.ID,
+			})
+
+			// Assert - the fire is recorded: next_run_at, last_run_at,
+			// last_task_id, and enabled only with a next occurrence.
+			assert.NilError(t, err)
+			got, err := s.GetAgent(ctx, nil, org.OrgID, agent.ID)
+			assert.NilError(t, err)
+			assert.DeepEqual(t, got.Schedules, []*model.Schedule{{
+				ID:         sched.ID,
+				OrgID:      org.OrgID,
+				AgentID:    agent.ID,
+				CronExpr:   "0 9 * * *",
+				Timezone:   "UTC",
+				Enabled:    tt.enabled,
+				NextRunAt:  tt.next,
+				LastRunAt:  &firedAt,
+				LastTaskID: &task.ID,
+			}})
+		})
+	}
 }
 
 // TestClaimDueSchedules_Concurrent proves the FOR UPDATE SKIP LOCKED guarantee:
@@ -165,23 +86,28 @@ func TestClaimDueSchedules_Concurrent(t *testing.T) {
 	// delete them afterwards, so they don't stay due for the next run.
 	const n = 6
 	past := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
-	agent := teststore.CreateAgent(t, s, org, nil)
-	want := map[int64]bool{}
+	var scheds []*model.Schedule
 	for i := 0; i < n; i++ {
 		// Distinct next_run_at so ORDER BY next_run_at is deterministic.
 		next := past.Add(time.Duration(i) * time.Minute)
-		sched := &model.Schedule{
-			OrgID:     org.OrgID,
-			AgentID:   agent.ID,
+		scheds = append(scheds, &model.Schedule{
 			CronExpr:  "* * * * *",
 			Timezone:  "UTC",
 			Enabled:   true,
 			NextRunAt: &next,
-		}
-		assert.NilError(t, s.CreateSchedule(ctx, nil, sched))
-		t.Cleanup(func() {
-			assert.NilError(t, s.DeleteSchedule(context.Background(), nil, sched.ID, org.OrgID))
 		})
+	}
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{Schedules: scheds})
+	t.Cleanup(func() {
+		assert.NilError(t, s.WithTx(context.Background(), nil, func(tx *sql.Tx) error {
+			if err := s.DeleteAgent(context.Background(), tx, org.OrgID, agent.ID); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}))
+	})
+	want := map[int64]bool{}
+	for _, sched := range scheds {
 		want[sched.ID] = true
 	}
 

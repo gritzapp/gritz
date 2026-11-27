@@ -77,16 +77,11 @@ func TestEnv_VariablesStaleSchedule(t *testing.T) {
 		Name:      "stale",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "@daily", Enabled: true}},
 	}})
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		AgentId:  stale.Id,
-		CronExpr: "@daily",
-	})
 
-	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
-	assert.NilError(t, err)
-
-	id := resp.Task.Id
+	h.Org.FireSchedule(stale.Id, stale.Schedules[0].Id)
+	id := h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: stale.Id}).Schedules[0].LastTaskId
 	h.Org.WaitTask(id, func(task *gritzv1.Task) bool { return task.Status == gritzv1.TaskStatus_FAILED })
 	failed := h.Org.WaitEvent(id, func(e *gritzv1.Event) bool {
 		return e.GetLifecycle().GetKind() == gritzv1.LifecycleKind_LIFECYCLE_KIND_SANDBOX_FAILED

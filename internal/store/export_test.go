@@ -2,10 +2,10 @@ package store
 
 import "context"
 
-// SchedulePosition returns the position of schedule id in its agent, which
-// no model type carries yet.
-func SchedulePosition(ctx context.Context, s *Store, id int64) (int, error) {
-	var position int
-	err := s.db.QueryRowContext(ctx, `SELECT position FROM schedules WHERE id = $1`, id).Scan(&position)
-	return position, err
+// ScheduleExists reports whether schedule id is stored, in any org, so a test
+// can check a deleted agent's schedules are gone.
+func ScheduleExists(ctx context.Context, s *Store, id int64) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM schedules WHERE id = $1)`, id).Scan(&exists)
+	return exists, err
 }
