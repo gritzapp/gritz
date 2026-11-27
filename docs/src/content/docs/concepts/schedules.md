@@ -29,7 +29,7 @@ agent. Each schedule has:
 
 A schedule names one [agent](/concepts/agents/), and each task it creates
 takes the agent's runner, workspace,
-[auto-archive](/concepts/tasks/#auto-archive) delay and variables. Its first
+[auto-archive](/concepts/tasks/#auto-archive) delay, variables and features. Its first
 instruction is the agent's prompt or, when the agent has none, a line naming
 the schedule and the agent.
 

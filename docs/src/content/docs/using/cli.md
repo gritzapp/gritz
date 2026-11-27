@@ -253,7 +253,7 @@ gritz task create --agent 7 \
 
 | Flag | |
 | --- | --- |
-| `--agent`, `-a` | The ID of the [agent](/concepts/agents/) the task belongs to. The task runs with the agent's runner, workspace, auto-archive delay and variables. Required. |
+| `--agent`, `-a` | The ID of the [agent](/concepts/agents/) the task belongs to. The task runs with the agent's runner, workspace, auto-archive delay, variables and features. Required. |
 | `--instruction`, `-i` | An instruction. Repeat it for several. |
 | `--name`, `-n` | The task's name. The agent names it if you don't. |
 

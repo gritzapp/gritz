@@ -1,6 +1,6 @@
 ---
 title: workspaces.yaml
-description: Reference for the runner's workspace config, the container, setup commands, agent, MCP servers, capabilities and secrets of each workspace, and ${env:} and ${sh:} expansion.
+description: Reference for the runner's workspace config, the container, setup commands, agent, MCP servers, capabilities, secrets and features of each workspace, and ${env:} and ${sh:} expansion.
 sidebar:
   order: 5
 ---
@@ -53,6 +53,7 @@ pick when they create a task.
 | `secrets` | Environment variables whose values are masked in the shipped log. See [Secrets](/operators/secrets/). |
 | `capabilities` | Extra [capabilities](#capabilities) for the task's token. |
 | `variables` | Per-task [variables](#variables) a task can set when it is created. |
+| `features` | Optional [features](#features) an agent can add to its tasks. |
 | `auto_reset` | Start a run whose sandbox is gone in a new sandbox instead of failing it. Off by default. See [A gone sandbox](/concepts/tasks/#a-gone-sandbox). |
 
 ## `container`
@@ -233,6 +234,97 @@ with the reason on its timeline. So a change to `variables:` can fail the next
 start of a task created earlier, and of every task created later from an
 [agent](/concepts/agents/#the-template) saved before it.
 
+## `features`
+
+Features are additions to a workspace that an
+[agent](/concepts/agents/#the-template) can pick for its tasks, such as a tool
+and the credential it needs, or a different agent CLI. `features` maps each
+feature's name to its config. An agent on the workspace can pick any of them;
+a task whose agent picks none gets the workspace as written.
+
+| Field | |
+| --- | --- |
+| `description` | Shown next to the feature's name in the agent editor. |
+| `environment` | Environment variables, as a map, on every backend. Put credentials under `secrets` instead. |
+| `secrets` | Like the workspace's [`secrets`](/operators/secrets/): environment variables whose values are masked in the shipped log. |
+| `mcp_servers` | [MCP servers](#mcp_servers) added to the task's agent. |
+| `commands` | [Setup commands](#commands), run after the workspace's. |
+| `agent` | An [agent](#agent) that [replaces](#replacing-the-agent) the workspace's. |
+
+```yaml
+workspaces:
+  app:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${env:CLAUDE_CODE_OAUTH_TOKEN}
+    container:
+      image: ghcr.io/gritzapp/workspace-debian:latest
+    commands:
+      - git clone https://github.com/acme/app.git /root/app
+    agent:
+      type: claude
+      cwd: /root/app
+    features:
+      node:
+        description: Node.js 22 and pnpm
+        commands:
+          - mise use -g node@22 pnpm@10
+      jira:
+        description: Jira MCP server
+        environment:
+          JIRA_SITE: acme.atlassian.net
+        secrets:
+          JIRA_API_TOKEN: ${env:JIRA_API_TOKEN}
+        mcp_servers:
+          jira:
+            type: stdio
+            command: jira-mcp
+            args: [--site, acme.atlassian.net]
+      codex:
+        description: Run on Codex instead of Claude Code
+        secrets:
+          OPENAI_API_KEY: ${env:OPENAI_API_KEY}
+        commands:
+          - mise use -g node@22 npm:@openai/codex
+        agent:
+          type: codex
+          cwd: /root/app
+```
+
+Features go through the same [expansion](#variable-expansion) as the rest of
+the file, all of them, whether or not an agent picks them.
+
+### Merge order
+
+An agent lists its features in order, and each of its tasks gets the workspace
+with those features applied on top, in that order. Where two of them, or a
+feature and the workspace, set the same name, the later one wins. Nothing checks
+for such conflicts.
+
+- **Environment and secrets**: a feature's `environment` or `secrets` entry
+  replaces a variable of the same name from the workspace's `secrets`,
+  `container.environment` or `lambda_microvm.environment`, or from an earlier
+  feature. The later one also decides whether it is a secret: a name a feature
+  sets in `environment` is no longer masked.
+- **MCP servers**: each feature's `mcp_servers` are added to the agent's, and
+  replace a server of the same name. The `gritz` server is still added last.
+- **Commands**: the workspace's `commands` run first, then each feature's, in
+  the agent's order. List a feature that needs another's tools after it, such as
+  a feature that installs a package with pnpm after `node` above.
+
+### Replacing the agent
+
+A feature's `agent` takes the same fields as the workspace's
+[`agent`](#agent), and replaces it as a whole. Nothing of the workspace's
+`agent` carries over: not its `type`, `cwd`, `prompt` or `mcp_servers`. Repeat
+whatever the feature's agent should keep, such as an MCP server every agent
+uses.
+
+When several of a task's features have an `agent`, the last one in the agent's
+list is used. The others still add their environment, secrets, MCP servers and
+commands, and every feature's `mcp_servers`, that one's included, are added to
+the agent it ends up with. The workspace's `commands` and `capabilities` aren't
+part of `agent` and stay as they are.
+
 ## `capabilities`
 
 Capabilities let a task's token do more than read and update its own task. One
@@ -286,12 +378,17 @@ The setup commands, the agent and a
 [`gritz shell`](/operators/debugging/#a-shell-in-the-sandbox) session see, in
 order of precedence:
 
-1. The workspace's `secrets`.
+1. The workspace's `secrets` and its features' `secrets`.
 2. The variables gritz sets: `GRITZ_TASK_ID`, `GRITZ_SERVER` and `GRITZ_TOKEN`,
    the task's own token, and the task's [variables](#variables) as
-   `GRITZ_VAR_<NAME>`. On Lambda MicroVMs, also `lambda_microvm.environment`.
-3. The sandbox's environment: the image's, plus `container.environment` on
-   Docker.
+   `GRITZ_VAR_<NAME>`. On Lambda MicroVMs, also `lambda_microvm.environment`
+   and the features' `environment`.
+3. The sandbox's environment: the image's, plus `container.environment` and the
+   features' `environment` on Docker.
+
+A name that the workspace and the task's features set more than once is first
+resolved by [merge order](#merge-order), so only its last value reaches this
+list.
 
 ## Changing a workspace
 
@@ -306,6 +403,11 @@ workspace and restart the runner:
   their sandbox is reset.
 - `secrets` and `lambda_microvm.environment` are sent with each run, so existing
   tasks get the new values from their next run.
+- A feature's fields follow the same rules: its `secrets`, and its
+  `environment` on Lambda MicroVMs, reach existing tasks from their next run;
+  the rest applies from their next sandbox. A task keeps the features its agent
+  had when the task was created. Removing or renaming a feature fails the next
+  start of every task that has it, with the reason on its timeline.
 - `auto_reset` applies to the next run of every task.
 
 ## Checking a config
@@ -316,7 +418,8 @@ workspace and restart the runner:
 gritz workspaces -c ~/.config/gritz/workspaces.yaml
 ```
 
-It checks the YAML, the agent's MCP servers and the capabilities, but not the
-`container:` or `lambda_microvm:` section, which the backend checks when a run
-starts. The output is the config after expansion, so it contains your secrets'
-values.
+It checks the YAML, the agents and MCP servers, features' included, and the
+capabilities, but not the `container:` or `lambda_microvm:` section, which the
+backend checks when a run starts. The output is the config after expansion, so
+it contains your workspace secrets' values; features' secrets are printed as
+`[masked]`.

@@ -21,7 +21,8 @@ agent, and the agent decides four things about its tasks:
   one delivers to the task.
 
 The coding agent that runs in a task's sandbox, such as Claude Code or Codex, is
-set by the task's [workspace](/concepts/workspaces/), not here.
+set by the task's [workspace](/concepts/workspaces/), or by one of the
+[features](#the-template) the agent picks, not here.
 
 Agents are on the **Agents** page of the [Web UI](/using/web-ui/#agents).
 **+ Agent** creates one, the edit button on each row changes it, and the run
@@ -42,6 +43,15 @@ no link kinds is just a template for tasks you create yourself.
   the workspace declares. They are fixed values: every task gets the same ones,
   and nothing from an event is copied into them. Leave an optional variable
   empty to use the workspace's default when each task starts.
+- **Features**: a switch for each
+  [feature](/operators/workspaces-yaml/#features) the workspace declares, with
+  its description. Each feature that is on adds its environment, secrets, MCP
+  servers and setup commands to the workspace's, and can replace its coding
+  agent. Their order matters: where two set the same thing, the later one wins,
+  and their setup commands run in that order. The order is the one you turn them
+  on in, and each feature that is on shows its position. To move a feature to
+  the end, turn it off and on again. Changing the runner or workspace clears
+  the features, as it clears the variables.
 - **Prompt**: the first instruction of the tasks its triggers and
   [schedules](/concepts/schedules/) create. Left blank, the instruction only
   says which trigger or schedule created the task. A triggered task's first
@@ -50,19 +60,23 @@ no link kinds is just a template for tasks you create yourself.
 - **Auto-archive**: the [auto-archive](/concepts/tasks/#auto-archive) delay of
   its tasks.
 
-The workspace and variables are checked when you save the agent, and it isn't
-saved if the workspace isn't registered on the runner or doesn't accept the
-variables.
+The workspace, variables and features are checked when you save the agent, and
+it isn't saved if the workspace isn't registered on the runner, doesn't accept
+the variables, or doesn't declare one of the features. A saved feature the
+workspace no longer declares is flagged in the editor: turn it off to save the
+agent.
 
-A task copies its runner, workspace, auto-archive delay and variables from the
-agent when it is created. Editing the agent changes the tasks it creates from
+A task copies its runner, workspace, auto-archive delay, variables and features
+from the agent when it is created. Editing the agent changes the tasks it creates from
 then on; tasks it already created keep theirs.
 
 The runner checks a task's variables again when it starts the task. If the
 workspace's `variables:` changed after you saved the agent, and no longer
 accepts its values (a new required variable, or one the agent sets that the
 workspace no longer declares), its triggers still create tasks, and each task
-fails with the reason on its timeline. Edit the agent to fix it.
+fails with the reason on its timeline. The same goes for a feature the
+workspace no longer declares, and creating a task by hand fails until the agent
+is fixed. Edit the agent to fix it.
 
 ## Triggers
 

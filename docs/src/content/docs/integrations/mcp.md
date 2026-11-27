@@ -150,7 +150,7 @@ up a `gritz login` made since.
 | --- | --- |
 | `list_orgs` | Lists the organisations a `gritz mcp` session can switch to, and marks the current one. See [Organisations](#organisations). |
 | `switch_org` | Switches a `gritz mcp` session to another organisation. |
-| `list_workspaces` | Lists the workspaces runners offer: each one's name, description and runner ID. |
+| `list_workspaces` | Lists the workspaces runners offer: each one's name, description, runner ID and features. |
 | `list_agents` | Lists the organisation's agents. |
 | `get_agent` | Gets an agent, with its triggers, link kinds and schedules. |
 | `put_agent` | Creates an agent, or replaces one. |
@@ -194,7 +194,7 @@ last updated. `list_tasks` returns the same for each task.
 
 | Argument | |
 | --- | --- |
-| `agent_id` | The ID of the [agent](#agents) the task belongs to. The task runs in the agent's workspace and runner, with its auto-archive delay and variables. Required. |
+| `agent_id` | The ID of the [agent](#agents) the task belongs to. The task runs in the agent's workspace and runner, with its auto-archive delay, variables and features. Required. |
 | `instruction` | The task's instruction. Required unless `draft` is set. |
 | `name` | A name for the task. The task's agent names it if this is empty. |
 | `draft` | Create the task as a draft, which doesn't run until `update_task` starts it. |
@@ -286,6 +286,7 @@ agent; `get_agent` takes an agent's `id` and returns it in full:
 | `prompt` | The first instruction of the tasks its triggers and schedules create. |
 | `auto_archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay of its tasks, in seconds, such as `"86400s"`. `0` never archives. |
 | `variables` | Values for the workspace's [variables](/operators/workspaces-yaml/#variables), an object of name to string value. Each must be declared by the workspace, and every required one set. |
+| `features` | Names of the workspace's [features](/operators/workspaces-yaml/#features) its tasks get, in order: where two set the same thing, the later one wins. Each must be declared by the workspace. |
 | `triggers` | Each creates a task of the agent when an event matches it. The first trigger that matches wins. |
 | `links` | The kinds of subscribed link its tasks may create, and the events each delivers. |
 | `schedules` | Each creates a task of the agent whenever its cron expression matches. |
@@ -328,8 +329,8 @@ it already created. A schedule that keeps its `id` keeps its last run, and its
 next run only moves when its cron expression, timezone or `enabled` changed; a
 schedule without an `id` is added, and one left out is deleted. An agent with an
 unknown workspace, event type or link type, a schedule `id` that isn't one of
-its schedules, a cron expression or timezone gritz can't parse, or variables the
-workspace doesn't accept, fails the call. It returns
+its schedules, a cron expression or timezone gritz can't parse, variables the
+workspace doesn't accept, or a feature it doesn't declare, fails the call. It returns
 the stored agent.
 
 `delete_agent` takes the agent's `id`, and deletes the agent and its schedules.

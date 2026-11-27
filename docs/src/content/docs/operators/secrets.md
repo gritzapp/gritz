@@ -35,6 +35,9 @@ workspaces:
   `env` dump.
 - The task's own token, `GRITZ_TOKEN`, is masked the same way, as
   `[gritz:masked token]`.
+- A [feature's](/operators/workspaces-yaml/#features) `secrets:` work the same
+  way, for the tasks whose agent picks the feature. Give a credential only some
+  agents need to a feature rather than to the workspace.
 
 ## Reference secrets by variable
 

@@ -84,7 +84,7 @@ Creates a task and starts it, then prints it as JSON. It also takes the [authent
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--agent`, `-a` | | | The ID of the [agent](/concepts/agents/) the task belongs to. The task runs with its runner, workspace, auto-archive delay and variables. Required. |
+| `--agent`, `-a` | | | The ID of the [agent](/concepts/agents/) the task belongs to. The task runs with its runner, workspace, auto-archive delay, variables and features. Required. |
 | `--instruction`, `-i` | | | An instruction. Repeat it for several. |
 | `--name`, `-n` | | | The task's name. |
 

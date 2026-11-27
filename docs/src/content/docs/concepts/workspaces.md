@@ -19,6 +19,10 @@ one, and it decides everything the agent starts with:
 - **Credentials**, such as a GitHub or model provider token, passed in as
   secrets.
 
+A workspace can also declare **features**, optional extras such as an MCP server
+and its token, or a different agent. The task's
+[agent](/concepts/agents/#the-template) decides which of them it gets.
+
 ## Picking a workspace
 
 Workspaces belong to [runners](/concepts/runners/): each runner offers its own
