@@ -10,21 +10,19 @@ import {
   restartTask,
   resetSandbox,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import { useState, useRef, useLayoutEffect } from 'react'
 import type { TaskTab } from '@/lib/task'
 import { toTaskTab } from '@/lib/task'
 import { canOpenShell, isArchivedTask, isTerminalTask } from '@/lib/task'
 import { useTaskTimeline } from '@/hooks/use-task-timeline'
 import { useOrgId } from '@/hooks/use-org-id'
 import { useShellState } from '@/hooks/use-shell-state'
+import { useTaskSidebarCollapsed } from '@/hooks/use-task-sidebar-collapsed'
 import { isShellActive } from '@/lib/shell-sessions'
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
 import { TaskSidebar } from '@/components/task-sidebar'
 import { TaskTimelineChat } from '@/components/task-timeline-chat'
+import { TaskComposer } from '@/components/task-composer'
 import { TaskLogs } from '@/components/task-logs'
 import { TaskShellPanel } from '@/components/task-shell-panel'
-import { Send, Loader2 } from 'lucide-react'
 
 export const Route = createFileRoute('/tasks/$id')({
   staticData: { orgSwitchRedirect: '/tasks' },
@@ -36,19 +34,6 @@ export const Route = createFileRoute('/tasks/$id')({
   },
   component: TaskDetail,
 })
-
-// Small screens always start collapsed: the expanded sidebar overlays the
-// timeline, so it's opened on demand and not remembered. On larger screens the
-// collapse preference survives navigation and reloads, defaulting to expanded.
-const SIDEBAR_COLLAPSED_KEY = 'task-sidebar-collapsed'
-const SMALL_SCREEN_QUERY = '(max-width: 767px)'
-
-const isSmallScreen = () => window.matchMedia(SMALL_SCREEN_QUERY).matches
-
-function initialSidebarCollapsed(): boolean {
-  if (isSmallScreen()) return true
-  return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
-}
 
 function TaskDetail() {
   const { id } = Route.useParams()
@@ -68,25 +53,7 @@ function TaskDetail() {
       search: (prev) => ({ ...prev, tab: next === 'timeline' ? undefined : next }),
       replace: true,
     })
-  const [instruction, setInstruction] = useState('')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed)
-  const toggleSidebar = () =>
-    setSidebarCollapsed((collapsed) => {
-      if (!isSmallScreen()) localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(!collapsed))
-      return !collapsed
-    })
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  // Auto-grow the composer to fit its content. Done in JS rather than relying on
-  // CSS field-sizing, which isn't supported across all browsers (e.g. Firefox).
-  // The min/max heights are enforced by the textarea's CSS classes.
-  useLayoutEffect(() => {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    const borderY = el.offsetHeight - el.clientHeight
-    el.style.height = `${el.scrollHeight + borderY}px`
-  }, [instruction])
+  const [sidebarCollapsed, toggleSidebar] = useTaskSidebarCollapsed()
 
   const {
     data: taskData,
@@ -141,29 +108,6 @@ function TaskDetail() {
 
   const handleReset = async () => {
     await resetMutation.mutateAsync({ taskId })
-  }
-
-  const submitInstruction = async () => {
-    if (!instruction.trim() || updateMutation.isPending) return
-    await updateMutation.mutateAsync({
-      id: taskId,
-      start: true,
-      addInstructions: [{ text: instruction, url: '' }],
-    })
-    setInstruction('')
-  }
-
-  const handleAddInstruction = (e: React.FormEvent) => {
-    e.preventDefault()
-    submitInstruction()
-  }
-
-  // Enter sends, Shift+Enter inserts a newline (chat-style).
-  const handleInstructionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      submitInstruction()
-    }
   }
 
   if (isLoading) {
@@ -231,34 +175,16 @@ function TaskDetail() {
             isLoadingOlder={isLoadingOlder}
             composer={
               isArchivedTask(task) ? undefined : (
-                <form onSubmit={handleAddInstruction} className="flex items-end gap-2">
-                  <Textarea
-                    ref={textareaRef}
-                    // The create page no longer takes an instruction, so landing
-                    // on a task is landing on the thing you type the first one
-                    // into: put the cursor there.
-                    autoFocus
-                    placeholder="Send an instruction…  (Enter to send, Shift+Enter for newline)"
-                    value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
-                    onKeyDown={handleInstructionKeyDown}
-                    rows={1}
-                    className="max-h-60 min-h-[40px] flex-1 resize-none overflow-y-auto"
-                    required
-                  />
-                  <Button
-                    type="submit"
-                    size="icon-lg"
-                    disabled={updateMutation.isPending}
-                    title="Send instruction"
-                  >
-                    {updateMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                </form>
+                <TaskComposer
+                  onSend={(text) =>
+                    updateMutation.mutateAsync({
+                      id: taskId,
+                      start: true,
+                      addInstructions: [{ text, url: '' }],
+                    })
+                  }
+                  pending={updateMutation.isPending}
+                />
               )
             }
           />

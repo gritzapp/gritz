@@ -1,6 +1,6 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import type { Duration } from '@bufbuild/protobuf/wkt'
-import type { Task, TaskLink } from '@/gen/gritz/v1/gritz_pb'
+import type { Agent, Task, TaskLink } from '@/gen/gritz/v1/gritz_pb'
 import type { TaskTab } from '@/lib/task'
 import {
   canArchiveTask,
@@ -18,7 +18,9 @@ import {
   formatCountdown,
 } from '@/lib/duration'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -98,42 +100,17 @@ export function TaskSidebar({
   resetPending?: boolean
 }) {
   return (
-    <aside
-      className={cn(
-        'z-20 flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar transition-[width] duration-200',
-        collapsed
-          ? 'w-16'
-          : 'w-[300px] max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:shadow-xl',
-      )}
+    <SidebarFrame
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      header={
+        <>
+          <StatusBadge task={task} />
+          <CommandBadge task={task} />
+          <ArchivedBadge task={task} />
+        </>
+      }
     >
-      {/* header row: status + queued command once expanded, then collapse toggle */}
-      <div
-        className={cn(
-          'flex h-12 shrink-0 items-center gap-2.5 border-b',
-          collapsed ? 'justify-center' : 'px-3.5',
-        )}
-      >
-        {!collapsed && (
-          <span className="flex items-center gap-1.5">
-            <StatusBadge task={task} />
-            <CommandBadge task={task} />
-            <ArchivedBadge task={task} />
-          </span>
-        )}
-        <Button
-          variant="outline"
-          size="icon-sm"
-          className={cn('shrink-0', !collapsed && 'ml-auto')}
-          onClick={onToggleCollapse}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-expanded={!collapsed}
-        >
-          <ChevronLeft
-            className={cn('h-4 w-4 transition-transform duration-200', collapsed && 'rotate-180')}
-          />
-        </Button>
-      </div>
-
       {/* collapsed rail keeps the status visible as a dot */}
       {collapsed && (
         <div className="flex shrink-0 justify-center pb-1 pt-3">
@@ -259,12 +236,136 @@ export function TaskSidebar({
           pending={autoArchivePending}
         />
       </div>
+    </SidebarFrame>
+  )
+}
+
+// NewTaskSidebar is the sidebar of a task that doesn't exist yet: the same rail
+// as TaskSidebar, with the name editable where the title will be and the
+// details read off the agent the task will be created for. Logs and Shell have
+// nothing to show until then.
+export function NewTaskSidebar({
+  name,
+  onNameChange,
+  agent,
+  collapsed,
+  onToggleCollapse,
+}: {
+  name: string
+  onNameChange: (name: string) => void
+  agent: Agent | undefined
+  collapsed: boolean
+  onToggleCollapse: () => void
+}) {
+  return (
+    <SidebarFrame
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      header={<Badge variant="outline">new</Badge>}
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3">
+        {!collapsed && (
+          <div className="px-4 pb-4">
+            <Input
+              aria-label="Task name"
+              placeholder="Task name (optional)"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              className="text-[15px] font-semibold"
+            />
+          </div>
+        )}
+
+        <nav className="flex flex-col gap-0.5 px-2">
+          <ViewItem
+            icon={<List className="h-4 w-4 shrink-0" />}
+            label="Timeline"
+            active
+            collapsed={collapsed}
+          />
+          <ViewItem
+            icon={<ScrollText className="h-4 w-4 shrink-0" />}
+            label="Logs"
+            active={false}
+            collapsed={collapsed}
+          />
+          <ViewItem
+            icon={<Terminal className="h-4 w-4 shrink-0" />}
+            label="Shell"
+            active={false}
+            collapsed={collapsed}
+          />
+        </nav>
+
+        {!collapsed && agent && (
+          <div className="px-4">
+            <div className="my-4 h-px bg-border" />
+            <dl className="flex flex-col gap-2">
+              <Detail label="Runner">{agent.runner}</Detail>
+              <Detail label="Workspace">{agent.workspace}</Detail>
+              <Detail label="Agent">
+                <AgentRef agentId={agent.id} className="hover:underline" />
+              </Detail>
+            </dl>
+            <TaskVariables variables={agent.variables} />
+          </div>
+        )}
+      </div>
+    </SidebarFrame>
+  )
+}
+
+// SidebarFrame is the rail both sidebars share: the header row with its
+// collapse toggle, and the width that collapses to an icon rail or, on small
+// screens, overlays the main view when expanded. `header` shows only expanded.
+function SidebarFrame({
+  collapsed,
+  onToggleCollapse,
+  header,
+  children,
+}: {
+  collapsed: boolean
+  onToggleCollapse: () => void
+  header: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <aside
+      className={cn(
+        'z-20 flex h-full shrink-0 flex-col overflow-hidden border-r bg-sidebar transition-[width] duration-200',
+        collapsed
+          ? 'w-16'
+          : 'w-[300px] max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:shadow-xl',
+      )}
+    >
+      <div
+        className={cn(
+          'flex h-12 shrink-0 items-center gap-2.5 border-b',
+          collapsed ? 'justify-center' : 'px-3.5',
+        )}
+      >
+        {!collapsed && <span className="flex items-center gap-1.5">{header}</span>}
+        <Button
+          variant="outline"
+          size="icon-sm"
+          className={cn('shrink-0', !collapsed && 'ml-auto')}
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!collapsed}
+        >
+          <ChevronLeft
+            className={cn('h-4 w-4 transition-transform duration-200', collapsed && 'rotate-180')}
+          />
+        </Button>
+      </div>
+      {children}
     </aside>
   )
 }
 
 // ViewItem is one entry of the sidebar's view switcher: an icon, a label (when
 // expanded), and either a count badge (timeline) or an activity dot (shell).
+// Without an onClick it's disabled, unless it's the active view.
 function ViewItem({
   icon,
   label,
@@ -278,7 +379,7 @@ function ViewItem({
   label: string
   active: boolean
   collapsed: boolean
-  onClick: () => void
+  onClick?: () => void
   badge?: number
   dot?: boolean
 }) {
@@ -286,10 +387,11 @@ function ViewItem({
     <button
       type="button"
       onClick={onClick}
+      disabled={!onClick && !active}
       title={label}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        'relative flex h-9 cursor-pointer items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
+        'relative flex h-9 cursor-pointer items-center disabled:pointer-events-none disabled:opacity-50 gap-3 rounded-lg px-3 text-sm font-medium transition-colors',
         active
           ? 'bg-accent text-accent-foreground'
           : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
