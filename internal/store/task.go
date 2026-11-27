@@ -127,16 +127,10 @@ func (src taskSource) Query(ctx context.Context, after *taskCursor, limit int) (
 	if after != nil && !slices.Equal(after.AgentIDs, src.params.AgentIDs) {
 		return nil, fmt.Errorf("%w: page token does not match agent filter", pagination.ErrInvalidRequest)
 	}
-	// A nil slice encodes as SQL NULL, which the query's cardinality(...) = 0
-	// "every agent" guard doesn't match.
-	agentIDs := src.params.AgentIDs
-	if agentIDs == nil {
-		agentIDs = []int64{}
-	}
 	args := sqlc.ListTasksPageParams{
 		OrgID:     src.params.OrgID,
 		Archived:  src.params.Archived,
-		AgentIds:  agentIDs,
+		AgentIds:  append([]int64{}, src.params.AgentIDs...), // nil would encode as SQL NULL, which the cardinality(...) = 0 guard does not match
 		UseCursor: after != nil,
 		PageLimit: int32(limit), // int32 only at the sqlc boundary
 	}
