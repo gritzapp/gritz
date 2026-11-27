@@ -26,6 +26,9 @@ type Agent struct {
 	Triggers []AgentTrigger
 	// Links are the kinds of subscribed link the agent's tasks may create.
 	Links []AgentLink
+	// Schedules create tasks of the agent on a cron schedule, in order. Nil
+	// on agents loaded for routing.
+	Schedules []*Schedule
 }
 
 // Link returns the entry whose kind is kind, and false if the agent has none.
@@ -38,8 +41,8 @@ func (a *Agent) Link(kind string) (AgentLink, bool) {
 	return AgentLink{}, false
 }
 
-// Task builds a pending task of the agent named name, as a schedule creates
-// it: the agent's runner, workspace, auto-archive and variables, as saved; the
+// Task builds a pending task of the agent named name, as a schedule or a run
+// creates it: the agent's runner, workspace, auto-archive and variables, as saved; the
 // runner resolves the variables when it starts it. The caller inserts it, then
 // seeds Events(task, ...).
 func (a *Agent) Task(name string) *Task {
@@ -176,6 +179,9 @@ func (a *Agent) Proto() *gritzv1.Agent {
 		}
 		pb.Links = append(pb.Links, link)
 	}
+	for _, sched := range a.Schedules {
+		pb.Schedules = append(pb.Schedules, sched.AgentProto())
+	}
 	return pb
 }
 
@@ -215,6 +221,19 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 			})
 		}
 		a.Links = append(a.Links, link)
+	}
+	// The run state is output only: Schedule.Reschedule sets it from the
+	// stored schedule.
+	for _, sched := range pb.GetSchedules() {
+		a.Schedules = append(a.Schedules, &Schedule{
+			ID:       sched.GetId(),
+			OrgID:    orgID,
+			AgentID:  a.ID,
+			Name:     sched.GetName(),
+			CronExpr: sched.GetCronExpr(),
+			Timezone: cmp.Or(sched.GetTimezone(), "UTC"),
+			Enabled:  sched.GetEnabled(),
+		})
 	}
 	return a
 }

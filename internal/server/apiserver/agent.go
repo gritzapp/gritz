@@ -27,9 +27,19 @@ func (s *Server) CreateAgent(ctx context.Context, req *gritzv1.CreateAgentReques
 	}
 	agent := model.AgentFromProto(caller.OrgID, req.GetAgent())
 	agent.ID = 0
+	now := time.Now()
+	for _, sched := range agent.Schedules {
+		sched.ID = 0
+	}
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		if err := s.validateAgent(ctx, tx, agent); err != nil {
 			return err
+		}
+		for _, sched := range agent.Schedules {
+			// Validated above, so Next can't fail.
+			if err := sched.Reschedule(nil, now); err != nil {
+				return err
+			}
 		}
 		if err := s.store.CreateAgent(ctx, tx, agent); err != nil {
 			return err
@@ -82,16 +92,42 @@ func (s *Server) ListAgents(ctx context.Context, req *gritzv1.ListAgentsRequest)
 }
 
 // UpdateAgent replaces the agent wholesale: the request carries its full
-// desired state, validated as on create.
+// desired state, validated as on create. Its schedules are matched to the
+// stored ones by ID, keeping their run state; see Schedule.Reschedule.
 func (s *Server) UpdateAgent(ctx context.Context, req *gritzv1.UpdateAgentRequest) (*gritzv1.UpdateAgentResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	if !caller.Scopes.Allow(authscope.OpOrgWrite) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot write org"))
 	}
 	agent := model.AgentFromProto(caller.OrgID, req.GetAgent())
+	now := time.Now()
 	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
 		if err := s.validateAgent(ctx, tx, agent); err != nil {
 			return err
+		}
+		// The schedules' locks before the agent's, as the scheduler takes
+		// them: a save waits for a fire in flight, and a tick skips the
+		// schedules until the save commits.
+		stored, err := s.store.LockAgentSchedules(ctx, tx, agent.OrgID, agent.ID)
+		if err != nil {
+			return err
+		}
+		seen := make(map[int64]bool, len(agent.Schedules))
+		for _, sched := range agent.Schedules {
+			var prev *model.Schedule
+			if sched.ID != 0 {
+				if prev = stored[sched.ID]; prev == nil {
+					return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("schedule %d is not a schedule of agent %d", sched.ID, agent.ID))
+				}
+				if seen[sched.ID] {
+					return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("schedule %d is listed twice", sched.ID))
+				}
+				seen[sched.ID] = true
+			}
+			// Validated above, so Next can't fail.
+			if err := sched.Reschedule(prev, now); err != nil {
+				return err
+			}
 		}
 		if err := s.store.UpdateAgent(ctx, tx, agent); err != nil {
 			return err
@@ -135,7 +171,7 @@ func (s *Server) DeleteAgent(ctx context.Context, req *gritzv1.DeleteAgentReques
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("agent %d not found", req.Id))
 		}
 		if errors.Is(err, store.ErrAgentInUse) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d has unarchived tasks or schedules: archive its tasks and repoint or delete its schedules first", req.Id))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d has unarchived tasks: archive them first", req.Id))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -153,11 +189,17 @@ func (s *Server) DeleteAgent(ctx context.Context, req *gritzv1.DeleteAgentReques
 
 // validateAgent checks an agent before it is saved in tx, returning an
 // InvalidArgument error when it is rejected: against the built-in and the
-// org's custom event types, and its template: a name, a workspace registered
-// on its runner, and variables the workspace accepts.
+// org's custom event types, its template: a name, a workspace registered on
+// its runner, and variables the workspace accepts, and its schedules' cron
+// expressions and timezones.
 func (s *Server) validateAgent(ctx context.Context, tx *sql.Tx, agent *model.Agent) error {
 	if agent.Name == "" {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("name is required"))
+	}
+	for i, sched := range agent.Schedules {
+		if err := sched.Validate(); err != nil {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("schedule %d: %w", i+1, err))
+		}
 	}
 	custom, err := s.store.GetOrgCustomEventTypes(ctx, tx, agent.OrgID)
 	if err != nil {

@@ -22,7 +22,7 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_agent",
-		Description: "Get an agent, including its triggers and link kinds",
+		Description: "Get an agent, including its triggers, link kinds and schedules",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
@@ -31,19 +31,21 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "put_agent",
 		Description: "Create an agent, or replace the agent with the given id, in the shape get_agent returns. " +
-			"Fields: name; workspace and runner its tasks run in (see list_workspaces); prompt, the first instruction of the tasks its triggers create; " +
+			"Fields: name; workspace and runner its tasks run in (see list_workspaces); prompt, the first instruction of the tasks its triggers and schedules create; " +
 			"auto_archive, a duration in seconds such as \"86400s\" (0 never archives); variables, declared by the workspace. " +
 			"triggers create a task when an event matches: source and type (see list_event_types), conditions [{attr, op, value}] that must all hold (op is equals, prefix, contains or glob), " +
 			"public to also match events from non-members, yield_to claim names that stop it while an unarchived task holds one on the event's resource, " +
 			"and link, a link kind of this agent the created task subscribes to the event's resource with. The first matching trigger wins. " +
 			"links are the kinds of subscribed link its tasks may create: type (a link type from list_event_types, such as github.pr), kind (defaults to type, unique in the agent), " +
 			"claim stamped on its links, events [{type, conditions}] it delivers to the task (event types that declare the link type, each with conditions as a trigger's; with none it delivers nothing), and public. " +
+			"schedules [{id, name, cron_expr, timezone, enabled}] each create a task of the agent named name, starting with its prompt, whenever the 5-field cron expression matches in the IANA timezone (default UTC). " +
+			"Keep a schedule's id to keep its last run, leave it out to add one, and leave a schedule out to delete it; next_run_at, last_run_at and last_task_id are set by the server. " +
 			"Replacing an agent doesn't change the tasks it already created. Returns the stored agent.",
 	}, h.putAgent)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "delete_agent",
-		Description: "Delete an agent. It fails while an unarchived task or a schedule belongs to the agent: archive its tasks and repoint or delete its schedules first.",
+		Description: "Delete an agent and its schedules. It fails while an unarchived task belongs to the agent: archive its tasks first.",
 		Annotations: &mcp.ToolAnnotations{
 			DestructiveHint: new(true),
 		},

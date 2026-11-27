@@ -279,9 +279,9 @@ type GritzServiceClient interface {
 	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
 	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
 	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
-	// DeleteAgent fails with `failed_precondition` while an unarchived task or
-	// a schedule belongs to the agent. A deleted agent is gone from every agent
-	// RPC; its archived tasks keep its id.
+	// DeleteAgent deletes the agent and its schedules. It fails with
+	// `failed_precondition` while an unarchived task belongs to the agent. A
+	// deleted agent is gone from every agent RPC; its archived tasks keep its id.
 	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
 }
 
@@ -1349,9 +1349,9 @@ type GritzServiceHandler interface {
 	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
 	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
 	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
-	// DeleteAgent fails with `failed_precondition` while an unarchived task or
-	// a schedule belongs to the agent. A deleted agent is gone from every agent
-	// RPC; its archived tasks keep its id.
+	// DeleteAgent deletes the agent and its schedules. It fails with
+	// `failed_precondition` while an unarchived task belongs to the agent. A
+	// deleted agent is gone from every agent RPC; its archived tasks keep its id.
 	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
 }
 

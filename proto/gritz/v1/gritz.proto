@@ -95,9 +95,9 @@ service GritzService {
   rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
   rpc UpdateAgent(UpdateAgentRequest) returns (UpdateAgentResponse);
-  // DeleteAgent fails with `failed_precondition` while an unarchived task or
-  // a schedule belongs to the agent. A deleted agent is gone from every agent
-  // RPC; its archived tasks keep its id.
+  // DeleteAgent deletes the agent and its schedules. It fails with
+  // `failed_precondition` while an unarchived task belongs to the agent. A
+  // deleted agent is gone from every agent RPC; its archived tasks keep its id.
   rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
 }
 
@@ -1072,6 +1072,27 @@ message Agent {
   // Create tasks of the agent. The first trigger that matches an event wins.
   repeated AgentTrigger triggers = 8;
   repeated AgentLink links = 9;
+  // 10 is taken by the workspace features proposal (#2384).
+  // Create tasks of the agent on a cron schedule, in this order in the editor.
+  repeated AgentSchedule schedules = 11;
+}
+
+// AgentSchedule creates a task of its agent each time its cron expression
+// matches. The task starts with the agent's prompt.
+message AgentSchedule {
+  // Set by the server. UpdateAgent keeps the schedule with this id, and its
+  // last run; 0 adds a schedule. CreateAgent ignores it.
+  int64 id = 1;
+  string name = 2;  // The name of every task it creates.
+  string cron_expr = 3;
+  string timezone = 4;  // IANA name; empty is "UTC".
+  bool enabled = 5;
+  // Output only; CreateAgent and UpdateAgent ignore them. Saving an agent
+  // only moves next_run_at when the schedule's cron_expr, timezone or
+  // enabled changed.
+  google.protobuf.Timestamp next_run_at = 6;  // Unset when disabled.
+  google.protobuf.Timestamp last_run_at = 7;  // Unset when it has never run.
+  int64 last_task_id = 8;                     // 0 when it has never run.
 }
 
 // AgentTrigger creates a task of its agent when an event matches it.

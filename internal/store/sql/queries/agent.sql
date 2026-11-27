@@ -68,11 +68,8 @@ UPDATE agents SET deleted_at = now(), updated_at = now()
 WHERE id = $1 AND org_id = $2;
 
 -- name: AgentInUse :one
--- Whether an unarchived task or a schedule references the agent.
-SELECT (EXISTS (
+-- Whether an unarchived task references the agent.
+SELECT EXISTS (
     SELECT 1 FROM tasks t
     WHERE t.agent_id = sqlc.arg(agent_id) AND t.org_id = sqlc.arg(org_id) AND t.archived = FALSE
-) OR EXISTS (
-    SELECT 1 FROM schedules s
-    WHERE s.agent_id = sqlc.arg(agent_id) AND s.org_id = sqlc.arg(org_id)
-))::boolean AS in_use;
+)::boolean AS in_use;

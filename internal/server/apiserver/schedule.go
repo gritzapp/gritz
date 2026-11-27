@@ -294,7 +294,7 @@ func (s *Server) RunSchedule(ctx context.Context, req *gritzv1.RunScheduleReques
 		if err != nil {
 			return err
 		}
-		// A schedule's agent can't be deleted while the schedule names it.
+		// Deleting an agent deletes its schedules, so the agent is live.
 		agent, err := scheduler.Agent(ctx, tx, s.store, sched)
 		if err != nil {
 			return fmt.Errorf("schedule %d: agent %d: %w", sched.ID, sched.AgentID, err)
