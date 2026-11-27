@@ -121,10 +121,11 @@ type AtlassianMeta struct {
 // form a contract between the extractor (producer) and any consumer that
 // dispatches on InputEvent.Type.
 const (
-	EventTypeCommentCreated = "comment_created"
-	EventTypeIssueCreated   = "issue_created"
-	EventTypeLabelAdded     = "label_added"
-	EventTypeIssueAssigned  = "issue_assigned"
+	EventTypeCommentCreated     = "comment_created"
+	EventTypeIssueCreated       = "issue_created"
+	EventTypeLabelAdded         = "label_added"
+	EventTypeIssueAssigned      = "issue_assigned"
+	EventTypeIssueStatusChanged = "issue_status_changed"
 )
 
 // toInputEvents extracts the routable events from a Jira webhook payload: one
@@ -249,6 +250,18 @@ func toInputEvents(body []byte) ([]eventrouter.InputEvent, AtlassianMeta, error)
 				Description: fmt.Sprintf("%s assigned %s to %s", displayName, payload.Issue.Key, assignee.DisplayName),
 				Data:        description,
 				Attrs:       eventrouter.Attrs{"assignee": {assignee.AccountID}, "user": {accountID}},
+				URL:         url,
+			})
+		}
+		// The "status" and "from" attrs are status names, as Jira shows them,
+		// so rules can match a transition into or out of a column.
+		if from, to, ok := payload.StatusChange(); ok {
+			events = append(events, eventrouter.InputEvent{
+				Source:      "atlassian",
+				Type:        EventTypeIssueStatusChanged,
+				Description: fmt.Sprintf("%s moved %s from %q to %q", displayName, payload.Issue.Key, from, to),
+				Data:        description,
+				Attrs:       eventrouter.Attrs{"status": {to}, "from": {from}, "user": {accountID}},
 				URL:         url,
 			})
 		}

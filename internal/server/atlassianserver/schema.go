@@ -164,4 +164,42 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 			},
 		},
 	})
+	reg.MustRegister(model.EventTypeDef{
+		Source:    "atlassian",
+		Type:      EventTypeIssueStatusChanged,
+		Label:     "Jira: Issue Status Changed",
+		LinkTypes: []string{LinkTypeIssue},
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Issue Description",
+				Placeholder: "gritz:",
+				Help:        "Matched against the description of the issue whose status changed.",
+			},
+			{
+				Key:         "url",
+				Label:       "Issue URL",
+				Placeholder: "https://your-domain.atlassian.net/browse/PROJ-",
+				Help:        "Matched against the issue URL, e.g. to scope a rule to a single project.",
+			},
+			{
+				Key:         "status",
+				Label:       "Status",
+				Placeholder: "In Progress",
+				Help:        "Name of the status the issue moved to.",
+			},
+			{
+				Key:         "from",
+				Label:       "Previous Status",
+				Placeholder: "To Do",
+				Help:        "Name of the status the issue moved from.",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "5b10ac8d82e05b22cc7d4ef5",
+				Help:        "Atlassian account id of the user who changed the status. Enter the bare id (no [~accountid:…] wrapper).",
+			},
+		},
+	})
 }
