@@ -8,8 +8,8 @@ sidebar:
 gritz is an MCP server, so the agent you work with locally, such as Claude Code
 or Cursor, can hand work off to gritz: list the workspaces, create tasks, follow
 them up with instructions, read what they did, and archive them. It can also
-manage the organisation's events, custom event types, schedules and routing
-rules, and read its members, API keys and settings.
+manage the organisation's agents, events, custom event types and schedules, and
+read its members, API keys and settings.
 
 There are two ways to connect:
 
@@ -125,7 +125,6 @@ credential in the MCP config.
 | `--org` | The organisation, by its name in the `.gritz.yml` files. Defaults to `GRITZ_ORG`, otherwise their `org`. |
 | `--key`, `-k` | An API key to use instead of the `.gritz.yml` files. Defaults to `GRITZ_API_KEY`. The session stays in the key's organisation. |
 | `--server`, `-s` | The server URL to use with `--key`, which it requires. Defaults to `GRITZ_SERVER`, otherwise `https://gritz.dev`. |
-| `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay for tasks created without an `auto_archive` argument, such as `1h`. |
 | `--channel` | Push task updates into the Claude Code session. See [Channels](#channels). |
 
 ### Organisations
@@ -152,7 +151,11 @@ up a `gritz login` made since.
 | `list_orgs` | Lists the organisations a `gritz mcp` session can switch to, and marks the current one. See [Organisations](#organisations). |
 | `switch_org` | Switches a `gritz mcp` session to another organisation. |
 | `list_workspaces` | Lists the workspaces runners offer: each one's name, description and runner ID. |
-| `create_task` | Creates a task and starts it, or creates a draft. |
+| `list_agents` | Lists the organisation's agents. |
+| `get_agent` | Gets an agent, with its triggers and link kinds. |
+| `put_agent` | Creates an agent, or replaces one. |
+| `delete_agent` | Deletes an agent. |
+| `create_task` | Creates a task of an agent and starts it, or creates a draft. |
 | `list_tasks` | Lists the organisation's tasks, newest first, a page at a time. |
 | `get_task` | Gets a task with its links, the actions it allows, and its timeline: instructions, events, reports and status changes. |
 | `update_task` | Adds an instruction to a task, renames it, changes its auto-archive delay, or starts it. |
@@ -166,7 +169,7 @@ up a `gritz login` made since.
 | `list_events` | Lists the organisation's newest external events. |
 | `get_event` | Gets an event in full. |
 | `delete_event` | Deletes an event. |
-| `list_event_types` | Lists the event types routing rules can match, with their attributes. |
+| `list_event_types` | Lists the event types agent triggers can match, with their attributes and link types. |
 | `put_custom_event_type` | Adds a custom event type, or replaces the one with the same name. |
 | `delete_custom_event_type` | Deletes a custom event type. |
 | `test_event` | Tests the routing rules with an event, or routes it for real. |
@@ -180,12 +183,10 @@ up a `gritz login` made since.
 | `list_members` | Lists the organisation's members. |
 | `list_keys` | Lists the organisation's API keys, without their tokens. |
 | `get_org_settings` | Gets the organisation's integration URLs and its GitHub App installation. |
-| `get_routing_rules` | Gets the organisation's routing rules. |
-| `set_routing_rules` | Replaces every routing rule of the organisation. |
 
 You don't call these yourself: ask your agent, for example "Create a gritz task
-in the pets-workshop workspace to add a `--json` flag, then tell me when it has
-opened a pull request." It calls `list_workspaces` to find the runner, then
+of the pets-workshop agent to add a `--json` flag, then tell me when it has
+opened a pull request." It calls `list_agents` to find the agent, then
 `create_task`.
 
 gritz also points your agent at these docs, through
@@ -200,14 +201,10 @@ last updated. `list_tasks` returns the same for each task.
 
 | Argument | |
 | --- | --- |
-| `workspace` | The [workspace](/concepts/workspaces/). Required. |
-| `runner` | The [runner](/concepts/runners/) that offers it. Required. |
+| `agent_id` | The ID of the [agent](#agents) the task belongs to. The task runs in the agent's workspace and runner, with its auto-archive delay and variables. Required. |
 | `instruction` | The task's instruction. Required unless `draft` is set. |
 | `name` | A name for the task. The task's agent names it if this is empty. |
-| `auto_archive` | The auto-archive delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
-| `namespace` | The task's [namespace](/concepts/namespaces/). Empty is the default namespace. It can't be changed later. |
 | `draft` | Create the task as a draft, which doesn't run until `update_task` starts it. |
-| `variables` | The task's [variables](/operators/workspaces-yaml/#variables), an object of name to string value, such as `{"JIRA_ISSUE": "APP-142"}`. Each must be declared by the workspace. They can't be changed later. |
 
 ### `update_task`
 
@@ -217,7 +214,7 @@ last updated. `list_tasks` returns the same for each task.
 | `instruction` | An instruction to add. |
 | `url` | A URL the instruction is about, such as an issue. Only with `instruction`. |
 | `name` | A new name for the task. |
-| `auto_archive` | A new auto-archive delay, as in `create_task`. |
+| `auto_archive` | A new [auto-archive](/concepts/tasks/#auto-archive) delay, such as `30m` or `24h`. `0` is never; a negative value, such as `-1s`, archives the task as soon as it finishes. |
 | `start` | Start the task. A running task isn't interrupted: it runs again when its current run ends. |
 
 A call sets at least one of `instruction`, `name`, `auto_archive` and `start`.
@@ -280,6 +277,55 @@ task page's **Logs** tab, with [secrets](/operators/secrets/) masked; and
 Use it to subscribe a task to something you made yourself, such as a pull
 request you opened by hand.
 
+### Agents
+
+An [agent](/concepts/schedules/#the-agent) is the organisation's template for a
+kind of task, together with the triggers that create its tasks from events and
+the kinds of subscribed link its tasks may create. `list_agents` returns every
+agent; `get_agent` takes an agent's `id` and returns it in full:
+
+| Field | |
+| --- | --- |
+| `id` | The agent's ID. |
+| `name` | The agent's name. |
+| `workspace`, `runner` | The [workspace](/concepts/workspaces/) its tasks run in, and the [runner](/concepts/runners/) that offers it. `list_workspaces` lists both. |
+| `prompt` | The first instruction of the tasks its triggers create. |
+| `auto_archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay of its tasks, in seconds, such as `"86400s"`. `0` never archives. |
+| `variables` | Values for the workspace's [variables](/operators/workspaces-yaml/#variables), an object of name to string value. Each must be declared by the workspace, and every required one set. |
+| `triggers` | Each creates a task of the agent when an event matches it. The first trigger that matches wins. |
+| `links` | The kinds of subscribed link its tasks may create, and the events each delivers. |
+
+Each trigger has:
+
+| Field | |
+| --- | --- |
+| `source`, `type` | The [event type](/reference/event-types/) it matches, as `list_event_types` lists it. |
+| `conditions` | Conditions that must all hold, each an `attr`, an `op` (`equals`, `prefix`, `contains` or `glob`) and a `value`. |
+| `public` | Also match events from people who aren't members of the organisation. A trigger on a custom event type must be public: custom events have no actor. |
+| `yield_to` | Claim names: the trigger creates no task while an unarchived task holds a link with one of these claims on the event's resource. |
+| `link` | A link kind of the agent whose type the event type declares. The task it creates gets a subscribed link of that kind to the event's resource. |
+
+Each link kind has:
+
+| Field | |
+| --- | --- |
+| `type` | A link type that `list_event_types` lists, such as `github.pr`. |
+| `kind` | The kind's name, unique in the agent. Defaults to `type`. |
+| `claim` | A claim stamped on every link of this kind, which triggers can `yield_to`. |
+| `events` | The event types, among those that declare the link type, that a link of this kind delivers to its task. Empty delivers all of them. |
+| `public` | Also deliver events from people who aren't members of the organisation. |
+
+`put_agent` takes `agent`, in the shape `get_agent` returns. With an `id`, it
+replaces that agent; without one, it creates a new agent. Your agent reads an
+agent, edits it and writes it back. Replacing an agent doesn't change the tasks
+it already created. An agent with an unknown workspace, event type or link
+type, or with variables the workspace doesn't accept, fails the call. It returns
+the stored agent.
+
+`delete_agent` takes the agent's `id`. It fails while an unarchived task or a
+schedule belongs to the agent: archive its tasks, and point its schedules at
+another agent or delete them, first.
+
 ### `list_events`, `get_event`, `delete_event`
 
 `list_events` takes `limit`, at most and by default 100, and returns the newest
@@ -291,8 +337,9 @@ of it. `delete_event` takes the `id` of the event to delete.
 ### `list_event_types`
 
 Returns every [event type](/reference/event-types/), built-in and custom, with
-the attributes a routing rule can have conditions on. Those are the attributes
-`test_event` takes.
+the attributes a trigger can have conditions on and the link types each
+declares, and the link types an agent's link kinds can name. The attributes are
+those `test_event` takes.
 
 ### `put_custom_event_type`
 
@@ -364,18 +411,6 @@ Returns the organisation's MCP URL, custom event webhook URL, Atlassian webhook
 URL, GitHub App URL and GitHub App installation ID. It never returns the
 Atlassian webhook secret; read it in the Web UI, as in
 [Jira](/integrations/jira/#1-generate-the-webhook-secret).
-
-### `get_routing_rules`, `set_routing_rules`
-
-`get_routing_rules` returns the organisation's
-[routing rules](/concepts/routing-rules/) in order. `set_routing_rules` takes
-`rules`, the whole list in the same shape, and replaces every rule with it: a
-rule missing from the list is deleted. Your agent reads the rules, edits the
-list and writes it all back. A rule that names an unknown event type or
-attribute, or that creates tasks in a workspace that isn't registered or with
-[variables](/concepts/routing-rules/#creating-tasks) the workspace doesn't
-accept, fails the call with the bad rule named, and no rule is changed. It
-returns the stored rules.
 
 ## Channels
 
