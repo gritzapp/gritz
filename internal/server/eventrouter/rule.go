@@ -20,7 +20,14 @@ func Match(trigger model.AgentTrigger, event InputEvent) bool {
 	if trigger.Type != "" && trigger.Type != event.Type {
 		return false
 	}
-	for _, cond := range trigger.Conditions {
+	return conditionsHold(trigger.Conditions, event)
+}
+
+// conditionsHold reports whether every one of conds holds for the event: as
+// in Match, a condition holds when any value the event carries for its attr
+// satisfies it.
+func conditionsHold(conds []model.Condition, event InputEvent) bool {
+	for _, cond := range conds {
 		if !conditionMatch(cond, event.Attr(cond.Attr)) {
 			return false
 		}

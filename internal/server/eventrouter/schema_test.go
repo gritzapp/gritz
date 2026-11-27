@@ -760,10 +760,13 @@ func TestSchemaRegistryValidateAgent(t *testing.T) {
 					{Source: SourceCustom, Type: "problem", Public: true, Link: "custom.url"},
 				},
 				Links: []model.AgentLink{
-					{Type: "test.pr", Kind: "owned-pr", Claim: "pr-owner", Events: []string{"comment", "review"}},
-					{Type: "test.pr", Events: []string{"review"}},
+					{Type: "test.pr", Kind: "owned-pr", Claim: "pr-owner", Events: []model.AgentLinkEvent{{Type: "comment"}, {Type: "review"}}},
+					{Type: "test.pr", Events: []model.AgentLinkEvent{{
+						Type:       "review",
+						Conditions: []model.Condition{{Attr: "body", Op: "glob", Value: "*LGTM*"}},
+					}}},
 					{Type: "test.issue"},
-					{Type: "custom.url", Events: []string{"problem"}},
+					{Type: "custom.url", Events: []model.AgentLinkEvent{{Type: "problem"}}},
 				},
 			},
 		},
@@ -825,7 +828,7 @@ func TestSchemaRegistryValidateAgent(t *testing.T) {
 		{
 			name: "duplicate kind",
 			agent: model.Agent{
-				Links: []model.AgentLink{{Type: "test.pr"}, {Type: "test.pr", Events: []string{"review"}}},
+				Links: []model.AgentLink{{Type: "test.pr"}, {Type: "test.pr", Events: []model.AgentLinkEvent{{Type: "review"}}}},
 			},
 			wantErr: `link 2: duplicate kind "test.pr"`,
 		},
@@ -839,21 +842,48 @@ func TestSchemaRegistryValidateAgent(t *testing.T) {
 		{
 			name: "link event of an unknown type",
 			agent: model.Agent{
-				Links: []model.AgentLink{{Type: "test.pr", Kind: "owned-pr", Events: []string{"merged"}}},
+				Links: []model.AgentLink{{Type: "test.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{Type: "merged"}}}},
 			},
 			wantErr: `link kind "owned-pr": unknown event type: source="test" type="merged"`,
 		},
 		{
 			name: "link event that doesn't declare the link type",
 			agent: model.Agent{
-				Links: []model.AgentLink{{Type: "test.issue", Events: []string{"comment", "review"}}},
+				Links: []model.AgentLink{{Type: "test.issue", Events: []model.AgentLinkEvent{{Type: "comment"}, {Type: "review"}}}},
 			},
 			wantErr: `link kind "test.issue": event type "test"/"review" doesn't declare link type "test.issue"`,
 		},
 		{
+			name: "link event listed twice",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.pr", Events: []model.AgentLinkEvent{{Type: "review"}, {Type: "review"}}}},
+			},
+			wantErr: `link kind "test.pr": duplicate event type "review"`,
+		},
+		{
+			name: "link event condition on an attr its type lacks",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.pr", Events: []model.AgentLinkEvent{{
+					Type:       "review",
+					Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "gritz"}},
+				}}}},
+			},
+			wantErr: `link kind "test.pr": event type "review": attr "mention" not valid for event type "test"/"review"`,
+		},
+		{
+			name: "link event condition with an unknown op",
+			agent: model.Agent{
+				Links: []model.AgentLink{{Type: "test.pr", Events: []model.AgentLinkEvent{{
+					Type:       "comment",
+					Conditions: []model.Condition{{Attr: "mention", Op: "regex", Value: "gritz"}},
+				}}}},
+			},
+			wantErr: `link kind "test.pr": event type "comment": unknown op "regex" on attr "mention"`,
+		},
+		{
 			name: "link event of another source",
 			agent: model.Agent{
-				Links: []model.AgentLink{{Type: "custom.url", Events: []string{"comment"}}},
+				Links: []model.AgentLink{{Type: "custom.url", Events: []model.AgentLinkEvent{{Type: "comment"}}}},
 			},
 			wantErr: `link kind "custom.url": unknown event type: source="custom" type="comment"`,
 		},

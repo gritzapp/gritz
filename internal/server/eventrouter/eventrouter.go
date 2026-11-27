@@ -150,8 +150,8 @@ type Router struct {
 //
 //   - Delivery: the subscribed links on the event's resource — the canonical
 //     URL its event type's link types give it — whose kind, on the task's
-//     agent, declares the event's type, and admits the actor: a member, or
-//     anyone for a public kind. Each task gets the event once, through its
+//     agent, lists the event's type with conditions that all hold, and admits
+//     the actor: a member, or anyone for a public kind. Each task gets the event once, through its
 //     first matching link.
 //   - Triggers: each agent's first trigger that matches the event and admits
 //     the actor (a public trigger, for a non-member). A trigger with YieldTo
@@ -235,7 +235,8 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 			if !slices.Contains(defs[link.OrgID].LinkTypes, kind.Type) {
 				continue
 			}
-			if len(kind.Events) > 0 && !slices.Contains(kind.Events, input.Type) {
+			entry, ok := kind.Event(input.Type)
+			if !ok || !conditionsHold(entry.Conditions, input) {
 				continue
 			}
 			if !member[link.OrgID] && !kind.Public {

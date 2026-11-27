@@ -35,13 +35,20 @@ export interface TriggerDraft {
   link: string
 }
 
+// LinkEventDraft is an event type a link kind delivers, with the conditions
+// its events must meet.
+export interface LinkEventDraft {
+  type: string
+  conditions: ConditionDraft[]
+}
+
 export interface LinkKindDraft {
   type: string
   kind: string
   claim: string
-  // Event types of the link type's source; empty means every one that
-  // declares the link type.
-  events: string[]
+  // Event types of the link type's source; with none, the kind delivers
+  // nothing.
+  events: LinkEventDraft[]
   public: boolean
 }
 
@@ -108,7 +115,10 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       type: l.type,
       kind: l.kind,
       claim: l.claim,
-      events: [...l.events],
+      events: l.events.map((e) => ({
+        type: e.type,
+        conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+      })),
       public: l.public,
     })),
   }
@@ -137,7 +147,10 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       type: l.type,
       kind: l.kind.trim(),
       claim: l.claim.trim(),
-      events: l.events,
+      events: l.events.map((e) => ({
+        type: e.type,
+        conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+      })),
       public: l.public,
     })),
   })
@@ -179,7 +192,10 @@ export function agentFormError(values: AgentFormValues): string | null {
   if (!values.name.trim()) return 'Name the agent.'
   if (!values.runner || !values.workspace) return 'Pick a runner and a workspace.'
   if (values.triggers.some((t) => !t.type)) return 'Every trigger needs an event type.'
-  if (values.triggers.some((t) => t.conditions.some((c) => !c.attr))) {
+  if (
+    values.triggers.some((t) => t.conditions.some((c) => !c.attr)) ||
+    values.links.some((l) => l.events.some((e) => e.conditions.some((c) => !c.attr)))
+  ) {
     return 'Every condition needs an attribute.'
   }
   if (values.links.some((l) => !l.type)) return 'Every link kind needs a link type.'

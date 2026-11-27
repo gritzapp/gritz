@@ -242,7 +242,7 @@ func TestSetCustomEventTypes_RejectsRemovingLinkTypeInUse(t *testing.T) {
 		Name:      "responder",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "custom.url", Events: []string{"problem"}}},
+		Links:     []*gritzv1.AgentLink{{Type: "custom.url", Events: []*gritzv1.AgentLinkEvent{{Type: "problem"}}}},
 	}})
 	unlinked := proto.CloneOf(problem)
 	unlinked.LinkTypes = nil

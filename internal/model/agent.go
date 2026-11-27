@@ -62,11 +62,28 @@ type AgentLink struct {
 	Kind string `json:"kind,omitempty"`
 	// Claim is stamped on every link of this kind.
 	Claim string `json:"claim,omitempty"`
-	// Events are the event types a link of this kind delivers; empty means
-	// every event type that declares the link type.
-	Events []string `json:"events,omitempty"`
+	// Events are the event types a link of this kind delivers, each with
+	// the conditions its events must meet. With none, it delivers nothing.
+	Events []AgentLinkEvent `json:"events,omitempty"`
 	// Public allows delivery of events from actors who aren't org members.
 	Public bool `json:"public,omitempty"`
+}
+
+// AgentLinkEvent is an event type a link kind delivers, and the conditions,
+// all of which must hold, its events must meet.
+type AgentLinkEvent struct {
+	Type       string      `json:"type"`
+	Conditions []Condition `json:"conditions,omitempty"`
+}
+
+// Event returns the entry whose type is typ, and false if l lists none.
+func (l AgentLink) Event(typ string) (AgentLinkEvent, bool) {
+	for _, e := range l.Events {
+		if e.Type == typ {
+			return e, true
+		}
+	}
+	return AgentLinkEvent{}, false
 }
 
 // Name returns Kind, or Type when Kind is empty.
@@ -99,13 +116,19 @@ func (a *Agent) Proto() *gritzv1.Agent {
 		})
 	}
 	for _, l := range a.Links {
-		pb.Links = append(pb.Links, &gritzv1.AgentLink{
+		link := &gritzv1.AgentLink{
 			Type:   l.Type,
 			Kind:   l.Kind,
 			Claim:  l.Claim,
-			Events: l.Events,
 			Public: l.Public,
-		})
+		}
+		for _, e := range l.Events {
+			link.Events = append(link.Events, &gritzv1.AgentLinkEvent{
+				Type:       e.Type,
+				Conditions: ProtoMap(e.Conditions),
+			})
+		}
+		pb.Links = append(pb.Links, link)
 	}
 	return pb
 }
@@ -133,13 +156,19 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 		})
 	}
 	for _, l := range pb.GetLinks() {
-		a.Links = append(a.Links, AgentLink{
+		link := AgentLink{
 			Type:   l.GetType(),
 			Kind:   l.GetKind(),
 			Claim:  l.GetClaim(),
-			Events: l.GetEvents(),
 			Public: l.GetPublic(),
-		})
+		}
+		for _, e := range l.GetEvents() {
+			link.Events = append(link.Events, AgentLinkEvent{
+				Type:       e.GetType(),
+				Conditions: conditionsFromProto(e.GetConditions()),
+			})
+		}
+		a.Links = append(a.Links, link)
 	}
 	return a
 }

@@ -202,29 +202,40 @@ func (r *SchemaRegistry) validateSelector(what, source, typ string, conds []mode
 	if !ok {
 		return model.EventTypeDef{}, fmt.Errorf("unknown event type: source=%q type=%q", source, typ)
 	}
+	if err := validateConditions(def, conds); err != nil {
+		return model.EventTypeDef{}, err
+	}
+	return def, nil
+}
+
+// validateConditions checks conditions on events of type def: each op must be
+// equals/prefix/contains/glob, a glob's value a well-formed pattern, and each
+// attr one of def's valid attrs.
+func validateConditions(def model.EventTypeDef, conds []model.Condition) error {
 	for _, cond := range conds {
 		switch cond.Op {
 		case "equals", "prefix", "contains":
 		case "glob":
 			if !doublestar.ValidatePattern(cond.Value) {
-				return model.EventTypeDef{}, fmt.Errorf("invalid glob %q on attr %q", cond.Value, cond.Attr)
+				return fmt.Errorf("invalid glob %q on attr %q", cond.Value, cond.Attr)
 			}
 		default:
-			return model.EventTypeDef{}, fmt.Errorf("unknown op %q on attr %q", cond.Op, cond.Attr)
+			return fmt.Errorf("unknown op %q on attr %q", cond.Op, cond.Attr)
 		}
 		if !def.HasAttr(cond.Attr) {
-			return model.EventTypeDef{}, fmt.Errorf("attr %q not valid for event type %q/%q", cond.Attr, source, typ)
+			return fmt.Errorf("attr %q not valid for event type %q/%q", cond.Attr, def.Source, def.Type)
 		}
 	}
-	return def, nil
+	return nil
 }
 
 // ValidateAgent checks an agent's link kinds and triggers against the
 // registry, returning an error naming the first offending entry. Every link
 // entry's Type must be a registered link type, its kind (see
-// model.AgentLink.Name) unique in the agent, and each of its Events an event
-// type of the link type's source that declares the link type. Every trigger's
-// selector is checked by validateSelector, and its Link, when set,
+// model.AgentLink.Name) unique in the agent, and each of its Events a distinct
+// event type of the link type's source that declares the link type, with
+// conditions checked as a trigger's are. Every trigger's selector is checked
+// by validateSelector, and its Link, when set,
 // must be a kind of the agent whose type the trigger's event type declares.
 // Claims and YieldTo names aren't checked: they are free-form, org-wide names.
 func (r *SchemaRegistry) ValidateAgent(a *model.Agent) error {
@@ -239,13 +250,21 @@ func (r *SchemaRegistry) ValidateAgent(a *model.Agent) error {
 			return fmt.Errorf("link %d: duplicate kind %q", i+1, kind)
 		}
 		kinds[kind] = true
-		for _, typ := range l.Events {
-			def, ok := r.EventTypeFor(lt.Source, typ)
+		events := map[string]bool{}
+		for _, e := range l.Events {
+			if events[e.Type] {
+				return fmt.Errorf("link kind %q: duplicate event type %q", kind, e.Type)
+			}
+			events[e.Type] = true
+			def, ok := r.EventTypeFor(lt.Source, e.Type)
 			if !ok {
-				return fmt.Errorf("link kind %q: unknown event type: source=%q type=%q", kind, lt.Source, typ)
+				return fmt.Errorf("link kind %q: unknown event type: source=%q type=%q", kind, lt.Source, e.Type)
 			}
 			if !slices.Contains(def.LinkTypes, l.Type) {
-				return fmt.Errorf("link kind %q: event type %q/%q doesn't declare link type %q", kind, lt.Source, typ, l.Type)
+				return fmt.Errorf("link kind %q: event type %q/%q doesn't declare link type %q", kind, lt.Source, e.Type, l.Type)
+			}
+			if err := validateConditions(def, e.Conditions); err != nil {
+				return fmt.Errorf("link kind %q: event type %q: %w", kind, e.Type, err)
 			}
 		}
 	}
