@@ -1,6 +1,6 @@
 ---
 title: Web UI
-description: A tour of the gritz Web UI, the task list and task page, agents, schedules, events, workspaces, members, keys and settings.
+description: A tour of the gritz Web UI, the task list and task page, agents and their schedules, events, workspaces, members, keys and settings.
 sidebar:
   order: 1
 ---
@@ -27,7 +27,8 @@ from its row. The filters are remembered per organisation.
 **+ Task** opens the page of a new task. Pick its [agent](/concepts/agents/);
 the name is optional. The task runs with the agent's runner, workspace,
 auto-archive delay and variables. Sending the first instruction creates the
-task and starts it.
+task and starts it. An agent's run button on the **Agents** page opens it with
+that agent picked and its prompt in the instruction box.
 
 ## The task page
 
@@ -74,26 +75,24 @@ with a shell in place of the agent.
 ## Agents
 
 **Agents** lists the organisation's [agents](/concepts/agents/) with their
-runner and workspace, their triggers and their link kinds. **+ Agent** creates
-one, and each row has buttons to edit or delete it. The agent form has three
-sections:
+runner and workspace, their triggers, the next run of their
+[schedules](/concepts/schedules/) and their link kinds. **+ Agent** creates
+one, and each row has buttons to run, edit or delete it. Run opens a
+[new task](#tasks) of the agent, with its prompt as the first instruction. The
+agent form has four sections:
 
 - **Template**: name, runner, workspace, variables, prompt and auto-archive
   delay.
 - **Triggers**: each with an event type, conditions, a link kind, claims to
   yield to, and **Public**. The arrows reorder them.
+- **Schedules**: each with a name, a cron expression, a timezone and an on/off
+  switch. A saved schedule shows its next run and its last run, with a link to
+  the task it created.
 - **Link kinds**: each with a link type, a kind name, a claim, the events it
   delivers with conditions on each, and **Public**.
 
 **Test event** composes an event and shows what each agent would do with it, or
 fires it. See [Testing with a test event](/concepts/agents/#testing-with-a-test-event).
-
-## Schedules
-
-**Schedules** lists the organisation's [schedules](/concepts/schedules/) with
-their cron expression, timezone, next run and agent, and the task each created
-last. From each row you can turn a schedule on or off, run it now, edit it or
-delete it. **+ Schedule** creates one.
 
 ## Events
 

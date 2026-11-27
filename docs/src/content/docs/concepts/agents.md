@@ -7,7 +7,7 @@ sidebar:
 
 An agent is one kind of task in an organisation, such as "implement a Jira
 issue" or "answer `@gritz` on pull requests". Every task belongs to exactly one
-agent, and the agent decides three things about its tasks:
+agent, and the agent decides four things about its tasks:
 
 - **The template** every task of the agent starts from: where it runs and with
   what.
@@ -15,6 +15,8 @@ agent, and the agent decides three things about its tasks:
   arrives: a [GitHub](/integrations/github/) comment, a
   [Jira](/integrations/jira/) label, a
   [custom event](/integrations/custom-events/).
+- **[Schedules](/concepts/schedules/)**, which create a new task of the agent on
+  a cron schedule.
 - **Link kinds**, the only links its tasks may subscribe to, and the events each
   one delivers to the task.
 
@@ -22,7 +24,8 @@ The coding agent that runs in a task's sandbox, such as Claude Code or Codex, is
 set by the task's [workspace](/concepts/workspaces/), not here.
 
 Agents are on the **Agents** page of the [Web UI](/using/web-ui/#agents).
-**+ Agent** creates one, and the edit button on each row changes it. MCP clients
+**+ Agent** creates one, the edit button on each row changes it, and the run
+button opens a new task of the agent with its prompt filled in. MCP clients
 manage them with [`put_agent`](/integrations/mcp/#agents) and the other agent
 tools.
 

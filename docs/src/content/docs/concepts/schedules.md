@@ -1,6 +1,6 @@
 ---
 title: Schedules
-description: Create tasks on a cron schedule, in a timezone, and run a schedule's task on demand with run now.
+description: Create tasks of an agent on a cron schedule, in a timezone, and run a schedule's task on demand.
 sidebar:
   order: 7
 ---
@@ -10,18 +10,19 @@ report, an hourly check. Each time it fires it creates a new task of the
 [agent](/concepts/agents/) it names, starting with the agent's prompt, and the
 task starts at once.
 
-Schedules belong to the organisation, not to the member who created them. They
-are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
+A schedule belongs to its agent, and is edited with it: in the **Schedules**
+section of the agent form on the [Web UI](/using/web-ui/#agents)'s **Agents**
+page, or with [`put_agent`](/integrations/mcp/#agents).
 
 ## Creating a schedule
 
-**Schedules → + Schedule** asks for:
+**Add schedule** in the agent form's **Schedules** section adds one, saved with the
+agent. Each schedule has:
 
 - **Name**: the name of every task it creates. Optional.
 - **Cron expression**: when to fire. See below.
 - **Timezone**: the timezone the cron expression is read in. Defaults to your
   browser's.
-- **Agent**: the [agent](#the-agent) its tasks belong to.
 - **Enabled**: a disabled schedule is saved but doesn't fire.
 
 ## The agent
@@ -67,14 +68,17 @@ from the next due time.
 
 Every time a schedule fires it creates a new task. It doesn't reuse or wait for
 the previous one, so if the last run is still going, the two run side by side.
-The **Schedules** list shows each schedule's next run, and links to the task it
-created the last time it fired.
+The agent form shows each saved schedule's next run, and links to the task it
+created the last time it fired. The **Agents** list shows the earliest next run
+among each agent's schedules.
 
 ## Run now
 
-The run button on a schedule's row creates a task from the schedule straight
-away, the same task it would create when it fires. It works on disabled
-schedules too, and it doesn't change the schedule's next run or its last run.
+The [`run_schedule`](/integrations/mcp/#set_schedule_enabled-run_schedule-delete_schedule)
+MCP tool creates a task from a schedule straight away, the same task it would
+create when it fires. It works on disabled schedules too, and it doesn't change
+the schedule's next run or its last run. In the Web UI, an agent's run button on
+the **Agents** page opens a new task of the agent with its prompt filled in.
 
 ## Editing, disabling and deleting
 
