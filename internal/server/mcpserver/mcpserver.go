@@ -85,6 +85,7 @@ type taskSummary struct {
 	Workspace string    `json:"workspace"`
 	Runner    string    `json:"runner,omitempty"`
 	AgentID   int64     `json:"agent_id,omitempty"`
+	Features  []string  `json:"features,omitempty"`
 	Status    string    `json:"status"`
 	Archived  bool      `json:"archived"`
 	URL       string    `json:"url,omitempty"`
@@ -99,6 +100,7 @@ func taskSummaryOf(t *gritzv1.Task) taskSummary {
 		Workspace: t.Workspace,
 		Runner:    t.Runner,
 		AgentID:   t.AgentId,
+		Features:  t.Features,
 		Status:    t.Status.String(),
 		Archived:  t.Archived,
 		URL:       t.Url,

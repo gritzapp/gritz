@@ -58,3 +58,30 @@ workspaces:
       type: dummy
       dummy:
         sleep: 2
+  dummy-features:
+    description: Dummy workspace with features — exercises selecting them on an agent
+    commands:
+      - "echo base"
+    container:
+      image: alpine:3.21
+      # Join the dev compose network so the task container can reach the
+      # server by its service name (see docker-compose.dev.yml).
+      networks:
+        - gritz-dev
+    agent:
+      type: dummy
+      dummy:
+        sleep: 2
+    features:
+      greeting:
+        description: Sets GREETING and echoes it
+        environment:
+          GREETING: hello
+        commands:
+          - "echo \"Greeting: ${GREETING}\""
+      token:
+        description: Adds a masked secret
+        secrets:
+          FEATURE_TOKEN: "feature-secret"
+        commands:
+          - "echo \"Token: ${FEATURE_TOKEN}\""

@@ -54,6 +54,7 @@ func TestGetAgent(t *testing.T) {
 				Workspace:   "gritz",
 				Runner:      "main",
 				AutoArchive: durationpb.New(86400e9),
+				Features:    []string{"jira", "codex"},
 				Triggers: []*gritzv1.AgentTrigger{{
 					Source:     "atlassian",
 					Type:       "label_added",
@@ -82,6 +83,7 @@ func TestGetAgent(t *testing.T) {
 		"workspace":   "gritz",
 		"runner":      "main",
 		"autoArchive": "86400s",
+		"features":    []any{"jira", "codex"},
 		"triggers": []any{map[string]any{
 			"source":     "atlassian",
 			"type":       "label_added",
@@ -113,6 +115,7 @@ func TestPutAgentCreates(t *testing.T) {
 			"workspace":    "gritz",
 			"runner":       "main",
 			"auto_archive": "3600s",
+			"features":     []any{"jira", "codex"},
 			"triggers": []any{map[string]any{
 				"source":   "github",
 				"type":     "issue_comment",
@@ -131,6 +134,7 @@ func TestPutAgentCreates(t *testing.T) {
 		Workspace:   "gritz",
 		Runner:      "main",
 		AutoArchive: durationpb.New(3600e9),
+		Features:    []string{"jira", "codex"},
 		Triggers: []*gritzv1.AgentTrigger{{
 			Source:  "github",
 			Type:    "issue_comment",
