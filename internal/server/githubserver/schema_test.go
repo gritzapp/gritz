@@ -203,6 +203,8 @@ func TestSchemaLinkTypes(t *testing.T) {
 		EventTypePullRequestComment:           {LinkTypePullRequest},
 		EventTypePullRequestReviewComment:     {LinkTypePullRequest},
 		EventTypePullRequestReview:            {LinkTypePullRequest},
+		EventTypeIssueOpened:                  {LinkTypeIssue},
+		EventTypeIssueClosed:                  {LinkTypeIssue},
 		EventTypeIssueAssigned:                {LinkTypeIssue},
 		EventTypePullRequestAssigned:          {LinkTypePullRequest},
 		EventTypePullRequestReviewRequested:   {LinkTypePullRequest},

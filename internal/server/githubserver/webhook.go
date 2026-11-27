@@ -141,8 +141,9 @@ type GitHubMeta struct {
 	// NodeID is the GraphQL global node ID of this event's reactable target: the
 	// comment for issue_comment, pull_request_comment and
 	// pull_request_review_comment events, the review summary for
-	// pull_request_review events, and the issue/PR for issue_assigned,
-	// pull_request_assigned, pull_request_review_requested, issue_label_added and
+	// pull_request_review events, and the issue/PR for issue_opened,
+	// issue_closed, issue_assigned, pull_request_assigned,
+	// pull_request_review_requested, issue_label_added and
 	// pull_request_label_added events. All reactions go through the GraphQL addReaction mutation, which
 	// accepts any reactable node uniformly, so this single ID is all react needs
 	// regardless of event type.
@@ -158,6 +159,8 @@ const (
 	EventTypePullRequestComment         = "pull_request_comment"
 	EventTypePullRequestReviewComment   = "pull_request_review_comment"
 	EventTypePullRequestReview          = "pull_request_review"
+	EventTypeIssueOpened                = "issue_opened"
+	EventTypeIssueClosed                = "issue_closed"
 	EventTypeIssueAssigned              = "issue_assigned"
 	EventTypePullRequestAssigned        = "pull_request_assigned"
 	EventTypePullRequestReviewRequested = "pull_request_review_requested"
@@ -298,7 +301,59 @@ func toInputEvents(webhookEvent any) ([]eventrouter.InputEvent, GitHubMeta) {
 		}
 
 	case *github.IssuesEvent:
+		// GitHub delivers "issues" webhooks for issues only; pull request
+		// activity arrives as "pull_request" deliveries.
 		switch event.GetAction() {
+		case "opened":
+			if event.Issue == nil || event.Issue.HTMLURL == nil ||
+				event.Sender == nil || event.Sender.ID == nil {
+				return nil, GitHubMeta{}
+			}
+			senderLogin := event.Sender.GetLogin()
+			number := event.Issue.GetNumber()
+			return []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        EventTypeIssueOpened,
+				Description: fmt.Sprintf("%s opened issue #%d", senderLogin, number),
+				Data:        strings.TrimSpace(event.Issue.GetBody()),
+				URL:         *event.Issue.HTMLURL,
+				Attrs:       eventrouter.Attrs{"user": {senderLogin}},
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetIssue().GetNodeID(),
+			}
+		case "closed":
+			if event.Issue == nil || event.Issue.HTMLURL == nil ||
+				event.Sender == nil || event.Sender.ID == nil {
+				return nil, GitHubMeta{}
+			}
+			senderLogin := event.Sender.GetLogin()
+			number := event.Issue.GetNumber()
+			// The "state" attr carries GitHub's state_reason as sent
+			// ("completed", "not_planned", "duplicate"), so a trigger can
+			// target one outcome.
+			reason := event.Issue.GetStateReason()
+			description := fmt.Sprintf("%s closed issue #%d", senderLogin, number)
+			attrs := eventrouter.Attrs{"user": {senderLogin}}
+			if reason != "" {
+				description += " as " + strings.ReplaceAll(reason, "_", " ")
+				attrs["state"] = []string{reason}
+			}
+			return []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        EventTypeIssueClosed,
+				Description: description,
+				Data:        strings.TrimSpace(event.Issue.GetBody()),
+				URL:         *event.Issue.HTMLURL,
+				Attrs:       attrs,
+			}}, GitHubMeta{
+				AuthorID:       *event.Sender.ID,
+				AuthorLogin:    senderLogin,
+				InstallationID: event.GetInstallation().GetID(),
+				NodeID:         event.GetIssue().GetNodeID(),
+			}
 		case "assigned":
 			if event.Issue == nil || event.Issue.HTMLURL == nil ||
 				event.Assignee == nil || event.Assignee.Login == nil ||
