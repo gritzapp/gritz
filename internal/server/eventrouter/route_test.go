@@ -454,10 +454,7 @@ func TestRouteTriggerPrompt(t *testing.T) {
 		triggerPrompt string
 		want          []string
 	}{
-		{
-			name: "neither",
-			want: []string{`You were created by a trigger of agent "responder" in response to a github issue_comment event.`},
-		},
+		{name: "neither"},
 		{name: "agent only", agentPrompt: "Answer the comment.", want: []string{"Answer the comment."}},
 		{name: "trigger only", triggerPrompt: "Triage the issue.", want: []string{"Triage the issue."}},
 		{
@@ -474,7 +471,6 @@ func TestRouteTriggerPrompt(t *testing.T) {
 			s := teststore.New(t)
 			org := teststore.CreateOrg(t, s, nil)
 			teststore.CreateAgent(t, s, org, &model.Agent{
-				Name:     "responder",
 				Prompt:   tt.agentPrompt,
 				Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Prompt: tt.triggerPrompt}},
 			})
@@ -488,7 +484,8 @@ func TestRouteTriggerPrompt(t *testing.T) {
 				UserID: org.UserID,
 			})
 
-			// Assert - one waking instruction per prompt, in order.
+			// Assert - one waking instruction per prompt, in order; none
+			// without one.
 			assert.NilError(t, err)
 			tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
 			assert.NilError(t, err)
@@ -508,6 +505,7 @@ func TestRouteTriggerPrompt(t *testing.T) {
 				events,
 				want,
 				cmpopts.IgnoreFields(model.Event{}, "ID", "CreatedAt", "XID"),
+				cmpopts.EquateEmpty(),
 			)
 		})
 	}
@@ -610,7 +608,6 @@ func TestRouteTriggerYields(t *testing.T) {
 				assert.NilError(t, s.UpdateTask(t.Context(), nil, holder))
 			}
 			responder := teststore.CreateAgent(t, s, org, &model.Agent{
-				Name:     "responder",
 				Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", YieldTo: []string{"pr-owner"}}},
 			})
 			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}

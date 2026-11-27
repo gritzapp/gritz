@@ -506,16 +506,13 @@ func (r *Router) create(ctx context.Context, input InputEvent, match TriggerMatc
 	var task *model.Task
 	var external *model.Event
 	err := r.Store.WithTx(ctx, nil, func(tx *sql.Tx) error {
-		// The agent's prompt, then the trigger's, as separate instructions;
-		// generated only when neither has one.
+		// The agent's prompt, then the trigger's, as separate instructions.
+		// With neither, the task starts from the triggering event alone.
 		var prompts []string
 		for _, p := range []string{agent.Prompt, trigger.Prompt} {
 			if p != "" {
 				prompts = append(prompts, p)
 			}
-		}
-		if len(prompts) == 0 {
-			prompts = []string{fmt.Sprintf("You were created by a trigger of agent %q in response to a %s %s event.", agent.Name, input.Source, input.Type)}
 		}
 		// Hold the agent so a concurrent DeleteAgent sees this task; one
 		// deleted since the plan creates nothing.
