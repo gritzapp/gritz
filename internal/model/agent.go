@@ -127,15 +127,15 @@ type AgentLink struct {
 	// Events are the event types a link of this kind delivers, each with
 	// the conditions its events must meet. With none, it delivers nothing.
 	Events []AgentLinkEvent `json:"events,omitempty"`
-	// Public allows delivery of events from actors who aren't org members.
-	Public bool `json:"public,omitempty"`
 }
 
 // AgentLinkEvent is an event type a link kind delivers, and the conditions,
-// all of which must hold, its events must meet.
+// all of which must hold, its events must meet. Public allows delivery of its
+// events from actors who aren't org members.
 type AgentLinkEvent struct {
 	Type       string      `json:"type"`
 	Conditions []Condition `json:"conditions,omitempty"`
+	Public     bool        `json:"public,omitempty"`
 }
 
 // Event returns the entry whose type is typ, and false if l lists none.
@@ -181,15 +181,15 @@ func (a *Agent) Proto() *gritzv1.Agent {
 	}
 	for _, l := range a.Links {
 		link := &gritzv1.AgentLink{
-			Type:   l.Type,
-			Kind:   l.Kind,
-			Claim:  l.Claim,
-			Public: l.Public,
+			Type:  l.Type,
+			Kind:  l.Kind,
+			Claim: l.Claim,
 		}
 		for _, e := range l.Events {
 			link.Events = append(link.Events, &gritzv1.AgentLinkEvent{
 				Type:       e.Type,
 				Conditions: ProtoMap(e.Conditions),
+				Public:     e.Public,
 			})
 		}
 		pb.Links = append(pb.Links, link)
@@ -226,15 +226,15 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 	}
 	for _, l := range pb.GetLinks() {
 		link := AgentLink{
-			Type:   l.GetType(),
-			Kind:   l.GetKind(),
-			Claim:  l.GetClaim(),
-			Public: l.GetPublic(),
+			Type:  l.GetType(),
+			Kind:  l.GetKind(),
+			Claim: l.GetClaim(),
 		}
 		for _, e := range l.GetEvents() {
 			link.Events = append(link.Events, AgentLinkEvent{
 				Type:       e.GetType(),
 				Conditions: conditionsFromProto(e.GetConditions()),
+				Public:     e.GetPublic(),
 			})
 		}
 		a.Links = append(a.Links, link)

@@ -114,7 +114,7 @@ func (s *Store) LockAgentSchedules(ctx context.Context, tx *sql.Tx, orgID, agent
 
 // EventAgent is a live agent of an org an event routes in, and whether the
 // routing actor is a member of that org. A non-member org admits only public
-// triggers and link kinds.
+// triggers and public events of link kinds.
 type EventAgent struct {
 	Agent    *model.Agent
 	IsMember bool

@@ -60,7 +60,7 @@ func (h *handlers) addEventTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "test_event",
-		Description: "Test the org's agents with an event of any type: report, per agent, the trigger that matches and whether it would create a task or yield, and the tasks the event would be delivered to. With fire, act on it for real. A built-in event routes as you; a custom event has no actor, so only public triggers and link kinds admit it, exactly as from the custom events webhook. Firing a custom event is how to send one.",
+		Description: "Test the org's agents with an event of any type: report, per agent, the trigger that matches and whether it would create a task or yield, and the tasks the event would be delivered to. With fire, act on it for real. A built-in event routes as you; a custom event has no actor, so only public triggers and public events of link kinds admit it, exactly as from the custom events webhook. Firing a custom event is how to send one.",
 	}, h.testEvent)
 }
 

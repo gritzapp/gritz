@@ -1045,8 +1045,8 @@ message AgentLink {
   // its events must meet. A link of a kind with none delivers no event; it
   // still holds its claim.
   repeated AgentLinkEvent events = 4;
-  // Whether it also delivers events from people who aren't members of the org.
-  bool public = 5;
+  reserved 5;
+  reserved "public";
 }
 
 // AgentLinkEvent is an event type a link kind delivers.
@@ -1055,6 +1055,9 @@ message AgentLinkEvent {
   string type = 1;
   // Validated as a trigger's conditions on the event type are.
   repeated RuleCondition conditions = 2;  // All must hold.
+  // Whether it also delivers events of this type from people who aren't
+  // members of the org.
+  bool public = 3;
 }
 
 // CreateAgentRequest creates agent in the caller's org. agent.id is ignored.

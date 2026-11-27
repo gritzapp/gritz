@@ -83,7 +83,7 @@ Tasks can be notified about external events through the event system:
 - **Events** represent external triggers (GitHub PR comments, Jira issue updates, etc.)
 - **Triggers** create a task of their agent when an event matches their event type and conditions. Each agent's first matching trigger wins, and agents are evaluated independently. A trigger's `yield_to` lists claims: it creates nothing while an unarchived task holds one of them on the event's resource
 - **Link kinds** are the only links an agent's tasks may subscribe with. A link created with a `kind` receives an event when the event's canonical URL equals the link's URL, the kind lists the event's type, and that entry's conditions hold. A kind that lists no events delivers nothing; a link without a kind is a plain reference
-- Delivery always wakes the task. A kind's `claim` is stamped on its links and is what triggers yield to. `public` (on a trigger, or on a whole link kind) admits events from actors who aren't org members
+- Delivery always wakes the task. A kind's `claim` is stamped on its links and is what triggers yield to. `public` (on a trigger, or on one event entry of a link kind) admits events from actors who aren't org members
 - Events appear in `get_my_task` output and provide additional context to agents
 - GitHub (the GitHub App's webhook, `internal/server/githubserver`) and Jira (`internal/server/atlassianserver`) deliver webhooks to the server, which turns them into events and routes them (`internal/server/eventrouter`); custom events arrive at `/webhook/custom`. There is no poller
 
