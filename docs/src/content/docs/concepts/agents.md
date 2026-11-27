@@ -225,7 +225,7 @@ archived.
 For example, an implementer agent's tasks link the pull requests they open with
 an `owned-pr` kind that has the claim `pr-owner`. A responder agent answers
 `@gritz` mentions on pull requests, with a trigger for
-**GitHub: Issue/PR Comment** that has the condition `mention equals gritz`, yields
+**GitHub: PR Comment** that has the condition `mention equals gritz`, yields
 to `pr-owner`, and links the pull request. A mention on a pull request an
 implementer task opened creates no responder task, and reaches the implementer
 task if its `owned-pr` kind lists comments. A mention anywhere else creates a

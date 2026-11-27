@@ -8,7 +8,7 @@ sidebar:
 Every event has a source and a type, such as `github` and `issue_comment`. An
 agent's [trigger](/concepts/agents/#triggers) matches one `(source, type)` pair,
 which the trigger form's **Event type** list shows by its label, such as
-**GitHub: Issue/PR Comment**. Its conditions then test the event's attributes.
+**GitHub: Issue Comment**. Its conditions then test the event's attributes.
 A [link kind](/concepts/agents/#link-kinds) delivers the event types that can
 name its link type; see [Link types](#link-types).
 
@@ -43,13 +43,24 @@ Source `github`. GitHub usernames are given without the leading `@`.
 
 ### `issue_comment`
 
-**GitHub: Issue/PR Comment.** A comment on an issue or a pull request is created
-or edited.
+**GitHub: Issue Comment.** A comment on an issue is created or edited.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
 | `body` | Comment Body | The comment's text. |
 | `url` | Comment URL | The comment's URL, such as `https://github.com/owner/repo/issues/123#issuecomment-456`. |
+| `mention` | Mention | Each username @-mentioned in the comment. |
+| `user` | User | The username of the commenter. |
+
+### `pull_request_comment`
+
+**GitHub: PR Comment.** A comment on a pull request's conversation is created or
+edited. Inline comments on the diff are `pull_request_review_comment`.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | Comment Body | The comment's text. |
+| `url` | Comment URL | The comment's URL, such as `https://github.com/owner/repo/pull/123#issuecomment-456`. |
 | `mention` | Mention | Each username @-mentioned in the comment. |
 | `user` | User | The username of the commenter. |
 
@@ -122,15 +133,27 @@ the comment is on (`path`, `line`, `start_line`, `side`) and its `diff_hunk`.
 | `state` | Merged or Closed | `merged` if it was merged, otherwise `closed`. |
 | `user` | User | The username of who closed or merged it. |
 
-### `label_added`
+### `issue_label_added`
 
-**GitHub: Label Added.** A label is added to an issue or a pull request. Adding
-several labels sends one event per label.
+**GitHub: Issue Label Added.** A label is added to an issue. Adding several
+labels sends one event per label.
 
 | Attribute | Label | Value |
 | --- | --- | --- |
-| `body` | Issue/PR Body | The issue's or pull request's description. |
-| `url` | Issue/PR URL | The issue's or pull request's URL. |
+| `body` | Issue Body | The issue's description. |
+| `url` | Issue URL | The issue's URL, such as `https://github.com/owner/repo/issues/123`. |
+| `label` | Label | The label added. |
+| `user` | User | The username of who added it. |
+
+### `pull_request_label_added`
+
+**GitHub: PR Label Added.** A label is added to a pull request. Adding several
+labels sends one event per label.
+
+| Attribute | Label | Value |
+| --- | --- | --- |
+| `body` | PR Body | The pull request's description. |
+| `url` | PR URL | The pull request's URL, such as `https://github.com/owner/repo/pull/123`. |
 | `label` | Label | The label added. |
 | `user` | User | The username of who added it. |
 
@@ -286,14 +309,11 @@ but is never delivered to a subscribed task.
 
 | Link type | Resource | Event types that can name it |
 | --- | --- | --- |
-| `github.issue` | A GitHub issue, `https://github.com/{owner}/{repo}/issues/{n}` | `issue_comment`, `issue_assigned`, `label_added` |
-| `github.pr` | A GitHub pull request, `https://github.com/{owner}/{repo}/pull/{n}` | `issue_comment`, `pull_request_review_comment`, `pull_request_review`, `pull_request_assigned`, `pull_request_opened`, `pull_request_closed`, `label_added`, `pull_request_check_run_completed` |
+| `github.issue` | A GitHub issue, `https://github.com/{owner}/{repo}/issues/{n}` | `issue_comment`, `issue_assigned`, `issue_label_added` |
+| `github.pr` | A GitHub pull request, `https://github.com/{owner}/{repo}/pull/{n}` | `pull_request_comment`, `pull_request_review_comment`, `pull_request_review`, `pull_request_assigned`, `pull_request_opened`, `pull_request_closed`, `pull_request_label_added`, `pull_request_check_run_completed` |
 | `github.workflow_run` | A GitHub Actions workflow run, `https://github.com/{owner}/{repo}/actions/runs/{id}` | `check_run_completed` |
 | `jira.issue` | A Jira issue, `https://{site}.atlassian.net/browse/{KEY}` | every Jira type |
 | `custom.url` | A custom event's URL, exactly as sent | the [custom types](/integrations/custom-events/) that declare it |
-
-`issue_comment` and `label_added` name an issue or a pull request, whichever the
-event is about.
 
 ## URLs and resources
 
