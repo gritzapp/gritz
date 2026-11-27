@@ -26,9 +26,11 @@ set by the task's [workspace](/concepts/workspaces/), or by one of the
 
 Agents are on the **Agents** page of the [Web UI](/using/web-ui/#agents).
 **+ Agent** creates one, clicking an agent's name opens it for editing, and its
-**Run** button opens a new task of the agent with its prompt filled in. MCP clients
-manage them with [`put_agent`](/integrations/mcp/#agents) and the other agent
-tools.
+**Run** button opens a new task of the agent with its prompt filled in.
+**Clone**, in the **⋯** menu of an agent's page, opens a new agent's form filled
+in with a copy of the agent, named `<name> (copy)`; nothing is created until
+you save it. MCP clients manage agents with
+[`put_agent`](/integrations/mcp/#agents) and the other agent tools.
 
 An organisation needs an agent before it can create any task, by hand, from a
 [schedule](/concepts/schedules/) or from an event. An agent with no triggers and
@@ -92,8 +94,8 @@ A trigger matches an event by:
 - **Event type**: the event's source and type, such as a GitHub pull request
   review comment, a Jira issue comment, or one of the organisation's custom
   types.
-- **Conditions**, each an attribute, an operator and a value. The attributes on
-  offer depend on the event type. Every type has `body`, the event's text, and
+- **Conditions**, each an attribute, an operator and a value, optionally
+  negated. The attributes on offer depend on the event type. Every type has `body`, the event's text, and
   `url`, the event's own URL (a comment's URL rather than its issue's); built-in
   types add others, such as the users mentioned in a comment, an issue's new
   label or its new assignee. See [Event types](/reference/event-types/) for every
@@ -105,6 +107,12 @@ A trigger matches an event by:
 | `prefix` | starts with the value |
 | `contains` | contains the value anywhere |
 | `glob` | matches the value as a pattern, such as `internal/store/**` or `release/*` |
+
+Each operator also has a negated form, offered in the operator list as **does
+not equal**, **does not start with**, **does not contain** and **does not match
+glob**. A negated condition holds exactly when the same condition without
+negation doesn't, so `label` does not equal `wontfix` holds for an issue none of
+whose labels is `wontfix`.
 
 A `glob` pattern must match the whole value:
 
@@ -123,7 +131,9 @@ URLs and text. An agent with a malformed pattern can't be saved.
 
 Comparisons are exact and case-sensitive. An attribute can have several values,
 such as the labels on an issue, and a condition holds when any of them
-satisfies it. A condition on an attribute the event doesn't have never holds.
+satisfies it; a negated condition holds when none of them does. A condition on
+an attribute the event doesn't have never holds, and a negated one always
+does.
 
 A trigger matches when every condition holds. A trigger with no conditions
 matches every event of its type.
@@ -165,9 +175,9 @@ the comment" on another, while the agent's prompt holds what they share.
 
 A link kind is a kind of subscribed link the agent's tasks may create. An agent
 creates links with the [`create_link`](/using/agent-tools/#create_link) tool,
-and passes a kind to subscribe; gritz tells it the kinds its agent has. A link
-with no kind is a plain reference: it receives no events. See
-[Events and links](/concepts/events-and-links/).
+and every link needs one of its agent's kinds; gritz tells it the kinds its
+agent has, with their descriptions. An agent with no link kinds can't create
+links. See [Events and links](/concepts/events-and-links/).
 
 Each link kind has:
 
@@ -178,6 +188,9 @@ Each link kind has:
   of the same type, such as `owned-pr` for the pull requests its tasks open and
   `github.pr` for the ones they only watch.
 - **Claim**: an optional name the links of this kind hold. See [Claims](#claims).
+- **Description**: optional free text saying what the kind is for and when to
+  create a link of it, such as "Pull requests the task opens". gritz shows it to
+  the agent's tasks beside the kind, so they pick the right one.
 - **Events**: the event types a link of this kind delivers, each with optional
   conditions on the event's attributes, as a [trigger's](#triggers). Only event
   types that can name the link type are offered. A kind with no events checked

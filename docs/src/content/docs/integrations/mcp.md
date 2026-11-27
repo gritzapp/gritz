@@ -265,7 +265,7 @@ task page's **Logs** tab, with [secrets](/operators/secrets/) masked; and
 | `url` | The resource's URL. Required. |
 | `relevance` | Why the resource matters to the task. |
 | `title` | A title for the link. |
-| `kind` | A [link kind](/concepts/agents/#link-kinds) of the task's agent. The link is then subscribed: the resource's events that the kind lists, such as comments on a pull request, are delivered to the task. The URL must be a resource of the kind's link type. Leave it out for a plain reference link, which receives no events. |
+| `kind` | A [link kind](/concepts/agents/#link-kinds) of the task's agent. The link is subscribed: the resource's events that the kind lists, such as comments on a pull request, are delivered to the task. The URL must be a resource of the kind's link type. A missing or unknown kind fails, listing the agent's kinds. Required. |
 
 Use it to subscribe a task to something you made yourself, such as a pull
 request you opened by hand.
@@ -296,7 +296,7 @@ Each trigger has:
 | Field | |
 | --- | --- |
 | `source`, `type` | The [event type](/reference/event-types/) it matches, as `list_event_types` lists it. |
-| `conditions` | Conditions that must all hold, each an `attr`, an `op` (`equals`, `prefix`, `contains` or `glob`) and a `value`. |
+| `conditions` | Conditions that must all hold, each an `attr`, an `op` (`equals`, `prefix`, `contains` or `glob`), a `value`, and `negate` to hold exactly when the condition without it doesn't, including on an event that lacks the attribute. See [Matching](/concepts/agents/#matching). |
 | `public` | Also match events from people who aren't members of the organisation. A trigger on a custom event type must be public: custom events have no actor. |
 | `yield_to` | Claim names: the trigger creates no task while an unarchived task holds a link with one of these claims on the event's resource. |
 | `link` | A link kind of the agent whose type the event type declares. The task it creates gets a subscribed link of that kind to the event's resource. |
@@ -309,6 +309,7 @@ Each link kind has:
 | `type` | A link type that `list_event_types` lists, such as `github.pr`. |
 | `kind` | The kind's name, unique in the agent. Defaults to `type`. |
 | `claim` | A claim stamped on every link of this kind, which triggers can `yield_to`. |
+| `description` | Free text on what the kind is for, shown to the agent's tasks beside the kind. |
 | `events` | The event types a link of this kind delivers to its task, each `{type, conditions, public, wake}`: an event type that declares the link type; conditions its events must all meet, in a trigger's shape; `public` to also deliver its events from people who aren't members of the organisation; and `wake` to start the task when one is delivered, without which the event is only added to the task. With none, it delivers nothing. |
 
 Each [schedule](/concepts/schedules/) has:

@@ -20,9 +20,10 @@ ticket, a dashboard. It has:
 - a **relevance**, saying how the resource relates to the task, such as "PR
   implementing the fix";
 - an optional **title** to display;
-- an optional **kind**, one of the [link kinds](/concepts/agents/#link-kinds) of
-  the task's agent. A link with a kind is subscribed: events about the resource
-  reach the task. A link without one is a plain reference.
+- a **kind**, one of the [link kinds](/concepts/agents/#link-kinds) of the
+  task's agent, which subscribes the link: the events about the resource that
+  the kind lists reach the task. Every link needs one, so the tasks of an agent
+  with no link kinds can't create links.
 
 Agents create links with the [`create_link`](/using/agent-tools/#create_link)
 tool, and gritz tells every agent to create a subscribed link for each resource
