@@ -99,8 +99,6 @@ service GritzService {
   // `failed_precondition` while an unarchived task belongs to the agent. A
   // deleted agent is gone from every agent RPC; its archived tasks keep its id.
   rpc DeleteAgent(DeleteAgentRequest) returns (DeleteAgentResponse);
-  // RunAgent creates one task of an agent now.
-  rpc RunAgent(RunAgentRequest) returns (RunAgentResponse);
 }
 
 message PingRequest {}
@@ -1173,13 +1171,3 @@ message DeleteAgentRequest {
 }
 
 message DeleteAgentResponse {}
-
-// RunAgentRequest creates one task of an agent now, named after the agent
-// and starting with its prompt.
-message RunAgentRequest {
-  int64 id = 1;
-}
-
-message RunAgentResponse {
-  Task task = 1;  // The task the run created.
-}

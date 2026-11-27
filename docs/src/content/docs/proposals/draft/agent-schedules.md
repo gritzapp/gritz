@@ -31,8 +31,8 @@ This reverses the [Schedules section](/proposals/implemented/agents/#schedules) 
 - Schedules stay rows of the `schedules` table. The table keeps each schedule's run state (`next_run_at`, `last_run_at`, `last_task_id`), and the scheduler keeps claiming due rows from it as it does now.
 - A schedule's identity is its row `id`. `GetAgent` returns it; `UpdateAgent` matches incoming schedules by it, so renaming, reordering and editing a schedule keep its row and its last run. A schedule without an `id` is new, and a stored schedule the request leaves out is deleted.
 - Run state is output only: `CreateAgent` and `UpdateAgent` ignore it. Saving an agent only moves a schedule's `next_run_at` when that schedule's cron expression, timezone or enabled flag changed.
-- `RunAgent` creates one task of an agent now. It knows nothing about schedules: there is no way to run a schedule now. `RunSchedule` and the `run_schedule` MCP tool go, and `run_agent` is added. Enable and disable are the `enabled` field of the definition; `SetScheduleEnabled` goes.
-- The Schedules page goes. The agent editor gets a Schedules section, and each row of the Agents list shows the agent's next scheduled run and has a run button.
+- Running an agent is `CreateTask`: there is no `RunAgent`, and no way to run a schedule now. `RunSchedule` and the `run_schedule` MCP tool go with nothing replacing them. Enable and disable are the `enabled` field of the definition; `SetScheduleEnabled` goes.
+- The Schedules page goes. The agent editor gets a Schedules section, and each row of the Agents list shows the agent's next scheduled run and has a run button that opens the new-task page for the agent.
 - `DeleteAgent` deletes the agent's schedules. Only unarchived tasks block it.
 - Existing schedules already name their agent (`schedules.agent_id NOT NULL`). The migration keeps their rows, IDs and run state. It adds a position column and drops the instructions and the attribution columns.
 
@@ -82,7 +82,7 @@ You were created by schedule "Nightly bump" of agent "dependency-bumper".
 
 The agent's `prompt` is thereby the first instruction of every task the agent creates on its own, by trigger or by schedule, and the editor's hint for it says so. Work that needs different instructions on a different clock is a different agent.
 
-The task is otherwise built as today: the agent's workspace, runner, auto-archive and variables (as saved; the runner resolves them), a created lifecycle event with actor `ScheduleActor`, the start command, and one wake-carrying `InstructionPayload`. `Schedule.Task` and `Schedule.Events` become `Agent.Task` and `Agent.Events`, shared with [running an agent](#running-an-agent), which builds the same task with a different name, actor and generated line.
+The task is otherwise built as today: the agent's workspace, runner, auto-archive and variables (as saved; the runner resolves them), a created lifecycle event with actor `ScheduleActor`, the start command, and one wake-carrying `InstructionPayload`. `Schedule.Task` and `Schedule.Events` become `Agent.Task` and `Agent.Events`.
 
 ### Identity and run state
 
@@ -111,26 +111,15 @@ Renaming or reordering a schedule therefore changes nothing about when it fires;
 
 The scheduler locks a due schedule row, then share-locks its agent (`LockLiveAgent`) and creates the task. `UpdateAgent` and `DeleteAgent` take the same locks in the same order: the agent's schedule rows first (step 1 above), then the agent row. A save waits for an in-flight fire instead of deadlocking with it, and a tick that runs during a save skips the locked rows and fires them on the next tick, with `next_run_at` unchanged unless the save changed the spec.
 
-`RunAgent` locks no schedule row (it reads none) and share-locks the agent, as `CreateTask` does.
-
 ### Running an agent
 
-`RunAgent` creates one task of an agent now and returns it:
+There is no RPC to run an agent or a schedule now. Running an agent is `CreateTask` with the agent's id and an instruction, unchanged:
 
-```proto
-message RunAgentRequest {
-  int64 id = 1;  // The agent.
-}
-```
+- **Web UI.** The run button on each row of the Agents list opens the new-task page with that agent selected and the agent's prompt pre-filled as the instruction. The user edits it and submits it, and `CreateTask` creates the task as any other: attributed to them, under the task-create scope on the agent's target.
+- **MCP.** Clients use `create_task` with the agent's id and an instruction.
+- **Schedules.** A schedule can't be run now: its task differs from its agent's only in its name and generated line, so trying an agent out is running the agent. The schedule cards in the agent editor have no Run now button. `RunSchedule` is removed with nothing replacing it.
 
-- **Task.** Named after the agent, built from the agent as a scheduled task is (`Agent.Task`, `Agent.Events`), starting with the agent's prompt or, when it has none, with `You were created by running agent "dependency-bumper".`
-- **Scope.** The task-create scope on the agent's workspace and runner, the check `CreateTask` and `RunSchedule` make today (`allowScheduleTarget`, renamed `allowAgentTarget`). Running an agent doesn't change it, so it doesn't need `OpOrgWrite`.
-- **Actor.** The created lifecycle event names the calling user, as `CreateTask`'s does. `RunSchedule` attributed its task to `ScheduleActor`; only a fire by the scheduler does now, so the task timeline tells a scheduled task from one someone started.
-- **No schedules.** `RunAgent` neither reads nor writes a schedule. There is no way to run a schedule now: with the schedule's instructions gone, a schedule's task differs from the agent's only in its name and generated line, and trying an agent out is running the agent. `RunSchedule` is removed without a replacement.
-
-The handler builds the task itself, as `CreateTask` does, rather than through `scheduler.Fire`, which stays the scheduler's: it always fires a schedule, attributed to `ScheduleActor`.
-
-`CreateTask` stays the way to start a task with instructions of the caller's own. `RunAgent` sends none.
+`CreateTask` keeps its rules, including for an empty instruction: the pre-filled prompt is the client's, not a server default.
 
 ### Enable and disable
 
@@ -152,7 +141,6 @@ The top-level Schedules page is removed. `ListAgents` returns each agent's sched
 
 ```proto
 service GritzService {
-  rpc RunAgent(RunAgentRequest) returns (RunAgentResponse);  // new
   // removed: CreateSchedule, GetSchedule, ListSchedules, UpdateSchedule,
   //          DeleteSchedule, SetScheduleEnabled, RunSchedule
 }
@@ -179,36 +167,26 @@ message AgentSchedule {
   int64 last_task_id = 8;                     // 0 when it has never run.
 }
 
-// RunAgentRequest creates one task of an agent now, named after the agent
-// and starting with its prompt.
-message RunAgentRequest {
-  int64 id = 1;
-}
-
-message RunAgentResponse {
-  Task task = 1;  // The task the run created.
-}
-
 // removed: Schedule, CreateSchedule*, GetSchedule*, ListSchedules*,
 //          UpdateSchedule*, DeleteSchedule*, SetScheduleEnabled*, RunSchedule*
 ```
 
 ### Notifications
 
-Schedule changes are agent changes, published as `{updated, agent}`. The `schedule` notification resource goes, with its case in `use-org-sse.ts`. A fire also publishes `{updated, agent, <agent id>}` beside the task notification it already sends, so an open agent page and the Agents list show the new last run and next run. `RunAgent` publishes only the task notification: it changes no run state.
+Schedule changes are agent changes, published as `{updated, agent}`. The `schedule` notification resource goes, with its case in `use-org-sse.ts`. A fire also publishes `{updated, agent, <agent id>}` beside the task notification it already sends, so an open agent page and the Agents list show the new last run and next run.
 
 ### Server MCP
 
 - `get_agent`, `list_agents` and `put_agent` carry `schedules`. The `put_agent` description gains a sentence: schedules `[{id, name, cron_expr, timezone, enabled}]` each create a task of the agent, starting with its prompt, whenever the cron expression matches; keep a schedule's `id` to keep its last run, leave it out to add one, and leave a schedule out to delete it.
 - `delete_agent`'s description says the agent's schedules are deleted with it.
-- `run_agent` (`id`) creates a task of the agent now; `run_schedule` has no replacement.
+- There is no `run_agent`: an MCP client runs an agent with `create_task`, and `run_schedule` has no replacement.
 - `list_schedules`, `get_schedule`, `create_schedule`, `update_schedule`, `set_schedule_enabled`, `run_schedule` and `delete_schedule` are removed.
 
 ### Web UI
 
 - The agent form gets a **Schedules** section between Triggers and Link kinds, with a card per schedule: name, cron expression (with the grammar hint today's form shows), timezone (the browser's by default for a new one, from the same list), and an enabled switch. Schedules can be added, removed and reordered like triggers, and are saved with the agent.
 - A saved schedule's card shows its next run and its last run with a link to the last task, read from the live `getAgent` query by `id` rather than from the form state, so a fire shows up without reseeding the form. It has no run button: a schedule can't be run now, only its agent.
-- Each row of the Agents list has a run button (`RunAgent`), on every agent whether or not it has schedules. It takes the user to the created task's page.
+- Each row of the Agents list has a run button, on every agent whether or not it has schedules. It opens the existing new-task page with that agent selected and the agent's prompt pre-filled as the instruction (the page takes both from its URL), for the user to edit and submit through `CreateTask`.
 - The Agents list adds the Next run column.
 - Removed: the Schedules nav entry, `schedules.index.tsx`, `schedules.new.tsx`, `schedules.$id.edit.tsx`, `schedule-form.tsx`. `nextRunLabel`, `DEFAULT_CRON`, `browserTimezone` and `timezoneOptions` in `lib/schedule.ts` stay for the agent form.
 - The agent form's hints ("Tasks created by hand or by a schedule get their own instructions" on the prompt, "only created by hand or by a schedule" under Triggers) and the delete-agent dialogs are reworded.
@@ -328,14 +306,14 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule, agen
 // unchanged: Agent, Scheduler
 ```
 
-**How it fits:** `apiserver.validateAgent` calls `scheduler.Validate` on each schedule. `UpdateAgent` calls `LockAgentSchedules`, rejects foreign IDs, calls `Reschedule` per schedule, then `store.UpdateAgent`. `CreateAgent` calls `Reschedule(nil, now)` per schedule, then `store.CreateAgent`. `DeleteAgent` locks the schedules before the agent. The scheduler's `fire` calls `Fire` and adds the agent to its notification. `RunAgent` share-locks and loads the agent, checks `allowAgentTarget`, and creates `agent.Task(agent.Name)` with `agent.Events` and the caller's `UserActor`.
+**How it fits:** `apiserver.validateAgent` calls `scheduler.Validate` on each schedule. `UpdateAgent` calls `LockAgentSchedules`, rejects foreign IDs, calls `Reschedule` per schedule, then `store.UpdateAgent`. `CreateAgent` calls `Reschedule(nil, now)` per schedule, then `store.CreateAgent`. `DeleteAgent` locks the schedules before the agent. The scheduler's `fire` calls `Fire` and adds the agent to its notification.
 
 ## Implementation Plan
 
 1. **Schedule columns** — Delivers: the migration; `model.Schedule` without `CreatedBy`, `Instructions`, `CreatedAt`, `UpdatedAt`; scheduled tasks starting with the agent's prompt or the generated line (`Agent.Task`, `Agent.Events`); the `Schedule` proto's `instructions`, `created_by`, `created_at` and `updated_at` removed, with the instructions field of the schedule form and the `instruction` argument of `create_schedule` and `update_schedule`. New schedules go last in their agent. Depends on: nothing. Verifiable by: the migration against a copy of production schedules (positions as expected, run state untouched); scheduler tests for an agent with and without a prompt.
-2. **Schedules in the agent, and `RunAgent`** — Delivers: `AgentSchedule` and `Agent.schedules`; `LockAgentSchedules`, schedule reconciliation in `CreateAgent`/`UpdateAgent`, schedules loaded by `GetAgent`/`ListAgents`; `Reschedule`; `DeleteAgent` deleting schedules and no longer blocked by them; the agent notification on fire; `RunAgent` and the `run_agent` MCP tool; the `put_agent` and `delete_agent` descriptions. The standalone RPCs still work on the same rows. Depends on: (1). Verifiable by: `Reschedule` table tests (rename, reorder, cron edit, disable, enable, new); store tests for reconciliation and foreign IDs; handler tests that a save keeps a due `next_run_at`, and of `RunAgent` (name, actor, generated line, scope); an e2e test that edits an agent between two fires.
-3. **Web UI** — Delivers: the Schedules section of the agent form with run state (no run button), the run button, which takes the user to the created task, and the Next run column on the Agents list, the reworded hints; the Schedules page, its routes, its form and its nav entry removed. Depends on: (2). Verifiable by: adding, editing, reordering and disabling a schedule on the dev stack, running an agent from the list and landing on its task, and watching a fire update the page; `pnpm lint`.
-4. **Remove the standalone surface** — Delivers: `CreateSchedule`, `GetSchedule`, `ListSchedules`, `UpdateSchedule`, `DeleteSchedule`, `SetScheduleEnabled`, `RunSchedule` and the `Schedule` message removed, with their handlers, store methods, MCP tools, e2e harness helpers and the `schedule` notification resource. Depends on: (3). `RunSchedule` goes without a replacement. Verifiable by: the build, and the e2e schedule tests rewritten against `UpdateAgent`, with fires driven through the scheduler.
+2. **Schedules in the agent** — Delivers: `AgentSchedule` and `Agent.schedules`; `LockAgentSchedules`, schedule reconciliation in `CreateAgent`/`UpdateAgent`, schedules loaded by `GetAgent`/`ListAgents`; `Reschedule`; `DeleteAgent` deleting schedules and no longer blocked by them; the agent notification on fire; the `put_agent` and `delete_agent` descriptions. The standalone RPCs still work on the same rows. Depends on: (1). Verifiable by: `Reschedule` table tests (rename, reorder, cron edit, disable, enable, new); store tests for reconciliation and foreign IDs; handler tests that a save keeps a due `next_run_at`; an e2e test that edits an agent between two fires.
+3. **Web UI** — Delivers: the Schedules section of the agent form with run state (no run button), the run button on the Agents list, opening the new-task page with the agent selected and its prompt pre-filled, and the Next run column, the reworded hints; the Schedules page, its routes, its form and its nav entry removed. Depends on: (2). Verifiable by: adding, editing, reordering and disabling a schedule on the dev stack, running an agent from the list through the new-task page, and watching a fire update the page; `pnpm lint`.
+4. **Remove the standalone surface** — Delivers: `CreateSchedule`, `GetSchedule`, `ListSchedules`, `UpdateSchedule`, `DeleteSchedule`, `SetScheduleEnabled`, `RunSchedule` and the `Schedule` message removed, with their handlers, store methods, MCP tools, e2e harness helpers and the `schedule` notification resource. Depends on: (3). `RunSchedule` goes with nothing replacing it. Verifiable by: the build, and the e2e schedule tests rewritten against `UpdateAgent`, with fires driven through the scheduler.
 
 Between (2) and (4) a schedule can be edited both ways; both write the same row, and (4) follows as soon as the UI has moved. The user docs (`concepts/schedules`, `concepts/agents`, `using/web-ui`, `integrations/mcp`) are updated by the docs task that follows each push to `master`.
 
@@ -346,11 +324,11 @@ Between (2) and (4) a schedule can be edited both ways; both write the same row,
 - **Keep `next_run_at` unless the spec changed.** Recomputing on every save, as `UpdateSchedule` does, would let an unrelated agent edit skip a due occurrence.
 - **Schedules have no prompt.** The agent's prompt is the one place an agent's own work is described, for triggers and schedules alike, and a schedule is only a clock. Two jobs with different instructions are two agents, which can share a workspace and runner. The cost is a one-time edit of the agents whose schedules carried their own instructions, since the migration drops them.
 - **Enable and disable through `UpdateAgent`.** A separate toggle RPC would be a second way to write one field of the definition, with its own scope. The switch sits in the editor, saved with the rest.
-- **Run the agent, not a schedule.** Without schedule instructions, a schedule's task differs from its agent's only in its name and generated line, so running a schedule now adds a second way to try the same thing out. `RunAgent` takes only the agent and knows nothing about schedules, and the editor's schedule cards have no Run now button. Building the task client-side through `CreateTask` would duplicate the name and generated line the server applies, and `CreateTask` requires the caller to pass its instructions.
-- **Manual runs are the caller's.** `RunSchedule` attributed its task to `ScheduleActor`. Naming the user who pressed run keeps `ScheduleActor` meaning "fired by the clock".
+- **Running an agent is `CreateTask`, with no `RunAgent`.** Without schedule instructions, a schedule's task differs from its agent's only in its name and generated line, so running a schedule now would be a second way to try the same thing out, and an RPC that runs an agent would only be `CreateTask` with the prompt filled in. Pre-filling the new-task page with the prompt gives that, and lets the user adjust the instruction before submitting. The cost is that a manual run isn't byte-for-byte the task a schedule creates: it is named and instructed as any task created by hand.
+- **Manual runs are the caller's.** `RunSchedule` attributed its task to `ScheduleActor`. A task created through `CreateTask` names the user, which keeps `ScheduleActor` meaning "fired by the clock".
 - **No Schedules page.** A read-only overview would keep `ListSchedules` alive for one table. A Next run column on the Agents list covers the overview, and every schedule is one click from its agent.
 - **Hard-delete schedules with the agent.** Blocking `DeleteAgent` on schedules made sense when they were separate resources the user might want to repoint. Now they are part of the agent; deleting it means deleting them.
-- **Schedule editing needs `OpOrgWrite`.** Creating a schedule used to need task-create scope on the agent's target, and toggling one task-write. A schedule is now agent configuration, and agent triggers already create tasks under `OpOrgWrite`. `RunAgent` keeps the task-create check because it creates a task on the caller's behalf.
+- **Schedule editing needs `OpOrgWrite`.** Creating a schedule used to need task-create scope on the agent's target, and toggling one task-write. A schedule is now agent configuration, and agent triggers already create tasks under `OpOrgWrite`. Running an agent keeps the task-create check, through `CreateTask`.
 
 ## Open Questions
 

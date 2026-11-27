@@ -342,10 +342,3 @@ export const updateAgent = GritzService.method.updateAgent;
  * @generated from rpc gritz.v1.GritzService.DeleteAgent
  */
 export const deleteAgent = GritzService.method.deleteAgent;
-
-/**
- * RunAgent creates one task of an agent now.
- *
- * @generated from rpc gritz.v1.GritzService.RunAgent
- */
-export const runAgent = GritzService.method.runAgent;

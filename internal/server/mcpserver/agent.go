@@ -50,11 +50,6 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 			DestructiveHint: new(true),
 		},
 	}, h.deleteAgent)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "run_agent",
-		Description: "Create a task of an agent now, named after the agent and starting with its prompt, and return it.",
-	}, h.runAgent)
 }
 
 type listAgentsInput struct{}
@@ -107,15 +102,6 @@ func (h *handlers) putAgent(ctx context.Context, req *mcp.CallToolRequest, input
 		return mcpx.ErrorResult("failed to update agent: %v", err), nil, nil
 	}
 	return mcpx.ProtoJSONResult(resp.Agent), nil, nil
-}
-
-func (h *handlers) runAgent(ctx context.Context, req *mcp.CallToolRequest, input agentIDInput) (*mcp.CallToolResult, any, error) {
-	service := h.service()
-	resp, err := service.RunAgent(ctx, &gritzv1.RunAgentRequest{Id: input.ID})
-	if err != nil {
-		return mcpx.ErrorResult("failed to run agent: %v", err), nil, nil
-	}
-	return mcpx.JSONResult(taskSummaryOf(resp.Task)), nil, nil
 }
 
 func (h *handlers) deleteAgent(ctx context.Context, req *mcp.CallToolRequest, input agentIDInput) (*mcp.CallToolResult, any, error) {

@@ -61,7 +61,6 @@ func TestListTools(t *testing.T) {
 		"put_custom_event_type",
 		"reset_sandbox",
 		"restart_task",
-		"run_agent",
 		"run_schedule",
 		"set_schedule_enabled",
 		"test_event",

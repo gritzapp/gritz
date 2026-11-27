@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e/harness"
-	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
@@ -760,90 +759,4 @@ func TestAgentSchedule_EditBetweenFires(t *testing.T) {
 		cmpx.OnlyProtoFields(&gritzv1.Event{}, "instruction"),
 	)
 	assert.Equal(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}).Schedules[0].LastTaskId, second.Id)
-}
-
-func TestRunAgent(t *testing.T) {
-	t.Parallel()
-	// Arrange - an agent without a prompt, with a disabled schedule.
-	h := harness.New(t, nil)
-	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
-		Name:      "dependency-bumper",
-		Workspace: harness.DefaultWorkspace,
-		Runner:    harness.DefaultRunner,
-		Schedules: []*gritzv1.AgentSchedule{{Name: "Weekend bump", CronExpr: "0 9 * * 6"}},
-	}})
-
-	// Act
-	resp, err := h.Org.Client.RunAgent(t.Context(), &gritzv1.RunAgentRequest{Id: agent.Id})
-
-	// Assert - a task of the agent, named after it and created by the caller.
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
-		[]*gritzv1.Task{{
-			Id:        resp.Task.Id,
-			Name:      "dependency-bumper",
-			Workspace: harness.DefaultWorkspace,
-			Runner:    harness.DefaultRunner,
-			AgentId:   agent.Id,
-		}},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
-	)
-	assert.DeepEqual(t,
-		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id}),
-		[]*gritzv1.Event{
-			{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
-				Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
-				Actor:    &gritzv1.Actor{Kind: "user", Name: h.Org.Owner.UserID},
-				ToStatus: model.TaskStatusPending.Label(),
-			}}},
-			{},
-			{Wake: true, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
-				Text: `You were created by running agent "dependency-bumper".`,
-			}}},
-		},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Event{}, "lifecycle", "instruction", "wake"),
-	)
-	// The run left the schedule's run state alone.
-	assert.DeepEqual(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}), agent, protocmp.Transform())
-
-	// Act - a missing agent.
-	_, err = h.Org.Client.RunAgent(t.Context(), &gritzv1.RunAgentRequest{Id: agent.Id + 1000})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
-}
-
-func TestRunAgent_RequiresCreateScope(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
-		Name:      "bumper",
-		Workspace: harness.DefaultWorkspace,
-		Runner:    harness.DefaultRunner,
-	}})
-	createScope := func(workspace string) authscope.Scope {
-		return authscope.New(authscope.OpTaskCreate,
-			authscope.WithTaskWorkspace(workspace),
-			authscope.WithTaskRunner(harness.DefaultRunner),
-			authscope.WithTaskArchived(false),
-		)
-	}
-	orgWriter := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpOrgWrite)})
-	elsewhere := h.Org.CreateScopedKey(authscope.Scopes{createScope("other-workspace")})
-	creator := h.Org.CreateScopedKey(authscope.Scopes{createScope(harness.DefaultWorkspace)})
-	req := &gritzv1.RunAgentRequest{Id: agent.Id}
-
-	// Act
-	_, orgWriterErr := orgWriter.Client.RunAgent(t.Context(), req)
-	_, elsewhereErr := elsewhere.Client.RunAgent(t.Context(), req)
-	_, creatorErr := creator.Client.RunAgent(t.Context(), req)
-
-	// Assert - only task-create on the agent's target may run it.
-	assert.Equal(t, connect.CodeOf(orgWriterErr), connect.CodePermissionDenied)
-	assert.Equal(t, connect.CodeOf(elsewhereErr), connect.CodePermissionDenied)
-	assert.NilError(t, creatorErr)
 }

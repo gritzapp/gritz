@@ -163,9 +163,6 @@ var _ Client = &ClientMock{}
 //			RestartTaskFunc: func(contextMoqParam context.Context, restartTaskRequest *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error) {
 //				panic("mock out the RestartTask method")
 //			},
-//			RunAgentFunc: func(contextMoqParam context.Context, runAgentRequest *gritzv1.RunAgentRequest) (*gritzv1.RunAgentResponse, error) {
-//				panic("mock out the RunAgent method")
-//			},
 //			RunScheduleFunc: func(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error) {
 //				panic("mock out the RunSchedule method")
 //			},
@@ -352,9 +349,6 @@ type ClientMock struct {
 
 	// RestartTaskFunc mocks the RestartTask method.
 	RestartTaskFunc func(contextMoqParam context.Context, restartTaskRequest *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error)
-
-	// RunAgentFunc mocks the RunAgent method.
-	RunAgentFunc func(contextMoqParam context.Context, runAgentRequest *gritzv1.RunAgentRequest) (*gritzv1.RunAgentResponse, error)
 
 	// RunScheduleFunc mocks the RunSchedule method.
 	RunScheduleFunc func(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error)
@@ -730,13 +724,6 @@ type ClientMock struct {
 			// RestartTaskRequest is the restartTaskRequest argument value.
 			RestartTaskRequest *gritzv1.RestartTaskRequest
 		}
-		// RunAgent holds details about calls to the RunAgent method.
-		RunAgent []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// RunAgentRequest is the runAgentRequest argument value.
-			RunAgentRequest *gritzv1.RunAgentRequest
-		}
 		// RunSchedule holds details about calls to the RunSchedule method.
 		RunSchedule []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -870,7 +857,6 @@ type ClientMock struct {
 	lockRemoveOrgMember                sync.RWMutex
 	lockResetSandbox                   sync.RWMutex
 	lockRestartTask                    sync.RWMutex
-	lockRunAgent                       sync.RWMutex
 	lockRunSchedule                    sync.RWMutex
 	lockSetCustomEventTypes            sync.RWMutex
 	lockSetScheduleEnabled             sync.RWMutex
@@ -2610,42 +2596,6 @@ func (mock *ClientMock) RestartTaskCalls() []struct {
 	mock.lockRestartTask.RLock()
 	calls = mock.calls.RestartTask
 	mock.lockRestartTask.RUnlock()
-	return calls
-}
-
-// RunAgent calls RunAgentFunc.
-func (mock *ClientMock) RunAgent(contextMoqParam context.Context, runAgentRequest *gritzv1.RunAgentRequest) (*gritzv1.RunAgentResponse, error) {
-	if mock.RunAgentFunc == nil {
-		panic("ClientMock.RunAgentFunc: method is nil but Client.RunAgent was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam context.Context
-		RunAgentRequest *gritzv1.RunAgentRequest
-	}{
-		ContextMoqParam: contextMoqParam,
-		RunAgentRequest: runAgentRequest,
-	}
-	mock.lockRunAgent.Lock()
-	mock.calls.RunAgent = append(mock.calls.RunAgent, callInfo)
-	mock.lockRunAgent.Unlock()
-	return mock.RunAgentFunc(contextMoqParam, runAgentRequest)
-}
-
-// RunAgentCalls gets all the calls that were made to RunAgent.
-// Check the length with:
-//
-//	len(mockedClient.RunAgentCalls())
-func (mock *ClientMock) RunAgentCalls() []struct {
-	ContextMoqParam context.Context
-	RunAgentRequest *gritzv1.RunAgentRequest
-} {
-	var calls []struct {
-		ContextMoqParam context.Context
-		RunAgentRequest *gritzv1.RunAgentRequest
-	}
-	mock.lockRunAgent.RLock()
-	calls = mock.calls.RunAgent
-	mock.lockRunAgent.RUnlock()
 	return calls
 }
 
