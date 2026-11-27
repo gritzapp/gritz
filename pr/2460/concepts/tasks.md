@@ -1,0 +1,150 @@
+# Tasks
+
+A task is one piece of work for one agent. It belongs to an
+[agent](/concepts/agents/), which gives it a [runner](/concepts/runners/) and a
+[workspace](/concepts/workspaces/), and it holds
+the instructions and events the agent works from. Each task gets a sandbox of its
+own, which it keeps until it is archived or its sandbox is
+[reset](#resetting-the-sandbox).
+
+Tasks are created from the [Web UI](/using/web-ui/), the [CLI](/using/cli/), an
+MCP client, an agent's [trigger](/concepts/agents/#triggers) or a
+[schedule](/concepts/schedules/). A task created any of these ways is the same
+kind of task.
+
+## Instructions and runs
+
+A task does its work in **runs**. A run starts the agent in the task's sandbox,
+gives it what is new since the last run, and ends when the agent exits.
+
+- **The first run** gets the whole task: its instructions, the events that
+  reached it and its links, after gritz's own instructions on
+  [the tools it can use](/using/agent-tools/). The workspace's setup commands run
+  before it, once per sandbox.
+- **Later runs** get only the instructions and events added since the previous
+  run, and the agent continues the session it had: it remembers what it did
+  before.
+
+Two things start a run:
+
+- **An instruction.** Sending one from the task page, `gritz task update -i`, or
+  an MCP client starts the task again. If the task is running, the instruction
+  doesn't interrupt it: the task runs again as soon as the current run ends.
+- **An event.** An event on a resource the task is
+  [subscribed to](/concepts/events-and-links/), such as a review comment on its
+  pull request, starts it the same way, if the link's
+  [kind](/concepts/agents/#link-kinds) lists the event's type.
+
+Agents don't stop by themselves to ask for input. A task that needs an answer
+from you completes, and the agent says what it needs in its report or on the
+pull request or issue it is working on. Your next instruction, or a reply on a
+resource the task is subscribed to, starts the next run.
+
+The diagram follows a task on a Docker runner from its creation to the end of
+its first run: the runner picks it up and starts its sandbox, and the driver
+there runs the agent and reports the run's status to the server.
+
+<Diagram slug="create-task" />
+
+## Statuses
+
+| Status | |
+| --- | --- |
+| `draft` | Created without starting. A draft starts when it is sent its first instruction. |
+| `pending` | Waiting for its runner to start the run. A task stays pending while its runner is offline. |
+| `running` | The agent is running. |
+| `restarting` | A restart was requested; the runner is stopping the current run to start a new one. |
+| `cancelling` | A cancel was requested; the runner is stopping the run. |
+| `completed` | The last run ended normally. |
+| `failed` | The last run failed: a setup command failed, the agent exited with an error, or the sandbox stopped unexpectedly. The reason is on the timeline. |
+| `cancelled` | The last run was cancelled. |
+
+`completed`, `failed` and `cancelled` are the finished statuses. A finished
+task isn't over: an instruction or an event starts it again, from where it left
+off.
+
+Next to the status, the Web UI shows the task's pending **command**, if any:
+`command:start`, `command:restart`, `command:stop` or `command:reset`. It is what the runner has
+been asked to do and hasn't done yet. A `command:start` on a running task is an
+instruction or event waiting for the current run to end.
+
+## Restarting and cancelling
+
+- **Restart** runs the task again. The agent continues its session, and is told
+  to carry on if nothing new has arrived. On a running task it stops the current
+  run first, so use it when an agent is stuck. It is available on
+  running and finished tasks.
+- **Cancel** stops the task. A pending task is cancelled at once; a running or
+  restarting one goes through `cancelling` while the runner stops the agent. The
+  sandbox is kept, so the task can still be started again.
+
+## Resetting the sandbox
+
+**Reset sandbox** deletes a finished task's sandbox, and with it any files the
+agent left there. Use it when the sandbox can no longer start, so every run
+fails the same way, or when its contents have gone bad: a broken checkout, a
+confused agent session, an outdated image.
+
+A reset doesn't start the task, and its status stays what it was. The task
+keeps its instructions, events, links and subscriptions. Its next run, started
+by an instruction, an event or **Restart**, gets a new sandbox set up from the
+workspace as it is then, and is run like a first run: the setup commands run
+again, and the agent starts a new session with the whole task.
+
+A reset is available on a finished task with no pending command. To reset a
+running task, cancel it first. The timeline records the request, and the
+reset itself once the runner has deleted the sandbox.
+
+### A gone sandbox
+
+A sandbox can disappear without a reset: a Lambda MicroVM is terminated at the
+end of its [lifetime](/operators/backends/#lambda-microvms), and a container can
+be removed outside gritz. The task's next run can't start in it:
+
+- By default, the run fails with the reason on the timeline, and the run after
+  it gets a new sandbox.
+- In a workspace with [`auto_reset: true`](/operators/workspaces-yaml/#workspace-fields),
+  the run starts in a new sandbox instead, and the timeline shows
+  "Sandbox reset: previous sandbox gone: …" before it.
+
+Either way, the new sandbox is set up as after a reset: the setup commands run
+again, and the agent starts a new session with the whole task. A sandbox that
+disappears during a run fails that run, with or without `auto_reset`.
+
+## Archiving
+
+Archive a task when you are done with it. Archiving:
+
+- destroys its sandbox, and with it any files the agent left there;
+- removes it from the task list (turn on **Show archived** to see it);
+- stops events from reaching it: an event on one of its links no longer wakes
+  it, and it releases its [claims](/concepts/agents/#claims), so a trigger that
+  yielded to it creates a new task instead.
+
+A task can be archived when it is finished or a draft, and has no pending
+command. **Unarchive** brings it back to the task list, but not its sandbox.
+
+### Auto-archive
+
+A task's auto-archive delay archives it automatically once it has been finished
+for that long. The default is never. **Immediately** archives it as soon as it
+finishes, which suits tasks whose result lives elsewhere, such as a pull
+request. The delay counts from the task's last change, so a task that is woken
+up again starts over. The server checks for due tasks about once a minute.
+
+Set it on the task's [agent](/concepts/agents/#the-template), which every
+task of the agent starts with, or in the task page's sidebar. Unarchiving a task sets its delay back to never. Agents
+can't change their own task's delay.
+
+## The timeline and the log
+
+Each task has two records, both on its page in the [Web UI](/using/web-ui/):
+
+- **The timeline** is what happened to the task: instructions, events, the
+  agent's reports, links, status changes and who caused them. Agents read the
+  same instructions and events with
+  [`get_my_task`](/using/agent-tools/#get_my_task).
+- **The log** is the sandbox's output: setup commands, the agent's messages and
+  tool calls, and gritz's own logging. It stays readable after the sandbox is
+  gone, in the Web UI and with [`gritz logs`](/using/cli/#gritz-logs).
+  Credentials declared as [secrets](/operators/secrets/) are masked in it.
