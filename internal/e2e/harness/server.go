@@ -88,20 +88,21 @@ func (s *Server) newOrg(id int64, ownerID, ownerEmail string, register bool) *Or
 			RunnerId:   DefaultRunner,
 			Workspaces: []*gritzv1.RegisteredWorkspace{{Name: DefaultWorkspace}},
 		})
-		o.createDefaultAgent(nil)
+		o.createDefaultAgent(nil, nil)
 	}
 	return o
 }
 
-// createDefaultAgent creates the org's DefaultAgent with variables, once
-// DefaultWorkspace is registered on DefaultRunner.
-func (o *Org) createDefaultAgent(variables map[string]string) {
+// createDefaultAgent creates the org's DefaultAgent with variables and
+// features, once DefaultWorkspace is registered on DefaultRunner.
+func (o *Org) createDefaultAgent(variables map[string]string, features []string) {
 	o.server.t.Helper()
 	o.DefaultAgent = o.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
 		Name:      "default",
 		Workspace: DefaultWorkspace,
 		Runner:    DefaultRunner,
 		Variables: variables,
+		Features:  features,
 	}})
 }
 

@@ -23,6 +23,7 @@ func TestGetRunSpecInputs(t *testing.T) {
 				{Name: "BRANCH", Default: "main"},
 				{Name: "JIRA_ISSUE", Required: true},
 			},
+			Features: []*gritzv1.FeatureDecl{{Name: "github"}, {Name: "jira"}},
 		}},
 	})
 	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
@@ -30,6 +31,7 @@ func TestGetRunSpecInputs(t *testing.T) {
 		Workspace: "story",
 		Runner:    "runner-1",
 		Variables: map[string]string{"JIRA_ISSUE": "APP-142"},
+		Features:  []string{"jira", "github"},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
 
@@ -39,10 +41,11 @@ func TestGetRunSpecInputs(t *testing.T) {
 		Capabilities: []string{agentauth.CapabilityGitHubToken},
 	})
 
-	// Assert - the task's stored variables, and a token the task can call the
-	// API with.
+	// Assert - the task's stored variables and features, and a token the task
+	// can call the API with.
 	assert.NilError(t, err)
 	assert.DeepEqual(t, resp.Variables, map[string]string{"JIRA_ISSUE": "APP-142", "BRANCH": "main"})
+	assert.DeepEqual(t, resp.Features, []string{"jira", "github"})
 	_, err = h.Server.Client(resp.Token).GetTask(t.Context(), &gritzv1.GetTaskRequest{Id: task.ID})
 	assert.NilError(t, err)
 }

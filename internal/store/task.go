@@ -20,6 +20,10 @@ func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 	if err != nil {
 		return err
 	}
+	features, err := json.Marshal(task.Features)
+	if err != nil {
+		return err
+	}
 	id, err := s.q(tx).CreateTask(ctx, sqlc.CreateTaskParams{
 		Name:         task.Name,
 		Runner:       task.Runner,
@@ -35,6 +39,7 @@ func (s *Store) CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) er
 		ShellSession: task.ShellSession,
 		AgentID:      task.AgentID,
 		Variables:    variables,
+		Features:     features,
 	})
 	if err != nil {
 		return err
@@ -227,6 +232,13 @@ func toModelTask(row sqlc.Task) (*model.Task, error) {
 	if len(variables) == 0 {
 		variables = nil
 	}
+	var features []string
+	if err := json.Unmarshal(row.Features, &features); err != nil {
+		return nil, fmt.Errorf("decode task %d features: %w", row.ID, err)
+	}
+	if len(features) == 0 {
+		features = nil
+	}
 	return &model.Task{
 		ID:           row.ID,
 		Name:         row.Name,
@@ -243,6 +255,7 @@ func toModelTask(row sqlc.Task) (*model.Task, error) {
 		ShellSession: row.ShellSession,
 		AgentID:      row.AgentID,
 		Variables:    variables,
+		Features:     features,
 	}, nil
 }
 

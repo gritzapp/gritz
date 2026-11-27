@@ -45,8 +45,9 @@ func (a *Agent) Link(kind string) (AgentLink, bool) {
 }
 
 // Task builds a pending task of the agent named name, as a schedule or a run
-// creates it: the agent's runner, workspace, auto-archive and variables, as saved; the
-// runner resolves the variables when it starts it. The caller inserts it, then
+// creates it: the agent's runner, workspace, auto-archive, variables and
+// features, as saved; the runner resolves the variables and applies the
+// features when it starts it. The caller inserts it, then
 // seeds Events(task, ...).
 func (a *Agent) Task(name string) *Task {
 	return &Task{
@@ -60,6 +61,7 @@ func (a *Agent) Task(name string) *Task {
 		OrgID:       a.OrgID,
 		AutoArchive: a.AutoArchive,
 		Variables:   a.Variables,
+		Features:    a.Features,
 	}
 }
 

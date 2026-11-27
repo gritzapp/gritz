@@ -110,6 +110,7 @@ type Task struct {
 	ShellSession string          `json:"shell_session"`
 	Variables    json.RawMessage `json:"variables"`
 	AgentID      int64           `json:"agent_id"`
+	Features     json.RawMessage `json:"features"`
 }
 
 type TaskLink struct {

@@ -304,6 +304,7 @@ func TestRouteTriggerCreatesTask(t *testing.T) {
 		Prompt:      "Review this PR.",
 		AutoArchive: time.Hour,
 		Variables:   map[string]string{"BRANCH": "${env:BRANCH}"},
+		Features:    []string{"jira", "codex"},
 		Triggers: []model.AgentTrigger{{
 			Source:     "github",
 			Type:       "issue_comment",
@@ -325,8 +326,8 @@ func TestRouteTriggerCreatesTask(t *testing.T) {
 		Attrs:       eventrouter.Attrs{"mention": {"gritz"}},
 	})
 
-	// Assert - a task of the agent, from its template; variables are copied
-	// as saved, for the runner to resolve.
+	// Assert - a task of the agent, from its template; variables and features
+	// are copied as saved, for the runner to resolve and apply.
 	assert.NilError(t, err)
 	assert.Equal(t, n, 1)
 	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
@@ -344,6 +345,7 @@ func TestRouteTriggerCreatesTask(t *testing.T) {
 		AgentID:     agent.ID,
 		AutoArchive: time.Hour,
 		Variables:   map[string]string{"BRANCH": "${env:BRANCH}"},
+		Features:    []string{"jira", "codex"},
 	}, cmpopts.IgnoreFields(model.Task{}, "CreatedAt", "UpdatedAt"))
 
 	// The trigger's link: the kind and its claim, on the PR's canonical URL.

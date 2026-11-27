@@ -64,6 +64,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 				Prompt:      tt.prompt,
 				AutoArchive: time.Hour,
 				Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+				Features:    []string{"jira", "codex"},
 			}
 			st := &StoreMock{
 				WithTxFunc: passthroughTx,
@@ -114,6 +115,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 				AgentID:     3,
 				AutoArchive: time.Hour,
 				Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+				Features:    []string{"jira", "codex"},
 			})
 
 			// The created event first (ScheduleActor) and the start command, then one

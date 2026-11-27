@@ -697,3 +697,64 @@ func TestCreateTask_AgentVariablesNoLongerAccepted(t *testing.T) {
 	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
 	assert.ErrorContains(t, err, `variable "JIRA_ISSUE": required`)
 }
+
+func TestCreateTask_Features(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name:     "story",
+			Features: []*gritzv1.FeatureDecl{{Name: "github"}, {Name: "jira"}, {Name: "slack"}},
+		}},
+	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "story",
+		Workspace: "story",
+		Runner:    "runner-1",
+		Features:  []string{"slack", "github"}, // not in declaration order
+	}})
+
+	// Act
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+
+	// Assert - the agent's features in its order, in the response and read
+	// back.
+	want := []string{"slack", "github"}
+	assert.DeepEqual(t, task.Resp.Task.Features, want)
+	assert.DeepEqual(t, h.Org.GetTask(&gritzv1.GetTaskRequest{Id: task.ID}).Features, want)
+}
+
+func TestCreateTask_AgentFeatureNoLongerDeclared(t *testing.T) {
+	t.Parallel()
+	// Arrange - the workspace dropped a feature the agent was saved with.
+	h := harness.New(t, nil)
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId: "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{
+			Name:     "story",
+			Features: []*gritzv1.FeatureDecl{{Name: "jira"}},
+		}},
+	})
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "story",
+		Workspace: "story",
+		Runner:    "runner-1",
+		Features:  []string{"jira"},
+	}})
+	h.Org.RegisterWorkspaces(&gritzv1.RegisterWorkspacesRequest{
+		RunnerId:   "runner-1",
+		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: "story"}},
+	})
+
+	// Act
+	_, err := h.Org.Client.CreateTask(t.Context(), &gritzv1.CreateTaskRequest{
+		AgentId: agent.Id,
+		Draft:   true,
+	})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.ErrorContains(t, err, `feature "jira": not declared by the workspace`)
+}

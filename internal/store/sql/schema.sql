@@ -292,7 +292,8 @@ CREATE TABLE public.tasks (
     auto_archive bigint DEFAULT 0 CONSTRAINT tasks_archive_after_not_null NOT NULL,
     shell_session text DEFAULT ''::text NOT NULL,
     variables jsonb DEFAULT '{}'::jsonb NOT NULL,
-    agent_id bigint NOT NULL
+    agent_id bigint NOT NULL,
+    features jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -897,4 +898,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261129000001'),
     ('20261130000001'),
     ('20261201000001'),
-    ('20261202000001');
+    ('20261202000001'),
+    ('20261203000001');

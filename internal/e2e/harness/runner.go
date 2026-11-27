@@ -33,6 +33,11 @@ type RunnerOptions struct {
 	// AgentVariables are the variables of the org's DefaultAgent; it must
 	// set every required one of Variables.
 	AgentVariables map[string]string
+	// Features are the workspace's features.
+	Features workspace.Features
+	// AgentFeatures are the features of the org's DefaultAgent, in merge
+	// order; each must be one of Features.
+	AgentFeatures []string
 	// AutoReset is the workspace's auto_reset.
 	AutoReset bool
 	// PollInterval is the runner's; default 1s, a backstop to notifications.
@@ -70,6 +75,7 @@ func newRunner(t *testing.T, org *Org, b *Backend, a *Agent, opts *RunnerOptions
 				Commands:  opts.Commands,
 				Secrets:   opts.Secrets,
 				Variables: opts.Variables,
+				Features:  opts.Features,
 				AutoReset: opts.AutoReset,
 			},
 		}},
