@@ -381,7 +381,7 @@ export function AgentForm({
 
             <section id="agent-links" className="scroll-mt-8 space-y-5">
               <SectionHeading
-                title="Link kinds"
+                title="Links"
                 description="The links this agent's tasks may subscribe to, and the events each one delivers."
                 hint="An event on a subscribed link's resource wakes the task when the link's kind lists the event's type and the event satisfies that type's conditions."
                 action={

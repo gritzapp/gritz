@@ -80,7 +80,7 @@ function AgentsPage() {
               <TableHead className="hidden md:table-cell">Runner / Workspace</TableHead>
               <TableHead>Triggers</TableHead>
               <TableHead className="hidden sm:table-cell">Next run</TableHead>
-              <TableHead className="hidden lg:table-cell">Link kinds</TableHead>
+              <TableHead className="hidden lg:table-cell">Links</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
