@@ -15,7 +15,7 @@ import (
 	"gotest.tools/v3/assert"
 )
 
-const testIdle = 100 * time.Millisecond
+const testIdle = time.Second
 
 // runStream is the driver's end of a Run stream.
 type runStream = connect.BidiStream[driverv1.RunRequest, driverv1.RunResponse]
