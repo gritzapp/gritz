@@ -84,12 +84,9 @@ Creates a task and starts it, then prints it as JSON. It also takes the [authent
 
 | Flag | Environment | Default | |
 | --- | --- | --- | --- |
-| `--runner`, `-r` | | | The runner to run on. Required. |
-| `--workspace`, `-w` | | `default` | The workspace. |
+| `--agent`, `-a` | | | The ID of the [agent](/concepts/agents/) the task belongs to. The task runs with its runner, workspace, auto-archive delay and variables. Required. |
 | `--instruction`, `-i` | | | An instruction. Repeat it for several. |
 | `--name`, `-n` | | | The task's name. |
-| `--var` | | | A [variable](/operators/workspaces-yaml/#variables) as `NAME=VALUE`. Repeat it for several. |
-| `--auto-archive` | | `0` | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `24h`. `0` is never; a negative value archives the task as soon as it finishes. |
 
 ### `gritz task list`
 

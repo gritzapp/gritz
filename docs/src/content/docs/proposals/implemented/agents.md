@@ -257,7 +257,7 @@ Changed messages:
 
 ### CLI, MCP and web UI
 
-- `gritz agent list|get|create|update|delete`; `gritz task create --agent`.
+- `gritz task create --agent`. There is no `gritz agent` command: agents are managed in the web UI and through the server MCP tools.
 - Server MCP: `list_agents`, `get_agent`, `put_agent`, `delete_agent` replace `get_routing_rules` and `set_routing_rules`; `create_task` and the schedule tools take `agent`.
 - Web UI: an Agents page replaces Routing Rules. An agent's page has its template, triggers and link kinds; the trigger and link forms are driven by `GetEventTypes` (link kinds offer only event types that declare the chosen link type). The create-task and schedule forms pick an agent. The task page shows each link's kind and claim.
 
@@ -419,7 +419,7 @@ func (s *Store) FindClaimHolders(ctx context.Context, tx *sql.Tx, orgID int64, u
 4. **Cutover migration** — Delivers: `tasks.agent_id`, the `default` agents, link `kind`/`claim`, dropping `routing_key`, `namespace` and `orgs.routing_rules`; `CreateTask` takes `agent`; `CreateLink` takes `kind` and canonicalizes; the router rewritten to `Plan`/`Apply` over agents with delivery, triggers and claims; `TestEvent` reporting per agent; routing-rule RPCs and model removed. Depends on: (3). Verifiable by: router tests per case (delivery by kind, first trigger wins, two agents on one event, yield, trigger link), and the e2e harness creating a task from a trigger and waking it through its link.
 5. **Schedules name an agent** — Delivers: `schedules.agent_id`, template columns dropped, scheduler builds tasks from the named agent. Depends on: (4). Verifiable by: scheduler tests and `RunSchedule`.
 6. **Agent tools** — Delivers: `kind` on `create_link`, link kinds in the first-run brief. Depends on: (4). Verifiable by: agentmcp and prompt tests.
-7. **CLI and server MCP** — Delivers: `gritz agent`, `--agent` on `gritz task create`, the agent MCP tools, `agent` on `create_task` and the schedule tools. Depends on: (4), (5). Verifiable by: running them against the dev stack.
+7. **CLI and server MCP** — Delivers: `--agent` on `gritz task create`, the agent MCP tools, `agent` on `create_task` and the schedule tools. Depends on: (4), (5). Verifiable by: running them against the dev stack.
 8. **Web UI** — Delivers: the Agents page with triggers and link kinds, agent picker on the create-task and schedule forms, kind and claim on the task's links, the new test-event report; Routing Rules page removed. Depends on: (7). Verifiable by: exercising the pages against the dev stack; `pnpm lint`.
 9. **Docs** — Delivers: `concepts/routing-rules` replaced by an agents page; event types, CLI, MCP and agent-tools pages updated. Depends on: (8). Verifiable by: `cd docs && pnpm build`.
 

@@ -19,8 +19,8 @@ live. The gritz server only stores the tasks, events and logs.
 A runner connects with an [API key](/concepts/orgs-members-keys/#api-keys), and
 runs tasks for the organisation that key belongs to. Each runner has an ID, the
 runner's hostname unless its operator sets one. That ID is what you pick under
-**Runner** when you create a task, or in a routing rule or
-[agent](/concepts/schedules/#the-agent) that creates tasks.
+**Runner** in an [agent](/concepts/agents/#the-template), for the tasks it
+creates.
 
 The Web UI doesn't list runners on their own: a runner appears through the
 workspaces it registers, on the **Workspaces** page and in the runner pickers.

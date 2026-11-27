@@ -7,14 +7,15 @@ sidebar:
 
 import Diagram from '../../../components/Diagram.astro';
 
-A task is one piece of work for one agent. It names a
-[runner](/concepts/runners/) and a [workspace](/concepts/workspaces/), and holds
+A task is one piece of work for one agent. It belongs to an
+[agent](/concepts/agents/), which gives it a [runner](/concepts/runners/) and a
+[workspace](/concepts/workspaces/), and it holds
 the instructions and events the agent works from. Each task gets a sandbox of its
 own, which it keeps until it is archived or its sandbox is
 [reset](#resetting-the-sandbox).
 
 Tasks are created from the [Web UI](/using/web-ui/), the [CLI](/using/cli/), an
-MCP client, a [routing rule](/concepts/routing-rules/) or a
+MCP client, an agent's [trigger](/concepts/agents/#triggers) or a
 [schedule](/concepts/schedules/). A task created any of these ways is the same
 kind of task.
 
@@ -38,8 +39,8 @@ Two things start a run:
   doesn't interrupt it: the task runs again as soon as the current run ends.
 - **An event.** An event on a resource the task is
   [subscribed to](/concepts/events-and-links/), such as a review comment on its
-  pull request, starts it the same way, if the
-  [routing rule](/concepts/routing-rules/) that matched the event wakes tasks.
+  pull request, starts it the same way, if the link's
+  [kind](/concepts/agents/#link-kinds) lists the event's type.
 
 Agents don't stop by themselves to ask for input. A task that needs an answer
 from you completes, and the agent says what it needs in its report or on the
@@ -124,7 +125,8 @@ Archive a task when you are done with it. Archiving:
 - destroys its sandbox, and with it any files the agent left there;
 - removes it from the task list (turn on **Show archived** to see it);
 - stops events from reaching it: an event on one of its links no longer wakes
-  it, and a routing rule that creates tasks creates a new one instead.
+  it, and it releases its [claims](/concepts/agents/#claims), so a trigger that
+  yielded to it creates a new task instead.
 
 A task can be archived when it is finished or a draft, and has no pending
 command. **Unarchive** brings it back to the task list, but not its sandbox.
@@ -137,9 +139,8 @@ finishes, which suits tasks whose result lives elsewhere, such as a pull
 request. The delay counts from the task's last change, so a task that is woken
 up again starts over. The server checks for due tasks about once a minute.
 
-Set it when you create the task, in the task page's sidebar, with
-`--auto-archive` on the [CLI](/using/cli/), on a routing rule that creates
-tasks, or on the [agent](/concepts/schedules/#the-agent) a schedule names. Unarchiving a task sets its delay back to never. Agents
+Set it on the task's [agent](/concepts/agents/#the-template), which every
+task of the agent starts with, or in the task page's sidebar. Unarchiving a task sets its delay back to never. Agents
 can't change their own task's delay.
 
 ## The timeline and the log
