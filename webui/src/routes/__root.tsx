@@ -7,6 +7,7 @@ import {
   useMatches,
 } from '@tanstack/react-router'
 import {
+  Bot,
   Boxes,
   CalendarClock,
   KeyRound,
@@ -60,6 +61,7 @@ const ReactQueryDevtools = import.meta.env.DEV
 // row next to the org selector and the right-hand controls.
 const NAV_ITEMS = [
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
+  { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/schedules', label: 'Schedules', icon: CalendarClock },
   { to: '/events', label: 'Events', icon: Zap },
   { to: '/workspaces', label: 'Workspaces', icon: Boxes },

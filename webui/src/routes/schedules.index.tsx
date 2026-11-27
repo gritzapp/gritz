@@ -30,6 +30,7 @@ import {
 import { Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { nextRunLabel } from '@/lib/schedule'
 import { useOrgId } from '@/hooks/use-org-id'
+import { AgentRef } from '@/components/agent-select'
 
 export const Route = createFileRoute('/schedules/')({
   staticData: { orgSwitchRedirect: '/schedules' },
@@ -167,7 +168,9 @@ function ScheduleRow({ schedule, onUpdate }: { schedule: Schedule; onUpdate: () 
       <TableCell className="hidden md:table-cell text-muted-foreground">
         {nextRunLabel(schedule.nextRunAt)}
       </TableCell>
-      <TableCell className="hidden lg:table-cell">{String(schedule.agentId)}</TableCell>
+      <TableCell className="hidden lg:table-cell">
+        <AgentRef agentId={schedule.agentId} />
+      </TableCell>
       <TableCell>
         <Switch
           checked={schedule.enabled}

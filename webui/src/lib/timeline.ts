@@ -78,7 +78,9 @@ export type TimelineItem =
       // inferred from the URL via sourceFromUrl.
       source: string
       relevance?: string
-      subscribed?: boolean
+      // The link's kind and claim; empty for a plain reference link.
+      linkKind: string
+      claim: string
     }
 
 // Hostname suffixes of Dynatrace SaaS and Managed environments. Self-hosted
@@ -255,7 +257,8 @@ export function eventsToTimeline(events: Event[]): TimelineItem[] {
           url: v.url,
           source: sourceFromUrl(v.url),
           relevance: v.relevance || undefined,
-          subscribed: v.kind !== '',
+          linkKind: v.kind,
+          claim: v.claim,
         })
         break
       }

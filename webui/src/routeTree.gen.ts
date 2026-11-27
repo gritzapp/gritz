@@ -11,6 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as AgentsIndexRouteImport } from './routes/agents.index'
+import { Route as AgentsIdRouteImport } from './routes/agents.$id'
+import { Route as AgentsNewRouteImport } from './routes/agents.new'
+import { Route as AgentsTestEventRouteImport } from './routes/agents.test-event'
 import { Route as CustomEventTypesTypeRouteImport } from './routes/custom-event-types.$type'
 import { Route as CustomEventTypesNewRouteImport } from './routes/custom-event-types.new'
 import { Route as EventsIndexRouteImport } from './routes/events.index'
@@ -20,7 +24,6 @@ import { Route as KeysIndexRouteImport } from './routes/keys.index'
 import { Route as KeysNewRouteImport } from './routes/keys.new'
 import { Route as MembersIndexRouteImport } from './routes/members.index'
 import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
-import { Route as RoutingTesteventRouteImport } from './routes/routing.testevent'
 import { Route as SchedulesIndexRouteImport } from './routes/schedules.index'
 import { Route as SchedulesNewRouteImport } from './routes/schedules.new'
 import { Route as TasksIndexRouteImport } from './routes/tasks.index'
@@ -37,6 +40,26 @@ const IndexRoute = IndexRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsIndexRoute = AgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsIdRoute = AgentsIdRouteImport.update({
+  id: '/agents/$id',
+  path: '/agents/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsNewRoute = AgentsNewRouteImport.update({
+  id: '/agents/new',
+  path: '/agents/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsTestEventRoute = AgentsTestEventRouteImport.update({
+  id: '/agents/test-event',
+  path: '/agents/test-event',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomEventTypesTypeRoute = CustomEventTypesTypeRouteImport.update({
@@ -84,11 +107,6 @@ const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
   path: '/oauth/authorize',
   getParentRoute: () => rootRouteImport,
 } as any)
-const RoutingTesteventRoute = RoutingTesteventRouteImport.update({
-  id: '/routing/testevent',
-  path: '/routing/testevent',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SchedulesIndexRoute = SchedulesIndexRouteImport.update({
   id: '/schedules/',
   path: '/schedules/',
@@ -128,16 +146,19 @@ const SchedulesIdEditRoute = SchedulesIdEditRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/agents/$id': typeof AgentsIdRoute
+  '/agents/new': typeof AgentsNewRoute
+  '/agents/test-event': typeof AgentsTestEventRoute
   '/custom-event-types/$type': typeof CustomEventTypesTypeRoute
   '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/routing/testevent': typeof RoutingTesteventRoute
   '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
+  '/agents/': typeof AgentsIndexRoute
   '/events/': typeof EventsIndexRoute
   '/keys/': typeof KeysIndexRoute
   '/members/': typeof MembersIndexRoute
@@ -149,16 +170,19 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/agents/$id': typeof AgentsIdRoute
+  '/agents/new': typeof AgentsNewRoute
+  '/agents/test-event': typeof AgentsTestEventRoute
   '/custom-event-types/$type': typeof CustomEventTypesTypeRoute
   '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/routing/testevent': typeof RoutingTesteventRoute
   '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
+  '/agents': typeof AgentsIndexRoute
   '/events': typeof EventsIndexRoute
   '/keys': typeof KeysIndexRoute
   '/members': typeof MembersIndexRoute
@@ -171,16 +195,19 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/agents/$id': typeof AgentsIdRoute
+  '/agents/new': typeof AgentsNewRoute
+  '/agents/test-event': typeof AgentsTestEventRoute
   '/custom-event-types/$type': typeof CustomEventTypesTypeRoute
   '/custom-event-types/new': typeof CustomEventTypesNewRoute
   '/events/$id': typeof EventsIdRoute
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/routing/testevent': typeof RoutingTesteventRoute
   '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
+  '/agents/': typeof AgentsIndexRoute
   '/events/': typeof EventsIndexRoute
   '/keys/': typeof KeysIndexRoute
   '/members/': typeof MembersIndexRoute
@@ -194,16 +221,19 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/settings'
+    | '/agents/$id'
+    | '/agents/new'
+    | '/agents/test-event'
     | '/custom-event-types/$type'
     | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/routing/testevent'
     | '/schedules/new'
     | '/tasks/$id'
     | '/tasks/new'
+    | '/agents/'
     | '/events/'
     | '/keys/'
     | '/members/'
@@ -215,16 +245,19 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/settings'
+    | '/agents/$id'
+    | '/agents/new'
+    | '/agents/test-event'
     | '/custom-event-types/$type'
     | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/routing/testevent'
     | '/schedules/new'
     | '/tasks/$id'
     | '/tasks/new'
+    | '/agents'
     | '/events'
     | '/keys'
     | '/members'
@@ -236,16 +269,19 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/settings'
+    | '/agents/$id'
+    | '/agents/new'
+    | '/agents/test-event'
     | '/custom-event-types/$type'
     | '/custom-event-types/new'
     | '/events/$id'
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/routing/testevent'
     | '/schedules/new'
     | '/tasks/$id'
     | '/tasks/new'
+    | '/agents/'
     | '/events/'
     | '/keys/'
     | '/members/'
@@ -258,16 +294,19 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
+  AgentsIdRoute: typeof AgentsIdRoute
+  AgentsNewRoute: typeof AgentsNewRoute
+  AgentsTestEventRoute: typeof AgentsTestEventRoute
   CustomEventTypesTypeRoute: typeof CustomEventTypesTypeRoute
   CustomEventTypesNewRoute: typeof CustomEventTypesNewRoute
   EventsIdRoute: typeof EventsIdRoute
   GithubSetupRoute: typeof GithubSetupRoute
   KeysNewRoute: typeof KeysNewRoute
   OauthAuthorizeRoute: typeof OauthAuthorizeRoute
-  RoutingTesteventRoute: typeof RoutingTesteventRoute
   SchedulesNewRoute: typeof SchedulesNewRoute
   TasksIdRoute: typeof TasksIdRoute
   TasksNewRoute: typeof TasksNewRoute
+  AgentsIndexRoute: typeof AgentsIndexRoute
   EventsIndexRoute: typeof EventsIndexRoute
   KeysIndexRoute: typeof KeysIndexRoute
   MembersIndexRoute: typeof MembersIndexRoute
@@ -291,6 +330,34 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/': {
+      id: '/agents/'
+      path: '/agents'
+      fullPath: '/agents/'
+      preLoaderRoute: typeof AgentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/$id': {
+      id: '/agents/$id'
+      path: '/agents/$id'
+      fullPath: '/agents/$id'
+      preLoaderRoute: typeof AgentsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/new': {
+      id: '/agents/new'
+      path: '/agents/new'
+      fullPath: '/agents/new'
+      preLoaderRoute: typeof AgentsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/test-event': {
+      id: '/agents/test-event'
+      path: '/agents/test-event'
+      fullPath: '/agents/test-event'
+      preLoaderRoute: typeof AgentsTestEventRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/custom-event-types/$type': {
@@ -356,13 +423,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthAuthorizeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/routing/testevent': {
-      id: '/routing/testevent'
-      path: '/routing/testevent'
-      fullPath: '/routing/testevent'
-      preLoaderRoute: typeof RoutingTesteventRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/schedules/': {
       id: '/schedules/'
       path: '/schedules'
@@ -418,16 +478,19 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
+  AgentsIdRoute: AgentsIdRoute,
+  AgentsNewRoute: AgentsNewRoute,
+  AgentsTestEventRoute: AgentsTestEventRoute,
   CustomEventTypesTypeRoute: CustomEventTypesTypeRoute,
   CustomEventTypesNewRoute: CustomEventTypesNewRoute,
   EventsIdRoute: EventsIdRoute,
   GithubSetupRoute: GithubSetupRoute,
   KeysNewRoute: KeysNewRoute,
   OauthAuthorizeRoute: OauthAuthorizeRoute,
-  RoutingTesteventRoute: RoutingTesteventRoute,
   SchedulesNewRoute: SchedulesNewRoute,
   TasksIdRoute: TasksIdRoute,
   TasksNewRoute: TasksNewRoute,
+  AgentsIndexRoute: AgentsIndexRoute,
   EventsIndexRoute: EventsIndexRoute,
   KeysIndexRoute: KeysIndexRoute,
   MembersIndexRoute: MembersIndexRoute,
