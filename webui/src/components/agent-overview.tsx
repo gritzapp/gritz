@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useOrgId } from '@/hooks/use-org-id'
-import { OP_LABELS, type ConditionOp } from '@/lib/agents'
+import { conditionOpLabel } from '@/lib/agents'
 import { findEventType } from '@/lib/event-types'
 import { describeCron, nextRunLabel } from '@/lib/schedule'
 import { cn } from '@/lib/utils'
@@ -220,7 +220,7 @@ export function Conditions({
       {conditions.map((c, i) => (
         <span key={i} className="inline-flex max-w-full min-w-0 items-baseline gap-1">
           <span className="shrink-0 whitespace-nowrap">
-            {c.attr} {opLabel(c.op)}
+            {c.attr} {opLabel(c.op, c.negate)}
           </span>
           <code className="text-foreground truncate font-mono" title={c.value}>
             {c.value || '""'}
@@ -231,12 +231,10 @@ export function Conditions({
   )
 }
 
-function opLabel(op: string): string {
-  if (op === 'equals') return 'is'
-  if (op === 'glob') return 'matches'
-  if (op === 'not_equals') return 'is not'
-  if (op === 'not_glob') return 'does not match'
-  return OP_LABELS[op as ConditionOp] ?? op
+function opLabel(op: string, negate: boolean): string {
+  if (op === 'equals') return negate ? 'is not' : 'is'
+  if (op === 'glob') return negate ? 'does not match' : 'matches'
+  return conditionOpLabel(op, negate)
 }
 
 function PublicMark() {
@@ -439,7 +437,7 @@ function linkEventsText(
     if (e.conditions.length === 0) return text
     const [c] = e.conditions
     return e.conditions.length === 1
-      ? `${text} if ${c.attr} ${opLabel(c.op)} ${c.value || '""'}`
+      ? `${text} if ${c.attr} ${opLabel(c.op, c.negate)} ${c.value || '""'}`
       : `${text} if ${e.conditions.length} conditions hold`
   })
   return `Delivers ${events.join(', ')}`

@@ -68,12 +68,13 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import {
   agentFormError,
-  CONDITION_OPS,
+  CONDITION_CHOICES,
+  conditionChoiceKey,
+  conditionOpLabel,
   emptyLinkKind,
   emptySchedule,
   emptyTrigger,
   linkEventTypes,
-  OP_LABELS,
   splitClaims,
   triggerLinkKinds,
   type AgentFormValues,
@@ -767,14 +768,20 @@ function ConditionsEditor({
                   )}
                 </SelectContent>
               </Select>
-              <Select value={condition.op} onValueChange={(op) => setCondition(i, { op })}>
+              <Select
+                value={conditionChoiceKey(condition.op, condition.negate)}
+                onValueChange={(key) => {
+                  const choice = CONDITION_CHOICES.find((c) => c.key === key)
+                  if (choice) setCondition(i, { op: choice.op, negate: choice.negate })
+                }}
+              >
                 <SelectTrigger className="w-44" aria-label="Operator">
                   <SelectValue placeholder="Operator" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CONDITION_OPS.map((op) => (
-                    <SelectItem key={op} value={op}>
-                      {OP_LABELS[op]}
+                  {CONDITION_CHOICES.map((c) => (
+                    <SelectItem key={c.key} value={c.key}>
+                      {conditionOpLabel(c.op, c.negate)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -807,7 +814,9 @@ function ConditionsEditor({
         size="sm"
         className="-ml-2 text-muted-foreground"
         disabled={attrs.length === 0}
-        onClick={() => onChange([...conditions, { attr: attrs[0].key, op: 'equals', value: '' }])}
+        onClick={() =>
+          onChange([...conditions, { attr: attrs[0].key, op: 'equals', value: '', negate: false }])
+        }
       >
         <Plus className="h-4 w-4" />
         Add condition

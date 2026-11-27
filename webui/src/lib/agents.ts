@@ -8,35 +8,47 @@ import { browserTimezone, DEFAULT_CRON } from '@/lib/schedule'
 
 // The condition operators the backend understands. Comparisons are exact and
 // case-sensitive; "glob" matches a path-style pattern against the whole value —
-// see RuleCondition in the proto. Each "not_" op holds exactly when its
-// positive op does not, including on an event that lacks the attribute.
-export const CONDITION_OPS = [
-  'equals',
-  'prefix',
-  'contains',
-  'glob',
-  'not_equals',
-  'not_prefix',
-  'not_contains',
-  'not_glob',
-] as const
+// see RuleCondition in the proto.
+export const CONDITION_OPS = ['equals', 'prefix', 'contains', 'glob'] as const
 export type ConditionOp = (typeof CONDITION_OPS)[number]
 
-export const OP_LABELS: Record<ConditionOp, string> = {
+const OP_LABELS: Record<ConditionOp, string> = {
   equals: 'equals',
   prefix: 'starts with',
   contains: 'contains',
   glob: 'matches glob',
-  not_equals: 'does not equal',
-  not_prefix: 'does not start with',
-  not_contains: 'does not contain',
-  not_glob: 'does not match glob',
+}
+
+const NEGATED_OP_LABELS: Record<ConditionOp, string> = {
+  equals: 'does not equal',
+  prefix: 'does not start with',
+  contains: 'does not contain',
+  glob: 'does not match glob',
+}
+
+// conditionOpLabel describes an op, or its negation when negate is set: a
+// negated condition holds exactly when the same condition without negate does
+// not, including on an event that lacks the attribute.
+export function conditionOpLabel(op: string, negate: boolean): string {
+  const labels = negate ? NEGATED_OP_LABELS : OP_LABELS
+  return labels[op as ConditionOp] ?? (negate ? `not ${op}` : op)
+}
+
+// CONDITION_CHOICES are the operator choices the condition editor offers: each
+// op, then each op negated, keyed for a single select.
+export const CONDITION_CHOICES = [false, true].flatMap((negate) =>
+  CONDITION_OPS.map((op) => ({ key: conditionChoiceKey(op, negate), op, negate })),
+)
+
+export function conditionChoiceKey(op: string, negate: boolean): string {
+  return negate ? `not_${op}` : op
 }
 
 export interface ConditionDraft {
   attr: string
   op: string
   value: string
+  negate: boolean
 }
 
 export interface TriggerDraft {
@@ -161,7 +173,12 @@ export function agentFormValues(agent: Agent): AgentFormValues {
     triggers: agent.triggers.map((t) => ({
       source: t.source,
       type: t.type,
-      conditions: t.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+      conditions: t.conditions.map((c) => ({
+        attr: c.attr,
+        op: c.op,
+        value: c.value,
+        negate: c.negate,
+      })),
       public: t.public,
       yieldTo: t.yieldTo.join(', '),
       link: t.link,
@@ -182,7 +199,12 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       description: l.description,
       events: l.events.map((e) => ({
         type: e.type,
-        conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+        conditions: e.conditions.map((c) => ({
+          attr: c.attr,
+          op: c.op,
+          value: c.value,
+          negate: c.negate,
+        })),
         public: e.public,
         wake: e.wake,
       })),
@@ -218,7 +240,12 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
     triggers: values.triggers.map((t) => ({
       source: t.source,
       type: t.type,
-      conditions: t.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+      conditions: t.conditions.map((c) => ({
+        attr: c.attr,
+        op: c.op,
+        value: c.value,
+        negate: c.negate,
+      })),
       public: t.public,
       yieldTo: splitClaims(t.yieldTo),
       link: t.link,
@@ -239,7 +266,12 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       description: l.description.trim(),
       events: l.events.map((e) => ({
         type: e.type,
-        conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+        conditions: e.conditions.map((c) => ({
+          attr: c.attr,
+          op: c.op,
+          value: c.value,
+          negate: c.negate,
+        })),
         public: e.public,
         wake: e.wake,
       })),

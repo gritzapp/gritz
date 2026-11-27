@@ -182,8 +182,7 @@ func (r *SchemaRegistry) With(defs ...model.EventTypeDef) *SchemaRegistry {
 // (Source, Type) event type: an empty Type is rejected, and — because the
 // registry is keyed by (Source, Type) and label_added exists under multiple
 // sources — an empty Source is rejected too. Each condition's op must be
-// equals/prefix/contains/glob or a negation of one (not_equals, ...), a glob's
-// value must be a well-formed pattern,
+// equals/prefix/contains/glob, a glob's value must be a well-formed pattern,
 // and its attr must be one of the selected event type's valid attrs (its Attrs
 // set, which includes the derived body/url). A custom selector must also be
 // public: custom events are ingested without an actor, so routing only admits
@@ -210,14 +209,13 @@ func (r *SchemaRegistry) validateSelector(what, source, typ string, conds []mode
 }
 
 // validateConditions checks conditions on events of type def: each op must be
-// equals/prefix/contains/glob or its not_ negation, a glob's value a
-// well-formed pattern, and each
+// equals/prefix/contains/glob, a glob's value a well-formed pattern, and each
 // attr one of def's valid attrs.
 func validateConditions(def model.EventTypeDef, conds []model.Condition) error {
 	for _, cond := range conds {
 		switch cond.Op {
-		case "equals", "prefix", "contains", "not_equals", "not_prefix", "not_contains":
-		case "glob", "not_glob":
+		case "equals", "prefix", "contains":
+		case "glob":
 			if !doublestar.ValidatePattern(cond.Value) {
 				return fmt.Errorf("invalid glob %q on attr %q", cond.Value, cond.Attr)
 			}

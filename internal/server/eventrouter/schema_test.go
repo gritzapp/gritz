@@ -122,15 +122,15 @@ func TestSchemaRegistryValidateAgent_Trigger(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "valid negated ops",
+			name: "valid negated conditions",
 			trigger: model.AgentTrigger{
 				Source: "test",
 				Type:   "label",
 				Conditions: []model.Condition{
-					{Attr: "label", Op: "not_equals", Value: "wip"},
-					{Attr: "label", Op: "not_prefix", Value: "team-"},
-					{Attr: "label", Op: "not_contains", Value: "skip"},
-					{Attr: "label", Op: "not_glob", Value: "team-{a,b}/**"},
+					{Attr: "label", Op: "equals", Value: "wip", Negate: true},
+					{Attr: "label", Op: "prefix", Value: "team-", Negate: true},
+					{Attr: "label", Op: "contains", Value: "skip", Negate: true},
+					{Attr: "label", Op: "glob", Value: "team-{a,b}/**", Negate: true},
 				},
 			},
 		},
@@ -139,16 +139,16 @@ func TestSchemaRegistryValidateAgent_Trigger(t *testing.T) {
 			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "label",
-				Conditions: []model.Condition{{Attr: "label", Op: "not_glob", Value: "team-[a"}},
+				Conditions: []model.Condition{{Attr: "label", Op: "glob", Value: "team-[a", Negate: true}},
 			},
 			wantErr: true,
 		},
 		{
-			name: "negation of an unknown op",
+			name: "negated unknown op",
 			trigger: model.AgentTrigger{
 				Source:     "test",
 				Type:       "comment",
-				Conditions: []model.Condition{{Attr: "body", Op: "not_regex", Value: "x"}},
+				Conditions: []model.Condition{{Attr: "body", Op: "regex", Value: "x", Negate: true}},
 			},
 			wantErr: true,
 		},
