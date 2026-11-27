@@ -19,8 +19,9 @@ import { useOrgId } from '@/hooks/use-org-id'
 export function TaskHeads({ archive = false }: { archive?: boolean }) {
   return (
     <>
-      <ListHead>Task</ListHead>
       <ListHead className="hidden md:table-cell">Agent</ListHead>
+      {/* The agent column is hidden below md, where Task is the first one shown. */}
+      <ListHead className="pl-4 md:pl-2">Task</ListHead>
       <ListHead>Status</ListHead>
       <ListHead className="hidden md:table-cell">Created</ListHead>
       {archive && <ListHead className="hidden md:table-cell" />}
@@ -36,7 +37,10 @@ export function TaskRow({ task, onArchive }: { task: Task; onArchive?: () => voi
 
   return (
     <TableRow className={task.archived ? 'opacity-60' : undefined}>
-      <TableCell className="max-w-0 w-1/2 py-2.5 pl-4">
+      <TableCell className="hidden py-2.5 pl-4 md:table-cell">
+        <AgentBadge agentId={task.agentId} />
+      </TableCell>
+      <TableCell className="w-2/3 max-w-0 py-2.5 pl-4 md:w-1/2 md:pl-2">
         <Link
           to="/tasks/$id"
           search={{ org: orgId }}
@@ -56,9 +60,6 @@ export function TaskRow({ task, onArchive }: { task: Task; onArchive?: () => voi
             #{String(task.id)} · {task.runner}/{task.workspace}
           </span>
         </Link>
-      </TableCell>
-      <TableCell className="hidden py-2.5 md:table-cell">
-        <AgentBadge agentId={task.agentId} />
       </TableCell>
       <TableCell className="py-2.5">
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
