@@ -1,9 +1,25 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import type { Timestamp } from '@bufbuild/protobuf/wkt'
+import cronstrue from 'cronstrue'
 
 // DEFAULT_CRON is what a new schedule starts with — a valid, unsurprising
 // daily schedule the user can adjust.
 export const DEFAULT_CRON = '0 9 * * *'
+
+// describeCron returns a cron expression in words (e.g. "At 09:00"), or
+// undefined when it can't be described: cronstrue throws on it, or it is a form
+// cronstrue reads differently from the server (6 or 7 fields, @reboot). The
+// server's own forms it doesn't know (@every, CRON_TZ=) fall back the same way.
+export function describeCron(expr: string): string | undefined {
+  const fields = expr.trim().split(/\s+/)
+  const macro = fields.length === 1 && fields[0].startsWith('@') && fields[0] !== '@reboot'
+  if (fields.length !== 5 && !macro) return undefined
+  try {
+    return cronstrue.toString(expr, { use24HourTimeFormat: true })
+  } catch {
+    return undefined
+  }
+}
 
 // browserTimezone returns the viewer's IANA timezone (e.g. "America/Toronto"),
 // falling back to "UTC" when the environment can't resolve one.
