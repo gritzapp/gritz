@@ -8,8 +8,8 @@ sidebar:
 gritz is an MCP server, so the agent you work with locally, such as Claude Code
 or Cursor, can hand work off to gritz: list the workspaces, create tasks, follow
 them up with instructions, read what they did, and archive them. It can also
-manage the organisation's agents, events, custom event types and schedules, and
-read its members, API keys and settings.
+manage the organisation's agents and their schedules, events and custom event
+types, and read its members, API keys and settings.
 
 There are two ways to connect:
 
@@ -173,13 +173,6 @@ up a `gritz login` made since.
 | `put_custom_event_type` | Adds a custom event type, or replaces the one with the same name. |
 | `delete_custom_event_type` | Deletes a custom event type. |
 | `test_event` | Tests the organisation's agents with an event, or routes it for real. |
-| `list_schedules` | Lists the organisation's schedules. |
-| `get_schedule` | Gets a schedule, with its next and last run. |
-| `create_schedule` | Creates a schedule. |
-| `update_schedule` | Changes a schedule's name, agent, cron expression or timezone. |
-| `set_schedule_enabled` | Enables or disables a schedule. |
-| `run_schedule` | Creates a task from a schedule now. |
-| `delete_schedule` | Deletes a schedule. |
 | `list_members` | Lists the organisation's members. |
 | `list_keys` | Lists the organisation's API keys, without their tokens. |
 | `get_org_settings` | Gets the organisation's integration URLs and its GitHub App installation. |
@@ -398,32 +391,6 @@ created. An event of a GitHub or Jira type has you as its actor. A custom event
 has none, so only public triggers and link kinds admit it, as when it comes from
 the webhook: firing a custom event is how to send one. See
 [Testing with a test event](/concepts/agents/#testing-with-a-test-event).
-
-### `create_schedule`
-
-| Argument | |
-| --- | --- |
-| `agent_id` | The ID of the [agent](/concepts/agents/) its tasks belong to. They start with its prompt, and take its runner, workspace, auto-archive delay and variables. Required. |
-| `cron_expr` | When to create a task: a five-field [cron expression](/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. Required. |
-| `timezone` | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Defaults to `UTC`. |
-| `name` | The name of every task it creates. |
-| `enabled` | Whether the schedule runs. Without it, the schedule is created disabled. |
-
-It returns the [schedule](/concepts/schedules/). `list_schedules`,
-`get_schedule`, `update_schedule` and `set_schedule_enabled` return schedules
-in the same shape.
-
-### `update_schedule`
-
-Takes the schedule's `id` and any of `create_schedule`'s arguments except
-`enabled`. The arguments left out keep their current values.
-
-### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
-
-Each takes the schedule's `id`; `set_schedule_enabled` also takes `enabled`.
-`run_schedule` creates a task from the schedule now, even if it is disabled,
-without changing its next or last run, and returns the task. Deleting a
-schedule keeps the tasks it created.
 
 ### `get_org_settings`
 
