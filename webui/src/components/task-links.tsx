@@ -4,9 +4,9 @@ import { linkTypeFromUrl } from '@/lib/timeline'
 import { LinkTypeIcon } from '@/components/agent-overview'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-// TaskLinks is the read-only links section of the task sidebar: the task's
-// links (PRs, issues, tickets), each with an icon for what it points at and,
-// for a subscribed link, its kind and claim. It binds directly to
+// TaskLinks is the read-only links section of the task sidebar: a stack of
+// compact cards for the task's links (PRs, issues, tickets), each with an icon
+// for what it points at and, for a subscribed link, its kind and claim. It binds directly to
 // listLinks.links — no mutations.
 export function TaskLinks({ links }: { links: TaskLink[] }) {
   if (links.length === 0) {
@@ -21,7 +21,7 @@ export function TaskLinks({ links }: { links: TaskLink[] }) {
   const ordered = [...links].sort((a, b) => sortKey(b) - sortKey(a))
 
   return (
-    <ul className="-mx-2 flex flex-col gap-0.5">
+    <ul className="flex flex-col gap-2">
       {ordered.map((link) => (
         <LinkCard key={String(link.id)} link={link} />
       ))}
@@ -41,7 +41,7 @@ function LinkCard({ link }: { link: TaskLink }) {
         target="_blank"
         rel="noopener noreferrer"
         title={link.url}
-        className="flex items-start gap-2 rounded-md p-2 transition-colors hover:bg-accent/60"
+        className="flex items-start gap-2.5 rounded-lg border bg-card p-2.5 transition-colors hover:border-muted-foreground/40 hover:bg-accent/50"
       >
         <LinkTypeIcon type={linkTypeFromUrl(link.url)} className="mt-0.5" />
         <span className="flex min-w-0 flex-col gap-0.5">
