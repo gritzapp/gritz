@@ -1,5 +1,21 @@
 # Changelog
 
+## [5.1.0](https://github.com/gritzapp/gritz/compare/v5.0.0...v5.1.0) (2026-11-27)
+
+
+### Features
+
+* filter the task list by several agents ([#2443](https://github.com/gritzapp/gritz/issues/2443)) ([7960b9b](https://github.com/gritzapp/gritz/commit/7960b9b383696640eab3298c820f41b3a89eada6))
+* per-schedule prompts for agents ([#2438](https://github.com/gritzapp/gritz/issues/2438)) ([92e81d1](https://github.com/gritzapp/gritz/commit/92e81d1bc9f1457b3ebde1ce2e052eef68aee652))
+* per-trigger prompts for agents ([#2436](https://github.com/gritzapp/gritz/issues/2436)) ([0d43c1a](https://github.com/gritzapp/gritz/commit/0d43c1a5c8f4fd9d47186c9986971d850d9fb096))
+* public per event entry of an agent's link kinds ([#2441](https://github.com/gritzapp/gritz/issues/2441)) ([bb15291](https://github.com/gritzapp/gritz/commit/bb15291f0122b23f66ff135d8d82d7d3f9beff2d))
+* wake per event entry of an agent's link kinds ([#2445](https://github.com/gritzapp/gritz/issues/2445)) ([76379be](https://github.com/gritzapp/gritz/commit/76379beaf1697fa03bfec8cdbe10e999778b4c84))
+
+
+### Miscellaneous
+
+* describe agents in CLAUDE.md and the gritz skills ([828eb3d](https://github.com/gritzapp/gritz/commit/828eb3d6afcb9d1ed0ab463c06aaf743deb0baa9))
+
 ## [5.0.0](https://github.com/gritzapp/gritz/compare/v4.11.0...v5.0.0) (2026-11-27)
 
 
