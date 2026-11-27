@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation } from '@connectrpc/connect-query'
 import {
   clearWorkspaces,
@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { RelativeTime } from '@/components/relative-time'
 import { Loader2, Puzzle, Trash2, Variable } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useOrgId } from '@/hooks/use-org-id'
 
 export const Route = createFileRoute('/workspaces/')({
   component: WorkspacesPage,
@@ -36,6 +37,7 @@ const MAX_AGENTS = 6
 const MAX_DECLARED = 3
 
 function WorkspacesPage() {
+  const orgId = useOrgId()
   const [selectedRunner, setSelectedRunner] = useState(ALL_RUNNERS)
   const { data, isLoading, error, refetch } = useQuery(
     listWorkspaces,
@@ -137,7 +139,18 @@ function WorkspacesPage() {
               return (
                 <TableRow key={`${workspace.runnerId}/${workspace.name}`}>
                   <TableCell className="w-1/3 py-2.5 pl-4 align-top whitespace-normal">
-                    <div className="font-medium">{workspace.name}</div>
+                    {workspace.runnerId ? (
+                      <Link
+                        to="/workspaces/$runner/$name"
+                        params={{ runner: workspace.runnerId, name: workspace.name }}
+                        search={{ org: orgId }}
+                        className="font-medium hover:underline"
+                      >
+                        {workspace.name}
+                      </Link>
+                    ) : (
+                      <div className="font-medium">{workspace.name}</div>
+                    )}
                     <div className="text-muted-foreground font-mono text-xs">
                       {workspace.runnerId || '-'}
                     </div>
