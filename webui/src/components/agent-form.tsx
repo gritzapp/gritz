@@ -190,7 +190,7 @@ export function AgentForm({
   return (
     <form onSubmit={handleSubmit} className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="relative min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-12 px-6 py-8">
             <header className="space-y-3">
               <Link
