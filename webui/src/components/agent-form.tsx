@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Textarea } from '@/components/ui/textarea'
 import { VariableFields } from '@/components/variable-fields'
 import { Badge } from '@/components/ui/badge'
@@ -64,7 +65,7 @@ import {
 import { AUTO_ARCHIVE_PRESETS } from '@/lib/duration'
 import { eventTypeId, findEventType } from '@/lib/event-types'
 import { variablesToSet } from '@/lib/variables'
-import { nextRunLabel, timezoneOptions } from '@/lib/schedule'
+import { describeCron, nextRunLabel, timezoneOptions } from '@/lib/schedule'
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 
 // Radix Select can't hold an empty value, so "no link" gets a sentinel.
@@ -926,6 +927,7 @@ function ScheduleEditor({
   // A schedule that was just added opens ready to be filled in.
   const [open, setOpen] = useState(!schedule.id)
   const id = `schedule-${index}`
+  const description = describeCron(schedule.cronExpr)
 
   return (
     <RuleCard
@@ -944,9 +946,18 @@ function ScheduleEditor({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge variant="secondary" className="font-mono font-normal">
-              {schedule.cronExpr.trim() || '""'}
-            </Badge>
+            {description ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>{description}</span>
+                </TooltipTrigger>
+                <TooltipContent className="font-mono">{schedule.cronExpr.trim()}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Badge variant="secondary" className="font-mono font-normal">
+                {schedule.cronExpr.trim() || '""'}
+              </Badge>
+            )}
             <span>{schedule.timezone || 'UTC'}</span>
             {!schedule.enabled && <Badge variant="outline">Disabled</Badge>}
           </div>
