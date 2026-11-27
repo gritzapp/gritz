@@ -22,150 +22,153 @@ func passthroughTx(_ context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) erro
 
 // TestScheduler_Tick_FiresDueSchedule is the happy path: a due schedule claimed
 // in the tick creates one task of its agent (a created event attributed to
-// ScheduleActor, then one instruction event per schedule instruction), advances
-// next_run_at to the
-// first occurrence after now (skip-only), and the change notification is published
-// after the transaction.
+// ScheduleActor, then the agent's prompt as its instruction, or a generated line
+// when the agent has none), advances next_run_at to the first occurrence after
+// now (skip-only), and the change notification is published after the
+// transaction.
 func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
-
-	before := time.Now()
-	// A stale next_run_at three days back: the fire must realign to the future
-	// rather than to the occurrence after the stored time.
-	stale := before.Add(-72 * time.Hour)
-	sched := &model.Schedule{
-		ID:      1,
-		OrgID:   7,
-		AgentID: 3,
-		Name:    "nightly",
-		Instructions: []model.ScheduleInstruction{
-			{Text: "bump deps", URL: "https://example.com/deps"},
-			{Text: "groom changelog"},
-		},
-		CronExpr:  "0 9 * * *",
-		Timezone:  "UTC",
-		Enabled:   true,
-		NextRunAt: &stale,
+	tests := []struct {
+		name   string
+		prompt string
+		want   string
+	}{
+		{"prompt", "Bump outdated dependencies.", "Bump outdated dependencies."},
+		{"no prompt", "", `You were created by schedule "nightly" of agent "deps".`},
 	}
-	agent := &model.Agent{
-		ID:          3,
-		OrgID:       7,
-		Name:        "deps",
-		Workspace:   "w",
-		Runner:      "r",
-		Prompt:      "not a schedule's instruction",
-		AutoArchive: time.Hour,
-		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			before := time.Now()
+			// A stale next_run_at three days back: the fire must realign to the future
+			// rather than to the occurrence after the stored time.
+			stale := before.Add(-72 * time.Hour)
+			sched := &model.Schedule{
+				ID:        1,
+				OrgID:     7,
+				AgentID:   3,
+				Name:      "nightly",
+				CronExpr:  "0 9 * * *",
+				Timezone:  "UTC",
+				Enabled:   true,
+				NextRunAt: &stale,
+			}
+			agent := &model.Agent{
+				ID:          3,
+				OrgID:       7,
+				Name:        "deps",
+				Workspace:   "w",
+				Runner:      "r",
+				Prompt:      tt.prompt,
+				AutoArchive: time.Hour,
+				Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+			}
+			st := &StoreMock{
+				WithTxFunc: passthroughTx,
+				ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
+					return []*model.Schedule{sched}, nil
+				},
+				LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
+				GetAgentFunc: func(_ context.Context, _ *sql.Tx, orgID, id int64) (*model.Agent, error) {
+					return agent, nil
+				},
+				CreateTaskFunc: func(_ context.Context, _ *sql.Tx, task *model.Task) error {
+					task.ID = 42 // the store assigns the id the events and advance then reference
+					return nil
+				},
+				CreateEventFunc:     func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
+				AdvanceScheduleFunc: func(_ context.Context, _ *sql.Tx, _, _ int64, _ store.ScheduleAdvance) error { return nil },
+			}
+			pub := &pubsub.PublisherMock{
+				PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
+			}
+
+			sc := New(Options{Store: st, Publisher: pub})
+			assert.NilError(t, sc.Tick(ctx))
+
+			// The agent is share-locked and read in the schedule's org.
+			lockCalls := st.LockLiveAgentCalls()
+			assert.Assert(t, cmp.Len(lockCalls, 1))
+			assert.Equal(t, lockCalls[0].OrgID, int64(7))
+			assert.Equal(t, lockCalls[0].ID, int64(3))
+			agentCalls := st.GetAgentCalls()
+			assert.Assert(t, cmp.Len(agentCalls, 1))
+			assert.Equal(t, agentCalls[0].OrgID, int64(7))
+			assert.Equal(t, agentCalls[0].ID, int64(3))
+
+			// Exactly one pending/start task of the agent, with its template and the
+			// schedule's name.
+			taskCalls := st.CreateTaskCalls()
+			assert.Assert(t, cmp.Len(taskCalls, 1))
+			assert.DeepEqual(t, taskCalls[0].Task, &model.Task{
+				ID:          42,
+				Name:        "nightly",
+				Runner:      "r",
+				Workspace:   "w",
+				Status:      model.TaskStatusPending,
+				Command:     model.TaskCommandStart,
+				Version:     1,
+				OrgID:       7,
+				AgentID:     3,
+				AutoArchive: time.Hour,
+				Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
+			})
+
+			// The created event first (ScheduleActor) and the start command, then one
+			// wake instruction event with the agent's prompt or the generated line, all
+			// against the assigned task id.
+			assert.DeepEqual(t, eventPayloads(st.CreateEventCalls()), []*model.Event{
+				{
+					TaskID: 42,
+					OrgID:  7,
+					Payload: &model.LifecyclePayload{
+						Kind:     model.LifecycleKindCreated,
+						Actor:    model.ScheduleActor,
+						ToStatus: model.TaskStatusPending.Label(),
+					},
+				},
+				{
+					TaskID: 42,
+					OrgID:  7,
+					Payload: &model.CommandPayload{
+						Command:   model.TaskCommandStart,
+						Version:   1,
+						Runner:    "r",
+						Workspace: "w",
+					},
+				},
+				{
+					TaskID:  42,
+					OrgID:   7,
+					Wake:    true,
+					Payload: &model.InstructionPayload{Text: tt.want},
+				},
+			})
+
+			// The schedule is advanced (not disabled): next_run_at realigns to the future
+			// and last_task_id points at the new task.
+			advCalls := st.AdvanceScheduleCalls()
+			assert.Assert(t, cmp.Len(advCalls, 1))
+			assert.Equal(t, advCalls[0].ID, int64(1))
+			assert.Equal(t, advCalls[0].OrgID, int64(7))
+			assert.Assert(t, advCalls[0].Adv.NextRunAt != nil)
+			assert.Assert(t, advCalls[0].Adv.NextRunAt.After(before), "next_run_at must realign to the future (skip-only)")
+			assert.Assert(t, advCalls[0].Adv.LastTaskID != nil)
+			assert.Equal(t, *advCalls[0].Adv.LastTaskID, int64(42))
+			assert.Assert(t, cmp.Len(st.UpdateScheduleCalls(), 0))
+
+			// The change notification is published after the transaction.
+			pubCalls := pub.PublishCalls()
+			assert.Assert(t, cmp.Len(pubCalls, 1))
+			assert.Equal(t, pubCalls[0].N.OrgID, int64(7))
+			assert.DeepEqual(t, pubCalls[0].N.Resources, []model.NotificationResource{
+				{Action: "created", Type: "task", ID: 42},
+				{Action: "appended", Type: "task_events", ID: 42},
+			})
+		})
 	}
-	st := &StoreMock{
-		WithTxFunc: passthroughTx,
-		ClaimDueSchedulesFunc: func(_ context.Context, _ *sql.Tx, _ int) ([]*model.Schedule, error) {
-			return []*model.Schedule{sched}, nil
-		},
-		LockLiveAgentFunc: func(context.Context, *sql.Tx, int64, int64) error { return nil },
-		GetAgentFunc: func(_ context.Context, _ *sql.Tx, orgID, id int64) (*model.Agent, error) {
-			return agent, nil
-		},
-		CreateTaskFunc: func(_ context.Context, _ *sql.Tx, task *model.Task) error {
-			task.ID = 42 // the store assigns the id the events and advance then reference
-			return nil
-		},
-		CreateEventFunc:     func(_ context.Context, _ *sql.Tx, _ *model.Event) error { return nil },
-		AdvanceScheduleFunc: func(_ context.Context, _ *sql.Tx, _, _ int64, _ store.ScheduleAdvance) error { return nil },
-	}
-	pub := &pubsub.PublisherMock{
-		PublishFunc: func(_ context.Context, _ model.Notification) error { return nil },
-	}
-
-	sc := New(Options{Store: st, Publisher: pub})
-	assert.NilError(t, sc.Tick(ctx))
-
-	// The agent is share-locked and read in the schedule's org.
-	lockCalls := st.LockLiveAgentCalls()
-	assert.Assert(t, cmp.Len(lockCalls, 1))
-	assert.Equal(t, lockCalls[0].OrgID, int64(7))
-	assert.Equal(t, lockCalls[0].ID, int64(3))
-	agentCalls := st.GetAgentCalls()
-	assert.Assert(t, cmp.Len(agentCalls, 1))
-	assert.Equal(t, agentCalls[0].OrgID, int64(7))
-	assert.Equal(t, agentCalls[0].ID, int64(3))
-
-	// Exactly one pending/start task of the agent, with its template and the
-	// schedule's name.
-	taskCalls := st.CreateTaskCalls()
-	assert.Assert(t, cmp.Len(taskCalls, 1))
-	assert.DeepEqual(t, taskCalls[0].Task, &model.Task{
-		ID:          42,
-		Name:        "nightly",
-		Runner:      "r",
-		Workspace:   "w",
-		Status:      model.TaskStatusPending,
-		Command:     model.TaskCommandStart,
-		Version:     1,
-		OrgID:       7,
-		AgentID:     3,
-		AutoArchive: time.Hour,
-		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
-	})
-
-	// The created event first (ScheduleActor) and the start command, then one
-	// wake instruction event per schedule instruction — not the agent's prompt —
-	// all against the assigned task id.
-	assert.DeepEqual(t, eventPayloads(st.CreateEventCalls()), []*model.Event{
-		{
-			TaskID: 42,
-			OrgID:  7,
-			Payload: &model.LifecyclePayload{
-				Kind:     model.LifecycleKindCreated,
-				Actor:    model.ScheduleActor,
-				ToStatus: model.TaskStatusPending.Label(),
-			},
-		},
-		{
-			TaskID: 42,
-			OrgID:  7,
-			Payload: &model.CommandPayload{
-				Command:   model.TaskCommandStart,
-				Version:   1,
-				Runner:    "r",
-				Workspace: "w",
-			},
-		},
-		{
-			TaskID:  42,
-			OrgID:   7,
-			Wake:    true,
-			Payload: &model.InstructionPayload{Text: "bump deps", URL: "https://example.com/deps"},
-		},
-		{
-			TaskID:  42,
-			OrgID:   7,
-			Wake:    true,
-			Payload: &model.InstructionPayload{Text: "groom changelog"},
-		},
-	})
-
-	// The schedule is advanced (not disabled): next_run_at realigns to the future
-	// and last_task_id points at the new task.
-	advCalls := st.AdvanceScheduleCalls()
-	assert.Assert(t, cmp.Len(advCalls, 1))
-	assert.Equal(t, advCalls[0].ID, int64(1))
-	assert.Equal(t, advCalls[0].OrgID, int64(7))
-	assert.Assert(t, advCalls[0].Adv.NextRunAt != nil)
-	assert.Assert(t, advCalls[0].Adv.NextRunAt.After(before), "next_run_at must realign to the future (skip-only)")
-	assert.Assert(t, advCalls[0].Adv.LastTaskID != nil)
-	assert.Equal(t, *advCalls[0].Adv.LastTaskID, int64(42))
-	assert.Assert(t, cmp.Len(st.UpdateScheduleCalls(), 0))
-
-	// The change notification is published after the transaction.
-	pubCalls := pub.PublishCalls()
-	assert.Assert(t, cmp.Len(pubCalls, 1))
-	assert.Equal(t, pubCalls[0].N.OrgID, int64(7))
-	assert.DeepEqual(t, pubCalls[0].N.Resources, []model.NotificationResource{
-		{Action: "created", Type: "task", ID: 42},
-		{Action: "appended", Type: "task_events", ID: 42},
-	})
 }
 
 // TestScheduler_Tick_DisablesInvalidSchedule covers the invalid-at-fire-time edge

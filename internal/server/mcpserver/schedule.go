@@ -20,7 +20,7 @@ func (h *handlers) addScheduleTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_schedule",
-		Description: "Get a schedule, including its instructions and its next and last run",
+		Description: "Get a schedule, including its next and last run",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
@@ -28,12 +28,12 @@ func (h *handlers) addScheduleTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "create_schedule",
-		Description: "Create a schedule that creates a task of its agent each time its cron expression matches. It is created disabled unless enabled is set; set_schedule_enabled turns it on later.",
+		Description: "Create a schedule that creates a task of its agent, starting with the agent's prompt, each time its cron expression matches. It is created disabled unless enabled is set; set_schedule_enabled turns it on later.",
 	}, h.createSchedule)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_schedule",
-		Description: "Change a schedule's name, agent, instruction, cron expression or timezone. Arguments left out keep their current value. Use set_schedule_enabled to enable or disable it.",
+		Description: "Change a schedule's name, agent, cron expression or timezone. Arguments left out keep their current value. Use set_schedule_enabled to enable or disable it.",
 	}, h.updateSchedule)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -80,23 +80,21 @@ func (h *handlers) getSchedule(ctx context.Context, req *mcp.CallToolRequest, in
 }
 
 type createScheduleInput struct {
-	Name        string `json:"name,omitempty" jsonschema:"The name of every task the schedule creates"`
-	AgentID     int64  `json:"agent_id" jsonschema:"The ID of the agent its tasks belong to (see list_agents). Each task takes the agent's workspace, runner, auto-archive delay and variables."`
-	Instruction string `json:"instruction" jsonschema:"The instruction every task it creates starts with"`
-	CronExpr    string `json:"cron_expr" jsonschema:"When to create a task: a five-field cron expression (minute, hour, day of month, month, day of week) or @yearly, @monthly, @weekly, @daily, @hourly"`
-	Timezone    string `json:"timezone,omitempty" jsonschema:"The IANA timezone the cron expression is read in, such as \"Europe/Paris\" (default \"UTC\")"`
-	Enabled     bool   `json:"enabled,omitempty" jsonschema:"Whether the schedule runs. False (the default) creates it disabled."`
+	Name     string `json:"name,omitempty" jsonschema:"The name of every task the schedule creates"`
+	AgentID  int64  `json:"agent_id" jsonschema:"The ID of the agent its tasks belong to (see list_agents). Each task takes the agent's workspace, runner, auto-archive delay and variables."`
+	CronExpr string `json:"cron_expr" jsonschema:"When to create a task: a five-field cron expression (minute, hour, day of month, month, day of week) or @yearly, @monthly, @weekly, @daily, @hourly"`
+	Timezone string `json:"timezone,omitempty" jsonschema:"The IANA timezone the cron expression is read in, such as \"Europe/Paris\" (default \"UTC\")"`
+	Enabled  bool   `json:"enabled,omitempty" jsonschema:"Whether the schedule runs. False (the default) creates it disabled."`
 }
 
 func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest, input createScheduleInput) (*mcp.CallToolResult, any, error) {
 	service := h.service()
 	createReq := &gritzv1.CreateScheduleRequest{
-		Name:         input.Name,
-		AgentId:      input.AgentID,
-		Instructions: []*gritzv1.Instruction{{Text: input.Instruction}},
-		CronExpr:     input.CronExpr,
-		Timezone:     input.Timezone,
-		Enabled:      input.Enabled,
+		Name:     input.Name,
+		AgentId:  input.AgentID,
+		CronExpr: input.CronExpr,
+		Timezone: input.Timezone,
+		Enabled:  input.Enabled,
 	}
 	resp, err := service.CreateSchedule(ctx, createReq)
 	if err != nil {
@@ -106,12 +104,11 @@ func (h *handlers) createSchedule(ctx context.Context, req *mcp.CallToolRequest,
 }
 
 type updateScheduleInput struct {
-	ID          int64   `json:"id" jsonschema:"The schedule ID"`
-	Name        *string `json:"name,omitempty" jsonschema:"A new name for the tasks it creates"`
-	AgentID     *int64  `json:"agent_id,omitempty" jsonschema:"The ID of a new agent for its tasks"`
-	Instruction *string `json:"instruction,omitempty" jsonschema:"An instruction that replaces every instruction of the schedule"`
-	CronExpr    *string `json:"cron_expr,omitempty" jsonschema:"A new cron expression, as in create_schedule"`
-	Timezone    *string `json:"timezone,omitempty" jsonschema:"A new IANA timezone for the cron expression"`
+	ID       int64   `json:"id" jsonschema:"The schedule ID"`
+	Name     *string `json:"name,omitempty" jsonschema:"A new name for the tasks it creates"`
+	AgentID  *int64  `json:"agent_id,omitempty" jsonschema:"The ID of a new agent for its tasks"`
+	CronExpr *string `json:"cron_expr,omitempty" jsonschema:"A new cron expression, as in create_schedule"`
+	Timezone *string `json:"timezone,omitempty" jsonschema:"A new IANA timezone for the cron expression"`
 }
 
 func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest, input updateScheduleInput) (*mcp.CallToolResult, any, error) {
@@ -124,21 +121,17 @@ func (h *handlers) updateSchedule(ctx context.Context, req *mcp.CallToolRequest,
 	}
 	s := getResp.Schedule
 	updateReq := &gritzv1.UpdateScheduleRequest{
-		Id:           s.Id,
-		Name:         s.Name,
-		AgentId:      s.AgentId,
-		Instructions: s.Instructions,
-		CronExpr:     s.CronExpr,
-		Timezone:     s.Timezone,
+		Id:       s.Id,
+		Name:     s.Name,
+		AgentId:  s.AgentId,
+		CronExpr: s.CronExpr,
+		Timezone: s.Timezone,
 	}
 	if input.Name != nil {
 		updateReq.Name = *input.Name
 	}
 	if input.AgentID != nil {
 		updateReq.AgentId = *input.AgentID
-	}
-	if input.Instruction != nil {
-		updateReq.Instructions = []*gritzv1.Instruction{{Text: *input.Instruction}}
 	}
 	if input.CronExpr != nil {
 		updateReq.CronExpr = *input.CronExpr

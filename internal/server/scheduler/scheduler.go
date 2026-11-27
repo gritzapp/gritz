@@ -189,25 +189,29 @@ func Agent(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*m
 }
 
 // Fire materializes one schedule occurrence inside tx: it creates a task of
-// agent, the schedule's agent as Agent returned it in tx, and seeds its events
-// exactly as CreateTask does (Pending/Start, a created event attributed to
-// model.ScheduleActor, one instruction event per schedule instruction), and
-// returns the created task plus the change notification to
-// publish once tx commits. It writes nothing to the schedule row — the caller
+// agent, the schedule's agent as Agent returned it in tx, named after the
+// schedule, and seeds its events (Pending/Start, a created event attributed to
+// model.ScheduleActor, and the agent's prompt as its first instruction, or a
+// generated line when the agent has none), and returns the created task plus
+// the change notification to publish once tx commits. It writes nothing to the schedule row — the caller
 // decides what, if anything, happens to the cadence: the worker's Scheduler.fire
 // advances next_run_at via AdvanceSchedule, while a one-off manual run
 // (RunSchedule) records nothing on the schedule at all. Sharing this function is
 // what makes a manual run and a scheduled run produce a byte-for-byte identical
 // task.
 func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule, agent *model.Agent) (*model.Task, model.Notification, error) {
-	// The schedule owns the agent -> task/events mapping. Insert the task, then
-	// seed its events (Events needs the assigned task.ID), so a scheduled task is
-	// indistinguishable from a hand-created one downstream.
-	task := sched.Task(agent)
+	if agent.ID != sched.AgentID {
+		panic(fmt.Sprintf("scheduler: schedule %d of agent %d fired with agent %d", sched.ID, sched.AgentID, agent.ID))
+	}
+	// Insert the task, then seed its events (Events needs the assigned
+	// task.ID), so a scheduled task is indistinguishable from a hand-created
+	// one downstream.
+	task := agent.Task(sched.Name)
 	if err := st.CreateTask(ctx, tx, task); err != nil {
 		return nil, model.Notification{}, err
 	}
-	for _, ev := range sched.Events(task) {
+	generated := fmt.Sprintf("You were created by schedule %q of agent %q.", sched.Name, agent.Name)
+	for _, ev := range agent.Events(task, model.ScheduleActor, generated) {
 		if err := st.CreateEvent(ctx, tx, ev); err != nil {
 			return nil, model.Notification{}, err
 		}

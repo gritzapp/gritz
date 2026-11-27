@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -23,11 +24,8 @@ func TestCreateSchedule(t *testing.T) {
 
 	// Act
 	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		Name:    "nightly",
-		AgentId: h.Org.DefaultAgent.Id,
-		Instructions: []*gritzv1.Instruction{
-			{Text: "bump deps", Url: "https://example.com/deps"},
-		},
+		Name:     "nightly",
+		AgentId:  h.Org.DefaultAgent.Id,
 		CronExpr: "0 9 * * *",
 		Timezone: "America/Toronto",
 		Enabled:  true,
@@ -38,27 +36,18 @@ func TestCreateSchedule(t *testing.T) {
 	// An enabled schedule gets a first fire time computed server-side.
 	assert.Assert(t, resp.Schedule.NextRunAt != nil)
 	expected := &gritzv1.Schedule{
-		Id:      resp.Schedule.Id,
-		Name:    "nightly",
-		AgentId: h.Org.DefaultAgent.Id,
-		Instructions: []*gritzv1.Instruction{
-			{Text: "bump deps", Url: "https://example.com/deps"},
-		},
+		Id:        resp.Schedule.Id,
+		Name:      "nightly",
+		AgentId:   h.Org.DefaultAgent.Id,
 		CronExpr:  "0 9 * * *",
 		Timezone:  "America/Toronto",
 		Enabled:   true,
-		CreatedBy: h.Org.Owner.UserID,
 		NextRunAt: resp.Schedule.NextRunAt, // nondeterministic (computed from now)
-		CreatedAt: resp.Schedule.CreatedAt,
-		UpdatedAt: resp.Schedule.UpdatedAt,
 	}
 	assert.DeepEqual(t, resp.Schedule, expected, protocmp.Transform())
-	// It round-trips through Get. created_at/updated_at are ignored: the create
-	// response carries the in-memory time at full precision, while the DB read-back
-	// is truncated to Postgres's microsecond resolution.
+	// It round-trips through Get.
 	got := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: resp.Schedule.Id})
-	assert.DeepEqual(t, got, resp.Schedule, protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"))
+	assert.DeepEqual(t, got, resp.Schedule, protocmp.Transform())
 }
 
 func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
@@ -318,12 +307,11 @@ func TestUpdateSchedule(t *testing.T) {
 	// Act - rename, repoint at another agent and move the spec to a new time;
 	// next_run_at recomputes.
 	updated, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
-		AgentId:      agent.Id,
-		Id:           sched.Id,
-		Name:         "renamed",
-		Instructions: []*gritzv1.Instruction{{Text: "check CI"}},
-		CronExpr:     "30 2 * * *",
-		Timezone:     "UTC",
+		AgentId:  agent.Id,
+		Id:       sched.Id,
+		Name:     "renamed",
+		CronExpr: "30 2 * * *",
+		Timezone: "UTC",
 	})
 
 	// Assert
@@ -333,27 +321,21 @@ func TestUpdateSchedule(t *testing.T) {
 	assert.DeepEqual(t,
 		updated.Schedule,
 		&gritzv1.Schedule{
-			Id:           sched.Id,
-			Name:         "renamed",
-			AgentId:      agent.Id,
-			Instructions: []*gritzv1.Instruction{{Text: "check CI"}},
-			CronExpr:     "30 2 * * *",
-			Timezone:     "UTC",
-			Enabled:      true,
-			NextRunAt:    updated.Schedule.NextRunAt, // computed from now
-			CreatedBy:    h.Org.Owner.UserID,
+			Id:        sched.Id,
+			Name:      "renamed",
+			AgentId:   agent.Id,
+			CronExpr:  "30 2 * * *",
+			Timezone:  "UTC",
+			Enabled:   true,
+			NextRunAt: updated.Schedule.NextRunAt, // computed from now
 		},
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
 	)
-	// Persisted. created_at/updated_at are ignored: the update response carries
-	// the in-memory time at full precision, while the read-back is truncated to
-	// Postgres's microsecond resolution.
+	// Persisted.
 	assert.DeepEqual(t,
 		h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}),
 		updated.Schedule,
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
 	)
 }
 
@@ -398,8 +380,8 @@ func TestUpdateSchedule_UnknownAgent(t *testing.T) {
 }
 
 // A run creates a task of the schedule's agent: the task takes the agent's
-// workspace, runner, auto-archive and variables as they are when it runs, and
-// the schedule's instructions rather than the agent's prompt.
+// workspace, runner, auto-archive, variables and prompt as they are when it
+// runs.
 func TestRunSchedule_AgentTemplate(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -418,18 +400,18 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 		Name:        "story",
 		Workspace:   "story",
 		Runner:      "runner-1",
-		Prompt:      "not a schedule's instruction",
+		Prompt:      "Groom the backlog.",
 		AutoArchive: durationpb.New(time.Hour),
 		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
 	}
 	agent = h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: agent})
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:         "nightly",
-		AgentId:      agent.Id,
-		Instructions: []*gritzv1.Instruction{{Text: "groom the backlog"}},
-		CronExpr:     "@daily",
+		Name:     "nightly",
+		AgentId:  agent.Id,
+		CronExpr: "@daily",
 	})
 	agent.Variables = map[string]string{"JIRA_ISSUE": "APP-143"}
+	agent.Prompt = "Groom the backlog, oldest first."
 	_, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
 	assert.NilError(t, err)
 
@@ -453,14 +435,14 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id", "auto_archive", "variables"),
 	)
 	// The created and start command events carry no instruction; the only
-	// instruction is the schedule's.
+	// instruction is the agent's prompt.
 	assert.DeepEqual(t,
 		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id}),
 		[]*gritzv1.Event{
 			{},
 			{},
 			{Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
-				Text: "groom the backlog",
+				Text: "Groom the backlog, oldest first.",
 			}}},
 		},
 		protocmp.Transform(),
@@ -469,8 +451,9 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 }
 
 // A manual run fires the schedule as a one-off: it creates exactly one task of
-// its agent, seeds the ScheduleActor created-event + one instruction
-// event per instruction (byte-for-byte what the scheduler worker fires), and
+// its agent, seeds the ScheduleActor created-event + one instruction event,
+// generated for an agent without a prompt (byte-for-byte what the scheduler
+// worker fires), and
 // records nothing on the schedule row — next_run_at/last_run_at/last_task_id all
 // stay untouched so the cron cadence never advances.
 func TestRunSchedule(t *testing.T) {
@@ -478,11 +461,7 @@ func TestRunSchedule(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	before := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name: "nightly",
-		Instructions: []*gritzv1.Instruction{
-			{Text: "bump deps", Url: "https://example.com/deps"},
-			{Text: "groom changelog"},
-		},
+		Name:     "nightly",
 		CronExpr: "0 9 * * *",
 		Timezone: "UTC",
 		Enabled:  true,
@@ -518,9 +497,9 @@ func TestRunSchedule(t *testing.T) {
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
 	)
-	// The created event first (ScheduleActor) and the start command, then one
-	// wake instruction event per schedule instruction — identical to a scheduled
-	// fire. The server-assigned id, task_id and created_at are ignored.
+	// The created event first (ScheduleActor) and the start command, then the
+	// generated wake instruction — identical to a scheduled fire. The
+	// server-assigned id, task_id and created_at are ignored.
 	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
 	want := []*gritzv1.Event{
 		{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
@@ -537,26 +516,16 @@ func TestRunSchedule(t *testing.T) {
 		{
 			Wake: true,
 			Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
-				Text: "bump deps",
-				Url:  "https://example.com/deps",
-			}},
-		},
-		{
-			Wake: true,
-			Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
-				Text: "groom changelog",
+				Text: fmt.Sprintf("You were created by schedule %q of agent %q.", "nightly", h.Org.DefaultAgent.Name),
 			}},
 		},
 	}
 	assert.DeepEqual(t, events, want, protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"))
 	// The schedule row is untouched: the cron cadence never advanced and no run was
-	// recorded on it. created_at/updated_at are ignored — the create response carries
-	// the in-memory time at full precision, while the read-back is truncated to
-	// Postgres's microsecond resolution (same as TestCreateSchedule).
+	// recorded on it.
 	after := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: before.Id})
-	assert.DeepEqual(t, after, before, protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"))
+	assert.DeepEqual(t, after, before, protocmp.Transform())
 }
 
 // A manual run works on a disabled schedule — disabled only means "don't fire
@@ -567,10 +536,9 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	// Arrange
 	h := harness.New(t, nil)
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:         "inert",
-		Instructions: []*gritzv1.Instruction{{Text: "smoke test"}},
-		CronExpr:     "0 9 * * *",
-		Enabled:      false,
+		Name:     "inert",
+		CronExpr: "0 9 * * *",
+		Enabled:  false,
 	})
 	assert.Assert(t, sched.NextRunAt == nil)
 
@@ -581,12 +549,10 @@ func TestRunSchedule_DisabledSchedule(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, resp.Task != nil)
 	// Running it never re-enabled the row or gave it a next fire time.
-	// created_at/updated_at are ignored, as in TestRunSchedule.
 	assert.DeepEqual(t,
 		h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}),
 		sched,
 		protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Schedule{}, "created_at", "updated_at"),
 	)
 }
 

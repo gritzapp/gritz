@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { AgentSelect } from '@/components/agent-select'
 import {
@@ -14,15 +13,12 @@ import {
 } from '@/components/ui/select'
 import { DEFAULT_CRON, browserTimezone, timezoneOptions } from '@/lib/schedule'
 
-// ScheduleFormValues is the full editable state of a schedule. It is
-// intentionally UI-shaped: `instruction` is a single text block (the common
-// case, mirroring the Create Task form). The route maps this to the proto
-// request(s).
+// ScheduleFormValues is the full editable state of a schedule. The route maps
+// this to the proto request(s).
 export interface ScheduleFormValues {
   name: string
   // The decimal ID of the agent the schedule's tasks belong to.
   agentId: string
-  instruction: string
   cronExpr: string
   timezone: string
   enabled: boolean
@@ -34,7 +30,6 @@ export function emptyScheduleValues(): ScheduleFormValues {
   return {
     name: '',
     agentId: '',
-    instruction: '',
     cronExpr: DEFAULT_CRON,
     timezone: browserTimezone(),
     enabled: true,
@@ -70,8 +65,7 @@ export function ScheduleForm({
   const set = <K extends keyof ScheduleFormValues>(key: K, value: ScheduleFormValues[K]) =>
     setValues((prev) => ({ ...prev, [key]: value }))
 
-  const isValid =
-    values.agentId && values.instruction.trim() && values.cronExpr.trim() && values.timezone.trim()
+  const isValid = values.agentId && values.cronExpr.trim() && values.timezone.trim()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -79,7 +73,6 @@ export function ScheduleForm({
     await onSubmit({
       ...values,
       name: values.name.trim(),
-      instruction: values.instruction.trim(),
       cronExpr: values.cronExpr.trim(),
       timezone: values.timezone.trim(),
     })
@@ -95,21 +88,6 @@ export function ScheduleForm({
           value={values.name}
           onChange={(e) => set('name', e.target.value)}
         />
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="instruction">Instructions</Label>
-        <Textarea
-          id="instruction"
-          placeholder="Enter the instruction each run of this schedule should execute..."
-          value={values.instruction}
-          onChange={(e) => set('instruction', e.target.value)}
-          rows={4}
-          required
-        />
-        <p className="text-muted-foreground text-xs">
-          Seeded as the instruction on every task this schedule creates.
-        </p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -153,8 +131,8 @@ export function ScheduleForm({
         <Label htmlFor="agent">Agent</Label>
         <AgentSelect id="agent" value={values.agentId} onChange={(v) => set('agentId', v)} />
         <p className="text-muted-foreground text-xs">
-          The agent its tasks belong to. They run on its runner and workspace, with its auto-archive
-          and variables.
+          The agent its tasks belong to. They start with its prompt, and run on its runner and
+          workspace, with its auto-archive and variables.
         </p>
       </div>
 

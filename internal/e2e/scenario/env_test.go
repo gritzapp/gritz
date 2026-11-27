@@ -79,9 +79,8 @@ func TestEnv_VariablesStaleSchedule(t *testing.T) {
 		Runner:    harness.DefaultRunner,
 	}})
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		AgentId:      stale.Id,
-		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
-		CronExpr:     "@daily",
+		AgentId:  stale.Id,
+		CronExpr: "@daily",
 	})
 
 	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})

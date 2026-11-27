@@ -76,20 +76,17 @@ type OrgMember struct {
 }
 
 type Schedule struct {
-	ID           int64           `json:"id"`
-	OrgID        int64           `json:"org_id"`
-	CreatedBy    string          `json:"created_by"`
-	Name         string          `json:"name"`
-	Instructions json.RawMessage `json:"instructions"`
-	CronExpr     string          `json:"cron_expr"`
-	Timezone     string          `json:"timezone"`
-	Enabled      bool            `json:"enabled"`
-	NextRunAt    sql.NullTime    `json:"next_run_at"`
-	LastRunAt    sql.NullTime    `json:"last_run_at"`
-	LastTaskID   sql.NullInt64   `json:"last_task_id"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	AgentID      int64           `json:"agent_id"`
+	ID         int64         `json:"id"`
+	OrgID      int64         `json:"org_id"`
+	Name       string        `json:"name"`
+	CronExpr   string        `json:"cron_expr"`
+	Timezone   string        `json:"timezone"`
+	Enabled    bool          `json:"enabled"`
+	NextRunAt  sql.NullTime  `json:"next_run_at"`
+	LastRunAt  sql.NullTime  `json:"last_run_at"`
+	LastTaskID sql.NullInt64 `json:"last_task_id"`
+	AgentID    int64         `json:"agent_id"`
+	Position   int32         `json:"position"`
 }
 
 type SchemaMigration struct {

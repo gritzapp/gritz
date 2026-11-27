@@ -1,36 +1,44 @@
 -- name: CreateSchedule :one
-INSERT INTO schedules (org_id, created_by, name, agent_id, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+-- A new schedule goes last in its agent.
+INSERT INTO schedules (org_id, name, agent_id, position, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id)
+VALUES (@org_id, @name, @agent_id,
+        (SELECT COALESCE(MAX(position) + 1, 0) FROM schedules WHERE agent_id = @agent_id),
+        @cron_expr, @timezone, @enabled, @next_run_at, @last_run_at, @last_task_id)
 RETURNING id;
 
 -- name: GetSchedule :one
-SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE id = $1 AND org_id = $2;
 
 -- name: GetScheduleForUpdate :one
-SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE id = $1 AND org_id = $2
 FOR UPDATE;
 
 -- name: ListSchedules :many
-SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE org_id = $1
-ORDER BY created_at DESC;
+ORDER BY id DESC;
 
 -- name: UpdateSchedule :exec
-UPDATE schedules
-SET name = $1, agent_id = $2, instructions = $3, cron_expr = $4, timezone = $5, enabled = $6, next_run_at = $7, last_run_at = $8, last_task_id = $9, updated_at = $10
-WHERE id = $11 AND org_id = $12;
+-- A schedule moved to another agent goes last in it.
+UPDATE schedules u
+SET name = @name,
+    position = CASE WHEN u.agent_id = @agent_id THEN u.position
+                    ELSE (SELECT COALESCE(MAX(s.position) + 1, 0) FROM schedules s WHERE s.agent_id = @agent_id) END,
+    agent_id = @agent_id, cron_expr = @cron_expr, timezone = @timezone, enabled = @enabled,
+    next_run_at = @next_run_at, last_run_at = @last_run_at, last_task_id = @last_task_id
+WHERE u.id = @id AND u.org_id = @org_id;
 
 -- name: DeleteSchedule :exec
 DELETE FROM schedules WHERE id = $1 AND org_id = $2;
 
 -- name: DisableSchedules :exec
 UPDATE schedules
-SET enabled = FALSE, next_run_at = NULL, updated_at = (NOW() AT TIME ZONE 'UTC')
+SET enabled = FALSE, next_run_at = NULL
 WHERE org_id = $1;
 
 -- name: ClaimDueSchedules :many
@@ -39,9 +47,9 @@ WHERE org_id = $1;
 -- two schedulers ticking at the same instant partition the due set instead of both firing
 -- the same schedule. The locks are held until the caller's transaction commits, by which
 -- point next_run_at has been advanced past now, so the row is no longer due.
-SELECT id, org_id, created_by, name, instructions,
+SELECT id, org_id, name,
        cron_expr, timezone, enabled,
-       next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
+       next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
 WHERE enabled = TRUE
   AND next_run_at IS NOT NULL
@@ -52,6 +60,5 @@ FOR UPDATE SKIP LOCKED;
 
 -- name: AdvanceSchedule :exec
 UPDATE schedules
-SET next_run_at = $1, last_run_at = $2, last_task_id = $3,
-    updated_at = (NOW() AT TIME ZONE 'UTC')
+SET next_run_at = $1, last_run_at = $2, last_task_id = $3
 WHERE id = $4 AND org_id = $5;
