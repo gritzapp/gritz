@@ -144,10 +144,52 @@ features:
 	}
 }
 
-// testWorkspace returns a workspace that sets every field WithFeatures
-// writes to, with a feature that replaces its agent: and adds to everything.
-func testWorkspace() *Workspace {
-	return &Workspace{
+// TestWithFeatures_LeavesWorkspace asserts applying features leaves the
+// workspace they were applied to as it was, including the feature whose
+// agent: replaced the workspace's, and that one result's commands don't leak
+// into another's.
+func TestWithFeatures_LeavesWorkspace(t *testing.T) {
+	t.Parallel()
+	// Arrange - every field WithFeatures writes to is set, and the commands
+	// have spare capacity, which appending must not write into.
+	ws := &Workspace{
+		Container: Container{
+			Image:       "alpine:latest",
+			Environment: map[string]string{"BASE_ENV": "container"},
+		},
+		LambdaMicroVM: &LambdaMicroVM{
+			ImageIdentifier: "arn:image",
+			Environment:     map[string]string{"BASE_ENV": "lambda"},
+		},
+		Agent: Agent{
+			Type:       "claude",
+			McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
+		},
+		Commands: append(make([]string, 0, 8), "git clone repo"),
+		Secrets:  map[string]string{"GH_TOKEN": "gho_base"},
+		Features: Features{
+			"codex": {
+				Environment: map[string]string{"CODEX_HOME": "/codex"},
+				Secrets:     map[string]string{"OPENAI_API_KEY": "openai"},
+				McpServers:  map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
+				Commands:    []string{"install codex"},
+				Agent: &Agent{
+					Type:       "codex",
+					McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
+				},
+			},
+			"node": {Commands: []string{"install node"}},
+		},
+	}
+
+	// Act
+	codex, err := ws.WithFeatures([]string{"codex"})
+	assert.NilError(t, err)
+	_, err = ws.WithFeatures([]string{"node"})
+	assert.NilError(t, err)
+
+	// Assert
+	want := &Workspace{
 		Container: Container{
 			Image:       "alpine:latest",
 			Environment: map[string]string{"BASE_ENV": "container"},
@@ -176,32 +218,13 @@ func testWorkspace() *Workspace {
 			"node": {Commands: []string{"install node"}},
 		},
 	}
-}
-
-// TestWithFeatures_LeavesWorkspace asserts applying features leaves the
-// workspace they were applied to as it was, including the feature whose
-// agent: replaced the workspace's, and that one result's commands don't leak
-// into another's.
-func TestWithFeatures_LeavesWorkspace(t *testing.T) {
-	t.Parallel()
-	// Arrange - spare capacity, which appending must not write into.
-	ws := testWorkspace()
-	ws.Commands = append(make([]string, 0, 8), ws.Commands...)
-
-	// Act
-	codex, err := ws.WithFeatures([]string{"codex"})
-	assert.NilError(t, err)
-	_, err = ws.WithFeatures([]string{"node"})
-	assert.NilError(t, err)
-
-	// Assert
-	assert.DeepEqual(t, ws, testWorkspace())
+	assert.DeepEqual(t, ws, want)
 	assert.DeepEqual(t, codex.Commands, []string{"git clone repo", "install codex"})
 }
 
 func TestWithFeatures_Unknown(t *testing.T) {
 	t.Parallel()
-	ws := testWorkspace()
+	ws := &Workspace{Features: Features{"codex": {}}}
 
 	_, err := ws.WithFeatures([]string{"codex", "playwright"})
 
@@ -215,7 +238,13 @@ func TestWithFeatures_Unknown(t *testing.T) {
 func TestWithFeatures_Agent(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ws := testWorkspace()
+	ws := &Workspace{
+		Agent: Agent{
+			Type:       "claude",
+			Cwd:        "/root/repo",
+			McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
+		},
+	}
 	ws.Features = Features{
 		"codex": {
 			Agent:      &Agent{Type: "codex", Codex: &CodexConfig{Model: "gpt-5-codex"}},
@@ -255,7 +284,12 @@ func TestWithFeatures_Agent(t *testing.T) {
 func TestWithFeatures_FeatureAgentWithoutServers(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ws := testWorkspace()
+	ws := &Workspace{
+		Agent: Agent{
+			Type:       "claude",
+			McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
+		},
+	}
 	ws.Features = Features{
 		"codex": {Agent: &Agent{Type: "codex"}},
 		"jira":  {McpServers: map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}}},
@@ -278,7 +312,11 @@ func TestWithFeatures_FeatureAgentWithoutServers(t *testing.T) {
 func TestWithFeatures_Environment(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ws := testWorkspace()
+	ws := &Workspace{
+		Container:     Container{Environment: map[string]string{"BASE_ENV": "container"}},
+		LambdaMicroVM: &LambdaMicroVM{Environment: map[string]string{"BASE_ENV": "lambda"}},
+		Secrets:       map[string]string{"GH_TOKEN": "gho_base"},
+	}
 	ws.Features = Features{
 		"a": {
 			Environment: map[string]string{"JIRA_SITE": "a.atlassian.net", "GH_TOKEN": "not-secret", "LEVEL": "1"},
@@ -337,7 +375,7 @@ func TestWithFeatures_EnvironmentOnly(t *testing.T) {
 func TestWithFeatures_Commands(t *testing.T) {
 	t.Parallel()
 	// Arrange
-	ws := testWorkspace()
+	ws := &Workspace{Commands: []string{"git clone repo"}}
 	ws.Features = Features{
 		"node":       {Commands: []string{"install node", "install pnpm"}},
 		"codex":      {Commands: []string{"install codex"}, Agent: &Agent{Type: "codex"}},
