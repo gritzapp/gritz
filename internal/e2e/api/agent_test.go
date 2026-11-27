@@ -36,6 +36,7 @@ func TestCreateAgent(t *testing.T) {
 				Conditions: []*gritzv1.RuleCondition{{Attr: "label", Op: "equals", Value: "build-it"}},
 				YieldTo:    []string{"pr-owner"},
 				Link:       "jira.issue",
+				Prompt:     "Start from the issue's acceptance criteria.",
 			},
 			{
 				Source:     "github",

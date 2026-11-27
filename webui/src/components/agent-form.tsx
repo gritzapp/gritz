@@ -44,6 +44,7 @@ import {
   FlaskConical,
   Globe,
   Link2,
+  MessageSquare,
   Plus,
   Shield,
   Trash2,
@@ -865,6 +866,12 @@ function TriggerEditor({
                   Public
                 </Badge>
               )}
+              {trigger.prompt && (
+                <Badge variant="outline" className="font-normal">
+                  <MessageSquare />
+                  Prompt
+                </Badge>
+              )}
             </div>
           )}
         </>
@@ -983,6 +990,22 @@ function TriggerEditor({
             </p>
           )}
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <FieldLabel
+          htmlFor={`${id}-prompt`}
+          hint="An instruction the created task gets after the agent's prompt. Leave it empty to start with the agent's prompt alone."
+        >
+          Prompt
+        </FieldLabel>
+        <Textarea
+          id={`${id}-prompt`}
+          className="min-h-24 font-mono leading-relaxed md:text-[13px]"
+          placeholder="Review the pull request and leave comments."
+          value={trigger.prompt}
+          onChange={(e) => onChange({ ...trigger, prompt: e.target.value })}
+        />
       </div>
 
       <PublicSwitch

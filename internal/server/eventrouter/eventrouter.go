@@ -506,9 +506,14 @@ func (r *Router) create(ctx context.Context, input InputEvent, match TriggerMatc
 	var task *model.Task
 	var external *model.Event
 	err := r.Store.WithTx(ctx, nil, func(tx *sql.Tx) error {
-		prompt := agent.Prompt
-		if prompt == "" {
-			prompt = fmt.Sprintf("You were created by a trigger of agent %q in response to a %s %s event.", agent.Name, input.Source, input.Type)
+		// The agent's prompt, then the trigger's, as separate instructions.
+		// With neither, the task starts from the triggering event alone.
+		var prompts []string
+		if agent.Prompt != "" {
+			prompts = append(prompts, agent.Prompt)
+		}
+		if trigger.Prompt != "" {
+			prompts = append(prompts, trigger.Prompt)
 		}
 		// Hold the agent so a concurrent DeleteAgent sees this task; one
 		// deleted since the plan creates nothing.
@@ -588,15 +593,18 @@ func (r *Router) create(ctx context.Context, input InputEvent, match TriggerMatc
 				return err
 			}
 		}
-		// Instruction events always wake; the task already starts via
-		// Command=Start.
-		if err := r.Store.CreateEvent(ctx, tx, &model.Event{
-			TaskID:  task.ID,
-			OrgID:   task.OrgID,
-			Wake:    true,
-			Payload: &model.InstructionPayload{Text: prompt},
-		}); err != nil {
-			return err
+		// Instruction events always wake; the task already starts once via
+		// Command=Start, and its first run reads every instruction this tx
+		// inserts.
+		for _, prompt := range prompts {
+			if err := r.Store.CreateEvent(ctx, tx, &model.Event{
+				TaskID:  task.ID,
+				OrgID:   task.OrgID,
+				Wake:    true,
+				Payload: &model.InstructionPayload{Text: prompt},
+			}); err != nil {
+				return err
+			}
 		}
 		notification = model.Notification{
 			Type:  "change",

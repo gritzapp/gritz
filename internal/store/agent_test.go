@@ -34,6 +34,7 @@ func TestAgentCRUD(t *testing.T) {
 			Public:     true,
 			YieldTo:    []string{"pr-owner"},
 			Link:       "jira.issue",
+			Prompt:     "Start from the issue's acceptance criteria.",
 		}},
 		Links: []model.AgentLink{
 			{Type: "jira.issue", Events: []model.AgentLinkEvent{{Type: "comment_created"}}},

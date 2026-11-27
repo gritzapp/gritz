@@ -34,6 +34,8 @@ export interface TriggerDraft {
   yieldTo: string
   // A link kind of the agent, or '' for none.
   link: string
+  // An instruction after the agent's prompt, or '' for none.
+  prompt: string
 }
 
 // LinkEventDraft is an event type a link kind delivers, with the conditions
@@ -103,6 +105,7 @@ export const emptyTrigger: TriggerDraft = {
   public: false,
   yieldTo: '',
   link: '',
+  prompt: '',
 }
 
 // emptySchedule is a new schedule: a daily cron in the viewer's timezone,
@@ -135,6 +138,7 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       public: t.public,
       yieldTo: t.yieldTo.join(', '),
       link: t.link,
+      prompt: t.prompt,
     })),
     schedules: agent.schedules.map((s) => ({
       id: String(s.id),
@@ -175,6 +179,7 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       public: t.public,
       yieldTo: splitClaims(t.yieldTo),
       link: t.link,
+      prompt: t.prompt,
     })),
     schedules: values.schedules.map((s) => ({
       id: s.id ? BigInt(s.id) : 0n,

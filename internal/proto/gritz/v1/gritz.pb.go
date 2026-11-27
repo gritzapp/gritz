@@ -7500,7 +7500,10 @@ type AgentTrigger struct {
 	YieldTo []string `protobuf:"bytes,5,rep,name=yield_to,json=yieldTo,proto3" json:"yield_to,omitempty"`
 	// A link kind of the same agent whose type the event type declares. The
 	// created task gets a subscribed link of that kind to the event's resource.
-	Link          string `protobuf:"bytes,6,opt,name=link,proto3" json:"link,omitempty"`
+	Link string `protobuf:"bytes,6,opt,name=link,proto3" json:"link,omitempty"`
+	// Static text the created task gets as an instruction after the agent's
+	// prompt. Empty adds none.
+	Prompt        string `protobuf:"bytes,7,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7573,6 +7576,13 @@ func (x *AgentTrigger) GetYieldTo() []string {
 func (x *AgentTrigger) GetLink() string {
 	if x != nil {
 		return x.Link
+	}
+	return ""
+}
+
+func (x *AgentTrigger) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
 	}
 	return ""
 }
@@ -8636,7 +8646,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\vnext_run_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tnextRunAt\x12:\n" +
 	"\vlast_run_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tlastRunAt\x12 \n" +
 	"\flast_task_id\x18\b \x01(\x03R\n" +
-	"lastTaskId\"\xba\x01\n" +
+	"lastTaskId\"\xd2\x01\n" +
 	"\fAgentTrigger\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x127\n" +
@@ -8645,7 +8655,8 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"conditions\x12\x16\n" +
 	"\x06public\x18\x04 \x01(\bR\x06public\x12\x19\n" +
 	"\byield_to\x18\x05 \x03(\tR\ayieldTo\x12\x12\n" +
-	"\x04link\x18\x06 \x01(\tR\x04link\"\x93\x01\n" +
+	"\x04link\x18\x06 \x01(\tR\x04link\x12\x16\n" +
+	"\x06prompt\x18\a \x01(\tR\x06prompt\"\x93\x01\n" +
 	"\tAgentLink\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +

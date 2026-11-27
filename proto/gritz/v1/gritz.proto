@@ -1027,6 +1027,9 @@ message AgentTrigger {
   // A link kind of the same agent whose type the event type declares. The
   // created task gets a subscribed link of that kind to the event's resource.
   string link = 6;
+  // Static text the created task gets as an instruction after the agent's
+  // prompt. Empty adds none.
+  string prompt = 7;
 }
 
 // AgentLink is a kind of subscribed link the agent's tasks may create, and the
