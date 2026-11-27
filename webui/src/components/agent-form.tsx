@@ -6,8 +6,15 @@ import {
   listAgents,
   listWorkspaces,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import type { AgentSchedule, AttrDef, EventTypeDef, LinkTypeDef } from '@/gen/gritz/v1/gritz_pb'
+import type {
+  AgentSchedule,
+  AttrDef,
+  EventTypeDef,
+  FeatureDecl,
+  LinkTypeDef,
+} from '@/gen/gritz/v1/gritz_pb'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -283,7 +290,7 @@ export function AgentForm({
                     value={values.runner}
                     onValueChange={(runner) =>
                       // Workspaces are per runner, so the previous one likely doesn't apply.
-                      setValues({ ...values, runner, workspace: '', variables: {} })
+                      setValues({ ...values, runner, workspace: '', variables: {}, features: [] })
                     }
                   >
                     <SelectTrigger id="agent-runner" className="w-full">
@@ -303,7 +310,9 @@ export function AgentForm({
                   <Label htmlFor="agent-workspace">Workspace</Label>
                   <Select
                     value={values.workspace}
-                    onValueChange={(ws) => setValues({ ...values, workspace: ws, variables: {} })}
+                    onValueChange={(ws) =>
+                      setValues({ ...values, workspace: ws, variables: {}, features: [] })
+                    }
                     disabled={!values.runner}
                   >
                     <SelectTrigger id="agent-workspace" className="w-full">
@@ -334,6 +343,12 @@ export function AgentForm({
                 decls={workspace?.variables ?? []}
                 values={values.variables}
                 onChange={(variables) => setValues({ ...values, variables })}
+              />
+
+              <FeatureFields
+                decls={workspace?.features ?? []}
+                selected={values.features}
+                onChange={(features) => setValues({ ...values, features })}
               />
 
               <div className="space-y-2">
@@ -501,6 +516,83 @@ export function AgentForm({
         />
       </div>
     </form>
+  )
+}
+
+// FeatureFields offers the workspace's features as checkboxes. Checking one
+// appends it to selected, so the order is the order they were checked in, and
+// each checked feature shows its position: later ones win where two define the
+// same thing. A selected feature the workspace doesn't declare is listed after
+// the declared ones, flagged, so it can be unchecked.
+function FeatureFields({
+  decls,
+  selected,
+  onChange,
+}: {
+  decls: FeatureDecl[]
+  selected: string[]
+  onChange: (features: string[]) => void
+}) {
+  const undeclared = selected.filter((name) => !decls.some((d) => d.name === name))
+  const rows = [
+    ...decls.map((d) => ({ name: d.name, description: d.description, declared: true })),
+    ...undeclared.map((name) => ({ name, description: '', declared: false })),
+  ]
+  if (rows.length === 0) return null
+
+  const toggle = (name: string, on: boolean) =>
+    onChange(on ? [...selected, name] : selected.filter((n) => n !== name))
+
+  return (
+    <fieldset className="space-y-2">
+      <legend className="mb-2">
+        <FieldLabel hint="Each checked feature adds its environment, secrets, MCP servers and setup commands to the workspace's. They apply in the order they were checked: where two define the same name, the later one wins. To move a feature to the end, uncheck it and check it again.">
+          Features
+        </FieldLabel>
+      </legend>
+      <div className="divide-y rounded-md border">
+        {rows.map((row) => {
+          const id = `feature-${row.name}`
+          const position = selected.indexOf(row.name)
+          return (
+            <div key={row.name} className="flex items-start gap-3 px-3 py-2.5">
+              <Checkbox
+                id={id}
+                className="mt-0.5"
+                checked={position >= 0}
+                onCheckedChange={(on) => toggle(row.name, on === true)}
+                aria-describedby={`${id}-description`}
+              />
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <Label htmlFor={id} className="font-mono">
+                  {row.name}
+                </Label>
+                <p
+                  id={`${id}-description`}
+                  className={cn(
+                    'text-xs',
+                    row.declared ? 'text-muted-foreground' : 'text-destructive',
+                  )}
+                >
+                  {row.declared
+                    ? row.description
+                    : 'Not declared by the workspace. Uncheck it to save the agent.'}
+                </p>
+              </div>
+              {position >= 0 && (
+                <Badge
+                  variant="secondary"
+                  className="tabular-nums"
+                  aria-label={`Position ${position + 1}`}
+                >
+                  {position + 1}
+                </Badge>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </fieldset>
   )
 }
 

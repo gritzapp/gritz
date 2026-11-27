@@ -176,6 +176,7 @@ export function TaskSidebar({
             </dl>
 
             <TaskVariables variables={task.variables} />
+            <TaskFeatures features={task.features} />
 
             <div className="my-4 h-px bg-border" />
 
@@ -308,6 +309,7 @@ export function NewTaskSidebar({
               </Detail>
             </dl>
             <TaskVariables variables={agent.variables} />
+            <TaskFeatures features={agent.features} />
           </div>
         )}
       </div>
@@ -463,6 +465,34 @@ function TaskVariables({ variables }: { variables: { [name: string]: string } })
           </div>
         ))}
       </dl>
+    </>
+  )
+}
+
+// TaskFeatures lists the task's features in the order they merge, copied from
+// its agent when it was created: where two define the same name, the later one
+// wins.
+function TaskFeatures({ features }: { features: string[] }) {
+  if (features.length === 0) return null
+
+  return (
+    <>
+      <div className="my-4 h-px bg-border" />
+      <div className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Features
+      </div>
+      <ol className="flex flex-col gap-1.5">
+        {features.map((name, i) => (
+          <li key={name} className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="w-4 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+              {i + 1}
+            </span>
+            <span className="truncate font-mono font-medium" title={name}>
+              {name}
+            </span>
+          </li>
+        ))}
+      </ol>
     </>
   )
 }

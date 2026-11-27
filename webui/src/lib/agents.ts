@@ -73,6 +73,9 @@ export interface AgentFormValues {
   prompt: string
   autoArchive: string
   variables: Record<string, string>
+  // Feature names in the order they were checked, which is the order they
+  // merge in: later wins.
+  features: string[]
   triggers: TriggerDraft[]
   schedules: ScheduleDraft[]
   links: LinkKindDraft[]
@@ -86,6 +89,7 @@ export function emptyAgentValues(): AgentFormValues {
     prompt: '',
     autoArchive: autoArchiveSelectValue(undefined),
     variables: {},
+    features: [],
     triggers: [],
     schedules: [],
     links: [],
@@ -123,6 +127,7 @@ export function agentFormValues(agent: Agent): AgentFormValues {
     prompt: agent.prompt,
     autoArchive: autoArchiveSelectValue(agent.autoArchive),
     variables: { ...agent.variables },
+    features: [...agent.features],
     triggers: agent.triggers.map((t) => ({
       source: t.source,
       type: t.type,
@@ -162,6 +167,7 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
     prompt: values.prompt,
     autoArchive: durationFromAutoArchiveSelect(values.autoArchive),
     variables: values.variables,
+    features: values.features,
     triggers: values.triggers.map((t) => ({
       source: t.source,
       type: t.type,
