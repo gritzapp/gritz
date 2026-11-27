@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/gritzapp/gritz/internal/auth/agentauth"
 	"github.com/gritzapp/gritz/internal/configfile"
+	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/agent/puppet"
 	"github.com/gritzapp/gritz/internal/taskvar"
@@ -131,6 +132,15 @@ type Feature struct {
 
 // Features are a workspace's features by name.
 type Features map[string]Feature
+
+// Decls returns the features' declarations, sorted by name.
+func (f Features) Decls() []model.FeatureDecl {
+	var decls []model.FeatureDecl
+	for _, name := range slices.Sorted(maps.Keys(f)) {
+		decls = append(decls, model.FeatureDecl{Name: name, Description: f[name].Description})
+	}
+	return decls
+}
 
 // WithFeatures returns a copy of w with the named features applied in the
 // order of names, later wins. The result is an ordinary workspace whose own

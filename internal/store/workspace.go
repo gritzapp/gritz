@@ -8,7 +8,6 @@ import (
 
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/sqlc"
-	"github.com/gritzapp/gritz/internal/taskvar"
 )
 
 func (s *Store) DeleteWorkspacesByRunner(ctx context.Context, tx *sql.Tx, runnerID string, orgID int64) error {
@@ -18,12 +17,16 @@ func (s *Store) DeleteWorkspacesByRunner(ctx context.Context, tx *sql.Tx, runner
 	})
 }
 
-// CreateWorkspace registers a runner's workspace with the task variables it
-// declares. ID and UpdatedAt are ignored.
+// CreateWorkspace registers a runner's workspace with the task variables and
+// features it declares. ID and UpdatedAt are ignored.
 func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, ws *model.Workspace) error {
-	// json/v2 encodes a nil slice as []: workspaces.variables holds an array
-	// even when the workspace declares none.
-	data, err := json.Marshal(ws.Variables)
+	// json/v2 encodes a nil slice as []: workspaces.variables and
+	// workspaces.features hold an array even when the workspace declares none.
+	variables, err := json.Marshal(ws.Variables)
+	if err != nil {
+		return err
+	}
+	features, err := json.Marshal(ws.Features)
 	if err != nil {
 		return err
 	}
@@ -32,7 +35,8 @@ func (s *Store) CreateWorkspace(ctx context.Context, tx *sql.Tx, ws *model.Works
 		Name:        ws.Name,
 		Description: ws.Description,
 		OrgID:       ws.OrgID,
-		Variables:   data,
+		Variables:   variables,
+		Features:    features,
 	})
 }
 
@@ -43,30 +47,17 @@ func (s *Store) ListWorkspaces(ctx context.Context, tx *sql.Tx, orgID int64) ([]
 	}
 	workspaces := make([]*model.Workspace, len(rows))
 	for i, row := range rows {
-		var variables []taskvar.Decl
-		if err := json.Unmarshal(row.Variables, &variables); err != nil {
-			return nil, fmt.Errorf("decode workspace %q variables: %w", row.Name, err)
-		}
-		if len(variables) == 0 {
-			variables = nil
-		}
-		workspaces[i] = &model.Workspace{
-			ID:          row.ID,
-			RunnerID:    row.RunnerID,
-			Name:        row.Name,
-			Description: row.Description,
-			OrgID:       row.OrgID,
-			UpdatedAt:   row.UpdatedAt,
-			Variables:   variables,
+		if workspaces[i], err = workspaceFromRow(sqlc.GetWorkspaceRow(row)); err != nil {
+			return nil, err
 		}
 	}
 	return workspaces, nil
 }
 
-// GetWorkspaceVariables returns the variable declarations of a runner's
-// registered workspace, or sql.ErrNoRows when it isn't registered.
-func (s *Store) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) ([]taskvar.Decl, error) {
-	data, err := s.q(tx).GetWorkspaceVariables(ctx, sqlc.GetWorkspaceVariablesParams{
+// GetWorkspace returns a runner's registered workspace with its variables and
+// features, or sql.ErrNoRows when it isn't registered.
+func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name string, orgID int64) (*model.Workspace, error) {
+	row, err := s.q(tx).GetWorkspace(ctx, sqlc.GetWorkspaceParams{
 		RunnerID: runnerID,
 		Name:     name,
 		OrgID:    orgID,
@@ -74,11 +65,31 @@ func (s *Store) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID,
 	if err != nil {
 		return nil, err
 	}
-	var variables []taskvar.Decl
-	if err := json.Unmarshal(data, &variables); err != nil {
-		return nil, fmt.Errorf("decode workspace %q variables: %w", name, err)
+	return workspaceFromRow(row)
+}
+
+func workspaceFromRow(row sqlc.GetWorkspaceRow) (*model.Workspace, error) {
+	ws := &model.Workspace{
+		ID:          row.ID,
+		RunnerID:    row.RunnerID,
+		Name:        row.Name,
+		Description: row.Description,
+		OrgID:       row.OrgID,
+		UpdatedAt:   row.UpdatedAt,
 	}
-	return variables, nil
+	if err := json.Unmarshal(row.Variables, &ws.Variables); err != nil {
+		return nil, fmt.Errorf("decode workspace %q variables: %w", row.Name, err)
+	}
+	if err := json.Unmarshal(row.Features, &ws.Features); err != nil {
+		return nil, fmt.Errorf("decode workspace %q features: %w", row.Name, err)
+	}
+	if len(ws.Variables) == 0 {
+		ws.Variables = nil
+	}
+	if len(ws.Features) == 0 {
+		ws.Features = nil
+	}
+	return ws, nil
 }
 
 func (s *Store) ClearWorkspaces(ctx context.Context, tx *sql.Tx, orgID int64) error {

@@ -343,7 +343,8 @@ CREATE TABLE public.workspaces (
     org_id bigint NOT NULL,
     description text DEFAULT ''::text NOT NULL,
     updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    variables jsonb DEFAULT '[]'::jsonb NOT NULL
+    variables jsonb DEFAULT '[]'::jsonb NOT NULL,
+    features jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -893,4 +894,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261127000001'),
     ('20261128000001'),
     ('20261129000001'),
-    ('20261130000001');
+    ('20261130000001'),
+    ('20261201000001');

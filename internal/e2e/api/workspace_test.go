@@ -24,19 +24,25 @@ func TestRegisterWorkspaces(t *testing.T) {
 			{Name: "workspace-a", Description: "First workspace", Variables: []*gritzv1.VariableDecl{
 				{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
 				{Name: "JIRA_ISSUE", Required: true},
+			}, Features: []*gritzv1.FeatureDecl{
+				{Name: "codex", Description: "Run on Codex"},
+				{Name: "jira"},
 			}},
 			{Name: "workspace-b"},
 		},
 	})
 
-	// Assert - runner-1's workspaces, with their variables, beside the
-	// harness's own.
+	// Assert - runner-1's workspaces, with their variables and features,
+	// beside the harness's own.
 	assert.NilError(t, err)
 	assert.DeepEqual(t, h.Org.ListWorkspaces(&gritzv1.ListWorkspacesRequest{}), []*gritzv1.RegisteredWorkspace{
 		{Name: harness.DefaultWorkspace, RunnerId: harness.DefaultRunner},
 		{Name: "workspace-a", RunnerId: "runner-1", Description: "First workspace", Variables: []*gritzv1.VariableDecl{
 			{Name: "BRANCH", Description: "Branch to check out", Default: "main"},
 			{Name: "JIRA_ISSUE", Required: true},
+		}, Features: []*gritzv1.FeatureDecl{
+			{Name: "codex", Description: "Run on Codex"},
+			{Name: "jira"},
 		}},
 		{Name: "workspace-b", RunnerId: "runner-1"},
 	}, protocmp.Transform(), protocmp.IgnoreFields(&gritzv1.RegisteredWorkspace{}, "updated_at"))

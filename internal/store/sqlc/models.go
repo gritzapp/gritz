@@ -143,4 +143,5 @@ type Workspace struct {
 	Description string          `json:"description"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	Variables   json.RawMessage `json:"variables"`
+	Features    json.RawMessage `json:"features"`
 }

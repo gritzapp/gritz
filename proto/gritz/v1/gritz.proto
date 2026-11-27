@@ -659,12 +659,20 @@ message VariableDecl {
   string default = 4;
 }
 
+// FeatureDecl is a feature a workspace declares; see workspaces.yaml features:.
+message FeatureDecl {
+  string name = 1;
+  string description = 2;
+}
+
 message RegisteredWorkspace {
   string name = 1;
   string runner_id = 2;
   google.protobuf.Timestamp updated_at = 3;
   string description = 4;
   repeated VariableDecl variables = 5;
+  // The workspace's features, sorted by name.
+  repeated FeatureDecl features = 6;
 }
 
 message RegisterWorkspacesRequest {

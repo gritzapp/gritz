@@ -74,14 +74,14 @@ func (s *Server) CreateTask(ctx context.Context, req *gritzv1.CreateTaskRequest)
 	}
 	// The agent was checked against its workspace when it was saved, but the
 	// workspace may have been unregistered or changed its declarations since.
-	decls, err := s.store.GetWorkspaceVariables(ctx, nil, agent.Runner, agent.Workspace, caller.OrgID)
+	ws, err := s.store.GetWorkspace(ctx, nil, agent.Runner, agent.Workspace, caller.OrgID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d: workspace %q not found on runner %q", agent.ID, agent.Workspace, agent.Runner))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	variables, err := taskvar.Resolve(decls, agent.Variables)
+	variables, err := taskvar.Resolve(ws.Variables, agent.Variables)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("agent %d: workspace %q: %w", agent.ID, agent.Workspace, err))
 	}
