@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useMutation } from '@connectrpc/connect-query'
 import { listKeys, deleteKey } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import type { Key } from '@/gen/gritz/v1/gritz_pb'
@@ -12,16 +12,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
+import { NewKeyDialog } from '@/components/new-key-dialog'
 import { RelativeTime } from '@/components/relative-time'
-import { Ellipsis, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react'
-import { useOrgId } from '@/hooks/use-org-id'
+import { Ellipsis, KeyRound, Loader2, Trash2 } from 'lucide-react'
 
 export const Route = createFileRoute('/keys/')({
   component: KeysPage,
 })
 
 function KeysPage() {
-  const orgId = useOrgId()
   const { data, isLoading, error, refetch } = useQuery(
     listKeys,
     {},
@@ -57,12 +56,7 @@ function KeysPage() {
             <span className="text-muted-foreground text-sm tabular-nums">{keys.length}</span>
           )}
         </div>
-        <Link to="/keys/new" search={{ org: orgId }}>
-          <Button>
-            <Plus className="h-4 w-4" />
-            Key
-          </Button>
-        </Link>
+        <NewKeyDialog onCreated={refetch} />
       </div>
       {keys.length === 0 ? (
         <div className="text-muted-foreground text-center py-8">No API keys found</div>
