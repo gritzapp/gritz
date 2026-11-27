@@ -1,8 +1,14 @@
 package runner
 
 import (
+	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"github.com/gritzapp/gritz/internal/gritzclient"
+	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/runner/backend"
 
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/runner/runnerstore"
@@ -159,4 +165,81 @@ func TestBuildSpecs_Variables(t *testing.T) {
 	}
 	assert.DeepEqual(t, spec.Env, want)
 	assert.DeepEqual(t, rs.GetEnv(), want)
+}
+
+// TestTaskManagerSpecs_Features asserts the task's features are applied to
+// the workspace its specs are built from: the run gets their secrets and the
+// agent config their agent: and MCP servers, with the gritz server injected.
+func TestTaskManagerSpecs_Features(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	m := &TaskManager{
+		backend: &backend.BackendMock{
+			ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+			BinaryPathFunc:        func() string { return "/gritz/bin/gritz" },
+		},
+		client: &gritzclient.ClientMock{
+			GetRunSpecInputsFunc: func(context.Context, *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
+				return &gritzv1.GetRunSpecInputsResponse{Token: "t", Features: []string{"jira"}}, nil
+			},
+		},
+		workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{
+			"gritz": {
+				Container: workspace.Container{Image: "alpine:latest"},
+				Agent:     workspace.Agent{Type: "claude"},
+				Secrets:   map[string]string{"GH_TOKEN": "gho"},
+				Features: workspace.Features{"jira": {
+					Secrets:    map[string]string{"JIRA_API_TOKEN": "jira"},
+					McpServers: map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
+					Agent:      &workspace.Agent{Type: "dummy"},
+				}},
+			},
+		}},
+	}
+
+	// Act
+	spec, rs, err := m.specs(t.Context(), runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "gritz"})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, rs.GetSecrets(), map[string]string{"GH_TOKEN": "gho", "JIRA_API_TOKEN": "jira"})
+	var cfg agent.Config
+	for _, f := range spec.Files {
+		if f.Path == agent.DefaultConfigStore.Path(1) {
+			assert.NilError(t, json.Unmarshal(f.Data, &cfg))
+		}
+	}
+	assert.Equal(t, cfg.Type, "dummy")
+	assert.Equal(t, cfg.McpServers["jira"].Command, "jira-mcp")
+	assert.Equal(t, cfg.McpServers["gritz"].Command, "/gritz/bin/gritz")
+}
+
+// TestTaskManagerSpecs_UnknownFeature asserts a run whose task names a
+// feature its workspace doesn't declare fails to build its specs.
+func TestTaskManagerSpecs_UnknownFeature(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	m := &TaskManager{
+		backend: &backend.BackendMock{
+			ValidateWorkspaceFunc: func(*workspace.Workspace) error { return nil },
+		},
+		client: &gritzclient.ClientMock{
+			GetRunSpecInputsFunc: func(context.Context, *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
+				return &gritzv1.GetRunSpecInputsResponse{Token: "t", Features: []string{"node", "jira"}}, nil
+			},
+		},
+		workspaces: &workspace.Config{Workspaces: map[string]workspace.Workspace{
+			"gritz": {
+				Container: workspace.Container{Image: "alpine:latest"},
+				Agent:     workspace.Agent{Type: "dummy"},
+				Features:  workspace.Features{"node": {}},
+			},
+		}},
+	}
+
+	// Act
+	_, _, err := m.specs(t.Context(), runnerstore.TaskChange{ID: 1, Version: 1, Workspace: "gritz"})
+
+	// Assert
+	assert.Error(t, err, `workspace "gritz": unknown feature "jira"`)
 }

@@ -362,9 +362,9 @@ func (m *TaskManager) newRunner(taskID int64) *TaskRunner {
 
 // specs builds the sandbox spec of the task's run c, and the driver.v1
 // RunSpec its run is started with; see TaskRunnerOptions.Spec. It looks up
-// and validates the workspace, fetches the task token and variables, resolves
-// the variables against the workspace's declarations, and leaves the rest to
-// buildSpecs.
+// and validates the workspace, fetches the task token, variables and features,
+// applies the features to the workspace, resolves the variables against its
+// declarations, and leaves the rest to buildSpecs.
 func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*backend.Spec, *driverv1.RunSpec, error) {
 	ws, err := m.workspaces.Get(c.Workspace)
 	if err != nil {
@@ -384,6 +384,10 @@ func (m *TaskManager) specs(ctx context.Context, c runnerstore.TaskChange) (*bac
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get run spec inputs: %w", err)
+	}
+	ws, err = ws.WithFeatures(inputs.Features)
+	if err != nil {
+		return nil, nil, fmt.Errorf("workspace %q: %w", c.Workspace, err)
 	}
 	variables, err := taskvar.Resolve(ws.VariableDecls(), inputs.Variables)
 	if err != nil {

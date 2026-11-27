@@ -55,9 +55,10 @@ them.
   variables. This applies to every way a task is created: triggers, schedules and
   `CreateTask`.
 - The runner gets the task's feature names from `GetRunSpecInputs` and merges
-  the workspace base, then each feature in the order the agent lists them. Where
-  two define the same name, the later one wins:
-  - environment and secrets into the run's environment and secrets;
+  the workspace base, then each feature in the order the agent lists them, into
+  one ordinary workspace for the run. Where two define the same name, the later
+  one wins:
+  - environment and secrets into the workspace's environment and secrets;
   - MCP servers into the agent config;
   - the agent config itself: the last listed feature with `agent:`, or the
     workspace's if none has one;
@@ -133,9 +134,9 @@ workspaces:
 - Feature names are the mapping's keys.
 - `environment` is a backend-agnostic environment map. Workspaces have no such
   base field: their environment is `container.environment` or
-  `lambda_microvm.environment`. A feature can't usefully carry a
-  backend-specific section, because it only reaches the sandbox through the run
-  (see [Reaching the sandbox](#reaching-the-sandbox)).
+  `lambda_microvm.environment`. A feature's `environment` is set in both (see
+  [Reaching the sandbox](#reaching-the-sandbox)), so one feature serves every
+  backend.
 - `secrets` works exactly like the workspace's `secrets:`. Each entry becomes an
   environment variable, and its value is masked in the shipped log.
 - `mcp_servers` takes the same entries as `agent.mcp_servers`. They are added to
@@ -193,9 +194,10 @@ rejected when the runner loads the file.
   sets in `environment` is no longer a secret, and a name it sets in `secrets`
   is masked in the shipped log.
 - **The variables gritz sets** (`GRITZ_TASK_ID`, `GRITZ_SERVER`, `GRITZ_TOKEN`
-  and `GRITZ_VAR_<NAME>`) are set after the features' `environment`, so a
-  feature's `environment` doesn't replace them. A feature's secret of the same
-  name does, as a workspace secret does today.
+  and `GRITZ_VAR_<NAME>`) take precedence over a feature's `environment`, as
+  they do over `container.environment` and `lambda_microvm.environment`. A
+  feature's secret of the same name replaces them, as a workspace secret does
+  today.
 - **MCP servers.** As in [Replacing the agent config](#replacing-the-agent-config):
   the base agent config's servers, then each feature's `mcp_servers:`, later
   wins, then `gritz`.
@@ -203,7 +205,8 @@ rejected when the runner loads the file.
 
 Today's [environment precedence](/operators/workspaces-yaml/#environment)
 otherwise holds. Features' secrets join the workspace's at step 1, and their
-environment joins the variables gritz sets at step 2.
+environment joins `lambda_microvm.environment` at step 2 on Lambda MicroVMs and
+`container.environment` at step 3 on Docker.
 
 ### Command order
 
@@ -218,7 +221,8 @@ are the agent author's to order: in the example above, `playwright` needs
 because features layer on top of the workspace, for example tooling inside the
 repository the base clones.
 
-The runner appends the commands to `agent.Config.Commands`. Setup resumption
+The runner appends the commands to the workspace's `commands`, and from there
+they reach `agent.Config.Commands`. Setup resumption
 (`SetupCommandsCompleted`) indexes into that concatenated list. The list is
 stable for a task because the task's features are fixed at creation. Editing
 `workspaces.yaml` can still change it, as editing the base `commands:` does
@@ -269,37 +273,51 @@ run.
 ### Reaching the sandbox
 
 **Recommendation: the task carries feature names only. The runner fetches them
-with the run's other server-side inputs and merges the features into the specs
-it already builds.**
+with the run's other server-side inputs and folds the features into a copy of
+the workspace. Nothing after that knows about features.**
 
 1. `GetRunSpecInputsResponse` gains `repeated string features`, the task's
    features, next to `variables`.
-2. `TaskManager.specs` calls `ws.Select(inputs.Features)`. It returns the named
-   features in the order of the list, or an error naming a feature the workspace
-   doesn't declare. Like a variable that no longer resolves, that error fails
-   the run, for example `workspace "gritz": unknown feature "jira"`.
-3. `buildSpecs` takes the selected features in `specInput.Features`:
-   - It builds the agent config with `ws.AgentConfig(features)`, which replaces
-     today's `ws.AgentConfig()`. It starts from the agent config of the last
-     feature with `agent:`, or the workspace's. It adds each feature's
-     `mcp_servers` in order, later wins, and appends each feature's `commands`
-     after the workspace's. `buildSpecs` then injects the `gritz` server, as
-     today.
-   - It merges each feature's `environment` into `backend.Spec.Env`, and from
-     there into `RunSpec.env`, and each feature's `secrets` into
-     `backend.Spec.Secrets`, and from there into `RunSpec.secrets`. Feature by
-     feature, a name set in one map is removed from the other, so the later
-     feature decides both the value and whether it is a secret. The variables
-     gritz sets are written into `backend.Spec.Env` after the features.
+2. `TaskManager.specs` calls `ws.WithFeatures(inputs.Features)` as soon as it
+   has the inputs, and builds the run from the workspace it returns. A name the
+   workspace doesn't declare fails the run, like a variable that no longer
+   resolves, for example `workspace "gritz": unknown feature "jira"`.
+3. `WithFeatures` makes a shallow copy of the workspace, copying only the maps
+   and slices it writes to, so the loaded config is never changed. It applies
+   each feature in order, later wins, to the copy's own fields:
+   - `environment` into `container.environment`, and into
+     `lambda_microvm.environment` when the workspace has `lambda_microvm:`;
+     `secrets` into `secrets`. Feature by feature, a name set in one is removed
+     from the other, so the later feature decides both the value and whether it
+     is a secret.
+   - `agent:`: the last feature that has one replaces the workspace's `agent:`.
+     Each feature's `mcp_servers` are then merged into that agent's
+     `mcp_servers`.
+   - `commands` are appended to the workspace's `commands`.
 
-All of this goes through paths that already exist. No backend changes:
-`RunSpec.env` and `RunSpec.secrets` reach every run on every backend, and the
-agent config file is provisioned as it is today. The driver reads the harness
-type from that file, so a feature's `agent.type` needs nothing new in the
-driver.
+The result is an ordinary workspace, so everything downstream goes through
+paths that already exist, with no feature-specific code: `buildSpecs` builds the
+agent config with `AgentConfig()`, injects the `gritz` server last, and sends
+`secrets` in `RunSpec.secrets`, and each backend reads the environment from the
+section it already reads. The driver reads the harness type from the agent
+config file, so a feature's `agent.type` needs nothing new in the driver.
 
-**Masking.** Feature secrets travel in `RunSpec.secrets` next to the workspace's
-own secrets, so the driver handles them identically:
+**Environment per backend.** A workspace's environment lives in its backend's
+section, so that is where a feature's goes:
+
+- **Docker** sets `container.environment` on the container when it creates
+  it.
+- **Lambda MicroVMs** add `lambda_microvm.environment` to every run's
+  environment, under the variables gritz sets.
+- **The local backend** (tests and development) reads no workspace environment
+  at all, neither the base's nor a feature's. A feature's `secrets` still reach
+  it, in `RunSpec.secrets`. If a test needs a feature's `environment` there, the
+  smallest change is for the local backend to return `container.environment`
+  from `RunEnv`, as Lambda MicroVMs return theirs, which serves the base and the
+  features alike.
+
+**Masking.** Feature secrets are merged into the workspace's `secrets`, so they
+travel in `RunSpec.secrets` and the driver handles them identically:
 
 - `driverserver.Env` adds them to the run's environment;
 - `driverserver.Secrets` hands them to the log shipper;
@@ -312,15 +330,16 @@ secret of the same name is masked under that name; the replaced value is no
 longer in the run. The task token's mask is safe too: `driverserver.Secrets`
 already writes `token` last.
 
-**Lifetimes** follow the base fields:
+**Lifetimes** follow the fields a feature is folded into:
 
-- A feature's `environment` and `secrets` are sent with every run, so an edited
-  value reaches existing tasks on their next run.
-- Its `mcp_servers`, `commands` and `agent` are in the agent config, which is
-  provisioned with the sandbox. An edit applies from the next fresh sandbox (a
-  new task, or a reset), as edits to the workspace's `agent:` and `commands` do
-  today. A task created with a harness-replacing feature keeps that harness for
-  as long as its sandbox lives.
+- A feature's `secrets` are sent with every run, so an edited value reaches
+  existing tasks on their next run. So is its `environment` on Lambda
+  MicroVMs.
+- Its `environment` on Docker, and its `mcp_servers`, `commands` and `agent`,
+  are set up with the sandbox. An edit applies from the next fresh sandbox (a
+  new task, or a reset), as edits to `container.environment`, the workspace's
+  `agent:` and `commands` do today. A task created with a harness-replacing
+  feature keeps that harness for as long as its sandbox lives.
 
 ### Schema
 
@@ -443,24 +462,11 @@ type Features map[string]Feature
 // Decls returns the features' declarations, sorted by name. // new
 func (f Features) Decls() []model.FeatureDecl
 
-// Select returns the named features in the order of names, failing on an undeclared name. // new
-func (w *Workspace) Select(names []string) ([]Feature, error)
-
-// AgentConfig returns the agent config of a task with features: the last feature's agent config or the workspace's, plus the features' MCP servers and commands, in order. // changed: takes features
-func (w *Workspace) AgentConfig(features []Feature) agent.Config
+// WithFeatures returns a shallow copy of w with the named features applied in order, later wins: their environment and secrets in the workspace's, the last agent: in Agent, their MCP servers in Agent.McpServers and their commands after Commands. It fails on a name w doesn't declare. // new
+func (w *Workspace) WithFeatures(names []string) (*Workspace, error)
 
 // Validate also checks each feature's MCP servers and agent config. // changed
 func (w *Workspace) Validate() error
-```
-
-```go
-package runner // github.com/gritzapp/gritz/internal/runner
-
-type specInput struct {
-	// ...
-	// Features are the task's features, from GetRunSpecInputs, as Workspace.Select returned them. // new
-	Features []workspace.Feature
-}
 ```
 
 ```go
@@ -498,16 +504,6 @@ type Task struct {
 ```
 
 ```go
-package backend // github.com/gritzapp/gritz/internal/runner/backend
-
-type Spec struct {
-	// ...
-	// Secrets are the workspace's and the task's features' declared secrets, by name. // changed (doc only)
-	Secrets map[string]string
-}
-```
-
-```go
 package store // github.com/gritzapp/gritz/internal/store
 
 // GetWorkspace returns a runner's registered workspace with its variables and features, or sql.ErrNoRows. // new
@@ -524,9 +520,8 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
   `taskvar.Resolve` and `Workspace.CheckFeatures`.
 - `Router.create`, `Schedule.Task` and `CreateTask` copy `Agent.Features` onto
   the task. `GetRunSpecInputs` returns them.
-- `TaskManager.specs` calls `Workspace.Select` and hands the result to
-  `buildSpecs`. `buildSpecs` calls `Workspace.AgentConfig(features)`, injects the
-  `gritz` server, and merges the features' environment and secrets.
+- `TaskManager.specs` calls `Workspace.WithFeatures` and builds the run from the
+  workspace it returns, as from any other.
 - The agent editor reads `ListWorkspaces` for the chosen workspace's features
   and saves `Agent.features` in the order they were checked.
 
@@ -540,19 +535,20 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
    unknown name) and the validation, and running `gritz workspaces` on a file
    with features.
 2. **Features reach the sandbox** — Delivers: `GetRunSpecInputsResponse.features`,
-   `specInput.Features`, `Workspace.AgentConfig(features)` with the agent-config
-   replacement, and the environment and secret merge in `buildSpecs`. The server
-   returns an empty list until tasks have features. Depends on: (1). Verifiable
-   by: `AgentConfig` and `buildSpecs` tests:
+   `Workspace.WithFeatures` with the agent-config replacement and the
+   environment and secret merge, and `TaskManager.specs` calling it. The server returns an empty list until tasks have features.
+   Depends on: (1). Verifiable by: `WithFeatures` tests:
    - a feature's `agent:` replaces the workspace's, keeping none of its fields or
      servers, and the last of several wins;
-   - feature-level servers are added on top in order, later wins, and `gritz`
-     is still injected;
-   - env and secrets, later wins, including a name that changes kind, and the
-     variables gritz sets;
-   - command order follows the list.
+   - feature-level servers are added on top in order, later wins;
+   - env and secrets, later wins, including a name that changes kind, in both
+     backends' environment;
+   - command order follows the list;
+   - the loaded workspace is left unchanged.
 
-   Plus a `specs` test where the returned features name an unknown feature.
+   Plus `specs` tests: the features reach the run's secrets and agent config,
+   with `gritz` still injected, and an unknown feature fails the run.
+   `WithFeatures` replaces `Select`.
 3. **Registered feature declarations** — Delivers: `FeatureDecl` proto and model,
    `RegisteredWorkspace.features`, the `workspaces.features` column,
    `store.GetWorkspace` replacing `GetWorkspaceVariables`, storing them in

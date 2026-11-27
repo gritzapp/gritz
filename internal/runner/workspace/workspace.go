@@ -132,18 +132,68 @@ type Feature struct {
 // Features are a workspace's features by name.
 type Features map[string]Feature
 
-// Select returns the named features in the order of names. It fails on a
-// name the workspace doesn't declare.
-func (w *Workspace) Select(names []string) ([]Feature, error) {
-	var selected []Feature
+// WithFeatures returns a copy of w with the named features applied in the
+// order of names, later wins. The result is an ordinary workspace whose own
+// fields hold the merged config:
+//
+//   - A feature's environment is set in the container's and the Lambda
+//     MicroVM's environment, and its secrets in Secrets. A name set in one is
+//     removed from the other, so the later feature decides both the value and
+//     whether it is a secret.
+//   - The agent: of the last feature that has one replaces Agent as a whole.
+//     Each feature's mcp_servers are then merged into Agent.McpServers.
+//   - Each feature's commands are appended to Commands.
+//
+// The copy is shallow: only the maps and slices it writes to are copied, and
+// it shares the rest with w. It fails on a name w doesn't declare.
+func (w *Workspace) WithFeatures(names []string) (*Workspace, error) {
+	var features []Feature
 	for _, name := range names {
 		f, ok := w.Features[name]
 		if !ok {
 			return nil, fmt.Errorf("unknown feature %q", name)
 		}
-		selected = append(selected, f)
+		features = append(features, f)
 	}
-	return selected, nil
+	ws := *w
+	for _, f := range features {
+		if f.Agent != nil {
+			ws.Agent = *f.Agent
+		}
+	}
+	servers := ws.Agent.McpServers
+	ws.Agent.McpServers = make(map[string]agent.McpServer, len(servers))
+	maps.Copy(ws.Agent.McpServers, servers)
+	ws.Secrets = make(map[string]string, len(w.Secrets))
+	maps.Copy(ws.Secrets, w.Secrets)
+	ws.Container.Environment = make(map[string]string, len(w.Container.Environment))
+	maps.Copy(ws.Container.Environment, w.Container.Environment)
+	if w.LambdaMicroVM != nil {
+		l := *w.LambdaMicroVM
+		l.Environment = make(map[string]string, len(w.LambdaMicroVM.Environment))
+		maps.Copy(l.Environment, w.LambdaMicroVM.Environment)
+		ws.LambdaMicroVM = &l
+	}
+	ws.Commands = slices.Clone(w.Commands)
+	for _, f := range features {
+		for name, value := range f.Environment {
+			ws.Container.Environment[name] = value
+			if ws.LambdaMicroVM != nil {
+				ws.LambdaMicroVM.Environment[name] = value
+			}
+			delete(ws.Secrets, name)
+		}
+		for name, value := range f.Secrets {
+			ws.Secrets[name] = value
+			delete(ws.Container.Environment, name)
+			if ws.LambdaMicroVM != nil {
+				delete(ws.LambdaMicroVM.Environment, name)
+			}
+		}
+		maps.Copy(ws.Agent.McpServers, f.McpServers)
+		ws.Commands = append(ws.Commands, f.Commands...)
+	}
+	return &ws, nil
 }
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
