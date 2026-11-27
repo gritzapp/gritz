@@ -37,14 +37,31 @@ func renderLink(link *gritzv1.TaskLink) string {
 		link.GetRelevance(), link.GetUrl(), link.GetKind())
 }
 
+// renderLinkKind renders one of the agent's link kinds as a list item: the
+// kind's name (the value create_link takes), its link type, and its claim when
+// it has one. Registered as the renderLinkKind template func; the init branch
+// loops over Options.LinkKinds.
+func renderLinkKind(kind *gritzv1.AgentLink) string {
+	name := kind.GetKind()
+	if name == "" {
+		name = kind.GetType()
+	}
+	line := "- `" + name + "`: " + kind.GetType()
+	if claim := kind.GetClaim(); claim != "" {
+		line += ", claim `" + claim + "`"
+	}
+	return line
+}
+
 //go:embed PROMPT.md
 var promptText string
 
 var promptTemplate = template.Must(
 	template.New("prompt").Funcs(template.FuncMap{
-		"renderEvent":  renderEvent,
-		"renderHeader": renderHeader,
-		"renderLink":   renderLink,
+		"renderEvent":    renderEvent,
+		"renderHeader":   renderHeader,
+		"renderLink":     renderLink,
+		"renderLinkKind": renderLinkKind,
 	}).Parse(promptText),
 )
 
@@ -74,6 +91,11 @@ type Options struct {
 	// brief via the renderLink func. They are init-only: a wake resumes the same
 	// session, which already saw the links on its first turn.
 	Links []*gritzv1.TaskLink
+
+	// LinkKinds are the link kinds of the task's agent, listed in the first-run
+	// brief's how-to-work section so the agent knows which kind to pass to
+	// create_link. Init-only, like Links.
+	LinkKinds []*gritzv1.AgentLink
 }
 
 // Render builds the bootstrap prompt sent to the agent from opts.

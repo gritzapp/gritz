@@ -88,6 +88,12 @@ func TestRenderGolden(t *testing.T) {
 			CreatedAt: timestamppb.New(time.Unix(1_700_000_050, 0).UTC()),
 		},
 	}
+	// The agent's link kinds: one named kind with a claim, and one whose kind
+	// defaults to its type.
+	briefLinkKinds := []*gritzv1.AgentLink{
+		{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"},
+		{Type: "jira.issue"},
+	}
 	tests := []struct {
 		name   string
 		opts   Options
@@ -102,7 +108,7 @@ func TestRenderGolden(t *testing.T) {
 		},
 		{
 			name:   "first run renders the task brief",
-			opts:   Options{Task: task, Events: briefEvents, Links: briefLinks},
+			opts:   Options{Task: task, Events: briefEvents, Links: briefLinks, LinkKinds: briefLinkKinds},
 			golden: "prompt-first-run-brief.golden",
 		},
 		{
@@ -110,10 +116,11 @@ func TestRenderGolden(t *testing.T) {
 			// how-to-work section, before the context dump. The prompt is init-only.
 			name: "first run renders the task brief with a workspace prompt",
 			opts: Options{
-				Task:   task,
-				Events: briefEvents,
-				Links:  briefLinks,
-				Prompt: "Custom workspace instructions.",
+				Task:      task,
+				Events:    briefEvents,
+				Links:     briefLinks,
+				LinkKinds: briefLinkKinds,
+				Prompt:    "Custom workspace instructions.",
 			},
 			golden: "prompt-first-run-brief-workspace.golden",
 		},

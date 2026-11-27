@@ -126,26 +126,28 @@ func (s *Server) ListLinks(ctx context.Context, req *gritzv1.ListLinksRequest) (
 	if !caller.Scopes.AllowOp(authscope.OpTaskRead) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read task"))
 	}
-	// A blanket task.read (admin/coarse) is authorized without inspecting the row,
-	// and the list query is already org-scoped. Only a predicated caller needs the
-	// row loaded to check task.id/parent/archived.
-	if !caller.Scopes.Allow(authscope.OpTaskRead) {
-		task, err := s.store.GetTask(ctx, nil, req.TaskId, caller.OrgID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("task %d not found", req.TaskId))
-			}
-			return nil, connect.NewError(connect.CodeInternal, err)
+	// The row is loaded for every caller: a predicated caller needs it to check
+	// task.id/parent/archived, and the response carries its agent's link kinds.
+	task, err := s.store.GetTask(ctx, nil, req.TaskId, caller.OrgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("task %d not found", req.TaskId))
 		}
-		if !caller.Scopes.Allow(authscope.OpTaskRead, task.ScopeAttr()...) {
-			return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read task"))
-		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if !caller.Scopes.Allow(authscope.OpTaskRead, task.ScopeAttr()...) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot read task"))
 	}
 	links, err := s.store.ListLinksByTask(ctx, nil, req.TaskId, caller.OrgID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	agent, err := s.store.GetAgent(ctx, nil, task.OrgID, task.AgentID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
 	return &gritzv1.ListLinksResponse{
 		Links: model.ProtoMap(links),
+		Kinds: agent.Proto().Links,
 	}, nil
 }

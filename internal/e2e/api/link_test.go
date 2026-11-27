@@ -257,6 +257,32 @@ func TestListLinks(t *testing.T) {
 	assert.Assert(t, cmp.Len(resp.Links, 2))
 }
 
+func TestListLinks_Kinds(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	kinds := []*gritzv1.AgentLink{
+		{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"},
+		{Type: "jira.issue"},
+	}
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "implementer",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Links:     kinds,
+	}})
+	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{Name: "Task", AgentId: agent.Id, Draft: true})
+
+	// Act
+	resp, err := h.Org.Client.ListLinks(t.Context(), &gritzv1.ListLinksRequest{
+		TaskId: task.ID,
+	})
+
+	// Assert - the response lists the link kinds of the task's agent.
+	assert.NilError(t, err)
+	assert.DeepEqual(t, resp.Kinds, kinds, protocmp.Transform())
+}
+
 func TestListLinks_Permissions(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -274,8 +300,7 @@ func TestListLinks_Permissions(t *testing.T) {
 		TaskId: task.ID,
 	})
 
-	// Assert - the other org gets an empty list, not an error (blanket read
-	// skips the row load; the list query is org-scoped).
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(resp.Links, 0))
+	// Assert - the task is org-scoped, so the other org can't see it.
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+	assert.Assert(t, resp == nil)
 }

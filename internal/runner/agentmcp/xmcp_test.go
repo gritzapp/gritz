@@ -13,6 +13,7 @@ import (
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/x/mcptest"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -110,6 +111,72 @@ func TestGetMyTask(t *testing.T) {
 			},
 		},
 	})
+}
+
+func TestCreateLink(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]any
+		want *gritzv1.CreateLinkRequest
+	}{
+		{
+			name: "with a kind",
+			args: map[string]any{"relevance": "the PR I opened", "url": "https://github.com/acme/repo/pull/1", "kind": "owned-pr"},
+			want: &gritzv1.CreateLinkRequest{TaskId: 123, Relevance: "the PR I opened", Url: "https://github.com/acme/repo/pull/1", Kind: "owned-pr"},
+		},
+		{
+			name: "plain reference",
+			args: map[string]any{"relevance": "background", "url": "https://example.com/doc", "title": "Doc"},
+			want: &gritzv1.CreateLinkRequest{TaskId: 123, Relevance: "background", Url: "https://example.com/doc", Title: "Doc"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			client := &gritzclient.ClientMock{
+				CreateLinkFunc: func(ctx context.Context, req *gritzv1.CreateLinkRequest) (*gritzv1.CreateLinkResponse, error) {
+					return &gritzv1.CreateLinkResponse{}, nil
+				},
+			}
+			srv := NewServer(client, &model.Task{ID: 123}, nil)
+			session := setupTestSession(t, srv)
+
+			// Act
+			result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+				Name:      "create_link",
+				Arguments: tt.args,
+			})
+			assert.NilError(t, err)
+
+			// Assert
+			assert.Assert(t, !result.IsError, mcptest.CallToolResultText(t, result))
+			calls := client.CreateLinkCalls()
+			assert.Assert(t, cmp.Len(calls, 1))
+			assert.DeepEqual(t, calls[0].CreateLinkRequest, tt.want, protocmp.Transform())
+		})
+	}
+}
+
+func TestCreateLink_Error(t *testing.T) {
+	// Arrange - the server rejects a kind the task's agent doesn't have.
+	client := &gritzclient.ClientMock{
+		CreateLinkFunc: func(ctx context.Context, req *gritzv1.CreateLinkRequest) (*gritzv1.CreateLinkResponse, error) {
+			return nil, errors.New(`unknown link kind "pr": agent "implementer" has link kinds "owned-pr"`)
+		},
+	}
+	srv := NewServer(client, &model.Task{ID: 123}, nil)
+	session := setupTestSession(t, srv)
+
+	// Act
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "create_link",
+		Arguments: map[string]any{"relevance": "the PR I opened", "url": "https://github.com/acme/repo/pull/1", "kind": "pr"},
+	})
+	assert.NilError(t, err)
+
+	// Assert - the agent sees the kinds it may pass.
+	assert.Assert(t, result.IsError, "expected error result")
+	assert.Assert(t, cmp.Contains(mcptest.CallToolResultText(t, result), `has link kinds "owned-pr"`))
 }
 
 func TestGetGitHubToken(t *testing.T) {
