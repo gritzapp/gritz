@@ -8,7 +8,6 @@ import {
   emptyScheduleValues,
   type ScheduleFormValues,
 } from '@/components/schedule-form'
-import { durationFromAutoArchiveSelect } from '@/lib/duration'
 
 export const Route = createFileRoute('/schedules/new')({
   component: NewSchedulePage,
@@ -22,15 +21,11 @@ function NewSchedulePage() {
   const handleSubmit = async (values: ScheduleFormValues) => {
     await mutation.mutateAsync({
       name: values.name,
-      runner: values.runner,
-      workspace: values.workspace,
       agentId: BigInt(values.agentId),
       instructions: [{ text: values.instruction, url: '' }],
       cronExpr: values.cronExpr,
       timezone: values.timezone,
       enabled: values.enabled,
-      autoArchive: durationFromAutoArchiveSelect(values.autoArchive),
-      variables: values.variables,
     })
     navigate({ to: '/schedules', search: { org: orgId } })
   }

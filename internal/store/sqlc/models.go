@@ -80,10 +80,7 @@ type Schedule struct {
 	OrgID        int64           `json:"org_id"`
 	CreatedBy    string          `json:"created_by"`
 	Name         string          `json:"name"`
-	Workspace    string          `json:"workspace"`
-	Runner       string          `json:"runner"`
 	Instructions json.RawMessage `json:"instructions"`
-	AutoArchive  int64           `json:"auto_archive"`
 	CronExpr     string          `json:"cron_expr"`
 	Timezone     string          `json:"timezone"`
 	Enabled      bool            `json:"enabled"`
@@ -92,7 +89,6 @@ type Schedule struct {
 	LastTaskID   sql.NullInt64   `json:"last_task_id"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
-	Variables    json.RawMessage `json:"variables"`
 	AgentID      int64           `json:"agent_id"`
 }
 

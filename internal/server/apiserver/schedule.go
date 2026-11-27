@@ -19,7 +19,8 @@ import (
 // Schedules are org-owned objects; permissions gate the API surface, not the
 // firing (see docs/src/content/docs/proposals/implemented/scheduled-tasks.md
 // §"API surface"). Creating or updating a schedule is a deferred CreateTask, so
-// it demands the same task-create scope on the target (workspace, runner).
+// it demands the same task-create scope on its agent's target (workspace,
+// runner).
 // Deleting or toggling one is a mutation, gated on task-write like every other
 // mutation in the codebase (there is no task-delete tier — write is it). Listing
 // and getting only require org membership, expressed as the task-read capability
@@ -27,53 +28,54 @@ import (
 
 func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateScheduleRequest) (*gritzv1.CreateScheduleResponse, error) {
 	caller := apiauth.MustCaller(ctx)
-	// No row exists yet, so authorize directly on the request's target — the
-	// narrow create scope (workspace/runner) a privileged caller holds, exactly
-	// as CreateTask does. A schedule is never archived, so the literal
-	// task.archived:"false" satisfies the minted scope's archived predicate.
-	if !caller.Scopes.Allow(authscope.OpTaskCreate,
-		authscope.WithTaskWorkspace(req.Workspace),
-		authscope.WithTaskRunner(req.Runner),
-		authscope.WithTaskArchived(false),
-	) {
+	// Coarse, fail-fast capability gate before the agent read (AllowOp ignores
+	// predicates); the narrow create scope is checked on the agent's target.
+	if !caller.Scopes.AllowOp(authscope.OpTaskCreate) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot create schedule"))
 	}
 	sched := &model.Schedule{
 		OrgID:        caller.OrgID,
 		CreatedBy:    caller.ID,
 		Name:         req.Name,
-		Workspace:    req.Workspace,
-		Runner:       req.Runner,
 		AgentID:      req.AgentId,
 		Instructions: model.ScheduleInstructionsFromProto(req.Instructions),
 		CronExpr:     req.CronExpr,
 		Timezone:     cmp.Or(req.Timezone, "UTC"),
 		Enabled:      req.Enabled,
-		Variables:    req.Variables,
 	}
-	if req.AutoArchive != nil {
-		sched.AutoArchive = req.AutoArchive.AsDuration()
-	}
-	// Validate before the write so an invalid schedule can never be stored.
-	if err := scheduler.Validate(ctx, nil, s.store, sched); err != nil {
-		if scheduler.IsInvalidError(err) {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	// An enabled schedule needs its first fire time; a disabled one stays out of
-	// the claim query with next_run_at = NULL.
-	if sched.Enabled {
-		next, err := sched.Next(time.Now())
+	err := s.store.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		// Validate before the write so an invalid schedule can never be stored.
+		agent, err := scheduler.Validate(ctx, tx, s.store, sched)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			if scheduler.IsInvalidError(err) {
+				return connect.NewError(connect.CodeInvalidArgument, err)
+			}
+			return err
 		}
-		sched.NextRunAt = &next
-	}
-	if err := s.store.CreateSchedule(ctx, nil, sched); err != nil {
+		if !allowScheduleTarget(caller, agent) {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot create schedule"))
+		}
+		// An enabled schedule needs its first fire time; a disabled one stays out of
+		// the claim query with next_run_at = NULL.
+		if sched.Enabled {
+			next, err := sched.Next(time.Now())
+			if err != nil {
+				return connect.NewError(connect.CodeInvalidArgument, err)
+			}
+			sched.NextRunAt = &next
+		}
+		if err := s.store.CreateSchedule(ctx, tx, sched); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		if connect.CodeOf(err) != connect.CodeUnknown {
+			return nil, err
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	s.log.InfoContext(ctx, "schedule created", "id", sched.ID, "runner", sched.Runner, "workspace", sched.Workspace)
+	s.log.InfoContext(ctx, "schedule created", "id", sched.ID, "agent", sched.AgentID)
 	// A schedule change only refreshes the Web UI; it never wakes a runner (the
 	// scheduler worker, L4, creates the tasks), so no Runner is set.
 	s.publish(model.Notification{
@@ -116,20 +118,14 @@ func (s *Server) ListSchedules(ctx context.Context, req *gritzv1.ListSchedulesRe
 	return &gritzv1.ListSchedulesResponse{Schedules: model.ProtoMap(scheds)}, nil
 }
 
-// UpdateSchedule replaces the mutable template + spec fields wholesale (the
-// edit form sends the full desired state); enable/disable stays in
-// SetScheduleEnabled. Authorizing already forces the caller to supply the target
-// (workspace, runner), so the request is inherently a full specification.
+// UpdateSchedule replaces the mutable fields wholesale (the edit form sends the
+// full desired state); enable/disable stays in SetScheduleEnabled.
 func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateScheduleRequest) (*gritzv1.UpdateScheduleResponse, error) {
 	caller := apiauth.MustCaller(ctx)
-	// Updating retargets a deferred CreateTask, so authorize the create scope on
-	// the new (workspace, runner) up front. This also denies an empty-scopes
-	// caller before any store access, keeping the row read out of that path.
-	if !caller.Scopes.Allow(authscope.OpTaskCreate,
-		authscope.WithTaskWorkspace(req.Workspace),
-		authscope.WithTaskRunner(req.Runner),
-		authscope.WithTaskArchived(false),
-	) {
+	// Coarse, fail-fast capability gate, so an empty-scopes caller is denied
+	// before any store access; updating retargets a deferred CreateTask, so the
+	// narrow create scope is checked on the new agent's target below.
+	if !caller.Scopes.AllowOp(authscope.OpTaskCreate) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("cannot update schedule"))
 	}
 	timezone := cmp.Or(req.Timezone, "UTC")
@@ -140,19 +136,19 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 			return err
 		}
 		existing.Name = req.Name
-		existing.Workspace = req.Workspace
-		existing.Runner = req.Runner
 		existing.AgentID = req.AgentId
 		existing.Instructions = model.ScheduleInstructionsFromProto(req.Instructions)
 		existing.CronExpr = req.CronExpr
 		existing.Timezone = timezone
-		existing.AutoArchive = req.AutoArchive.AsDuration()
-		existing.Variables = req.Variables
-		if err := scheduler.Validate(ctx, tx, s.store, existing); err != nil {
+		agent, err := scheduler.Validate(ctx, tx, s.store, existing)
+		if err != nil {
 			if scheduler.IsInvalidError(err) {
 				return connect.NewError(connect.CodeInvalidArgument, err)
 			}
 			return err
+		}
+		if !allowScheduleTarget(caller, agent) {
+			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot update schedule"))
 		}
 		// An enabled schedule re-aligns to its cron grid from now on every update,
 		// so a spec edit takes effect immediately; a disabled one keeps
@@ -181,7 +177,7 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	s.log.InfoContext(ctx, "schedule updated", "id", sched.ID, "runner", sched.Runner, "workspace", sched.Workspace)
+	s.log.InfoContext(ctx, "schedule updated", "id", sched.ID, "agent", sched.AgentID)
 	s.publish(model.Notification{
 		Type: "change",
 		Resources: []model.NotificationResource{
@@ -301,22 +297,23 @@ func (s *Server) RunSchedule(ctx context.Context, req *gritzv1.RunScheduleReques
 		if err != nil {
 			return err
 		}
-		// A manual run materializes a real task on the schedule's target, so it
+		// A schedule's agent can't be deleted while the schedule names it.
+		agent, err := scheduler.Agent(ctx, tx, s.store, sched)
+		if err != nil {
+			return fmt.Errorf("schedule %d: agent %d: %w", sched.ID, sched.AgentID, err)
+		}
+		// A manual run materializes a real task on the agent's target, so it
 		// demands the same task-create scope CreateSchedule/UpdateSchedule require —
 		// stronger than the task-write tier used for enable/disable. The target is
-		// read from the row, not the request, so it can't be spoofed.
-		if !caller.Scopes.Allow(authscope.OpTaskCreate,
-			authscope.WithTaskWorkspace(sched.Workspace),
-			authscope.WithTaskRunner(sched.Runner),
-			authscope.WithTaskArchived(false),
-		) {
+		// read from the stored agent, not the request, so it can't be spoofed.
+		if !allowScheduleTarget(caller, agent) {
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot run schedule"))
 		}
 		// Same occurrence the scheduler worker fires — identical task and events —
 		// and nothing else. The schedule row is untouched, so a manual run works
 		// even on a disabled schedule or one whose cron/timezone later became invalid
 		// (this path never computes Next()).
-		task, note, err = scheduler.Fire(ctx, tx, s.store, sched)
+		task, note, err = scheduler.Fire(ctx, tx, s.store, sched, agent)
 		if err != nil {
 			return err
 		}
@@ -338,4 +335,16 @@ func (s *Server) RunSchedule(ctx context.Context, req *gritzv1.RunScheduleReques
 	note.UserID, note.ClientID = caller.ID, caller.ClientID
 	s.publish(note)
 	return &gritzv1.RunScheduleResponse{Task: task.Proto(s.baseURL)}, nil
+}
+
+// allowScheduleTarget reports whether caller may create tasks on agent's
+// target, as a schedule of agent does. A scheduled task is never archived when
+// it is created, so the literal task.archived:"false" satisfies the minted
+// scope's archived predicate.
+func allowScheduleTarget(caller *apiauth.UserInfo, agent *model.Agent) bool {
+	return caller.Scopes.Allow(authscope.OpTaskCreate,
+		authscope.WithTaskWorkspace(agent.Workspace),
+		authscope.WithTaskRunner(agent.Runner),
+		authscope.WithTaskArchived(false),
+	)
 }

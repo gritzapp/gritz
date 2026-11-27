@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -32,8 +31,9 @@ type ScheduleInstruction struct {
 	URL  string `json:"url,omitempty"`
 }
 
-// Schedule is a stored task template plus a cron spec. A server-side scheduler
-// worker materializes a real task run on each occurrence (see
+// Schedule names an agent and the instructions of the tasks it creates, plus a
+// cron spec. A server-side scheduler worker materializes a real task run of the
+// agent on each occurrence (see
 // docs/src/content/docs/proposals/implemented/scheduled-tasks.md). A schedule
 // belongs to an org, not a user — CreatedBy is attribution only and carries no
 // permission semantics.
@@ -43,15 +43,11 @@ type Schedule struct {
 	CreatedBy string `json:"created_by"`
 	Name      string `json:"name"`
 
-	// AgentID is the agent the schedule's tasks belong to.
+	// AgentID is the agent the schedule's tasks belong to; they take its
+	// template.
 	AgentID int64 `json:"agent_id"`
-
-	// Task template.
-	Workspace    string                `json:"workspace"`
-	Runner       string                `json:"runner"`
+	// Instructions are the first instructions of the schedule's tasks.
 	Instructions []ScheduleInstruction `json:"instructions"`
-	AutoArchive  time.Duration         `json:"auto_archive,omitempty"`
-	Variables    map[string]string     `json:"variables,omitempty"`
 
 	// Schedule spec.
 	CronExpr string `json:"cron_expr"`
@@ -67,23 +63,26 @@ type Schedule struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Task builds the occurrence task from the schedule's template: a fresh
-// pending/start task carrying the template's runner/workspace, agent and
-// auto-archive. It is the schedule -> task half of a fire; the scheduler inserts
-// it, then seeds Events(task). The result is byte-for-byte the shape CreateTask
-// produces, so a scheduled task is indistinguishable from a hand-created one.
-func (s *Schedule) Task() *Task {
+// Task builds the occurrence task from the schedule's agent: a fresh
+// pending/start task carrying the agent's runner, workspace, auto-archive and
+// variables. It is the schedule -> task half of a fire; the scheduler inserts
+// it, then seeds Events(task). The task gets the agent's variables as saved;
+// the runner resolves them when it starts it.
+func (s *Schedule) Task(agent *Agent) *Task {
+	if agent.ID != s.AgentID {
+		panic(fmt.Sprintf("model: schedule %d of agent %d built with agent %d", s.ID, s.AgentID, agent.ID))
+	}
 	return &Task{
 		Name:        s.Name,
-		Runner:      s.Runner,
-		Workspace:   s.Workspace,
-		AgentID:     s.AgentID,
+		Runner:      agent.Runner,
+		Workspace:   agent.Workspace,
+		AgentID:     agent.ID,
 		Status:      TaskStatusPending,
 		Command:     TaskCommandStart,
 		Version:     1,
 		OrgID:       s.OrgID,
-		AutoArchive: s.AutoArchive,
-		Variables:   s.Variables,
+		AutoArchive: agent.AutoArchive,
+		Variables:   agent.Variables,
 	}
 }
 
@@ -157,18 +156,14 @@ func (s *Schedule) Proto() *gritzv1.Schedule {
 	pb := &gritzv1.Schedule{
 		Id:           s.ID,
 		Name:         s.Name,
-		Workspace:    s.Workspace,
-		Runner:       s.Runner,
 		AgentId:      s.AgentID,
 		Instructions: make([]*gritzv1.Instruction, len(s.Instructions)),
 		CronExpr:     s.CronExpr,
 		Timezone:     s.Timezone,
 		Enabled:      s.Enabled,
-		AutoArchive:  durationpb.New(s.AutoArchive),
 		CreatedBy:    s.CreatedBy,
 		CreatedAt:    timestamppb.New(s.CreatedAt),
 		UpdatedAt:    timestamppb.New(s.UpdatedAt),
-		Variables:    s.Variables,
 	}
 	for i, inst := range s.Instructions {
 		pb.Instructions[i] = &gritzv1.Instruction{Text: inst.Text, Url: inst.URL}

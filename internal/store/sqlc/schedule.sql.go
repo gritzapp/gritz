@@ -39,9 +39,9 @@ func (q *Queries) AdvanceSchedule(ctx context.Context, arg AdvanceScheduleParams
 }
 
 const claimDueSchedules = `-- name: ClaimDueSchedules :many
-SELECT id, org_id, created_by, name, workspace, runner, instructions,
-       auto_archive, cron_expr, timezone, enabled,
-       next_run_at, last_run_at, last_task_id, created_at, updated_at, variables, agent_id
+SELECT id, org_id, created_by, name, instructions,
+       cron_expr, timezone, enabled,
+       next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
 FROM schedules
 WHERE enabled = TRUE
   AND next_run_at IS NOT NULL
@@ -70,10 +70,7 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 			&i.OrgID,
 			&i.CreatedBy,
 			&i.Name,
-			&i.Workspace,
-			&i.Runner,
 			&i.Instructions,
-			&i.AutoArchive,
 			&i.CronExpr,
 			&i.Timezone,
 			&i.Enabled,
@@ -82,7 +79,6 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 			&i.LastTaskID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Variables,
 			&i.AgentID,
 		); err != nil {
 			return nil, err
@@ -99,8 +95,8 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 }
 
 const createSchedule = `-- name: CreateSchedule :one
-INSERT INTO schedules (org_id, created_by, name, workspace, runner, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables, agent_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+INSERT INTO schedules (org_id, created_by, name, agent_id, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING id
 `
 
@@ -108,10 +104,8 @@ type CreateScheduleParams struct {
 	OrgID        int64           `json:"org_id"`
 	CreatedBy    string          `json:"created_by"`
 	Name         string          `json:"name"`
-	Workspace    string          `json:"workspace"`
-	Runner       string          `json:"runner"`
+	AgentID      int64           `json:"agent_id"`
 	Instructions json.RawMessage `json:"instructions"`
-	AutoArchive  int64           `json:"auto_archive"`
 	CronExpr     string          `json:"cron_expr"`
 	Timezone     string          `json:"timezone"`
 	Enabled      bool            `json:"enabled"`
@@ -120,8 +114,6 @@ type CreateScheduleParams struct {
 	LastTaskID   sql.NullInt64   `json:"last_task_id"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
-	Variables    json.RawMessage `json:"variables"`
-	AgentID      int64           `json:"agent_id"`
 }
 
 func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) (int64, error) {
@@ -129,10 +121,8 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 		arg.OrgID,
 		arg.CreatedBy,
 		arg.Name,
-		arg.Workspace,
-		arg.Runner,
+		arg.AgentID,
 		arg.Instructions,
-		arg.AutoArchive,
 		arg.CronExpr,
 		arg.Timezone,
 		arg.Enabled,
@@ -141,8 +131,6 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 		arg.LastTaskID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
-		arg.Variables,
-		arg.AgentID,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -175,7 +163,7 @@ func (q *Queries) DisableSchedules(ctx context.Context, orgID int64) error {
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, org_id, created_by, name, workspace, runner, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables, agent_id
+SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
 FROM schedules
 WHERE id = $1 AND org_id = $2
 `
@@ -193,10 +181,7 @@ func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (Sched
 		&i.OrgID,
 		&i.CreatedBy,
 		&i.Name,
-		&i.Workspace,
-		&i.Runner,
 		&i.Instructions,
-		&i.AutoArchive,
 		&i.CronExpr,
 		&i.Timezone,
 		&i.Enabled,
@@ -205,14 +190,13 @@ func (q *Queries) GetSchedule(ctx context.Context, arg GetScheduleParams) (Sched
 		&i.LastTaskID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Variables,
 		&i.AgentID,
 	)
 	return i, err
 }
 
 const getScheduleForUpdate = `-- name: GetScheduleForUpdate :one
-SELECT id, org_id, created_by, name, workspace, runner, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables, agent_id
+SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
 FROM schedules
 WHERE id = $1 AND org_id = $2
 FOR UPDATE
@@ -231,10 +215,7 @@ func (q *Queries) GetScheduleForUpdate(ctx context.Context, arg GetScheduleForUp
 		&i.OrgID,
 		&i.CreatedBy,
 		&i.Name,
-		&i.Workspace,
-		&i.Runner,
 		&i.Instructions,
-		&i.AutoArchive,
 		&i.CronExpr,
 		&i.Timezone,
 		&i.Enabled,
@@ -243,14 +224,13 @@ func (q *Queries) GetScheduleForUpdate(ctx context.Context, arg GetScheduleForUp
 		&i.LastTaskID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.Variables,
 		&i.AgentID,
 	)
 	return i, err
 }
 
 const listSchedules = `-- name: ListSchedules :many
-SELECT id, org_id, created_by, name, workspace, runner, instructions, auto_archive, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, variables, agent_id
+SELECT id, org_id, created_by, name, instructions, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, created_at, updated_at, agent_id
 FROM schedules
 WHERE org_id = $1
 ORDER BY created_at DESC
@@ -270,10 +250,7 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 			&i.OrgID,
 			&i.CreatedBy,
 			&i.Name,
-			&i.Workspace,
-			&i.Runner,
 			&i.Instructions,
-			&i.AutoArchive,
 			&i.CronExpr,
 			&i.Timezone,
 			&i.Enabled,
@@ -282,7 +259,6 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 			&i.LastTaskID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.Variables,
 			&i.AgentID,
 		); err != nil {
 			return nil, err
@@ -300,16 +276,14 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 
 const updateSchedule = `-- name: UpdateSchedule :exec
 UPDATE schedules
-SET name = $1, workspace = $2, runner = $3, instructions = $4, auto_archive = $5, cron_expr = $6, timezone = $7, enabled = $8, next_run_at = $9, last_run_at = $10, last_task_id = $11, updated_at = $12, variables = $13, agent_id = $14
-WHERE id = $15 AND org_id = $16
+SET name = $1, agent_id = $2, instructions = $3, cron_expr = $4, timezone = $5, enabled = $6, next_run_at = $7, last_run_at = $8, last_task_id = $9, updated_at = $10
+WHERE id = $11 AND org_id = $12
 `
 
 type UpdateScheduleParams struct {
 	Name         string          `json:"name"`
-	Workspace    string          `json:"workspace"`
-	Runner       string          `json:"runner"`
+	AgentID      int64           `json:"agent_id"`
 	Instructions json.RawMessage `json:"instructions"`
-	AutoArchive  int64           `json:"auto_archive"`
 	CronExpr     string          `json:"cron_expr"`
 	Timezone     string          `json:"timezone"`
 	Enabled      bool            `json:"enabled"`
@@ -317,8 +291,6 @@ type UpdateScheduleParams struct {
 	LastRunAt    sql.NullTime    `json:"last_run_at"`
 	LastTaskID   sql.NullInt64   `json:"last_task_id"`
 	UpdatedAt    time.Time       `json:"updated_at"`
-	Variables    json.RawMessage `json:"variables"`
-	AgentID      int64           `json:"agent_id"`
 	ID           int64           `json:"id"`
 	OrgID        int64           `json:"org_id"`
 }
@@ -326,10 +298,8 @@ type UpdateScheduleParams struct {
 func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) error {
 	_, err := q.db.ExecContext(ctx, updateSchedule,
 		arg.Name,
-		arg.Workspace,
-		arg.Runner,
+		arg.AgentID,
 		arg.Instructions,
-		arg.AutoArchive,
 		arg.CronExpr,
 		arg.Timezone,
 		arg.Enabled,
@@ -337,8 +307,6 @@ func (q *Queries) UpdateSchedule(ctx context.Context, arg UpdateScheduleParams) 
 		arg.LastRunAt,
 		arg.LastTaskID,
 		arg.UpdatedAt,
-		arg.Variables,
-		arg.AgentID,
 		arg.ID,
 		arg.OrgID,
 	)

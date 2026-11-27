@@ -199,10 +199,7 @@ CREATE TABLE public.schedules (
     org_id bigint NOT NULL,
     created_by text NOT NULL,
     name text DEFAULT ''::text NOT NULL,
-    workspace text NOT NULL,
-    runner text NOT NULL,
     instructions jsonb DEFAULT '[]'::jsonb NOT NULL,
-    auto_archive bigint DEFAULT 0 NOT NULL,
     cron_expr text NOT NULL,
     timezone text DEFAULT 'UTC'::text NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
@@ -211,7 +208,6 @@ CREATE TABLE public.schedules (
     last_task_id bigint,
     created_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'UTC'::text) NOT NULL,
-    variables jsonb DEFAULT '{}'::jsonb NOT NULL,
     agent_id bigint NOT NULL
 );
 
@@ -905,4 +901,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261118000001'),
     ('20261119000001'),
     ('20261126000001'),
-    ('20261127000001');
+    ('20261127000001'),
+    ('20261128000001');

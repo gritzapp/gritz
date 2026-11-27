@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store"
-	"github.com/gritzapp/gritz/internal/taskvar"
 	"sync"
 )
 
@@ -36,9 +35,6 @@ var _ Store = &StoreMock{}
 //			},
 //			GetAgentFunc: func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) (*model.Agent, error) {
 //				panic("mock out the GetAgent method")
-//			},
-//			GetWorkspaceVariablesFunc: func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error) {
-//				panic("mock out the GetWorkspaceVariables method")
 //			},
 //			LockLiveAgentFunc: func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error {
 //				panic("mock out the LockLiveAgent method")
@@ -70,9 +66,6 @@ type StoreMock struct {
 
 	// GetAgentFunc mocks the GetAgent method.
 	GetAgentFunc func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) (*model.Agent, error)
-
-	// GetWorkspaceVariablesFunc mocks the GetWorkspaceVariables method.
-	GetWorkspaceVariablesFunc func(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error)
 
 	// LockLiveAgentFunc mocks the LockLiveAgent method.
 	LockLiveAgentFunc func(ctx context.Context, tx *sql.Tx, orgID int64, id int64) error
@@ -136,19 +129,6 @@ type StoreMock struct {
 			// ID is the id argument value.
 			ID int64
 		}
-		// GetWorkspaceVariables holds details about calls to the GetWorkspaceVariables method.
-		GetWorkspaceVariables []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// Tx is the tx argument value.
-			Tx *sql.Tx
-			// RunnerID is the runnerID argument value.
-			RunnerID string
-			// Name is the name argument value.
-			Name string
-			// OrgID is the orgID argument value.
-			OrgID int64
-		}
 		// LockLiveAgent holds details about calls to the LockLiveAgent method.
 		LockLiveAgent []struct {
 			// Ctx is the ctx argument value.
@@ -179,15 +159,14 @@ type StoreMock struct {
 			F func(tx *sql.Tx) error
 		}
 	}
-	lockAdvanceSchedule       sync.RWMutex
-	lockClaimDueSchedules     sync.RWMutex
-	lockCreateEvent           sync.RWMutex
-	lockCreateTask            sync.RWMutex
-	lockGetAgent              sync.RWMutex
-	lockGetWorkspaceVariables sync.RWMutex
-	lockLockLiveAgent         sync.RWMutex
-	lockUpdateSchedule        sync.RWMutex
-	lockWithTx                sync.RWMutex
+	lockAdvanceSchedule   sync.RWMutex
+	lockClaimDueSchedules sync.RWMutex
+	lockCreateEvent       sync.RWMutex
+	lockCreateTask        sync.RWMutex
+	lockGetAgent          sync.RWMutex
+	lockLockLiveAgent     sync.RWMutex
+	lockUpdateSchedule    sync.RWMutex
+	lockWithTx            sync.RWMutex
 }
 
 // AdvanceSchedule calls AdvanceScheduleFunc.
@@ -399,54 +378,6 @@ func (mock *StoreMock) GetAgentCalls() []struct {
 	mock.lockGetAgent.RLock()
 	calls = mock.calls.GetAgent
 	mock.lockGetAgent.RUnlock()
-	return calls
-}
-
-// GetWorkspaceVariables calls GetWorkspaceVariablesFunc.
-func (mock *StoreMock) GetWorkspaceVariables(ctx context.Context, tx *sql.Tx, runnerID string, name string, orgID int64) ([]taskvar.Decl, error) {
-	if mock.GetWorkspaceVariablesFunc == nil {
-		panic("StoreMock.GetWorkspaceVariablesFunc: method is nil but Store.GetWorkspaceVariables was just called")
-	}
-	callInfo := struct {
-		Ctx      context.Context
-		Tx       *sql.Tx
-		RunnerID string
-		Name     string
-		OrgID    int64
-	}{
-		Ctx:      ctx,
-		Tx:       tx,
-		RunnerID: runnerID,
-		Name:     name,
-		OrgID:    orgID,
-	}
-	mock.lockGetWorkspaceVariables.Lock()
-	mock.calls.GetWorkspaceVariables = append(mock.calls.GetWorkspaceVariables, callInfo)
-	mock.lockGetWorkspaceVariables.Unlock()
-	return mock.GetWorkspaceVariablesFunc(ctx, tx, runnerID, name, orgID)
-}
-
-// GetWorkspaceVariablesCalls gets all the calls that were made to GetWorkspaceVariables.
-// Check the length with:
-//
-//	len(mockedStore.GetWorkspaceVariablesCalls())
-func (mock *StoreMock) GetWorkspaceVariablesCalls() []struct {
-	Ctx      context.Context
-	Tx       *sql.Tx
-	RunnerID string
-	Name     string
-	OrgID    int64
-} {
-	var calls []struct {
-		Ctx      context.Context
-		Tx       *sql.Tx
-		RunnerID string
-		Name     string
-		OrgID    int64
-	}
-	mock.lockGetWorkspaceVariables.RLock()
-	calls = mock.calls.GetWorkspaceVariables
-	mock.lockGetWorkspaceVariables.RUnlock()
 	return calls
 }
 

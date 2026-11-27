@@ -71,7 +71,15 @@ func TestEnv_VariablesStaleSchedule(t *testing.T) {
 		RunnerId:   harness.DefaultRunner,
 		Workspaces: []*gritzv1.RegisteredWorkspace{{Name: harness.DefaultWorkspace}},
 	})
+	// The server's registration declares no variables, so an agent without
+	// any saves, while the runner's workspace requires one.
+	stale := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "stale",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+	}})
 	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
+		AgentId:      stale.Id,
 		Instructions: []*gritzv1.Instruction{{Text: "do the thing"}},
 		CronExpr:     "@daily",
 	})
