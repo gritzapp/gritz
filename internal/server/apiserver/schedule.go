@@ -50,7 +50,7 @@ func (s *Server) CreateSchedule(ctx context.Context, req *gritzv1.CreateSchedule
 			}
 			return err
 		}
-		if !allowScheduleTarget(caller, agent) {
+		if !allowAgentTarget(caller, agent) {
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot create schedule"))
 		}
 		// An enabled schedule needs its first fire time; a disabled one stays out of
@@ -144,7 +144,7 @@ func (s *Server) UpdateSchedule(ctx context.Context, req *gritzv1.UpdateSchedule
 			}
 			return err
 		}
-		if !allowScheduleTarget(caller, agent) {
+		if !allowAgentTarget(caller, agent) {
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot update schedule"))
 		}
 		// An enabled schedule re-aligns to its cron grid from now on every update,
@@ -294,7 +294,7 @@ func (s *Server) RunSchedule(ctx context.Context, req *gritzv1.RunScheduleReques
 		if err != nil {
 			return err
 		}
-		// A schedule's agent can't be deleted while the schedule names it.
+		// Deleting an agent deletes its schedules, so the agent is live.
 		agent, err := scheduler.Agent(ctx, tx, s.store, sched)
 		if err != nil {
 			return fmt.Errorf("schedule %d: agent %d: %w", sched.ID, sched.AgentID, err)
@@ -303,7 +303,7 @@ func (s *Server) RunSchedule(ctx context.Context, req *gritzv1.RunScheduleReques
 		// demands the same task-create scope CreateSchedule/UpdateSchedule require —
 		// stronger than the task-write tier used for enable/disable. The target is
 		// read from the stored agent, not the request, so it can't be spoofed.
-		if !allowScheduleTarget(caller, agent) {
+		if !allowAgentTarget(caller, agent) {
 			return connect.NewError(connect.CodePermissionDenied, errors.New("cannot run schedule"))
 		}
 		// Same occurrence the scheduler worker fires — identical task and events —
@@ -332,16 +332,4 @@ func (s *Server) RunSchedule(ctx context.Context, req *gritzv1.RunScheduleReques
 	note.UserID, note.ClientID = caller.ID, caller.ClientID
 	s.publish(note)
 	return &gritzv1.RunScheduleResponse{Task: task.Proto(s.baseURL)}, nil
-}
-
-// allowScheduleTarget reports whether caller may create tasks on agent's
-// target, as a schedule of agent does. A scheduled task is never archived when
-// it is created, so the literal task.archived:"false" satisfies the minted
-// scope's archived predicate.
-func allowScheduleTarget(caller *apiauth.UserInfo, agent *model.Agent) bool {
-	return caller.Scopes.Allow(authscope.OpTaskCreate,
-		authscope.WithTaskWorkspace(agent.Workspace),
-		authscope.WithTaskRunner(agent.Runner),
-		authscope.WithTaskArchived(false),
-	)
 }

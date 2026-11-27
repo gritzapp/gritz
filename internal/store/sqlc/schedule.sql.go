@@ -8,6 +8,8 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 const advanceSchedule = `-- name: AdvanceSchedule :exec
@@ -126,6 +128,22 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 	return id, err
 }
 
+const deleteAgentSchedulesExcept = `-- name: DeleteAgentSchedulesExcept :exec
+DELETE FROM schedules
+WHERE org_id = $1 AND agent_id = $2 AND NOT (id = ANY($3::BIGINT[]))
+`
+
+type DeleteAgentSchedulesExceptParams struct {
+	OrgID   int64   `json:"org_id"`
+	AgentID int64   `json:"agent_id"`
+	KeepIds []int64 `json:"keep_ids"`
+}
+
+func (q *Queries) DeleteAgentSchedulesExcept(ctx context.Context, arg DeleteAgentSchedulesExceptParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentSchedulesExcept, arg.OrgID, arg.AgentID, pq.Array(arg.KeepIds))
+	return err
+}
+
 const deleteSchedule = `-- name: DeleteSchedule :exec
 DELETE FROM schedules WHERE id = $1 AND org_id = $2
 `
@@ -212,6 +230,132 @@ func (q *Queries) GetScheduleForUpdate(ctx context.Context, arg GetScheduleForUp
 	return i, err
 }
 
+const insertAgentSchedule = `-- name: InsertAgentSchedule :one
+INSERT INTO schedules (org_id, name, agent_id, position, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id
+`
+
+type InsertAgentScheduleParams struct {
+	OrgID      int64         `json:"org_id"`
+	Name       string        `json:"name"`
+	AgentID    int64         `json:"agent_id"`
+	Position   int32         `json:"position"`
+	CronExpr   string        `json:"cron_expr"`
+	Timezone   string        `json:"timezone"`
+	Enabled    bool          `json:"enabled"`
+	NextRunAt  sql.NullTime  `json:"next_run_at"`
+	LastRunAt  sql.NullTime  `json:"last_run_at"`
+	LastTaskID sql.NullInt64 `json:"last_task_id"`
+}
+
+func (q *Queries) InsertAgentSchedule(ctx context.Context, arg InsertAgentScheduleParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertAgentSchedule,
+		arg.OrgID,
+		arg.Name,
+		arg.AgentID,
+		arg.Position,
+		arg.CronExpr,
+		arg.Timezone,
+		arg.Enabled,
+		arg.NextRunAt,
+		arg.LastRunAt,
+		arg.LastTaskID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const listAgentSchedules = `-- name: ListAgentSchedules :many
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+FROM schedules
+WHERE org_id = $1 AND agent_id = $2
+ORDER BY position, id
+`
+
+type ListAgentSchedulesParams struct {
+	OrgID   int64 `json:"org_id"`
+	AgentID int64 `json:"agent_id"`
+}
+
+func (q *Queries) ListAgentSchedules(ctx context.Context, arg ListAgentSchedulesParams) ([]Schedule, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentSchedules, arg.OrgID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Schedule{}
+	for rows.Next() {
+		var i Schedule
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.CronExpr,
+			&i.Timezone,
+			&i.Enabled,
+			&i.NextRunAt,
+			&i.LastRunAt,
+			&i.LastTaskID,
+			&i.AgentID,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOrgAgentSchedules = `-- name: ListOrgAgentSchedules :many
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+FROM schedules
+WHERE org_id = $1
+ORDER BY agent_id, position, id
+`
+
+func (q *Queries) ListOrgAgentSchedules(ctx context.Context, orgID int64) ([]Schedule, error) {
+	rows, err := q.db.QueryContext(ctx, listOrgAgentSchedules, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Schedule{}
+	for rows.Next() {
+		var i Schedule
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.CronExpr,
+			&i.Timezone,
+			&i.Enabled,
+			&i.NextRunAt,
+			&i.LastRunAt,
+			&i.LastTaskID,
+			&i.AgentID,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSchedules = `-- name: ListSchedules :many
 SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
 FROM schedules
@@ -252,6 +396,98 @@ func (q *Queries) ListSchedules(ctx context.Context, orgID int64) ([]Schedule, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockAgentSchedules = `-- name: LockAgentSchedules :many
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+FROM schedules
+WHERE org_id = $1 AND agent_id = $2
+FOR UPDATE
+`
+
+type LockAgentSchedulesParams struct {
+	OrgID   int64 `json:"org_id"`
+	AgentID int64 `json:"agent_id"`
+}
+
+// Locks the agent's schedules until the transaction ends. Saving or deleting
+// an agent takes these locks before the agent's, in the scheduler's order.
+func (q *Queries) LockAgentSchedules(ctx context.Context, arg LockAgentSchedulesParams) ([]Schedule, error) {
+	rows, err := q.db.QueryContext(ctx, lockAgentSchedules, arg.OrgID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Schedule{}
+	for rows.Next() {
+		var i Schedule
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Name,
+			&i.CronExpr,
+			&i.Timezone,
+			&i.Enabled,
+			&i.NextRunAt,
+			&i.LastRunAt,
+			&i.LastTaskID,
+			&i.AgentID,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateAgentSchedule = `-- name: UpdateAgentSchedule :execrows
+UPDATE schedules
+SET name = $1, position = $2, cron_expr = $3, timezone = $4, enabled = $5,
+    next_run_at = $6, last_run_at = $7, last_task_id = $8
+WHERE id = $9 AND agent_id = $10 AND org_id = $11
+`
+
+type UpdateAgentScheduleParams struct {
+	Name       string        `json:"name"`
+	Position   int32         `json:"position"`
+	CronExpr   string        `json:"cron_expr"`
+	Timezone   string        `json:"timezone"`
+	Enabled    bool          `json:"enabled"`
+	NextRunAt  sql.NullTime  `json:"next_run_at"`
+	LastRunAt  sql.NullTime  `json:"last_run_at"`
+	LastTaskID sql.NullInt64 `json:"last_task_id"`
+	ID         int64         `json:"id"`
+	AgentID    int64         `json:"agent_id"`
+	OrgID      int64         `json:"org_id"`
+}
+
+// Matches the schedule by its agent too, so a save can't take over another
+// agent's schedule.
+func (q *Queries) UpdateAgentSchedule(ctx context.Context, arg UpdateAgentScheduleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAgentSchedule,
+		arg.Name,
+		arg.Position,
+		arg.CronExpr,
+		arg.Timezone,
+		arg.Enabled,
+		arg.NextRunAt,
+		arg.LastRunAt,
+		arg.LastTaskID,
+		arg.ID,
+		arg.AgentID,
+		arg.OrgID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateSchedule = `-- name: UpdateSchedule :exec

@@ -15,13 +15,10 @@ import (
 )
 
 const agentInUse = `-- name: AgentInUse :one
-SELECT (EXISTS (
+SELECT EXISTS (
     SELECT 1 FROM tasks t
     WHERE t.agent_id = $1 AND t.org_id = $2 AND t.archived = FALSE
-) OR EXISTS (
-    SELECT 1 FROM schedules s
-    WHERE s.agent_id = $1 AND s.org_id = $2
-))::boolean AS in_use
+)::boolean AS in_use
 `
 
 type AgentInUseParams struct {
@@ -29,7 +26,7 @@ type AgentInUseParams struct {
 	OrgID   int64 `json:"org_id"`
 }
 
-// Whether an unarchived task or a schedule references the agent.
+// Whether an unarchived task references the agent.
 func (q *Queries) AgentInUse(ctx context.Context, arg AgentInUseParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, agentInUse, arg.AgentID, arg.OrgID)
 	var in_use bool

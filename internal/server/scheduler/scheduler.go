@@ -179,8 +179,8 @@ func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) 
 }
 
 // Agent returns the schedule's agent, share-locked until tx ends so a
-// concurrent DeleteAgent sees the schedule or the task about to be created of
-// it. It returns sql.ErrNoRows when the agent is deleted.
+// concurrent DeleteAgent sees the task about to be created of it. It returns
+// sql.ErrNoRows when the agent is deleted.
 func Agent(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Agent, error) {
 	if err := st.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule, agen
 // strictly after now, never after the stored next_run_at, so any occurrences
 // missed while the scheduler was down collapse into this single fire (skip-only,
 // never backfill). It returns the change notification to publish once the tick
-// commits.
+// commits, which also names the agent.
 func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule) (model.Notification, error) {
 	now := time.Now()
 	agent, err := Agent(ctx, tx, s.store, sched)
@@ -248,6 +248,8 @@ func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule)
 	if err != nil {
 		return model.Notification{}, err
 	}
+	// The fire moves the schedule's last and next run, which its agent shows.
+	note.Resources = append(note.Resources, model.NotificationResource{Action: "updated", Type: "agent", ID: agent.ID})
 
 	// The task is fired either way; only the schedule write differs.
 	if next, err := sched.Next(now); err != nil {

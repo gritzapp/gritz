@@ -410,6 +410,8 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 		AgentId:  agent.Id,
 		CronExpr: "@daily",
 	})
+	// Saving the agent keeps the schedules it is sent with.
+	agent = h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id})
 	agent.Variables = map[string]string{"JIRA_ISSUE": "APP-143"}
 	agent.Prompt = "Groom the backlog, oldest first."
 	_, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})

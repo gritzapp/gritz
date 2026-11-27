@@ -74,6 +74,56 @@ func (s *Schedule) Validate() error {
 	return nil
 }
 
+// Reschedule carries prev's run state onto s, which replaces prev in its
+// agent; prev is nil for a new schedule. The last run is always prev's.
+// NextRunAt stays prev's while the cron expression, timezone and enabled flag
+// are unchanged, so saving an agent never drops a due occurrence; otherwise it
+// realigns to the next occurrence after now, or nil when s is disabled.
+func (s *Schedule) Reschedule(prev *Schedule, now time.Time) error {
+	s.NextRunAt, s.LastRunAt, s.LastTaskID = nil, nil, nil
+	if prev != nil {
+		if prev.ID != s.ID {
+			panic(fmt.Sprintf("model: schedule %d rescheduled from schedule %d", s.ID, prev.ID))
+		}
+		s.LastRunAt, s.LastTaskID = prev.LastRunAt, prev.LastTaskID
+		if s.CronExpr == prev.CronExpr && s.Timezone == prev.Timezone && s.Enabled == prev.Enabled {
+			s.NextRunAt = prev.NextRunAt
+			return nil
+		}
+	}
+	if !s.Enabled {
+		return nil
+	}
+	next, err := s.Next(now)
+	if err != nil {
+		return err
+	}
+	s.NextRunAt = &next
+	return nil
+}
+
+// AgentProto converts s to the AgentSchedule of its agent's protobuf
+// representation, with the same run state mapping as Proto.
+func (s *Schedule) AgentProto() *gritzv1.AgentSchedule {
+	pb := &gritzv1.AgentSchedule{
+		Id:       s.ID,
+		Name:     s.Name,
+		CronExpr: s.CronExpr,
+		Timezone: s.Timezone,
+		Enabled:  s.Enabled,
+	}
+	if s.NextRunAt != nil {
+		pb.NextRunAt = timestamppb.New(*s.NextRunAt)
+	}
+	if s.LastRunAt != nil {
+		pb.LastRunAt = timestamppb.New(*s.LastRunAt)
+	}
+	if s.LastTaskID != nil {
+		pb.LastTaskId = *s.LastTaskID
+	}
+	return pb
+}
+
 // Proto converts a Schedule to its protobuf representation. A nil next/last-run
 // timestamp (disabled or never fired) maps to an unset proto field; a nil
 // LastTaskID maps to 0 ("never run").

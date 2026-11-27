@@ -191,6 +191,8 @@ const (
 	// GritzServiceDeleteAgentProcedure is the fully-qualified name of the GritzService's DeleteAgent
 	// RPC.
 	GritzServiceDeleteAgentProcedure = "/gritz.v1.GritzService/DeleteAgent"
+	// GritzServiceRunAgentProcedure is the fully-qualified name of the GritzService's RunAgent RPC.
+	GritzServiceRunAgentProcedure = "/gritz.v1.GritzService/RunAgent"
 )
 
 // GritzServiceClient is a client for the gritz.v1.GritzService service.
@@ -279,10 +281,12 @@ type GritzServiceClient interface {
 	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
 	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
 	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
-	// DeleteAgent fails with `failed_precondition` while an unarchived task or
-	// a schedule belongs to the agent. A deleted agent is gone from every agent
-	// RPC; its archived tasks keep its id.
+	// DeleteAgent deletes the agent and its schedules. It fails with
+	// `failed_precondition` while an unarchived task belongs to the agent. A
+	// deleted agent is gone from every agent RPC; its archived tasks keep its id.
 	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
+	// RunAgent creates one task of an agent now.
+	RunAgent(context.Context, *v1.RunAgentRequest) (*v1.RunAgentResponse, error)
 }
 
 // NewGritzServiceClient constructs a client for the gritz.v1.GritzService service. By default, it
@@ -656,6 +660,12 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(gritzServiceMethods.ByName("DeleteAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		runAgent: connect.NewClient[v1.RunAgentRequest, v1.RunAgentResponse](
+			httpClient,
+			baseURL+GritzServiceRunAgentProcedure,
+			connect.WithSchema(gritzServiceMethods.ByName("RunAgent")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -721,6 +731,7 @@ type gritzServiceClient struct {
 	listAgents                     *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 	updateAgent                    *connect.Client[v1.UpdateAgentRequest, v1.UpdateAgentResponse]
 	deleteAgent                    *connect.Client[v1.DeleteAgentRequest, v1.DeleteAgentResponse]
+	runAgent                       *connect.Client[v1.RunAgentRequest, v1.RunAgentResponse]
 }
 
 // Ping calls gritz.v1.GritzService.Ping.
@@ -1263,6 +1274,15 @@ func (c *gritzServiceClient) DeleteAgent(ctx context.Context, req *v1.DeleteAgen
 	return nil, err
 }
 
+// RunAgent calls gritz.v1.GritzService.RunAgent.
+func (c *gritzServiceClient) RunAgent(ctx context.Context, req *v1.RunAgentRequest) (*v1.RunAgentResponse, error) {
+	response, err := c.runAgent.CallUnary(ctx, connect.NewRequest(req))
+	if response != nil {
+		return response.Msg, err
+	}
+	return nil, err
+}
+
 // GritzServiceHandler is an implementation of the gritz.v1.GritzService service.
 type GritzServiceHandler interface {
 	Ping(context.Context, *v1.PingRequest) (*v1.PingResponse, error)
@@ -1349,10 +1369,12 @@ type GritzServiceHandler interface {
 	GetAgent(context.Context, *v1.GetAgentRequest) (*v1.GetAgentResponse, error)
 	ListAgents(context.Context, *v1.ListAgentsRequest) (*v1.ListAgentsResponse, error)
 	UpdateAgent(context.Context, *v1.UpdateAgentRequest) (*v1.UpdateAgentResponse, error)
-	// DeleteAgent fails with `failed_precondition` while an unarchived task or
-	// a schedule belongs to the agent. A deleted agent is gone from every agent
-	// RPC; its archived tasks keep its id.
+	// DeleteAgent deletes the agent and its schedules. It fails with
+	// `failed_precondition` while an unarchived task belongs to the agent. A
+	// deleted agent is gone from every agent RPC; its archived tasks keep its id.
 	DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error)
+	// RunAgent creates one task of an agent now.
+	RunAgent(context.Context, *v1.RunAgentRequest) (*v1.RunAgentResponse, error)
 }
 
 // NewGritzServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -1722,6 +1744,12 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(gritzServiceMethods.ByName("DeleteAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	gritzServiceRunAgentHandler := connect.NewUnaryHandlerSimple(
+		GritzServiceRunAgentProcedure,
+		svc.RunAgent,
+		connect.WithSchema(gritzServiceMethods.ByName("RunAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gritz.v1.GritzService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case GritzServicePingProcedure:
@@ -1844,6 +1872,8 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceUpdateAgentHandler.ServeHTTP(w, r)
 		case GritzServiceDeleteAgentProcedure:
 			gritzServiceDeleteAgentHandler.ServeHTTP(w, r)
+		case GritzServiceRunAgentProcedure:
+			gritzServiceRunAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -2091,4 +2121,8 @@ func (UnimplementedGritzServiceHandler) UpdateAgent(context.Context, *v1.UpdateA
 
 func (UnimplementedGritzServiceHandler) DeleteAgent(context.Context, *v1.DeleteAgentRequest) (*v1.DeleteAgentResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.DeleteAgent is not implemented"))
+}
+
+func (UnimplementedGritzServiceHandler) RunAgent(context.Context, *v1.RunAgentRequest) (*v1.RunAgentResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.RunAgent is not implemented"))
 }

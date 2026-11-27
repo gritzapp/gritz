@@ -79,10 +79,11 @@ func New(t *testing.T, opts *Options) *Harness {
 	}
 	ps := pubsub.NewLocalPubSub()
 	s := &Server{
-		t:       t,
-		Store:   st,
-		appKey:  appKey,
-		timeout: cmp.Or(opts.Timeout, 30*time.Second),
+		t:         t,
+		Store:     st,
+		appKey:    appKey,
+		publisher: ps,
+		timeout:   cmp.Or(opts.Timeout, 30*time.Second),
 	}
 	// The server needs its own URL (the Atlassian webhook URL is built from
 	// it); an unstarted test server has already bound its listener.

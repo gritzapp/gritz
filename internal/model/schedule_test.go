@@ -127,3 +127,89 @@ func TestScheduleValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduleReschedule(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 11, 27, 10, 30, 0, 0, time.UTC)
+	due := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC) // due, not yet claimed
+	last := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	lastTask := int64(2610)
+	// The stored schedule: hourly in UTC, enabled, with a due occurrence.
+	stored := func() *model.Schedule {
+		return &model.Schedule{
+			ID:         41,
+			Name:       "hourly",
+			CronExpr:   "0 * * * *",
+			Timezone:   "UTC",
+			Enabled:    true,
+			NextRunAt:  &due,
+			LastRunAt:  &last,
+			LastTaskID: &lastTask,
+		}
+	}
+
+	tests := []struct {
+		name string
+		prev *model.Schedule
+		s    *model.Schedule
+		want *model.Schedule
+	}{
+		{
+			name: "rename keeps the due occurrence",
+			prev: stored(),
+			s:    &model.Schedule{ID: 41, Name: "renamed", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true},
+			want: &model.Schedule{ID: 41, Name: "renamed", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true, NextRunAt: &due, LastRunAt: &last, LastTaskID: &lastTask},
+		},
+		{
+			name: "reorder keeps the stored run state over the incoming one",
+			prev: stored(),
+			s:    &model.Schedule{ID: 41, Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true, NextRunAt: new(now), LastRunAt: new(now), LastTaskID: new(int64(1))},
+			want: stored(),
+		},
+		{
+			name: "cron edit realigns from now",
+			prev: stored(),
+			s:    &model.Schedule{ID: 41, Name: "hourly", CronExpr: "45 * * * *", Timezone: "UTC", Enabled: true},
+			want: &model.Schedule{ID: 41, Name: "hourly", CronExpr: "45 * * * *", Timezone: "UTC", Enabled: true, NextRunAt: new(time.Date(2026, 11, 27, 10, 45, 0, 0, time.UTC)), LastRunAt: &last, LastTaskID: &lastTask},
+		},
+		{
+			name: "timezone edit realigns from now",
+			prev: &model.Schedule{ID: 41, CronExpr: "0 12 * * *", Timezone: "UTC", Enabled: true, NextRunAt: &due},
+			s:    &model.Schedule{ID: 41, CronExpr: "0 12 * * *", Timezone: "Europe/Paris", Enabled: true},
+			want: &model.Schedule{ID: 41, CronExpr: "0 12 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: new(time.Date(2026, 11, 27, 11, 0, 0, 0, time.UTC))},
+		},
+		{
+			name: "disable clears the next run",
+			prev: stored(),
+			s:    &model.Schedule{ID: 41, Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC"},
+			want: &model.Schedule{ID: 41, Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", LastRunAt: &last, LastTaskID: &lastTask},
+		},
+		{
+			name: "enable realigns from now",
+			prev: &model.Schedule{ID: 41, Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", LastRunAt: &last, LastTaskID: &lastTask},
+			s:    &model.Schedule{ID: 41, Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true},
+			want: &model.Schedule{ID: 41, Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true, NextRunAt: new(time.Date(2026, 11, 27, 11, 0, 0, 0, time.UTC)), LastRunAt: &last, LastTaskID: &lastTask},
+		},
+		{
+			name: "new enabled has its first run and no last run",
+			s:    &model.Schedule{Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true, LastRunAt: &last, LastTaskID: &lastTask},
+			want: &model.Schedule{Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true, NextRunAt: new(time.Date(2026, 11, 27, 11, 0, 0, 0, time.UTC))},
+		},
+		{
+			name: "new disabled has no run",
+			s:    &model.Schedule{Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC", NextRunAt: &due},
+			want: &model.Schedule{Name: "hourly", CronExpr: "0 * * * *", Timezone: "UTC"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.s.Reschedule(tt.prev, now)
+
+			assert.NilError(t, err)
+			assert.DeepEqual(t, tt.s, tt.want)
+		})
+	}
+}

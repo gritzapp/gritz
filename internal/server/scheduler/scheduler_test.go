@@ -159,13 +159,15 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 			assert.Equal(t, *advCalls[0].Adv.LastTaskID, int64(42))
 			assert.Assert(t, cmp.Len(st.UpdateScheduleCalls(), 0))
 
-			// The change notification is published after the transaction.
+			// The change notification is published after the transaction, and
+			// names the agent, whose schedule's run state moved.
 			pubCalls := pub.PublishCalls()
 			assert.Assert(t, cmp.Len(pubCalls, 1))
 			assert.Equal(t, pubCalls[0].N.OrgID, int64(7))
 			assert.DeepEqual(t, pubCalls[0].N.Resources, []model.NotificationResource{
 				{Action: "created", Type: "task", ID: 42},
 				{Action: "appended", Type: "task_events", ID: 42},
+				{Action: "updated", Type: "agent", ID: 3},
 			})
 		})
 	}

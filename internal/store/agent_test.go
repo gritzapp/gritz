@@ -218,7 +218,6 @@ func TestDeleteAgent_InUse(t *testing.T) {
 					Timezone: "UTC",
 				}))
 			},
-			err: store.ErrAgentInUse,
 		},
 		{
 			name: "archived task",
@@ -344,4 +343,187 @@ func TestListAgentsForEvent_ExcludesDeletedAgents(t *testing.T) {
 	// Assert
 	assert.NilError(t, err)
 	assert.DeepEqual(t, result, []store.EventAgent{{Agent: live, IsMember: true}})
+}
+
+func TestAgentSchedules_CreateGetList(t *testing.T) {
+	t.Parallel()
+	// Arrange - run state in the future, so no schedule is due.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ctx := t.Context()
+	next := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Microsecond)
+	last := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	task := teststore.CreateTask(t, s, teststore.CreateOrg(t, s, nil), nil)
+	agent := &model.Agent{
+		OrgID:     org.OrgID,
+		Name:      "bumper",
+		Workspace: "w",
+		Runner:    "r",
+		Schedules: []*model.Schedule{
+			{Name: "nightly", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: &next, LastRunAt: &last, LastTaskID: &task.ID},
+			{Name: "weekend", CronExpr: "0 9 * * 6", Timezone: "UTC"},
+		},
+	}
+	bare := &model.Agent{OrgID: org.OrgID, Name: "bare", Workspace: "w", Runner: "r"}
+
+	// Act
+	assert.NilError(t, s.CreateAgent(ctx, nil, agent))
+	assert.NilError(t, s.CreateAgent(ctx, nil, bare))
+
+	// Assert - the schedules got IDs and their agent, and load in order.
+	for _, sched := range agent.Schedules {
+		assert.Assert(t, sched.ID != 0)
+		assert.Equal(t, sched.OrgID, org.OrgID)
+		assert.Equal(t, sched.AgentID, agent.ID)
+	}
+	got, err := s.GetAgent(ctx, nil, org.OrgID, agent.ID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got, agent)
+	list, err := s.ListAgents(ctx, nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, list, []*model.Agent{bare, agent})
+}
+
+func TestUpdateAgent_Schedules(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent with schedules a, b and c.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ctx := t.Context()
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{Schedules: []*model.Schedule{
+		{Name: "a", CronExpr: "@daily", Timezone: "UTC"},
+		{Name: "b", CronExpr: "@daily", Timezone: "UTC"},
+		{Name: "c", CronExpr: "@daily", Timezone: "UTC"},
+	}})
+	a, b, c := agent.Schedules[0], agent.Schedules[1], agent.Schedules[2]
+
+	// Act - c renamed and moved first, a new d, a last, and b left out.
+	c.Name = "c2"
+	d := &model.Schedule{Name: "d", CronExpr: "@hourly", Timezone: "UTC"}
+	agent.Schedules = []*model.Schedule{c, d, a}
+	err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.UpdateAgent(ctx, tx, agent); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+
+	// Assert - c and a keep their IDs, d gets one, b is gone.
+	assert.NilError(t, err)
+	assert.Assert(t, d.ID != 0)
+	got, err := s.GetAgent(ctx, nil, org.OrgID, agent.ID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got.Schedules, []*model.Schedule{c, d, a})
+	_, err = s.GetSchedule(ctx, nil, b.ID, org.OrgID)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestUpdateAgent_ForeignSchedule(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		owner func(t *testing.T, s *store.Store, org *teststore.Org) *model.Agent
+	}{
+		{
+			name: "another agent's",
+			owner: func(t *testing.T, s *store.Store, org *teststore.Org) *model.Agent {
+				return teststore.CreateAgent(t, s, org, &model.Agent{Name: "owner"})
+			},
+		},
+		{
+			name: "another org's",
+			owner: func(t *testing.T, s *store.Store, org *teststore.Org) *model.Agent {
+				return teststore.CreateAgent(t, s, teststore.CreateOrg(t, s, nil), &model.Agent{Name: "owner"})
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			ctx := t.Context()
+			owner := tt.owner(t, s, org)
+			owner.Schedules = []*model.Schedule{{Name: "theirs", CronExpr: "@daily", Timezone: "UTC"}}
+			assert.NilError(t, s.UpdateAgent(ctx, nil, owner))
+			theirs := owner.Schedules[0]
+			agent := teststore.CreateAgent(t, s, org, nil)
+
+			// Act
+			agent.Schedules = []*model.Schedule{{ID: theirs.ID, Name: "mine", CronExpr: "@hourly", Timezone: "UTC"}}
+			err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+				if err := s.UpdateAgent(ctx, tx, agent); err != nil {
+					return err
+				}
+				return tx.Commit()
+			})
+
+			// Assert - the save fails, and the schedule stays its owner's.
+			assert.ErrorContains(t, err, "is not a schedule of agent")
+			got, err := s.GetAgent(ctx, nil, owner.OrgID, owner.ID)
+			assert.NilError(t, err)
+			assert.DeepEqual(t, got.Schedules, []*model.Schedule{theirs})
+		})
+	}
+}
+
+func TestLockAgentSchedules(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent with two schedules, beside another agent's.
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ctx := t.Context()
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{Schedules: []*model.Schedule{
+		{Name: "a", CronExpr: "@daily", Timezone: "UTC"},
+		{Name: "b", CronExpr: "@daily", Timezone: "UTC"},
+	}})
+	teststore.CreateAgent(t, s, org, &model.Agent{Name: "other", Schedules: []*model.Schedule{
+		{Name: "c", CronExpr: "@daily", Timezone: "UTC"},
+	}})
+
+	// Act
+	var got map[int64]*model.Schedule
+	err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		var err error
+		got, err = s.LockAgentSchedules(ctx, tx, org.OrgID, agent.ID)
+		return err
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got, map[int64]*model.Schedule{
+		agent.Schedules[0].ID: agent.Schedules[0],
+		agent.Schedules[1].ID: agent.Schedules[1],
+	})
+}
+
+func TestDeleteAgent_DeletesSchedules(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ctx := t.Context()
+	agent := teststore.CreateAgent(t, s, org, &model.Agent{Schedules: []*model.Schedule{
+		{Name: "a", CronExpr: "@daily", Timezone: "UTC"},
+	}})
+	other := teststore.CreateAgent(t, s, org, &model.Agent{Name: "other", Schedules: []*model.Schedule{
+		{Name: "b", CronExpr: "@daily", Timezone: "UTC"},
+	}})
+
+	// Act
+	err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
+		if err := s.DeleteAgent(ctx, tx, org.OrgID, agent.ID); err != nil {
+			return err
+		}
+		return tx.Commit()
+	})
+
+	// Assert - its schedule is gone, the other agent's stays.
+	assert.NilError(t, err)
+	_, err = s.GetSchedule(ctx, nil, agent.Schedules[0].ID, org.OrgID)
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+	got, err := s.GetAgent(ctx, nil, org.OrgID, other.ID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, got.Schedules, other.Schedules)
 }

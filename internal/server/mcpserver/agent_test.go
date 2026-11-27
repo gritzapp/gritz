@@ -238,3 +238,39 @@ func TestDeleteAgentInUse(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, result.IsError)
 }
+
+func TestRunAgent(t *testing.T) {
+	// Arrange
+	client := &gritzclient.ClientMock{
+		RunAgentFunc: func(ctx context.Context, req *gritzv1.RunAgentRequest) (*gritzv1.RunAgentResponse, error) {
+			return &gritzv1.RunAgentResponse{Task: &gritzv1.Task{
+				Id:        42,
+				Name:      "bumper",
+				Workspace: "ws",
+				Status:    gritzv1.TaskStatus_PENDING,
+			}}, nil
+		},
+	}
+	session := setupSession(t, client)
+
+	// Act
+	result, err := session.CallTool(t.Context(), &mcp.CallToolParams{
+		Name:      "run_agent",
+		Arguments: map[string]any{"id": 3},
+	})
+
+	// Assert
+	assert.NilError(t, err)
+	assert.Equal(t, len(client.RunAgentCalls()), 1)
+	assert.DeepEqual(t, client.RunAgentCalls()[0].RunAgentRequest,
+		&gritzv1.RunAgentRequest{Id: 3}, protocmp.Transform())
+	var got map[string]any
+	mcptest.UnmarshalCallToolResult(t, result, &got)
+	assert.DeepEqual(t, got, map[string]any{
+		"id":        float64(42),
+		"name":      "bumper",
+		"workspace": "ws",
+		"status":    "PENDING",
+		"archived":  false,
+	})
+}

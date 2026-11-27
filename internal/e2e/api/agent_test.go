@@ -1,13 +1,17 @@
 package api_test
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e/harness"
+	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
+	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/x/cmpx"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -420,29 +424,42 @@ func TestDeleteAgent(t *testing.T) {
 
 func TestDeleteAgent_InUse(t *testing.T) {
 	t.Parallel()
-	// Arrange - an agent with an unarchived task, and one with a schedule.
+	// Arrange - an agent with an unarchived task.
 	h := harness.New(t, nil)
-	withTask := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
 		Name:      "implementer",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 	}})
-	h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: withTask.Id, Draft: true})
-	withSchedule := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+	h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: agent.Id, Draft: true})
+
+	// Act
+	_, err := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: agent.Id})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeFailedPrecondition)
+	assert.Assert(t, cmp.Len(h.Org.ListAgents(&gritzv1.ListAgentsRequest{}), 2))
+}
+
+func TestDeleteAgent_DeletesSchedules(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent with a schedule.
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
 		Name:      "nightly",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{CronExpr: "@daily", Enabled: true}},
 	}})
-	h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{AgentId: withSchedule.Id, CronExpr: "@daily"})
 
 	// Act
-	_, taskErr := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: withTask.Id})
-	_, scheduleErr := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: withSchedule.Id})
+	_, err := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: agent.Id})
 
-	// Assert
-	assert.Equal(t, connect.CodeOf(taskErr), connect.CodeFailedPrecondition)
-	assert.Equal(t, connect.CodeOf(scheduleErr), connect.CodeFailedPrecondition)
-	assert.Assert(t, cmp.Len(h.Org.ListAgents(&gritzv1.ListAgentsRequest{}), 3))
+	// Assert - the agent and its schedule are gone.
+	assert.NilError(t, err)
+	_, err = h.Org.Client.GetAgent(t.Context(), &gritzv1.GetAgentRequest{Id: agent.Id})
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+	assert.Assert(t, cmp.Len(h.Org.ListSchedules(&gritzv1.ListSchedulesRequest{}), 0))
 }
 
 func TestDeleteAgent_ArchivedTasks(t *testing.T) {
@@ -529,4 +546,304 @@ func TestAgent_RequiresOrgRead(t *testing.T) {
 	// Assert
 	assert.Equal(t, connect.CodeOf(getErr), connect.CodePermissionDenied)
 	assert.Equal(t, connect.CodeOf(listErr), connect.CodePermissionDenied)
+}
+
+func TestAgentSchedules(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	agent := &gritzv1.Agent{
+		Name:      "dependency-bumper",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{
+			{Id: 4242, Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, LastTaskId: 7},
+			{Name: "Weekend bump", CronExpr: "0 9 * * 6"},
+		},
+	}
+
+	// Act
+	resp, err := h.Org.Client.CreateAgent(t.Context(), &gritzv1.CreateAgentRequest{Agent: agent})
+
+	// Assert - every schedule is new: incoming ids and run state are ignored,
+	// an enabled one gets its next run, and an empty timezone is UTC.
+	assert.NilError(t, err)
+	got := resp.Agent.Schedules
+	assert.Assert(t, cmp.Len(got, 2))
+	assert.Assert(t, got[0].Id != 0 && got[0].Id != 4242 && got[1].Id != 0)
+	assert.Assert(t, got[0].NextRunAt != nil)
+	assert.DeepEqual(t,
+		got,
+		[]*gritzv1.AgentSchedule{
+			{Id: got[0].Id, Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: got[0].NextRunAt},
+			{Id: got[1].Id, Name: "Weekend bump", CronExpr: "0 9 * * 6", Timezone: "UTC"},
+		},
+		protocmp.Transform(),
+	)
+	assert.DeepEqual(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: resp.Agent.Id}), resp.Agent, protocmp.Transform())
+	assert.DeepEqual(t,
+		h.Org.ListAgents(&gritzv1.ListAgentsRequest{}),
+		[]*gritzv1.Agent{h.Org.DefaultAgent, resp.Agent},
+		protocmp.Transform(),
+	)
+}
+
+func TestUpdateAgent_Schedules(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent with schedules a and b, and another agent's c.
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "bumper",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{
+			{Name: "a", CronExpr: "@daily"},
+			{Name: "b", CronExpr: "@daily"},
+		},
+	}})
+	other := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "other",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "c", CronExpr: "@daily"}},
+	}})
+	a, b := agent.Schedules[0], agent.Schedules[1]
+
+	// Act - b renamed and moved first, a new d, and a left out.
+	agent.Schedules = []*gritzv1.AgentSchedule{
+		{Id: b.Id, Name: "b2", CronExpr: "@daily"},
+		{Name: "d", CronExpr: "@hourly"},
+	}
+	resp, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert
+	assert.NilError(t, err)
+	got := resp.Agent.Schedules
+	assert.Assert(t, cmp.Len(got, 2))
+	assert.Equal(t, got[0].Id, b.Id)
+	assert.Assert(t, got[1].Id != a.Id && got[1].Id != 0)
+	assert.DeepEqual(t,
+		h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}).Schedules,
+		[]*gritzv1.AgentSchedule{
+			{Id: b.Id, Name: "b2", CronExpr: "@daily", Timezone: "UTC"},
+			{Id: got[1].Id, Name: "d", CronExpr: "@hourly", Timezone: "UTC"},
+		},
+		protocmp.Transform(),
+	)
+
+	// Act - another agent's schedule.
+	agent.Schedules = []*gritzv1.AgentSchedule{{Id: other.Schedules[0].Id, Name: "mine", CronExpr: "@daily"}}
+	_, err = h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert - rejected, and the other agent keeps it.
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.ErrorContains(t, err, fmt.Sprintf("schedule %d is not a schedule of agent %d", other.Schedules[0].Id, agent.Id))
+	assert.DeepEqual(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: other.Id}), other, protocmp.Transform())
+
+	// Act - an invalid cron expression.
+	agent.Schedules = []*gritzv1.AgentSchedule{{Name: "bad", CronExpr: "not a cron"}}
+	_, err = h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.ErrorContains(t, err, "invalid cron expression")
+}
+
+func TestUpdateAgent_KeepsDueSchedule(t *testing.T) {
+	t.Parallel()
+	// Arrange - an enabled schedule whose occurrence is due but not yet fired.
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "bumper",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "hourly", CronExpr: "0 * * * *", Enabled: true}},
+	}})
+	sched := agent.Schedules[0]
+	// No RPC moves a schedule's clock, so the store makes it due, and deletes
+	// it afterwards so it doesn't stay due in the shared database.
+	due := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	assert.NilError(t, h.Server.Store.AdvanceSchedule(t.Context(), nil, sched.Id, h.Org.ID, store.ScheduleAdvance{NextRunAt: &due}))
+	t.Cleanup(func() {
+		assert.NilError(t, h.Server.Store.DeleteSchedule(context.Background(), nil, sched.Id, h.Org.ID))
+	})
+
+	// Act - an edit that leaves the schedule's spec alone.
+	agent.Prompt = "Bump the dependencies."
+	agent.Schedules = []*gritzv1.AgentSchedule{{Id: sched.Id, Name: "renamed", CronExpr: "0 * * * *", Timezone: "UTC", Enabled: true}}
+	resp, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert - the due occurrence is kept.
+	assert.NilError(t, err)
+	assert.Equal(t, resp.Agent.Schedules[0].NextRunAt.AsTime(), due)
+
+	// Act - a cron edit.
+	agent.Schedules[0].CronExpr = "30 * * * *"
+	resp, err = h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert - it realigns from now.
+	assert.NilError(t, err)
+	assert.Assert(t, resp.Agent.Schedules[0].NextRunAt.AsTime().After(time.Now()))
+}
+
+// An agent edited between two fires of its schedule: the edit keeps the
+// schedule's run state, and the second fire takes the edited agent.
+func TestAgentSchedule_EditBetweenFires(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "dependency-bumper",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Prompt:    "Bump outdated dependencies.",
+		Schedules: []*gritzv1.AgentSchedule{{Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true}},
+	}})
+	sched := agent.Schedules[0]
+	h.Org.FireSchedule(agent.Id, sched.Id)
+	fired := h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}).Schedules[0]
+	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
+	assert.Assert(t, cmp.Len(tasks, 1))
+	first := tasks[0]
+	assert.Equal(t, first.Name, "Nightly bump")
+	assert.Equal(t, fired.LastTaskId, first.Id)
+	assert.Assert(t, fired.LastRunAt != nil && fired.NextRunAt != nil)
+
+	// Act - rename the schedule, change the prompt, add a schedule.
+	agent.Prompt = "Bump outdated dependencies, then open a pull request."
+	agent.Schedules = []*gritzv1.AgentSchedule{
+		{Id: sched.Id, Name: "Nightly bump v2", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true},
+		{Name: "Weekend bump", CronExpr: "0 9 * * 6"},
+	}
+	resp, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert - the schedule keeps its run state.
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		resp.Agent.Schedules[0],
+		&gritzv1.AgentSchedule{
+			Id:         sched.Id,
+			Name:       "Nightly bump v2",
+			CronExpr:   "0 3 * * *",
+			Timezone:   "Europe/Paris",
+			Enabled:    true,
+			NextRunAt:  fired.NextRunAt,
+			LastRunAt:  fired.LastRunAt,
+			LastTaskId: first.Id,
+		},
+		protocmp.Transform(),
+	)
+
+	// Act - the second fire.
+	h.Org.FireSchedule(agent.Id, sched.Id)
+
+	// Assert - a task of the edited agent, recorded as the last run.
+	tasks = h.Org.ListTasks(&gritzv1.ListTasksRequest{})
+	assert.Assert(t, cmp.Len(tasks, 2))
+	var second *gritzv1.Task
+	for _, task := range tasks {
+		if task.Id != first.Id {
+			second = task
+		}
+	}
+	assert.Equal(t, second.Name, "Nightly bump v2")
+	assert.DeepEqual(t,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: second.Id}),
+		[]*gritzv1.Event{
+			{},
+			{},
+			{Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: "Bump outdated dependencies, then open a pull request.",
+			}}},
+		},
+		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Event{}, "instruction"),
+	)
+	assert.Equal(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}).Schedules[0].LastTaskId, second.Id)
+}
+
+func TestRunAgent(t *testing.T) {
+	t.Parallel()
+	// Arrange - an agent without a prompt, with a disabled schedule.
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "dependency-bumper",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "Weekend bump", CronExpr: "0 9 * * 6"}},
+	}})
+
+	// Act
+	resp, err := h.Org.Client.RunAgent(t.Context(), &gritzv1.RunAgentRequest{Id: agent.Id})
+
+	// Assert - a task of the agent, named after it and created by the caller.
+	assert.NilError(t, err)
+	assert.DeepEqual(t,
+		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
+		[]*gritzv1.Task{{
+			Id:        resp.Task.Id,
+			Name:      "dependency-bumper",
+			Workspace: harness.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
+			AgentId:   agent.Id,
+		}},
+		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
+	)
+	assert.DeepEqual(t,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id}),
+		[]*gritzv1.Event{
+			{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+				Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
+				Actor:    &gritzv1.Actor{Kind: "user", Name: h.Org.Owner.UserID},
+				ToStatus: model.TaskStatusPending.Label(),
+			}}},
+			{},
+			{Wake: true, Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: `You were created by running agent "dependency-bumper".`,
+			}}},
+		},
+		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Event{}, "lifecycle", "instruction", "wake"),
+	)
+	// The run left the schedule's run state alone.
+	assert.DeepEqual(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}), agent, protocmp.Transform())
+
+	// Act - a missing agent.
+	_, err = h.Org.Client.RunAgent(t.Context(), &gritzv1.RunAgentRequest{Id: agent.Id + 1000})
+
+	// Assert
+	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
+}
+
+func TestRunAgent_RequiresCreateScope(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "bumper",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+	}})
+	createScope := func(workspace string) authscope.Scope {
+		return authscope.New(authscope.OpTaskCreate,
+			authscope.WithTaskWorkspace(workspace),
+			authscope.WithTaskRunner(harness.DefaultRunner),
+			authscope.WithTaskArchived(false),
+		)
+	}
+	orgWriter := h.Org.CreateScopedKey(authscope.Scopes{authscope.New(authscope.OpOrgWrite)})
+	elsewhere := h.Org.CreateScopedKey(authscope.Scopes{createScope("other-workspace")})
+	creator := h.Org.CreateScopedKey(authscope.Scopes{createScope(harness.DefaultWorkspace)})
+	req := &gritzv1.RunAgentRequest{Id: agent.Id}
+
+	// Act
+	_, orgWriterErr := orgWriter.Client.RunAgent(t.Context(), req)
+	_, elsewhereErr := elsewhere.Client.RunAgent(t.Context(), req)
+	_, creatorErr := creator.Client.RunAgent(t.Context(), req)
+
+	// Assert - only task-create on the agent's target may run it.
+	assert.Equal(t, connect.CodeOf(orgWriterErr), connect.CodePermissionDenied)
+	assert.Equal(t, connect.CodeOf(elsewhereErr), connect.CodePermissionDenied)
+	assert.NilError(t, creatorErr)
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/gritzapp/gritz/internal/store/sqlc"
 )
 
-// CreateAgent inserts a and sets its ID.
+// CreateAgent inserts a and its schedules, and sets their IDs.
 func (s *Store) CreateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) error {
 	cols, err := marshalAgent(a)
 	if err != nil {
@@ -33,34 +33,82 @@ func (s *Store) CreateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 		return err
 	}
 	a.ID = id
+	for i, sched := range a.Schedules {
+		if err := s.insertAgentSchedule(ctx, tx, a, i, sched); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// GetAgent returns the org's agent by ID, or sql.ErrNoRows when it is deleted
-// or the org has none.
+// GetAgent returns the org's agent by ID, with its schedules, or
+// sql.ErrNoRows when it is deleted or the org has none.
 func (s *Store) GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error) {
 	row, err := s.q(tx).GetAgent(ctx, sqlc.GetAgentParams{OrgID: orgID, ID: id})
 	if err != nil {
 		return nil, err
 	}
-	return toModelAgent(row)
+	a, err := toModelAgent(row)
+	if err != nil {
+		return nil, err
+	}
+	scheds, err := s.q(tx).ListAgentSchedules(ctx, sqlc.ListAgentSchedulesParams{OrgID: orgID, AgentID: id})
+	if err != nil {
+		return nil, err
+	}
+	if len(scheds) > 0 {
+		a.Schedules = toModelSchedules(scheds)
+	}
+	return a, nil
 }
 
-// ListAgents returns the org's live agents, ordered by name and ID.
+// ListAgents returns the org's live agents with their schedules, ordered by
+// name and ID.
 func (s *Store) ListAgents(ctx context.Context, tx *sql.Tx, orgID int64) ([]*model.Agent, error) {
 	rows, err := s.q(tx).ListAgents(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
 	agents := make([]*model.Agent, len(rows))
+	byID := make(map[int64]*model.Agent, len(rows))
 	for i, row := range rows {
 		a, err := toModelAgent(row)
 		if err != nil {
 			return nil, err
 		}
 		agents[i] = a
+		byID[a.ID] = a
+	}
+	scheds, err := s.q(tx).ListOrgAgentSchedules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range scheds {
+		// Outside a transaction, the agent may have been created after the
+		// agents were listed.
+		if a := byID[row.AgentID]; a != nil {
+			a.Schedules = append(a.Schedules, toModelSchedule(row))
+		}
 	}
 	return agents, nil
+}
+
+// LockAgentSchedules locks the org's agent's schedules until tx ends and
+// returns them by ID. UpdateAgent and DeleteAgent take these locks before the
+// agent's, the order the scheduler takes them in.
+func (s *Store) LockAgentSchedules(ctx context.Context, tx *sql.Tx, orgID, agentID int64) (map[int64]*model.Schedule, error) {
+	if tx == nil {
+		panic("store: LockAgentSchedules requires a transaction")
+	}
+	rows, err := s.q(tx).LockAgentSchedules(ctx, sqlc.LockAgentSchedulesParams{OrgID: orgID, AgentID: agentID})
+	if err != nil {
+		return nil, err
+	}
+	scheds := make(map[int64]*model.Schedule, len(rows))
+	for _, row := range rows {
+		scheds[row.ID] = toModelSchedule(row)
+	}
+	return scheds, nil
 }
 
 // EventAgent is a live agent of an org an event routes in, and whether the
@@ -111,7 +159,11 @@ func (s *Store) ListAgentsForEvent(ctx context.Context, tx *sql.Tx, userID strin
 }
 
 // UpdateAgent replaces the stored agent with a, matched by a.ID and a.OrgID.
-// It returns sql.ErrNoRows when it is deleted or the org has none.
+// Its schedules are updated by ID, inserted without one (setting their IDs),
+// and deleted when a leaves them out; each is written as is, run state
+// included, at its index in a.Schedules. It returns sql.ErrNoRows when the
+// agent is deleted or the org has none, and an error for a schedule ID that
+// isn't one of the agent's.
 func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) error {
 	cols, err := marshalAgent(a)
 	if err != nil {
@@ -135,22 +187,88 @@ func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 	if n == 0 {
 		return sql.ErrNoRows
 	}
+	// Non-nil: a NULL array would keep every schedule.
+	keep := []int64{}
+	for _, sched := range a.Schedules {
+		if sched.ID != 0 {
+			keep = append(keep, sched.ID)
+		}
+	}
+	if err := s.q(tx).DeleteAgentSchedulesExcept(ctx, sqlc.DeleteAgentSchedulesExceptParams{
+		OrgID:   a.OrgID,
+		AgentID: a.ID,
+		KeepIds: keep,
+	}); err != nil {
+		return err
+	}
+	for i, sched := range a.Schedules {
+		if sched.ID == 0 {
+			if err := s.insertAgentSchedule(ctx, tx, a, i, sched); err != nil {
+				return err
+			}
+			continue
+		}
+		sched.OrgID, sched.AgentID = a.OrgID, a.ID
+		n, err := s.q(tx).UpdateAgentSchedule(ctx, sqlc.UpdateAgentScheduleParams{
+			Name:       sched.Name,
+			Position:   int32(i),
+			CronExpr:   sched.CronExpr,
+			Timezone:   sched.Timezone,
+			Enabled:    sched.Enabled,
+			NextRunAt:  nullTime(sched.NextRunAt),
+			LastRunAt:  nullTime(sched.LastRunAt),
+			LastTaskID: nullInt64(sched.LastTaskID),
+			ID:         sched.ID,
+			AgentID:    a.ID,
+			OrgID:      a.OrgID,
+		})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("schedule %d is not a schedule of agent %d", sched.ID, a.ID)
+		}
+	}
 	return nil
 }
 
-// ErrAgentInUse is returned by DeleteAgent for an agent an unarchived task or
-// a schedule belongs to.
+// insertAgentSchedule inserts sched as the schedule at position i of a, and
+// sets its ID.
+func (s *Store) insertAgentSchedule(ctx context.Context, tx *sql.Tx, a *model.Agent, i int, sched *model.Schedule) error {
+	sched.OrgID, sched.AgentID = a.OrgID, a.ID
+	id, err := s.q(tx).InsertAgentSchedule(ctx, sqlc.InsertAgentScheduleParams{
+		OrgID:      a.OrgID,
+		Name:       sched.Name,
+		AgentID:    a.ID,
+		Position:   int32(i),
+		CronExpr:   sched.CronExpr,
+		Timezone:   sched.Timezone,
+		Enabled:    sched.Enabled,
+		NextRunAt:  nullTime(sched.NextRunAt),
+		LastRunAt:  nullTime(sched.LastRunAt),
+		LastTaskID: nullInt64(sched.LastTaskID),
+	})
+	if err != nil {
+		return err
+	}
+	sched.ID = id
+	return nil
+}
+
+// ErrAgentInUse is returned by DeleteAgent for an agent an unarchived task
+// belongs to.
 var ErrAgentInUse = errors.New("agent in use")
 
-// DeleteAgent soft-deletes the org's agent in tx, after which no method sees
-// it: its row stays, so its archived tasks keep referencing it. It returns
-// ErrAgentInUse while an unarchived task or a schedule belongs to it, and
-// sql.ErrNoRows when the org has no such live agent. It locks the agent
-// first, so a concurrent LockLiveAgent holder finishes creating or
+// DeleteAgent deletes the org's agent's schedules and soft-deletes the agent
+// in tx, after which no method sees it: its row stays, so its archived tasks
+// keep referencing it. It returns ErrAgentInUse while an unarchived task
+// belongs to it, and sql.ErrNoRows when the org has no such live agent. It
+// locks the agent's schedules, then the agent, so a fire in flight finishes
+// first; a concurrent LockLiveAgent holder likewise finishes creating or
 // unarchiving its task before the check, which then sees that task.
 func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error {
-	if tx == nil {
-		panic("store: DeleteAgent requires a transaction")
+	if _, err := s.LockAgentSchedules(ctx, tx, orgID, id); err != nil {
+		return err
 	}
 	if _, err := s.q(tx).LockAgentForDelete(ctx, sqlc.LockAgentForDeleteParams{OrgID: orgID, ID: id}); err != nil {
 		return err
@@ -161,6 +279,15 @@ func (s *Store) DeleteAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) er
 	}
 	if inUse {
 		return ErrAgentInUse
+	}
+	// After the agent's lock, so this also deletes a schedule added while
+	// the agent was share-locked.
+	if err := s.q(tx).DeleteAgentSchedulesExcept(ctx, sqlc.DeleteAgentSchedulesExceptParams{
+		OrgID:   orgID,
+		AgentID: id,
+		KeepIds: []int64{},
+	}); err != nil {
+		return err
 	}
 	return s.q(tx).DeleteAgent(ctx, sqlc.DeleteAgentParams{ID: id, OrgID: orgID})
 }

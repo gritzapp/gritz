@@ -27,7 +27,11 @@ function AgentPage() {
 
   const handleSubmit = async (values: AgentFormValues) => {
     if (!agent) return
-    await mutation.mutateAsync({ agent: buildAgent(values, agent.id) })
+    // The form doesn't edit schedules yet: send the loaded ones back, or the
+    // save would delete them.
+    const built = buildAgent(values, agent.id)
+    built.schedules = agent.schedules
+    await mutation.mutateAsync({ agent: built })
     await invalidateAgents()
     setRevision((r) => r + 1)
   }

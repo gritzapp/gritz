@@ -62,3 +62,40 @@ FOR UPDATE SKIP LOCKED;
 UPDATE schedules
 SET next_run_at = $1, last_run_at = $2, last_task_id = $3
 WHERE id = $4 AND org_id = $5;
+
+-- name: ListAgentSchedules :many
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+FROM schedules
+WHERE org_id = $1 AND agent_id = $2
+ORDER BY position, id;
+
+-- name: LockAgentSchedules :many
+-- Locks the agent's schedules until the transaction ends. Saving or deleting
+-- an agent takes these locks before the agent's, in the scheduler's order.
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+FROM schedules
+WHERE org_id = $1 AND agent_id = $2
+FOR UPDATE;
+
+-- name: ListOrgAgentSchedules :many
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+FROM schedules
+WHERE org_id = $1
+ORDER BY agent_id, position, id;
+
+-- name: InsertAgentSchedule :one
+INSERT INTO schedules (org_id, name, agent_id, position, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id)
+VALUES (@org_id, @name, @agent_id, @position, @cron_expr, @timezone, @enabled, @next_run_at, @last_run_at, @last_task_id)
+RETURNING id;
+
+-- name: UpdateAgentSchedule :execrows
+-- Matches the schedule by its agent too, so a save can't take over another
+-- agent's schedule.
+UPDATE schedules
+SET name = @name, position = @position, cron_expr = @cron_expr, timezone = @timezone, enabled = @enabled,
+    next_run_at = @next_run_at, last_run_at = @last_run_at, last_task_id = @last_task_id
+WHERE id = @id AND agent_id = @agent_id AND org_id = @org_id;
+
+-- name: DeleteAgentSchedulesExcept :exec
+DELETE FROM schedules
+WHERE org_id = @org_id AND agent_id = @agent_id AND NOT (id = ANY(@keep_ids::BIGINT[]));

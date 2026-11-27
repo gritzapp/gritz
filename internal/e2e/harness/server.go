@@ -14,6 +14,7 @@ import (
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
 	"github.com/gritzapp/gritz/internal/proto/gritz/v1/gritzv1connect"
+	"github.com/gritzapp/gritz/internal/server/pubsub"
 	"github.com/gritzapp/gritz/internal/store"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 )
@@ -31,10 +32,11 @@ type Server struct {
 	// where it is used. The call under test never goes through it.
 	Store *store.Store
 
-	t       *testing.T
-	appKey  ed25519.PrivateKey
-	timeout time.Duration
-	mock    atomic.Pointer[gritzclient.ClientMock]
+	t         *testing.T
+	appKey    ed25519.PrivateKey
+	publisher pubsub.Publisher
+	timeout   time.Duration
+	mock      atomic.Pointer[gritzclient.ClientMock]
 }
 
 // Client returns a client that calls the server with token.
