@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.2.0](https://github.com/gritzapp/gritz/compare/v5.1.0...v5.2.0) (2026-11-27)
+
+
+### Features
+
+* **webui:** redesign the web UI's lists, detail pages and task timeline ([#2446](https://github.com/gritzapp/gritz/issues/2446)) ([835060a](https://github.com/gritzapp/gritz/commit/835060a4417be9c5ae392646e95713101e4302f1))
+
 ## [5.1.0](https://github.com/gritzapp/gritz/compare/v5.0.0...v5.1.0) (2026-11-27)
 
 
