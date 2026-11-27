@@ -310,6 +310,7 @@ func TestRouteTriggerCreatesTask(t *testing.T) {
 			Type:       "issue_comment",
 			Conditions: []model.Condition{{Attr: "mention", Op: "equals", Value: "gritz"}},
 			Link:       "owned-pr",
+			Prompt:     "Reply on the PR.",
 		}},
 		Links: []model.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"}},
 	})
@@ -360,7 +361,8 @@ func TestRouteTriggerCreatesTask(t *testing.T) {
 		Claim:     "pr-owner",
 	}}, cmpopts.IgnoreFields(model.Link{}, "CreatedAt"))
 
-	// The timeline reads External -> Created -> Command -> Link -> Instruction.
+	// The timeline reads External -> Created -> Command -> Link -> the agent's
+	// instruction -> the trigger's instruction.
 	events, err := s.ListEventsByTask(t.Context(), nil, task.ID, org.OrgID, nil)
 	assert.NilError(t, err)
 	var payloads []model.EventPayload
@@ -394,6 +396,7 @@ func TestRouteTriggerCreatesTask(t *testing.T) {
 			Claim:     "pr-owner",
 		},
 		&model.InstructionPayload{Text: "Review this PR."},
+		&model.InstructionPayload{Text: "Reply on the PR."},
 	})
 }
 
@@ -443,38 +446,71 @@ func TestRouteTriggerLink(t *testing.T) {
 	}
 }
 
-func TestRouteTriggerWithoutPromptUsesPreamble(t *testing.T) {
+func TestRouteTriggerPrompt(t *testing.T) {
 	t.Parallel()
-	// Arrange
-	s := teststore.New(t)
-	org := teststore.CreateOrg(t, s, nil)
-	teststore.CreateAgent(t, s, org, &model.Agent{
-		Name:     "responder",
-		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment"}},
-	})
-	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
+	tests := []struct {
+		name          string
+		agentPrompt   string
+		triggerPrompt string
+		want          []string
+	}{
+		{
+			name: "neither",
+			want: []string{`You were created by a trigger of agent "responder" in response to a github issue_comment event.`},
+		},
+		{name: "agent only", agentPrompt: "Answer the comment.", want: []string{"Answer the comment."}},
+		{name: "trigger only", triggerPrompt: "Triage the issue.", want: []string{"Triage the issue."}},
+		{
+			name:          "both",
+			agentPrompt:   "Answer the comment.",
+			triggerPrompt: "Triage the issue.",
+			want:          []string{"Answer the comment.", "Triage the issue."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange
+			s := teststore.New(t)
+			org := teststore.CreateOrg(t, s, nil)
+			teststore.CreateAgent(t, s, org, &model.Agent{
+				Name:     "responder",
+				Prompt:   tt.agentPrompt,
+				Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Prompt: tt.triggerPrompt}},
+			})
+			r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 
-	// Act
-	_, err := r.Route(t.Context(), eventrouter.InputEvent{
-		Source: "github",
-		Type:   "issue_comment",
-		URL:    "https://github.com/o/r/issues/1",
-		UserID: org.UserID,
-	})
+			// Act
+			_, err := r.Route(t.Context(), eventrouter.InputEvent{
+				Source: "github",
+				Type:   "issue_comment",
+				URL:    "https://github.com/o/r/issues/1",
+				UserID: org.UserID,
+			})
 
-	// Assert
-	assert.NilError(t, err)
-	tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(tasks, 1))
-	events, err := s.ListEventsByTask(t.Context(), nil, tasks[0].ID, org.OrgID, []string{model.EventTypeInstruction})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		model.FilterPayloads(events, model.EventTypeInstruction),
-		[]model.EventPayload{&model.InstructionPayload{
-			Text: `You were created by a trigger of agent "responder" in response to a github issue_comment event.`,
-		}},
-	)
+			// Assert - one waking instruction per prompt, in order.
+			assert.NilError(t, err)
+			tasks, err := s.ListTasks(t.Context(), nil, org.OrgID)
+			assert.NilError(t, err)
+			assert.Assert(t, cmp.Len(tasks, 1))
+			events, err := s.ListEventsByTask(t.Context(), nil, tasks[0].ID, org.OrgID, []string{model.EventTypeInstruction})
+			assert.NilError(t, err)
+			var want []*model.Event
+			for _, text := range tt.want {
+				want = append(want, &model.Event{
+					TaskID:  tasks[0].ID,
+					OrgID:   org.OrgID,
+					Wake:    true,
+					Payload: &model.InstructionPayload{Text: text},
+				})
+			}
+			assert.DeepEqual(t,
+				events,
+				want,
+				cmpopts.IgnoreFields(model.Event{}, "ID", "CreatedAt", "XID"),
+			)
+		})
+	}
 }
 
 func TestPlanFirstTriggerWins(t *testing.T) {

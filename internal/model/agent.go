@@ -105,6 +105,9 @@ type AgentTrigger struct {
 	// Link is a kind of the same agent: the created task gets a subscribed
 	// link of that kind to the event's resource. Empty creates no link.
 	Link string `json:"link,omitempty"`
+	// Prompt is static text the created task gets as an instruction after
+	// the agent's prompt. Empty adds none.
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // AgentLink is an entry of an agent's links: a kind of link its tasks may
@@ -168,6 +171,7 @@ func (a *Agent) Proto() *gritzv1.Agent {
 			Public:     t.Public,
 			YieldTo:    t.YieldTo,
 			Link:       t.Link,
+			Prompt:     t.Prompt,
 		})
 	}
 	for _, l := range a.Links {
@@ -212,6 +216,7 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 			Public:     t.GetPublic(),
 			YieldTo:    t.GetYieldTo(),
 			Link:       t.GetLink(),
+			Prompt:     t.GetPrompt(),
 		})
 	}
 	for _, l := range pb.GetLinks() {

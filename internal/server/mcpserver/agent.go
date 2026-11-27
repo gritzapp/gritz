@@ -36,7 +36,7 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 			"features, names of features the workspace declares (see list_workspaces), merged onto the workspace in list order: where two set the same environment variable, secret or MCP server, or both have their own agent config, the later one wins. " +
 			"triggers create a task when an event matches: source and type (see list_event_types), conditions [{attr, op, value}] that must all hold (op is equals, prefix, contains or glob), " +
 			"public to also match events from non-members, yield_to claim names that stop it while an unarchived task holds one on the event's resource, " +
-			"and link, a link kind of this agent the created task subscribes to the event's resource with. The first matching trigger wins. " +
+			"link, a link kind of this agent the created task subscribes to the event's resource with, and prompt, a second instruction the created task gets after the agent's prompt. The first matching trigger wins. " +
 			"links are the kinds of subscribed link its tasks may create: type (a link type from list_event_types, such as github.pr), kind (defaults to type, unique in the agent), " +
 			"claim stamped on its links, events [{type, conditions}] it delivers to the task (event types that declare the link type, each with conditions as a trigger's; with none it delivers nothing), and public. " +
 			"schedules [{id, name, cron_expr, timezone, enabled}] each create a task of the agent named name, starting with its prompt, whenever the 5-field cron expression matches in the IANA timezone (default UTC). " +
