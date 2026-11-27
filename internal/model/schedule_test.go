@@ -96,6 +96,10 @@ func TestScheduleNext_Invalid(t *testing.T) {
 	badTZ := &model.Schedule{CronExpr: "0 9 * * *", Timezone: "Mars/Phobos"}
 	_, err = badTZ.Next(time.Now())
 	assert.ErrorContains(t, err, "invalid timezone")
+
+	never := &model.Schedule{CronExpr: "0 9 30 2 *", Timezone: "UTC"}
+	_, err = never.Next(time.Now())
+	assert.ErrorContains(t, err, "never occurs")
 }
 
 func TestScheduleValidate(t *testing.T) {
@@ -112,6 +116,8 @@ func TestScheduleValidate(t *testing.T) {
 		{"bad cron", "0 9 * *", "UTC", "invalid cron expression"},
 		{"seconds field rejected", "0 0 9 * * *", "UTC", "invalid cron expression"},
 		{"bad timezone", "0 9 * * *", "Nowhere/Land", "invalid timezone"},
+		{"leap day", "0 9 29 2 *", "UTC", ""},
+		{"date never occurs", "0 9 30 2 *", "UTC", "never occurs"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

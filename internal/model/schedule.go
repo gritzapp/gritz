@@ -48,7 +48,8 @@ type Schedule struct {
 // fields; the returned instant is absolute. Evaluating in the location on every
 // call (never by adding a fixed 24h) keeps local-time semantics correct across
 // DST transitions. Returns the zero value and a user-facing error if the cron
-// expression or timezone is invalid.
+// expression or timezone is invalid, or if the expression names a date that
+// never occurs (such as 30 February).
 func (s *Schedule) Next(after time.Time) (time.Time, error) {
 	sched, err := cronParser.Parse(s.CronExpr)
 	if err != nil {
@@ -58,20 +59,20 @@ func (s *Schedule) Next(after time.Time) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", s.Timezone, err)
 	}
-	return sched.Next(after.In(loc)).UTC(), nil
+	// robfig/cron returns the zero time when nothing matches within five years.
+	next := sched.Next(after.In(loc))
+	if next.IsZero() {
+		return time.Time{}, fmt.Errorf("cron expression %q never occurs", s.CronExpr)
+	}
+	return next.UTC(), nil
 }
 
-// Validate parses cron_expr and loads the timezone, returning a user-facing
-// error on failure. Callers surface the error as connect.CodeInvalidArgument so
-// an invalid schedule can never be stored.
+// Validate checks that the schedule has a next occurrence, returning Next's
+// user-facing error otherwise. Callers surface the error as
+// connect.CodeInvalidArgument so an invalid schedule can never be stored.
 func (s *Schedule) Validate() error {
-	if _, err := cronParser.Parse(s.CronExpr); err != nil {
-		return fmt.Errorf("invalid cron expression %q: %w", s.CronExpr, err)
-	}
-	if _, err := time.LoadLocation(s.Timezone); err != nil {
-		return fmt.Errorf("invalid timezone %q: %w", s.Timezone, err)
-	}
-	return nil
+	_, err := s.Next(time.Now())
+	return err
 }
 
 // Reschedule carries prev's run state onto s, which replaces prev in its
