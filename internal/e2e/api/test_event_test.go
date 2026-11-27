@@ -26,7 +26,7 @@ func TestTestEvent(t *testing.T) {
 		Name:      "watcher",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
-		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []string{"issue_comment"}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "issue_comment"}}}},
 	}})
 	task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: watcher.Id, Draft: true})
 	h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.issue"})
@@ -80,6 +80,63 @@ func TestTestEvent(t *testing.T) {
 	assert.Equal(t, len(h.Org.ListExternalEvents(&gritzv1.ListExternalEventsRequest{})), 0)
 }
 
+// TestTestEventLinkConditions asserts the report delivers an event through a
+// link kind only when the kind's conditions on the event type hold.
+func TestTestEventLinkConditions(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		body      string
+		delivered bool
+	}{
+		{name: "conditions hold", body: "LGTM, ship it", delivered: true},
+		{name: "conditions don't hold", body: "needs work"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange - a watcher's task subscribed to the PR, through a kind
+			// that delivers only approving reviews.
+			h := harness.New(t, nil)
+			url := "https://github.com/o/r/pull/1"
+			watcher := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+				Name:      "watcher",
+				Workspace: harness.DefaultWorkspace,
+				Runner:    harness.DefaultRunner,
+				Links: []*gritzv1.AgentLink{{
+					Type: "github.pr",
+					Events: []*gritzv1.AgentLinkEvent{{
+						Type:       "pull_request_review",
+						Conditions: []*gritzv1.RuleCondition{{Attr: "body", Op: "prefix", Value: "LGTM"}},
+					}},
+				}},
+			}})
+			task := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: watcher.Id, Draft: true})
+			h.Org.CreateLink(&gritzv1.CreateLinkRequest{TaskId: task.ID, Url: url, Kind: "github.pr"})
+
+			// Act
+			resp, err := h.Org.Client.TestEvent(t.Context(), &gritzv1.TestEventRequest{
+				Source: "github",
+				Type:   "pull_request_review",
+				Body:   tt.body,
+				Url:    url + "#pullrequestreview-9",
+			})
+
+			// Assert
+			assert.NilError(t, err)
+			want := &gritzv1.TestEventResponse{}
+			if tt.delivered {
+				want.Agents = []*gritzv1.TestEventAgent{{
+					AgentId:      watcher.Id,
+					TriggerIndex: -1,
+					Deliveries:   []*gritzv1.TestEventDelivery{{TaskId: task.ID, Kind: "github.pr"}},
+				}}
+			}
+			assert.DeepEqual(t, resp, want, protocmp.Transform())
+		})
+	}
+}
+
 // TestTestEventYield asserts a trigger yields to a task holding one of its
 // yield_to claims on the event's resource, and the report names the holder.
 func TestTestEventYield(t *testing.T) {
@@ -94,7 +151,7 @@ func TestTestEventYield(t *testing.T) {
 			Type:   "github.pr",
 			Kind:   "owned-pr",
 			Claim:  "pr-owner",
-			Events: []string{"pull_request_review"},
+			Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_review"}},
 		}},
 	}})
 	owner := h.Org.CreateTask(&gritzv1.CreateTaskRequest{AgentId: implementer.Id, Draft: true})
@@ -233,7 +290,7 @@ func TestTestEventFireWakesThroughTriggerLink(t *testing.T) {
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		Triggers:  []*gritzv1.AgentTrigger{{Source: "github", Type: "pull_request_opened", Link: "github.pr"}},
-		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []string{"pull_request_review"}}},
+		Links:     []*gritzv1.AgentLink{{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_review"}}}},
 	}})
 	created := h.Org.TestEvent(&gritzv1.TestEventRequest{
 		Source: "github",

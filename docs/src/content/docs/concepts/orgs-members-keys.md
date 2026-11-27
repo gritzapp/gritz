@@ -1,6 +1,6 @@
 ---
 title: Organisations, members and API keys
-description: How organisations own tasks, runners and rules, what members and the owner can do, and what CLI logins, API keys and task tokens can access.
+description: How organisations own tasks, runners and agents, what members and the owner can do, and what CLI logins, API keys and task tokens can access.
 sidebar:
   label: Orgs, members and keys
   order: 8
@@ -9,9 +9,9 @@ sidebar:
 ## Organisations
 
 An organisation owns everything in gritz: its tasks, the runners connected to it
-and their workspaces, routing rules, custom event types, schedules and API keys.
+and their workspaces, agents, custom event types, schedules and API keys.
 Nothing is shared between organisations, and an event is routed by each
-organisation's own [rules](/concepts/routing-rules/).
+organisation's own [agents](/concepts/agents/).
 
 The first time you sign in, gritz creates a personal organisation for you, your
 default. You can create more under **Settings → Account → My Organisations**,
@@ -27,13 +27,13 @@ operator can change the limit with
 ## Members
 
 Every member of an organisation can do everything in it: create, run and
-archive any of its tasks, edit its routing rules and schedules, and create and
+archive any of its tasks, edit its agents and schedules, and create and
 delete its API keys. The one exception is managing the organisation itself,
 which only its owner can do. The owner is whoever created it.
 
 | | Members | Owner |
 | --- | --- | --- |
-| Tasks, schedules, routing rules, custom event types | ✓ | ✓ |
+| Tasks, agents, schedules, custom event types | ✓ | ✓ |
 | API keys, workspaces, integration settings | ✓ | ✓ |
 | Add and remove members | | ✓ |
 | Delete the organisation | | ✓ |
@@ -44,11 +44,11 @@ and can't be added once they belong to the maximum number of organisations.
 The owner can't be removed.
 
 Membership also decides whose GitHub and Jira activity counts as the
-organisation's: a member-only routing rule acts on events from members who have
+organisation's: a trigger or link kind that isn't public acts on events from members who have
 linked their [GitHub](/integrations/github/#link-your-github-account) or
 [Atlassian](/integrations/jira/#link-your-atlassian-account) account under
 **Settings → Account**. See
-[Public rules](/concepts/routing-rules/#public-rules).
+[Members and public](/concepts/agents/#members-and-public).
 
 ### Deleting an organisation
 

@@ -20,57 +20,67 @@ ticket, a dashboard. It has:
 - a **relevance**, saying how the resource relates to the task, such as "PR
   implementing the fix";
 - an optional **title** to display;
-- **subscribe**, whether events about the resource should reach the task.
+- an optional **kind**, one of the [link kinds](/concepts/agents/#link-kinds) of
+  the task's agent. A link with a kind is subscribed: events about the resource
+  reach the task. A link without one is a plain reference.
 
 Agents create links with the [`create_link`](/using/agent-tools/#create_link)
 tool, and gritz tells every agent to create a subscribed link for each resource
-it creates, such as a pull request, an issue or a comment. A task created by a
-[routing rule](/concepts/routing-rules/) also gets a subscribed link to the URL of
-the event that created it.
+it creates, such as a pull request, an issue or a comment, with one of its
+agent's link kinds. A task created by an agent's
+[trigger](/concepts/agents/#the-triggers-link) can also get a subscribed link
+to the resource of the event that created it.
 
-Links are listed in the task page's sidebar and appear on its timeline. They
-can't be removed: a task stays subscribed until it is archived.
+Links are listed in the task page's sidebar, with their kind and
+[claim](/concepts/agents/#claims), and appear on its timeline. They can't be
+removed: a task stays subscribed until it is archived.
 
 ## Subscriptions
 
-A link created with `subscribe=true` is a subscription. When an event arrives
-about the same URL, gritz delivers it to every task subscribed to that URL in the
-organisation, rather than starting a new task.
+A subscribed link names a resource of its kind's link type: a GitHub pull
+request or issue, a GitHub Actions workflow run, a Jira issue, or a custom
+event's URL. When an event arrives about the same resource, gritz delivers it to
+every task with a subscribed link to it whose kind lists the event's type,
+rather than starting a new task.
 
-The URL has to match:
+The resource has to match:
 
-- **GitHub and Jira URLs** are matched by the issue, pull request or Jira issue
-  they point at. A comment's URL, a pull request's `/files` page and the API URL
-  of the same pull request all match a link to the pull request.
-- **Any other URL** must match exactly, character for character. A different
-  query string or a trailing slash is a different resource. See
+- **GitHub and Jira URLs** are matched by the issue, pull request, workflow run
+  or Jira issue they point at. A comment's URL, a pull request's `/files` page
+  and the API URL of the same pull request all match a link to the pull request,
+  and every job of a workflow run matches the run. A subscribed link is stored
+  with the resource's own URL, and creating one with a URL that isn't a resource
+  of its kind's type fails.
+- **Custom events' URLs** must match exactly, character for character. A
+  different query string or a trailing slash is a different resource. See
   [The URL is the subscription key](/integrations/custom-events/#the-url-is-the-subscription-key).
 
-Archived tasks aren't subscribed to anything. An event about a URL whose only
-subscriber is archived is treated as if nobody were subscribed.
+Archived tasks aren't subscribed to anything. An event about a resource whose
+only subscriber is archived is treated as if nobody were subscribed.
 
 ## How an event reaches a task
 
 Events come from the [GitHub](/integrations/github/) and
 [Jira](/integrations/jira/) integrations and from your own systems
-through [custom events](/integrations/custom-events/). For each event, gritz:
+through [custom events](/integrations/custom-events/). For each event, in each
+organisation it belongs to, gritz:
 
-1. **Finds a matching routing rule.** Each organisation's
-   [routing rules](/concepts/routing-rules/) decide what kinds of events it acts
-   on. The first rule that matches wins; an event that matches no rule does
-   nothing, even for subscribed tasks.
-2. **Looks for subscribed tasks** for the event's URL, in the matched rule's
-   [namespace](/concepts/namespaces/).
-3. **Delivers or creates.** If there are subscribed tasks, the event is added to
-   each of them, and the rule decides whether it also wakes them. If there are
-   none and the rule creates tasks, it creates one, subscribed to the event's
-   URL, so the next event about the same resource goes to it.
+1. **Delivers it to subscribed tasks.** Every task with a subscribed link to the
+   event's resource gets the event, if the link's kind lists the event's type
+   and the event's author is a member or the kind is
+   [public](/concepts/agents/#members-and-public). Delivery wakes the task.
+2. **Runs every agent's triggers.** Each [agent](/concepts/agents/) whose
+   trigger matches the event creates a task of its own, with the event as its
+   first event, unless the trigger
+   [yields](/concepts/agents/#claims) to a task that holds a claim on the
+   resource.
+
+The two steps are independent: an event can wake one task and create another.
+An event that no link kind delivers and no trigger matches does nothing.
 
 A woken task that has finished starts a new run. A running task isn't
 interrupted: it runs again as soon as its current run ends. Either way the agent
-gets the event at the start of its next run. An event delivered without a wake
-waits on the task's timeline until something else starts the task; the agent
-also sees it if it calls [`get_my_task`](/using/agent-tools/#get_my_task).
+gets the event at the start of its next run.
 
 ## Where events show up
 
@@ -79,7 +89,7 @@ also sees it if it calls [`get_my_task`](/using/agent-tools/#get_my_task).
   reports.
 - **Events → Recent Events** in the [Web UI](/using/web-ui/#events) lists the
   organisation's latest delivered events, each linked to its task. Events that
-  matched no rule, or reached no task, aren't stored, so they don't appear.
-- **The test event form** on **Events → Routing Rules** shows what an event
-  would do before you rely on it. See
-  [Testing rules](/concepts/routing-rules/#testing-rules).
+  reached no task aren't stored, so they don't appear.
+- **The test event form** on the **Agents** page shows what an event would do
+  before you rely on it. See
+  [Testing with a test event](/concepts/agents/#testing-with-a-test-event).

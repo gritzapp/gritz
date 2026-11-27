@@ -70,7 +70,7 @@ for reading; on the wire it is one line.
   "resume": false,
   "cwd": "/workspace",
   "task": {"id":"2283","name":"Ship the release","workspace":"mastra",
-           "status":"TASK_STATUS_RUNNING","version":"1",
+           "status":"TASK_STATUS_RUNNING","version":"1","agentId":"7",
            "createdAt":"2026-11-02T19:50:00Z","url":"https://gritz.dev/ui/tasks/2283?org=12"},
   "events": [
     {"id":"9101","taskId":"2283","wake":true,"createdAt":"2026-11-02T19:50:00Z",
@@ -78,7 +78,7 @@ for reading; on the wire it is one line.
   ],
   "links": [
     {"id":"881","taskId":"2283","relevance":"Issue","url":"https://github.com/acme/app/issues/12",
-     "subscribe":true,"createdAt":"2026-11-02T19:50:00Z","routingKey":"…"}
+     "kind":"github.issue","createdAt":"2026-11-02T19:50:00Z"}
   ],
   "mcpServers": {
     "gritz": {"type":"stdio","command":"/gritz/bin/gritz","args":["tool","agent-mcp","…"]},
@@ -108,7 +108,7 @@ on a pull request the task subscribed to.
 `Event` and `TaskLink` messages of the [API](/reference/api/#service-definition),
 in the standard JSON mapping of protocol buffers:
 
-- Field names are lowerCamelCase: `taskId`, `createdAt`, `routingKey`.
+- Field names are lowerCamelCase: `taskId`, `createdAt`, `agentId`.
 - 64-bit integers, such as `id`, `taskId` and `version`, are JSON **strings**.
 - Timestamps are RFC 3339 strings, durations strings such as `"3600s"`, and
   enums their value's name, such as `"TASK_STATUS_RUNNING"`.

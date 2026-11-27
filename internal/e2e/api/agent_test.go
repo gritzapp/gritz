@@ -43,15 +43,15 @@ func TestCreateAgent(t *testing.T) {
 			},
 		},
 		Links: []*gritzv1.AgentLink{
-			{Type: "jira.issue", Events: []string{"comment_created"}},
+			{Type: "jira.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "comment_created"}}},
 			{
 				Type:   "github.pr",
 				Kind:   "owned-pr",
 				Claim:  "pr-owner",
-				Events: []string{"pull_request_review_comment", "pull_request_review", "pull_request_closed"},
+				Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_review_comment"}, {Type: "pull_request_review"}, {Type: "pull_request_closed"}},
 				Public: true,
 			},
-			{Type: "github.pr", Events: []string{"pull_request_closed"}},
+			{Type: "github.pr", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_closed"}}},
 		},
 	}
 
@@ -121,7 +121,7 @@ func TestCreateAgent_CustomEventType(t *testing.T) {
 			Public:     true,
 			Link:       "custom.url",
 		}},
-		Links: []*gritzv1.AgentLink{{Type: "custom.url", Events: []string{"problem"}}},
+		Links: []*gritzv1.AgentLink{{Type: "custom.url", Events: []*gritzv1.AgentLinkEvent{{Type: "problem"}}}},
 	}
 
 	// Act
@@ -233,7 +233,7 @@ func TestCreateAgent_Invalid(t *testing.T) {
 				Name:      "a",
 				Workspace: "story",
 				Runner:    "runner-1",
-				Links:     []*gritzv1.AgentLink{{Type: "jira.issue", Events: []string{"comment_created", "issue_deleted"}}},
+				Links:     []*gritzv1.AgentLink{{Type: "jira.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "comment_created"}, {Type: "issue_deleted"}}}},
 			},
 			want: `link kind "jira.issue": unknown event type: source="atlassian" type="issue_deleted"`,
 		},
@@ -243,7 +243,7 @@ func TestCreateAgent_Invalid(t *testing.T) {
 				Name:      "a",
 				Workspace: "story",
 				Runner:    "runner-1",
-				Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []string{"pull_request_review"}}},
+				Links:     []*gritzv1.AgentLink{{Type: "github.issue", Events: []*gritzv1.AgentLinkEvent{{Type: "pull_request_review"}}}},
 			},
 			want: `link kind "github.issue": event type "github"/"pull_request_review" doesn't declare link type "github.issue"`,
 		},

@@ -8216,9 +8216,10 @@ type AgentLink struct {
 	Type  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`   // A link type, such as "github.pr".
 	Kind  string                 `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`   // The kind's name, unique in the agent; empty means type.
 	Claim string                 `protobuf:"bytes,3,opt,name=claim,proto3" json:"claim,omitempty"` // Stamped on every link of this kind.
-	// Event types of the link type's source, each declaring the link type.
-	// Empty means every event type that declares it.
-	Events []string `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
+	// The event types a link of this kind delivers, each with the conditions
+	// its events must meet. A link of a kind with none delivers no event; it
+	// still holds its claim.
+	Events []*AgentLinkEvent `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
 	// Whether it also delivers events from people who aren't members of the org.
 	Public        bool `protobuf:"varint,5,opt,name=public,proto3" json:"public,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -8276,7 +8277,7 @@ func (x *AgentLink) GetClaim() string {
 	return ""
 }
 
-func (x *AgentLink) GetEvents() []string {
+func (x *AgentLink) GetEvents() []*AgentLinkEvent {
 	if x != nil {
 		return x.Events
 	}
@@ -8290,6 +8291,61 @@ func (x *AgentLink) GetPublic() bool {
 	return false
 }
 
+// AgentLinkEvent is an event type a link kind delivers.
+type AgentLinkEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// An event type of the link type's source that declares the link type.
+	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	// Validated as a trigger's conditions on the event type are.
+	Conditions    []*RuleCondition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"` // All must hold.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentLinkEvent) Reset() {
+	*x = AgentLinkEvent{}
+	mi := &file_gritz_v1_gritz_proto_msgTypes[145]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentLinkEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentLinkEvent) ProtoMessage() {}
+
+func (x *AgentLinkEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_gritz_v1_gritz_proto_msgTypes[145]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentLinkEvent.ProtoReflect.Descriptor instead.
+func (*AgentLinkEvent) Descriptor() ([]byte, []int) {
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{145}
+}
+
+func (x *AgentLinkEvent) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *AgentLinkEvent) GetConditions() []*RuleCondition {
+	if x != nil {
+		return x.Conditions
+	}
+	return nil
+}
+
 // CreateAgentRequest creates agent in the caller's org. agent.id is ignored.
 type CreateAgentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -8300,7 +8356,7 @@ type CreateAgentRequest struct {
 
 func (x *CreateAgentRequest) Reset() {
 	*x = CreateAgentRequest{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[145]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8312,7 +8368,7 @@ func (x *CreateAgentRequest) String() string {
 func (*CreateAgentRequest) ProtoMessage() {}
 
 func (x *CreateAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[145]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8325,7 +8381,7 @@ func (x *CreateAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentRequest.ProtoReflect.Descriptor instead.
 func (*CreateAgentRequest) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{145}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *CreateAgentRequest) GetAgent() *Agent {
@@ -8344,7 +8400,7 @@ type CreateAgentResponse struct {
 
 func (x *CreateAgentResponse) Reset() {
 	*x = CreateAgentResponse{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[146]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8356,7 +8412,7 @@ func (x *CreateAgentResponse) String() string {
 func (*CreateAgentResponse) ProtoMessage() {}
 
 func (x *CreateAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[146]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8369,7 +8425,7 @@ func (x *CreateAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentResponse.ProtoReflect.Descriptor instead.
 func (*CreateAgentResponse) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{146}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *CreateAgentResponse) GetAgent() *Agent {
@@ -8388,7 +8444,7 @@ type GetAgentRequest struct {
 
 func (x *GetAgentRequest) Reset() {
 	*x = GetAgentRequest{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[147]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8400,7 +8456,7 @@ func (x *GetAgentRequest) String() string {
 func (*GetAgentRequest) ProtoMessage() {}
 
 func (x *GetAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[147]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8413,7 +8469,7 @@ func (x *GetAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentRequest) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{147}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *GetAgentRequest) GetId() int64 {
@@ -8432,7 +8488,7 @@ type GetAgentResponse struct {
 
 func (x *GetAgentResponse) Reset() {
 	*x = GetAgentResponse{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[148]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8444,7 +8500,7 @@ func (x *GetAgentResponse) String() string {
 func (*GetAgentResponse) ProtoMessage() {}
 
 func (x *GetAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[148]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8457,7 +8513,7 @@ func (x *GetAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentResponse.ProtoReflect.Descriptor instead.
 func (*GetAgentResponse) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{148}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *GetAgentResponse) GetAgent() *Agent {
@@ -8475,7 +8531,7 @@ type ListAgentsRequest struct {
 
 func (x *ListAgentsRequest) Reset() {
 	*x = ListAgentsRequest{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[149]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8487,7 +8543,7 @@ func (x *ListAgentsRequest) String() string {
 func (*ListAgentsRequest) ProtoMessage() {}
 
 func (x *ListAgentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[149]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8500,7 +8556,7 @@ func (x *ListAgentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentsRequest.ProtoReflect.Descriptor instead.
 func (*ListAgentsRequest) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{149}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{150}
 }
 
 type ListAgentsResponse struct {
@@ -8512,7 +8568,7 @@ type ListAgentsResponse struct {
 
 func (x *ListAgentsResponse) Reset() {
 	*x = ListAgentsResponse{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[150]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8524,7 +8580,7 @@ func (x *ListAgentsResponse) String() string {
 func (*ListAgentsResponse) ProtoMessage() {}
 
 func (x *ListAgentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[150]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8537,7 +8593,7 @@ func (x *ListAgentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentsResponse.ProtoReflect.Descriptor instead.
 func (*ListAgentsResponse) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{150}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *ListAgentsResponse) GetAgents() []*Agent {
@@ -8558,7 +8614,7 @@ type UpdateAgentRequest struct {
 
 func (x *UpdateAgentRequest) Reset() {
 	*x = UpdateAgentRequest{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[151]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8570,7 +8626,7 @@ func (x *UpdateAgentRequest) String() string {
 func (*UpdateAgentRequest) ProtoMessage() {}
 
 func (x *UpdateAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[151]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8583,7 +8639,7 @@ func (x *UpdateAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAgentRequest.ProtoReflect.Descriptor instead.
 func (*UpdateAgentRequest) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{151}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{152}
 }
 
 func (x *UpdateAgentRequest) GetAgent() *Agent {
@@ -8602,7 +8658,7 @@ type UpdateAgentResponse struct {
 
 func (x *UpdateAgentResponse) Reset() {
 	*x = UpdateAgentResponse{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[152]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8614,7 +8670,7 @@ func (x *UpdateAgentResponse) String() string {
 func (*UpdateAgentResponse) ProtoMessage() {}
 
 func (x *UpdateAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[152]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8627,7 +8683,7 @@ func (x *UpdateAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAgentResponse.ProtoReflect.Descriptor instead.
 func (*UpdateAgentResponse) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{152}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *UpdateAgentResponse) GetAgent() *Agent {
@@ -8646,7 +8702,7 @@ type DeleteAgentRequest struct {
 
 func (x *DeleteAgentRequest) Reset() {
 	*x = DeleteAgentRequest{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[153]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8658,7 +8714,7 @@ func (x *DeleteAgentRequest) String() string {
 func (*DeleteAgentRequest) ProtoMessage() {}
 
 func (x *DeleteAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[153]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8671,7 +8727,7 @@ func (x *DeleteAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAgentRequest.ProtoReflect.Descriptor instead.
 func (*DeleteAgentRequest) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{153}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{154}
 }
 
 func (x *DeleteAgentRequest) GetId() int64 {
@@ -8689,7 +8745,7 @@ type DeleteAgentResponse struct {
 
 func (x *DeleteAgentResponse) Reset() {
 	*x = DeleteAgentResponse{}
-	mi := &file_gritz_v1_gritz_proto_msgTypes[154]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8701,7 +8757,7 @@ func (x *DeleteAgentResponse) String() string {
 func (*DeleteAgentResponse) ProtoMessage() {}
 
 func (x *DeleteAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_gritz_v1_gritz_proto_msgTypes[154]
+	mi := &file_gritz_v1_gritz_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8714,7 +8770,7 @@ func (x *DeleteAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteAgentResponse.ProtoReflect.Descriptor instead.
 func (*DeleteAgentResponse) Descriptor() ([]byte, []int) {
-	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{154}
+	return file_gritz_v1_gritz_proto_rawDescGZIP(), []int{155}
 }
 
 var File_gritz_v1_gritz_proto protoreflect.FileDescriptor
@@ -9262,13 +9318,18 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"conditions\x12\x16\n" +
 	"\x06public\x18\x04 \x01(\bR\x06public\x12\x19\n" +
 	"\byield_to\x18\x05 \x03(\tR\ayieldTo\x12\x12\n" +
-	"\x04link\x18\x06 \x01(\tR\x04link\"y\n" +
+	"\x04link\x18\x06 \x01(\tR\x04link\"\x93\x01\n" +
 	"\tAgentLink\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
-	"\x05claim\x18\x03 \x01(\tR\x05claim\x12\x16\n" +
-	"\x06events\x18\x04 \x03(\tR\x06events\x12\x16\n" +
-	"\x06public\x18\x05 \x01(\bR\x06public\";\n" +
+	"\x05claim\x18\x03 \x01(\tR\x05claim\x120\n" +
+	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06events\x12\x16\n" +
+	"\x06public\x18\x05 \x01(\bR\x06public\"]\n" +
+	"\x0eAgentLinkEvent\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x127\n" +
+	"\n" +
+	"conditions\x18\x02 \x03(\v2\x17.gritz.v1.RuleConditionR\n" +
+	"conditions\";\n" +
 	"\x12CreateAgentRequest\x12%\n" +
 	"\x05agent\x18\x01 \x01(\v2\x0f.gritz.v1.AgentR\x05agent\"<\n" +
 	"\x13CreateAgentResponse\x12%\n" +
@@ -9404,7 +9465,7 @@ func file_gritz_v1_gritz_proto_rawDescGZIP() []byte {
 }
 
 var file_gritz_v1_gritz_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_gritz_v1_gritz_proto_msgTypes = make([]protoimpl.MessageInfo, 162)
+var file_gritz_v1_gritz_proto_msgTypes = make([]protoimpl.MessageInfo, 163)
 var file_gritz_v1_gritz_proto_goTypes = []any{
 	(TaskStatus)(0),                                // 0: gritz.v1.TaskStatus
 	(TaskCommand)(0),                               // 1: gritz.v1.TaskCommand
@@ -9554,35 +9615,36 @@ var file_gritz_v1_gritz_proto_goTypes = []any{
 	(*Agent)(nil),                                  // 145: gritz.v1.Agent
 	(*AgentTrigger)(nil),                           // 146: gritz.v1.AgentTrigger
 	(*AgentLink)(nil),                              // 147: gritz.v1.AgentLink
-	(*CreateAgentRequest)(nil),                     // 148: gritz.v1.CreateAgentRequest
-	(*CreateAgentResponse)(nil),                    // 149: gritz.v1.CreateAgentResponse
-	(*GetAgentRequest)(nil),                        // 150: gritz.v1.GetAgentRequest
-	(*GetAgentResponse)(nil),                       // 151: gritz.v1.GetAgentResponse
-	(*ListAgentsRequest)(nil),                      // 152: gritz.v1.ListAgentsRequest
-	(*ListAgentsResponse)(nil),                     // 153: gritz.v1.ListAgentsResponse
-	(*UpdateAgentRequest)(nil),                     // 154: gritz.v1.UpdateAgentRequest
-	(*UpdateAgentResponse)(nil),                    // 155: gritz.v1.UpdateAgentResponse
-	(*DeleteAgentRequest)(nil),                     // 156: gritz.v1.DeleteAgentRequest
-	(*DeleteAgentResponse)(nil),                    // 157: gritz.v1.DeleteAgentResponse
-	nil,                                            // 158: gritz.v1.Task.VariablesEntry
-	nil,                                            // 159: gritz.v1.McpServer.EnvEntry
-	nil,                                            // 160: gritz.v1.ExternalPayload.DetailsEntry
-	nil,                                            // 161: gritz.v1.GetRunSpecInputsResponse.VariablesEntry
-	nil,                                            // 162: gritz.v1.TestEventRequest.AttrsEntry
-	nil,                                            // 163: gritz.v1.TestEventRequest.DetailsEntry
-	nil,                                            // 164: gritz.v1.Agent.VariablesEntry
-	(*timestamppb.Timestamp)(nil),                  // 165: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),                    // 166: google.protobuf.Duration
+	(*AgentLinkEvent)(nil),                         // 148: gritz.v1.AgentLinkEvent
+	(*CreateAgentRequest)(nil),                     // 149: gritz.v1.CreateAgentRequest
+	(*CreateAgentResponse)(nil),                    // 150: gritz.v1.CreateAgentResponse
+	(*GetAgentRequest)(nil),                        // 151: gritz.v1.GetAgentRequest
+	(*GetAgentResponse)(nil),                       // 152: gritz.v1.GetAgentResponse
+	(*ListAgentsRequest)(nil),                      // 153: gritz.v1.ListAgentsRequest
+	(*ListAgentsResponse)(nil),                     // 154: gritz.v1.ListAgentsResponse
+	(*UpdateAgentRequest)(nil),                     // 155: gritz.v1.UpdateAgentRequest
+	(*UpdateAgentResponse)(nil),                    // 156: gritz.v1.UpdateAgentResponse
+	(*DeleteAgentRequest)(nil),                     // 157: gritz.v1.DeleteAgentRequest
+	(*DeleteAgentResponse)(nil),                    // 158: gritz.v1.DeleteAgentResponse
+	nil,                                            // 159: gritz.v1.Task.VariablesEntry
+	nil,                                            // 160: gritz.v1.McpServer.EnvEntry
+	nil,                                            // 161: gritz.v1.ExternalPayload.DetailsEntry
+	nil,                                            // 162: gritz.v1.GetRunSpecInputsResponse.VariablesEntry
+	nil,                                            // 163: gritz.v1.TestEventRequest.AttrsEntry
+	nil,                                            // 164: gritz.v1.TestEventRequest.DetailsEntry
+	nil,                                            // 165: gritz.v1.Agent.VariablesEntry
+	(*timestamppb.Timestamp)(nil),                  // 166: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),                    // 167: google.protobuf.Duration
 }
 var file_gritz_v1_gritz_proto_depIdxs = []int32{
 	0,   // 0: gritz.v1.Task.status:type_name -> gritz.v1.TaskStatus
-	165, // 1: gritz.v1.Task.created_at:type_name -> google.protobuf.Timestamp
-	165, // 2: gritz.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
+	166, // 1: gritz.v1.Task.created_at:type_name -> google.protobuf.Timestamp
+	166, // 2: gritz.v1.Task.updated_at:type_name -> google.protobuf.Timestamp
 	1,   // 3: gritz.v1.Task.command:type_name -> gritz.v1.TaskCommand
 	6,   // 4: gritz.v1.Task.actions:type_name -> gritz.v1.TaskActions
-	166, // 5: gritz.v1.Task.auto_archive:type_name -> google.protobuf.Duration
-	158, // 6: gritz.v1.Task.variables:type_name -> gritz.v1.Task.VariablesEntry
-	159, // 7: gritz.v1.McpServer.env:type_name -> gritz.v1.McpServer.EnvEntry
+	167, // 5: gritz.v1.Task.auto_archive:type_name -> google.protobuf.Duration
+	159, // 6: gritz.v1.Task.variables:type_name -> gritz.v1.Task.VariablesEntry
+	160, // 7: gritz.v1.McpServer.env:type_name -> gritz.v1.McpServer.EnvEntry
 	9,   // 8: gritz.v1.GetProfileResponse.profile:type_name -> gritz.v1.Profile
 	95,  // 9: gritz.v1.GetProfileResponse.orgs:type_name -> gritz.v1.Org
 	87,  // 10: gritz.v1.GetProfileResponse.github_account:type_name -> gritz.v1.GitHubAccount
@@ -9594,23 +9656,23 @@ var file_gritz_v1_gritz_proto_depIdxs = []int32{
 	7,   // 16: gritz.v1.CreateTaskResponse.task:type_name -> gritz.v1.Task
 	7,   // 17: gritz.v1.GetTaskResponse.task:type_name -> gritz.v1.Task
 	5,   // 18: gritz.v1.UpdateTaskRequest.add_instructions:type_name -> gritz.v1.Instruction
-	166, // 19: gritz.v1.UpdateTaskRequest.auto_archive:type_name -> google.protobuf.Duration
-	165, // 20: gritz.v1.LogEntry.created_at:type_name -> google.protobuf.Timestamp
+	167, // 19: gritz.v1.UpdateTaskRequest.auto_archive:type_name -> google.protobuf.Duration
+	166, // 20: gritz.v1.LogEntry.created_at:type_name -> google.protobuf.Timestamp
 	36,  // 21: gritz.v1.UploadLogsRequest.entries:type_name -> gritz.v1.LogEntry
-	165, // 22: gritz.v1.LogChunk.created_at:type_name -> google.protobuf.Timestamp
+	166, // 22: gritz.v1.LogChunk.created_at:type_name -> google.protobuf.Timestamp
 	39,  // 23: gritz.v1.ListLogChunksByTaskResponse.chunks:type_name -> gritz.v1.LogChunk
-	165, // 24: gritz.v1.TaskLink.created_at:type_name -> google.protobuf.Timestamp
+	166, // 24: gritz.v1.TaskLink.created_at:type_name -> google.protobuf.Timestamp
 	44,  // 25: gritz.v1.CreateLinkResponse.link:type_name -> gritz.v1.TaskLink
 	44,  // 26: gritz.v1.ListLinksResponse.links:type_name -> gritz.v1.TaskLink
 	147, // 27: gritz.v1.ListLinksResponse.kinds:type_name -> gritz.v1.AgentLink
-	165, // 28: gritz.v1.Event.created_at:type_name -> google.protobuf.Timestamp
+	166, // 28: gritz.v1.Event.created_at:type_name -> google.protobuf.Timestamp
 	50,  // 29: gritz.v1.Event.instruction:type_name -> gritz.v1.InstructionPayload
 	51,  // 30: gritz.v1.Event.external:type_name -> gritz.v1.ExternalPayload
 	52,  // 31: gritz.v1.Event.report:type_name -> gritz.v1.ReportPayload
 	55,  // 32: gritz.v1.Event.lifecycle:type_name -> gritz.v1.LifecyclePayload
 	53,  // 33: gritz.v1.Event.link:type_name -> gritz.v1.LinkPayload
 	54,  // 34: gritz.v1.Event.command:type_name -> gritz.v1.CommandPayload
-	160, // 35: gritz.v1.ExternalPayload.details:type_name -> gritz.v1.ExternalPayload.DetailsEntry
+	161, // 35: gritz.v1.ExternalPayload.details:type_name -> gritz.v1.ExternalPayload.DetailsEntry
 	1,   // 36: gritz.v1.CommandPayload.command:type_name -> gritz.v1.TaskCommand
 	2,   // 37: gritz.v1.LifecyclePayload.kind:type_name -> gritz.v1.LifecycleKind
 	56,  // 38: gritz.v1.LifecyclePayload.actor:type_name -> gritz.v1.Actor
@@ -9618,21 +9680,21 @@ var file_gritz_v1_gritz_proto_depIdxs = []int32{
 	49,  // 40: gritz.v1.GetEventResponse.event:type_name -> gritz.v1.Event
 	49,  // 41: gritz.v1.ListEventsByTaskResponse.events:type_name -> gritz.v1.Event
 	65,  // 42: gritz.v1.SubmitRunnerEventsRequest.events:type_name -> gritz.v1.RunnerEvent
-	161, // 43: gritz.v1.GetRunSpecInputsResponse.variables:type_name -> gritz.v1.GetRunSpecInputsResponse.VariablesEntry
-	165, // 44: gritz.v1.RegisteredWorkspace.updated_at:type_name -> google.protobuf.Timestamp
+	162, // 43: gritz.v1.GetRunSpecInputsResponse.variables:type_name -> gritz.v1.GetRunSpecInputsResponse.VariablesEntry
+	166, // 44: gritz.v1.RegisteredWorkspace.updated_at:type_name -> google.protobuf.Timestamp
 	72,  // 45: gritz.v1.RegisteredWorkspace.variables:type_name -> gritz.v1.VariableDecl
 	73,  // 46: gritz.v1.RegisterWorkspacesRequest.workspaces:type_name -> gritz.v1.RegisteredWorkspace
 	73,  // 47: gritz.v1.ListWorkspacesResponse.workspaces:type_name -> gritz.v1.RegisteredWorkspace
-	165, // 48: gritz.v1.Key.expires_at:type_name -> google.protobuf.Timestamp
-	165, // 49: gritz.v1.Key.created_at:type_name -> google.protobuf.Timestamp
-	165, // 50: gritz.v1.CreateKeyRequest.expires_at:type_name -> google.protobuf.Timestamp
+	166, // 48: gritz.v1.Key.expires_at:type_name -> google.protobuf.Timestamp
+	166, // 49: gritz.v1.Key.created_at:type_name -> google.protobuf.Timestamp
+	166, // 50: gritz.v1.CreateKeyRequest.expires_at:type_name -> google.protobuf.Timestamp
 	80,  // 51: gritz.v1.CreateKeyResponse.key:type_name -> gritz.v1.Key
 	80,  // 52: gritz.v1.ListKeysResponse.keys:type_name -> gritz.v1.Key
-	165, // 53: gritz.v1.GitHubAccount.created_at:type_name -> google.protobuf.Timestamp
-	165, // 54: gritz.v1.AtlassianAccount.created_at:type_name -> google.protobuf.Timestamp
-	165, // 55: gritz.v1.Org.created_at:type_name -> google.protobuf.Timestamp
-	165, // 56: gritz.v1.Org.updated_at:type_name -> google.protobuf.Timestamp
-	165, // 57: gritz.v1.OrgMember.created_at:type_name -> google.protobuf.Timestamp
+	166, // 53: gritz.v1.GitHubAccount.created_at:type_name -> google.protobuf.Timestamp
+	166, // 54: gritz.v1.AtlassianAccount.created_at:type_name -> google.protobuf.Timestamp
+	166, // 55: gritz.v1.Org.created_at:type_name -> google.protobuf.Timestamp
+	166, // 56: gritz.v1.Org.updated_at:type_name -> google.protobuf.Timestamp
+	166, // 57: gritz.v1.OrgMember.created_at:type_name -> google.protobuf.Timestamp
 	95,  // 58: gritz.v1.CreateOrgResponse.org:type_name -> gritz.v1.Org
 	95,  // 59: gritz.v1.ListOrgsResponse.orgs:type_name -> gritz.v1.Org
 	96,  // 60: gritz.v1.AddOrgMemberResponse.member:type_name -> gritz.v1.OrgMember
@@ -9643,16 +9705,16 @@ var file_gritz_v1_gritz_proto_depIdxs = []int32{
 	115, // 65: gritz.v1.GetCustomEventTypesResponse.event_types:type_name -> gritz.v1.EventTypeDef
 	115, // 66: gritz.v1.SetCustomEventTypesRequest.event_types:type_name -> gritz.v1.EventTypeDef
 	115, // 67: gritz.v1.SetCustomEventTypesResponse.event_types:type_name -> gritz.v1.EventTypeDef
-	162, // 68: gritz.v1.TestEventRequest.attrs:type_name -> gritz.v1.TestEventRequest.AttrsEntry
-	163, // 69: gritz.v1.TestEventRequest.details:type_name -> gritz.v1.TestEventRequest.DetailsEntry
+	163, // 68: gritz.v1.TestEventRequest.attrs:type_name -> gritz.v1.TestEventRequest.AttrsEntry
+	164, // 69: gritz.v1.TestEventRequest.details:type_name -> gritz.v1.TestEventRequest.DetailsEntry
 	126, // 70: gritz.v1.TestEventResponse.agents:type_name -> gritz.v1.TestEventAgent
 	127, // 71: gritz.v1.TestEventAgent.deliveries:type_name -> gritz.v1.TestEventDelivery
-	165, // 72: gritz.v1.CreateGitHubTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
+	166, // 72: gritz.v1.CreateGitHubTokenResponse.expires_at:type_name -> google.protobuf.Timestamp
 	5,   // 73: gritz.v1.Schedule.instructions:type_name -> gritz.v1.Instruction
-	165, // 74: gritz.v1.Schedule.next_run_at:type_name -> google.protobuf.Timestamp
-	165, // 75: gritz.v1.Schedule.last_run_at:type_name -> google.protobuf.Timestamp
-	165, // 76: gritz.v1.Schedule.created_at:type_name -> google.protobuf.Timestamp
-	165, // 77: gritz.v1.Schedule.updated_at:type_name -> google.protobuf.Timestamp
+	166, // 74: gritz.v1.Schedule.next_run_at:type_name -> google.protobuf.Timestamp
+	166, // 75: gritz.v1.Schedule.last_run_at:type_name -> google.protobuf.Timestamp
+	166, // 76: gritz.v1.Schedule.created_at:type_name -> google.protobuf.Timestamp
+	166, // 77: gritz.v1.Schedule.updated_at:type_name -> google.protobuf.Timestamp
 	5,   // 78: gritz.v1.CreateScheduleRequest.instructions:type_name -> gritz.v1.Instruction
 	130, // 79: gritz.v1.CreateScheduleResponse.schedule:type_name -> gritz.v1.Schedule
 	130, // 80: gritz.v1.GetScheduleResponse.schedule:type_name -> gritz.v1.Schedule
@@ -9661,143 +9723,145 @@ var file_gritz_v1_gritz_proto_depIdxs = []int32{
 	130, // 83: gritz.v1.UpdateScheduleResponse.schedule:type_name -> gritz.v1.Schedule
 	130, // 84: gritz.v1.SetScheduleEnabledResponse.schedule:type_name -> gritz.v1.Schedule
 	7,   // 85: gritz.v1.RunScheduleResponse.task:type_name -> gritz.v1.Task
-	166, // 86: gritz.v1.Agent.auto_archive:type_name -> google.protobuf.Duration
-	164, // 87: gritz.v1.Agent.variables:type_name -> gritz.v1.Agent.VariablesEntry
+	167, // 86: gritz.v1.Agent.auto_archive:type_name -> google.protobuf.Duration
+	165, // 87: gritz.v1.Agent.variables:type_name -> gritz.v1.Agent.VariablesEntry
 	146, // 88: gritz.v1.Agent.triggers:type_name -> gritz.v1.AgentTrigger
 	147, // 89: gritz.v1.Agent.links:type_name -> gritz.v1.AgentLink
 	113, // 90: gritz.v1.AgentTrigger.conditions:type_name -> gritz.v1.RuleCondition
-	145, // 91: gritz.v1.CreateAgentRequest.agent:type_name -> gritz.v1.Agent
-	145, // 92: gritz.v1.CreateAgentResponse.agent:type_name -> gritz.v1.Agent
-	145, // 93: gritz.v1.GetAgentResponse.agent:type_name -> gritz.v1.Agent
-	145, // 94: gritz.v1.ListAgentsResponse.agents:type_name -> gritz.v1.Agent
-	145, // 95: gritz.v1.UpdateAgentRequest.agent:type_name -> gritz.v1.Agent
-	145, // 96: gritz.v1.UpdateAgentResponse.agent:type_name -> gritz.v1.Agent
-	124, // 97: gritz.v1.TestEventRequest.AttrsEntry.value:type_name -> gritz.v1.AttrValues
-	3,   // 98: gritz.v1.GritzService.Ping:input_type -> gritz.v1.PingRequest
-	10,  // 99: gritz.v1.GritzService.GetProfile:input_type -> gritz.v1.GetProfileRequest
-	12,  // 100: gritz.v1.GritzService.GetCaller:input_type -> gritz.v1.GetCallerRequest
-	14,  // 101: gritz.v1.GritzService.ListTasks:input_type -> gritz.v1.ListTasksRequest
-	16,  // 102: gritz.v1.GritzService.ListRunnerEvents:input_type -> gritz.v1.ListRunnerEventsRequest
-	18,  // 103: gritz.v1.GritzService.CreateTask:input_type -> gritz.v1.CreateTaskRequest
-	20,  // 104: gritz.v1.GritzService.GetTask:input_type -> gritz.v1.GetTaskRequest
-	22,  // 105: gritz.v1.GritzService.UpdateTask:input_type -> gritz.v1.UpdateTaskRequest
-	24,  // 106: gritz.v1.GritzService.ArchiveTask:input_type -> gritz.v1.ArchiveTaskRequest
-	26,  // 107: gritz.v1.GritzService.UnarchiveTask:input_type -> gritz.v1.UnarchiveTaskRequest
-	28,  // 108: gritz.v1.GritzService.CancelTask:input_type -> gritz.v1.CancelTaskRequest
-	30,  // 109: gritz.v1.GritzService.RestartTask:input_type -> gritz.v1.RestartTaskRequest
-	32,  // 110: gritz.v1.GritzService.OpenShell:input_type -> gritz.v1.OpenShellRequest
-	34,  // 111: gritz.v1.GritzService.ResetSandbox:input_type -> gritz.v1.ResetSandboxRequest
-	37,  // 112: gritz.v1.GritzService.UploadLogs:input_type -> gritz.v1.UploadLogsRequest
-	40,  // 113: gritz.v1.GritzService.AppendLogChunk:input_type -> gritz.v1.AppendLogChunkRequest
-	42,  // 114: gritz.v1.GritzService.ListLogChunksByTask:input_type -> gritz.v1.ListLogChunksByTaskRequest
-	45,  // 115: gritz.v1.GritzService.CreateLink:input_type -> gritz.v1.CreateLinkRequest
-	47,  // 116: gritz.v1.GritzService.ListLinks:input_type -> gritz.v1.ListLinksRequest
-	57,  // 117: gritz.v1.GritzService.ListExternalEvents:input_type -> gritz.v1.ListExternalEventsRequest
-	59,  // 118: gritz.v1.GritzService.GetEvent:input_type -> gritz.v1.GetEventRequest
-	61,  // 119: gritz.v1.GritzService.DeleteEvent:input_type -> gritz.v1.DeleteEventRequest
-	63,  // 120: gritz.v1.GritzService.ListEventsByTask:input_type -> gritz.v1.ListEventsByTaskRequest
-	66,  // 121: gritz.v1.GritzService.SubmitRunnerEvents:input_type -> gritz.v1.SubmitRunnerEventsRequest
-	68,  // 122: gritz.v1.GritzService.CreateTaskToken:input_type -> gritz.v1.CreateTaskTokenRequest
-	70,  // 123: gritz.v1.GritzService.GetRunSpecInputs:input_type -> gritz.v1.GetRunSpecInputsRequest
-	74,  // 124: gritz.v1.GritzService.RegisterWorkspaces:input_type -> gritz.v1.RegisterWorkspacesRequest
-	76,  // 125: gritz.v1.GritzService.ListWorkspaces:input_type -> gritz.v1.ListWorkspacesRequest
-	78,  // 126: gritz.v1.GritzService.ClearWorkspaces:input_type -> gritz.v1.ClearWorkspacesRequest
-	81,  // 127: gritz.v1.GritzService.CreateKey:input_type -> gritz.v1.CreateKeyRequest
-	83,  // 128: gritz.v1.GritzService.ListKeys:input_type -> gritz.v1.ListKeysRequest
-	85,  // 129: gritz.v1.GritzService.DeleteKey:input_type -> gritz.v1.DeleteKeyRequest
-	88,  // 130: gritz.v1.GritzService.UnlinkGitHubAccount:input_type -> gritz.v1.UnlinkGitHubAccountRequest
-	90,  // 131: gritz.v1.GritzService.LinkGitHubInstallation:input_type -> gritz.v1.LinkGitHubInstallationRequest
-	93,  // 132: gritz.v1.GritzService.UnlinkAtlassianAccount:input_type -> gritz.v1.UnlinkAtlassianAccountRequest
-	97,  // 133: gritz.v1.GritzService.CreateOrg:input_type -> gritz.v1.CreateOrgRequest
-	99,  // 134: gritz.v1.GritzService.ListOrgs:input_type -> gritz.v1.ListOrgsRequest
-	101, // 135: gritz.v1.GritzService.DeleteOrg:input_type -> gritz.v1.DeleteOrgRequest
-	103, // 136: gritz.v1.GritzService.AddOrgMember:input_type -> gritz.v1.AddOrgMemberRequest
-	105, // 137: gritz.v1.GritzService.RemoveOrgMember:input_type -> gritz.v1.RemoveOrgMemberRequest
-	107, // 138: gritz.v1.GritzService.ListOrgMembers:input_type -> gritz.v1.ListOrgMembersRequest
-	109, // 139: gritz.v1.GritzService.GetOrgSettings:input_type -> gritz.v1.GetOrgSettingsRequest
-	111, // 140: gritz.v1.GritzService.GenerateAtlassianWebhookSecret:input_type -> gritz.v1.GenerateAtlassianWebhookSecretRequest
-	117, // 141: gritz.v1.GritzService.GetEventTypes:input_type -> gritz.v1.GetEventTypesRequest
-	119, // 142: gritz.v1.GritzService.GetCustomEventTypes:input_type -> gritz.v1.GetCustomEventTypesRequest
-	121, // 143: gritz.v1.GritzService.SetCustomEventTypes:input_type -> gritz.v1.SetCustomEventTypesRequest
-	123, // 144: gritz.v1.GritzService.TestEvent:input_type -> gritz.v1.TestEventRequest
-	128, // 145: gritz.v1.GritzService.CreateGitHubToken:input_type -> gritz.v1.CreateGitHubTokenRequest
-	131, // 146: gritz.v1.GritzService.CreateSchedule:input_type -> gritz.v1.CreateScheduleRequest
-	133, // 147: gritz.v1.GritzService.GetSchedule:input_type -> gritz.v1.GetScheduleRequest
-	135, // 148: gritz.v1.GritzService.ListSchedules:input_type -> gritz.v1.ListSchedulesRequest
-	137, // 149: gritz.v1.GritzService.UpdateSchedule:input_type -> gritz.v1.UpdateScheduleRequest
-	139, // 150: gritz.v1.GritzService.DeleteSchedule:input_type -> gritz.v1.DeleteScheduleRequest
-	141, // 151: gritz.v1.GritzService.SetScheduleEnabled:input_type -> gritz.v1.SetScheduleEnabledRequest
-	143, // 152: gritz.v1.GritzService.RunSchedule:input_type -> gritz.v1.RunScheduleRequest
-	148, // 153: gritz.v1.GritzService.CreateAgent:input_type -> gritz.v1.CreateAgentRequest
-	150, // 154: gritz.v1.GritzService.GetAgent:input_type -> gritz.v1.GetAgentRequest
-	152, // 155: gritz.v1.GritzService.ListAgents:input_type -> gritz.v1.ListAgentsRequest
-	154, // 156: gritz.v1.GritzService.UpdateAgent:input_type -> gritz.v1.UpdateAgentRequest
-	156, // 157: gritz.v1.GritzService.DeleteAgent:input_type -> gritz.v1.DeleteAgentRequest
-	4,   // 158: gritz.v1.GritzService.Ping:output_type -> gritz.v1.PingResponse
-	11,  // 159: gritz.v1.GritzService.GetProfile:output_type -> gritz.v1.GetProfileResponse
-	13,  // 160: gritz.v1.GritzService.GetCaller:output_type -> gritz.v1.GetCallerResponse
-	15,  // 161: gritz.v1.GritzService.ListTasks:output_type -> gritz.v1.ListTasksResponse
-	17,  // 162: gritz.v1.GritzService.ListRunnerEvents:output_type -> gritz.v1.ListRunnerEventsResponse
-	19,  // 163: gritz.v1.GritzService.CreateTask:output_type -> gritz.v1.CreateTaskResponse
-	21,  // 164: gritz.v1.GritzService.GetTask:output_type -> gritz.v1.GetTaskResponse
-	23,  // 165: gritz.v1.GritzService.UpdateTask:output_type -> gritz.v1.UpdateTaskResponse
-	25,  // 166: gritz.v1.GritzService.ArchiveTask:output_type -> gritz.v1.ArchiveTaskResponse
-	27,  // 167: gritz.v1.GritzService.UnarchiveTask:output_type -> gritz.v1.UnarchiveTaskResponse
-	29,  // 168: gritz.v1.GritzService.CancelTask:output_type -> gritz.v1.CancelTaskResponse
-	31,  // 169: gritz.v1.GritzService.RestartTask:output_type -> gritz.v1.RestartTaskResponse
-	33,  // 170: gritz.v1.GritzService.OpenShell:output_type -> gritz.v1.OpenShellResponse
-	35,  // 171: gritz.v1.GritzService.ResetSandbox:output_type -> gritz.v1.ResetSandboxResponse
-	38,  // 172: gritz.v1.GritzService.UploadLogs:output_type -> gritz.v1.UploadLogsResponse
-	41,  // 173: gritz.v1.GritzService.AppendLogChunk:output_type -> gritz.v1.AppendLogChunkResponse
-	43,  // 174: gritz.v1.GritzService.ListLogChunksByTask:output_type -> gritz.v1.ListLogChunksByTaskResponse
-	46,  // 175: gritz.v1.GritzService.CreateLink:output_type -> gritz.v1.CreateLinkResponse
-	48,  // 176: gritz.v1.GritzService.ListLinks:output_type -> gritz.v1.ListLinksResponse
-	58,  // 177: gritz.v1.GritzService.ListExternalEvents:output_type -> gritz.v1.ListExternalEventsResponse
-	60,  // 178: gritz.v1.GritzService.GetEvent:output_type -> gritz.v1.GetEventResponse
-	62,  // 179: gritz.v1.GritzService.DeleteEvent:output_type -> gritz.v1.DeleteEventResponse
-	64,  // 180: gritz.v1.GritzService.ListEventsByTask:output_type -> gritz.v1.ListEventsByTaskResponse
-	67,  // 181: gritz.v1.GritzService.SubmitRunnerEvents:output_type -> gritz.v1.SubmitRunnerEventsResponse
-	69,  // 182: gritz.v1.GritzService.CreateTaskToken:output_type -> gritz.v1.CreateTaskTokenResponse
-	71,  // 183: gritz.v1.GritzService.GetRunSpecInputs:output_type -> gritz.v1.GetRunSpecInputsResponse
-	75,  // 184: gritz.v1.GritzService.RegisterWorkspaces:output_type -> gritz.v1.RegisterWorkspacesResponse
-	77,  // 185: gritz.v1.GritzService.ListWorkspaces:output_type -> gritz.v1.ListWorkspacesResponse
-	79,  // 186: gritz.v1.GritzService.ClearWorkspaces:output_type -> gritz.v1.ClearWorkspacesResponse
-	82,  // 187: gritz.v1.GritzService.CreateKey:output_type -> gritz.v1.CreateKeyResponse
-	84,  // 188: gritz.v1.GritzService.ListKeys:output_type -> gritz.v1.ListKeysResponse
-	86,  // 189: gritz.v1.GritzService.DeleteKey:output_type -> gritz.v1.DeleteKeyResponse
-	89,  // 190: gritz.v1.GritzService.UnlinkGitHubAccount:output_type -> gritz.v1.UnlinkGitHubAccountResponse
-	91,  // 191: gritz.v1.GritzService.LinkGitHubInstallation:output_type -> gritz.v1.LinkGitHubInstallationResponse
-	94,  // 192: gritz.v1.GritzService.UnlinkAtlassianAccount:output_type -> gritz.v1.UnlinkAtlassianAccountResponse
-	98,  // 193: gritz.v1.GritzService.CreateOrg:output_type -> gritz.v1.CreateOrgResponse
-	100, // 194: gritz.v1.GritzService.ListOrgs:output_type -> gritz.v1.ListOrgsResponse
-	102, // 195: gritz.v1.GritzService.DeleteOrg:output_type -> gritz.v1.DeleteOrgResponse
-	104, // 196: gritz.v1.GritzService.AddOrgMember:output_type -> gritz.v1.AddOrgMemberResponse
-	106, // 197: gritz.v1.GritzService.RemoveOrgMember:output_type -> gritz.v1.RemoveOrgMemberResponse
-	108, // 198: gritz.v1.GritzService.ListOrgMembers:output_type -> gritz.v1.ListOrgMembersResponse
-	110, // 199: gritz.v1.GritzService.GetOrgSettings:output_type -> gritz.v1.GetOrgSettingsResponse
-	112, // 200: gritz.v1.GritzService.GenerateAtlassianWebhookSecret:output_type -> gritz.v1.GenerateAtlassianWebhookSecretResponse
-	118, // 201: gritz.v1.GritzService.GetEventTypes:output_type -> gritz.v1.GetEventTypesResponse
-	120, // 202: gritz.v1.GritzService.GetCustomEventTypes:output_type -> gritz.v1.GetCustomEventTypesResponse
-	122, // 203: gritz.v1.GritzService.SetCustomEventTypes:output_type -> gritz.v1.SetCustomEventTypesResponse
-	125, // 204: gritz.v1.GritzService.TestEvent:output_type -> gritz.v1.TestEventResponse
-	129, // 205: gritz.v1.GritzService.CreateGitHubToken:output_type -> gritz.v1.CreateGitHubTokenResponse
-	132, // 206: gritz.v1.GritzService.CreateSchedule:output_type -> gritz.v1.CreateScheduleResponse
-	134, // 207: gritz.v1.GritzService.GetSchedule:output_type -> gritz.v1.GetScheduleResponse
-	136, // 208: gritz.v1.GritzService.ListSchedules:output_type -> gritz.v1.ListSchedulesResponse
-	138, // 209: gritz.v1.GritzService.UpdateSchedule:output_type -> gritz.v1.UpdateScheduleResponse
-	140, // 210: gritz.v1.GritzService.DeleteSchedule:output_type -> gritz.v1.DeleteScheduleResponse
-	142, // 211: gritz.v1.GritzService.SetScheduleEnabled:output_type -> gritz.v1.SetScheduleEnabledResponse
-	144, // 212: gritz.v1.GritzService.RunSchedule:output_type -> gritz.v1.RunScheduleResponse
-	149, // 213: gritz.v1.GritzService.CreateAgent:output_type -> gritz.v1.CreateAgentResponse
-	151, // 214: gritz.v1.GritzService.GetAgent:output_type -> gritz.v1.GetAgentResponse
-	153, // 215: gritz.v1.GritzService.ListAgents:output_type -> gritz.v1.ListAgentsResponse
-	155, // 216: gritz.v1.GritzService.UpdateAgent:output_type -> gritz.v1.UpdateAgentResponse
-	157, // 217: gritz.v1.GritzService.DeleteAgent:output_type -> gritz.v1.DeleteAgentResponse
-	158, // [158:218] is the sub-list for method output_type
-	98,  // [98:158] is the sub-list for method input_type
-	98,  // [98:98] is the sub-list for extension type_name
-	98,  // [98:98] is the sub-list for extension extendee
-	0,   // [0:98] is the sub-list for field type_name
+	148, // 91: gritz.v1.AgentLink.events:type_name -> gritz.v1.AgentLinkEvent
+	113, // 92: gritz.v1.AgentLinkEvent.conditions:type_name -> gritz.v1.RuleCondition
+	145, // 93: gritz.v1.CreateAgentRequest.agent:type_name -> gritz.v1.Agent
+	145, // 94: gritz.v1.CreateAgentResponse.agent:type_name -> gritz.v1.Agent
+	145, // 95: gritz.v1.GetAgentResponse.agent:type_name -> gritz.v1.Agent
+	145, // 96: gritz.v1.ListAgentsResponse.agents:type_name -> gritz.v1.Agent
+	145, // 97: gritz.v1.UpdateAgentRequest.agent:type_name -> gritz.v1.Agent
+	145, // 98: gritz.v1.UpdateAgentResponse.agent:type_name -> gritz.v1.Agent
+	124, // 99: gritz.v1.TestEventRequest.AttrsEntry.value:type_name -> gritz.v1.AttrValues
+	3,   // 100: gritz.v1.GritzService.Ping:input_type -> gritz.v1.PingRequest
+	10,  // 101: gritz.v1.GritzService.GetProfile:input_type -> gritz.v1.GetProfileRequest
+	12,  // 102: gritz.v1.GritzService.GetCaller:input_type -> gritz.v1.GetCallerRequest
+	14,  // 103: gritz.v1.GritzService.ListTasks:input_type -> gritz.v1.ListTasksRequest
+	16,  // 104: gritz.v1.GritzService.ListRunnerEvents:input_type -> gritz.v1.ListRunnerEventsRequest
+	18,  // 105: gritz.v1.GritzService.CreateTask:input_type -> gritz.v1.CreateTaskRequest
+	20,  // 106: gritz.v1.GritzService.GetTask:input_type -> gritz.v1.GetTaskRequest
+	22,  // 107: gritz.v1.GritzService.UpdateTask:input_type -> gritz.v1.UpdateTaskRequest
+	24,  // 108: gritz.v1.GritzService.ArchiveTask:input_type -> gritz.v1.ArchiveTaskRequest
+	26,  // 109: gritz.v1.GritzService.UnarchiveTask:input_type -> gritz.v1.UnarchiveTaskRequest
+	28,  // 110: gritz.v1.GritzService.CancelTask:input_type -> gritz.v1.CancelTaskRequest
+	30,  // 111: gritz.v1.GritzService.RestartTask:input_type -> gritz.v1.RestartTaskRequest
+	32,  // 112: gritz.v1.GritzService.OpenShell:input_type -> gritz.v1.OpenShellRequest
+	34,  // 113: gritz.v1.GritzService.ResetSandbox:input_type -> gritz.v1.ResetSandboxRequest
+	37,  // 114: gritz.v1.GritzService.UploadLogs:input_type -> gritz.v1.UploadLogsRequest
+	40,  // 115: gritz.v1.GritzService.AppendLogChunk:input_type -> gritz.v1.AppendLogChunkRequest
+	42,  // 116: gritz.v1.GritzService.ListLogChunksByTask:input_type -> gritz.v1.ListLogChunksByTaskRequest
+	45,  // 117: gritz.v1.GritzService.CreateLink:input_type -> gritz.v1.CreateLinkRequest
+	47,  // 118: gritz.v1.GritzService.ListLinks:input_type -> gritz.v1.ListLinksRequest
+	57,  // 119: gritz.v1.GritzService.ListExternalEvents:input_type -> gritz.v1.ListExternalEventsRequest
+	59,  // 120: gritz.v1.GritzService.GetEvent:input_type -> gritz.v1.GetEventRequest
+	61,  // 121: gritz.v1.GritzService.DeleteEvent:input_type -> gritz.v1.DeleteEventRequest
+	63,  // 122: gritz.v1.GritzService.ListEventsByTask:input_type -> gritz.v1.ListEventsByTaskRequest
+	66,  // 123: gritz.v1.GritzService.SubmitRunnerEvents:input_type -> gritz.v1.SubmitRunnerEventsRequest
+	68,  // 124: gritz.v1.GritzService.CreateTaskToken:input_type -> gritz.v1.CreateTaskTokenRequest
+	70,  // 125: gritz.v1.GritzService.GetRunSpecInputs:input_type -> gritz.v1.GetRunSpecInputsRequest
+	74,  // 126: gritz.v1.GritzService.RegisterWorkspaces:input_type -> gritz.v1.RegisterWorkspacesRequest
+	76,  // 127: gritz.v1.GritzService.ListWorkspaces:input_type -> gritz.v1.ListWorkspacesRequest
+	78,  // 128: gritz.v1.GritzService.ClearWorkspaces:input_type -> gritz.v1.ClearWorkspacesRequest
+	81,  // 129: gritz.v1.GritzService.CreateKey:input_type -> gritz.v1.CreateKeyRequest
+	83,  // 130: gritz.v1.GritzService.ListKeys:input_type -> gritz.v1.ListKeysRequest
+	85,  // 131: gritz.v1.GritzService.DeleteKey:input_type -> gritz.v1.DeleteKeyRequest
+	88,  // 132: gritz.v1.GritzService.UnlinkGitHubAccount:input_type -> gritz.v1.UnlinkGitHubAccountRequest
+	90,  // 133: gritz.v1.GritzService.LinkGitHubInstallation:input_type -> gritz.v1.LinkGitHubInstallationRequest
+	93,  // 134: gritz.v1.GritzService.UnlinkAtlassianAccount:input_type -> gritz.v1.UnlinkAtlassianAccountRequest
+	97,  // 135: gritz.v1.GritzService.CreateOrg:input_type -> gritz.v1.CreateOrgRequest
+	99,  // 136: gritz.v1.GritzService.ListOrgs:input_type -> gritz.v1.ListOrgsRequest
+	101, // 137: gritz.v1.GritzService.DeleteOrg:input_type -> gritz.v1.DeleteOrgRequest
+	103, // 138: gritz.v1.GritzService.AddOrgMember:input_type -> gritz.v1.AddOrgMemberRequest
+	105, // 139: gritz.v1.GritzService.RemoveOrgMember:input_type -> gritz.v1.RemoveOrgMemberRequest
+	107, // 140: gritz.v1.GritzService.ListOrgMembers:input_type -> gritz.v1.ListOrgMembersRequest
+	109, // 141: gritz.v1.GritzService.GetOrgSettings:input_type -> gritz.v1.GetOrgSettingsRequest
+	111, // 142: gritz.v1.GritzService.GenerateAtlassianWebhookSecret:input_type -> gritz.v1.GenerateAtlassianWebhookSecretRequest
+	117, // 143: gritz.v1.GritzService.GetEventTypes:input_type -> gritz.v1.GetEventTypesRequest
+	119, // 144: gritz.v1.GritzService.GetCustomEventTypes:input_type -> gritz.v1.GetCustomEventTypesRequest
+	121, // 145: gritz.v1.GritzService.SetCustomEventTypes:input_type -> gritz.v1.SetCustomEventTypesRequest
+	123, // 146: gritz.v1.GritzService.TestEvent:input_type -> gritz.v1.TestEventRequest
+	128, // 147: gritz.v1.GritzService.CreateGitHubToken:input_type -> gritz.v1.CreateGitHubTokenRequest
+	131, // 148: gritz.v1.GritzService.CreateSchedule:input_type -> gritz.v1.CreateScheduleRequest
+	133, // 149: gritz.v1.GritzService.GetSchedule:input_type -> gritz.v1.GetScheduleRequest
+	135, // 150: gritz.v1.GritzService.ListSchedules:input_type -> gritz.v1.ListSchedulesRequest
+	137, // 151: gritz.v1.GritzService.UpdateSchedule:input_type -> gritz.v1.UpdateScheduleRequest
+	139, // 152: gritz.v1.GritzService.DeleteSchedule:input_type -> gritz.v1.DeleteScheduleRequest
+	141, // 153: gritz.v1.GritzService.SetScheduleEnabled:input_type -> gritz.v1.SetScheduleEnabledRequest
+	143, // 154: gritz.v1.GritzService.RunSchedule:input_type -> gritz.v1.RunScheduleRequest
+	149, // 155: gritz.v1.GritzService.CreateAgent:input_type -> gritz.v1.CreateAgentRequest
+	151, // 156: gritz.v1.GritzService.GetAgent:input_type -> gritz.v1.GetAgentRequest
+	153, // 157: gritz.v1.GritzService.ListAgents:input_type -> gritz.v1.ListAgentsRequest
+	155, // 158: gritz.v1.GritzService.UpdateAgent:input_type -> gritz.v1.UpdateAgentRequest
+	157, // 159: gritz.v1.GritzService.DeleteAgent:input_type -> gritz.v1.DeleteAgentRequest
+	4,   // 160: gritz.v1.GritzService.Ping:output_type -> gritz.v1.PingResponse
+	11,  // 161: gritz.v1.GritzService.GetProfile:output_type -> gritz.v1.GetProfileResponse
+	13,  // 162: gritz.v1.GritzService.GetCaller:output_type -> gritz.v1.GetCallerResponse
+	15,  // 163: gritz.v1.GritzService.ListTasks:output_type -> gritz.v1.ListTasksResponse
+	17,  // 164: gritz.v1.GritzService.ListRunnerEvents:output_type -> gritz.v1.ListRunnerEventsResponse
+	19,  // 165: gritz.v1.GritzService.CreateTask:output_type -> gritz.v1.CreateTaskResponse
+	21,  // 166: gritz.v1.GritzService.GetTask:output_type -> gritz.v1.GetTaskResponse
+	23,  // 167: gritz.v1.GritzService.UpdateTask:output_type -> gritz.v1.UpdateTaskResponse
+	25,  // 168: gritz.v1.GritzService.ArchiveTask:output_type -> gritz.v1.ArchiveTaskResponse
+	27,  // 169: gritz.v1.GritzService.UnarchiveTask:output_type -> gritz.v1.UnarchiveTaskResponse
+	29,  // 170: gritz.v1.GritzService.CancelTask:output_type -> gritz.v1.CancelTaskResponse
+	31,  // 171: gritz.v1.GritzService.RestartTask:output_type -> gritz.v1.RestartTaskResponse
+	33,  // 172: gritz.v1.GritzService.OpenShell:output_type -> gritz.v1.OpenShellResponse
+	35,  // 173: gritz.v1.GritzService.ResetSandbox:output_type -> gritz.v1.ResetSandboxResponse
+	38,  // 174: gritz.v1.GritzService.UploadLogs:output_type -> gritz.v1.UploadLogsResponse
+	41,  // 175: gritz.v1.GritzService.AppendLogChunk:output_type -> gritz.v1.AppendLogChunkResponse
+	43,  // 176: gritz.v1.GritzService.ListLogChunksByTask:output_type -> gritz.v1.ListLogChunksByTaskResponse
+	46,  // 177: gritz.v1.GritzService.CreateLink:output_type -> gritz.v1.CreateLinkResponse
+	48,  // 178: gritz.v1.GritzService.ListLinks:output_type -> gritz.v1.ListLinksResponse
+	58,  // 179: gritz.v1.GritzService.ListExternalEvents:output_type -> gritz.v1.ListExternalEventsResponse
+	60,  // 180: gritz.v1.GritzService.GetEvent:output_type -> gritz.v1.GetEventResponse
+	62,  // 181: gritz.v1.GritzService.DeleteEvent:output_type -> gritz.v1.DeleteEventResponse
+	64,  // 182: gritz.v1.GritzService.ListEventsByTask:output_type -> gritz.v1.ListEventsByTaskResponse
+	67,  // 183: gritz.v1.GritzService.SubmitRunnerEvents:output_type -> gritz.v1.SubmitRunnerEventsResponse
+	69,  // 184: gritz.v1.GritzService.CreateTaskToken:output_type -> gritz.v1.CreateTaskTokenResponse
+	71,  // 185: gritz.v1.GritzService.GetRunSpecInputs:output_type -> gritz.v1.GetRunSpecInputsResponse
+	75,  // 186: gritz.v1.GritzService.RegisterWorkspaces:output_type -> gritz.v1.RegisterWorkspacesResponse
+	77,  // 187: gritz.v1.GritzService.ListWorkspaces:output_type -> gritz.v1.ListWorkspacesResponse
+	79,  // 188: gritz.v1.GritzService.ClearWorkspaces:output_type -> gritz.v1.ClearWorkspacesResponse
+	82,  // 189: gritz.v1.GritzService.CreateKey:output_type -> gritz.v1.CreateKeyResponse
+	84,  // 190: gritz.v1.GritzService.ListKeys:output_type -> gritz.v1.ListKeysResponse
+	86,  // 191: gritz.v1.GritzService.DeleteKey:output_type -> gritz.v1.DeleteKeyResponse
+	89,  // 192: gritz.v1.GritzService.UnlinkGitHubAccount:output_type -> gritz.v1.UnlinkGitHubAccountResponse
+	91,  // 193: gritz.v1.GritzService.LinkGitHubInstallation:output_type -> gritz.v1.LinkGitHubInstallationResponse
+	94,  // 194: gritz.v1.GritzService.UnlinkAtlassianAccount:output_type -> gritz.v1.UnlinkAtlassianAccountResponse
+	98,  // 195: gritz.v1.GritzService.CreateOrg:output_type -> gritz.v1.CreateOrgResponse
+	100, // 196: gritz.v1.GritzService.ListOrgs:output_type -> gritz.v1.ListOrgsResponse
+	102, // 197: gritz.v1.GritzService.DeleteOrg:output_type -> gritz.v1.DeleteOrgResponse
+	104, // 198: gritz.v1.GritzService.AddOrgMember:output_type -> gritz.v1.AddOrgMemberResponse
+	106, // 199: gritz.v1.GritzService.RemoveOrgMember:output_type -> gritz.v1.RemoveOrgMemberResponse
+	108, // 200: gritz.v1.GritzService.ListOrgMembers:output_type -> gritz.v1.ListOrgMembersResponse
+	110, // 201: gritz.v1.GritzService.GetOrgSettings:output_type -> gritz.v1.GetOrgSettingsResponse
+	112, // 202: gritz.v1.GritzService.GenerateAtlassianWebhookSecret:output_type -> gritz.v1.GenerateAtlassianWebhookSecretResponse
+	118, // 203: gritz.v1.GritzService.GetEventTypes:output_type -> gritz.v1.GetEventTypesResponse
+	120, // 204: gritz.v1.GritzService.GetCustomEventTypes:output_type -> gritz.v1.GetCustomEventTypesResponse
+	122, // 205: gritz.v1.GritzService.SetCustomEventTypes:output_type -> gritz.v1.SetCustomEventTypesResponse
+	125, // 206: gritz.v1.GritzService.TestEvent:output_type -> gritz.v1.TestEventResponse
+	129, // 207: gritz.v1.GritzService.CreateGitHubToken:output_type -> gritz.v1.CreateGitHubTokenResponse
+	132, // 208: gritz.v1.GritzService.CreateSchedule:output_type -> gritz.v1.CreateScheduleResponse
+	134, // 209: gritz.v1.GritzService.GetSchedule:output_type -> gritz.v1.GetScheduleResponse
+	136, // 210: gritz.v1.GritzService.ListSchedules:output_type -> gritz.v1.ListSchedulesResponse
+	138, // 211: gritz.v1.GritzService.UpdateSchedule:output_type -> gritz.v1.UpdateScheduleResponse
+	140, // 212: gritz.v1.GritzService.DeleteSchedule:output_type -> gritz.v1.DeleteScheduleResponse
+	142, // 213: gritz.v1.GritzService.SetScheduleEnabled:output_type -> gritz.v1.SetScheduleEnabledResponse
+	144, // 214: gritz.v1.GritzService.RunSchedule:output_type -> gritz.v1.RunScheduleResponse
+	150, // 215: gritz.v1.GritzService.CreateAgent:output_type -> gritz.v1.CreateAgentResponse
+	152, // 216: gritz.v1.GritzService.GetAgent:output_type -> gritz.v1.GetAgentResponse
+	154, // 217: gritz.v1.GritzService.ListAgents:output_type -> gritz.v1.ListAgentsResponse
+	156, // 218: gritz.v1.GritzService.UpdateAgent:output_type -> gritz.v1.UpdateAgentResponse
+	158, // 219: gritz.v1.GritzService.DeleteAgent:output_type -> gritz.v1.DeleteAgentResponse
+	160, // [160:220] is the sub-list for method output_type
+	100, // [100:160] is the sub-list for method input_type
+	100, // [100:100] is the sub-list for extension type_name
+	100, // [100:100] is the sub-list for extension extendee
+	0,   // [0:100] is the sub-list for field type_name
 }
 
 func init() { file_gritz_v1_gritz_proto_init() }
@@ -9819,7 +9883,7 @@ func file_gritz_v1_gritz_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gritz_v1_gritz_proto_rawDesc), len(file_gritz_v1_gritz_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   162,
+			NumMessages:   163,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

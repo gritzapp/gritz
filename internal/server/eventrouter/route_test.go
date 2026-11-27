@@ -65,19 +65,35 @@ func TestRouteDeliversByKind(t *testing.T) {
 	}{
 		{
 			name:      "kind lists the event type",
-			agentLink: model.AgentLink{Type: "github.pr", Events: []string{"issue_comment"}},
+			agentLink: model.AgentLink{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}},
 			taskLink:  teststore.LinkOptions{URL: url, Kind: "github.pr"},
 			delivered: true,
+		},
+		{
+			name: "kind's conditions on the event type hold",
+			agentLink: model.AgentLink{Type: "github.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{
+				Type:       "issue_comment",
+				Conditions: []model.Condition{{Attr: "body", Op: "contains", Value: "good"}},
+			}}},
+			taskLink:  teststore.LinkOptions{URL: url, Kind: "owned-pr"},
+			delivered: true,
+		},
+		{
+			name: "kind's conditions on the event type don't hold",
+			agentLink: model.AgentLink{Type: "github.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{
+				Type:       "issue_comment",
+				Conditions: []model.Condition{{Attr: "body", Op: "contains", Value: "bad"}},
+			}}},
+			taskLink: teststore.LinkOptions{URL: url, Kind: "owned-pr"},
 		},
 		{
 			name:      "kind lists no event types",
 			agentLink: model.AgentLink{Type: "github.pr", Kind: "owned-pr"},
 			taskLink:  teststore.LinkOptions{URL: url, Kind: "owned-pr"},
-			delivered: true,
 		},
 		{
 			name:      "kind doesn't list the event type",
-			agentLink: model.AgentLink{Type: "github.pr", Events: []string{"pull_request_closed"}},
+			agentLink: model.AgentLink{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed"}}},
 			taskLink:  teststore.LinkOptions{URL: url, Kind: "github.pr"},
 		},
 		{
@@ -141,8 +157,8 @@ func TestRouteDeliversOncePerTask(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	const url = "https://github.com/o/r/pull/1"
 	agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{
-		{Type: "github.pr"},
-		{Type: "github.pr", Kind: "owned-pr"},
+		{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed"}}},
+		{Type: "github.pr", Kind: "owned-pr", Events: []model.AgentLinkEvent{{Type: "pull_request_closed"}}},
 	}})
 	task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 		AgentID: agent.ID,
@@ -188,7 +204,7 @@ func TestPlanDeliveryAdmission(t *testing.T) {
 			org := teststore.CreateOrg(t, s, nil)
 			const url = "https://github.com/o/r/pull/1"
 			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{
-				{Type: "github.pr", Public: tt.public},
+				{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}, Public: tt.public},
 			}})
 			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: agent.ID,
@@ -241,7 +257,7 @@ func TestRouteDeliveryWakeMessage(t *testing.T) {
 			s := teststore.New(t)
 			org := teststore.CreateOrg(t, s, nil)
 			const url = "https://github.com/o/r/pull/1"
-			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{{Type: "github.pr"}}})
+			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}}}})
 			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: agent.ID,
 				Status:  tt.status,
@@ -544,7 +560,7 @@ func TestRouteTriggerYields(t *testing.T) {
 			org := teststore.CreateOrg(t, s, nil)
 			implementer := teststore.CreateAgent(t, s, org, &model.Agent{
 				Name:  "implementer",
-				Links: []model.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: tt.claim, Events: []string{"pull_request_review"}}},
+				Links: []model.AgentLink{{Type: "github.pr", Kind: "owned-pr", Claim: tt.claim, Events: []model.AgentLinkEvent{{Type: "pull_request_review"}}}},
 			})
 			holder := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: implementer.ID,
@@ -595,7 +611,7 @@ func TestRouteTriggerAndDeliveryAreIndependent(t *testing.T) {
 	const url = "https://github.com/o/r/pull/1"
 	watcher := teststore.CreateAgent(t, s, org, &model.Agent{
 		Name:  "watcher",
-		Links: []model.AgentLink{{Type: "github.pr"}},
+		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}}},
 	})
 	watching := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 		AgentID: watcher.ID,
@@ -637,7 +653,7 @@ func TestRouteTriggerThenDeliveryThroughItsLink(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	agent := teststore.CreateAgent(t, s, org, &model.Agent{
 		Triggers: []model.AgentTrigger{{Source: "github", Type: "pull_request_opened", Link: "github.pr"}},
-		Links:    []model.AgentLink{{Type: "github.pr", Events: []string{"pull_request_review"}}},
+		Links:    []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "pull_request_review"}}}},
 	})
 	r := &eventrouter.Router{Log: slog.Default(), Store: s, Registry: registry}
 	_, err := r.Route(t.Context(), eventrouter.InputEvent{
@@ -755,7 +771,7 @@ func TestRouteCustomEventDelivery(t *testing.T) {
 			}}))
 			const url = "https://dynatrace.example.com/problems/1"
 			agent := teststore.CreateAgent(t, s, org, &model.Agent{
-				Links: []model.AgentLink{{Type: "custom.url", Public: true}},
+				Links: []model.AgentLink{{Type: "custom.url", Events: []model.AgentLinkEvent{{Type: "problem"}}, Public: true}},
 			})
 			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: agent.ID,
@@ -795,7 +811,7 @@ func TestRouteOnRouteOutcome(t *testing.T) {
 		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Public: true}},
 	})
 	agent := teststore.CreateAgent(t, s, delivering, &model.Agent{
-		Links: []model.AgentLink{{Type: "github.pr", Public: true}},
+		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}, Public: true}},
 	})
 	teststore.CreateTask(t, s, delivering, &teststore.TaskOptions{
 		AgentID: agent.ID,

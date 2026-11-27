@@ -5,7 +5,7 @@ import {
   listAgents,
   listWorkspaces,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import type { EventTypeDef, LinkTypeDef } from '@/gen/gritz/v1/gritz_pb'
+import type { AttrDef, EventTypeDef, LinkTypeDef } from '@/gen/gritz/v1/gritz_pb'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -284,7 +284,7 @@ export function AgentForm({
       <section className="space-y-4">
         <SectionHeading
           title="Link kinds"
-          description="The only links this agent's tasks may subscribe to. An event on a subscribed link's resource wakes the task when the link's kind lists the event's type."
+          description="The only links this agent's tasks may subscribe to. An event on a subscribed link's resource wakes the task when the link's kind lists the event's type and the event satisfies that type's conditions."
         />
         {values.links.length === 0 && (
           <p className="text-muted-foreground text-sm">
@@ -381,6 +381,90 @@ function EventTypeSelect({
   )
 }
 
+// ConditionsEditor edits conditions on an event type's attrs: a trigger's, or
+// those of an event type a link kind delivers.
+function ConditionsEditor({
+  conditions,
+  attrs,
+  onChange,
+}: {
+  conditions: ConditionDraft[]
+  attrs: AttrDef[]
+  onChange: (conditions: ConditionDraft[]) => void
+}) {
+  const setCondition = (i: number, patch: Partial<ConditionDraft>) =>
+    onChange(conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+
+  return (
+    <>
+      {conditions.map((condition, i) => {
+        // Fall back to the bare key when the type no longer offers the attr.
+        const attr = attrs.find((a) => a.key === condition.attr)
+        return (
+          <div key={i} className="space-y-1">
+            <div className="flex flex-wrap items-start gap-2">
+              <Select value={condition.attr} onValueChange={(a) => setCondition(i, { attr: a })}>
+                <SelectTrigger className="w-40" aria-label="Attribute">
+                  <SelectValue placeholder="Attribute" />
+                </SelectTrigger>
+                <SelectContent>
+                  {attrs.map((a) => (
+                    <SelectItem key={a.key} value={a.key}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                  {condition.attr && !attr && (
+                    <SelectItem value={condition.attr}>{condition.attr}</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              <Select value={condition.op} onValueChange={(op) => setCondition(i, { op })}>
+                <SelectTrigger className="w-36" aria-label="Operator">
+                  <SelectValue placeholder="Operator" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONDITION_OPS.map((op) => (
+                    <SelectItem key={op} value={op}>
+                      {OP_LABELS[op]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                className="flex-1 min-w-40"
+                placeholder={attr?.placeholder ?? ''}
+                value={condition.value}
+                onChange={(e) => setCondition(i, { value: e.target.value })}
+                aria-label="Value"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onChange(conditions.filter((_, j) => j !== i))}
+                aria-label="Remove condition"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+            {attr?.help && <p className="text-muted-foreground text-xs">{attr.help}</p>}
+          </div>
+        )
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={attrs.length === 0}
+        onClick={() => onChange([...conditions, { attr: attrs[0].key, op: 'equals', value: '' }])}
+      >
+        <Plus className="h-4 w-4" />
+        Add condition
+      </Button>
+    </>
+  )
+}
+
 function TriggerEditor({
   index,
   count,
@@ -406,12 +490,6 @@ function TriggerEditor({
   const attrs = eventType?.attrs ?? []
   const linkKinds = withCurrent(triggerLinkKinds(links, eventType), trigger.link)
   const id = `trigger-${index}`
-
-  const setCondition = (i: number, patch: Partial<ConditionDraft>) =>
-    onChange({
-      ...trigger,
-      conditions: trigger.conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)),
-    })
 
   return (
     <div className="space-y-4 rounded-md border p-4">
@@ -479,80 +557,11 @@ function TriggerEditor({
             match any event of this type.
           </p>
         </div>
-        {trigger.conditions.map((condition, i) => {
-          // Fall back to the bare key when the type no longer offers the attr.
-          const attr = attrs.find((a) => a.key === condition.attr)
-          return (
-            <div key={i} className="space-y-1">
-              <div className="flex flex-wrap items-start gap-2">
-                <Select value={condition.attr} onValueChange={(a) => setCondition(i, { attr: a })}>
-                  <SelectTrigger className="w-40" aria-label="Attribute">
-                    <SelectValue placeholder="Attribute" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {attrs.map((a) => (
-                      <SelectItem key={a.key} value={a.key}>
-                        {a.label}
-                      </SelectItem>
-                    ))}
-                    {condition.attr && !attr && (
-                      <SelectItem value={condition.attr}>{condition.attr}</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-                <Select value={condition.op} onValueChange={(op) => setCondition(i, { op })}>
-                  <SelectTrigger className="w-36" aria-label="Operator">
-                    <SelectValue placeholder="Operator" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CONDITION_OPS.map((op) => (
-                      <SelectItem key={op} value={op}>
-                        {OP_LABELS[op]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  className="flex-1 min-w-40"
-                  placeholder={attr?.placeholder ?? ''}
-                  value={condition.value}
-                  onChange={(e) => setCondition(i, { value: e.target.value })}
-                  aria-label="Value"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    onChange({
-                      ...trigger,
-                      conditions: trigger.conditions.filter((_, j) => j !== i),
-                    })
-                  }
-                  aria-label="Remove condition"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-              {attr?.help && <p className="text-muted-foreground text-xs">{attr.help}</p>}
-            </div>
-          )
-        })}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={attrs.length === 0}
-          onClick={() =>
-            onChange({
-              ...trigger,
-              conditions: [...trigger.conditions, { attr: attrs[0].key, op: 'equals', value: '' }],
-            })
-          }
-        >
-          <Plus className="h-4 w-4" />
-          Add condition
-        </Button>
+        <ConditionsEditor
+          conditions={trigger.conditions}
+          attrs={attrs}
+          onChange={(conditions) => onChange({ ...trigger, conditions })}
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -637,7 +646,14 @@ function LinkKindEditor({
   const toggleEvent = (type: string, checked: boolean) =>
     onChange({
       ...link,
-      events: checked ? [...link.events, type] : link.events.filter((e) => e !== type),
+      events: checked
+        ? [...link.events, { type, conditions: [] }]
+        : link.events.filter((e) => e.type !== type),
+    })
+  const setEventConditions = (type: string, conditions: ConditionDraft[]) =>
+    onChange({
+      ...link,
+      events: link.events.map((e) => (e.type === type ? { ...e, conditions } : e)),
     })
 
   return (
@@ -713,27 +729,40 @@ function LinkKindEditor({
       <div className="space-y-2">
         <Label>Events</Label>
         <p className="text-muted-foreground text-xs">
-          The event types a link of this kind delivers, waking its task. Leave all unchecked to
-          deliver every one.
+          The event types a link of this kind delivers, waking its task, each only when its events
+          satisfy every condition added to it. With none checked, links of this kind deliver
+          nothing, though they still hold the claim.
         </p>
         {!link.type ? (
           <p className="text-muted-foreground text-sm">Select a link type first.</p>
         ) : deliverable.length === 0 ? (
           <p className="text-muted-foreground text-sm">No event type names this link type.</p>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-2">
             {deliverable.map((t) => {
               const cid = `${id}-event-${t.type}`
+              const event = link.events.find((e) => e.type === t.type)
               return (
-                <div key={t.type} className="flex items-center gap-2">
-                  <Checkbox
-                    id={cid}
-                    checked={link.events.includes(t.type)}
-                    onCheckedChange={(checked) => toggleEvent(t.type, checked === true)}
-                  />
-                  <Label htmlFor={cid} className="font-normal">
-                    {t.label}
-                  </Label>
+                <div key={t.type} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={cid}
+                      checked={event !== undefined}
+                      onCheckedChange={(checked) => toggleEvent(t.type, checked === true)}
+                    />
+                    <Label htmlFor={cid} className="font-normal">
+                      {t.label}
+                    </Label>
+                  </div>
+                  {event && (
+                    <div className="ml-6 space-y-2">
+                      <ConditionsEditor
+                        conditions={event.conditions}
+                        attrs={t.attrs}
+                        onChange={(conditions) => setEventConditions(t.type, conditions)}
+                      />
+                    </div>
+                  )}
                 </div>
               )
             })}

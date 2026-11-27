@@ -70,8 +70,10 @@ on the [diagrams site](/diagrams/).
 ## Data model
 
 The server keeps its state in PostgreSQL. Everything belongs to an **org**
-(`orgs`, with `users` joined through `org_members`). **Tasks** (`tasks`) carry the
-workspace and runner they run on, and their status. **Links** (`task_links`)
+(`orgs`, with `users` joined through `org_members`). **Agents** (`agents`) hold
+the template, triggers and link kinds tasks are created from. **Tasks** (`tasks`)
+each belong to an agent, and carry the workspace and runner they run on, and
+their status. **Links** (`task_links`)
 attach external resources to a task, and a subscribed link routes **events**
 (`events`) to it. **Workspaces** (`workspaces`) are what runners register from
 their `workspaces.yaml`, and **API keys** (`keys`) authenticate runners and

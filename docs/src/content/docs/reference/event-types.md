@@ -1,14 +1,16 @@
 ---
 title: Event types
-description: Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes routing rule conditions can match.
+description: Every built-in GitHub and Jira event type, with its source and type, its label in the Web UI, and the attributes trigger conditions can match, and the link types each can deliver to.
 sidebar:
   order: 2
 ---
 
-Every event has a source and a type, such as `github` and `issue_comment`. A
-[routing rule](/concepts/routing-rules/) matches one `(source, type)` pair, which
-the rule form's **Event type** list shows by its label, such as
+Every event has a source and a type, such as `github` and `issue_comment`. An
+agent's [trigger](/concepts/agents/#triggers) matches one `(source, type)` pair,
+which the trigger form's **Event type** list shows by its label, such as
 **GitHub: Issue/PR Comment**. Its conditions then test the event's attributes.
+A [link kind](/concepts/agents/#link-kinds) delivers the event types that can
+name its link type; see [Link types](#link-types).
 
 This page lists the built-in types, from the [GitHub](/integrations/github/) and
 [Jira](/integrations/jira/) integrations. An organisation's own types have the
@@ -31,9 +33,9 @@ Every type has two attributes:
 Each type adds others. An attribute can hold several values, such as every user
 mentioned in a comment, and a condition holds if any of them satisfies it.
 Conditions compare exactly and are case-sensitive; see
-[Matching](/concepts/routing-rules/#matching).
+[Matching](/concepts/agents/#matching).
 
-The **Label** column is what the rule form shows for the attribute.
+The **Label** column is what the trigger form shows for the attribute.
 
 ## GitHub
 
@@ -175,17 +177,18 @@ Buildkite, report theirs the same way.
 | `user` | User | The username GitHub attributes the run to. |
 
 Every completed check sends this event, including the checks of a pull request
-and the successful ones, so a rule usually has a `conclusion` condition. To
+and the successful ones, so a trigger usually has a `conclusion` condition. To
 match any failure, use `conclusion glob {failure,timed_out,startup_failure}`.
 A matrix job's name carries its axes, so match `check` with `prefix` or `glob`,
 such as `check glob build*`.
 
-A condition on an absent attribute never holds, so a rule with a `branch`
+A condition on an absent attribute never holds, so a trigger with a `branch`
 condition never matches a check of a commit pushed to a fork.
 
 `user` is usually whoever pushed, but it is the bot when a bot pushed, including
-an agent pushing as the GitHub App, and none of these are gritz members. A rule
-for this type is therefore usually [public](/concepts/routing-rules/#public-rules);
+an agent pushing as the GitHub App, and none of these are gritz members. A
+trigger or link kind for this type is therefore usually
+[public](/concepts/agents/#members-and-public);
 its `branch` condition keeps it to branches only people with push access to the
 repository can update.
 
@@ -214,8 +217,9 @@ A pull request opened from a fork gets none.
 | `user` | User | The username GitHub attributes the run to. |
 
 As with `check_run_completed`, use a `conclusion` condition to act only on
-failures, and make the rule public so a bot's push still counts. The event only
-reaches tasks subscribed to the pull request.
+failures, and make the trigger or link kind public so a bot's push still
+counts. Its URL is the pull request's, so a trigger for it can link the created
+task to the pull request.
 
 The event carries the same extra details as `check_run_completed`, and the pull
 request's number (`pull_request`).
@@ -273,18 +277,37 @@ at once sends one event with all of them.
 | `assignee` | Assignee | The account ID of the new assignee. |
 | `user` | User | The account ID of who assigned it. |
 
-## URLs and subscriptions
+## Link types
+
+A link type is a kind of resource that a [link kind](/concepts/agents/#link-kinds)
+subscribes to. An event type can be delivered through the link types its URL can
+name, and only those: `push` names none, so it can create tasks through a trigger
+but is never delivered to a subscribed task.
+
+| Link type | Resource | Event types that can name it |
+| --- | --- | --- |
+| `github.issue` | A GitHub issue, `https://github.com/{owner}/{repo}/issues/{n}` | `issue_comment`, `issue_assigned`, `label_added` |
+| `github.pr` | A GitHub pull request, `https://github.com/{owner}/{repo}/pull/{n}` | `issue_comment`, `pull_request_review_comment`, `pull_request_review`, `pull_request_assigned`, `pull_request_opened`, `pull_request_closed`, `label_added`, `pull_request_check_run_completed` |
+| `github.workflow_run` | A GitHub Actions workflow run, `https://github.com/{owner}/{repo}/actions/runs/{id}` | `check_run_completed` |
+| `jira.issue` | A Jira issue, `https://{site}.atlassian.net/browse/{KEY}` | every Jira type |
+| `custom.url` | A custom event's URL, exactly as sent | the [custom types](/integrations/custom-events/) that declare it |
+
+`issue_comment` and `label_added` name an issue or a pull request, whichever the
+event is about.
+
+## URLs and resources
 
 The `url` attribute is the event's own URL, as listed above, so a `url`
 condition sees the comment's or review's URL, with its fragment or query string.
-Use `prefix` to scope a rule to a repository or a project:
+Use `prefix` to scope a trigger to a repository or a project:
 `url prefix https://github.com/owner/repo/` or
 `url prefix https://your-domain.atlassian.net/browse/PROJ-`. A push and a check
 run also have `repo`, so `repo equals owner/repo` does the same.
 
-To find subscribed tasks, gritz reduces the URL to the issue or pull request it
-belongs to, so an event about a comment reaches the tasks subscribed to its
-issue. A GitHub Actions job's URL reduces to its workflow run, so every job and
-re-run of one workflow run reaches the same tasks: when a rule creates a task
-for one failing job, another failing job of that run goes to that task instead
-of creating a second one. See [Subscriptions](/concepts/events-and-links/#subscriptions).
+To find subscribed tasks, gritz reduces the URL to the resource it belongs to,
+in the forms above, so an event about a comment reaches the tasks subscribed to
+its issue or pull request. A GitHub Actions job's URL reduces to its workflow
+run, so every job and re-run of one workflow run reaches the tasks subscribed to
+the run. A check run reported by another CI system names no workflow run, so it
+reaches no subscribed task. See
+[Subscriptions](/concepts/events-and-links/#subscriptions).

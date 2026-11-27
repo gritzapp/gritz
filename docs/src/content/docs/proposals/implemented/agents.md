@@ -22,7 +22,7 @@ Issue: https://github.com/gritzapp/gritz/issues/2355
 - An **agent** is a named, org-scoped task template plus the routing that creates and wakes its tasks: **triggers** and **link kinds**. The org has no routing rules of its own.
 - Every task belongs to exactly one agent.
 - **Triggers** create tasks. They never wake an existing one. Each agent's triggers are evaluated independently of every other agent's; within an agent, the first matching trigger wins.
-- **Link kinds** are the only links an agent's tasks may subscribe to. A kind names a registered **link type**, and lists the events a subscribed link of that kind delivers. Delivery no longer depends on any trigger matching.
+- **Link kinds** are the only links an agent's tasks may subscribe to. A kind names a registered **link type**, and lists the events a subscribed link of that kind delivers, each with optional conditions. Delivery no longer depends on any trigger matching.
 - **Link types** are registered by the integrations, beside their event types. A link type recognizes and canonicalizes URLs of one resource (`github.pr`, `jira.issue`). Each event type declares which link types it is about. `model.RoutingKey` is replaced by the link types.
 - A link kind can give its links a **claim**. A trigger with `yield_to` creates no task while an unarchived task holds one of those claims on the event's resource.
 - Schedules stay org-level, but name an agent instead of carrying their own task template.
@@ -52,13 +52,21 @@ triggers:
 
 links:
   - type: jira.issue          # kind defaults to the type: "jira.issue"
-    events: [comment_created]
+    events:
+      - type: comment_created
   - type: github.pr
     kind: owned-pr            # needed because a second github.pr entry exists
     claim: pr-owner
-    events: [pull_request_review_comment, pull_request_review, pull_request_closed, pull_request_check_run_completed]
+    events:
+      - type: pull_request_review_comment
+      - type: pull_request_review
+      - type: pull_request_closed
+      - type: pull_request_check_run_completed
+        conditions:           # optional, as on triggers
+          - { attr: conclusion, op: equals, value: failure }
   - type: github.pr           # kind "github.pr": a PR the agent only watches
-    events: [pull_request_closed]
+    events:
+      - type: pull_request_closed
 ```
 
 ### Link types
@@ -89,13 +97,13 @@ When a trigger matches, the router creates a task from the agent's template, wit
 ### Link kinds and delivery
 
 - An entry's kind is its `kind`, or its `type` when `kind` is empty. Kinds are unique within the agent.
-- `events` lists event types (by `type`; the source is the link type's). Empty means every event type that declares the link type.
+- `events` lists event types (by `type`; the source is the link type's), each of which must declare the link type, with optional `conditions`: the same `attr`, `op`, `value` conditions a trigger has, validated against the event type's attributes in the same way, all of which must hold. An event type is listed at most once. A kind delivers only the event types it lists; with none listed it delivers nothing, and its links still hold its claim.
 - `claim` is stamped on every link of this kind.
 - `public` (per kind, as on triggers) allows delivery of events from actors who aren't org members.
 
 `create_link` takes an optional `kind` in place of `subscribe`. A link with a kind is subscribed: the kind must be one of the task's agent's kinds, and the URL must be accepted by the kind's type; the stored URL is the canonical one. A link without a kind is a plain reference: it receives no events, and its URL is stored as given.
 
-An event is delivered to a subscribed link when the event's canonical URL equals the link's URL, the event type is listed by the link's kind, and admission passes. Delivery always wakes the task. Each matching task receives the event once, however many of its links match.
+An event is delivered to a subscribed link when the event's canonical URL equals the link's URL, the event type is listed by the link's kind with conditions that all hold, and admission passes. Delivery always wakes the task. Each matching task receives the event once, however many of its links match.
 
 Triggers and delivery are independent: an event can be delivered to a subscribed task and also create a task through another agent's trigger. `yield_to` is the way to prevent that.
 
@@ -108,7 +116,7 @@ A mistaken link holds its claim until the task is archived. Removing a single li
 ```yaml
 # implementer: the PRs it opens carry pr-owner
 links:
-  - { type: github.pr, kind: owned-pr, claim: pr-owner, events: [pull_request_review_comment] }
+  - { type: github.pr, kind: owned-pr, claim: pr-owner, events: [{ type: pull_request_review_comment }] }
 
 # responder: answers @gritz mentions on PRs nobody owns
 triggers:
@@ -118,7 +126,7 @@ triggers:
     yield_to: [pr-owner]
     link: github.pr
 links:
-  - { type: github.pr, events: [issue_comment] }
+  - { type: github.pr, events: [{ type: issue_comment }] }
 ```
 
 ### Schedules
@@ -187,7 +195,7 @@ At the cutover the migration creates an agent named `default` per org with no tr
 `Router.Plan` and `Router.Apply` keep their split (the test-event path needs a side-effect-free plan) but change shape:
 
 1. **Admission.** For each org in `input.Orgs`, note whether the actor is a member, as today.
-2. **Delivery.** Compute the event's canonical URL per link type. Find links with a kind and that URL in those orgs, joined to their task's agent. Keep a link when its kind lists the event type and (the actor is a member or the kind is public). Attach the event to each distinct task, waking it.
+2. **Delivery.** Compute the event's canonical URL per link type. Find links with a kind and that URL in those orgs, joined to their task's agent. Keep a link when its kind lists the event type, that entry's conditions hold, and (the actor is a member or the kind is public). Attach the event to each distinct task, waking it.
 3. **Triggers.** For each agent in each org, take its first trigger that matches (selector, conditions, public). If the trigger has `yield_to`, look up unarchived tasks holding one of those claims on the event's canonical URL; if any, record the yield and stop. Otherwise create a task of the agent, attach the event, and create the trigger's link.
 
 There is no rule order across agents and no first match across the org.
@@ -231,11 +239,16 @@ message Trigger {
 }
 
 message AgentLink {
-  string type = 1;            // a registered link type, e.g. "github.pr"
-  string kind = 2;            // defaults to type
+  string type = 1;                    // a registered link type, e.g. "github.pr"
+  string kind = 2;                    // defaults to type
   string claim = 3;
-  repeated string events = 4; // event types of the link type's source; empty = all
+  repeated AgentLinkEvent events = 4; // none delivers nothing
   bool public = 5;
+}
+
+message AgentLinkEvent {
+  string type = 1;                        // an event type of the link type's source
+  repeated RuleCondition conditions = 2;  // all must hold
 }
 
 message LinkTypeDef {
@@ -257,7 +270,7 @@ Changed messages:
 
 ### CLI, MCP and web UI
 
-- `gritz agent list|get|create|update|delete`; `gritz task create --agent`.
+- `gritz task create --agent`. There is no `gritz agent` command: agents are managed in the web UI and through the server MCP tools.
 - Server MCP: `list_agents`, `get_agent`, `put_agent`, `delete_agent` replace `get_routing_rules` and `set_routing_rules`; `create_task` and the schedule tools take `agent`.
 - Web UI: an Agents page replaces Routing Rules. An agent's page has its template, triggers and link kinds; the trigger and link forms are driven by `GetEventTypes` (link kinds offer only event types that declare the chosen link type). The create-task and schedule forms pick an agent. The task page shows each link's kind and claim.
 
@@ -298,8 +311,14 @@ type AgentLink struct {
 	Type   string
 	Kind   string
 	Claim  string
-	Events []string
+	Events []AgentLinkEvent
 	Public bool
+}
+
+// AgentLinkEvent is an event type a link kind delivers, and the conditions its events must meet. // new
+type AgentLinkEvent struct {
+	Type       string
+	Conditions []Condition
 }
 
 // Name returns Kind, or Type when Kind is empty. // new
@@ -419,7 +438,7 @@ func (s *Store) FindClaimHolders(ctx context.Context, tx *sql.Tx, orgID int64, u
 4. **Cutover migration** — Delivers: `tasks.agent_id`, the `default` agents, link `kind`/`claim`, dropping `routing_key`, `namespace` and `orgs.routing_rules`; `CreateTask` takes `agent`; `CreateLink` takes `kind` and canonicalizes; the router rewritten to `Plan`/`Apply` over agents with delivery, triggers and claims; `TestEvent` reporting per agent; routing-rule RPCs and model removed. Depends on: (3). Verifiable by: router tests per case (delivery by kind, first trigger wins, two agents on one event, yield, trigger link), and the e2e harness creating a task from a trigger and waking it through its link.
 5. **Schedules name an agent** — Delivers: `schedules.agent_id`, template columns dropped, scheduler builds tasks from the named agent. Depends on: (4). Verifiable by: scheduler tests and `RunSchedule`.
 6. **Agent tools** — Delivers: `kind` on `create_link`, link kinds in the first-run brief. Depends on: (4). Verifiable by: agentmcp and prompt tests.
-7. **CLI and server MCP** — Delivers: `gritz agent`, `--agent` on `gritz task create`, the agent MCP tools, `agent` on `create_task` and the schedule tools. Depends on: (4), (5). Verifiable by: running them against the dev stack.
+7. **CLI and server MCP** — Delivers: `--agent` on `gritz task create`, the agent MCP tools, `agent` on `create_task` and the schedule tools. Depends on: (4), (5). Verifiable by: running them against the dev stack.
 8. **Web UI** — Delivers: the Agents page with triggers and link kinds, agent picker on the create-task and schedule forms, kind and claim on the task's links, the new test-event report; Routing Rules page removed. Depends on: (7). Verifiable by: exercising the pages against the dev stack; `pnpm lint`.
 9. **Docs** — Delivers: `concepts/routing-rules` replaced by an agents page; event types, CLI, MCP and agent-tools pages updated. Depends on: (8). Verifiable by: `cd docs && pnpm build`.
 
@@ -432,7 +451,7 @@ Layer 4 is large because the router, links and tasks change together and there i
 - **Link kinds fixed by the agent, not chosen by the task.** The agent author decides what a task can subscribe to and which claims it can hold; the task only picks a kind. A task can't subscribe to arbitrary events or claim resources the author didn't intend.
 - **Integrations own link types.** Replaces a single URL normalizer that had to know every integration with one function per resource next to the event types that produce it. Validation can then check that a link kind's events can actually name its resource.
 - **Claims last until archive.** A task passes through `COMPLETED` between runs, so terminal status can't release a claim. Archiving (manual or auto-archive) or deleting the link releases it.
-- **Every delivery wakes.** Routing rules' `wakeup: false` attached an event without starting a run. An agent link has no such flag: an event it shouldn't wake the task for is left out of `events`.
+- **Every delivery wakes.** Routing rules' `wakeup: false` attached an event without starting a run. An agent link has no such flag: an event it shouldn't wake the task for is left out of `events`, or excluded by that entry's conditions.
 - **The cutover breaks live tasks.** Existing links become plain references and existing schedules point at an empty `default` agent. gritz has one deployment, so live tasks are archived or recreated after the deploy rather than migrating routing rules and links into agents.
 - **Schedules stay outside agents.** They could later move into the agent definition beside triggers; for now a schedule only names the agent its tasks belong to.
 - **Yield drops the event.** Forwarding a yielded event to the holder would bypass the holder's link kind; the holder already hears what its kind lists.

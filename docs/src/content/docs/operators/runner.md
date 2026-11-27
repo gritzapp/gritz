@@ -62,8 +62,9 @@ These steps run a runner against gritz.dev on a machine with Docker.
    gritz runner --state-db ~/.local/state/gritz/runner.db
    ```
 
-5. **Create a task** in the Web UI at `https://gritz.dev/`, choosing your runner
-   and the `pets-workshop` workspace.
+5. **Create an agent** in the Web UI at `https://gritz.dev/`, choosing your
+   runner and the `pets-workshop` workspace, and **create a task** of that
+   agent.
 
 ## Flags
 

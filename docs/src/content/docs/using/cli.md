@@ -247,37 +247,24 @@ needed, takes its default server from the file's top-level `server`, and
 Creates a task and starts it straight away, then prints it as JSON.
 
 ```bash
-gritz task create -r my-runner -w pets-workshop \
+gritz task create --agent 7 \
   -i "Add a --json flag to the list command and open a pull request."
 ```
 
 | Flag | |
 | --- | --- |
-| `--runner`, `-r` | The [runner](/concepts/runners/) to run on. Required. |
-| `--workspace`, `-w` | The [workspace](/concepts/workspaces/). Defaults to `default`. |
+| `--agent`, `-a` | The ID of the [agent](/concepts/agents/) the task belongs to. The task runs with the agent's runner, workspace, auto-archive delay and variables. Required. |
 | `--instruction`, `-i` | An instruction. Repeat it for several. |
 | `--name`, `-n` | The task's name. The agent names it if you don't. |
-| `--var` | A [variable](/operators/workspaces-yaml/#variables) the workspace declares, as `NAME=VALUE`. Repeat it for several. |
-| `--auto-archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay, such as `1h` or `24h`. `0`, the default, is never; a negative value archives the task as soon as it finishes. |
 
-The **Workspaces** page in the Web UI lists runner IDs and their workspaces.
-
-A workspace can declare variables, values each task sets when it is created,
-such as the issue to work on. Its sandbox sees `--var JIRA_ISSUE=APP-142` as the
-environment variable `GRITZ_VAR_JIRA_ISSUE`. Setting a variable the workspace
-doesn't declare, or leaving out a required one, is an error. The value is the
-text after the first `=`, as is:
-
-```bash
-gritz task create -r my-runner -w story-agent \
-  --var JIRA_ISSUE=APP-142 --var BRANCH=release/2.4 \
-  -i "Implement the story."
-```
+An agent's ID is at the end of its page's URL in the Web UI, such as
+`https://gritz.dev/ui/agents/7`. Agents are created and changed in the Web UI
+and through the [MCP tools](/integrations/mcp/#agents).
 
 ### `gritz task list`
 
 Prints the organisation's 50 newest unarchived tasks as JSON, with their status,
-runner, workspace and URL.
+agent ID, runner, workspace and URL.
 
 ### `gritz task update`
 
