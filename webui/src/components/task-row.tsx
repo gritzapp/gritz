@@ -19,9 +19,11 @@ import { useOrgId } from '@/hooks/use-org-id'
 export function TaskHeads({ archive = false }: { archive?: boolean }) {
   return (
     <>
-      <ListHead className="hidden md:table-cell">Agent</ListHead>
-      {/* The agent column is hidden below md, where Task is the first one shown. */}
-      <ListHead className="pl-4 md:pl-2">Task</ListHead>
+      {/* Below md the agent column is only the monogram, too narrow for a heading. */}
+      <ListHead>
+        <span className="hidden md:inline">Agent</span>
+      </ListHead>
+      <ListHead>Task</ListHead>
       <ListHead>Status</ListHead>
       <ListHead className="hidden md:table-cell">Created</ListHead>
       {archive && <ListHead className="hidden md:table-cell" />}
@@ -37,10 +39,10 @@ export function TaskRow({ task, onArchive }: { task: Task; onArchive?: () => voi
 
   return (
     <TableRow className={task.archived ? 'opacity-60' : undefined}>
-      <TableCell className="hidden py-2.5 pl-4 md:table-cell">
-        <AgentBadge agentId={task.agentId} />
+      <TableCell className="py-2.5 pl-4">
+        <AgentBadge agentId={task.agentId} detail={`${task.runner}/${task.workspace}`} />
       </TableCell>
-      <TableCell className="w-2/3 max-w-0 py-2.5 pl-4 md:w-1/2 md:pl-2">
+      <TableCell className="w-2/3 max-w-0 py-2.5 md:w-1/2">
         <Link
           to="/tasks/$id"
           search={{ org: orgId }}
@@ -57,7 +59,7 @@ export function TaskRow({ task, onArchive }: { task: Task; onArchive?: () => voi
             {task.name || 'Unnamed'}
           </span>
           <span className="text-muted-foreground block truncate font-mono text-xs">
-            #{String(task.id)} · {task.runner}/{task.workspace}
+            #{String(task.id)}
           </span>
         </Link>
       </TableCell>

@@ -80,12 +80,41 @@ export function AgentRef({ agentId, className }: { agentId: bigint; className?: 
 }
 
 // AgentBadge is AgentRef with the agent's monogram before its name, so a task
-// carries its agent's colour wherever it is listed.
-export function AgentBadge({ agentId, className }: { agentId: bigint; className?: string }) {
+// carries its agent's colour wherever it is listed. With detail it is laid out
+// as the Agents list shows an agent, for a list column of its own: a larger
+// monogram, the name, and detail on a second line. Below md only the monogram
+// is left.
+export function AgentBadge({
+  agentId,
+  className,
+  detail,
+}: {
+  agentId: bigint
+  className?: string
+  detail?: string
+}) {
   const orgId = useOrgId()
   const agent = useAgent(agentId)
   if (!agent) {
     return <span className={cn('text-muted-foreground', className)}>#{String(agentId)}</span>
+  }
+  if (detail !== undefined) {
+    return (
+      <Link
+        to="/agents/$id"
+        params={{ id: String(agentId) }}
+        search={{ org: orgId }}
+        aria-label={agent.name}
+        title={agent.name}
+        className={cn('group inline-flex max-w-full min-w-0 items-center gap-3', className)}
+      >
+        <AgentMonogram name={agent.name} />
+        <span className="hidden min-w-0 md:block">
+          <span className="block truncate font-medium group-hover:underline">{agent.name}</span>
+          <span className="text-muted-foreground block truncate font-mono text-xs">{detail}</span>
+        </span>
+      </Link>
+    )
   }
   return (
     <Link
