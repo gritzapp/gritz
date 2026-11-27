@@ -245,6 +245,6 @@ webhook: it has no actor, so only public triggers and link kinds admit it.
 
 ## Deleting an agent
 
-An agent can't be deleted while it has an unarchived task or a schedule names
-it. Archive its tasks, and point its schedules at another agent or delete them,
-first. Its archived tasks keep their history.
+An agent can't be deleted while it has an unarchived task: archive its tasks
+first. Deleting it also deletes its [schedules](/concepts/schedules/). Its
+archived tasks keep their history.

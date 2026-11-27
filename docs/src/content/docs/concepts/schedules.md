@@ -33,8 +33,7 @@ instruction is the agent's prompt or, when the agent has none, a line naming
 the schedule and the agent.
 
 The agent is read each time the schedule fires, so a change to the agent applies
-to the schedule's next task. An agent can't be deleted while a schedule names
-it: point the schedule at another agent, or delete it, first.
+to the schedule's next task. Deleting the agent deletes its schedules.
 
 The runner checks a task's variables when it starts the task. If the
 workspace's `variables:` changed after the agent was saved, and no longer
