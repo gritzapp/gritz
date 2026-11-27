@@ -57,8 +57,9 @@ export function ArchiveButton({
   const size = countdown ? (compact ? 'sm' : 'default') : compact ? 'icon-sm' : 'icon'
   return (
     <Button
-      variant="outline"
+      variant={compact ? 'ghost' : 'outline'}
       size={size}
+      className={compact ? 'text-muted-foreground' : undefined}
       onClick={unarchive ? onUnarchive : onArchive}
       disabled={(disabled ?? pending) || !canAct}
       aria-label={label}

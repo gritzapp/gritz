@@ -8,12 +8,15 @@ import { TaskTimeline } from '@/components/task-timeline'
 // scroll/stick/prepend behavior lives in Scrollback.
 export function TaskTimelineChat({
   items,
+  agentId,
   hasOlder,
   loadOlder,
   isLoadingOlder,
   composer,
 }: {
   items: TimelineItem[]
+  // The task's agent, which its output is shown under.
+  agentId: bigint
   hasOlder: boolean
   loadOlder: () => void
   isLoadingOlder: boolean
@@ -28,7 +31,7 @@ export function TaskTimelineChat({
         isLoadingOlder={isLoadingOlder}
         className="p-6"
       >
-        <TaskTimeline items={items} />
+        <TaskTimeline items={items} agentId={agentId} />
       </Scrollback>
       {composer && <div className="shrink-0 border-t p-4">{composer}</div>}
     </div>

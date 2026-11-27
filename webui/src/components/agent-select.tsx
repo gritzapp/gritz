@@ -2,7 +2,9 @@ import { Link } from '@tanstack/react-router'
 import { useQuery } from '@connectrpc/connect-query'
 import { listAgents } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import type { Agent } from '@/gen/gritz/v1/gritz_pb'
+import { AgentMonogram } from '@/components/agent-overview'
 import { useOrgId } from '@/hooks/use-org-id'
+import { cn } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -75,6 +77,27 @@ export function AgentRef({ agentId, className }: { agentId: bigint; className?: 
       className={className ?? 'text-primary hover:underline'}
     >
       {agent.name}
+    </Link>
+  )
+}
+
+// AgentBadge is AgentRef with the agent's monogram before its name, so a task
+// carries its agent's colour wherever it is listed.
+export function AgentBadge({ agentId, className }: { agentId: bigint; className?: string }) {
+  const orgId = useOrgId()
+  const agent = useAgent(agentId)
+  if (!agent) {
+    return <span className={cn('text-muted-foreground', className)}>#{String(agentId)}</span>
+  }
+  return (
+    <Link
+      to="/agents/$id"
+      params={{ id: String(agentId) }}
+      search={{ org: orgId }}
+      className={cn('group inline-flex max-w-full min-w-0 items-center gap-2', className)}
+    >
+      <AgentMonogram name={agent.name} className="size-5 rounded text-[9px]" />
+      <span className="truncate group-hover:underline">{agent.name}</span>
     </Link>
   )
 }

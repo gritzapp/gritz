@@ -31,6 +31,7 @@ import {
   Webhook,
   Workflow,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 // AgentsViewProps is what every layout of the agents page renders from.
 export interface AgentsViewProps {
@@ -106,20 +107,40 @@ export function SourceIcon({ source, className }: { source: string; className?: 
   }
 }
 
+// The glyph and colour that say which kind of GitHub resource a link type is.
+const GITHUB_LINK_MARKS: Record<string, { glyph: LucideIcon; tone: string }> = {
+  'github.pr': { glyph: GitPullRequest, tone: 'bg-violet-600 dark:bg-violet-500' },
+  'github.issue': { glyph: CircleDot, tone: 'bg-emerald-600 dark:bg-emerald-500' },
+  'github.workflow_run': { glyph: Workflow, tone: 'bg-amber-600 dark:bg-amber-500' },
+}
+
+// LinkTypeIcon is the icon of what a link type points at. A GitHub type is the
+// GitHub mark with a coloured badge over its corner for the kind of resource,
+// so it reads as "a pull request, on GitHub". The badge hangs outside the
+// icon's box, which the right margin makes room for.
 export function LinkTypeIcon({ type, className }: { type: string; className?: string }) {
   const cls = cn('size-4 shrink-0', className)
-  switch (type) {
-    case 'github.pr':
-      return <GitPullRequest className={cn(cls, 'text-violet-600 dark:text-violet-400')} />
-    case 'github.issue':
-      return <CircleDot className={cn(cls, 'text-emerald-600 dark:text-emerald-400')} />
-    case 'github.workflow_run':
-      return <Workflow className={cn(cls, 'text-amber-600 dark:text-amber-400')} />
-    case 'jira.issue':
-      return <AtlassianIcon className={cn(cls, 'text-sky-600 dark:text-sky-400')} />
-    default:
-      return <Link2 className={cn(cls, 'text-muted-foreground')} />
+  const mark = GITHUB_LINK_MARKS[type]
+  if (mark) {
+    const Glyph = mark.glyph
+    return (
+      <span className={cn('relative mr-2 inline-flex', cls)}>
+        <GithubIcon className="size-full" />
+        <span
+          className={cn(
+            'absolute -right-[50%] -bottom-[35%] flex size-[85%] items-center justify-center rounded-full text-white',
+            mark.tone,
+          )}
+        >
+          <Glyph className="size-[72%]" strokeWidth={2.5} />
+        </span>
+      </span>
+    )
   }
+  if (type === 'jira.issue') {
+    return <AtlassianIcon className={cn(cls, 'text-sky-600 dark:text-sky-400')} />
+  }
+  return <Link2 className={cn(cls, 'text-muted-foreground')} />
 }
 
 // nameHue is a stable hue for an agent name, so an agent keeps its colour

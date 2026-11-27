@@ -1,24 +1,12 @@
 import { useState } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery, useMutation } from '@connectrpc/connect-query'
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
+import { useQuery } from '@connectrpc/connect-query'
 import { keepPreviousData } from '@tanstack/react-query'
-import {
-  listAgents,
-  listTasks,
-  archiveTask,
-  unarchiveTask,
-} from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import type { Task } from '@/gen/gritz/v1/gritz_pb'
-import { timestampDate } from '@bufbuild/protobuf/wkt'
-import { canArchiveTask, canUnarchiveTask } from '@/lib/task'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { listAgents, listTasks } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
+import { AgentMonogram } from '@/components/agent-overview'
+import { ListTable } from '@/components/list-table'
+import { TaskHeads, TaskRow } from '@/components/task-row'
+import { TableBody } from '@/components/ui/table'
 import {
   Select,
   SelectContent,
@@ -33,15 +21,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { StatusBadge } from '@/components/status-badge'
-import { ArchivedBadge } from '@/components/archived-badge'
-import { ArchiveButton } from '@/components/archive-button'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { RelativeTime } from '@/components/relative-time'
-import { CommandBadge } from '@/components/command-badge'
-import { AgentRef } from '@/components/agent-select'
 import { ChevronDown, Plus } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgLocalStorage, useOrgLocalStorageBoolean } from '@/hooks/use-org-local-storage'
@@ -52,12 +34,21 @@ const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100']
 // list of agent decimal IDs.
 const ALL_AGENTS = 'all'
 
+// agent filters the list to one agent, as the Agents list's Recent column
+// links do.
+type TasksSearch = { agent?: string }
+
 export const Route = createFileRoute('/tasks/')({
+  validateSearch: (search: Record<string, unknown>): TasksSearch => ({
+    agent: typeof search.agent === 'string' && /^\d+$/.test(search.agent) ? search.agent : undefined,
+  }),
   component: TasksPage,
 })
 
 function TasksPage() {
   const orgId = useOrgId()
+  const navigate = useNavigate()
+  const search = Route.useSearch()
 
   const [pageSize, setPageSize] = useOrgLocalStorage('tasks-page-size', '20')
   const [archived, setArchived] = useOrgLocalStorageBoolean('tasks-show-archived', false)
@@ -67,7 +58,15 @@ function TasksPage() {
   const agents = agentsData?.agents ?? []
   // Remembered agents that have since been deleted filter nothing; an empty
   // selection is every agent.
-  const selectedAgents = (storedAgents === ALL_AGENTS ? [] : storedAgents.split(',')).filter(
+  // The agent from the URL wins over the remembered ones until the filter is
+  // changed.
+  const selectedAgents = (
+    search.agent !== undefined
+      ? [search.agent]
+      : storedAgents === ALL_AGENTS
+        ? []
+        : storedAgents.split(',')
+  ).filter(
     (id) => agentsLoading || agents.some((a) => String(a.id) === id),
   )
 
@@ -109,6 +108,13 @@ function TasksPage() {
   const setSelectedAgents = (ids: string[]) => {
     setStoredAgents(ids.length === 0 ? ALL_AGENTS : ids.join(','))
     setTokens([])
+    if (search.agent !== undefined) {
+      void navigate({
+        to: '/tasks',
+        search: (prev) => ({ ...prev, agent: undefined }),
+        replace: true,
+      })
+    }
   }
 
   const handleAgentToggle = (id: string, checked: boolean) => {
@@ -164,12 +170,12 @@ function TasksPage() {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="w-48 justify-between" aria-label="Agents">
+              <Button variant="outline" className="w-56 justify-between font-normal" aria-label="Agents">
                 <span className="truncate">{agentFilterLabel}</span>
                 <ChevronDown className="opacity-50" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuCheckboxItem
                 checked={selectedAgents.length === 0}
                 onCheckedChange={() => setSelectedAgents([])}
@@ -185,7 +191,8 @@ function TasksPage() {
                   onCheckedChange={(checked) => handleAgentToggle(String(a.id), checked)}
                   onSelect={(e) => e.preventDefault()}
                 >
-                  {a.name}
+                  <AgentMonogram name={a.name} className="size-5 rounded text-[9px]" />
+                  <span className="truncate">{a.name}</span>
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
@@ -213,22 +220,13 @@ function TasksPage() {
       {tasks.length === 0 ? (
         <div className="text-muted-foreground text-center py-8">No tasks found</div>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead className="hidden md:table-cell">Agent</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="hidden md:table-cell">Created</TableHead>
-              <TableHead className="hidden md:table-cell"></TableHead>
-            </TableRow>
-          </TableHeader>
+        <ListTable header={<TaskHeads archive />}>
           <TableBody>
             {tasks.map((task) => (
-              <TaskRow key={String(task.id)} task={task} onUpdate={refetch} />
+              <TaskRow key={String(task.id)} task={task} onArchive={refetch} />
             ))}
           </TableBody>
-        </Table>
+        </ListTable>
       )}
       {(tokens.length > 0 || nextPageToken) && (
         <div className="flex items-center justify-center gap-2 py-6">
@@ -245,58 +243,5 @@ function TasksPage() {
         </div>
       )}
     </div>
-  )
-}
-
-function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
-  const orgId = useOrgId()
-  const archiveMutation = useMutation(archiveTask, { onSuccess: () => onUpdate() })
-  const unarchiveMutation = useMutation(unarchiveTask, { onSuccess: () => onUpdate() })
-
-  const handleArchive = async () => {
-    await archiveMutation.mutateAsync({ id: task.id })
-  }
-
-  const handleUnarchive = async () => {
-    await unarchiveMutation.mutateAsync({ id: task.id })
-  }
-
-  return (
-    <TableRow className={task.archived ? 'text-muted-foreground' : undefined}>
-      <TableCell>
-        <Link
-          to="/tasks/$id"
-          search={{ org: orgId }}
-          params={{ id: String(task.id) }}
-          className="text-primary hover:underline"
-        >
-          {task.name || `Unnamed - ${task.id}`}
-        </Link>
-      </TableCell>
-      <TableCell className="hidden md:table-cell">
-        <AgentRef agentId={task.agentId} className="hover:underline" />
-      </TableCell>
-      <TableCell>
-        <span className="flex items-center gap-2">
-          <StatusBadge task={task} />
-          <CommandBadge task={task} />
-          <ArchivedBadge task={task} />
-        </span>
-      </TableCell>
-      <TableCell className="hidden md:table-cell text-muted-foreground">
-        {task.createdAt ? <RelativeTime date={timestampDate(task.createdAt)} /> : '-'}
-      </TableCell>
-      <TableCell className="hidden md:table-cell">
-        {(canArchiveTask(task) || canUnarchiveTask(task)) && (
-          <ArchiveButton
-            task={task}
-            onArchive={handleArchive}
-            onUnarchive={handleUnarchive}
-            pending={archiveMutation.isPending || unarchiveMutation.isPending}
-            compact
-          />
-        )}
-      </TableCell>
-    </TableRow>
   )
 }

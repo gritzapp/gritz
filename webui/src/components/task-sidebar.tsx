@@ -33,7 +33,8 @@ import { ArchivedBadge } from '@/components/archived-badge'
 import { CommandBadge } from '@/components/command-badge'
 import { RelativeTime } from '@/components/relative-time'
 import { TaskLinks } from '@/components/task-links'
-import { AgentRef } from '@/components/agent-select'
+import { AgentBadge } from '@/components/agent-select'
+import { SectionLabel } from '@/components/agent-overview'
 import { useAutoArchiveCountdown } from '@/components/archive-button'
 import {
   Archive,
@@ -120,10 +121,14 @@ export function TaskSidebar({
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3">
         {!collapsed && (
-          <div className="px-4 pb-4">
+          <div className="space-y-1.5 px-4 pb-4">
+            <AgentBadge agentId={task.agentId} className="text-xs text-muted-foreground" />
             <h1 className="text-[15px] font-semibold leading-snug text-pretty" title={title}>
               {title}
             </h1>
+            <div className="truncate font-mono text-xs text-muted-foreground">
+              #{String(task.id)} · {task.runner}/{task.workspace}
+            </div>
           </div>
         )}
 
@@ -160,11 +165,6 @@ export function TaskSidebar({
 
             {/* details: a compact properties list, label left / value right */}
             <dl className="flex flex-col gap-2">
-              <Detail label="Runner">{task.runner}</Detail>
-              <Detail label="Workspace">{task.workspace}</Detail>
-              <Detail label="Agent">
-                <AgentRef agentId={task.agentId} className="hover:underline" />
-              </Detail>
               <Detail label="Created">
                 {task.createdAt ? <RelativeTime date={timestampDate(task.createdAt)} /> : '-'}
               </Detail>
@@ -180,8 +180,8 @@ export function TaskSidebar({
             <div className="my-4 h-px bg-border" />
 
             {/* links */}
-            <div className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Links
+            <div className="mb-2.5">
+              <SectionLabel>Follows</SectionLabel>
             </div>
             <TaskLinks links={links} />
           </div>
@@ -300,13 +300,12 @@ export function NewTaskSidebar({
         {!collapsed && agent && (
           <div className="px-4">
             <div className="my-4 h-px bg-border" />
-            <dl className="flex flex-col gap-2">
-              <Detail label="Runner">{agent.runner}</Detail>
-              <Detail label="Workspace">{agent.workspace}</Detail>
-              <Detail label="Agent">
-                <AgentRef agentId={agent.id} className="hover:underline" />
-              </Detail>
-            </dl>
+            <div className="space-y-1.5">
+              <AgentBadge agentId={agent.id} className="text-sm font-medium" />
+              <div className="truncate font-mono text-xs text-muted-foreground">
+                {agent.runner}/{agent.workspace}
+              </div>
+            </div>
             <TaskVariables variables={agent.variables} />
           </div>
         )}
@@ -448,8 +447,8 @@ function TaskVariables({ variables }: { variables: { [name: string]: string } })
   return (
     <>
       <div className="my-4 h-px bg-border" />
-      <div className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Variables
+      <div className="mb-2.5">
+        <SectionLabel>Variables</SectionLabel>
       </div>
       <dl className="flex flex-col gap-2">
         {names.map((name) => (

@@ -1,4 +1,4 @@
-import { Badge } from '@/components/ui/badge'
+import { Archive } from 'lucide-react'
 import type { Task } from '@/gen/gritz/v1/gritz_pb'
 
 export function ArchivedBadge({ task }: { task: Task }) {
@@ -6,11 +6,9 @@ export function ArchivedBadge({ task }: { task: Task }) {
     return null
   }
   return (
-    <Badge
-      variant="outline"
-      className="bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800/60 dark:text-gray-300 dark:border-gray-700"
-    >
+    <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap">
+      <Archive className="size-3" />
       archived
-    </Badge>
+    </span>
   )
 }

@@ -170,6 +170,7 @@ function TaskDetail() {
         {tab === 'timeline' && (
           <TaskTimelineChat
             items={timeline}
+            agentId={task.agentId}
             hasOlder={hasOlder}
             loadOlder={loadOlder}
             isLoadingOlder={isLoadingOlder}

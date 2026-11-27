@@ -1,26 +1,17 @@
-import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { TaskStatus, type Task } from '@/gen/gritz/v1/gritz_pb'
 
-const statusStyles: Record<TaskStatus, string> = {
-  [TaskStatus.UNSPECIFIED]:
-    'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800/60 dark:text-gray-300 dark:border-gray-700',
-  [TaskStatus.PENDING]:
-    'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900',
-  [TaskStatus.RUNNING]:
-    'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900',
-  [TaskStatus.RESTARTING]:
-    'bg-pink-100 text-pink-800 border-pink-200 dark:bg-pink-950/50 dark:text-pink-300 dark:border-pink-900',
-  [TaskStatus.CANCELLING]:
-    'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-900',
-  [TaskStatus.COMPLETED]:
-    'bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-900',
-  [TaskStatus.FAILED]:
-    'bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-900',
-  [TaskStatus.CANCELLED]:
-    'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900',
-  [TaskStatus.DRAFT]:
-    'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-900',
+// Text colours for StatusBadge, keyed to match the dot palette below.
+const statusText: Record<TaskStatus, string> = {
+  [TaskStatus.UNSPECIFIED]: 'text-muted-foreground',
+  [TaskStatus.PENDING]: 'text-amber-700 dark:text-amber-400',
+  [TaskStatus.RUNNING]: 'text-blue-700 dark:text-blue-400',
+  [TaskStatus.RESTARTING]: 'text-pink-700 dark:text-pink-400',
+  [TaskStatus.CANCELLING]: 'text-orange-700 dark:text-orange-400',
+  [TaskStatus.COMPLETED]: 'text-green-700 dark:text-green-400',
+  [TaskStatus.FAILED]: 'text-red-700 dark:text-red-400',
+  [TaskStatus.CANCELLED]: 'text-amber-700 dark:text-amber-400',
+  [TaskStatus.DRAFT]: 'text-purple-700 dark:text-purple-400',
 }
 
 const statusLabels: Record<TaskStatus, string> = {
@@ -73,21 +64,31 @@ export function StatusDot({ task }: { task: Task }) {
   )
 }
 
+// StatusBadge is the task's status as a coloured dot and its name. The dot of
+// an active status pings.
 export function StatusBadge({ task }: { task: Task }) {
   const isActive = activeStatuses.has(task.status)
+  const dot = (dotStyles[task.status] ?? dotStyles[TaskStatus.UNSPECIFIED]).dot
 
   return (
-    <Badge
-      variant="outline"
-      className={cn(statusStyles[task.status] ?? statusStyles[TaskStatus.UNSPECIFIED])}
-    >
-      {isActive && (
-        <span className="relative flex h-2 w-2 mr-1">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-current opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-current"></span>
-        </span>
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 text-xs font-medium whitespace-nowrap',
+        statusText[task.status] ?? statusText[TaskStatus.UNSPECIFIED],
       )}
+    >
+      <span className="relative flex size-2">
+        {isActive && (
+          <span
+            className={cn(
+              'absolute inline-flex size-full animate-ping rounded-full opacity-75',
+              dot,
+            )}
+          />
+        )}
+        <span className={cn('relative inline-flex size-2 rounded-full', dot)} />
+      </span>
       {statusLabels[task.status] ?? 'unknown'}
-    </Badge>
+    </span>
   )
 }
