@@ -40,8 +40,8 @@ export function TaskTimeline({ items, agentId }: { items: TimelineItem[]; agentI
 
   return (
     <ol className="relative space-y-3">
-      {/* the rail, down the middle of the mark column */}
-      <div className="absolute top-2 bottom-2 left-[13.5px] w-px bg-border" aria-hidden />
+      {/* the rail, through the centre of the card icons and lifecycle marks */}
+      <div className="absolute top-2 bottom-2 left-[24.5px] w-px bg-border" aria-hidden />
       {items.map((item) => (
         <TimelineRow key={item.id} item={item} agentName={agentName} />
       ))}
@@ -51,7 +51,8 @@ export function TaskTimeline({ items, agentId }: { items: TimelineItem[]; agentI
 
 // ----- row scaffolding ------------------------------------------------------
 
-// The column on the left that the rail runs down and lifecycle marks sit in.
+// The box a lifecycle mark sits in. LifecycleRow insets it so its centre is on
+// the rail, where the card icons are.
 const MARK = 'flex size-7 shrink-0 items-center justify-center'
 
 // Card is an entry that says something: it spans the width, on top of the
@@ -137,7 +138,9 @@ function ExternalRow({ item }: { item: Extract<TimelineItem, { kind: 'external' 
       at={item.at}
       // The tint is a flat gradient over the card's own opaque background, so
       // the rail behind the card doesn't show through it.
-      className="border-l-2 border-l-amber-500 bg-linear-to-r from-amber-50/50 to-amber-50/50 dark:border-l-amber-400 dark:from-amber-950/15 dark:to-amber-950/15"
+      // The second pixel of the amber edge is an inset shadow, not border width,
+      // so the icon stays on the rail.
+      className="border-l-amber-500 bg-linear-to-r from-amber-50/50 to-amber-50/50 shadow-[inset_1px_0_0_var(--color-amber-500)] dark:border-l-amber-400 dark:from-amber-950/15 dark:to-amber-950/15 dark:shadow-[inset_1px_0_0_var(--color-amber-400)]"
     >
       <p className="text-sm font-medium text-foreground">{item.description}</p>
       {item.data && (
@@ -197,7 +200,9 @@ const lifecycleConfig: Record<LifecycleCategory, { icon: React.ReactNode; tone: 
 function LifecycleRow({ item }: { item: Extract<TimelineItem, { kind: 'lifecycle' }> }) {
   const cfg = lifecycleConfig[item.category]
   return (
-    <li className="relative flex items-center gap-3 text-xs text-muted-foreground">
+    // The inset centres the mark on the rail, and the gap starts the summary
+    // where the card labels start.
+    <li className="relative flex items-center gap-0.5 pl-[11px] text-xs text-muted-foreground">
       <span className={cn(MARK, 'z-10 rounded-full bg-background', cfg.tone)}>{cfg.icon}</span>
       <span className="min-w-0 truncate" title={item.summary}>
         {item.summary}
