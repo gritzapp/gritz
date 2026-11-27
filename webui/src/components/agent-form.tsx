@@ -1318,6 +1318,21 @@ function LinkKindEditor({
       </div>
 
       <div className="space-y-2">
+        <FieldLabel
+          htmlFor={`${id}-description`}
+          hint="Shown to the agent's tasks with their link kinds: what the kind is for and when to create a link of it."
+        >
+          Description
+        </FieldLabel>
+        <Input
+          id={`${id}-description`}
+          placeholder="None"
+          value={link.description}
+          onChange={(e) => onChange({ ...link, description: e.target.value })}
+        />
+      </div>
+
+      <div className="space-y-2">
         <FieldLabel hint="The event types a link of this kind delivers to its task, each only when its events satisfy every condition added to it. With none on, links of this kind deliver nothing, though they still hold the claim.">
           Events
         </FieldLabel>

@@ -38,8 +38,8 @@ func renderLink(link *gritzv1.TaskLink) string {
 }
 
 // renderLinkKind renders one of the agent's link kinds as a list item: the
-// kind's name (the value create_link takes), its link type, and its claim when
-// it has one. Registered as the renderLinkKind template func; the init branch
+// kind's name (the value create_link takes), its link type, its claim when it
+// has one, and its description when it has one, collapsed onto the line. Registered as the renderLinkKind template func; the init branch
 // loops over Options.LinkKinds.
 func renderLinkKind(kind *gritzv1.AgentLink) string {
 	name := kind.GetKind()
@@ -49,6 +49,9 @@ func renderLinkKind(kind *gritzv1.AgentLink) string {
 	line := "- `" + name + "`: " + kind.GetType()
 	if claim := kind.GetClaim(); claim != "" {
 		line += ", claim `" + claim + "`"
+	}
+	if desc := strings.Join(strings.Fields(kind.GetDescription()), " "); desc != "" {
+		line += " — " + desc
 	}
 	return line
 }

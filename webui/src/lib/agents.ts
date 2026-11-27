@@ -52,6 +52,8 @@ export interface LinkKindDraft {
   type: string
   kind: string
   claim: string
+  // Free text telling the agent's tasks what the kind is for.
+  description: string
   // Event types of the link type's source; with none, the kind delivers
   // nothing.
   events: LinkEventDraft[]
@@ -129,6 +131,7 @@ export const emptyLinkKind: LinkKindDraft = {
   type: '',
   kind: '',
   claim: '',
+  description: '',
   events: [],
 }
 
@@ -162,6 +165,7 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       type: l.type,
       kind: l.kind,
       claim: l.claim,
+      description: l.description,
       events: l.events.map((e) => ({
         type: e.type,
         conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
@@ -205,6 +209,7 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       type: l.type,
       kind: l.kind.trim(),
       claim: l.claim.trim(),
+      description: l.description.trim(),
       events: l.events.map((e) => ({
         type: e.type,
         conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),

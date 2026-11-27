@@ -91,7 +91,7 @@ func TestRenderGolden(t *testing.T) {
 	// The agent's link kinds: one named kind with a claim, and one whose kind
 	// defaults to its type.
 	briefLinkKinds := []*gritzv1.AgentLink{
-		{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner"},
+		{Type: "github.pr", Kind: "owned-pr", Claim: "pr-owner", Description: "Pull requests the task opens.\nRecord every PR you create."},
 		{Type: "jira.issue"},
 	}
 	tests := []struct {
