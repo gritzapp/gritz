@@ -26,7 +26,7 @@ from its row. The filters are remembered per organisation.
 
 **+ Task** opens the page of a new task. Pick its [agent](/concepts/agents/);
 the name is optional. The task runs with the agent's runner, workspace,
-auto-archive delay and variables. Sending the first instruction creates the
+auto-archive delay, variables and features. Sending the first instruction creates the
 task and starts it. An agent's run button on the **Agents** page opens it with
 that agent picked and its prompt in the instruction box.
 
@@ -81,8 +81,8 @@ one, and each row has buttons to run, edit or delete it. Run opens a
 [new task](#tasks) of the agent, with its prompt as the first instruction. The
 agent form has four sections:
 
-- **Template**: name, runner, workspace, variables, prompt and auto-archive
-  delay.
+- **Template**: name, runner, workspace, variables,
+  [features](/concepts/agents/#the-template), prompt and auto-archive delay.
 - **Triggers**: each with an event type, conditions, a link kind, claims to
   yield to, and **Public**. The arrows reorder them.
 - **Schedules**: each with a name, a cron expression, a timezone and an on/off
@@ -107,7 +107,8 @@ fires it. See [Testing with a test event](/concepts/agents/#testing-with-a-test-
 ## Workspaces
 
 **Workspaces** lists the [workspaces](/concepts/workspaces/) the organisation's
-[runners](/concepts/runners/) have registered, with their description, runner and
+[runners](/concepts/runners/) have registered, with their description, how many
+[features](/operators/workspaces-yaml/#features) they declare, their runner and
 when they were last registered. Filter by runner, and **Clear** to remove the
 listed runner's workspaces, or every runner's.
 

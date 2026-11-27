@@ -257,8 +257,9 @@ today.
   its existing tasks. A task's features can't be changed later.
 - **Triggers**: `Router.create` copies `agent.Features` as saved, as it copies
   `agent.Variables`.
-- **Schedules**: `Schedule.Task(agent)` copies `agent.Features`. A schedule has
-  no feature field of its own. Its tasks get the features of the agent it names.
+- **Schedules**: `Agent.Task(name)`, which builds a schedule's task from the
+  agent it belongs to, copies `agent.Features`. A schedule has no feature field
+  of its own. Its tasks get the features of its agent.
 - **Manual tasks**: `CreateTask` copies `agent.Features`. It already loads the
   workspace again to resolve variables ("the workspace may have been
   unregistered or changed its declarations since"). It now also calls
@@ -517,7 +518,7 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
   sends `Features.Decls()`, and the server's `RegisterWorkspaces` stores them.
 - `validateAgent` and `CreateTask` call `store.GetWorkspace`, then
   `taskvar.Resolve` and `Workspace.CheckFeatures`.
-- `Router.create`, `Schedule.Task` and `CreateTask` copy `Agent.Features` onto
+- `Router.create`, `Agent.Task` and `CreateTask` copy `Agent.Features` onto
   the task. `GetRunSpecInputs` returns them.
 - `TaskManager.specs` calls `Workspace.WithFeatures` and builds the run from the
   workspace it returns, as from any other.
@@ -557,7 +558,7 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
    order kept, and `CheckFeatures` in `validateAgent`. Depends on: (3).
    Verifiable by: handler tests for unknown names and the saved order.
 5. **Task features** — Delivers: `tasks.features`, `Task.features`, copying in
-   `Router.create`, `Schedule.Task` and `CreateTask` (with the
+   `Router.create`, `Agent.Task` and `CreateTask` (with the
    `FailedPrecondition` check), and `GetRunSpecInputs` returning them. Depends
    on: (2), (4). Verifiable by: router, scheduler and `CreateTask` tests. Plus two
    e2e tests:
