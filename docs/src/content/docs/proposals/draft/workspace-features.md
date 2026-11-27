@@ -40,34 +40,31 @@ them.
 
 ### Overview
 
-- A workspace declares `features:`, an ordered mapping of name to feature. A
-  feature has `description`, `environment`, `secrets`, `mcp_servers`, `commands`
-  and an optional `agent`.
-- A feature's `agent:` has the same shape as the workspace's `agent:`. When a
-  task has a feature with `agent:`, that config replaces the workspace's agent
-  config as a whole. A task has at most one such feature.
+- A workspace declares `features:`, a mapping of name to feature. A feature has
+  `description`, `environment`, `secrets`, `mcp_servers`, `commands` and an
+  optional `agent`.
+- A feature's `agent:` has the same shape as the workspace's `agent:`, and
+  replaces the workspace's agent config as a whole.
 - The runner reports each workspace's features in `RegisterWorkspaces`, beside
-  its variable declarations: name, description, and whether the feature has
-  `agent:`. The server stores them on the `workspaces` row.
-- An agent has `features`, a list of names. `CreateAgent` and `UpdateAgent`
-  reject:
-  - a name the agent's workspace doesn't declare;
-  - a duplicate;
-  - two features that both have `agent:`.
+  its variable declarations: name and description. The server stores them on
+  the `workspaces` row.
+- An agent has `features`, an ordered list of names. `CreateAgent` and
+  `UpdateAgent` reject a name the agent's workspace doesn't declare. That is the
+  only check.
 - A task copies its agent's features when it is created, as it copies the
   variables. This applies to every way a task is created: triggers, schedules and
   `CreateTask`.
 - The runner gets the task's feature names from `GetRunSpecInputs` and merges
-  the features into the run:
-  - environment into the run's environment;
-  - secrets into the run's secrets;
-  - the feature's `agent:`, if any, in place of the workspace's;
+  the workspace base, then each feature in the order the agent lists them. Where
+  two define the same name, the later one wins:
+  - environment and secrets into the run's environment and secrets;
   - MCP servers into the agent config;
-  - commands after the workspace's own.
-- Environment, secret and MCP server names never collide. The runner refuses to
-  load a `workspaces.yaml` where two features, or a feature and the workspace
-  base, could define the same name in one task. Because of that, the merge
-  doesn't depend on which features a task has or what order they come in.
+  - the agent config itself: the last listed feature with `agent:`, or the
+    workspace's if none has one;
+  - commands run in the same order: the workspace's, then each feature's.
+- Nothing is checked for conflicts when the runner loads the file, and no names
+  are reserved. The people who write `workspaces.yaml` and agents decide what a
+  collision means, through the order of the agent's list.
 
 ### Configuration
 
@@ -133,9 +130,7 @@ workspaces:
               args: [tool, github-mcp]
 ```
 
-- Feature names are lowercase: they start with a letter, contain only `a-z`,
-  `0-9`, `-` and `_`, and are at most 64 bytes long. They are unique within a
-  workspace (YAML mapping keys).
+- Feature names are the mapping's keys.
 - `environment` is a backend-agnostic environment map. Workspaces have no such
   base field: their environment is `container.environment` or
   `lambda_microvm.environment`. A feature can't usefully carry a
@@ -148,120 +143,78 @@ workspaces:
 - `commands` are setup commands, like the workspace's `commands:`.
 - `agent` takes everything the workspace's `agent:` takes: `type`, `cwd`,
   `prompt`, `verbose`, `mcp_servers` and the per-harness sections (`claude`,
-  `codex`, …). `Agent.Validate` checks it the same way. The workspace's own
-  `agent:` stays required: it is what a task gets when none of its features has
-  one.
+  `codex`, …). `Agent.Validate` checks it the same way, and a feature's
+  `mcp_servers` are checked like the workspace's. The workspace's own `agent:`
+  stays required: it is what a task gets when none of its features has one.
 - Values go through the same `${env:}`/`${sh:}` expansion as the rest of the
   file, when the runner loads the file. Every feature is expanded, including
   features no task uses. A `${sh:}` in a feature runs at runner start, like the
   ones in the base.
-- The order of the `features:` mapping is significant: it is the order the
-  commands of the selected features run in (see [Command order](#command-order)).
-  `workspace.Features` decodes the mapping through a `yaml.Node` to keep that
-  order.
+- The order of the `features:` mapping has no effect. The agent's list sets the
+  order (see [Merge order](#merge-order)).
 
 ### Replacing the agent config
 
 A task's agent config, the `agent.Config` the runner writes into the sandbox, is
 built from:
 
-- **The base:** the `agent:` of the task's one feature that has one, or the
-  workspace's `agent:` if none has. A feature's `agent:` replaces the
-  workspace's as a whole. There is no field-by-field merge. Nothing from the
-  workspace's `agent:` carries over: not `type`, `cwd`, `prompt`, `verbose`,
-  the per-harness section, or `mcp_servers`. A feature that wants one of the
+- **The base:** the `agent:` of the last feature in the agent's list that has
+  one, or the workspace's `agent:` if none has. A feature's `agent:` replaces
+  the workspace's as a whole. There is no field-by-field merge. Nothing from the
+  workspace's `agent:` carries over: not `type`, `cwd`, `prompt`, `verbose`, the
+  per-harness section, or `mcp_servers`. A feature that wants one of the
   workspace's MCP servers repeats it, as `codex` does above.
-- **The MCP servers:** the base's `mcp_servers`, plus the feature-level
-  `mcp_servers:` of every one of the task's features, including the feature
-  that supplied the base.
-- **The `gritz` server:** injected last, as today.
+- **The MCP servers:** the base's `mcp_servers`, then the feature-level
+  `mcp_servers:` of each of the task's features in the agent's order, including
+  the feature that supplied the base. A later server replaces an earlier one of
+  the same name.
+- **The `gritz` server:** injected last, as today. It replaces any server named
+  `gritz`.
 - **The commands and capabilities:** the commands are the workspace's
   `commands`, then the features' (see [Command order](#command-order)). The
   capabilities are the workspace's `capabilities`. Both are workspace-level, not
   part of `agent:`, so replacing the agent config doesn't change them.
 
-**At most one feature with `agent:` per task.** Two replacements have no
-meaningful combination: field-by-field merge is ruled out, and "last one wins"
-would make the harness depend on the order of the agent's list. So:
+Several features with `agent:` can be declared in one workspace, and an agent
+can list more than one of them. The last one listed supplies the agent config;
+the earlier ones still contribute their environment, secrets, MCP servers and
+commands.
 
-- `FeatureDecl` carries `agent`, set when the feature has `agent:`.
-- `Workspace.CheckFeatures` rejects a selection that names two features with
-  `agent: true`, with `InvalidArgument` on `CreateAgent`/`UpdateAgent` and
-  `FailedPrecondition` on `CreateTask`.
-- The runner's `Workspace.Select` rejects the same thing and fails the run. That
-  covers a task created before a `workspaces.yaml` change gave a second of its
-  features `agent:`.
+### Merge order
 
-Two features that both have `agent:` can still be declared in one workspace.
-Each is an alternative harness, and an agent picks at most one of them.
+A task's features are merged onto the workspace base in the order its agent
+lists them. Where two define the same name, the later one wins. Nothing is
+rejected when the runner loads the file.
 
-### Name conflicts
+- **Environment and secrets.** A feature's `environment` and `secrets` replace a
+  variable of the same name from the workspace (`secrets`,
+  `container.environment`, `lambda_microvm.environment`) or from an earlier
+  feature. The name takes the kind the later feature gives it: a name a feature
+  sets in `environment` is no longer a secret, and a name it sets in `secrets`
+  is masked in the shipped log.
+- **The variables gritz sets** (`GRITZ_TASK_ID`, `GRITZ_SERVER`, `GRITZ_TOKEN`
+  and `GRITZ_VAR_<NAME>`) are set after the features' `environment`, so a
+  feature's `environment` doesn't replace them. A feature's secret of the same
+  name does, as a workspace secret does today.
+- **MCP servers.** As in [Replacing the agent config](#replacing-the-agent-config):
+  the base agent config's servers, then each feature's `mcp_servers:`, later
+  wins, then `gritz`.
+- **The agent config.** The last listed feature with `agent:`.
 
-**Recommendation: reject every conflict when the runner loads the file, whatever
-any agent selects.** `Workspace.Validate` fails, and with it `LoadConfig` and
-`gritz workspaces`, when:
-
-- **Environment and secrets.** An environment variable name is defined twice
-  across the workspace's `secrets`, `container.environment` and
-  `lambda_microvm.environment`, and every feature's `environment` and `secrets`.
-  This also covers a name that one feature sets as `environment` and another as
-  a secret, and a name set as both within one feature. The base's own
-  `container.environment` / `secrets` overlap is not checked (unchanged).
-- **Reserved names.** A feature's `environment` or `secrets` defines a name that
-  starts with `GRITZ_`. That prefix holds `GRITZ_TASK_ID`, `GRITZ_TOKEN`,
-  `GRITZ_SERVER` and the `GRITZ_VAR_` task variables.
-- **MCP servers.** An MCP server name is defined twice where both could end up
-  in one task's config (see below).
-- **The `gritz` MCP server.** Any agent config (the workspace's or a feature's)
-  or any feature-level `mcp_servers:` names a server `gritz`. The runner injects
-  its own server under that name, and today silently replaces one of that name.
-  The workspace's own `agent:` now rejects it too.
-
-A task's MCP servers come from exactly one agent config (the workspace's or one
-feature's `agent:`) plus any number of feature-level `mcp_servers:`. So the MCP
-check works on two groups:
-
-- **Agent configs:** the workspace's `agent.mcp_servers` and every feature's
-  `agent.mcp_servers`. Only one of these applies to a task, so names may repeat
-  across them. The workspace's `github` and `codex`'s `github` above don't
-  conflict.
-- **Feature-level servers:** every feature's `mcp_servers:`. Any of these can
-  apply to any task, so each name must be unique across all features'
-  `mcp_servers:`, and must not appear in any agent config's `mcp_servers`.
-
-This check is the same "every pair, whatever the selection" rule as for
-environment and secrets, applied to the agent configs and feature-level servers
-that could actually meet in one task.
-
-The checks cover every pair of features, not just pairs some agent selects
-together. Any combination is then conflict-free, so:
-
-- the server can accept any set of declared names without knowing what the
-  features contain;
-- the merged config doesn't depend on the order of an agent's list;
-- a change to `workspaces.yaml` can't make an existing agent's selection
-  conflict.
-
-The one exception is the "at most one `agent:`" rule, which depends on the
-selection. That is why the server learns which features have `agent:`.
-
-Today's [environment precedence](/operators/workspaces-yaml/#environment) still
-holds. A feature's `environment` sits with the variables gritz sets (step 2), and
-its secrets sit with the workspace's (step 1). Since names can't collide, the
-precedence never decides between a feature and the base.
+Today's [environment precedence](/operators/workspaces-yaml/#environment)
+otherwise holds. Features' secrets join the workspace's at step 1, and their
+environment joins the variables gritz sets at step 2.
 
 ### Command order
 
-**Recommendation: the workspace's own `commands` run first, then each selected
-feature's commands, in the order the features are declared in the workspace.**
-Within a feature, its commands run in order. A feature with `agent:` is no
-exception: its commands run in its declared position, before the harness it
-installs is started.
+The workspace's own `commands` run first, then each of the task's features'
+commands, in the order its agent lists them. Within a feature, its commands run
+in order. A feature with `agent:` is no exception: its commands run in its
+position in the list, before the harness it installs is started.
 
-The order of the agent's `features` list has no effect. Dependencies between
-features belong to the workspace author: in the example above, `playwright`
-needs `node`'s pnpm, so `node` is declared first. The author knows that; an agent
-author picking `[playwright, node]` shouldn't have to. The base runs first
+This is the same order as the rest of the merge. Dependencies between features
+are the agent author's to order: in the example above, `playwright` needs
+`node`'s pnpm, so an agent lists `[node, playwright]`. The base runs first
 because features layer on top of the workspace, for example tooling inside the
 repository the base clones.
 
@@ -279,26 +232,22 @@ today.
 `workspaces.variables`, and `validateAgent` checks an agent's variables against
 `GetWorkspaceVariables`. Features follow the same path:
 
-- `RegisteredWorkspace` gains `repeated FeatureDecl features`, in declaration
-  order. Each `FeatureDecl` has the feature's name, its description, and `agent`,
-  set when the feature has `agent:`. The contents of a feature stay on the
-  runner. Secrets, commands and agent configs never leave it, and the server
-  needs nothing more to validate a selection.
-- `RegisterWorkspaces` rejects an invalid feature name with `InvalidArgument`, as
-  it does an invalid variable declaration. It stores the declarations in
-  `workspaces.features`.
+- `RegisteredWorkspace` gains `repeated FeatureDecl features`, sorted by name.
+  Each `FeatureDecl` has the feature's name and its description. The contents of
+  a feature stay on the runner. Secrets, commands and agent configs never leave
+  it, and the server needs nothing more to validate a selection.
+- `RegisterWorkspaces` stores the declarations in `workspaces.features`.
 - `store.GetWorkspaceVariables` becomes `store.GetWorkspace`, which returns the
   registered `model.Workspace` with both its variables and its features.
 - `validateAgent` calls `Workspace.CheckFeatures(agent.Features)`. It returns
-  `InvalidArgument` if a name isn't declared (listing the declared ones), if a
-  name appears twice, or if two named features have `agent:` (naming both).
+  `InvalidArgument` if a name isn't declared, listing the declared ones.
 - `ListWorkspaces` returns the features, so the CLI, the MCP tools and the web UI
   can show them, and the agent editor can offer them.
 
 ### Agents, schedules and manual tasks
 
 - `Agent` gains `repeated string features`, stored in `agents.features`. Its
-  order is kept as saved but has no effect.
+  order is the merge order.
 - A task copies its agent's features when it is created, into `tasks.features`
   and `Task.features`, as it copies `variables`. Editing an agent doesn't change
   its existing tasks. A task's features can't be changed later.
@@ -309,10 +258,9 @@ today.
 - **Manual tasks**: `CreateTask` copies `agent.Features`. It already loads the
   workspace again to resolve variables ("the workspace may have been
   unregistered or changed its declarations since"). It now also calls
-  `CheckFeatures`, and fails with `FailedPrecondition` if the selection no longer
-  checks out: a feature was removed, or a second selected feature gained
-  `agent:`. `CreateTaskRequest` gets no `features` field. A task that needs a
-  different set of features belongs to a different agent.
+  `CheckFeatures`, and fails with `FailedPrecondition` if a feature was removed
+  from the workspace since. `CreateTaskRequest` gets no `features` field. A task
+  that needs a different set of features belongs to a different agent.
 
 Triggers and schedules don't check the features again when they create a task,
 just as they don't resolve variables. The runner checks both when it starts the
@@ -327,21 +275,22 @@ it already builds.**
 1. `GetRunSpecInputsResponse` gains `repeated string features`, the task's
    features, next to `variables`.
 2. `TaskManager.specs` calls `ws.Select(inputs.Features)`. It returns the named
-   features in declaration order, or an error naming a feature the workspace
-   doesn't declare or the two features that both have `agent:`. Like a variable
-   that no longer resolves, that error fails the run, for example
-   `workspace "gritz": unknown feature "jira"`.
+   features in the order of the list, or an error naming a feature the workspace
+   doesn't declare. Like a variable that no longer resolves, that error fails
+   the run, for example `workspace "gritz": unknown feature "jira"`.
 3. `buildSpecs` takes the selected features in `specInput.Features`:
    - It builds the agent config with `ws.AgentConfig(features)`, which replaces
-     today's `ws.AgentConfig()`. It starts from the agent config of the one
-     selected feature with `agent:`, or the workspace's. It adds every selected
-     feature's `mcp_servers`, and appends every selected feature's `commands`
+     today's `ws.AgentConfig()`. It starts from the agent config of the last
+     feature with `agent:`, or the workspace's. It adds each feature's
+     `mcp_servers` in order, later wins, and appends each feature's `commands`
      after the workspace's. `buildSpecs` then injects the `gritz` server, as
      today.
    - It merges each feature's `environment` into `backend.Spec.Env`, and from
-     there into `RunSpec.env`.
-   - It merges each feature's `secrets` into `backend.Spec.Secrets`, and from
-     there into `RunSpec.secrets`.
+     there into `RunSpec.env`, and each feature's `secrets` into
+     `backend.Spec.Secrets`, and from there into `RunSpec.secrets`. Feature by
+     feature, a name set in one map is removed from the other, so the later
+     feature decides both the value and whether it is a secret. The variables
+     gritz sets are written into `backend.Spec.Env` after the features.
 
 All of this goes through paths that already exist. No backend changes:
 `RunSpec.env` and `RunSpec.secrets` reach every run on every backend, and the
@@ -358,9 +307,10 @@ own secrets, so the driver handles them identically:
 
 There is no separate code path that could miss them. A feature that swaps the
 harness, like `codex`, brings that harness's credential as a secret, so the
-credential is masked like any other. Because names can't collide, no feature
-secret can shadow a workspace secret. The task token's mask is safe too:
-`driverserver.Secrets` already writes `token` last.
+credential is masked like any other. A feature secret that replaces a workspace
+secret of the same name is masked under that name; the replaced value is no
+longer in the run. The task token's mask is safe too: `driverserver.Secrets`
+already writes `token` last.
 
 **Lifetimes** follow the base fields:
 
@@ -381,9 +331,9 @@ New migration:
 
 -- Workspace features. See proposals/draft/workspace-features.md.
 -- The workspace's feature declarations as registered, a JSON array of
--- {name, description, agent}.
+-- {name, description}.
 ALTER TABLE workspaces ADD COLUMN features jsonb NOT NULL DEFAULT '[]';
--- The agent's feature names, a JSON array.
+-- The agent's feature names in merge order, a JSON array.
 ALTER TABLE agents ADD COLUMN features jsonb NOT NULL DEFAULT '[]';
 -- The task's feature names, copied from its agent at creation, a JSON array.
 ALTER TABLE tasks ADD COLUMN features jsonb NOT NULL DEFAULT '[]';
@@ -406,31 +356,29 @@ fetched for each run.
 message FeatureDecl {
   string name = 1;
   string description = 2;
-  // Whether the feature has its own agent config, which replaces the
-  // workspace's. An agent selects at most one such feature.
-  bool agent = 3;
 }
 
 message RegisteredWorkspace {
   // ...
-  // The workspace's features, in declaration order.
+  // The workspace's features, sorted by name.
   repeated FeatureDecl features = 6;  // new
 }
 
 message Agent {
   // ...
-  // Features of its tasks, by name. Each must be declared by the workspace,
-  // at most once, and at most one of them may have agent set; the order has
-  // no effect.
+  // Features of its tasks, by name. Each must be declared by the workspace.
+  // They are merged onto the workspace in this order: where two define the
+  // same environment variable, secret or MCP server, or both have their own
+  // agent config, the later one wins.
   repeated string features = 10;  // new
 }
 
 message Task {
   // ...
-  // The task's features, copied from its agent when it was created. Their
-  // environment, secrets, MCP servers and commands are added to the
-  // workspace's in its sandbox, and a feature's agent config replaces the
-  // workspace's.
+  // The task's features, copied from its agent when it was created, in merge
+  // order. Their environment, secrets, MCP servers and commands are added to
+  // the workspace's in its sandbox, and the last one with an agent config
+  // replaces the workspace's.
   repeated string features = 21;  // new
 }
 
@@ -441,35 +389,32 @@ message GetRunSpecInputsResponse {
 ```
 
 `CreateAgent`'s and `UpdateAgent`'s comment gains "or names a feature the
-workspace doesn't declare, or two features with their own agent config".
-`CreateTask` fails with `failed_precondition` when the agent's features no longer
-check out against its workspace.
+workspace doesn't declare". `CreateTask` fails with `failed_precondition` when
+one of the agent's features is no longer declared by its workspace.
 
 ### CLI, MCP and web UI
 
-- `gritz workspaces` prints each workspace's features: their environment names,
-  secret names (never values), MCP servers, commands and, for a feature with
-  `agent:`, its agent config.
+- `gritz workspaces` prints each workspace's features: their environment,
+  secrets (by name, with masked values), MCP servers, commands and agent config.
 - `gritz task` output shows a task's features.
-- Server MCP: `put_agent`'s description documents `features`, including the
-  single feature with an agent config. `list_agents`'s and `create_task`'s
+- Server MCP: `put_agent`'s description documents `features` and that their
+  order is the merge order, later wins. `list_agents`'s and `create_task`'s
   descriptions say a task gets the agent's features. `list_workspaces` returns
-  them with `agent`.
+  them.
 - **Web UI agent editor** (`agent-form.tsx`): a Features section below the
   variables.
   - It lists the features of the chosen workspace, from `ListWorkspaces`, with
-    their descriptions.
-  - Features without `agent:` are checkboxes.
-  - Features with `agent:` are a single choice: a radio group whose first option
-    is the workspace's own agent config, then one option per such feature. The
-    group is shown only when the workspace has such a feature.
+    their descriptions, each as a checkbox.
+  - The order is the order they are checked in: checking a feature appends it
+    to the list. A checked feature shows its position. To move one to the end,
+    uncheck and check it again.
   - Changing the runner or workspace clears the selection, as it clears the
     variables.
   - A saved feature the workspace no longer declares is shown as such, so it can
     be unchecked. The server rejects the save until it is.
 - **Web UI views**: the workspaces page lists each workspace's features and
-  their descriptions, marking those with their own agent config. The task
-  sidebar shows the task's features next to its variables.
+  their descriptions. The task sidebar shows the task's features, in order, next
+  to its variables.
 
 ### API
 
@@ -481,9 +426,8 @@ type Workspace struct {
 	Features Features `yaml:"features,omitempty"` // new
 }
 
-// Feature is a features: entry: what a task that selects it gets on top of the workspace. // new
+// Feature is a features: entry; the map key is the feature's name. // new
 type Feature struct {
-	Name        string                     `yaml:"-"`
 	Description string                     `yaml:"description"`
 	Environment map[string]string          `yaml:"environment"`
 	Secrets     map[string]string          `yaml:"secrets"`
@@ -493,22 +437,19 @@ type Feature struct {
 	Agent *Agent `yaml:"agent,omitempty"`
 }
 
-// Features are a workspace's features in declaration order. // new
-type Features []Feature
+// Features are a workspace's features by name. // new
+type Features map[string]Feature
 
-// UnmarshalYAML decodes a features: mapping, keeping its order. // new
-func (f *Features) UnmarshalYAML(node *yaml.Node) error
-
-// Decls returns the features' declarations, in declaration order. // new
+// Decls returns the features' declarations, sorted by name. // new
 func (f Features) Decls() []model.FeatureDecl
 
-// Select returns the named features in declaration order, failing on an undeclared name or two features with an agent config. // new
+// Select returns the named features in the order of names, failing on an undeclared name. // new
 func (w *Workspace) Select(names []string) ([]Feature, error)
 
-// AgentConfig returns the agent config of a task with features: the one feature's agent config or the workspace's, plus the features' MCP servers and commands. // changed: takes features
+// AgentConfig returns the agent config of a task with features: the last feature's agent config or the workspace's, plus the features' MCP servers and commands, in order. // changed: takes features
 func (w *Workspace) AgentConfig(features []Feature) agent.Config
 
-// Validate also checks feature names and agent configs, and rejects conflicting environment, secret and MCP server names. // changed
+// Validate also checks each feature's MCP servers and agent config. // changed
 func (w *Workspace) Validate() error
 ```
 
@@ -529,12 +470,7 @@ package model // github.com/gritzapp/gritz/internal/model
 type FeatureDecl struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	// Agent is whether the feature replaces the workspace's agent config.
-	Agent bool `json:"agent,omitempty"`
 }
-
-// Validate checks the feature's name. // new
-func (d FeatureDecl) Validate() error
 
 // FeatureDeclsProto converts decls to their protobuf representation. // new
 func FeatureDeclsProto(decls []FeatureDecl) []*gritzv1.FeatureDecl
@@ -547,7 +483,7 @@ type Workspace struct {
 	Features []FeatureDecl `json:"features,omitempty"` // new
 }
 
-// CheckFeatures fails unless every name is a feature w declares, each at most once, with at most one that has an agent config. // new
+// CheckFeatures fails unless every name is a feature w declares. // new
 func (w *Workspace) CheckFeatures(names []string) error
 
 type Agent struct {
@@ -583,8 +519,7 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
 **How it fits:**
 
 - `LoadConfig` decodes and validates `features:`. `TaskManager.RegisterWorkspaces`
-  sends `Features.Decls()`, and the server's `RegisterWorkspaces` validates and
-  stores them.
+  sends `Features.Decls()`, and the server's `RegisterWorkspaces` stores them.
 - `validateAgent` and `CreateTask` call `store.GetWorkspace`, then
   `taskvar.Resolve` and `Workspace.CheckFeatures`.
 - `Router.create`, `Schedule.Task` and `CreateTask` copy `Agent.Features` onto
@@ -593,44 +528,39 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
   `buildSpecs`. `buildSpecs` calls `Workspace.AgentConfig(features)`, injects the
   `gritz` server, and merges the features' environment and secrets.
 - The agent editor reads `ListWorkspaces` for the chosen workspace's features
-  and saves `Agent.features`.
+  and saves `Agent.features` in the order they were checked.
 
 ## Implementation Plan
 
 1. **Feature config on the runner** — Delivers: `workspace.Feature` (with
-   `agent`), `Features` with order-preserving decoding, `Select`, and the checks
-   in `Workspace.Validate`:
-   - feature names;
-   - the feature agent configs;
-   - environment and secret conflicts;
-   - the two-group MCP server check;
-   - `gritz` as a reserved MCP server name everywhere.
-
-   `gritz workspaces` prints features. Depends on: nothing. Verifiable by:
-   workspace tests for decoding order, each conflict (including agent-config
-   servers that may repeat and feature-level servers that may not), and running
-   `gritz workspaces` on a file with features.
+   `agent`), `Features`, `Select`, and `Workspace.Validate` checking each
+   feature's MCP servers and `agent:` as it checks the base's. `gritz workspaces`
+   prints features, with their secret values masked. Depends on: nothing.
+   Verifiable by: workspace tests for decoding, `Select` (the order of names, an
+   unknown name) and the validation, and running `gritz workspaces` on a file
+   with features.
 2. **Features reach the sandbox** — Delivers: `GetRunSpecInputsResponse.features`,
    `specInput.Features`, `Workspace.AgentConfig(features)` with the agent-config
    replacement, and the environment and secret merge in `buildSpecs`. The server
    returns an empty list until tasks have features. Depends on: (1). Verifiable
    by: `AgentConfig` and `buildSpecs` tests:
    - a feature's `agent:` replaces the workspace's, keeping none of its fields or
-     servers;
-   - feature-level servers are added on top, and `gritz` is still injected;
-   - env, and secrets in `RunSpec.secrets`;
-   - command order.
+     servers, and the last of several wins;
+   - feature-level servers are added on top in order, later wins, and `gritz`
+     is still injected;
+   - env and secrets, later wins, including a name that changes kind, and the
+     variables gritz sets;
+   - command order follows the list.
 
-   Plus a `specs` test where the returned features name an unknown feature or two
-   with `agent:`.
-3. **Registered feature declarations** — Delivers: `FeatureDecl` proto and model
-   (with `agent`), `RegisteredWorkspace.features`, the `workspaces.features`
-   column, `store.GetWorkspace` replacing `GetWorkspaceVariables`, validation in
+   Plus a `specs` test where the returned features name an unknown feature.
+3. **Registered feature declarations** — Delivers: `FeatureDecl` proto and model,
+   `RegisteredWorkspace.features`, the `workspaces.features` column,
+   `store.GetWorkspace` replacing `GetWorkspaceVariables`, storing them in
    `RegisterWorkspaces`, and features in `ListWorkspaces`. Depends on: (1).
    Verifiable by: store and handler tests.
-4. **Agent features** — Delivers: `agents.features`, `Agent.features`, and
-   `CheckFeatures` in `validateAgent`. Depends on: (3). Verifiable by: handler
-   tests for unknown names, duplicates, and two features with `agent:`.
+4. **Agent features** — Delivers: `agents.features`, `Agent.features` with its
+   order kept, and `CheckFeatures` in `validateAgent`. Depends on: (3).
+   Verifiable by: handler tests for unknown names and the saved order.
 5. **Task features** — Delivers: `tasks.features`, `Task.features`, copying in
    `Router.create`, `Schedule.Task` and `CreateTask` (with the
    `FailedPrecondition` check), and `GetRunSpecInputs` returning them. Depends
@@ -644,17 +574,17 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
 6. **CLI and MCP** — Delivers: features in `gritz task` output and in the server
    MCP tool descriptions and results, including `put_agent`'s `features`.
    Depends on: (5). Verifiable by: running them against the dev stack.
-7. **Web UI** — Delivers: the Features section of the agent editor (checkboxes
-   for plain features, a single choice among features with `agent:`, cleared on
-   workspace change, undeclared saved features flagged). Also features on the
-   workspaces page and the task sidebar. Depends on: (4) for the editor, (5) for
-   the sidebar. Verifiable by: creating and editing an agent with features
-   against the dev stack and seeing a created task show them; `pnpm lint`.
+7. **Web UI** — Delivers: the Features section of the agent editor (a checkbox
+   per feature, ordered by when it was checked, cleared on workspace change,
+   undeclared saved features flagged). Also features on the workspaces page and
+   the task sidebar. Depends on: (4) for the editor, (5) for the sidebar.
+   Verifiable by: creating and editing an agent with features against the dev
+   stack and seeing a created task show them in order; `pnpm lint`.
 8. **Docs** — Delivers:
    - a `features` section in `operators/workspaces-yaml`, covering the agent-config
-     replacement, the conflict rules, the command order and the environment list;
+     replacement, the merge order, the command order and the environment list;
    - a mention in `operators/secrets`;
-   - `features` on `concepts/agents`.
+   - `features` on `concepts/agents`, including that their order matters.
 
    Depends on: (7). Verifiable by: `cd docs && pnpm build`.
 
@@ -663,17 +593,16 @@ one per layer.
 
 ## Trade-offs
 
-- **Reject conflicts statically vs. resolve them.**
-  - *Last one wins* (in the agent's order, or the base wins) would allow two
-    alternative features that both set, say, `CLAUDE_MODEL`. But a value would
-    then depend on which other features an agent picked, and a feature could
-    silently replace a workspace secret.
-  - *Checking only the selected set when an agent is saved* would need the
-    server to know every feature's names. It would also let a later
-    `workspaces.yaml` change break saved agents.
-  - Rejecting every conflict at load keeps the server's job to names and keeps
-    the merge independent of order. The cost: alternatives must use distinct
-    names, or live in separate workspaces.
+- **Later wins vs. rejecting conflicts at load.**
+  - Rejecting every conflict when the runner loads the file would catch
+    mistakes early. But it needs a rule for every pair of features and the base,
+    a separate rule for MCP servers in agent configs, reserved names, and a
+    selection-dependent check for agent configs on both the server and the
+    runner. It also rules out alternative features that set the same variable,
+    say `CLAUDE_MODEL`.
+  - Later wins trusts the people who write `workspaces.yaml` and agents, and is
+    one rule for everything. The cost: a collision is silent, and the result
+    depends on the order of the agent's list.
 - **Agent config: replace as a whole vs. merge field by field.**
   - A merge would let a feature change only the model. But then fields would
     mean different things for different harnesses (`claude.model` next to
@@ -683,20 +612,17 @@ one per layer.
     runs. The cost is repeating the fields a feature wants to keep, like `cwd`
     and shared MCP servers.
   - Shared servers can instead be declared once as a feature-level
-    `mcp_servers:` and selected alongside.
-- **At most one `agent:` per selection, checked by the server.** The server only
-  validates names elsewhere. This rule depends on the selection, so it needs one
-  more bit per feature (`FeatureDecl.agent`). The alternative, a static rule like
-  "at most one feature with `agent:` per workspace", would rule out offering
-  several harnesses, which is the point of the field.
-- **MCP servers in agent configs may repeat; feature-level ones may not.** Only
-  one agent config applies to a task, so forcing names unique across them would
-  stop alternative harness features from all carrying `github`. Feature-level
-  servers can meet any agent config, so they stay globally unique.
-- **Commands in workspace order vs. agent order.** Agent order would let each
-  agent decide, but dependencies between features are a property of the
-  features, which the workspace author writes. Declaration order makes the
-  agent's list a set, which also makes validation and display simpler.
+    `mcp_servers:` and listed alongside.
+- **Several features with `agent:`: last wins vs. at most one.** Allowing at most
+  one would need the server to know which features have `agent:`, and a check on
+  both the server and the runner. Last wins is the same rule as everything else.
+  The cost: an earlier feature's `agent:` is silently ignored, though the rest of
+  that feature still applies.
+- **Commands in agent order vs. workspace order.** Workspace order would make the
+  agent's list a set and keep dependencies with the workspace author, but it
+  needs an order-preserving `features:` mapping and a second ordering beside the
+  merge order. Agent order puts the one ordering in one place. The cost: an
+  agent author lists dependencies first (`node` before `playwright`).
 - **Features on the task vs. read from the agent at run time.** Reading the
   agent on each run would apply an agent edit to running tasks, which agents
   deliberately avoid for workspace, runner and variables. Copying keeps a task's

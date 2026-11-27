@@ -112,6 +112,38 @@ type Workspace struct {
 	// sandbox instead of failing; without it, the run fails and the next start
 	// creates a fresh sandbox.
 	AutoReset bool `yaml:"auto_reset"`
+	// Features are what an agent's tasks can get on top of the workspace, by
+	// name.
+	Features Features `yaml:"features,omitempty"`
+}
+
+// Feature is a features: entry; the map key is the feature's name. It is
+// what a task that selects it gets on top of the workspace.
+type Feature struct {
+	Description string                     `yaml:"description"`
+	Environment map[string]string          `yaml:"environment"`
+	Secrets     map[string]string          `yaml:"secrets"`
+	McpServers  map[string]agent.McpServer `yaml:"mcp_servers"`
+	Commands    []string                   `yaml:"commands"`
+	// Agent, when set, replaces the workspace's agent config as a whole.
+	Agent *Agent `yaml:"agent,omitempty"`
+}
+
+// Features are a workspace's features by name.
+type Features map[string]Feature
+
+// Select returns the named features in the order of names. It fails on a
+// name the workspace doesn't declare.
+func (w *Workspace) Select(names []string) ([]Feature, error) {
+	var selected []Feature
+	for _, name := range names {
+		f, ok := w.Features[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown feature %q", name)
+		}
+		selected = append(selected, f)
+	}
+	return selected, nil
 }
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
@@ -230,6 +262,26 @@ func (w *Workspace) Validate() error {
 	for _, d := range w.VariableDecls() {
 		if err := d.Validate(); err != nil {
 			return fmt.Errorf("variables: %w", err)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(w.Features)) {
+		f := w.Features[name]
+		if err := f.validate(); err != nil {
+			return fmt.Errorf("features.%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func (f *Feature) validate() error {
+	for name, srv := range f.McpServers {
+		if err := srv.Validate(); err != nil {
+			return fmt.Errorf("mcp_servers.%s: %w", name, err)
+		}
+	}
+	if f.Agent != nil {
+		if err := f.Agent.Validate(); err != nil {
+			return fmt.Errorf("agent: %w", err)
 		}
 	}
 	return nil

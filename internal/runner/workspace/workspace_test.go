@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gritzapp/gritz/internal/runner/agent"
@@ -73,6 +75,108 @@ func TestLoadConfig_GritzRPC(t *testing.T) {
 			ws, err := cfg.Get("ws")
 			assert.NilError(t, err)
 			assert.DeepEqual(t, ws.AgentConfig().GritzRPC, tt.options)
+		})
+	}
+}
+
+func TestLoadConfig_Features(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := LoadConfig(filepath.Join("testdata", "features.yaml"), nil)
+
+	assert.NilError(t, err)
+	ws, err := cfg.Get("ws")
+	assert.NilError(t, err)
+	assert.DeepEqual(t, ws.Features, Features{
+		"node": {Description: "Node.js", Commands: []string{"mise use -g node@22"}},
+		"jira": {
+			Environment: map[string]string{"JIRA_SITE": "gritz.atlassian.net"},
+			Secrets:     map[string]string{"JIRA_API_TOKEN": "jira-token"},
+			McpServers:  map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
+		},
+		"codex": {
+			Secrets: map[string]string{"OPENAI_API_KEY": "openai-key"},
+			Agent: &Agent{Type: "codex", McpServers: map[string]agent.McpServer{
+				"github": {Type: "stdio", Command: "gritz", Args: []string{"tool", "github-mcp"}},
+			}},
+		},
+	})
+}
+
+func TestLoadConfig_FeaturesInvalid(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		yaml string
+		err  string
+	}{
+		{
+			name: "invalid agent",
+			yaml: `
+features:
+  rpc:
+    agent:
+      type: gritzrpc`,
+			err: `workspace "ws": features.rpc: agent: gritzrpc.command is required`,
+		},
+		{
+			name: "invalid mcp server",
+			yaml: `
+features:
+  jira:
+    mcp_servers:
+      jira:
+        type: carrier-pigeon`,
+			err: `workspace "ws": features.jira: mcp_servers.jira: `,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "workspaces.yaml")
+			data := "workspaces:\n  ws:\n    agent: {type: claude}" + strings.ReplaceAll(tt.yaml, "\n", "\n    ")
+			assert.NilError(t, os.WriteFile(path, []byte(data), 0o644))
+
+			_, err := LoadConfig(path, nil)
+
+			assert.ErrorContains(t, err, tt.err)
+		})
+	}
+}
+
+func TestSelect(t *testing.T) {
+	t.Parallel()
+	ws := Workspace{Features: Features{
+		"node":  {Description: "node"},
+		"jira":  {Description: "jira"},
+		"codex": {Description: "codex"},
+	}}
+	tests := []struct {
+		name  string
+		names []string
+		want  []string
+		err   string
+	}{
+		{name: "none"},
+		{name: "the order of names", names: []string{"codex", "node", "jira"}, want: []string{"codex", "node", "jira"}},
+		{name: "unknown", names: []string{"node", "playwright"}, err: `unknown feature "playwright"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			features, err := ws.Select(tt.names)
+
+			if tt.err != "" {
+				assert.Error(t, err, tt.err)
+				return
+			}
+			assert.NilError(t, err)
+			var got []string
+			for _, f := range features {
+				got = append(got, f.Description)
+			}
+			assert.DeepEqual(t, got, tt.want)
 		})
 	}
 }
