@@ -39,11 +39,11 @@ no link kinds is just a template for tasks you create yourself.
   the workspace declares. They are fixed values: every task gets the same ones,
   and nothing from an event is copied into them. Leave an optional variable
   empty to use the workspace's default when each task starts.
-- **Prompt**: the first instruction of the tasks its triggers create. Left
-  blank, the instruction only says which agent's trigger created the task, in
-  response to which kind of event. The task's first event is the one that
-  created it, so the agent gets the event's text either way. Tasks you create
-  by hand, and those a schedule creates, get their own instructions instead.
+- **Prompt**: the first instruction of the tasks its triggers and
+  [schedules](/concepts/schedules/) create. Left blank, the instruction only
+  says which trigger or schedule created the task. A triggered task's first
+  event is the one that created it, so the agent gets the event's text either
+  way. Tasks you create by hand get their own instructions instead.
 - **Auto-archive**: the [auto-archive](/concepts/tasks/#auto-archive) delay of
   its tasks.
 

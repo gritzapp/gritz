@@ -174,9 +174,9 @@ up a `gritz login` made since.
 | `delete_custom_event_type` | Deletes a custom event type. |
 | `test_event` | Tests the organisation's agents with an event, or routes it for real. |
 | `list_schedules` | Lists the organisation's schedules. |
-| `get_schedule` | Gets a schedule, with its instructions and its next and last run. |
+| `get_schedule` | Gets a schedule, with its next and last run. |
 | `create_schedule` | Creates a schedule. |
-| `update_schedule` | Changes a schedule's name, agent, instruction, cron expression or timezone. |
+| `update_schedule` | Changes a schedule's name, agent, cron expression or timezone. |
 | `set_schedule_enabled` | Enables or disables a schedule. |
 | `run_schedule` | Creates a task from a schedule now. |
 | `delete_schedule` | Deletes a schedule. |
@@ -386,8 +386,7 @@ the webhook: firing a custom event is how to send one. See
 
 | Argument | |
 | --- | --- |
-| `agent_id` | The ID of the [agent](/concepts/agents/) its tasks belong to. They take its runner, workspace, auto-archive delay and variables. Required. |
-| `instruction` | The instruction every task it creates starts with. Required. |
+| `agent_id` | The ID of the [agent](/concepts/agents/) its tasks belong to. They start with its prompt, and take its runner, workspace, auto-archive delay and variables. Required. |
 | `cron_expr` | When to create a task: a five-field [cron expression](/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. Required. |
 | `timezone` | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Defaults to `UTC`. |
 | `name` | The name of every task it creates. |
@@ -400,8 +399,7 @@ in the same shape.
 ### `update_schedule`
 
 Takes the schedule's `id` and any of `create_schedule`'s arguments except
-`enabled`. The arguments left out keep their current values. `instruction`
-replaces every instruction of the schedule.
+`enabled`. The arguments left out keep their current values.
 
 ### `set_schedule_enabled`, `run_schedule`, `delete_schedule`
 
