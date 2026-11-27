@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.4.0](https://github.com/gritzapp/gritz/compare/v5.3.0...v5.4.0) (2026-11-27)
+
+
+### Features
+
+* add a description field to agent link kinds ([#2455](https://github.com/gritzapp/gritz/issues/2455)) ([3c07cdb](https://github.com/gritzapp/gritz/commit/3c07cdb72a17136f1b80cfd365e2d9e855ab1e48))
+* add a negate field to conditions ([#2456](https://github.com/gritzapp/gritz/issues/2456)) ([713fa5e](https://github.com/gritzapp/gritz/commit/713fa5e2e9e692f051a8f69d007ad3e8ad3b46a5))
+* add issue_opened and issue_closed GitHub event types ([#2458](https://github.com/gritzapp/gritz/issues/2458)) ([6901810](https://github.com/gritzapp/gritz/commit/6901810950c6f597efacd43714534cfb0e3a324a))
+* add issue_status_changed Jira event type ([#2457](https://github.com/gritzapp/gritz/issues/2457)) ([aaa462a](https://github.com/gritzapp/gritz/commit/aaa462aff89ef8105af1986f2c4b113683e2acb8))
+* add pull_request_review_requested GitHub event type ([#2453](https://github.com/gritzapp/gritz/issues/2453)) ([6c9db91](https://github.com/gritzapp/gritz/commit/6c9db91460e75f4ff8b7edb0fe8299c08ac2af1b))
+* **webui:** add a Clone action to the agent page ([#2461](https://github.com/gritzapp/gritz/issues/2461)) ([d3ccff6](https://github.com/gritzapp/gritz/commit/d3ccff6366ae7d2e0dc1628b717a7f319da0cf19))
+* **webui:** move the agent to the first column of the task list ([03a5230](https://github.com/gritzapp/gritz/commit/03a5230c6a4b1e6b3db5253e64cfdf6592b2509f))
+* **webui:** show a task's agent as the agents list does ([faef878](https://github.com/gritzapp/gritz/commit/faef8789ebb30f6e2184ce44ae2c45211c6353a7))
+
 ## [5.3.0](https://github.com/gritzapp/gritz/compare/v5.2.0...v5.3.0) (2026-11-27)
 
 
