@@ -220,7 +220,7 @@ message ListTasksRequest {
   int32 page_size = 1;     // Max tasks to return (default: 50, max: 100)
   string page_token = 2;   // Opaque cursor from a previous next_page_token; empty for the first page
   bool archived = 3;       // Include archived tasks alongside active ones (default: false)
-  int64 agent_id = 4;      // Only tasks of this agent; 0 (default) for every agent
+  repeated int64 agent_ids = 4;  // Only tasks of these agents; empty (default) for every agent
 }
 
 message ListTasksResponse {

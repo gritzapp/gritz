@@ -28,7 +28,7 @@ func (s *Server) ListTasks(ctx context.Context, req *gritzv1.ListTasksRequest) (
 		PageSize:  req.PageSize,
 		PageToken: req.PageToken,
 		Archived:  req.Archived,
-		AgentID:   req.AgentId,
+		AgentIDs:  req.AgentIds,
 	})
 	if err != nil {
 		code := connect.CodeInternal

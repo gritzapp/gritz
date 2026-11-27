@@ -963,10 +963,10 @@ func (x *GetCallerResponse) GetOrg() *Org {
 
 type ListTasksRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`   // Max tasks to return (default: 50, max: 100)
-	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"` // Opaque cursor from a previous next_page_token; empty for the first page
-	Archived      bool                   `protobuf:"varint,3,opt,name=archived,proto3" json:"archived,omitempty"`                   // Include archived tasks alongside active ones (default: false)
-	AgentId       int64                  `protobuf:"varint,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`      // Only tasks of this agent; 0 (default) for every agent
+	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`        // Max tasks to return (default: 50, max: 100)
+	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`      // Opaque cursor from a previous next_page_token; empty for the first page
+	Archived      bool                   `protobuf:"varint,3,opt,name=archived,proto3" json:"archived,omitempty"`                        // Include archived tasks alongside active ones (default: false)
+	AgentIds      []int64                `protobuf:"varint,4,rep,packed,name=agent_ids,json=agentIds,proto3" json:"agent_ids,omitempty"` // Only tasks of these agents; empty (default) for every agent
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1022,11 +1022,11 @@ func (x *ListTasksRequest) GetArchived() bool {
 	return false
 }
 
-func (x *ListTasksRequest) GetAgentId() int64 {
+func (x *ListTasksRequest) GetAgentIds() []int64 {
 	if x != nil {
-		return x.AgentId
+		return x.AgentIds
 	}
-	return 0
+	return nil
 }
 
 type ListTasksResponse struct {
@@ -8226,13 +8226,13 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x11atlassian_account\x18\x05 \x01(\v2\x1a.gritz.v1.AtlassianAccountR\x10atlassianAccount\"\x12\n" +
 	"\x10GetCallerRequest\"4\n" +
 	"\x11GetCallerResponse\x12\x1f\n" +
-	"\x03org\x18\x01 \x01(\v2\r.gritz.v1.OrgR\x03org\"\x85\x01\n" +
+	"\x03org\x18\x01 \x01(\v2\r.gritz.v1.OrgR\x03org\"\x87\x01\n" +
 	"\x10ListTasksRequest\x12\x1b\n" +
 	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1a\n" +
-	"\barchived\x18\x03 \x01(\bR\barchived\x12\x19\n" +
-	"\bagent_id\x18\x04 \x01(\x03R\aagentId\"a\n" +
+	"\barchived\x18\x03 \x01(\bR\barchived\x12\x1b\n" +
+	"\tagent_ids\x18\x04 \x03(\x03R\bagentIds\"a\n" +
 	"\x11ListTasksResponse\x12$\n" +
 	"\x05tasks\x18\x01 \x03(\v2\x0e.gritz.v1.TaskR\x05tasks\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"m\n" +

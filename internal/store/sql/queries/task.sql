@@ -28,7 +28,7 @@ SELECT id, name, runner, workspace, status, command, version, org_id, archived, 
 FROM tasks
 WHERE org_id = sqlc.arg(org_id)
   AND (sqlc.arg(archived)::bool OR archived = FALSE)
-  AND (sqlc.arg(agent_id)::bigint = 0 OR agent_id = sqlc.arg(agent_id))
+  AND (cardinality(sqlc.arg(agent_ids)::bigint[]) = 0 OR agent_id = ANY(sqlc.arg(agent_ids)::bigint[]))
   AND (
     NOT sqlc.arg(use_cursor)::bool
     OR (created_at, id) < (sqlc.arg(cursor_created_at)::timestamp, sqlc.arg(cursor_id)::bigint)

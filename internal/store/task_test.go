@@ -375,27 +375,25 @@ func TestListTasksPage_AgentFilter(t *testing.T) {
 	org := teststore.CreateOrg(t, s, nil)
 	agentA := teststore.CreateAgent(t, s, org, nil)
 	agentB := teststore.CreateAgent(t, s, org, nil)
+	agentC := teststore.CreateAgent(t, s, org, nil)
 
-	// Interleave the two agents' tasks; keyset order is newest-created first.
-	var wantA []int64
-	for i := range 4 {
+	// Interleave the three agents' tasks; keyset order is newest-created first.
+	var want []int64
+	for i := range 6 {
 		task := &model.Task{
 			Runner:    "r",
 			Workspace: "w",
 			Status:    model.TaskStatusCompleted,
 			OrgID:     org.OrgID,
-			AgentID:   agentA.ID,
-		}
-		if i%2 == 1 {
-			task.AgentID = agentB.ID
+			AgentID:   []int64{agentA.ID, agentB.ID, agentC.ID}[i%3],
 		}
 		assert.NilError(t, s.CreateTask(t.Context(), nil, task))
-		if task.AgentID == agentA.ID {
-			wantA = append([]int64{task.ID}, wantA...)
+		if task.AgentID != agentB.ID {
+			want = append([]int64{task.ID}, want...)
 		}
 	}
 
-	// Page through agent A's tasks one at a time.
+	// Page through agents A and C's tasks one at a time.
 	var got []int64
 	token := ""
 	for {
@@ -403,7 +401,7 @@ func TestListTasksPage_AgentFilter(t *testing.T) {
 			OrgID:     org.OrgID,
 			PageSize:  1,
 			PageToken: token,
-			AgentID:   agentA.ID,
+			AgentIDs:  []int64{agentA.ID, agentC.ID},
 		})
 		assert.NilError(t, err)
 		got = append(got, testx.ExtractField(page.Items, "ID").([]int64)...)
@@ -412,11 +410,11 @@ func TestListTasksPage_AgentFilter(t *testing.T) {
 		}
 		token = page.NextToken
 	}
-	assert.DeepEqual(t, got, wantA)
+	assert.DeepEqual(t, got, want)
 
 	all, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{OrgID: org.OrgID})
 	assert.NilError(t, err)
-	assert.Equal(t, len(all.Items), 4)
+	assert.Equal(t, len(all.Items), 6)
 }
 
 func TestListTasksPage_TokenBindsAgentFilter(t *testing.T) {
@@ -438,7 +436,7 @@ func TestListTasksPage_TokenBindsAgentFilter(t *testing.T) {
 	agentPage, err := s.ListTasksPage(t.Context(), nil, store.ListTasksPageParams{
 		OrgID:    org.OrgID,
 		PageSize: 1,
-		AgentID:  orgAgent.ID,
+		AgentIDs: []int64{orgAgent.ID},
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, agentPage.NextToken != "")
