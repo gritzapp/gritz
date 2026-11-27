@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.3.0](https://github.com/gritzapp/gritz/compare/v5.2.0...v5.3.0) (2026-11-27)
+
+
+### Features
+
+* require a kind on every link ([#2452](https://github.com/gritzapp/gritz/issues/2452)) ([0421e3b](https://github.com/gritzapp/gritz/commit/0421e3b0e1e09df78147d1662ebc5fe304866e9e))
+* split GitHub label_added and issue_comment by issue and PR ([#2450](https://github.com/gritzapp/gritz/issues/2450)) ([e27e414](https://github.com/gritzapp/gritz/commit/e27e414d816d9b285e5efb279f6df97ea2478ced))
+
+
+### Miscellaneous
+
+* catch up with v5.1.0 and v5.2.0 ([#2448](https://github.com/gritzapp/gritz/issues/2448)) ([70656e4](https://github.com/gritzapp/gritz/commit/70656e4d7f5fea039341168dfb65b56209daf17c))
+* split GitHub label and comment event types by issue and PR ([#2451](https://github.com/gritzapp/gritz/issues/2451)) ([b914508](https://github.com/gritzapp/gritz/commit/b914508e5d6cf8ad288cb61a1271e52950a997a2))
+
 ## [5.2.0](https://github.com/gritzapp/gritz/compare/v5.1.0...v5.2.0) (2026-11-27)
 
 
