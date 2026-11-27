@@ -28,6 +28,15 @@ var WorkspacesCommand = &cli.Command{
 			return err
 		}
 
+		// A feature's secrets are printed by name; their values never are.
+		for _, ws := range cfg.Workspaces {
+			for _, f := range ws.Features {
+				for name := range f.Secrets {
+					f.Secrets[name] = "[masked]"
+				}
+			}
+		}
+
 		out, err := yaml.Marshal(cfg)
 		if err != nil {
 			return err

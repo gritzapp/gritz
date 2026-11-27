@@ -1,17 +1,7 @@
 workspaces:
   ws:
-    secrets:
-      CLAUDE_CODE_OAUTH_TOKEN: token
-    container:
-      environment:
-        CLAUDE_CODE_OAUTH_TOKEN: token
     agent:
       type: claude
-      mcp_servers:
-        github:
-          type: stdio
-          command: gritz
-          args: [tool, github-mcp]
     features:
       node:
         description: Node.js
@@ -31,14 +21,6 @@ workspaces:
           OPENAI_API_KEY: openai-key
         agent:
           type: codex
-          mcp_servers:
-            github:
-              type: stdio
-              command: gritz
-              args: [tool, github-mcp]
-      dummy:
-        agent:
-          type: dummy
           mcp_servers:
             github:
               type: stdio

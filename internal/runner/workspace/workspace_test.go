@@ -8,7 +8,6 @@ import (
 
 	"github.com/gritzapp/gritz/internal/runner/agent"
 	"github.com/gritzapp/gritz/internal/taskvar"
-	"gopkg.in/yaml.v3"
 	"gotest.tools/v3/assert"
 )
 
@@ -88,23 +87,18 @@ func TestLoadConfig_Features(t *testing.T) {
 	assert.NilError(t, err)
 	ws, err := cfg.Get("ws")
 	assert.NilError(t, err)
-	github := agent.McpServer{Type: "stdio", Command: "gritz", Args: []string{"tool", "github-mcp"}}
 	assert.DeepEqual(t, ws.Features, Features{
-		{Name: "node", Description: "Node.js", Commands: []string{"mise use -g node@22"}},
-		{
-			Name:        "jira",
+		"node": {Description: "Node.js", Commands: []string{"mise use -g node@22"}},
+		"jira": {
 			Environment: map[string]string{"JIRA_SITE": "gritz.atlassian.net"},
 			Secrets:     map[string]string{"JIRA_API_TOKEN": "jira-token"},
 			McpServers:  map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
 		},
-		{
-			Name:    "codex",
+		"codex": {
 			Secrets: map[string]string{"OPENAI_API_KEY": "openai-key"},
-			Agent:   &Agent{Type: "codex", McpServers: map[string]agent.McpServer{"github": github}},
-		},
-		{
-			Name:  "dummy",
-			Agent: &Agent{Type: "dummy", McpServers: map[string]agent.McpServer{"github": github}},
+			Agent: &Agent{Type: "codex", McpServers: map[string]agent.McpServer{
+				"github": {Type: "stdio", Command: "gritz", Args: []string{"tool", "github-mcp"}},
+			}},
 		},
 	})
 }
@@ -117,49 +111,8 @@ func TestLoadConfig_FeaturesInvalid(t *testing.T) {
 		err  string
 	}{
 		{
-			name: "uppercase name",
+			name: "invalid agent",
 			yaml: `
-agent: {type: claude}
-features:
-  Node: {}`,
-			err: `workspace "ws": features.Node: name must be a lowercase letter`,
-		},
-		{
-			name: "name starts with a digit",
-			yaml: `
-agent: {type: claude}
-features:
-  1node: {}`,
-			err: `workspace "ws": features.1node: name must be a lowercase letter`,
-		},
-		{
-			name: "name too long",
-			yaml: `
-agent: {type: claude}
-features:
-  a` + strings.Repeat("b", 64) + `: {}`,
-			err: `name must be a lowercase letter followed by up to 63`,
-		},
-		{
-			name: "declared twice",
-			yaml: `
-agent: {type: claude}
-features:
-  node: {}
-  node: {}`,
-			err: `feature "node" is declared twice`,
-		},
-		{
-			name: "not a mapping",
-			yaml: `
-agent: {type: claude}
-features: [node]`,
-			err: `features must be a mapping`,
-		},
-		{
-			name: "invalid feature agent",
-			yaml: `
-agent: {type: claude}
 features:
   rpc:
     agent:
@@ -167,9 +120,8 @@ features:
 			err: `workspace "ws": features.rpc: agent: gritzrpc.command is required`,
 		},
 		{
-			name: "invalid feature mcp server",
+			name: "invalid mcp server",
 			yaml: `
-agent: {type: claude}
 features:
   jira:
     mcp_servers:
@@ -177,180 +129,12 @@ features:
         type: carrier-pigeon`,
 			err: `workspace "ws": features.jira: mcp_servers.jira: `,
 		},
-		{
-			name: "environment shadows a workspace secret",
-			yaml: `
-agent: {type: claude}
-secrets:
-  TOKEN: x
-features:
-  a:
-    environment:
-      TOKEN: y`,
-			err: `workspace "ws": features.a.environment: TOKEN is also defined in secrets`,
-		},
-		{
-			name: "secret shadows container environment",
-			yaml: `
-agent: {type: claude}
-container:
-  environment:
-    TOKEN: x
-features:
-  a:
-    secrets:
-      TOKEN: y`,
-			err: `workspace "ws": features.a.secrets: TOKEN is also defined in container.environment`,
-		},
-		{
-			name: "environment shadows lambda_microvm environment",
-			yaml: `
-agent: {type: claude}
-lambda_microvm:
-  environment:
-    REGION: x
-features:
-  a:
-    environment:
-      REGION: y`,
-			err: `workspace "ws": features.a.environment: REGION is also defined in lambda_microvm.environment`,
-		},
-		{
-			name: "environment in two features",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    environment:
-      MODEL: x
-  b:
-    environment:
-      MODEL: y`,
-			err: `workspace "ws": features.b.environment: MODEL is also defined in features.a.environment`,
-		},
-		{
-			name: "environment in one feature, secret in another",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    environment:
-      TOKEN: x
-  b:
-    secrets:
-      TOKEN: y`,
-			err: `workspace "ws": features.b.secrets: TOKEN is also defined in features.a.environment`,
-		},
-		{
-			name: "environment and secret in one feature",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    environment:
-      TOKEN: x
-    secrets:
-      TOKEN: y`,
-			err: `workspace "ws": features.a.secrets: TOKEN is also defined in features.a.environment`,
-		},
-		{
-			name: "reserved environment prefix",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    environment:
-      GRITZ_VAR_BRANCH: x`,
-			err: `workspace "ws": features.a.environment: GRITZ_VAR_BRANCH: the GRITZ_ prefix is reserved`,
-		},
-		{
-			name: "reserved secret prefix",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    secrets:
-      GRITZ_TOKEN: x`,
-			err: `workspace "ws": features.a.secrets: GRITZ_TOKEN: the GRITZ_ prefix is reserved`,
-		},
-		{
-			name: "mcp server in two features",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    mcp_servers:
-      jira: {type: stdio, command: jira-mcp}
-  b:
-    mcp_servers:
-      jira: {type: stdio, command: jira-mcp}`,
-			err: `workspace "ws": features.b.mcp_servers: jira is also defined in features.a.mcp_servers`,
-		},
-		{
-			name: "feature mcp server in the workspace's agent config",
-			yaml: `
-agent:
-  type: claude
-  mcp_servers:
-    github: {type: stdio, command: gh-mcp}
-features:
-  a:
-    mcp_servers:
-      github: {type: stdio, command: gh-mcp}`,
-			err: `workspace "ws": features.a.mcp_servers: github is also defined in agent.mcp_servers`,
-		},
-		{
-			name: "feature mcp server in a feature's agent config",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    mcp_servers:
-      github: {type: stdio, command: gh-mcp}
-  b:
-    agent:
-      type: codex
-      mcp_servers:
-        github: {type: stdio, command: gh-mcp}`,
-			err: `workspace "ws": features.a.mcp_servers: github is also defined in features.b.agent.mcp_servers`,
-		},
-		{
-			name: "gritz mcp server in the workspace's agent config",
-			yaml: `
-agent:
-  type: claude
-  mcp_servers:
-    gritz: {type: stdio, command: gritz}`,
-			err: `workspace "ws": agent: mcp_servers.gritz: the name is reserved`,
-		},
-		{
-			name: "gritz mcp server in a feature's agent config",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    agent:
-      type: claude
-      mcp_servers:
-        gritz: {type: stdio, command: gritz}`,
-			err: `workspace "ws": features.a: agent: mcp_servers.gritz: the name is reserved`,
-		},
-		{
-			name: "gritz mcp server in a feature",
-			yaml: `
-agent: {type: claude}
-features:
-  a:
-    mcp_servers:
-      gritz: {type: stdio, command: gritz}`,
-			err: `workspace "ws": features.a: mcp_servers.gritz: the name is reserved`,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			path := filepath.Join(t.TempDir(), "workspaces.yaml")
-			data := "workspaces:\n  ws:" + strings.ReplaceAll(tt.yaml, "\n", "\n    ")
+			data := "workspaces:\n  ws:\n    agent: {type: claude}" + strings.ReplaceAll(tt.yaml, "\n", "\n    ")
 			assert.NilError(t, os.WriteFile(path, []byte(data), 0o644))
 
 			_, err := LoadConfig(path, nil)
@@ -363,10 +147,9 @@ features:
 func TestSelect(t *testing.T) {
 	t.Parallel()
 	ws := Workspace{Features: Features{
-		{Name: "node"},
-		{Name: "jira"},
-		{Name: "codex", Agent: &Agent{Type: "codex"}},
-		{Name: "dummy", Agent: &Agent{Type: "dummy"}},
+		"node":  {Description: "node"},
+		"jira":  {Description: "jira"},
+		"codex": {Description: "codex"},
 	}}
 	tests := []struct {
 		name  string
@@ -375,9 +158,8 @@ func TestSelect(t *testing.T) {
 		err   string
 	}{
 		{name: "none"},
-		{name: "declaration order", names: []string{"codex", "jira", "node"}, want: []string{"node", "jira", "codex"}},
+		{name: "the order of names", names: []string{"codex", "node", "jira"}, want: []string{"codex", "node", "jira"}},
 		{name: "unknown", names: []string{"node", "playwright"}, err: `unknown feature "playwright"`},
-		{name: "two agent configs", names: []string{"dummy", "codex"}, err: `features "codex" and "dummy" both have an agent config`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -390,47 +172,11 @@ func TestSelect(t *testing.T) {
 				return
 			}
 			assert.NilError(t, err)
-			var names []string
+			var got []string
 			for _, f := range features {
-				names = append(names, f.Name)
+				got = append(got, f.Description)
 			}
-			assert.DeepEqual(t, names, tt.want)
+			assert.DeepEqual(t, got, tt.want)
 		})
 	}
-}
-
-func TestFeatures_MarshalYAML(t *testing.T) {
-	t.Parallel()
-	features := Features{
-		{Name: "node", Commands: []string{"mise use -g node@22"}},
-		{
-			Name:        "jira",
-			Description: "Jira",
-			Environment: map[string]string{"JIRA_SITE": "gritz.atlassian.net"},
-			Secrets:     map[string]string{"JIRA_USER": "bot", "JIRA_API_TOKEN": "jira-token"},
-		},
-		{Name: "codex", Agent: &Agent{Type: "codex"}},
-	}
-
-	out, err := yaml.Marshal(features)
-
-	assert.NilError(t, err)
-	assert.Equal(t, string(out), `node:
-    commands:
-        - mise use -g node@22
-jira:
-    description: Jira
-    environment:
-        JIRA_SITE: gritz.atlassian.net
-    secrets:
-        - JIRA_API_TOKEN
-        - JIRA_USER
-codex:
-    agent:
-        type: codex
-        cwd: ""
-        prompt: ""
-        verbose: false
-        mcp_servers: {}
-`)
 }

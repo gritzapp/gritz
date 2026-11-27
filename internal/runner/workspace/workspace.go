@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -113,15 +112,14 @@ type Workspace struct {
 	// sandbox instead of failing; without it, the run fails and the next start
 	// creates a fresh sandbox.
 	AutoReset bool `yaml:"auto_reset"`
-	// Features are what an agent's tasks can get on top of the workspace, in
-	// declaration order.
+	// Features are what an agent's tasks can get on top of the workspace, by
+	// name.
 	Features Features `yaml:"features,omitempty"`
 }
 
-// Feature is a features: entry: what a task that selects it gets on top of
-// the workspace.
+// Feature is a features: entry; the map key is the feature's name. It is
+// what a task that selects it gets on top of the workspace.
 type Feature struct {
-	Name        string                     `yaml:"-"`
 	Description string                     `yaml:"description"`
 	Environment map[string]string          `yaml:"environment"`
 	Secrets     map[string]string          `yaml:"secrets"`
@@ -131,93 +129,22 @@ type Feature struct {
 	Agent *Agent `yaml:"agent,omitempty"`
 }
 
-// Features are a workspace's features in declaration order.
-type Features []Feature
+// Features are a workspace's features by name.
+type Features map[string]Feature
 
-// UnmarshalYAML decodes a features: mapping, keeping its order.
-func (f *Features) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("line %d: features must be a mapping", node.Line)
-	}
-	var features Features
-	for i := 0; i < len(node.Content); i += 2 {
-		key, value := node.Content[i], node.Content[i+1]
-		var feature Feature
-		if err := value.Decode(&feature); err != nil {
-			return err
-		}
-		feature.Name = key.Value
-		if slices.ContainsFunc(features, func(g Feature) bool { return g.Name == feature.Name }) {
-			return fmt.Errorf("line %d: feature %q is declared twice", key.Line, feature.Name)
-		}
-		features = append(features, feature)
-	}
-	*f = features
-	return nil
-}
-
-// MarshalYAML encodes the features as a mapping in declaration order, with
-// the names of their secrets but not the values.
-func (f Features) MarshalYAML() (any, error) {
-	type feature struct {
-		Description string                     `yaml:"description,omitempty"`
-		Environment map[string]string          `yaml:"environment,omitempty"`
-		Secrets     []string                   `yaml:"secrets,omitempty"`
-		McpServers  map[string]agent.McpServer `yaml:"mcp_servers,omitempty"`
-		Commands    []string                   `yaml:"commands,omitempty"`
-		Agent       *Agent                     `yaml:"agent,omitempty"`
-	}
-	node := &yaml.Node{Kind: yaml.MappingNode}
-	for _, ft := range f {
-		var value yaml.Node
-		err := value.Encode(feature{
-			Description: ft.Description,
-			Environment: ft.Environment,
-			Secrets:     slices.Sorted(maps.Keys(ft.Secrets)),
-			McpServers:  ft.McpServers,
-			Commands:    ft.Commands,
-			Agent:       ft.Agent,
-		})
-		if err != nil {
-			return nil, err
-		}
-		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: ft.Name}, &value)
-	}
-	return node, nil
-}
-
-// Select returns the named features in declaration order. It fails on a name
-// the workspace doesn't declare, and on two features that both have an agent
-// config.
+// Select returns the named features in the order of names. It fails on a
+// name the workspace doesn't declare.
 func (w *Workspace) Select(names []string) ([]Feature, error) {
-	for _, name := range names {
-		if !slices.ContainsFunc(w.Features, func(f Feature) bool { return f.Name == name }) {
-			return nil, fmt.Errorf("unknown feature %q", name)
-		}
-	}
 	var selected []Feature
-	var withAgent string
-	for _, f := range w.Features {
-		if !slices.Contains(names, f.Name) {
-			continue
-		}
-		if f.Agent != nil {
-			if withAgent != "" {
-				return nil, fmt.Errorf("features %q and %q both have an agent config", withAgent, f.Name)
-			}
-			withAgent = f.Name
+	for _, name := range names {
+		f, ok := w.Features[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown feature %q", name)
 		}
 		selected = append(selected, f)
 	}
 	return selected, nil
 }
-
-// featureName matches a valid feature name.
-var featureName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
-
-// reservedMcpServer is the name of the MCP server the runner injects into
-// every agent config.
-const reservedMcpServer = "gritz"
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
 type VariableConfig struct {
@@ -337,25 +264,17 @@ func (w *Workspace) Validate() error {
 			return fmt.Errorf("variables: %w", err)
 		}
 	}
-	for _, f := range w.Features {
+	for _, name := range slices.Sorted(maps.Keys(w.Features)) {
+		f := w.Features[name]
 		if err := f.validate(); err != nil {
-			return fmt.Errorf("features.%s: %w", f.Name, err)
+			return fmt.Errorf("features.%s: %w", name, err)
 		}
 	}
-	if err := w.validateFeatureEnv(); err != nil {
-		return err
-	}
-	return w.validateFeatureMcpServers()
+	return nil
 }
 
 func (f *Feature) validate() error {
-	if !featureName.MatchString(f.Name) {
-		return errors.New("name must be a lowercase letter followed by up to 63 lowercase letters, digits, '-' or '_'")
-	}
 	for name, srv := range f.McpServers {
-		if name == reservedMcpServer {
-			return fmt.Errorf("mcp_servers.%s: the name is reserved for the server the runner injects", name)
-		}
 		if err := srv.Validate(); err != nil {
 			return fmt.Errorf("mcp_servers.%s: %w", name, err)
 		}
@@ -363,79 +282,6 @@ func (f *Feature) validate() error {
 	if f.Agent != nil {
 		if err := f.Agent.Validate(); err != nil {
 			return fmt.Errorf("agent: %w", err)
-		}
-	}
-	return nil
-}
-
-// validateFeatureEnv rejects an environment variable that features define
-// twice, or that a feature and the workspace both define, so that any
-// selection of features merges without conflicts.
-func (w *Workspace) validateFeatureEnv() error {
-	// Where each name is defined. The base's own sections may overlap.
-	defined := make(map[string]string)
-	for name := range w.Secrets {
-		defined[name] = "secrets"
-	}
-	for name := range w.Container.Environment {
-		defined[name] = "container.environment"
-	}
-	if w.LambdaMicroVM != nil {
-		for name := range w.LambdaMicroVM.Environment {
-			defined[name] = "lambda_microvm.environment"
-		}
-	}
-	for _, f := range w.Features {
-		for _, section := range []struct {
-			name string
-			env  map[string]string
-		}{
-			{"environment", f.Environment},
-			{"secrets", f.Secrets},
-		} {
-			where := "features." + f.Name + "." + section.name
-			for _, name := range slices.Sorted(maps.Keys(section.env)) {
-				if strings.HasPrefix(name, "GRITZ_") {
-					return fmt.Errorf("%s: %s: the GRITZ_ prefix is reserved", where, name)
-				}
-				if prev, ok := defined[name]; ok {
-					return fmt.Errorf("%s: %s is also defined in %s", where, name, prev)
-				}
-				defined[name] = where
-			}
-		}
-	}
-	return nil
-}
-
-// validateFeatureMcpServers rejects an MCP server name that could be defined
-// twice in one task's agent config. A task gets exactly one agent config, the
-// workspace's or a feature's, so names may repeat across those; but it may get
-// any feature's mcp_servers, so each of those names must be unique.
-func (w *Workspace) validateFeatureMcpServers() error {
-	agentConfigs := make(map[string]string)
-	for name := range w.Agent.McpServers {
-		agentConfigs[name] = "agent.mcp_servers"
-	}
-	for _, f := range w.Features {
-		if f.Agent == nil {
-			continue
-		}
-		for name := range f.Agent.McpServers {
-			agentConfigs[name] = "features." + f.Name + ".agent.mcp_servers"
-		}
-	}
-	defined := make(map[string]string)
-	for _, f := range w.Features {
-		where := "features." + f.Name + ".mcp_servers"
-		for _, name := range slices.Sorted(maps.Keys(f.McpServers)) {
-			if prev, ok := defined[name]; ok {
-				return fmt.Errorf("%s: %s is also defined in %s", where, name, prev)
-			}
-			if prev, ok := agentConfigs[name]; ok {
-				return fmt.Errorf("%s: %s is also defined in %s", where, name, prev)
-			}
-			defined[name] = where
 		}
 	}
 	return nil
@@ -454,9 +300,6 @@ func (a *Agent) Validate() error {
 		}
 	}
 	for name, srv := range a.McpServers {
-		if name == reservedMcpServer {
-			return fmt.Errorf("mcp_servers.%s: the name is reserved for the server the runner injects", name)
-		}
 		if err := srv.Validate(); err != nil {
 			return fmt.Errorf("mcp_servers.%s: %w", name, err)
 		}
