@@ -152,9 +152,9 @@ up a `gritz login` made since.
 | `switch_org` | Switches a `gritz mcp` session to another organisation. |
 | `list_workspaces` | Lists the workspaces runners offer: each one's name, description and runner ID. |
 | `list_agents` | Lists the organisation's agents. |
-| `get_agent` | Gets an agent, with its triggers and link kinds. |
+| `get_agent` | Gets an agent, with its triggers, link kinds and schedules. |
 | `put_agent` | Creates an agent, or replaces one. |
-| `delete_agent` | Deletes an agent. |
+| `delete_agent` | Deletes an agent and its schedules. |
 | `create_task` | Creates a task of an agent and starts it, or creates a draft. |
 | `list_tasks` | Lists the organisation's tasks, newest first, a page at a time. |
 | `get_task` | Gets a task with its links, the actions it allows, and its timeline: instructions, events, reports and status changes. |
@@ -280,8 +280,9 @@ request you opened by hand.
 ### Agents
 
 An [agent](/concepts/agents/) is the organisation's template for a
-kind of task, together with the triggers that create its tasks from events and
-the kinds of subscribed link its tasks may create. `list_agents` returns every
+kind of task, together with the triggers that create its tasks from events, the
+schedules that create them on a cron schedule, and the kinds of subscribed link
+its tasks may create. `list_agents` returns every
 agent; `get_agent` takes an agent's `id` and returns it in full:
 
 | Field | |
@@ -289,11 +290,12 @@ agent; `get_agent` takes an agent's `id` and returns it in full:
 | `id` | The agent's ID. |
 | `name` | The agent's name. |
 | `workspace`, `runner` | The [workspace](/concepts/workspaces/) its tasks run in, and the [runner](/concepts/runners/) that offers it. `list_workspaces` lists both. |
-| `prompt` | The first instruction of the tasks its triggers create. |
+| `prompt` | The first instruction of the tasks its triggers and schedules create. |
 | `auto_archive` | The [auto-archive](/concepts/tasks/#auto-archive) delay of its tasks, in seconds, such as `"86400s"`. `0` never archives. |
 | `variables` | Values for the workspace's [variables](/operators/workspaces-yaml/#variables), an object of name to string value. Each must be declared by the workspace, and every required one set. |
 | `triggers` | Each creates a task of the agent when an event matches it. The first trigger that matches wins. |
 | `links` | The kinds of subscribed link its tasks may create, and the events each delivers. |
+| `schedules` | Each creates a task of the agent whenever its cron expression matches. |
 
 Each trigger has:
 
@@ -315,16 +317,31 @@ Each link kind has:
 | `events` | The event types a link of this kind delivers to its task, each `{type, conditions}`: an event type that declares the link type, and conditions its events must all meet, in a trigger's shape. With none, it delivers nothing. |
 | `public` | Also deliver events from people who aren't members of the organisation. |
 
+Each [schedule](/concepts/schedules/) has:
+
+| Field | |
+| --- | --- |
+| `id` | The schedule's ID. |
+| `name` | The name of every task it creates. |
+| `cron_expr` | When to create a task: a five-field [cron expression](/concepts/schedules/#cron-expressions) or a shorthand such as `@daily`. |
+| `timezone` | The IANA timezone the cron expression is read in, such as `Europe/Paris`. Empty is `UTC`. |
+| `enabled` | Whether the schedule runs. |
+| `next_run_at`, `last_run_at`, `last_task_id` | When it next runs (unset while disabled), when it last ran, and the task it last created. Set by the server. |
+
 `put_agent` takes `agent`, in the shape `get_agent` returns. With an `id`, it
 replaces that agent; without one, it creates a new agent. Your agent reads an
 agent, edits it and writes it back. Replacing an agent doesn't change the tasks
-it already created. An agent with an unknown workspace, event type or link
-type, or with variables the workspace doesn't accept, fails the call. It returns
+it already created. A schedule that keeps its `id` keeps its last run, and its
+next run only moves when its cron expression, timezone or `enabled` changed; a
+schedule without an `id` is added, and one left out is deleted. An agent with an
+unknown workspace, event type or link type, a schedule `id` that isn't one of
+its schedules, a cron expression or timezone gritz can't parse, or variables the
+workspace doesn't accept, fails the call. It returns
 the stored agent.
 
-`delete_agent` takes the agent's `id`. It fails while an unarchived task or a
-schedule belongs to the agent: archive its tasks, and point its schedules at
-another agent or delete them, first.
+`delete_agent` takes the agent's `id`, and deletes the agent and its schedules.
+It fails while an unarchived task belongs to the agent: archive its tasks
+first.
 
 ### `list_events`, `get_event`, `delete_event`
 
