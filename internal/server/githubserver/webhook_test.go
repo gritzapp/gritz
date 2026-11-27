@@ -765,9 +765,151 @@ func TestToGithubInputEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "IssuesEvent_WrongAction",
+			name: "IssuesEvent_Opened",
 			event: &github.IssuesEvent{
 				Action: github.Ptr("opened"),
+				Issue: &github.Issue{
+					Number:  github.Ptr(7),
+					NodeID:  github.Ptr("I_node7"),
+					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/7"),
+					Body:    github.Ptr("  gritz: fix the flaky test\n"),
+				},
+				Sender: &github.User{
+					ID:    github.Ptr[int64](999),
+					Login: github.Ptr("octocat"),
+				},
+				Installation: &github.Installation{ID: github.Ptr[int64](7)},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        "issue_opened",
+				Description: "octocat opened issue #7",
+				Data:        "gritz: fix the flaky test",
+				URL:         "https://github.com/owner/repo/issues/7",
+				Attrs:       eventrouter.Attrs{"user": {"octocat"}},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       999,
+				AuthorLogin:    "octocat",
+				InstallationID: 7,
+				NodeID:         "I_node7",
+			},
+		},
+		{
+			name: "IssuesEvent_Closed_Completed",
+			event: &github.IssuesEvent{
+				Action: github.Ptr("closed"),
+				Issue: &github.Issue{
+					Number:      github.Ptr(8),
+					NodeID:      github.Ptr("I_node8"),
+					HTMLURL:     github.Ptr("https://github.com/owner/repo/issues/8"),
+					Body:        github.Ptr("gritz: fix it\n"),
+					State:       github.Ptr("closed"),
+					StateReason: github.Ptr("completed"),
+				},
+				Sender: &github.User{
+					ID:    github.Ptr[int64](999),
+					Login: github.Ptr("octocat"),
+				},
+				Installation: &github.Installation{ID: github.Ptr[int64](7)},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        "issue_closed",
+				Description: "octocat closed issue #8 as completed",
+				Data:        "gritz: fix it",
+				URL:         "https://github.com/owner/repo/issues/8",
+				Attrs:       eventrouter.Attrs{"state": {"completed"}, "user": {"octocat"}},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       999,
+				AuthorLogin:    "octocat",
+				InstallationID: 7,
+				NodeID:         "I_node8",
+			},
+		},
+		{
+			name: "IssuesEvent_Closed_NotPlanned",
+			event: &github.IssuesEvent{
+				Action: github.Ptr("closed"),
+				Issue: &github.Issue{
+					Number:      github.Ptr(9),
+					NodeID:      github.Ptr("I_node9"),
+					HTMLURL:     github.Ptr("https://github.com/owner/repo/issues/9"),
+					Body:        github.Ptr("gritz: fix it\n"),
+					State:       github.Ptr("closed"),
+					StateReason: github.Ptr("not_planned"),
+				},
+				Sender: &github.User{
+					ID:    github.Ptr[int64](999),
+					Login: github.Ptr("octocat"),
+				},
+				Installation: &github.Installation{ID: github.Ptr[int64](7)},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        "issue_closed",
+				Description: "octocat closed issue #9 as not planned",
+				Data:        "gritz: fix it",
+				URL:         "https://github.com/owner/repo/issues/9",
+				Attrs:       eventrouter.Attrs{"state": {"not_planned"}, "user": {"octocat"}},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       999,
+				AuthorLogin:    "octocat",
+				InstallationID: 7,
+				NodeID:         "I_node9",
+			},
+		},
+		{
+			name: "IssuesEvent_Closed_Duplicate",
+			event: &github.IssuesEvent{
+				Action: github.Ptr("closed"),
+				Issue: &github.Issue{
+					Number:      github.Ptr(10),
+					NodeID:      github.Ptr("I_node10"),
+					HTMLURL:     github.Ptr("https://github.com/owner/repo/issues/10"),
+					Body:        github.Ptr("gritz: fix it\n"),
+					State:       github.Ptr("closed"),
+					StateReason: github.Ptr("duplicate"),
+				},
+				Sender: &github.User{
+					ID:    github.Ptr[int64](999),
+					Login: github.Ptr("octocat"),
+				},
+				Installation: &github.Installation{ID: github.Ptr[int64](7)},
+			},
+			expected: []eventrouter.InputEvent{{
+				Source:      "github",
+				Type:        "issue_closed",
+				Description: "octocat closed issue #10 as duplicate",
+				Data:        "gritz: fix it",
+				URL:         "https://github.com/owner/repo/issues/10",
+				Attrs:       eventrouter.Attrs{"state": {"duplicate"}, "user": {"octocat"}},
+			}},
+			expectedMeta: GitHubMeta{
+				AuthorID:       999,
+				AuthorLogin:    "octocat",
+				InstallationID: 7,
+				NodeID:         "I_node10",
+			},
+		},
+		{
+			name: "IssuesEvent_Closed_NoSender",
+			event: &github.IssuesEvent{
+				Action: github.Ptr("closed"),
+				Issue: &github.Issue{
+					Number:      github.Ptr(8),
+					HTMLURL:     github.Ptr("https://github.com/owner/repo/issues/8"),
+					StateReason: github.Ptr("completed"),
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "IssuesEvent_WrongAction",
+			event: &github.IssuesEvent{
+				Action: github.Ptr("reopened"),
 				Issue: &github.Issue{
 					Number:  github.Ptr(7),
 					HTMLURL: github.Ptr("https://github.com/owner/repo/issues/7"),

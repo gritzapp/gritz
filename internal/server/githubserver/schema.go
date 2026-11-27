@@ -177,6 +177,64 @@ func RegisterSchemas(reg *eventrouter.SchemaRegistry) {
 	})
 	reg.MustRegister(model.EventTypeDef{
 		Source:    "github",
+		Type:      EventTypeIssueOpened,
+		Label:     "GitHub: Issue Opened",
+		LinkTypes: []string{LinkTypeIssue},
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Issue Body",
+				Placeholder: "gritz:",
+				Help:        "Matched against the description of the newly opened issue.",
+			},
+			{
+				Key:         "url",
+				Label:       "Issue URL",
+				Placeholder: "https://github.com/owner/repo/issues/123",
+				Help:        "Matched against the opened issue URL, e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username of the user who opened the issue (no leading @).",
+			},
+		},
+	})
+	reg.MustRegister(model.EventTypeDef{
+		Source:    "github",
+		Type:      EventTypeIssueClosed,
+		Label:     "GitHub: Issue Closed",
+		LinkTypes: []string{LinkTypeIssue},
+		Attrs: []model.AttrDef{
+			{
+				Key:         "body",
+				Label:       "Issue Body",
+				Placeholder: "gritz:",
+				Help:        "Matched against the description of the closed issue.",
+			},
+			{
+				Key:         "url",
+				Label:       "Issue URL",
+				Placeholder: "https://github.com/owner/repo/issues/123",
+				Help:        "Matched against the closed issue URL, e.g. to scope a rule to a single repo.",
+			},
+			{
+				Key:         "state",
+				Label:       "Close Reason",
+				Placeholder: "completed",
+				Help:        `Why the issue was closed, as GitHub reports it: "completed", "not_planned" or "duplicate".`,
+			},
+			{
+				Key:         "user",
+				Label:       "User",
+				Placeholder: "octocat",
+				Help:        "The GitHub username of the user who closed the issue (no leading @).",
+			},
+		},
+	})
+	reg.MustRegister(model.EventTypeDef{
+		Source:    "github",
 		Type:      EventTypeIssueAssigned,
 		Label:     "GitHub: Issue Assigned",
 		LinkTypes: []string{LinkTypeIssue},
