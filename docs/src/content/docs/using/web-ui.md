@@ -16,8 +16,9 @@ Mac) anywhere to jump to a task by name.
 
 ## Tasks
 
-**Tasks** lists the organisation's tasks, newest first, with their runner,
-workspace and [status](/concepts/tasks/#statuses). A `command:` badge next to the
+**Tasks** lists the organisation's tasks, newest first, with their
+[agent](/concepts/agents/) and [status](/concepts/tasks/#statuses). Click the
+agent to open its page. A `command:` badge next to the
 status is an action the runner hasn't carried out yet. Pick an agent in the
 agent filter to list only its tasks, or **All agents** for every task. Turn on
 **Show archived** to include archived tasks, and archive or unarchive a task
