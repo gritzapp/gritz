@@ -31,8 +31,8 @@ const router = createRouter({
   context: { queryClient, auth },
   defaultPreload: 'intent',
   defaultPreloadStaleTime: 0,
-  parseSearch: createParseSearch({ org: String, agent: String }),
-  stringifySearch: createStringifySearch({ org: String, agent: String }),
+  parseSearch: createParseSearch({ org: String, agent: String, clone: String }),
+  stringifySearch: createStringifySearch({ org: String, agent: String, clone: String }),
 })
 
 auth.onOrgChange((orgId, internal) => {

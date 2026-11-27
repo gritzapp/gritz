@@ -55,6 +55,7 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Ellipsis,
   FlaskConical,
   Link2,
@@ -164,9 +165,11 @@ export function AgentForm({
   }, [agentsData, values.links])
 
   const formError = agentFormError(values)
+  // An agent not yet created is unsaved as it stands, so a clone can be
+  // created without first being edited.
   const dirty = useMemo(
-    () => JSON.stringify(values) !== JSON.stringify(initialValues),
-    [values, initialValues],
+    () => agentId === undefined || JSON.stringify(values) !== JSON.stringify(initialValues),
+    [agentId, values, initialValues],
   )
 
   const discard = () => {
@@ -610,8 +613,9 @@ function FeatureFields({
   )
 }
 
-// AgentMenu is the agent page's overflow menu, which holds Delete. Deleting
-// returns to the agents list.
+// AgentMenu is the agent page's overflow menu, which holds Clone and Delete.
+// Clone opens the new-agent form prefilled with a copy of the agent as last
+// saved; deleting returns to the agents list.
 function AgentMenu({ agentId, name }: { agentId: bigint; name: string }) {
   const orgId = useOrgId()
   const navigate = useNavigate()
@@ -625,6 +629,12 @@ function AgentMenu({ agentId, name }: { agentId: bigint; name: string }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link to="/agents/new" search={{ org: orgId, clone: String(agentId) }}>
+              <Copy />
+              Clone
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onSelect={() => setConfirmOpen(true)}>
             <Trash2 />
             Delete

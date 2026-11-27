@@ -172,6 +172,19 @@ export function agentFormValues(agent: Agent): AgentFormValues {
   }
 }
 
+// agentCloneValues is the new-agent draft that copies agent: everything the
+// editor edits, named "<name> (copy)". Its schedules lose their ids, so saving
+// adds new ones rather than taking over the original's, and with them their
+// run state.
+export function agentCloneValues(agent: Agent): AgentFormValues {
+  const values = agentFormValues(agent)
+  return {
+    ...values,
+    name: `${agent.name} (copy)`,
+    schedules: values.schedules.map((s) => ({ ...s, id: '' })),
+  }
+}
+
 // buildAgent turns the draft into the Agent sent to CreateAgent (id 0) or
 // UpdateAgent.
 export function buildAgent(values: AgentFormValues, id: bigint): Agent {
