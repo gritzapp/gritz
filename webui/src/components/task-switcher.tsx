@@ -82,7 +82,6 @@ export function TaskSwitcher() {
           >
             <span className="truncate">{taskLabel(task)}</span>
             <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-              <span className="hidden sm:inline">{task.workspace}</span>
               {task.createdAt && (
                 <span className="hidden sm:inline">
                   {formatDistanceToNow(timestampDate(task.createdAt), { addSuffix: true })}
