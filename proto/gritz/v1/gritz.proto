@@ -1056,7 +1056,7 @@ message RunScheduleResponse {
   Task task = 1;  // The task the run created.
 }
 
-// See docs/src/content/docs/proposals/draft/agents.md.
+// See docs/src/content/docs/proposals/implemented/agents.md.
 
 // Agent is a task template plus the triggers that create its tasks and the
 // kinds of link its tasks may subscribe to. An agent is addressed by its id;
