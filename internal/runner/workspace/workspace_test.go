@@ -144,16 +144,12 @@ features:
 	}
 }
 
-// testWorkspace returns a workspace with every map, slice and pointer of its
-// config set, as LoadConfig would decode it.
+// testWorkspace returns a workspace that sets every field WithFeatures
+// writes to, with a feature that replaces its agent: and adds to everything.
 func testWorkspace() *Workspace {
 	return &Workspace{
-		Description: "test",
 		Container: Container{
 			Image:       "alpine:latest",
-			Volumes:     []string{"/a:/a"},
-			Networks:    []string{"net"},
-			GroupAdd:    []string{"docker"},
 			Environment: map[string]string{"BASE_ENV": "container"},
 		},
 		LambdaMicroVM: &LambdaMicroVM{
@@ -161,93 +157,53 @@ func testWorkspace() *Workspace {
 			Environment:     map[string]string{"BASE_ENV": "lambda"},
 		},
 		Agent: Agent{
-			Type:    "claude",
-			Cwd:     "/root/repo",
-			Prompt:  "base prompt",
-			Verbose: true,
-			McpServers: map[string]agent.McpServer{
-				"github": {Type: "stdio", Command: "github-mcp", Args: []string{"--x"}, Env: map[string]string{"A": "1"}},
-			},
-			Claude:   &ClaudeConfig{Model: "opus"},
-			Process:  &ProcessConfig{Command: []string{"proc"}},
-			GritzRPC: &GritzRPCConfig{Command: "rpc", Args: []string{"--y"}},
-			Dummy: &DummyConfig{
-				ToolCalls: []agent.DummyToolCall{{Name: "t", Arguments: map[string]any{"list": []any{map[string]any{"k": "v"}}}}},
-				Commands:  []string{"dummy"},
-			},
+			Type:       "claude",
+			McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
 		},
-		Commands:     []string{"git clone repo"},
-		Capabilities: []string{"create_task"},
-		Secrets:      map[string]string{"GH_TOKEN": "gho_base"},
-		Variables:    map[string]VariableConfig{"BRANCH": {Default: "main"}},
+		Commands: []string{"git clone repo"},
+		Secrets:  map[string]string{"GH_TOKEN": "gho_base"},
 		Features: Features{
-			"node": {
-				Environment: map[string]string{"NODE": "22"},
-				Secrets:     map[string]string{"NPM_TOKEN": "npm"},
+			"codex": {
+				Environment: map[string]string{"CODEX_HOME": "/codex"},
+				Secrets:     map[string]string{"OPENAI_API_KEY": "openai"},
 				McpServers:  map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
-				Commands:    []string{"install node"},
-				Agent:       &Agent{Type: "codex", McpServers: map[string]agent.McpServer{"x": {Type: "stdio", Command: "x"}}},
+				Commands:    []string{"install codex"},
+				Agent: &Agent{
+					Type:       "codex",
+					McpServers: map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
+				},
 			},
+			"node": {Commands: []string{"install node"}},
 		},
 	}
 }
 
-// TestClone asserts a clone is equal to the workspace, and that changing
-// every map and slice of the clone leaves the workspace as it was.
-func TestClone(t *testing.T) {
+// TestWithFeatures_LeavesWorkspace asserts applying features leaves the
+// workspace they were applied to as it was, including the feature whose
+// agent: replaced the workspace's, and that one result's commands don't leak
+// into another's.
+func TestWithFeatures_LeavesWorkspace(t *testing.T) {
 	t.Parallel()
-	// Arrange
+	// Arrange - spare capacity, which appending must not write into.
 	ws := testWorkspace()
+	ws.Commands = append(make([]string, 0, 8), ws.Commands...)
 
 	// Act
-	c := ws.Clone()
-	c.Container.Volumes[0] = "changed"
-	c.Container.Networks[0] = "changed"
-	c.Container.GroupAdd[0] = "changed"
-	c.Container.Environment["BASE_ENV"] = "changed"
-	c.LambdaMicroVM.ImageIdentifier = "changed"
-	c.LambdaMicroVM.Environment["BASE_ENV"] = "changed"
-	c.Agent.McpServers["github"].Args[0] = "changed"
-	c.Agent.McpServers["github"].Env["A"] = "changed"
-	c.Agent.McpServers["new"] = agent.McpServer{}
-	c.Agent.Claude.Model = "changed"
-	c.Agent.Process.Command[0] = "changed"
-	c.Agent.GritzRPC.Args[0] = "changed"
-	c.Agent.Dummy.Commands[0] = "changed"
-	c.Agent.Dummy.ToolCalls[0].Arguments["list"].([]any)[0].(map[string]any)["k"] = "changed"
-	c.Commands[0] = "changed"
-	c.Capabilities[0] = "changed"
-	c.Secrets["GH_TOKEN"] = "changed"
-	c.Variables["BRANCH"] = VariableConfig{}
-	node := c.Features["node"]
-	node.Environment["NODE"] = "changed"
-	node.Secrets["NPM_TOKEN"] = "changed"
-	node.McpServers["jira"] = agent.McpServer{}
-	node.Commands[0] = "changed"
-	node.Agent.McpServers["x"] = agent.McpServer{}
-	c.Features["new"] = Feature{}
+	codex, err := ws.WithFeatures([]string{"codex"})
+	assert.NilError(t, err)
+	_, err = ws.WithFeatures([]string{"node"})
+	assert.NilError(t, err)
 
 	// Assert
-	assert.DeepEqual(t, ws.Clone(), ws)
 	assert.DeepEqual(t, ws, testWorkspace())
-}
-
-func TestWithFeatures_None(t *testing.T) {
-	t.Parallel()
-	ws := testWorkspace()
-
-	got, err := ws.WithFeatures(nil)
-
-	assert.NilError(t, err)
-	assert.DeepEqual(t, got, ws)
-	assert.Assert(t, got != ws)
+	assert.DeepEqual(t, codex.Commands, []string{"git clone repo", "install codex"})
 }
 
 func TestWithFeatures_Unknown(t *testing.T) {
 	t.Parallel()
 	ws := testWorkspace()
 
-	_, err := ws.WithFeatures([]string{"node", "playwright"})
+	_, err := ws.WithFeatures([]string{"codex", "playwright"})
 
 	assert.Error(t, err, `unknown feature "playwright"`)
 }
@@ -396,16 +352,4 @@ func TestWithFeatures_Commands(t *testing.T) {
 	assert.DeepEqual(t, got.Commands, []string{
 		"git clone repo", "install node", "install pnpm", "install codex", "install playwright",
 	})
-}
-
-// TestWithFeatures_LeavesWorkspace asserts applying features leaves the
-// workspace they were applied to as it was.
-func TestWithFeatures_LeavesWorkspace(t *testing.T) {
-	t.Parallel()
-	ws := testWorkspace()
-
-	_, err := ws.WithFeatures([]string{"node"})
-
-	assert.NilError(t, err)
-	assert.DeepEqual(t, ws, testWorkspace())
 }

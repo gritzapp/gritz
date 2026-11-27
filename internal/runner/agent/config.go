@@ -3,10 +3,8 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/gritzapp/gritz/internal/runner/agent/puppet"
 	"github.com/gritzapp/gritz/internal/x/atomicio"
@@ -92,14 +90,6 @@ type McpServer struct {
 	Command string            `json:"command,omitempty" yaml:"command"`
 	Args    []string          `json:"args,omitempty" yaml:"args"`
 	Env     map[string]string `json:"env,omitempty" yaml:"env"`
-}
-
-// Clone returns a copy of m that shares no maps or slices with it.
-func (m McpServer) Clone() McpServer {
-	m.Headers = maps.Clone(m.Headers)
-	m.Args = slices.Clone(m.Args)
-	m.Env = maps.Clone(m.Env)
-	return m
 }
 
 func (m *McpServer) Validate() error {

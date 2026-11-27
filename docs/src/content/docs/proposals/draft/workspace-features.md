@@ -282,9 +282,9 @@ the workspace. Nothing after that knows about features.**
    has the inputs, and builds the run from the workspace it returns. A name the
    workspace doesn't declare fails the run, like a variable that no longer
    resolves, for example `workspace "gritz": unknown feature "jira"`.
-3. `WithFeatures` deep-copies the workspace with `Workspace.Clone`, so the
-   loaded config is never changed, and applies each feature in order, later
-   wins, to the copy's own fields:
+3. `WithFeatures` makes a shallow copy of the workspace, copying only the maps
+   and slices it writes to, so the loaded config is never changed. It applies
+   each feature in order, later wins, to the copy's own fields:
    - `environment` into `container.environment`, and into
      `lambda_microvm.environment` when the workspace has `lambda_microvm:`;
      `secrets` into `secrets`. Feature by feature, a name set in one is removed
@@ -462,10 +462,7 @@ type Features map[string]Feature
 // Decls returns the features' declarations, sorted by name. // new
 func (f Features) Decls() []model.FeatureDecl
 
-// Clone returns a deep copy of w, which a caller can change without touching w. // new
-func (w *Workspace) Clone() *Workspace
-
-// WithFeatures returns a copy of w with the named features applied in order, later wins: their environment and secrets in the workspace's, the last agent: in Agent, their MCP servers in Agent.McpServers and their commands after Commands. It fails on a name w doesn't declare. // new
+// WithFeatures returns a shallow copy of w with the named features applied in order, later wins: their environment and secrets in the workspace's, the last agent: in Agent, their MCP servers in Agent.McpServers and their commands after Commands. It fails on a name w doesn't declare. // new
 func (w *Workspace) WithFeatures(names []string) (*Workspace, error)
 
 // Validate also checks each feature's MCP servers and agent config. // changed
@@ -538,10 +535,9 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
    unknown name) and the validation, and running `gritz workspaces` on a file
    with features.
 2. **Features reach the sandbox** — Delivers: `GetRunSpecInputsResponse.features`,
-   `Workspace.Clone`, `Workspace.WithFeatures` with the agent-config
-   replacement and the environment and secret merge, and `TaskManager.specs`
-   calling it. The server returns an empty list until tasks have features.
-   Depends on: (1). Verifiable by: `Clone` and `WithFeatures` tests:
+   `Workspace.WithFeatures` with the agent-config replacement and the
+   environment and secret merge, and `TaskManager.specs` calling it. The server returns an empty list until tasks have features.
+   Depends on: (1). Verifiable by: `WithFeatures` tests:
    - a feature's `agent:` replaces the workspace's, keeping none of its fields or
      servers, and the last of several wins;
    - feature-level servers are added on top in order, later wins;

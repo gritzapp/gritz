@@ -144,174 +144,56 @@ type Features map[string]Feature
 //     Each feature's mcp_servers are then merged into Agent.McpServers.
 //   - Each feature's commands are appended to Commands.
 //
-// It fails on a name w doesn't declare.
+// The copy is shallow: only the maps and slices it writes to are copied, and
+// it shares the rest with w. It fails on a name w doesn't declare.
 func (w *Workspace) WithFeatures(names []string) (*Workspace, error) {
-	ws := w.Clone()
 	var features []Feature
 	for _, name := range names {
-		f, ok := ws.Features[name]
+		f, ok := w.Features[name]
 		if !ok {
 			return nil, fmt.Errorf("unknown feature %q", name)
 		}
 		features = append(features, f)
 	}
+	ws := *w
 	for _, f := range features {
 		if f.Agent != nil {
-			ws.Agent = f.Agent.clone()
+			ws.Agent = *f.Agent
 		}
 	}
+	servers := ws.Agent.McpServers
+	ws.Agent.McpServers = make(map[string]agent.McpServer, len(servers))
+	maps.Copy(ws.Agent.McpServers, servers)
+	ws.Secrets = make(map[string]string, len(w.Secrets))
+	maps.Copy(ws.Secrets, w.Secrets)
+	ws.Container.Environment = make(map[string]string, len(w.Container.Environment))
+	maps.Copy(ws.Container.Environment, w.Container.Environment)
+	if w.LambdaMicroVM != nil {
+		l := *w.LambdaMicroVM
+		l.Environment = make(map[string]string, len(w.LambdaMicroVM.Environment))
+		maps.Copy(l.Environment, w.LambdaMicroVM.Environment)
+		ws.LambdaMicroVM = &l
+	}
+	ws.Commands = slices.Clone(w.Commands)
 	for _, f := range features {
 		for name, value := range f.Environment {
-			ws.Container.Environment = set(ws.Container.Environment, name, value)
+			ws.Container.Environment[name] = value
 			if ws.LambdaMicroVM != nil {
-				ws.LambdaMicroVM.Environment = set(ws.LambdaMicroVM.Environment, name, value)
+				ws.LambdaMicroVM.Environment[name] = value
 			}
 			delete(ws.Secrets, name)
 		}
 		for name, value := range f.Secrets {
-			ws.Secrets = set(ws.Secrets, name, value)
+			ws.Secrets[name] = value
 			delete(ws.Container.Environment, name)
 			if ws.LambdaMicroVM != nil {
 				delete(ws.LambdaMicroVM.Environment, name)
 			}
 		}
-		for name, srv := range f.McpServers {
-			ws.Agent.McpServers = set(ws.Agent.McpServers, name, srv.Clone())
-		}
+		maps.Copy(ws.Agent.McpServers, f.McpServers)
 		ws.Commands = append(ws.Commands, f.Commands...)
 	}
-	return ws, nil
-}
-
-// set sets m[k] to v, allocating m if it is nil, and returns m.
-func set[V any](m map[string]V, k string, v V) map[string]V {
-	if m == nil {
-		m = map[string]V{}
-	}
-	m[k] = v
-	return m
-}
-
-// Clone returns a deep copy of w, which a caller can change without touching
-// w.
-func (w *Workspace) Clone() *Workspace {
-	c := *w
-	c.Container = w.Container.clone()
-	if w.LambdaMicroVM != nil {
-		l := *w.LambdaMicroVM
-		l.Environment = maps.Clone(l.Environment)
-		c.LambdaMicroVM = &l
-	}
-	c.Agent = w.Agent.clone()
-	c.Commands = slices.Clone(w.Commands)
-	c.Capabilities = slices.Clone(w.Capabilities)
-	c.Secrets = maps.Clone(w.Secrets)
-	c.Variables = maps.Clone(w.Variables)
-	if w.Features != nil {
-		c.Features = make(Features, len(w.Features))
-		for name, f := range w.Features {
-			c.Features[name] = f.clone()
-		}
-	}
-	return &c
-}
-
-func (c Container) clone() Container {
-	c.Volumes = slices.Clone(c.Volumes)
-	c.Networks = slices.Clone(c.Networks)
-	c.GroupAdd = slices.Clone(c.GroupAdd)
-	c.Environment = maps.Clone(c.Environment)
-	return c
-}
-
-func (f Feature) clone() Feature {
-	f.Environment = maps.Clone(f.Environment)
-	f.Secrets = maps.Clone(f.Secrets)
-	f.McpServers = cloneMcpServers(f.McpServers)
-	f.Commands = slices.Clone(f.Commands)
-	if f.Agent != nil {
-		a := f.Agent.clone()
-		f.Agent = &a
-	}
-	return f
-}
-
-func (a Agent) clone() Agent {
-	a.McpServers = cloneMcpServers(a.McpServers)
-	a.Claude = clonePtr(a.Claude)
-	a.Codex = clonePtr(a.Codex)
-	a.Copilot = clonePtr(a.Copilot)
-	a.Cursor = clonePtr(a.Cursor)
-	a.Sloppy = clonePtr(a.Sloppy)
-	if a.Process != nil {
-		p := *a.Process
-		p.Command = slices.Clone(p.Command)
-		a.Process = &p
-	}
-	if a.GritzRPC != nil {
-		g := *a.GritzRPC
-		g.Args = slices.Clone(g.Args)
-		a.GritzRPC = &g
-	}
-	if a.Dummy != nil {
-		d := *a.Dummy
-		d.ToolCalls = slices.Clone(d.ToolCalls)
-		for i := range d.ToolCalls {
-			if args := d.ToolCalls[i].Arguments; args != nil {
-				d.ToolCalls[i].Arguments = cloneValue(args).(map[string]any)
-			}
-		}
-		d.Commands = slices.Clone(d.Commands)
-		a.Dummy = &d
-	}
-	a.Puppet = clonePtr(a.Puppet)
-	return a
-}
-
-func cloneMcpServers(m map[string]agent.McpServer) map[string]agent.McpServer {
-	if m == nil {
-		return nil
-	}
-	c := make(map[string]agent.McpServer, len(m))
-	for name, srv := range m {
-		c[name] = srv.Clone()
-	}
-	return c
-}
-
-// clonePtr returns a copy of *p, for a p whose type holds no maps or slices.
-func clonePtr[T any](p *T) *T {
-	if p == nil {
-		return nil
-	}
-	c := *p
-	return &c
-}
-
-// cloneValue deep-copies a value decoded from YAML: its maps and slices.
-func cloneValue(v any) any {
-	switch v := v.(type) {
-	case map[string]any:
-		if v == nil {
-			return v
-		}
-		m := make(map[string]any, len(v))
-		for k, e := range v {
-			m[k] = cloneValue(e)
-		}
-		return m
-	case []any:
-		if v == nil {
-			return v
-		}
-		s := make([]any, len(v))
-		for i, e := range v {
-			s[i] = cloneValue(e)
-		}
-		return s
-	default:
-		return v
-	}
+	return &ws, nil
 }
 
 // VariableConfig is a variables: entry; the map key is the variable's name.
