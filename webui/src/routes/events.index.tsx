@@ -80,7 +80,7 @@ function EventsPage() {
             )}
             {tab === 'recent' && (
               <div className="flex items-center gap-2">
-                <Link to="/routing/testevent" search={{ org: orgId }}>
+                <Link to="/agents/test-event" search={{ org: orgId }}>
                   <Button variant="outline">
                     <FlaskConical className="h-4 w-4" />
                     Test

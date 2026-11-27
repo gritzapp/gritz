@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
+import { AgentSelect } from '@/components/agent-select'
 import {
   Select,
   SelectContent,
@@ -70,10 +71,7 @@ export function ScheduleForm({
     setValues((prev) => ({ ...prev, [key]: value }))
 
   const isValid =
-    /^\d+$/.test(values.agentId.trim()) &&
-    values.instruction.trim() &&
-    values.cronExpr.trim() &&
-    values.timezone.trim()
+    values.agentId && values.instruction.trim() && values.cronExpr.trim() && values.timezone.trim()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -81,7 +79,6 @@ export function ScheduleForm({
     await onSubmit({
       ...values,
       name: values.name.trim(),
-      agentId: values.agentId.trim(),
       instruction: values.instruction.trim(),
       cronExpr: values.cronExpr.trim(),
       timezone: values.timezone.trim(),
@@ -153,16 +150,8 @@ export function ScheduleForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="agent">Agent ID</Label>
-        <Input
-          id="agent"
-          inputMode="numeric"
-          pattern="[0-9]+"
-          placeholder="Enter an agent ID"
-          value={values.agentId}
-          onChange={(e) => set('agentId', e.target.value)}
-          required
-        />
+        <Label htmlFor="agent">Agent</Label>
+        <AgentSelect id="agent" value={values.agentId} onChange={(v) => set('agentId', v)} />
         <p className="text-muted-foreground text-xs">
           The agent its tasks belong to. They run on its runner and workspace, with its auto-archive
           and variables.

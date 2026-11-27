@@ -5,8 +5,8 @@ import { TestEventForm } from '@/components/test-event-form'
 import { useOrgId } from '@/hooks/use-org-id'
 import { ArrowLeft } from 'lucide-react'
 
-export const Route = createFileRoute('/routing/testevent')({
-  staticData: { orgSwitchRedirect: '/routing/testevent' },
+export const Route = createFileRoute('/agents/test-event')({
+  staticData: { orgSwitchRedirect: '/agents/test-event' },
   component: TestEventPage,
 })
 
@@ -20,7 +20,7 @@ function TestEventPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => navigate({ to: '/events', search: { org: orgId } })}
+          onClick={() => navigate({ to: '/agents', search: { org: orgId } })}
         >
           <ArrowLeft className="h-4 w-4" />
           Back

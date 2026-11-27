@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { RelativeTime } from '@/components/relative-time'
 import { externalSourceStyle } from '@/components/external-source'
+import { ClaimBadge, KindBadge } from '@/components/task-links'
 import { sourceFromUrl } from '@/lib/timeline'
 import type { TimelineItem, LifecycleCategory } from '@/lib/timeline'
 
@@ -193,14 +194,8 @@ function LinkRow({ item }: { item: Extract<TimelineItem, { kind: 'link' }> }) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="shrink-0 text-foreground">{icon}</span>
           <span className="font-medium text-foreground">Link created</span>
-          {item.subscribed && (
-            <Badge
-              variant="outline"
-              className="border-blue-200 bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900 text-[10px]"
-            >
-              subscribed
-            </Badge>
-          )}
+          {item.linkKind && <KindBadge kind={item.linkKind} />}
+          {item.claim && <ClaimBadge claim={item.claim} />}
           <span className="ml-auto">
             <RelativeTime date={item.at} />
           </span>

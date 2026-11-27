@@ -11,8 +11,7 @@ import {
   isArchivedTask,
 } from '@/lib/task'
 import {
-  AUTO_ARCHIVE_IMMEDIATE,
-  AUTO_ARCHIVE_NEVER,
+  AUTO_ARCHIVE_PRESETS,
   autoArchiveSelectValue,
   durationFromAutoArchiveSelect,
   durationToMillis,
@@ -32,6 +31,7 @@ import { ArchivedBadge } from '@/components/archived-badge'
 import { CommandBadge } from '@/components/command-badge'
 import { RelativeTime } from '@/components/relative-time'
 import { TaskLinks } from '@/components/task-links'
+import { AgentRef } from '@/components/agent-select'
 import { useAutoArchiveCountdown } from '@/components/archive-button'
 import {
   Archive,
@@ -185,7 +185,9 @@ export function TaskSidebar({
             <dl className="flex flex-col gap-2">
               <Detail label="Runner">{task.runner}</Detail>
               <Detail label="Workspace">{task.workspace}</Detail>
-              <Detail label="Agent">{String(task.agentId)}</Detail>
+              <Detail label="Agent">
+                <AgentRef agentId={task.agentId} className="hover:underline" />
+              </Detail>
               <Detail label="Created">
                 {task.createdAt ? <RelativeTime date={timestampDate(task.createdAt)} /> : '-'}
               </Detail>
@@ -449,17 +451,6 @@ function ArchiveRow({
     />
   )
 }
-
-// The auto-archive presets offered in the picker. Positive values are keyed by
-// their whole-second count to match autoArchiveSelectValue's lossless encoding.
-const AUTO_ARCHIVE_PRESETS: { value: string; label: string }[] = [
-  { value: AUTO_ARCHIVE_NEVER, label: 'Never' },
-  { value: AUTO_ARCHIVE_IMMEDIATE, label: 'Immediately' },
-  { value: String(60 * 60), label: '1 hour' },
-  { value: String(6 * 60 * 60), label: '6 hours' },
-  { value: String(24 * 60 * 60), label: '24 hours' },
-  { value: String(7 * 24 * 60 * 60), label: '7 days' },
-]
 
 // AutoArchiveRow is the sidebar's auto-archive delay control. The footer row
 // mirrors the other actions (clock icon + "Auto-archive" label, with the current

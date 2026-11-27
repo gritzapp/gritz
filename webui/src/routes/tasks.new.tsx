@@ -6,6 +6,7 @@ import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgLocalStorage } from '@/hooks/use-org-local-storage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { AgentSelect, useAgent } from '@/components/agent-select'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -19,6 +20,8 @@ function NewTaskPage() {
 
   const [name, setName] = useState('')
   const [agentId, setAgentId] = useOrgLocalStorage('gritz-last-agent', '')
+  // The remembered agent may have been deleted since.
+  const agent = useAgent(/^\d+$/.test(agentId) ? BigInt(agentId) : 0n)
 
   const mutation = useMutation(createTask, {
     onSuccess: (data) => {
@@ -36,14 +39,14 @@ function NewTaskPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!/^\d+$/.test(agentId.trim())) return
+    if (!agent) return
 
     // Created as a draft: nothing is launched for it. The first instruction is
     // sent from the composer on the task page, which is where every instruction
     // after it goes anyway.
     await mutation.mutateAsync({
       name: name.trim(),
-      agentId: BigInt(agentId.trim()),
+      agentId: agent.id,
       draft: true,
     })
   }
@@ -66,16 +69,8 @@ function NewTaskPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="agent">Agent ID</Label>
-              <Input
-                id="agent"
-                inputMode="numeric"
-                pattern="[0-9]+"
-                placeholder="Enter an agent ID"
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                required
-              />
+              <Label htmlFor="agent">Agent</Label>
+              <AgentSelect id="agent" value={agentId} onChange={setAgentId} />
               <p className="text-muted-foreground text-xs">
                 The task runs with the agent&apos;s workspace, runner, auto-archive delay and
                 variables.
@@ -87,7 +82,7 @@ function NewTaskPage() {
             )}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={mutation.isPending}>
+              <Button type="submit" disabled={mutation.isPending || !agent}>
                 {mutation.isPending ? 'Creating...' : 'Create Task'}
               </Button>
               <Button

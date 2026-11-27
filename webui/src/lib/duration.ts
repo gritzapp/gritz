@@ -26,6 +26,17 @@ export function autoArchiveSelectValue(d: Duration | undefined): string {
   return String(d.seconds)
 }
 
+// The auto-archive presets offered in the picker. Positive values are keyed by
+// their whole-second count to match autoArchiveSelectValue's lossless encoding.
+export const AUTO_ARCHIVE_PRESETS: { value: string; label: string }[] = [
+  { value: AUTO_ARCHIVE_NEVER, label: 'Never' },
+  { value: AUTO_ARCHIVE_IMMEDIATE, label: 'Immediately' },
+  { value: String(60 * 60), label: '1 hour' },
+  { value: String(6 * 60 * 60), label: '6 hours' },
+  { value: String(24 * 60 * 60), label: '24 hours' },
+  { value: String(7 * 24 * 60 * 60), label: '7 days' },
+]
+
 // durationFromAutoArchiveSelect is the inverse of autoArchiveSelectValue for the
 // update path. It always returns a concrete Duration (never undefined): UpdateTask
 // treats an unset auto_archive as "leave alone", so selecting "never" must persist

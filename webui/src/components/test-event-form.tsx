@@ -1,13 +1,22 @@
 import { useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@connectrpc/connect-query'
-import { getEventTypes, testEvent } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
+import {
+  getEventTypes,
+  listAgents,
+  testEvent,
+} from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { create } from '@bufbuild/protobuf'
 import {
+  type Agent,
   AttrValuesSchema,
+  type EventTypeDef,
+  type TestEventAgent,
   TestEventRequestSchema,
   type TestEventResponse,
 } from '@/gen/gritz/v1/gritz_pb'
+import { AgentRef } from '@/components/agent-select'
+import { linkKindName } from '@/lib/agents'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -265,7 +274,7 @@ export function TestEventForm() {
         </div>
       </form>
 
-      {result && <ResultsPanel result={result} orgId={orgId} />}
+      {result && <ResultsPanel result={result} eventTypes={eventTypes} orgId={orgId} />}
 
       <Dialog open={confirmFire} onOpenChange={setConfirmFire}>
         <DialogContent>
@@ -290,24 +299,30 @@ export function TestEventForm() {
   )
 }
 
-function TaskLinks({ ids, orgId }: { ids: bigint[]; orgId: string }) {
-  return ids.map((id, j) => (
-    <span key={String(id)}>
-      {j > 0 && ', '}
-      <Link
-        to="/tasks/$id"
-        params={{ id: String(id) }}
-        search={{ org: orgId }}
-        className="text-primary hover:underline"
-      >
-        Task {String(id)}
-      </Link>
-    </span>
-  ))
+function TaskRef({ id, orgId }: { id: bigint; orgId: string }) {
+  return (
+    <Link
+      to="/tasks/$id"
+      params={{ id: String(id) }}
+      search={{ org: orgId }}
+      className="text-primary hover:underline"
+    >
+      Task {String(id)}
+    </Link>
+  )
 }
 
-function ResultsPanel({ result, orgId }: { result: TestEventResponse; orgId: string }) {
-  const agents = result.agents
+function ResultsPanel({
+  result,
+  eventTypes,
+  orgId,
+}: {
+  result: TestEventResponse
+  eventTypes: EventTypeDef[]
+  orgId: string
+}) {
+  const { data: agentsData } = useQuery(listAgents, {})
+  const agentsById = new Map((agentsData?.agents ?? []).map((a) => [a.id, a]))
 
   return (
     <div className="space-y-3 rounded-md border p-4">
@@ -320,64 +335,137 @@ function ResultsPanel({ result, orgId }: { result: TestEventResponse; orgId: str
         )}
       </div>
 
-      {agents.length === 0 ? (
+      {result.agents.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          No agent&apos;s trigger matched this event and no subscribed task receives it — nothing
+          No agent&apos;s trigger matched this event and no subscribed link delivers it: nothing
           would be woken or created.
         </p>
       ) : (
         <div className="space-y-3">
-          {agents.map((agent) => (
-            <div key={String(agent.agentId)} className="space-y-2 rounded-md border p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Agent {String(agent.agentId)}</Badge>
-                {agent.triggerIndex >= 0 && (
-                  <Badge variant="secondary">trigger #{agent.triggerIndex + 1}</Badge>
-                )}
-                {agent.triggerIndex >= 0 && agent.yieldedTo.length === 0 && (
-                  <Badge variant="secondary">{result.fired ? 'created' : 'would create'}</Badge>
-                )}
-                {agent.yieldedTo.length > 0 && <Badge variant="secondary">yielded</Badge>}
-              </div>
-
-              {agent.yieldedTo.length > 0 && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Yielded to: </span>
-                  <TaskLinks ids={agent.yieldedTo} orgId={orgId} />
-                </div>
-              )}
-
-              {agent.createdTaskId !== 0n && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Created: </span>
-                  <TaskLinks ids={[agent.createdTaskId]} orgId={orgId} />
-                </div>
-              )}
-
-              {agent.deliveries.length > 0 && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">
-                    {result.fired ? 'Delivered to: ' : 'Would deliver to: '}
-                  </span>
-                  {agent.deliveries.map((d, j) => (
-                    <span key={String(d.taskId)}>
-                      {j > 0 && ', '}
-                      <Link
-                        to="/tasks/$id"
-                        params={{ id: String(d.taskId) }}
-                        search={{ org: orgId }}
-                        className="text-primary hover:underline"
-                      >
-                        Task {String(d.taskId)}
-                      </Link>{' '}
-                      <span className="text-muted-foreground font-mono">({d.kind})</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+          {result.agents.map((res) => (
+            <AgentResult
+              key={String(res.agentId)}
+              res={res}
+              agent={agentsById.get(res.agentId)}
+              eventTypes={eventTypes}
+              fired={result.fired}
+              orgId={orgId}
+            />
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function AgentResult({
+  res,
+  agent,
+  eventTypes,
+  fired,
+  orgId,
+}: {
+  res: TestEventAgent
+  agent: Agent | undefined
+  eventTypes: EventTypeDef[]
+  fired: boolean
+  orgId: string
+}) {
+  const trigger = res.triggerIndex >= 0 ? agent?.triggers[res.triggerIndex] : undefined
+  const yielded = res.yieldedTo.length > 0
+  const claimOf = (kind: string) => agent?.links.find((l) => linkKindName(l) === kind)?.claim
+
+  return (
+    <div className="space-y-2 rounded-md border p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <AgentRef agentId={res.agentId} className="font-medium text-primary hover:underline" />
+        {res.triggerIndex >= 0 &&
+          (yielded ? (
+            <Badge variant="outline">yielded</Badge>
+          ) : (
+            <Badge variant="secondary">{fired ? 'created a task' : 'would create a task'}</Badge>
+          ))}
+        {res.deliveries.length > 0 && (
+          <Badge variant="secondary">
+            {fired ? 'delivered' : 'would deliver'} to {res.deliveries.length}{' '}
+            {res.deliveries.length === 1 ? 'task' : 'tasks'}
+          </Badge>
+        )}
+      </div>
+
+      {res.triggerIndex >= 0 && (
+        <div>
+          <span className="text-muted-foreground">Trigger {res.triggerIndex + 1}: </span>
+          {trigger ? (
+            <>
+              {findEventType(eventTypes, trigger.source, trigger.type)?.label ?? trigger.type}
+              {trigger.conditions.map((c, i) => (
+                <span key={i} className="text-muted-foreground font-mono text-xs ml-2">
+                  {c.attr} {c.op} &quot;{c.value}&quot;
+                </span>
+              ))}
+              {trigger.link && (
+                <span className="text-muted-foreground">
+                  {' '}
+                  · links <span className="font-mono">{trigger.link}</span>
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-muted-foreground">#{res.triggerIndex + 1}</span>
+          )}
+        </div>
+      )}
+
+      {yielded && (
+        <div>
+          <span className="text-muted-foreground">
+            Yielded
+            {trigger && trigger.yieldTo.length > 0 && (
+              <>
+                {' '}
+                (<span className="font-mono">{trigger.yieldTo.join(', ')}</span>)
+              </>
+            )}{' '}
+            to:{' '}
+          </span>
+          {res.yieldedTo.map((id, i) => (
+            <span key={String(id)}>
+              {i > 0 && ', '}
+              <TaskRef id={id} orgId={orgId} />
+            </span>
+          ))}
+        </div>
+      )}
+
+      {res.createdTaskId !== 0n && (
+        <div>
+          <span className="text-muted-foreground">Created: </span>
+          <TaskRef id={res.createdTaskId} orgId={orgId} />
+        </div>
+      )}
+
+      {res.deliveries.length > 0 && (
+        <ul className="space-y-1">
+          {res.deliveries.map((d) => {
+            const claim = claimOf(d.kind)
+            return (
+              <li key={String(d.taskId)} className="flex flex-wrap items-center gap-2">
+                <span className="text-muted-foreground">
+                  {fired ? 'Delivered to' : 'Would deliver to'}
+                </span>
+                <TaskRef id={d.taskId} orgId={orgId} />
+                <span className="text-muted-foreground">through</span>
+                <Badge variant="outline" className="font-mono">
+                  {d.kind}
+                </Badge>
+                {claim && (
+                  <span className="text-muted-foreground font-mono text-xs">claim: {claim}</span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
       )}
     </div>
   )

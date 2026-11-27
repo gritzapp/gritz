@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 // TaskLinks is the read-only links section of the task sidebar: a stack of
 // compact cards for the task's links (PRs, issues, tickets) with a source icon
-// and a badge marking which are subscriptions. It binds directly to
+// and, for a subscribed link, its kind and claim. It binds directly to
 // listLinks.links — no mutations.
 export function TaskLinks({ links }: { links: TaskLink[] }) {
   if (links.length === 0) {
@@ -54,8 +54,9 @@ function LinkCard({ link }: { link: TaskLink }) {
             <span className="text-xs leading-snug text-muted-foreground">{link.relevance}</span>
           )}
           {link.kind !== '' && (
-            <span className="mt-0.5 self-start">
-              <SubscribedBadge />
+            <span className="mt-0.5 flex flex-wrap gap-1">
+              <KindBadge kind={link.kind} />
+              {link.claim && <ClaimBadge claim={link.claim} />}
             </span>
           )}
         </span>
@@ -64,18 +65,37 @@ function LinkCard({ link }: { link: TaskLink }) {
   )
 }
 
-function SubscribedBadge() {
+export function KindBadge({ kind }: { kind: string }) {
   return (
     <Tooltip>
       <TooltipTrigger className="cursor-default">
         <Badge
           variant="outline"
-          className="border-blue-200 bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900 text-[10px]"
+          className="border-blue-200 bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900 text-[10px] font-mono"
         >
-          subscribed
+          {kind}
         </Badge>
       </TooltipTrigger>
-      <TooltipContent>Events its link kind lists wake the task</TooltipContent>
+      <TooltipContent>Subscribed: the events link kind {kind} lists wake the task</TooltipContent>
+    </Tooltip>
+  )
+}
+
+export function ClaimBadge({ claim }: { claim: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger className="cursor-default">
+        <Badge
+          variant="outline"
+          className="border-amber-200 bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900 text-[10px] font-mono"
+        >
+          claim: {claim}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>
+        Held while the task is unarchived: triggers that yield to {claim} create no task for this
+        resource
+      </TooltipContent>
     </Tooltip>
   )
 }
