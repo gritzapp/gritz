@@ -253,10 +253,13 @@ export function TriggerItem({
   trigger,
   eventTypes,
   detail = false,
+  compact = false,
 }: {
   trigger: TriggerView
   eventTypes: EventTypeDef[]
   detail?: boolean
+  // Only the event's name, without its conditions.
+  compact?: boolean
 }) {
   return (
     <div className="flex min-w-0 gap-2">
@@ -266,7 +269,7 @@ export function TriggerItem({
           <span className="truncate">{eventName(eventTypes, trigger.source, trigger.type)}</span>
           {trigger.public && <PublicMark />}
         </div>
-        <Conditions conditions={trigger.conditions} stacked={detail} />
+        {!compact && <Conditions conditions={trigger.conditions} stacked={detail} />}
         {detail && (trigger.yieldTo.length > 0 || trigger.link) && (
           <div className="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
             {trigger.link && (
@@ -324,19 +327,38 @@ export function Starters({
     return <span className="text-muted-foreground/70 text-sm">Manual only</span>
   }
   if (max !== undefined) {
+    const count = agent.triggers.length + agent.schedules.length
     return (
       <Overflow
-        layout="column"
+        // A lone trigger or schedule is written out; several are a stack of
+        // their marks, with what they are beside it.
+        layout={count === 1 ? 'column' : 'stack'}
         max={max}
+        label={count === 1 ? undefined : startersLabel(agent)}
         items={[
           ...agent.triggers.map((t, i) => ({
             key: `trigger-${i}`,
-            node: <TriggerItem trigger={t} eventTypes={eventTypes} />,
+            node:
+              count === 1 ? (
+                <TriggerItem trigger={t} eventTypes={eventTypes} compact />
+              ) : (
+                <MarkTile>
+                  <SourceIcon source={t.source} className="size-3.5" />
+                </MarkTile>
+              ),
             full: <TriggerItem trigger={t} eventTypes={eventTypes} detail />,
           })),
           ...agent.schedules.map((s) => ({
             key: `schedule-${String(s.id)}`,
-            node: <ScheduleItem schedule={s} />,
+            node:
+              count === 1 ? (
+                <ScheduleItem schedule={s} />
+              ) : (
+                <MarkTile>
+                  <CalendarClock className={cn('size-3.5', !s.enabled && 'opacity-50')} />
+                </MarkTile>
+              ),
+            full: <ScheduleItem schedule={s} />,
           })),
         ]}
       />
@@ -351,6 +373,24 @@ export function Starters({
         <ScheduleItem key={String(s.id)} schedule={s} />
       ))}
     </div>
+  )
+}
+
+// startersLabel counts an agent's triggers and schedules: "2 triggers, 1 schedule".
+function startersLabel(agent: Agent): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  const parts: string[] = []
+  if (agent.triggers.length > 0) parts.push(plural(agent.triggers.length, 'trigger'))
+  if (agent.schedules.length > 0) parts.push(plural(agent.schedules.length, 'schedule'))
+  return parts.join(', ')
+}
+
+// MarkTile frames an icon as a square tile, for a stack of marks.
+export function MarkTile({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="bg-background flex size-7 items-center justify-center rounded-md border">
+      {children}
+    </span>
   )
 }
 

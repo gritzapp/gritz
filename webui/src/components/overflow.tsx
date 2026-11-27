@@ -20,11 +20,14 @@ export function Overflow({
   items,
   max,
   layout,
+  label,
   className,
 }: {
   items: OverflowItem[]
   max: number
   layout: 'stack' | 'row' | 'column'
+  // Text after the entries, saying what they are when their marks alone don't.
+  label?: string
   className?: string
 }) {
   const shown = items.slice(0, max)
@@ -40,9 +43,15 @@ export function Overflow({
         className,
       )}
     >
-      {shown.map((item) =>
+      {shown.map((item, i) =>
         layout === 'stack' ? (
-          <span key={item.key} className="ring-background -ml-1 rounded-md ring-2 first:ml-0">
+          // Earlier entries sit on top, so an entry's right edge, where a mark
+          // may carry a badge, is never under its neighbour.
+          <span
+            key={item.key}
+            style={{ zIndex: shown.length - i }}
+            className="ring-background relative -ml-1 rounded-md ring-2 first:ml-0"
+          >
             {item.node}
           </span>
         ) : (
@@ -60,6 +69,11 @@ export function Overflow({
         >
           +{hidden}
           {layout === 'column' && ' more'}
+        </span>
+      )}
+      {label && (
+        <span className={cn('text-muted-foreground text-xs', layout === 'stack' && 'ml-2')}>
+          {label}
         </span>
       )}
     </div>
