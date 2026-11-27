@@ -208,14 +208,14 @@ func (s *Server) validateAgent(ctx context.Context, tx *sql.Tx, agent *model.Age
 	if err := eventrouter.DefaultSchemaRegistry.With(custom...).ValidateAgent(agent); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	decls, err := s.store.GetWorkspaceVariables(ctx, tx, agent.Runner, agent.Workspace, agent.OrgID)
+	ws, err := s.store.GetWorkspace(ctx, tx, agent.Runner, agent.Workspace, agent.OrgID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q not found on runner %q", agent.Workspace, agent.Runner))
 		}
 		return err
 	}
-	if _, err := taskvar.Resolve(decls, agent.Variables); err != nil {
+	if _, err := taskvar.Resolve(ws.Variables, agent.Variables); err != nil {
 		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("workspace %q: %w", agent.Workspace, err))
 	}
 	return nil

@@ -192,7 +192,7 @@ func TestTaskManagerLoad_Synced(t *testing.T) {
 }
 
 // TestTaskManagerRegisterWorkspaces checks that the runner registers each
-// workspace with the task variables it declares.
+// workspace with the task variables and features it declares.
 func TestTaskManagerRegisterWorkspaces(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -213,6 +213,10 @@ func TestTaskManagerRegisterWorkspaces(t *testing.T) {
 				Variables: map[string]workspace.VariableConfig{
 					"JIRA_ISSUE": {Description: "The Jira story", Required: true},
 					"BRANCH":     {Default: "main"},
+				},
+				Features: workspace.Features{
+					"jira":  {Description: "Jira MCP server"},
+					"codex": {},
 				},
 			},
 		}},
@@ -238,6 +242,10 @@ func TestTaskManagerRegisterWorkspaces(t *testing.T) {
 			Variables: []*gritzv1.VariableDecl{
 				{Name: "BRANCH", Default: "main"},
 				{Name: "JIRA_ISSUE", Description: "The Jira story", Required: true},
+			},
+			Features: []*gritzv1.FeatureDecl{
+				{Name: "codex"},
+				{Name: "jira", Description: "Jira MCP server"},
 			},
 		}},
 	}, protocmp.Transform())

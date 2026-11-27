@@ -243,7 +243,7 @@ func (m *TaskManager) Close() error {
 }
 
 // RegisterWorkspaces sends the available workspaces, with the task variables
-// each declares, to the server.
+// and features each declares, to the server.
 func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 	var workspaces []*gritzv1.RegisteredWorkspace
 	for name, ws := range m.workspaces.Workspaces {
@@ -251,6 +251,7 @@ func (m *TaskManager) RegisterWorkspaces(ctx context.Context) error {
 			Name:        name,
 			Description: ws.Description,
 			Variables:   model.VariableDeclsProto(ws.VariableDecls()),
+			Features:    model.FeatureDeclsProto(ws.Features.Decls()),
 		})
 	}
 	_, err := m.client.RegisterWorkspaces(ctx, &gritzv1.RegisterWorkspacesRequest{

@@ -22,8 +22,8 @@ func (q *Queries) ClearWorkspacesByOrgID(ctx context.Context, orgID int64) error
 }
 
 const createWorkspace = `-- name: CreateWorkspace :exec
-INSERT INTO workspaces (runner_id, name, description, org_id, variables)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO workspaces (runner_id, name, description, org_id, variables, features)
+VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type CreateWorkspaceParams struct {
@@ -32,6 +32,7 @@ type CreateWorkspaceParams struct {
 	Description string          `json:"description"`
 	OrgID       int64           `json:"org_id"`
 	Variables   json.RawMessage `json:"variables"`
+	Features    json.RawMessage `json:"features"`
 }
 
 func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) error {
@@ -41,6 +42,7 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		arg.Description,
 		arg.OrgID,
 		arg.Variables,
+		arg.Features,
 	)
 	return err
 }
@@ -60,26 +62,47 @@ func (q *Queries) DeleteWorkspacesByRunner(ctx context.Context, arg DeleteWorksp
 	return err
 }
 
-const getWorkspaceVariables = `-- name: GetWorkspaceVariables :one
-SELECT variables FROM workspaces
+const getWorkspace = `-- name: GetWorkspace :one
+SELECT id, runner_id, name, description, updated_at, org_id, variables, features
+FROM workspaces
 WHERE runner_id = $1 AND name = $2 AND org_id = $3
 `
 
-type GetWorkspaceVariablesParams struct {
+type GetWorkspaceParams struct {
 	RunnerID string `json:"runner_id"`
 	Name     string `json:"name"`
 	OrgID    int64  `json:"org_id"`
 }
 
-func (q *Queries) GetWorkspaceVariables(ctx context.Context, arg GetWorkspaceVariablesParams) (json.RawMessage, error) {
-	row := q.db.QueryRowContext(ctx, getWorkspaceVariables, arg.RunnerID, arg.Name, arg.OrgID)
-	var variables json.RawMessage
-	err := row.Scan(&variables)
-	return variables, err
+type GetWorkspaceRow struct {
+	ID          int64           `json:"id"`
+	RunnerID    string          `json:"runner_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+	OrgID       int64           `json:"org_id"`
+	Variables   json.RawMessage `json:"variables"`
+	Features    json.RawMessage `json:"features"`
+}
+
+func (q *Queries) GetWorkspace(ctx context.Context, arg GetWorkspaceParams) (GetWorkspaceRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspace, arg.RunnerID, arg.Name, arg.OrgID)
+	var i GetWorkspaceRow
+	err := row.Scan(
+		&i.ID,
+		&i.RunnerID,
+		&i.Name,
+		&i.Description,
+		&i.UpdatedAt,
+		&i.OrgID,
+		&i.Variables,
+		&i.Features,
+	)
+	return i, err
 }
 
 const listWorkspacesByOrgID = `-- name: ListWorkspacesByOrgID :many
-SELECT id, runner_id, name, description, updated_at, org_id, variables
+SELECT id, runner_id, name, description, updated_at, org_id, variables, features
 FROM workspaces
 WHERE org_id = $1
 ORDER BY name ASC
@@ -93,6 +116,7 @@ type ListWorkspacesByOrgIDRow struct {
 	UpdatedAt   time.Time       `json:"updated_at"`
 	OrgID       int64           `json:"org_id"`
 	Variables   json.RawMessage `json:"variables"`
+	Features    json.RawMessage `json:"features"`
 }
 
 func (q *Queries) ListWorkspacesByOrgID(ctx context.Context, orgID int64) ([]ListWorkspacesByOrgIDRow, error) {
@@ -112,6 +136,7 @@ func (q *Queries) ListWorkspacesByOrgID(ctx context.Context, orgID int64) ([]Lis
 			&i.UpdatedAt,
 			&i.OrgID,
 			&i.Variables,
+			&i.Features,
 		); err != nil {
 			return nil, err
 		}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gritzapp/gritz/internal/model"
 	"github.com/gritzapp/gritz/internal/store/teststore"
 	"github.com/gritzapp/gritz/internal/taskvar"
@@ -32,23 +33,52 @@ func TestCreateWorkspace_Variables(t *testing.T) {
 	assert.Assert(t, got[1].Variables == nil)
 }
 
-func TestGetWorkspaceVariables(t *testing.T) {
+func TestCreateWorkspace_Features(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := teststore.New(t)
 	org := teststore.CreateOrg(t, s, nil)
-	decls := []taskvar.Decl{{Name: "JIRA_ISSUE", Required: true}}
-	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{RunnerID: "r", Name: "a", OrgID: org.OrgID, Variables: decls}))
+	decls := []model.FeatureDecl{
+		{Name: "codex", Description: "Run on Codex"},
+		{Name: "jira"},
+	}
 
 	// Act
-	got, err := s.GetWorkspaceVariables(t.Context(), nil, "r", "a", org.OrgID)
+	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{RunnerID: "r", Name: "a", OrgID: org.OrgID, Features: decls}))
+	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{RunnerID: "r", Name: "b", OrgID: org.OrgID}))
+
+	// Assert - a workspace without declarations reads back nil.
+	got, err := s.ListWorkspaces(t.Context(), nil, org.OrgID)
+	assert.NilError(t, err)
+	assert.Equal(t, len(got), 2)
+	assert.DeepEqual(t, got[0].Features, decls)
+	assert.Assert(t, got[1].Features == nil)
+}
+
+func TestGetWorkspace(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	s := teststore.New(t)
+	org := teststore.CreateOrg(t, s, nil)
+	ws := &model.Workspace{
+		RunnerID:    "r",
+		Name:        "a",
+		Description: "Stories",
+		OrgID:       org.OrgID,
+		Variables:   []taskvar.Decl{{Name: "JIRA_ISSUE", Required: true}},
+		Features:    []model.FeatureDecl{{Name: "jira", Description: "Jira MCP server"}},
+	}
+	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, ws))
+
+	// Act
+	got, err := s.GetWorkspace(t.Context(), nil, "r", "a", org.OrgID)
 
 	// Assert
 	assert.NilError(t, err)
-	assert.DeepEqual(t, got, decls)
+	assert.DeepEqual(t, got, ws, cmpopts.IgnoreFields(model.Workspace{}, "ID", "UpdatedAt"))
 }
 
-func TestGetWorkspaceVariables_NotFound(t *testing.T) {
+func TestGetWorkspace_NotFound(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := teststore.New(t)
@@ -56,7 +86,7 @@ func TestGetWorkspaceVariables_NotFound(t *testing.T) {
 	assert.NilError(t, s.CreateWorkspace(t.Context(), nil, &model.Workspace{RunnerID: "r", Name: "a", OrgID: org.OrgID}))
 
 	// Act - registered on another runner only.
-	_, err := s.GetWorkspaceVariables(t.Context(), nil, "other", "a", org.OrgID)
+	_, err := s.GetWorkspace(t.Context(), nil, "other", "a", org.OrgID)
 
 	// Assert
 	assert.ErrorIs(t, err, sql.ErrNoRows)
