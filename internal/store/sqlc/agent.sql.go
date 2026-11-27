@@ -35,8 +35,8 @@ func (q *Queries) AgentInUse(ctx context.Context, arg AgentInUseParams) (bool, e
 }
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO agents (org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO agents (org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, features)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id
 `
 
@@ -50,6 +50,7 @@ type CreateAgentParams struct {
 	Variables   json.RawMessage `json:"variables"`
 	Triggers    json.RawMessage `json:"triggers"`
 	Links       json.RawMessage `json:"links"`
+	Features    json.RawMessage `json:"features"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (int64, error) {
@@ -63,6 +64,7 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (int64
 		arg.Variables,
 		arg.Triggers,
 		arg.Links,
+		arg.Features,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -86,7 +88,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, arg DeleteAgentParams) error 
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at, features
 FROM agents
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 `
@@ -113,12 +115,13 @@ func (q *Queries) GetAgent(ctx context.Context, arg GetAgentParams) (Agent, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Features,
 	)
 	return i, err
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at, features
 FROM agents
 WHERE org_id = $1 AND deleted_at IS NULL
 ORDER BY name, id
@@ -147,6 +150,7 @@ func (q *Queries) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Features,
 		); err != nil {
 			return nil, err
 		}
@@ -177,7 +181,7 @@ WITH event_orgs AS (
           WHERE m.org_id = o.id AND m.user_id = $1
       )
 )
-SELECT a.id, a.org_id, a.name, a.workspace, a.runner, a.prompt, a.auto_archive, a.variables, a.triggers, a.links, a.created_at, a.updated_at, a.deleted_at, e.is_member
+SELECT a.id, a.org_id, a.name, a.workspace, a.runner, a.prompt, a.auto_archive, a.variables, a.triggers, a.links, a.created_at, a.updated_at, a.deleted_at, a.features, e.is_member
 FROM agents a
 JOIN event_orgs e ON e.id = a.org_id
 WHERE a.deleted_at IS NULL
@@ -203,6 +207,7 @@ type ListAgentsForEventRow struct {
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 	DeletedAt   sql.NullTime    `json:"deleted_at"`
+	Features    json.RawMessage `json:"features"`
 	IsMember    bool            `json:"is_member"`
 }
 
@@ -236,6 +241,7 @@ func (q *Queries) ListAgentsForEvent(ctx context.Context, arg ListAgentsForEvent
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Features,
 			&i.IsMember,
 		); err != nil {
 			return nil, err
@@ -293,8 +299,8 @@ func (q *Queries) LockLiveAgent(ctx context.Context, arg LockLiveAgentParams) (i
 const updateAgent = `-- name: UpdateAgent :execrows
 UPDATE agents
 SET name = $1, workspace = $2, runner = $3, prompt = $4, auto_archive = $5,
-    variables = $6, triggers = $7, links = $8, updated_at = now()
-WHERE id = $9 AND org_id = $10 AND deleted_at IS NULL
+    variables = $6, triggers = $7, links = $8, features = $9, updated_at = now()
+WHERE id = $10 AND org_id = $11 AND deleted_at IS NULL
 `
 
 type UpdateAgentParams struct {
@@ -306,6 +312,7 @@ type UpdateAgentParams struct {
 	Variables   json.RawMessage `json:"variables"`
 	Triggers    json.RawMessage `json:"triggers"`
 	Links       json.RawMessage `json:"links"`
+	Features    json.RawMessage `json:"features"`
 	ID          int64           `json:"id"`
 	OrgID       int64           `json:"org_id"`
 }
@@ -320,6 +327,7 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) (int64
 		arg.Variables,
 		arg.Triggers,
 		arg.Links,
+		arg.Features,
 		arg.ID,
 		arg.OrgID,
 	)

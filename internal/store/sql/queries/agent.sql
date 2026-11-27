@@ -1,10 +1,10 @@
 -- name: CreateAgent :one
-INSERT INTO agents (org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO agents (org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, features)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING id;
 
 -- name: GetAgent :one
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at, features
 FROM agents
 WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL;
 
@@ -17,7 +17,7 @@ WHERE org_id = $1 AND id = $2 AND deleted_at IS NULL
 FOR SHARE;
 
 -- name: ListAgents :many
-SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at
+SELECT id, org_id, name, workspace, runner, prompt, auto_archive, variables, triggers, links, created_at, updated_at, deleted_at, features
 FROM agents
 WHERE org_id = $1 AND deleted_at IS NULL
 ORDER BY name, id;
@@ -45,7 +45,7 @@ WITH event_orgs AS (
           WHERE m.org_id = o.id AND m.user_id = sqlc.arg(user_id)
       )
 )
-SELECT a.id, a.org_id, a.name, a.workspace, a.runner, a.prompt, a.auto_archive, a.variables, a.triggers, a.links, a.created_at, a.updated_at, a.deleted_at, e.is_member
+SELECT a.id, a.org_id, a.name, a.workspace, a.runner, a.prompt, a.auto_archive, a.variables, a.triggers, a.links, a.created_at, a.updated_at, a.deleted_at, a.features, e.is_member
 FROM agents a
 JOIN event_orgs e ON e.id = a.org_id
 WHERE a.deleted_at IS NULL
@@ -54,8 +54,8 @@ ORDER BY a.org_id, a.name, a.id;
 -- name: UpdateAgent :execrows
 UPDATE agents
 SET name = $1, workspace = $2, runner = $3, prompt = $4, auto_archive = $5,
-    variables = $6, triggers = $7, links = $8, updated_at = now()
-WHERE id = $9 AND org_id = $10 AND deleted_at IS NULL;
+    variables = $6, triggers = $7, links = $8, features = $9, updated_at = now()
+WHERE id = $10 AND org_id = $11 AND deleted_at IS NULL;
 
 -- name: LockAgentForDelete :one
 SELECT id FROM agents

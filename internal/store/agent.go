@@ -28,6 +28,7 @@ func (s *Store) CreateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 		Variables:   cols.variables,
 		Triggers:    cols.triggers,
 		Links:       cols.links,
+		Features:    cols.features,
 	})
 	if err != nil {
 		return err
@@ -149,6 +150,7 @@ func (s *Store) ListAgentsForEvent(ctx context.Context, tx *sql.Tx, userID strin
 			CreatedAt:   row.CreatedAt,
 			UpdatedAt:   row.UpdatedAt,
 			DeletedAt:   row.DeletedAt,
+			Features:    row.Features,
 		})
 		if err != nil {
 			return nil, err
@@ -178,6 +180,7 @@ func (s *Store) UpdateAgent(ctx context.Context, tx *sql.Tx, a *model.Agent) err
 		Variables:   cols.variables,
 		Triggers:    cols.triggers,
 		Links:       cols.links,
+		Features:    cols.features,
 		ID:          a.ID,
 		OrgID:       a.OrgID,
 	})
@@ -305,7 +308,7 @@ func (s *Store) LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) 
 }
 
 type agentColumns struct {
-	variables, triggers, links []byte
+	variables, triggers, links, features []byte
 }
 
 // marshalAgent encodes the agent's JSONB columns. json/v2 encodes a nil map as
@@ -321,6 +324,9 @@ func marshalAgent(a *model.Agent) (agentColumns, error) {
 	}
 	if cols.links, err = json.Marshal(a.Links); err != nil {
 		return cols, fmt.Errorf("marshal agent links: %w", err)
+	}
+	if cols.features, err = json.Marshal(a.Features); err != nil {
+		return cols, fmt.Errorf("marshal agent features: %w", err)
 	}
 	return cols, nil
 }
@@ -344,6 +350,9 @@ func toModelAgent(row sqlc.Agent) (*model.Agent, error) {
 	if err := json.Unmarshal(row.Links, &a.Links); err != nil {
 		return nil, fmt.Errorf("decode agent %d links: %w", row.ID, err)
 	}
+	if err := json.Unmarshal(row.Features, &a.Features); err != nil {
+		return nil, fmt.Errorf("decode agent %d features: %w", row.ID, err)
+	}
 	if len(a.Variables) == 0 {
 		a.Variables = nil
 	}
@@ -352,6 +361,9 @@ func toModelAgent(row sqlc.Agent) (*model.Agent, error) {
 	}
 	if len(a.Links) == 0 {
 		a.Links = nil
+	}
+	if len(a.Features) == 0 {
+		a.Features = nil
 	}
 	return a, nil
 }

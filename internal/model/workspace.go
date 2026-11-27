@@ -1,6 +1,8 @@
 package model
 
 import (
+	"fmt"
+	"slices"
 	"time"
 
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -28,6 +30,21 @@ type Workspace struct {
 type FeatureDecl struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+}
+
+// CheckFeatures fails unless every name is a feature w declares. The error
+// lists the declared ones.
+func (w *Workspace) CheckFeatures(names []string) error {
+	declared := make([]string, len(w.Features))
+	for i, d := range w.Features {
+		declared[i] = d.Name
+	}
+	for _, name := range names {
+		if !slices.Contains(declared, name) {
+			return fmt.Errorf("feature %q: not declared by the workspace (declared: %q)", name, declared)
+		}
+	}
+	return nil
 }
 
 // Proto converts a Workspace to its protobuf representation.
