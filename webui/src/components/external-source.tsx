@@ -18,7 +18,10 @@ export function externalSourceStyle(source: string): {
         icon: <GithubIcon className="h-4 w-4" />,
         label: 'GitHub',
       }
+    // Jira events arrive with the persisted source "jira"; the Jira event and
+    // link types belong to the source "atlassian".
     case 'jira':
+    case 'atlassian':
       return {
         icon: <AtlassianIcon className="h-4 w-4" />,
         label: 'Jira',

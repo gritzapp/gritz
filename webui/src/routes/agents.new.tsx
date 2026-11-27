@@ -1,7 +1,7 @@
+import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation } from '@connectrpc/connect-query'
 import { createAgent } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import { Card, CardContent } from '@/components/ui/card'
 import { AgentForm } from '@/components/agent-form'
 import { useOrgId } from '@/hooks/use-org-id'
 import {
@@ -20,28 +20,25 @@ function NewAgentPage() {
   const orgId = useOrgId()
   const mutation = useMutation(createAgent)
   const invalidateAgents = useInvalidateAgents()
+  const [initialValues] = useState(emptyAgentValues)
 
   const handleSubmit = async (values: AgentFormValues) => {
-    await mutation.mutateAsync({ agent: buildAgent(values, 0n) })
+    const { agent } = await mutation.mutateAsync({ agent: buildAgent(values, 0n) })
     await invalidateAgents()
-    navigate({ to: '/agents', search: { org: orgId } })
+    if (agent) {
+      navigate({ to: '/agents/$id', params: { id: String(agent.id) }, search: { org: orgId } })
+    } else {
+      navigate({ to: '/agents', search: { org: orgId } })
+    }
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 space-y-6">
-      <h1 className="text-2xl font-bold mb-6">New Agent</h1>
-      <Card>
-        <CardContent>
-          <AgentForm
-            initialValues={emptyAgentValues()}
-            submitLabel={mutation.isPending ? 'Creating...' : 'Create Agent'}
-            isSubmitting={mutation.isPending}
-            error={mutation.error?.message ?? null}
-            onSubmit={handleSubmit}
-            onCancel={() => navigate({ to: '/agents', search: { org: orgId } })}
-          />
-        </CardContent>
-      </Card>
-    </div>
+    <AgentForm
+      initialValues={initialValues}
+      submitLabel={mutation.isPending ? 'Creating...' : 'Create agent'}
+      isSubmitting={mutation.isPending}
+      error={mutation.error?.message ?? null}
+      onSubmit={handleSubmit}
+    />
   )
 }
