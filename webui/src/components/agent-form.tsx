@@ -14,7 +14,6 @@ import type {
   LinkTypeDef,
 } from '@/gen/gritz/v1/gritz_pb'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -519,11 +518,11 @@ export function AgentForm({
   )
 }
 
-// FeatureFields offers the workspace's features as checkboxes. Checking one
-// appends it to selected, so the order is the order they were checked in, and
-// each checked feature shows its position: later ones win where two define the
+// FeatureFields offers the workspace's features as switches. Turning one on
+// appends it to selected, so the order is the order they were turned on in, and
+// each one that is on shows its position: later ones win where two define the
 // same thing. A selected feature the workspace doesn't declare is listed after
-// the declared ones, flagged, so it can be unchecked.
+// the declared ones, flagged, so it can be turned off.
 function FeatureFields({
   decls,
   selected,
@@ -546,7 +545,7 @@ function FeatureFields({
   return (
     <fieldset className="space-y-2">
       <legend className="mb-2">
-        <FieldLabel hint="Each checked feature adds its environment, secrets, MCP servers and setup commands to the workspace's. They apply in the order they were checked: where two define the same name, the later one wins. To move a feature to the end, uncheck it and check it again.">
+        <FieldLabel hint="Each feature that is on adds its environment, secrets, MCP servers and setup commands to the workspace's. They apply in the order they were turned on: where two define the same name, the later one wins. To move a feature to the end, turn it off and on again.">
           Features
         </FieldLabel>
       </legend>
@@ -556,11 +555,11 @@ function FeatureFields({
           const position = selected.indexOf(row.name)
           return (
             <div key={row.name} className="flex items-start gap-3 px-3 py-2.5">
-              <Checkbox
+              <Switch
                 id={id}
                 className="mt-0.5"
                 checked={position >= 0}
-                onCheckedChange={(on) => toggle(row.name, on === true)}
+                onCheckedChange={(on) => toggle(row.name, on)}
                 aria-describedby={`${id}-description`}
               />
               <div className="min-w-0 flex-1 space-y-0.5">
@@ -576,7 +575,7 @@ function FeatureFields({
                 >
                   {row.declared
                     ? row.description
-                    : 'Not declared by the workspace. Uncheck it to save the agent.'}
+                    : 'Not declared by the workspace. Turn it off to save the agent.'}
                 </p>
               </div>
               {position >= 0 && (
