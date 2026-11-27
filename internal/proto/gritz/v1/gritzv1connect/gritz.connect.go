@@ -157,27 +157,6 @@ const (
 	// GritzServiceCreateGitHubTokenProcedure is the fully-qualified name of the GritzService's
 	// CreateGitHubToken RPC.
 	GritzServiceCreateGitHubTokenProcedure = "/gritz.v1.GritzService/CreateGitHubToken"
-	// GritzServiceCreateScheduleProcedure is the fully-qualified name of the GritzService's
-	// CreateSchedule RPC.
-	GritzServiceCreateScheduleProcedure = "/gritz.v1.GritzService/CreateSchedule"
-	// GritzServiceGetScheduleProcedure is the fully-qualified name of the GritzService's GetSchedule
-	// RPC.
-	GritzServiceGetScheduleProcedure = "/gritz.v1.GritzService/GetSchedule"
-	// GritzServiceListSchedulesProcedure is the fully-qualified name of the GritzService's
-	// ListSchedules RPC.
-	GritzServiceListSchedulesProcedure = "/gritz.v1.GritzService/ListSchedules"
-	// GritzServiceUpdateScheduleProcedure is the fully-qualified name of the GritzService's
-	// UpdateSchedule RPC.
-	GritzServiceUpdateScheduleProcedure = "/gritz.v1.GritzService/UpdateSchedule"
-	// GritzServiceDeleteScheduleProcedure is the fully-qualified name of the GritzService's
-	// DeleteSchedule RPC.
-	GritzServiceDeleteScheduleProcedure = "/gritz.v1.GritzService/DeleteSchedule"
-	// GritzServiceSetScheduleEnabledProcedure is the fully-qualified name of the GritzService's
-	// SetScheduleEnabled RPC.
-	GritzServiceSetScheduleEnabledProcedure = "/gritz.v1.GritzService/SetScheduleEnabled"
-	// GritzServiceRunScheduleProcedure is the fully-qualified name of the GritzService's RunSchedule
-	// RPC.
-	GritzServiceRunScheduleProcedure = "/gritz.v1.GritzService/RunSchedule"
 	// GritzServiceCreateAgentProcedure is the fully-qualified name of the GritzService's CreateAgent
 	// RPC.
 	GritzServiceCreateAgentProcedure = "/gritz.v1.GritzService/CreateAgent"
@@ -264,13 +243,6 @@ type GritzServiceClient interface {
 	// Called from a task's sandbox to get a GitHub token. The server doesn't
 	// issue these tokens yet: every call fails with `unimplemented`.
 	CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error)
-	CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error)
-	GetSchedule(context.Context, *v1.GetScheduleRequest) (*v1.GetScheduleResponse, error)
-	ListSchedules(context.Context, *v1.ListSchedulesRequest) (*v1.ListSchedulesResponse, error)
-	UpdateSchedule(context.Context, *v1.UpdateScheduleRequest) (*v1.UpdateScheduleResponse, error)
-	DeleteSchedule(context.Context, *v1.DeleteScheduleRequest) (*v1.DeleteScheduleResponse, error)
-	SetScheduleEnabled(context.Context, *v1.SetScheduleEnabledRequest) (*v1.SetScheduleEnabledResponse, error)
-	RunSchedule(context.Context, *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error)
 	// CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
 	// workspace isn't registered on its runner, the workspace doesn't accept its
 	// variables, or a trigger or link kind doesn't check out against the org's
@@ -584,48 +556,6 @@ func NewGritzServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(gritzServiceMethods.ByName("CreateGitHubToken")),
 			connect.WithClientOptions(opts...),
 		),
-		createSchedule: connect.NewClient[v1.CreateScheduleRequest, v1.CreateScheduleResponse](
-			httpClient,
-			baseURL+GritzServiceCreateScheduleProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("CreateSchedule")),
-			connect.WithClientOptions(opts...),
-		),
-		getSchedule: connect.NewClient[v1.GetScheduleRequest, v1.GetScheduleResponse](
-			httpClient,
-			baseURL+GritzServiceGetScheduleProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("GetSchedule")),
-			connect.WithClientOptions(opts...),
-		),
-		listSchedules: connect.NewClient[v1.ListSchedulesRequest, v1.ListSchedulesResponse](
-			httpClient,
-			baseURL+GritzServiceListSchedulesProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("ListSchedules")),
-			connect.WithClientOptions(opts...),
-		),
-		updateSchedule: connect.NewClient[v1.UpdateScheduleRequest, v1.UpdateScheduleResponse](
-			httpClient,
-			baseURL+GritzServiceUpdateScheduleProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("UpdateSchedule")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteSchedule: connect.NewClient[v1.DeleteScheduleRequest, v1.DeleteScheduleResponse](
-			httpClient,
-			baseURL+GritzServiceDeleteScheduleProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("DeleteSchedule")),
-			connect.WithClientOptions(opts...),
-		),
-		setScheduleEnabled: connect.NewClient[v1.SetScheduleEnabledRequest, v1.SetScheduleEnabledResponse](
-			httpClient,
-			baseURL+GritzServiceSetScheduleEnabledProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("SetScheduleEnabled")),
-			connect.WithClientOptions(opts...),
-		),
-		runSchedule: connect.NewClient[v1.RunScheduleRequest, v1.RunScheduleResponse](
-			httpClient,
-			baseURL+GritzServiceRunScheduleProcedure,
-			connect.WithSchema(gritzServiceMethods.ByName("RunSchedule")),
-			connect.WithClientOptions(opts...),
-		),
 		createAgent: connect.NewClient[v1.CreateAgentRequest, v1.CreateAgentResponse](
 			httpClient,
 			baseURL+GritzServiceCreateAgentProcedure,
@@ -709,13 +639,6 @@ type gritzServiceClient struct {
 	setCustomEventTypes            *connect.Client[v1.SetCustomEventTypesRequest, v1.SetCustomEventTypesResponse]
 	testEvent                      *connect.Client[v1.TestEventRequest, v1.TestEventResponse]
 	createGitHubToken              *connect.Client[v1.CreateGitHubTokenRequest, v1.CreateGitHubTokenResponse]
-	createSchedule                 *connect.Client[v1.CreateScheduleRequest, v1.CreateScheduleResponse]
-	getSchedule                    *connect.Client[v1.GetScheduleRequest, v1.GetScheduleResponse]
-	listSchedules                  *connect.Client[v1.ListSchedulesRequest, v1.ListSchedulesResponse]
-	updateSchedule                 *connect.Client[v1.UpdateScheduleRequest, v1.UpdateScheduleResponse]
-	deleteSchedule                 *connect.Client[v1.DeleteScheduleRequest, v1.DeleteScheduleResponse]
-	setScheduleEnabled             *connect.Client[v1.SetScheduleEnabledRequest, v1.SetScheduleEnabledResponse]
-	runSchedule                    *connect.Client[v1.RunScheduleRequest, v1.RunScheduleResponse]
 	createAgent                    *connect.Client[v1.CreateAgentRequest, v1.CreateAgentResponse]
 	getAgent                       *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
 	listAgents                     *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
@@ -1155,69 +1078,6 @@ func (c *gritzServiceClient) CreateGitHubToken(ctx context.Context, req *v1.Crea
 	return nil, err
 }
 
-// CreateSchedule calls gritz.v1.GritzService.CreateSchedule.
-func (c *gritzServiceClient) CreateSchedule(ctx context.Context, req *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error) {
-	response, err := c.createSchedule.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// GetSchedule calls gritz.v1.GritzService.GetSchedule.
-func (c *gritzServiceClient) GetSchedule(ctx context.Context, req *v1.GetScheduleRequest) (*v1.GetScheduleResponse, error) {
-	response, err := c.getSchedule.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// ListSchedules calls gritz.v1.GritzService.ListSchedules.
-func (c *gritzServiceClient) ListSchedules(ctx context.Context, req *v1.ListSchedulesRequest) (*v1.ListSchedulesResponse, error) {
-	response, err := c.listSchedules.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// UpdateSchedule calls gritz.v1.GritzService.UpdateSchedule.
-func (c *gritzServiceClient) UpdateSchedule(ctx context.Context, req *v1.UpdateScheduleRequest) (*v1.UpdateScheduleResponse, error) {
-	response, err := c.updateSchedule.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// DeleteSchedule calls gritz.v1.GritzService.DeleteSchedule.
-func (c *gritzServiceClient) DeleteSchedule(ctx context.Context, req *v1.DeleteScheduleRequest) (*v1.DeleteScheduleResponse, error) {
-	response, err := c.deleteSchedule.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// SetScheduleEnabled calls gritz.v1.GritzService.SetScheduleEnabled.
-func (c *gritzServiceClient) SetScheduleEnabled(ctx context.Context, req *v1.SetScheduleEnabledRequest) (*v1.SetScheduleEnabledResponse, error) {
-	response, err := c.setScheduleEnabled.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
-// RunSchedule calls gritz.v1.GritzService.RunSchedule.
-func (c *gritzServiceClient) RunSchedule(ctx context.Context, req *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error) {
-	response, err := c.runSchedule.CallUnary(ctx, connect.NewRequest(req))
-	if response != nil {
-		return response.Msg, err
-	}
-	return nil, err
-}
-
 // CreateAgent calls gritz.v1.GritzService.CreateAgent.
 func (c *gritzServiceClient) CreateAgent(ctx context.Context, req *v1.CreateAgentRequest) (*v1.CreateAgentResponse, error) {
 	response, err := c.createAgent.CallUnary(ctx, connect.NewRequest(req))
@@ -1334,13 +1194,6 @@ type GritzServiceHandler interface {
 	// Called from a task's sandbox to get a GitHub token. The server doesn't
 	// issue these tokens yet: every call fails with `unimplemented`.
 	CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error)
-	CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error)
-	GetSchedule(context.Context, *v1.GetScheduleRequest) (*v1.GetScheduleResponse, error)
-	ListSchedules(context.Context, *v1.ListSchedulesRequest) (*v1.ListSchedulesResponse, error)
-	UpdateSchedule(context.Context, *v1.UpdateScheduleRequest) (*v1.UpdateScheduleResponse, error)
-	DeleteSchedule(context.Context, *v1.DeleteScheduleRequest) (*v1.DeleteScheduleResponse, error)
-	SetScheduleEnabled(context.Context, *v1.SetScheduleEnabledRequest) (*v1.SetScheduleEnabledResponse, error)
-	RunSchedule(context.Context, *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error)
 	// CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
 	// workspace isn't registered on its runner, the workspace doesn't accept its
 	// variables, or a trigger or link kind doesn't check out against the org's
@@ -1650,48 +1503,6 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(gritzServiceMethods.ByName("CreateGitHubToken")),
 		connect.WithHandlerOptions(opts...),
 	)
-	gritzServiceCreateScheduleHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceCreateScheduleProcedure,
-		svc.CreateSchedule,
-		connect.WithSchema(gritzServiceMethods.ByName("CreateSchedule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceGetScheduleHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceGetScheduleProcedure,
-		svc.GetSchedule,
-		connect.WithSchema(gritzServiceMethods.ByName("GetSchedule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceListSchedulesHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceListSchedulesProcedure,
-		svc.ListSchedules,
-		connect.WithSchema(gritzServiceMethods.ByName("ListSchedules")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceUpdateScheduleHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceUpdateScheduleProcedure,
-		svc.UpdateSchedule,
-		connect.WithSchema(gritzServiceMethods.ByName("UpdateSchedule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceDeleteScheduleHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceDeleteScheduleProcedure,
-		svc.DeleteSchedule,
-		connect.WithSchema(gritzServiceMethods.ByName("DeleteSchedule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceSetScheduleEnabledHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceSetScheduleEnabledProcedure,
-		svc.SetScheduleEnabled,
-		connect.WithSchema(gritzServiceMethods.ByName("SetScheduleEnabled")),
-		connect.WithHandlerOptions(opts...),
-	)
-	gritzServiceRunScheduleHandler := connect.NewUnaryHandlerSimple(
-		GritzServiceRunScheduleProcedure,
-		svc.RunSchedule,
-		connect.WithSchema(gritzServiceMethods.ByName("RunSchedule")),
-		connect.WithHandlerOptions(opts...),
-	)
 	gritzServiceCreateAgentHandler := connect.NewUnaryHandlerSimple(
 		GritzServiceCreateAgentProcedure,
 		svc.CreateAgent,
@@ -1820,20 +1631,6 @@ func NewGritzServiceHandler(svc GritzServiceHandler, opts ...connect.HandlerOpti
 			gritzServiceTestEventHandler.ServeHTTP(w, r)
 		case GritzServiceCreateGitHubTokenProcedure:
 			gritzServiceCreateGitHubTokenHandler.ServeHTTP(w, r)
-		case GritzServiceCreateScheduleProcedure:
-			gritzServiceCreateScheduleHandler.ServeHTTP(w, r)
-		case GritzServiceGetScheduleProcedure:
-			gritzServiceGetScheduleHandler.ServeHTTP(w, r)
-		case GritzServiceListSchedulesProcedure:
-			gritzServiceListSchedulesHandler.ServeHTTP(w, r)
-		case GritzServiceUpdateScheduleProcedure:
-			gritzServiceUpdateScheduleHandler.ServeHTTP(w, r)
-		case GritzServiceDeleteScheduleProcedure:
-			gritzServiceDeleteScheduleHandler.ServeHTTP(w, r)
-		case GritzServiceSetScheduleEnabledProcedure:
-			gritzServiceSetScheduleEnabledHandler.ServeHTTP(w, r)
-		case GritzServiceRunScheduleProcedure:
-			gritzServiceRunScheduleHandler.ServeHTTP(w, r)
 		case GritzServiceCreateAgentProcedure:
 			gritzServiceCreateAgentHandler.ServeHTTP(w, r)
 		case GritzServiceGetAgentProcedure:
@@ -2043,34 +1840,6 @@ func (UnimplementedGritzServiceHandler) TestEvent(context.Context, *v1.TestEvent
 
 func (UnimplementedGritzServiceHandler) CreateGitHubToken(context.Context, *v1.CreateGitHubTokenRequest) (*v1.CreateGitHubTokenResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.CreateGitHubToken is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) CreateSchedule(context.Context, *v1.CreateScheduleRequest) (*v1.CreateScheduleResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.CreateSchedule is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) GetSchedule(context.Context, *v1.GetScheduleRequest) (*v1.GetScheduleResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.GetSchedule is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) ListSchedules(context.Context, *v1.ListSchedulesRequest) (*v1.ListSchedulesResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.ListSchedules is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) UpdateSchedule(context.Context, *v1.UpdateScheduleRequest) (*v1.UpdateScheduleResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.UpdateSchedule is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) DeleteSchedule(context.Context, *v1.DeleteScheduleRequest) (*v1.DeleteScheduleResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.DeleteSchedule is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) SetScheduleEnabled(context.Context, *v1.SetScheduleEnabledRequest) (*v1.SetScheduleEnabledResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.SetScheduleEnabled is not implemented"))
-}
-
-func (UnimplementedGritzServiceHandler) RunSchedule(context.Context, *v1.RunScheduleRequest) (*v1.RunScheduleResponse, error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gritz.v1.GritzService.RunSchedule is not implemented"))
 }
 
 func (UnimplementedGritzServiceHandler) CreateAgent(context.Context, *v1.CreateAgentRequest) (*v1.CreateAgentResponse, error) {

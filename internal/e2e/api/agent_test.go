@@ -454,11 +454,10 @@ func TestDeleteAgent_DeletesSchedules(t *testing.T) {
 	// Act
 	_, err := h.Org.Client.DeleteAgent(t.Context(), &gritzv1.DeleteAgentRequest{Id: agent.Id})
 
-	// Assert - the agent and its schedule are gone.
+	// Assert - the schedule didn't block it.
 	assert.NilError(t, err)
 	_, err = h.Org.Client.GetAgent(t.Context(), &gritzv1.GetAgentRequest{Id: agent.Id})
 	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
-	assert.Assert(t, cmp.Len(h.Org.ListSchedules(&gritzv1.ListSchedulesRequest{}), 0))
 }
 
 func TestDeleteAgent_ArchivedTasks(t *testing.T) {
@@ -659,12 +658,12 @@ func TestUpdateAgent_KeepsDueSchedule(t *testing.T) {
 		Schedules: []*gritzv1.AgentSchedule{{Name: "hourly", CronExpr: "0 * * * *", Enabled: true}},
 	}})
 	sched := agent.Schedules[0]
-	// No RPC moves a schedule's clock, so the store makes it due, and deletes
+	// No RPC moves a schedule's clock, so the store makes it due, and disables
 	// it afterwards so it doesn't stay due in the shared database.
 	due := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	assert.NilError(t, h.Server.Store.AdvanceSchedule(t.Context(), nil, sched.Id, h.Org.ID, store.ScheduleAdvance{NextRunAt: &due}))
 	t.Cleanup(func() {
-		assert.NilError(t, h.Server.Store.DeleteSchedule(context.Background(), nil, sched.Id, h.Org.ID))
+		assert.NilError(t, h.Server.Store.AdvanceSchedule(context.Background(), nil, sched.Id, h.Org.ID, store.ScheduleAdvance{}))
 	})
 
 	// Act - an edit that leaves the schedule's spec alone.

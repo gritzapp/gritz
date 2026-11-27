@@ -11,8 +11,6 @@ import {
   listWorkspaces,
   listOrgMembers,
   listKeys,
-  getSchedule,
-  listSchedules,
   getAgent,
   listAgents,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
@@ -83,18 +81,6 @@ function invalidateResource(
         queryKey: createConnectQueryKey({ schema: listKeys, cardinality: 'finite' }),
       })
       break
-    case 'schedule':
-      qc.invalidateQueries({
-        queryKey: createConnectQueryKey({
-          schema: getSchedule,
-          input: { id: BigInt(r.id) },
-          cardinality: 'finite',
-        }),
-      })
-      qc.invalidateQueries({
-        queryKey: createConnectQueryKey({ schema: listSchedules, cardinality: 'finite' }),
-      })
-      break
     case 'agent':
       qc.invalidateQueries({
         queryKey: createConnectQueryKey({
@@ -128,8 +114,6 @@ const RECONNECT_SCHEMAS: DescMethodUnary[] = [
   listWorkspaces,
   listOrgMembers,
   listKeys,
-  getSchedule,
-  listSchedules,
   getAgent,
   listAgents,
 ]

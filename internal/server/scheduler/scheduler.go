@@ -38,7 +38,6 @@ type Store interface {
 	CreateTask(ctx context.Context, tx *sql.Tx, task *model.Task) error
 	CreateEvent(ctx context.Context, tx *sql.Tx, event *model.Event) error
 	AdvanceSchedule(ctx context.Context, tx *sql.Tx, id int64, orgID int64, adv store.ScheduleAdvance) error
-	UpdateSchedule(ctx context.Context, tx *sql.Tx, sched *model.Schedule) error
 	GetAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) (*model.Agent, error)
 	LockLiveAgent(ctx context.Context, tx *sql.Tx, orgID, id int64) error
 }
@@ -143,140 +142,72 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	return nil
 }
 
-// invalidError is a schedule Validate rejects: an invalid cron expression or
-// timezone, or an agent that isn't one of its org's.
-type invalidError struct {
-	err error
-}
-
-func (e *invalidError) Error() string { return e.err.Error() }
-
-func (e *invalidError) Unwrap() error { return e.err }
-
-// IsInvalidError reports whether err is Validate rejecting the schedule, as
-// opposed to failing to check it.
-func IsInvalidError(err error) bool {
-	_, ok := errors.AsType[*invalidError](err)
-	return ok
-}
-
-// Validate checks a schedule before it is saved in tx: its cron expression
-// and timezone, and that its agent is a live one of its org's. It returns the
-// agent, share-locked as Agent does, so the caller can authorize on its
-// target. IsInvalidError tells a rejection from a store error.
-func Validate(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Agent, error) {
-	if err := sched.Validate(); err != nil {
-		return nil, &invalidError{err: err}
+// fire materializes one schedule occurrence inside tx: it creates a task of
+// the schedule's agent, named after the schedule, seeds its events
+// (Pending/Start, a created event attributed to model.ScheduleActor, and the
+// agent's prompt as its first instruction, or a generated line when the agent
+// has none), then advances the schedule to its next occurrence. The next fire
+// is computed as the first occurrence strictly after now, never after the
+// stored next_run_at, so any occurrences missed while the scheduler was down
+// collapse into this single fire (skip-only, never backfill). It returns the
+// change notification to publish once the tick commits.
+func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule) (model.Notification, error) {
+	now := time.Now()
+	// Share-lock the agent until tx ends so a concurrent DeleteAgent sees the
+	// task about to be created of it. Deleting an agent deletes its schedules,
+	// so the agent is live.
+	if err := s.store.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
+		return model.Notification{}, fmt.Errorf("agent %d: %w", sched.AgentID, err)
 	}
-	agent, err := Agent(ctx, tx, st, sched)
+	agent, err := s.store.GetAgent(ctx, tx, sched.OrgID, sched.AgentID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, &invalidError{err: fmt.Errorf("agent %d not found", sched.AgentID)}
-		}
-		return nil, err
-	}
-	return agent, nil
-}
-
-// Agent returns the schedule's agent, share-locked until tx ends so a
-// concurrent DeleteAgent sees the task about to be created of it. It returns
-// sql.ErrNoRows when the agent is deleted.
-func Agent(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule) (*model.Agent, error) {
-	if err := st.LockLiveAgent(ctx, tx, sched.OrgID, sched.AgentID); err != nil {
-		return nil, err
-	}
-	return st.GetAgent(ctx, tx, sched.OrgID, sched.AgentID)
-}
-
-// Fire materializes one schedule occurrence inside tx: it creates a task of
-// agent, the schedule's agent as Agent returned it in tx, named after the
-// schedule, and seeds its events (Pending/Start, a created event attributed to
-// model.ScheduleActor, and the agent's prompt as its first instruction, or a
-// generated line when the agent has none), and returns the created task plus
-// the change notification to publish once tx commits. It writes nothing to the schedule row — the caller
-// decides what, if anything, happens to the cadence: the worker's Scheduler.fire
-// advances next_run_at via AdvanceSchedule, while a one-off manual run
-// (RunSchedule) records nothing on the schedule at all. Sharing this function is
-// what makes a manual run and a scheduled run produce a byte-for-byte identical
-// task.
-func Fire(ctx context.Context, tx *sql.Tx, st Store, sched *model.Schedule, agent *model.Agent) (*model.Task, model.Notification, error) {
-	if agent.ID != sched.AgentID {
-		panic(fmt.Sprintf("scheduler: schedule %d of agent %d fired with agent %d", sched.ID, sched.AgentID, agent.ID))
+		return model.Notification{}, fmt.Errorf("agent %d: %w", sched.AgentID, err)
 	}
 	// Insert the task, then seed its events (Events needs the assigned
 	// task.ID), so a scheduled task is indistinguishable from a hand-created
 	// one downstream.
 	task := agent.Task(sched.Name)
-	if err := st.CreateTask(ctx, tx, task); err != nil {
-		return nil, model.Notification{}, err
+	if err := s.store.CreateTask(ctx, tx, task); err != nil {
+		return model.Notification{}, err
 	}
 	generated := fmt.Sprintf("You were created by schedule %q of agent %q.", sched.Name, agent.Name)
 	for _, ev := range agent.Events(task, model.ScheduleActor, generated) {
-		if err := st.CreateEvent(ctx, tx, ev); err != nil {
-			return nil, model.Notification{}, err
+		if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
+			return model.Notification{}, err
 		}
 	}
+
+	adv := store.ScheduleAdvance{LastRunAt: new(now.UTC()), LastTaskID: &task.ID}
+	if next, err := sched.Next(now); err != nil {
+		// The spec was valid when written, so this only happens if the tz database
+		// dropped the schedule's timezone under us. Rather than let the row wedge as
+		// permanently due, leave NextRunAt nil, which disables it, so the claim
+		// query skips it. The due occurrence still fired above — creating its task
+		// never needed Next(); only advancing did.
+		s.log.Error("scheduler disabling schedule with unresolvable next occurrence", "id", sched.ID, "err", err)
+	} else {
+		adv.NextRunAt = &next
+	}
+	if err := s.store.AdvanceSchedule(ctx, tx, sched.ID, sched.OrgID, adv); err != nil {
+		return model.Notification{}, err
+	}
+
 	// The same "change" notification the manual create path emits: task created +
 	// task_events appended, with the runner set so its wake channel picks the new
 	// task up immediately. There is no user, so UserID / ClientID are left empty.
-	return task, model.Notification{
+	// The fire moves the schedule's last and next run, which its agent shows.
+	return model.Notification{
 		Type: "change",
 		Resources: []model.NotificationResource{
 			{Action: "created", Type: "task", ID: task.ID},
 			{Action: "appended", Type: "task_events", ID: task.ID},
+			{Action: "updated", Type: "agent", ID: agent.ID},
 		},
 		OrgID:          task.OrgID,
 		Runner:         task.PendingRunner(),
 		Time:           time.Now(),
 		ChannelMessage: fmt.Sprintf("Task %d created on %s/%s.", task.ID, task.Runner, task.Workspace),
 	}, nil
-}
-
-// fire materializes one schedule occurrence via Fire, then advances the schedule
-// to its next occurrence. The next fire is computed as the first occurrence
-// strictly after now, never after the stored next_run_at, so any occurrences
-// missed while the scheduler was down collapse into this single fire (skip-only,
-// never backfill). It returns the change notification to publish once the tick
-// commits, which also names the agent.
-func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule) (model.Notification, error) {
-	now := time.Now()
-	agent, err := Agent(ctx, tx, s.store, sched)
-	if err != nil {
-		return model.Notification{}, fmt.Errorf("agent %d: %w", sched.AgentID, err)
-	}
-	task, note, err := Fire(ctx, tx, s.store, sched, agent)
-	if err != nil {
-		return model.Notification{}, err
-	}
-	// The fire moves the schedule's last and next run, which its agent shows.
-	note.Resources = append(note.Resources, model.NotificationResource{Action: "updated", Type: "agent", ID: agent.ID})
-
-	// The task is fired either way; only the schedule write differs.
-	if next, err := sched.Next(now); err != nil {
-		// The spec was valid when written, so this only happens if the tz database
-		// dropped the schedule's timezone under us. Rather than let the row wedge as
-		// permanently due, disable it and clear next_run_at so the claim query skips
-		// it. The due occurrence still fired above — creating its task never needed
-		// Next(); only advancing did.
-		s.log.Error("scheduler disabling schedule with unresolvable next occurrence", "id", sched.ID, "err", err)
-		sched.Enabled = false
-		sched.NextRunAt = nil
-		sched.LastRunAt = new(now.UTC())
-		sched.LastTaskID = &task.ID
-		if err := s.store.UpdateSchedule(ctx, tx, sched); err != nil {
-			return model.Notification{}, err
-		}
-	} else {
-		if err := s.store.AdvanceSchedule(ctx, tx, sched.ID, sched.OrgID, store.ScheduleAdvance{
-			NextRunAt:  &next,
-			LastRunAt:  new(now.UTC()),
-			LastTaskID: &task.ID,
-		}); err != nil {
-			return model.Notification{}, err
-		}
-	}
-
-	return note, nil
 }
 
 func (s *Scheduler) publish(ctx context.Context, n model.Notification) {

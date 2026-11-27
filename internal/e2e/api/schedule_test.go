@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/gritzapp/gritz/internal/auth/authscope"
 	"github.com/gritzapp/gritz/internal/e2e/harness"
 	"github.com/gritzapp/gritz/internal/model"
 	gritzv1 "github.com/gritzapp/gritz/internal/proto/gritz/v1"
@@ -17,372 +16,130 @@ import (
 	"gotest.tools/v3/assert/cmp"
 )
 
-func TestCreateSchedule(t *testing.T) {
+func TestAgentSchedule_InvalidTimezone(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
-
-	// Act
-	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		Name:     "nightly",
-		AgentId:  h.Org.DefaultAgent.Id,
-		CronExpr: "0 9 * * *",
-		Timezone: "America/Toronto",
-		Enabled:  true,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	// An enabled schedule gets a first fire time computed server-side.
-	assert.Assert(t, resp.Schedule.NextRunAt != nil)
-	expected := &gritzv1.Schedule{
-		Id:        resp.Schedule.Id,
-		Name:      "nightly",
-		AgentId:   h.Org.DefaultAgent.Id,
-		CronExpr:  "0 9 * * *",
-		Timezone:  "America/Toronto",
-		Enabled:   true,
-		NextRunAt: resp.Schedule.NextRunAt, // nondeterministic (computed from now)
-	}
-	assert.DeepEqual(t, resp.Schedule, expected, protocmp.Transform())
-	// It round-trips through Get.
-	got := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: resp.Schedule.Id})
-	assert.DeepEqual(t, got, resp.Schedule, protocmp.Transform())
-}
-
-func TestCreateSchedule_DisabledHasNoNextRun(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-
-	// Act
-	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		AgentId:  h.Org.DefaultAgent.Id,
-		CronExpr: "0 9 * * *",
-		Enabled:  false,
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	// A disabled schedule stays out of the claim query: no next fire time.
-	assert.DeepEqual(t,
-		resp.Schedule,
-		&gritzv1.Schedule{Id: resp.Schedule.Id},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "enabled", "next_run_at"),
-	)
-}
-
-func TestCreateSchedule_DefaultTimezone(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-
-	// Act - an empty timezone defaults to UTC.
-	resp, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		AgentId:  h.Org.DefaultAgent.Id,
-		CronExpr: "0 9 * * *",
-	})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Equal(t, resp.Schedule.Timezone, "UTC")
-}
-
-func TestCreateSchedule_InvalidCron(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-
-	// Act
-	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		AgentId:  h.Org.DefaultAgent.Id,
-		CronExpr: "not a cron",
-	})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
-	// The invalid schedule was never stored.
-	assert.Assert(t, cmp.Len(h.Org.ListSchedules(&gritzv1.ListSchedulesRequest{}), 0))
-}
-
-func TestCreateSchedule_InvalidTimezone(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-
-	// Act
-	_, err := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		AgentId:  h.Org.DefaultAgent.Id,
-		CronExpr: "0 9 * * *",
-		Timezone: "Mars/Phobos",
-	})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
-}
-
-func TestCreateSchedule_UnknownAgent(t *testing.T) {
-	t.Parallel()
-	// Arrange - an agent of another org is unknown too.
-	h := harness.New(t, nil)
-	other := h.Server.CreateOrg()
-
-	// Act
-	_, missingErr := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		AgentId:  999999,
-		CronExpr: "0 9 * * *",
-	})
-	_, otherErr := h.Org.Client.CreateSchedule(t.Context(), &gritzv1.CreateScheduleRequest{
-		AgentId:  other.DefaultAgent.Id,
-		CronExpr: "0 9 * * *",
-	})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(missingErr), connect.CodeInvalidArgument)
-	assert.ErrorContains(t, missingErr, "agent 999999 not found")
-	assert.Equal(t, connect.CodeOf(otherErr), connect.CodeInvalidArgument)
-	assert.Assert(t, cmp.Len(h.Org.ListSchedules(&gritzv1.ListSchedulesRequest{}), 0))
-}
-
-func TestListSchedules(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	other := h.Server.CreateOrg()
-	h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{Name: "a", CronExpr: "0 9 * * *"})
-	h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{Name: "b", CronExpr: "0 10 * * *"})
-
-	// Act & Assert
-	resp, err := h.Org.Client.ListSchedules(t.Context(), &gritzv1.ListSchedulesRequest{})
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(resp.Schedules, 2))
-
-	// Act & Assert - list is org-scoped: another org sees none.
-	resp, err = other.Client.ListSchedules(t.Context(), &gritzv1.ListSchedulesRequest{})
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(resp.Schedules, 0))
-}
-
-func TestGetSchedule_Permissions(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	other := h.Server.CreateOrg()
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
-
-	// Act & Assert - its own org reads it.
-	_, err := h.Org.Client.GetSchedule(t.Context(), &gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.NilError(t, err)
-
-	// Act & Assert - another org gets not-found (org-scoped).
-	_, err = other.Client.GetSchedule(t.Context(), &gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.ErrorContains(t, err, "not found")
-}
-
-// A member holding only task-read (no write/create scope) may list and get, but
-// read scope is not enough to mutate: delete and enable require task-write.
-func TestSchedule_ReadIsMembershipOnly(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
-	reader := h.Org.CreateScopedKey(authscope.Scopes{
-		authscope.New(authscope.OpTaskRead),
-	})
-
-	// Act & Assert - read scope covers get and list.
-	_, err := reader.Client.GetSchedule(t.Context(), &gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.NilError(t, err)
-	list, err := reader.Client.ListSchedules(t.Context(), &gritzv1.ListSchedulesRequest{})
-	assert.NilError(t, err)
-	assert.Assert(t, cmp.Len(list.Schedules, 1))
-
-	// Act & Assert - ...but not the mutations.
-	_, err = reader.Client.SetScheduleEnabled(t.Context(), &gritzv1.SetScheduleEnabledRequest{
-		Id:      sched.Id,
-		Enabled: true,
-	})
-	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
-	_, err = reader.Client.DeleteSchedule(t.Context(), &gritzv1.DeleteScheduleRequest{Id: sched.Id})
-	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
-}
-
-// task-write (the mutation tier) is enough to toggle and delete a schedule
-// without create scope — matching ArchiveTask/DeleteEvent.
-func TestSchedule_MutationsRequireWrite(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
-	writer := h.Org.CreateScopedKey(authscope.Scopes{
-		authscope.New(authscope.OpTaskWrite),
-	})
-
-	// Act
-	_, errEnable := writer.Client.SetScheduleEnabled(t.Context(), &gritzv1.SetScheduleEnabledRequest{
-		Id:      sched.Id,
-		Enabled: false,
-	})
-	_, errDelete := writer.Client.DeleteSchedule(t.Context(), &gritzv1.DeleteScheduleRequest{Id: sched.Id})
-
-	// Assert
-	assert.NilError(t, errEnable)
-	assert.NilError(t, errDelete)
-	_, err := h.Org.Client.GetSchedule(t.Context(), &gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.ErrorContains(t, err, "not found")
-}
-
-func TestSetScheduleEnabled(t *testing.T) {
-	t.Parallel()
-	// Arrange - start disabled: no next fire time.
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Enabled: false})
-	assert.Assert(t, sched.NextRunAt == nil)
-
-	// Act & Assert - enabling recomputes next_run_at from now.
-	enabled, err := h.Org.Client.SetScheduleEnabled(t.Context(), &gritzv1.SetScheduleEnabledRequest{
-		Id:      sched.Id,
-		Enabled: true,
-	})
-	assert.NilError(t, err)
-	assert.Assert(t, enabled.Schedule.NextRunAt != nil)
-	assert.DeepEqual(t,
-		enabled.Schedule,
-		&gritzv1.Schedule{
-			Id:        sched.Id,
-			Enabled:   true,
-			NextRunAt: enabled.Schedule.NextRunAt, // computed from now
-		},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "enabled", "next_run_at"),
-	)
-
-	// Act & Assert - disabling clears it so the claim query skips the row.
-	disabled, err := h.Org.Client.SetScheduleEnabled(t.Context(), &gritzv1.SetScheduleEnabledRequest{
-		Id:      sched.Id,
-		Enabled: false,
-	})
-	assert.NilError(t, err)
-	assert.DeepEqual(t,
-		disabled.Schedule,
-		&gritzv1.Schedule{Id: sched.Id},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "enabled", "next_run_at"),
-	)
-}
-
-func TestDeleteSchedule(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
-
-	// Act
-	_, err := h.Org.Client.DeleteSchedule(t.Context(), &gritzv1.DeleteScheduleRequest{Id: sched.Id})
-
-	// Assert
-	assert.NilError(t, err)
-	_, err = h.Org.Client.GetSchedule(t.Context(), &gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.ErrorContains(t, err, "not found")
-}
-
-func TestUpdateSchedule(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:     "original",
-		CronExpr: "0 9 * * *",
-		Timezone: "UTC",
-		Enabled:  true,
-	})
-	firstNext := sched.NextRunAt.AsTime()
 	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
-		Name:      "other",
+		Name:      "nightly",
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "0 9 * * *"}},
 	}})
 
-	// Act - rename, repoint at another agent and move the spec to a new time;
-	// next_run_at recomputes.
-	updated, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
-		AgentId:  agent.Id,
-		Id:       sched.Id,
-		Name:     "renamed",
-		CronExpr: "30 2 * * *",
-		Timezone: "UTC",
-	})
+	// Act
+	edited := h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id})
+	edited.Schedules[0].Timezone = "Mars/Phobos"
+	_, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: edited})
 
-	// Assert
+	// Assert - rejected, and the stored schedule is unchanged.
+	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
+	assert.ErrorContains(t, err, "invalid timezone")
+	assert.DeepEqual(t, h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}), agent, protocmp.Transform())
+}
+
+func TestAgentSchedule_Enable(t *testing.T) {
+	t.Parallel()
+	// Arrange - a disabled schedule has no next run.
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "nightly",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "0 9 * * *"}},
+	}})
+	assert.Assert(t, agent.Schedules[0].NextRunAt == nil)
+
+	// Act - enable it.
+	agent.Schedules[0].Enabled = true
+	resp, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert - its next run is computed from now.
 	assert.NilError(t, err)
-	assert.Assert(t, updated.Schedule.NextRunAt != nil)
-	assert.Assert(t, !updated.Schedule.NextRunAt.AsTime().Equal(firstNext))
+	assert.Assert(t, resp.Agent.Schedules[0].NextRunAt.AsTime().After(time.Now()))
+
+	// Act - disable it.
+	agent = resp.Agent
+	agent.Schedules[0].Enabled = false
+	resp, err = h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
+
+	// Assert - its next run is cleared.
+	assert.NilError(t, err)
+	assert.Assert(t, resp.Agent.Schedules[0].NextRunAt == nil)
+}
+
+// A fire creates one task of the schedule's agent, named after the schedule,
+// with the created event attributed to the schedule and a generated
+// instruction for an agent without a prompt, and records the run on the
+// schedule.
+func TestAgentSchedule_Fire(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	h := harness.New(t, nil)
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
+		Name:      "deps",
+		Workspace: harness.DefaultWorkspace,
+		Runner:    harness.DefaultRunner,
+		Schedules: []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "0 9 * * *", Enabled: true}},
+	}})
+	before := time.Now()
+
+	// Act
+	h.Org.FireSchedule(agent.Id, agent.Schedules[0].Id)
+
+	// Assert - exactly one task of the agent.
+	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
+	assert.Assert(t, cmp.Len(tasks, 1))
+	task := tasks[0]
 	assert.DeepEqual(t,
-		updated.Schedule,
-		&gritzv1.Schedule{
-			Id:        sched.Id,
-			Name:      "renamed",
+		task,
+		&gritzv1.Task{
+			Id:        task.Id,
+			Name:      "nightly",
+			Workspace: harness.DefaultWorkspace,
+			Runner:    harness.DefaultRunner,
 			AgentId:   agent.Id,
-			CronExpr:  "30 2 * * *",
-			Timezone:  "UTC",
-			Enabled:   true,
-			NextRunAt: updated.Schedule.NextRunAt, // computed from now
 		},
 		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
 	)
-	// Persisted.
+	// The created event first (the schedule), the start command, then the
+	// generated wake instruction. The server-assigned id, task_id and
+	// created_at are ignored.
 	assert.DeepEqual(t,
-		h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}),
-		updated.Schedule,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.Id}),
+		[]*gritzv1.Event{
+			{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
+				Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
+				Actor:    &gritzv1.Actor{Kind: model.ActorKindSchedule},
+				ToStatus: model.TaskStatusPending.Label(),
+			}}},
+			{Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
+				Command:   gritzv1.TaskCommand_START,
+				Version:   1,
+				Runner:    harness.DefaultRunner,
+				Workspace: harness.DefaultWorkspace,
+			}}},
+			{
+				Wake: true,
+				Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+					Text: fmt.Sprintf("You were created by schedule %q of agent %q.", "nightly", "deps"),
+				}},
+			},
+		},
 		protocmp.Transform(),
+		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"),
 	)
+	// The run is recorded on the schedule, and its next run moves on.
+	sched := h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id}).Schedules[0]
+	assert.Equal(t, sched.LastTaskId, task.Id)
+	assert.Assert(t, !sched.LastRunAt.AsTime().Before(before.Truncate(time.Microsecond)))
+	assert.Assert(t, sched.NextRunAt.AsTime().After(before))
 }
 
-func TestUpdateSchedule_InvalidCron(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *", Timezone: "UTC"})
-
-	// Act
-	_, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
-		AgentId:  h.Org.DefaultAgent.Id,
-		Id:       sched.Id,
-		CronExpr: "nonsense",
-	})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
-	// The bad update never landed: the stored spec is unchanged.
-	got := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.Equal(t, got.CronExpr, "0 9 * * *")
-}
-
-func TestUpdateSchedule_UnknownAgent(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
-
-	// Act
-	_, err := h.Org.Client.UpdateSchedule(t.Context(), &gritzv1.UpdateScheduleRequest{
-		Id:       sched.Id,
-		AgentId:  999999,
-		CronExpr: "0 9 * * *",
-	})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeInvalidArgument)
-	assert.ErrorContains(t, err, "agent 999999 not found")
-	got := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id})
-	assert.Equal(t, got.AgentId, h.Org.DefaultAgent.Id)
-}
-
-// A run creates a task of the schedule's agent: the task takes the agent's
-// workspace, runner, auto-archive, variables and prompt as they are when it
-// runs.
-func TestRunSchedule_AgentTemplate(t *testing.T) {
+// A fire creates a task of the schedule's agent as it is when it fires: its
+// workspace, runner, auto-archive, variables and prompt.
+func TestAgentSchedule_FireAgentTemplate(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	h := harness.New(t, nil)
@@ -396,36 +153,31 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 			},
 		}},
 	})
-	agent := &gritzv1.Agent{
+	agent := h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: &gritzv1.Agent{
 		Name:        "story",
 		Workspace:   "story",
 		Runner:      "runner-1",
 		Prompt:      "Groom the backlog.",
 		AutoArchive: durationpb.New(time.Hour),
 		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
-	}
-	agent = h.Org.CreateAgent(&gritzv1.CreateAgentRequest{Agent: agent})
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:     "nightly",
-		AgentId:  agent.Id,
-		CronExpr: "@daily",
-	})
-	// Saving the agent keeps the schedules it is sent with.
-	agent = h.Org.GetAgent(&gritzv1.GetAgentRequest{Id: agent.Id})
+		Schedules:   []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "@daily", Enabled: true}},
+	}})
 	agent.Variables = map[string]string{"JIRA_ISSUE": "APP-143"}
 	agent.Prompt = "Groom the backlog, oldest first."
 	_, err := h.Org.Client.UpdateAgent(t.Context(), &gritzv1.UpdateAgentRequest{Agent: agent})
 	assert.NilError(t, err)
 
 	// Act
-	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
+	h.Org.FireSchedule(agent.Id, agent.Schedules[0].Id)
 
 	// Assert
-	assert.NilError(t, err)
+	tasks := h.Org.ListTasks(&gritzv1.ListTasksRequest{})
+	assert.Assert(t, cmp.Len(tasks, 1))
+	task := h.Org.GetTask(&gritzv1.GetTaskRequest{Id: tasks[0].Id})
 	assert.DeepEqual(t,
-		h.Org.GetTask(&gritzv1.GetTaskRequest{Id: resp.Task.Id}),
+		task,
 		&gritzv1.Task{
-			Id:          resp.Task.Id,
+			Id:          task.Id,
 			Name:        "nightly",
 			Workspace:   "story",
 			Runner:      "runner-1",
@@ -439,7 +191,7 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 	// The created and start command events carry no instruction; the only
 	// instruction is the agent's prompt.
 	assert.DeepEqual(t,
-		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id}),
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.Id}),
 		[]*gritzv1.Event{
 			{},
 			{},
@@ -450,167 +202,4 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Event{}, "instruction"),
 	)
-}
-
-// A manual run fires the schedule as a one-off: it creates exactly one task of
-// its agent, seeds the ScheduleActor created-event + one instruction event,
-// generated for an agent without a prompt (byte-for-byte what the scheduler
-// worker fires), and
-// records nothing on the schedule row — next_run_at/last_run_at/last_task_id all
-// stay untouched so the cron cadence never advances.
-func TestRunSchedule(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	before := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:     "nightly",
-		CronExpr: "0 9 * * *",
-		Timezone: "UTC",
-		Enabled:  true,
-	})
-	// An enabled schedule has a next_run_at; it never ran, so
-	// last_run_at/last_task_id are unset.
-	assert.Assert(t, before.NextRunAt != nil)
-	assert.DeepEqual(t,
-		before,
-		&gritzv1.Schedule{
-			Id:        before.Id,
-			NextRunAt: before.NextRunAt, // computed from now
-		},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Schedule{}, "id", "next_run_at", "last_run_at", "last_task_id"),
-	)
-
-	// Act
-	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: before.Id})
-
-	// Assert
-	assert.NilError(t, err)
-	// Exactly one task was created for the org, and it is the one returned.
-	assert.DeepEqual(t,
-		h.Org.ListTasks(&gritzv1.ListTasksRequest{}),
-		[]*gritzv1.Task{{
-			Id:        resp.Task.Id,
-			Name:      "nightly",
-			Workspace: harness.DefaultWorkspace,
-			Runner:    harness.DefaultRunner,
-			AgentId:   h.Org.DefaultAgent.Id,
-		}},
-		protocmp.Transform(),
-		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
-	)
-	// The created event first (ScheduleActor) and the start command, then the
-	// generated wake instruction — identical to a scheduled fire. The
-	// server-assigned id, task_id and created_at are ignored.
-	events := h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id})
-	want := []*gritzv1.Event{
-		{Payload: &gritzv1.Event_Lifecycle{Lifecycle: &gritzv1.LifecyclePayload{
-			Kind:     gritzv1.LifecycleKind_LIFECYCLE_KIND_CREATED,
-			Actor:    &gritzv1.Actor{Kind: model.ActorKindSchedule},
-			ToStatus: model.TaskStatusPending.Label(),
-		}}},
-		{Payload: &gritzv1.Event_Command{Command: &gritzv1.CommandPayload{
-			Command:   gritzv1.TaskCommand_START,
-			Version:   1,
-			Runner:    harness.DefaultRunner,
-			Workspace: harness.DefaultWorkspace,
-		}}},
-		{
-			Wake: true,
-			Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
-				Text: fmt.Sprintf("You were created by schedule %q of agent %q.", "nightly", h.Org.DefaultAgent.Name),
-			}},
-		},
-	}
-	assert.DeepEqual(t, events, want, protocmp.Transform(),
-		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"))
-	// The schedule row is untouched: the cron cadence never advanced and no run was
-	// recorded on it.
-	after := h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: before.Id})
-	assert.DeepEqual(t, after, before, protocmp.Transform())
-}
-
-// A manual run works on a disabled schedule — disabled only means "don't fire
-// automatically," and testing a not-yet-enabled schedule is the primary use case.
-// The row stays disabled with next_run_at unset afterward.
-func TestRunSchedule_DisabledSchedule(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{
-		Name:     "inert",
-		CronExpr: "0 9 * * *",
-		Enabled:  false,
-	})
-	assert.Assert(t, sched.NextRunAt == nil)
-
-	// Act
-	resp, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: sched.Id})
-
-	// Assert
-	assert.NilError(t, err)
-	assert.Assert(t, resp.Task != nil)
-	// Running it never re-enabled the row or gave it a next fire time.
-	assert.DeepEqual(t,
-		h.Org.GetSchedule(&gritzv1.GetScheduleRequest{Id: sched.Id}),
-		sched,
-		protocmp.Transform(),
-	)
-}
-
-// A manual run materializes a real task on its agent's target, so it demands
-// the same task-create scope CreateSchedule/UpdateSchedule require — the
-// task-write mutation tier (enough to enable/disable) is not sufficient. The
-// target is read from the stored agent, so it can't be spoofed by the request.
-func TestRunSchedule_RequiresCreateScope(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-	sched := h.Org.CreateSchedule(&gritzv1.CreateScheduleRequest{CronExpr: "0 9 * * *"})
-	writer := h.Org.CreateScopedKey(authscope.Scopes{
-		authscope.New(authscope.OpTaskWrite),
-	})
-	wrongTarget := h.Org.CreateScopedKey(authscope.Scopes{
-		authscope.New(
-			authscope.OpTaskCreate,
-			authscope.WithTaskWorkspace("other-workspace"),
-			authscope.WithTaskRunner(harness.DefaultRunner),
-			authscope.WithTaskArchived(false),
-		),
-	})
-	creator := h.Org.CreateScopedKey(authscope.Scopes{
-		authscope.New(
-			authscope.OpTaskCreate,
-			authscope.WithTaskWorkspace(harness.DefaultWorkspace),
-			authscope.WithTaskRunner(harness.DefaultRunner),
-			authscope.WithTaskArchived(false),
-		),
-	})
-	req := &gritzv1.RunScheduleRequest{Id: sched.Id}
-
-	// Act & Assert - task-write (the tier that toggles/deletes a schedule) is
-	// not enough to fire it.
-	_, err := writer.Client.RunSchedule(t.Context(), req)
-	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
-
-	// Act & Assert - create scope for a different target does not grant a run
-	// on this one.
-	_, err = wrongTarget.Client.RunSchedule(t.Context(), req)
-	assert.Equal(t, connect.CodeOf(err), connect.CodePermissionDenied)
-
-	// Act & Assert - create scope on the agent's (workspace, runner) may run it.
-	_, err = creator.Client.RunSchedule(t.Context(), req)
-	assert.NilError(t, err)
-}
-
-func TestRunSchedule_NotFound(t *testing.T) {
-	t.Parallel()
-	// Arrange
-	h := harness.New(t, nil)
-
-	// Act
-	_, err := h.Org.Client.RunSchedule(t.Context(), &gritzv1.RunScheduleRequest{Id: 999})
-
-	// Assert
-	assert.Equal(t, connect.CodeOf(err), connect.CodeNotFound)
 }

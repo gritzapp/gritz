@@ -211,11 +211,14 @@ func TestDeleteAgent_InUse(t *testing.T) {
 		{
 			name: "schedule",
 			using: func(t *testing.T, s *store.Store, org *teststore.Org, agentID int64) {
-				assert.NilError(t, s.CreateSchedule(t.Context(), nil, &model.Schedule{
-					OrgID:    org.OrgID,
-					AgentID:  agentID,
-					CronExpr: "@daily",
-					Timezone: "UTC",
+				agent, err := s.GetAgent(t.Context(), nil, org.OrgID, agentID)
+				assert.NilError(t, err)
+				agent.Schedules = []*model.Schedule{{CronExpr: "@daily", Timezone: "UTC"}}
+				assert.NilError(t, s.WithTx(t.Context(), nil, func(tx *sql.Tx) error {
+					if err := s.UpdateAgent(t.Context(), tx, agent); err != nil {
+						return err
+					}
+					return tx.Commit()
 				}))
 			},
 		},
@@ -414,8 +417,9 @@ func TestUpdateAgent_Schedules(t *testing.T) {
 	got, err := s.GetAgent(ctx, nil, org.OrgID, agent.ID)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, got.Schedules, []*model.Schedule{c, d, a})
-	_, err = s.GetSchedule(ctx, nil, b.ID, org.OrgID)
-	assert.ErrorIs(t, err, sql.ErrNoRows)
+	exists, err := store.ScheduleExists(ctx, s, b.ID)
+	assert.NilError(t, err)
+	assert.Assert(t, !exists)
 }
 
 func TestUpdateAgent_ForeignSchedule(t *testing.T) {
@@ -521,8 +525,9 @@ func TestDeleteAgent_DeletesSchedules(t *testing.T) {
 
 	// Assert - its schedule is gone, the other agent's stays.
 	assert.NilError(t, err)
-	_, err = s.GetSchedule(ctx, nil, agent.Schedules[0].ID, org.OrgID)
-	assert.ErrorIs(t, err, sql.ErrNoRows)
+	exists, err := store.ScheduleExists(ctx, s, agent.Schedules[0].ID)
+	assert.NilError(t, err)
+	assert.Assert(t, !exists)
 	got, err := s.GetAgent(ctx, nil, org.OrgID, other.ID)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, got.Schedules, other.Schedules)

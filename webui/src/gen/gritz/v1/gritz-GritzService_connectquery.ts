@@ -275,41 +275,6 @@ export const testEvent = GritzService.method.testEvent;
 export const createGitHubToken = GritzService.method.createGitHubToken;
 
 /**
- * @generated from rpc gritz.v1.GritzService.CreateSchedule
- */
-export const createSchedule = GritzService.method.createSchedule;
-
-/**
- * @generated from rpc gritz.v1.GritzService.GetSchedule
- */
-export const getSchedule = GritzService.method.getSchedule;
-
-/**
- * @generated from rpc gritz.v1.GritzService.ListSchedules
- */
-export const listSchedules = GritzService.method.listSchedules;
-
-/**
- * @generated from rpc gritz.v1.GritzService.UpdateSchedule
- */
-export const updateSchedule = GritzService.method.updateSchedule;
-
-/**
- * @generated from rpc gritz.v1.GritzService.DeleteSchedule
- */
-export const deleteSchedule = GritzService.method.deleteSchedule;
-
-/**
- * @generated from rpc gritz.v1.GritzService.SetScheduleEnabled
- */
-export const setScheduleEnabled = GritzService.method.setScheduleEnabled;
-
-/**
- * @generated from rpc gritz.v1.GritzService.RunSchedule
- */
-export const runSchedule = GritzService.method.runSchedule;
-
-/**
  * CreateAgent and UpdateAgent fail with `invalid_argument` if the agent's
  * workspace isn't registered on its runner, the workspace doesn't accept its
  * variables, or a trigger or link kind doesn't check out against the org's

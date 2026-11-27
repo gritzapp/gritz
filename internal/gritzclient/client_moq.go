@@ -49,9 +49,6 @@ var _ Client = &ClientMock{}
 //			CreateOrgFunc: func(contextMoqParam context.Context, createOrgRequest *gritzv1.CreateOrgRequest) (*gritzv1.CreateOrgResponse, error) {
 //				panic("mock out the CreateOrg method")
 //			},
-//			CreateScheduleFunc: func(contextMoqParam context.Context, createScheduleRequest *gritzv1.CreateScheduleRequest) (*gritzv1.CreateScheduleResponse, error) {
-//				panic("mock out the CreateSchedule method")
-//			},
 //			CreateTaskFunc: func(contextMoqParam context.Context, createTaskRequest *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
 //				panic("mock out the CreateTask method")
 //			},
@@ -69,9 +66,6 @@ var _ Client = &ClientMock{}
 //			},
 //			DeleteOrgFunc: func(contextMoqParam context.Context, deleteOrgRequest *gritzv1.DeleteOrgRequest) (*gritzv1.DeleteOrgResponse, error) {
 //				panic("mock out the DeleteOrg method")
-//			},
-//			DeleteScheduleFunc: func(contextMoqParam context.Context, deleteScheduleRequest *gritzv1.DeleteScheduleRequest) (*gritzv1.DeleteScheduleResponse, error) {
-//				panic("mock out the DeleteSchedule method")
 //			},
 //			GenerateAtlassianWebhookSecretFunc: func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error) {
 //				panic("mock out the GenerateAtlassianWebhookSecret method")
@@ -99,9 +93,6 @@ var _ Client = &ClientMock{}
 //			},
 //			GetRunSpecInputsFunc: func(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error) {
 //				panic("mock out the GetRunSpecInputs method")
-//			},
-//			GetScheduleFunc: func(contextMoqParam context.Context, getScheduleRequest *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error) {
-//				panic("mock out the GetSchedule method")
 //			},
 //			GetTaskFunc: func(contextMoqParam context.Context, getTaskRequest *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error) {
 //				panic("mock out the GetTask method")
@@ -136,9 +127,6 @@ var _ Client = &ClientMock{}
 //			ListRunnerEventsFunc: func(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error) {
 //				panic("mock out the ListRunnerEvents method")
 //			},
-//			ListSchedulesFunc: func(contextMoqParam context.Context, listSchedulesRequest *gritzv1.ListSchedulesRequest) (*gritzv1.ListSchedulesResponse, error) {
-//				panic("mock out the ListSchedules method")
-//			},
 //			ListTasksFunc: func(contextMoqParam context.Context, listTasksRequest *gritzv1.ListTasksRequest) (*gritzv1.ListTasksResponse, error) {
 //				panic("mock out the ListTasks method")
 //			},
@@ -163,14 +151,8 @@ var _ Client = &ClientMock{}
 //			RestartTaskFunc: func(contextMoqParam context.Context, restartTaskRequest *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error) {
 //				panic("mock out the RestartTask method")
 //			},
-//			RunScheduleFunc: func(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error) {
-//				panic("mock out the RunSchedule method")
-//			},
 //			SetCustomEventTypesFunc: func(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
 //				panic("mock out the SetCustomEventTypes method")
-//			},
-//			SetScheduleEnabledFunc: func(contextMoqParam context.Context, setScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest) (*gritzv1.SetScheduleEnabledResponse, error) {
-//				panic("mock out the SetScheduleEnabled method")
 //			},
 //			SubmitRunnerEventsFunc: func(contextMoqParam context.Context, submitRunnerEventsRequest *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error) {
 //				panic("mock out the SubmitRunnerEvents method")
@@ -189,9 +171,6 @@ var _ Client = &ClientMock{}
 //			},
 //			UpdateAgentFunc: func(contextMoqParam context.Context, updateAgentRequest *gritzv1.UpdateAgentRequest) (*gritzv1.UpdateAgentResponse, error) {
 //				panic("mock out the UpdateAgent method")
-//			},
-//			UpdateScheduleFunc: func(contextMoqParam context.Context, updateScheduleRequest *gritzv1.UpdateScheduleRequest) (*gritzv1.UpdateScheduleResponse, error) {
-//				panic("mock out the UpdateSchedule method")
 //			},
 //			UpdateTaskFunc: func(contextMoqParam context.Context, updateTaskRequest *gritzv1.UpdateTaskRequest) (*gritzv1.UpdateTaskResponse, error) {
 //				panic("mock out the UpdateTask method")
@@ -236,9 +215,6 @@ type ClientMock struct {
 	// CreateOrgFunc mocks the CreateOrg method.
 	CreateOrgFunc func(contextMoqParam context.Context, createOrgRequest *gritzv1.CreateOrgRequest) (*gritzv1.CreateOrgResponse, error)
 
-	// CreateScheduleFunc mocks the CreateSchedule method.
-	CreateScheduleFunc func(contextMoqParam context.Context, createScheduleRequest *gritzv1.CreateScheduleRequest) (*gritzv1.CreateScheduleResponse, error)
-
 	// CreateTaskFunc mocks the CreateTask method.
 	CreateTaskFunc func(contextMoqParam context.Context, createTaskRequest *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error)
 
@@ -256,9 +232,6 @@ type ClientMock struct {
 
 	// DeleteOrgFunc mocks the DeleteOrg method.
 	DeleteOrgFunc func(contextMoqParam context.Context, deleteOrgRequest *gritzv1.DeleteOrgRequest) (*gritzv1.DeleteOrgResponse, error)
-
-	// DeleteScheduleFunc mocks the DeleteSchedule method.
-	DeleteScheduleFunc func(contextMoqParam context.Context, deleteScheduleRequest *gritzv1.DeleteScheduleRequest) (*gritzv1.DeleteScheduleResponse, error)
 
 	// GenerateAtlassianWebhookSecretFunc mocks the GenerateAtlassianWebhookSecret method.
 	GenerateAtlassianWebhookSecretFunc func(contextMoqParam context.Context, generateAtlassianWebhookSecretRequest *gritzv1.GenerateAtlassianWebhookSecretRequest) (*gritzv1.GenerateAtlassianWebhookSecretResponse, error)
@@ -286,9 +259,6 @@ type ClientMock struct {
 
 	// GetRunSpecInputsFunc mocks the GetRunSpecInputs method.
 	GetRunSpecInputsFunc func(contextMoqParam context.Context, getRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest) (*gritzv1.GetRunSpecInputsResponse, error)
-
-	// GetScheduleFunc mocks the GetSchedule method.
-	GetScheduleFunc func(contextMoqParam context.Context, getScheduleRequest *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error)
 
 	// GetTaskFunc mocks the GetTask method.
 	GetTaskFunc func(contextMoqParam context.Context, getTaskRequest *gritzv1.GetTaskRequest) (*gritzv1.GetTaskResponse, error)
@@ -323,9 +293,6 @@ type ClientMock struct {
 	// ListRunnerEventsFunc mocks the ListRunnerEvents method.
 	ListRunnerEventsFunc func(contextMoqParam context.Context, listRunnerEventsRequest *gritzv1.ListRunnerEventsRequest) (*gritzv1.ListRunnerEventsResponse, error)
 
-	// ListSchedulesFunc mocks the ListSchedules method.
-	ListSchedulesFunc func(contextMoqParam context.Context, listSchedulesRequest *gritzv1.ListSchedulesRequest) (*gritzv1.ListSchedulesResponse, error)
-
 	// ListTasksFunc mocks the ListTasks method.
 	ListTasksFunc func(contextMoqParam context.Context, listTasksRequest *gritzv1.ListTasksRequest) (*gritzv1.ListTasksResponse, error)
 
@@ -350,14 +317,8 @@ type ClientMock struct {
 	// RestartTaskFunc mocks the RestartTask method.
 	RestartTaskFunc func(contextMoqParam context.Context, restartTaskRequest *gritzv1.RestartTaskRequest) (*gritzv1.RestartTaskResponse, error)
 
-	// RunScheduleFunc mocks the RunSchedule method.
-	RunScheduleFunc func(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error)
-
 	// SetCustomEventTypesFunc mocks the SetCustomEventTypes method.
 	SetCustomEventTypesFunc func(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error)
-
-	// SetScheduleEnabledFunc mocks the SetScheduleEnabled method.
-	SetScheduleEnabledFunc func(contextMoqParam context.Context, setScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest) (*gritzv1.SetScheduleEnabledResponse, error)
 
 	// SubmitRunnerEventsFunc mocks the SubmitRunnerEvents method.
 	SubmitRunnerEventsFunc func(contextMoqParam context.Context, submitRunnerEventsRequest *gritzv1.SubmitRunnerEventsRequest) (*gritzv1.SubmitRunnerEventsResponse, error)
@@ -376,9 +337,6 @@ type ClientMock struct {
 
 	// UpdateAgentFunc mocks the UpdateAgent method.
 	UpdateAgentFunc func(contextMoqParam context.Context, updateAgentRequest *gritzv1.UpdateAgentRequest) (*gritzv1.UpdateAgentResponse, error)
-
-	// UpdateScheduleFunc mocks the UpdateSchedule method.
-	UpdateScheduleFunc func(contextMoqParam context.Context, updateScheduleRequest *gritzv1.UpdateScheduleRequest) (*gritzv1.UpdateScheduleResponse, error)
 
 	// UpdateTaskFunc mocks the UpdateTask method.
 	UpdateTaskFunc func(contextMoqParam context.Context, updateTaskRequest *gritzv1.UpdateTaskRequest) (*gritzv1.UpdateTaskResponse, error)
@@ -458,13 +416,6 @@ type ClientMock struct {
 			// CreateOrgRequest is the createOrgRequest argument value.
 			CreateOrgRequest *gritzv1.CreateOrgRequest
 		}
-		// CreateSchedule holds details about calls to the CreateSchedule method.
-		CreateSchedule []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// CreateScheduleRequest is the createScheduleRequest argument value.
-			CreateScheduleRequest *gritzv1.CreateScheduleRequest
-		}
 		// CreateTask holds details about calls to the CreateTask method.
 		CreateTask []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -506,13 +457,6 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// DeleteOrgRequest is the deleteOrgRequest argument value.
 			DeleteOrgRequest *gritzv1.DeleteOrgRequest
-		}
-		// DeleteSchedule holds details about calls to the DeleteSchedule method.
-		DeleteSchedule []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// DeleteScheduleRequest is the deleteScheduleRequest argument value.
-			DeleteScheduleRequest *gritzv1.DeleteScheduleRequest
 		}
 		// GenerateAtlassianWebhookSecret holds details about calls to the GenerateAtlassianWebhookSecret method.
 		GenerateAtlassianWebhookSecret []struct {
@@ -576,13 +520,6 @@ type ClientMock struct {
 			ContextMoqParam context.Context
 			// GetRunSpecInputsRequest is the getRunSpecInputsRequest argument value.
 			GetRunSpecInputsRequest *gritzv1.GetRunSpecInputsRequest
-		}
-		// GetSchedule holds details about calls to the GetSchedule method.
-		GetSchedule []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// GetScheduleRequest is the getScheduleRequest argument value.
-			GetScheduleRequest *gritzv1.GetScheduleRequest
 		}
 		// GetTask holds details about calls to the GetTask method.
 		GetTask []struct {
@@ -661,13 +598,6 @@ type ClientMock struct {
 			// ListRunnerEventsRequest is the listRunnerEventsRequest argument value.
 			ListRunnerEventsRequest *gritzv1.ListRunnerEventsRequest
 		}
-		// ListSchedules holds details about calls to the ListSchedules method.
-		ListSchedules []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// ListSchedulesRequest is the listSchedulesRequest argument value.
-			ListSchedulesRequest *gritzv1.ListSchedulesRequest
-		}
 		// ListTasks holds details about calls to the ListTasks method.
 		ListTasks []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -724,26 +654,12 @@ type ClientMock struct {
 			// RestartTaskRequest is the restartTaskRequest argument value.
 			RestartTaskRequest *gritzv1.RestartTaskRequest
 		}
-		// RunSchedule holds details about calls to the RunSchedule method.
-		RunSchedule []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// RunScheduleRequest is the runScheduleRequest argument value.
-			RunScheduleRequest *gritzv1.RunScheduleRequest
-		}
 		// SetCustomEventTypes holds details about calls to the SetCustomEventTypes method.
 		SetCustomEventTypes []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
 			ContextMoqParam context.Context
 			// SetCustomEventTypesRequest is the setCustomEventTypesRequest argument value.
 			SetCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest
-		}
-		// SetScheduleEnabled holds details about calls to the SetScheduleEnabled method.
-		SetScheduleEnabled []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// SetScheduleEnabledRequest is the setScheduleEnabledRequest argument value.
-			SetScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest
 		}
 		// SubmitRunnerEvents holds details about calls to the SubmitRunnerEvents method.
 		SubmitRunnerEvents []struct {
@@ -787,13 +703,6 @@ type ClientMock struct {
 			// UpdateAgentRequest is the updateAgentRequest argument value.
 			UpdateAgentRequest *gritzv1.UpdateAgentRequest
 		}
-		// UpdateSchedule holds details about calls to the UpdateSchedule method.
-		UpdateSchedule []struct {
-			// ContextMoqParam is the contextMoqParam argument value.
-			ContextMoqParam context.Context
-			// UpdateScheduleRequest is the updateScheduleRequest argument value.
-			UpdateScheduleRequest *gritzv1.UpdateScheduleRequest
-		}
 		// UpdateTask holds details about calls to the UpdateTask method.
 		UpdateTask []struct {
 			// ContextMoqParam is the contextMoqParam argument value.
@@ -819,14 +728,12 @@ type ClientMock struct {
 	lockCreateKey                      sync.RWMutex
 	lockCreateLink                     sync.RWMutex
 	lockCreateOrg                      sync.RWMutex
-	lockCreateSchedule                 sync.RWMutex
 	lockCreateTask                     sync.RWMutex
 	lockCreateTaskToken                sync.RWMutex
 	lockDeleteAgent                    sync.RWMutex
 	lockDeleteEvent                    sync.RWMutex
 	lockDeleteKey                      sync.RWMutex
 	lockDeleteOrg                      sync.RWMutex
-	lockDeleteSchedule                 sync.RWMutex
 	lockGenerateAtlassianWebhookSecret sync.RWMutex
 	lockGetAgent                       sync.RWMutex
 	lockGetCaller                      sync.RWMutex
@@ -836,7 +743,6 @@ type ClientMock struct {
 	lockGetOrgSettings                 sync.RWMutex
 	lockGetProfile                     sync.RWMutex
 	lockGetRunSpecInputs               sync.RWMutex
-	lockGetSchedule                    sync.RWMutex
 	lockGetTask                        sync.RWMutex
 	lockLinkGitHubInstallation         sync.RWMutex
 	lockListAgents                     sync.RWMutex
@@ -848,7 +754,6 @@ type ClientMock struct {
 	lockListOrgMembers                 sync.RWMutex
 	lockListOrgs                       sync.RWMutex
 	lockListRunnerEvents               sync.RWMutex
-	lockListSchedules                  sync.RWMutex
 	lockListTasks                      sync.RWMutex
 	lockListWorkspaces                 sync.RWMutex
 	lockOpenShell                      sync.RWMutex
@@ -857,16 +762,13 @@ type ClientMock struct {
 	lockRemoveOrgMember                sync.RWMutex
 	lockResetSandbox                   sync.RWMutex
 	lockRestartTask                    sync.RWMutex
-	lockRunSchedule                    sync.RWMutex
 	lockSetCustomEventTypes            sync.RWMutex
-	lockSetScheduleEnabled             sync.RWMutex
 	lockSubmitRunnerEvents             sync.RWMutex
 	lockTestEvent                      sync.RWMutex
 	lockUnarchiveTask                  sync.RWMutex
 	lockUnlinkAtlassianAccount         sync.RWMutex
 	lockUnlinkGitHubAccount            sync.RWMutex
 	lockUpdateAgent                    sync.RWMutex
-	lockUpdateSchedule                 sync.RWMutex
 	lockUpdateTask                     sync.RWMutex
 	lockUploadLogs                     sync.RWMutex
 }
@@ -1231,42 +1133,6 @@ func (mock *ClientMock) CreateOrgCalls() []struct {
 	return calls
 }
 
-// CreateSchedule calls CreateScheduleFunc.
-func (mock *ClientMock) CreateSchedule(contextMoqParam context.Context, createScheduleRequest *gritzv1.CreateScheduleRequest) (*gritzv1.CreateScheduleResponse, error) {
-	if mock.CreateScheduleFunc == nil {
-		panic("ClientMock.CreateScheduleFunc: method is nil but Client.CreateSchedule was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam       context.Context
-		CreateScheduleRequest *gritzv1.CreateScheduleRequest
-	}{
-		ContextMoqParam:       contextMoqParam,
-		CreateScheduleRequest: createScheduleRequest,
-	}
-	mock.lockCreateSchedule.Lock()
-	mock.calls.CreateSchedule = append(mock.calls.CreateSchedule, callInfo)
-	mock.lockCreateSchedule.Unlock()
-	return mock.CreateScheduleFunc(contextMoqParam, createScheduleRequest)
-}
-
-// CreateScheduleCalls gets all the calls that were made to CreateSchedule.
-// Check the length with:
-//
-//	len(mockedClient.CreateScheduleCalls())
-func (mock *ClientMock) CreateScheduleCalls() []struct {
-	ContextMoqParam       context.Context
-	CreateScheduleRequest *gritzv1.CreateScheduleRequest
-} {
-	var calls []struct {
-		ContextMoqParam       context.Context
-		CreateScheduleRequest *gritzv1.CreateScheduleRequest
-	}
-	mock.lockCreateSchedule.RLock()
-	calls = mock.calls.CreateSchedule
-	mock.lockCreateSchedule.RUnlock()
-	return calls
-}
-
 // CreateTask calls CreateTaskFunc.
 func (mock *ClientMock) CreateTask(contextMoqParam context.Context, createTaskRequest *gritzv1.CreateTaskRequest) (*gritzv1.CreateTaskResponse, error) {
 	if mock.CreateTaskFunc == nil {
@@ -1480,42 +1346,6 @@ func (mock *ClientMock) DeleteOrgCalls() []struct {
 	mock.lockDeleteOrg.RLock()
 	calls = mock.calls.DeleteOrg
 	mock.lockDeleteOrg.RUnlock()
-	return calls
-}
-
-// DeleteSchedule calls DeleteScheduleFunc.
-func (mock *ClientMock) DeleteSchedule(contextMoqParam context.Context, deleteScheduleRequest *gritzv1.DeleteScheduleRequest) (*gritzv1.DeleteScheduleResponse, error) {
-	if mock.DeleteScheduleFunc == nil {
-		panic("ClientMock.DeleteScheduleFunc: method is nil but Client.DeleteSchedule was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam       context.Context
-		DeleteScheduleRequest *gritzv1.DeleteScheduleRequest
-	}{
-		ContextMoqParam:       contextMoqParam,
-		DeleteScheduleRequest: deleteScheduleRequest,
-	}
-	mock.lockDeleteSchedule.Lock()
-	mock.calls.DeleteSchedule = append(mock.calls.DeleteSchedule, callInfo)
-	mock.lockDeleteSchedule.Unlock()
-	return mock.DeleteScheduleFunc(contextMoqParam, deleteScheduleRequest)
-}
-
-// DeleteScheduleCalls gets all the calls that were made to DeleteSchedule.
-// Check the length with:
-//
-//	len(mockedClient.DeleteScheduleCalls())
-func (mock *ClientMock) DeleteScheduleCalls() []struct {
-	ContextMoqParam       context.Context
-	DeleteScheduleRequest *gritzv1.DeleteScheduleRequest
-} {
-	var calls []struct {
-		ContextMoqParam       context.Context
-		DeleteScheduleRequest *gritzv1.DeleteScheduleRequest
-	}
-	mock.lockDeleteSchedule.RLock()
-	calls = mock.calls.DeleteSchedule
-	mock.lockDeleteSchedule.RUnlock()
 	return calls
 }
 
@@ -1840,42 +1670,6 @@ func (mock *ClientMock) GetRunSpecInputsCalls() []struct {
 	mock.lockGetRunSpecInputs.RLock()
 	calls = mock.calls.GetRunSpecInputs
 	mock.lockGetRunSpecInputs.RUnlock()
-	return calls
-}
-
-// GetSchedule calls GetScheduleFunc.
-func (mock *ClientMock) GetSchedule(contextMoqParam context.Context, getScheduleRequest *gritzv1.GetScheduleRequest) (*gritzv1.GetScheduleResponse, error) {
-	if mock.GetScheduleFunc == nil {
-		panic("ClientMock.GetScheduleFunc: method is nil but Client.GetSchedule was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam    context.Context
-		GetScheduleRequest *gritzv1.GetScheduleRequest
-	}{
-		ContextMoqParam:    contextMoqParam,
-		GetScheduleRequest: getScheduleRequest,
-	}
-	mock.lockGetSchedule.Lock()
-	mock.calls.GetSchedule = append(mock.calls.GetSchedule, callInfo)
-	mock.lockGetSchedule.Unlock()
-	return mock.GetScheduleFunc(contextMoqParam, getScheduleRequest)
-}
-
-// GetScheduleCalls gets all the calls that were made to GetSchedule.
-// Check the length with:
-//
-//	len(mockedClient.GetScheduleCalls())
-func (mock *ClientMock) GetScheduleCalls() []struct {
-	ContextMoqParam    context.Context
-	GetScheduleRequest *gritzv1.GetScheduleRequest
-} {
-	var calls []struct {
-		ContextMoqParam    context.Context
-		GetScheduleRequest *gritzv1.GetScheduleRequest
-	}
-	mock.lockGetSchedule.RLock()
-	calls = mock.calls.GetSchedule
-	mock.lockGetSchedule.RUnlock()
 	return calls
 }
 
@@ -2275,42 +2069,6 @@ func (mock *ClientMock) ListRunnerEventsCalls() []struct {
 	return calls
 }
 
-// ListSchedules calls ListSchedulesFunc.
-func (mock *ClientMock) ListSchedules(contextMoqParam context.Context, listSchedulesRequest *gritzv1.ListSchedulesRequest) (*gritzv1.ListSchedulesResponse, error) {
-	if mock.ListSchedulesFunc == nil {
-		panic("ClientMock.ListSchedulesFunc: method is nil but Client.ListSchedules was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam      context.Context
-		ListSchedulesRequest *gritzv1.ListSchedulesRequest
-	}{
-		ContextMoqParam:      contextMoqParam,
-		ListSchedulesRequest: listSchedulesRequest,
-	}
-	mock.lockListSchedules.Lock()
-	mock.calls.ListSchedules = append(mock.calls.ListSchedules, callInfo)
-	mock.lockListSchedules.Unlock()
-	return mock.ListSchedulesFunc(contextMoqParam, listSchedulesRequest)
-}
-
-// ListSchedulesCalls gets all the calls that were made to ListSchedules.
-// Check the length with:
-//
-//	len(mockedClient.ListSchedulesCalls())
-func (mock *ClientMock) ListSchedulesCalls() []struct {
-	ContextMoqParam      context.Context
-	ListSchedulesRequest *gritzv1.ListSchedulesRequest
-} {
-	var calls []struct {
-		ContextMoqParam      context.Context
-		ListSchedulesRequest *gritzv1.ListSchedulesRequest
-	}
-	mock.lockListSchedules.RLock()
-	calls = mock.calls.ListSchedules
-	mock.lockListSchedules.RUnlock()
-	return calls
-}
-
 // ListTasks calls ListTasksFunc.
 func (mock *ClientMock) ListTasks(contextMoqParam context.Context, listTasksRequest *gritzv1.ListTasksRequest) (*gritzv1.ListTasksResponse, error) {
 	if mock.ListTasksFunc == nil {
@@ -2599,42 +2357,6 @@ func (mock *ClientMock) RestartTaskCalls() []struct {
 	return calls
 }
 
-// RunSchedule calls RunScheduleFunc.
-func (mock *ClientMock) RunSchedule(contextMoqParam context.Context, runScheduleRequest *gritzv1.RunScheduleRequest) (*gritzv1.RunScheduleResponse, error) {
-	if mock.RunScheduleFunc == nil {
-		panic("ClientMock.RunScheduleFunc: method is nil but Client.RunSchedule was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam    context.Context
-		RunScheduleRequest *gritzv1.RunScheduleRequest
-	}{
-		ContextMoqParam:    contextMoqParam,
-		RunScheduleRequest: runScheduleRequest,
-	}
-	mock.lockRunSchedule.Lock()
-	mock.calls.RunSchedule = append(mock.calls.RunSchedule, callInfo)
-	mock.lockRunSchedule.Unlock()
-	return mock.RunScheduleFunc(contextMoqParam, runScheduleRequest)
-}
-
-// RunScheduleCalls gets all the calls that were made to RunSchedule.
-// Check the length with:
-//
-//	len(mockedClient.RunScheduleCalls())
-func (mock *ClientMock) RunScheduleCalls() []struct {
-	ContextMoqParam    context.Context
-	RunScheduleRequest *gritzv1.RunScheduleRequest
-} {
-	var calls []struct {
-		ContextMoqParam    context.Context
-		RunScheduleRequest *gritzv1.RunScheduleRequest
-	}
-	mock.lockRunSchedule.RLock()
-	calls = mock.calls.RunSchedule
-	mock.lockRunSchedule.RUnlock()
-	return calls
-}
-
 // SetCustomEventTypes calls SetCustomEventTypesFunc.
 func (mock *ClientMock) SetCustomEventTypes(contextMoqParam context.Context, setCustomEventTypesRequest *gritzv1.SetCustomEventTypesRequest) (*gritzv1.SetCustomEventTypesResponse, error) {
 	if mock.SetCustomEventTypesFunc == nil {
@@ -2668,42 +2390,6 @@ func (mock *ClientMock) SetCustomEventTypesCalls() []struct {
 	mock.lockSetCustomEventTypes.RLock()
 	calls = mock.calls.SetCustomEventTypes
 	mock.lockSetCustomEventTypes.RUnlock()
-	return calls
-}
-
-// SetScheduleEnabled calls SetScheduleEnabledFunc.
-func (mock *ClientMock) SetScheduleEnabled(contextMoqParam context.Context, setScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest) (*gritzv1.SetScheduleEnabledResponse, error) {
-	if mock.SetScheduleEnabledFunc == nil {
-		panic("ClientMock.SetScheduleEnabledFunc: method is nil but Client.SetScheduleEnabled was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam           context.Context
-		SetScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest
-	}{
-		ContextMoqParam:           contextMoqParam,
-		SetScheduleEnabledRequest: setScheduleEnabledRequest,
-	}
-	mock.lockSetScheduleEnabled.Lock()
-	mock.calls.SetScheduleEnabled = append(mock.calls.SetScheduleEnabled, callInfo)
-	mock.lockSetScheduleEnabled.Unlock()
-	return mock.SetScheduleEnabledFunc(contextMoqParam, setScheduleEnabledRequest)
-}
-
-// SetScheduleEnabledCalls gets all the calls that were made to SetScheduleEnabled.
-// Check the length with:
-//
-//	len(mockedClient.SetScheduleEnabledCalls())
-func (mock *ClientMock) SetScheduleEnabledCalls() []struct {
-	ContextMoqParam           context.Context
-	SetScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest
-} {
-	var calls []struct {
-		ContextMoqParam           context.Context
-		SetScheduleEnabledRequest *gritzv1.SetScheduleEnabledRequest
-	}
-	mock.lockSetScheduleEnabled.RLock()
-	calls = mock.calls.SetScheduleEnabled
-	mock.lockSetScheduleEnabled.RUnlock()
 	return calls
 }
 
@@ -2920,42 +2606,6 @@ func (mock *ClientMock) UpdateAgentCalls() []struct {
 	mock.lockUpdateAgent.RLock()
 	calls = mock.calls.UpdateAgent
 	mock.lockUpdateAgent.RUnlock()
-	return calls
-}
-
-// UpdateSchedule calls UpdateScheduleFunc.
-func (mock *ClientMock) UpdateSchedule(contextMoqParam context.Context, updateScheduleRequest *gritzv1.UpdateScheduleRequest) (*gritzv1.UpdateScheduleResponse, error) {
-	if mock.UpdateScheduleFunc == nil {
-		panic("ClientMock.UpdateScheduleFunc: method is nil but Client.UpdateSchedule was just called")
-	}
-	callInfo := struct {
-		ContextMoqParam       context.Context
-		UpdateScheduleRequest *gritzv1.UpdateScheduleRequest
-	}{
-		ContextMoqParam:       contextMoqParam,
-		UpdateScheduleRequest: updateScheduleRequest,
-	}
-	mock.lockUpdateSchedule.Lock()
-	mock.calls.UpdateSchedule = append(mock.calls.UpdateSchedule, callInfo)
-	mock.lockUpdateSchedule.Unlock()
-	return mock.UpdateScheduleFunc(contextMoqParam, updateScheduleRequest)
-}
-
-// UpdateScheduleCalls gets all the calls that were made to UpdateSchedule.
-// Check the length with:
-//
-//	len(mockedClient.UpdateScheduleCalls())
-func (mock *ClientMock) UpdateScheduleCalls() []struct {
-	ContextMoqParam       context.Context
-	UpdateScheduleRequest *gritzv1.UpdateScheduleRequest
-} {
-	var calls []struct {
-		ContextMoqParam       context.Context
-		UpdateScheduleRequest *gritzv1.UpdateScheduleRequest
-	}
-	mock.lockUpdateSchedule.RLock()
-	calls = mock.calls.UpdateSchedule
-	mock.lockUpdateSchedule.RUnlock()
 	return calls
 }
 
