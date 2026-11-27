@@ -39,6 +39,7 @@ jobs:
           --health-interval 1s
           --health-timeout 5s
           --health-retries 5
+          --health-start-period 30s
     steps:
       # Service containers can't take a command, so turn off durability once
       # Postgres is up: test data is disposable, and its flushes otherwise slow
