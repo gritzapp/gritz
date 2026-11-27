@@ -1,5 +1,73 @@
 # Changelog
 
+## [5.0.0](https://github.com/gritzapp/gritz/compare/v4.11.0...v5.0.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* the schedule RPCs and MCP tools are removed; edit schedules with UpdateAgent (put_agent).
+* schedules lose their instructions; a schedule whose instructions differed from its agent's prompt needs its agent's prompt updated.
+* conditions on the events a link kind delivers ([#2391](https://github.com/gritzapp/gritz/issues/2391))
+* schedules name an agent ([#2372](https://github.com/gritzapp/gritz/issues/2372))
+* route events through agents ([#2371](https://github.com/gritzapp/gritz/issues/2371))
+
+### Features
+
+* agent features ([#2425](https://github.com/gritzapp/gritz/issues/2425)) ([04367ae](https://github.com/gritzapp/gritz/commit/04367aeec43f34aef39a636bf7d74c858afc2b22))
+* **agent:** link kinds in the first-run brief ([#2375](https://github.com/gritzapp/gritz/issues/2375)) ([f0d12d0](https://github.com/gritzapp/gritz/commit/f0d12d0fcfd043a38d7b15684be3622bf03917af))
+* conditions on the events a link kind delivers ([#2391](https://github.com/gritzapp/gritz/issues/2391)) ([6be1c8c](https://github.com/gritzapp/gritz/commit/6be1c8cbb51e3f33080883ac285a51a22f92283c))
+* **eventrouter:** link types in the schema registry ([#2366](https://github.com/gritzapp/gritz/issues/2366)) ([2aeb813](https://github.com/gritzapp/gritz/commit/2aeb813459bc6b1f1bfa1cd0d749826ffe761dc9))
+* features in the CLI and server MCP tools ([#2427](https://github.com/gritzapp/gritz/issues/2427)) ([ec684db](https://github.com/gritzapp/gritz/commit/ec684db0b07842875e1989990e961fddeb0a0125))
+* filter the task list by agent ([#2390](https://github.com/gritzapp/gritz/issues/2390)) ([5c76c04](https://github.com/gritzapp/gritz/commit/5c76c047ab5ba7ba48c557b3d3bcd5d90dae4e40))
+* **mcp:** agent tools ([#2380](https://github.com/gritzapp/gritz/issues/2380)) ([7683486](https://github.com/gritzapp/gritz/commit/7683486008216fa5fad150c67d4eb9d2073ecda4))
+* register workspace feature declarations with the server ([#2423](https://github.com/gritzapp/gritz/issues/2423)) ([f0531e3](https://github.com/gritzapp/gritz/commit/f0531e36e0af479103b1a91eb0f7ff8108042fb8))
+* remove the standalone schedule API ([#2421](https://github.com/gritzapp/gritz/issues/2421)) ([09843cf](https://github.com/gritzapp/gritz/commit/09843cf0d99523d265c2b6f1234077cd278ba8d9))
+* route events through agents ([#2371](https://github.com/gritzapp/gritz/issues/2371)) ([bbc5acd](https://github.com/gritzapp/gritz/commit/bbc5acd6a807fb6b62b7b740b951baf08f0baed4))
+* **runner:** declare workspace features in workspaces.yaml ([#2416](https://github.com/gritzapp/gritz/issues/2416)) ([59d8e40](https://github.com/gritzapp/gritz/commit/59d8e408a13ef3ceeff9b163112943520d0fbe82))
+* **runner:** fold a task's workspace features into its workspace ([#2419](https://github.com/gritzapp/gritz/issues/2419)) ([142f886](https://github.com/gritzapp/gritz/commit/142f8861e779e5e0783e95b0eaa1f8947a4d508d))
+* schedules in the agent ([#2406](https://github.com/gritzapp/gritz/issues/2406)) ([dcd281b](https://github.com/gritzapp/gritz/commit/dcd281be4bb648b516b253f682982b756d65a4a0))
+* schedules name an agent ([#2372](https://github.com/gritzapp/gritz/issues/2372)) ([be87d56](https://github.com/gritzapp/gritz/commit/be87d56891cb62ce8c59746710d95c211abaf99a))
+* **server:** agent validation and RPCs ([#2369](https://github.com/gritzapp/gritz/issues/2369)) ([7cdbd37](https://github.com/gritzapp/gritz/commit/7cdbd37671e36e1274336ca7eded95ea3ca91eb9))
+* start scheduled tasks with their agent's prompt ([#2404](https://github.com/gritzapp/gritz/issues/2404)) ([3e90095](https://github.com/gritzapp/gritz/commit/3e90095a3b0218d658c8ed0a07ead33d231ec4f5))
+* **store:** agents table and store ([#2368](https://github.com/gritzapp/gritz/issues/2368)) ([f4fc474](https://github.com/gritzapp/gritz/commit/f4fc47419e2a33d87f5e547f2aff7f0293b05960))
+* task features ([#2426](https://github.com/gritzapp/gritz/issues/2426)) ([5aa5aa9](https://github.com/gritzapp/gritz/commit/5aa5aa94d30c83f2809e1fd918f9b4ce17911e4a))
+* **webui:** agents page, agent pickers and per-agent test-event report ([#2382](https://github.com/gritzapp/gritz/issues/2382)) ([d49bbbc](https://github.com/gritzapp/gritz/commit/d49bbbc4fb4516f453a38823b0b32584a38c4759))
+* **webui:** describe a schedule's cron expression in words ([#2424](https://github.com/gritzapp/gritz/issues/2424)) ([2d4589c](https://github.com/gritzapp/gritz/commit/2d4589c5b1261101877fdf9ddf1175113afdcbc1))
+* **webui:** edit an agent's schedules in the agent editor ([#2418](https://github.com/gritzapp/gritz/issues/2418)) ([2b5d4dc](https://github.com/gritzapp/gritz/commit/2b5d4dc1135dfdedc6bf426ac1721c97ad51723a))
+* **webui:** merge the new task page into the task page ([69221c5](https://github.com/gritzapp/gritz/commit/69221c552f0c48ddbbb803322ca123a869c060b0))
+* **webui:** redesign the agent page ([#2392](https://github.com/gritzapp/gritz/issues/2392)) ([d93e142](https://github.com/gritzapp/gritz/commit/d93e142279f9a78fbf5eb2db00945eae55feea14))
+* **webui:** redesign the custom event type form ([aebf5c4](https://github.com/gritzapp/gritz/commit/aebf5c484a4f865fccadd844278021d603a24c9a))
+* **webui:** rename the link kinds heading to Links ([dab5892](https://github.com/gritzapp/gritz/commit/dab5892c9e1838a049e08884fec93add794bcd40))
+* **webui:** show link kinds above triggers on the agent page ([b89a32b](https://github.com/gritzapp/gritz/commit/b89a32bfa218f0e9383063a3505bc655492af963))
+* **webui:** show the agent in the task list ([4dd40df](https://github.com/gritzapp/gritz/commit/4dd40df0198626a898e1d8c1ddb82b7bed73ec0b))
+* **webui:** workspace features in the agent editor and workspaces page ([#2430](https://github.com/gritzapp/gritz/issues/2430)) ([85f2d82](https://github.com/gritzapp/gritz/commit/85f2d82615c58750b3a5cfb62eab4aed2ff1e68b))
+
+
+### Bug Fixes
+
+* reject cron expressions that never occur ([#2429](https://github.com/gritzapp/gritz/issues/2429)) ([c576120](https://github.com/gritzapp/gritz/commit/c5761208ce9ac993901b3d06e86a47cb38c0dd0b)), closes [#2428](https://github.com/gritzapp/gritz/issues/2428)
+* **webui:** keep the editor save bar pinned ([733df07](https://github.com/gritzapp/gritz/commit/733df07910c37d1590c5157544e13cad0de1b25e))
+
+
+### Miscellaneous
+
+* agent MCP tools ([#2381](https://github.com/gritzapp/gritz/issues/2381)) ([be54d69](https://github.com/gritzapp/gritz/commit/be54d695f1b39145b426f5cd35fcc960d6bcd75a))
+* agent schedules and deleting an agent with schedules ([#2417](https://github.com/gritzapp/gritz/issues/2417)) ([f1d07da](https://github.com/gritzapp/gritz/commit/f1d07da7d881c24398ff2b9964274b8913300e55))
+* agents are told their link kinds ([#2379](https://github.com/gritzapp/gritz/issues/2379)) ([f85acf0](https://github.com/gritzapp/gritz/commit/f85acf013096d26bfe983108fd223274ac68c4bd))
+* agents replace routing rules and namespaces ([#2387](https://github.com/gritzapp/gritz/issues/2387)) ([a92ba01](https://github.com/gritzapp/gritz/commit/a92ba01251d2b3e6de35b8c256e0f60821390add))
+* conditions on the events a link kind delivers ([#2393](https://github.com/gritzapp/gritz/issues/2393)) ([3bb8303](https://github.com/gritzapp/gritz/commit/3bb83035385b478546c57bca7a355a1bc7167262))
+* **driverclient:** raise the test idle timeout to 1s ([#2376](https://github.com/gritzapp/gritz/issues/2376)) ([38f7414](https://github.com/gritzapp/gritz/commit/38f7414ff2a1822cc373bce356c04e73b9317f85))
+* drop the removed schedule MCP tools and run_schedule ([#2422](https://github.com/gritzapp/gritz/issues/2422)) ([e0bf44d](https://github.com/gritzapp/gritz/commit/e0bf44dde0db782384e63e770fdf4e7f5ae2c596))
+* edit schedules in the agent form and run an agent from the Agents list ([#2420](https://github.com/gritzapp/gritz/issues/2420)) ([37ff3b3](https://github.com/gritzapp/gritz/commit/37ff3b39345dda0b45d541f7c99acd3fd5751967))
+* give the test Postgres service a health start period ([#2377](https://github.com/gritzapp/gritz/issues/2377)) ([cd8dc48](https://github.com/gritzapp/gritz/commit/cd8dc48188747a2520cd7a6596e906e5fb7d5f6d))
+* run all tests uncached on master ([#2378](https://github.com/gritzapp/gritz/issues/2378)) ([a2a71fd](https://github.com/gritzapp/gritz/commit/a2a71fdb67eaae14ee1e5e0981cbedb0103e8c09))
+* schedules name an agent ([#2374](https://github.com/gritzapp/gritz/issues/2374)) ([bf7cea3](https://github.com/gritzapp/gritz/commit/bf7cea3522cd25565cafa38e4efc32c841b2dcfe))
+* start scheduled tasks with their agent's prompt ([#2405](https://github.com/gritzapp/gritz/issues/2405)) ([c69f5b4](https://github.com/gritzapp/gritz/commit/c69f5b479a1fdc75e92efcd1cb592066c6813b6a))
+* the new task page creates the task on the first instruction ([#2397](https://github.com/gritzapp/gritz/issues/2397)) ([ee784c8](https://github.com/gritzapp/gritz/commit/ee784c8c5301f8768d75982e1651a233fb3f3bf6))
+* the task list's agent column ([#2398](https://github.com/gritzapp/gritz/issues/2398)) ([64e04c5](https://github.com/gritzapp/gritz/commit/64e04c5c230e8f376ab3d3e69b181b2af0cb6a2d))
+* the task list's agent filter ([#2394](https://github.com/gritzapp/gritz/issues/2394)) ([21231d7](https://github.com/gritzapp/gritz/commit/21231d7f149184eca25b2b512e3b8a782077132e))
+* workspace features ([#2431](https://github.com/gritzapp/gritz/issues/2431)) ([feb626c](https://github.com/gritzapp/gritz/commit/feb626c4f7b6f8fa62dadad99b2f60d4e76c7b07))
+
 ## [4.11.0](https://github.com/gritzapp/gritz/compare/v4.10.0...v4.11.0) (2026-11-21)
 
 
