@@ -8,8 +8,18 @@ import { browserTimezone, DEFAULT_CRON } from '@/lib/schedule'
 
 // The condition operators the backend understands. Comparisons are exact and
 // case-sensitive; "glob" matches a path-style pattern against the whole value —
-// see RuleCondition in the proto.
-export const CONDITION_OPS = ['equals', 'prefix', 'contains', 'glob'] as const
+// see RuleCondition in the proto. Each "not_" op holds exactly when its
+// positive op does not, including on an event that lacks the attribute.
+export const CONDITION_OPS = [
+  'equals',
+  'prefix',
+  'contains',
+  'glob',
+  'not_equals',
+  'not_prefix',
+  'not_contains',
+  'not_glob',
+] as const
 export type ConditionOp = (typeof CONDITION_OPS)[number]
 
 export const OP_LABELS: Record<ConditionOp, string> = {
@@ -17,6 +27,10 @@ export const OP_LABELS: Record<ConditionOp, string> = {
   prefix: 'starts with',
   contains: 'contains',
   glob: 'matches glob',
+  not_equals: 'does not equal',
+  not_prefix: 'does not start with',
+  not_contains: 'does not contain',
+  not_glob: 'does not match glob',
 }
 
 export interface ConditionDraft {

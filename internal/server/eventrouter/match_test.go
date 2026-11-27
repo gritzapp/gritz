@@ -471,6 +471,138 @@ func TestMatch(t *testing.T) {
 			want:  false,
 		},
 
+		// --- negated ops hold exactly when the positive op does not ---
+		{
+			name: "not_equals holds when no value equals",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "not_equals", Value: "bot"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"alice", "bob"}}},
+			want:  true,
+		},
+		{
+			name: "not_equals fails when any value equals",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "mention", Op: "not_equals", Value: "bob"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"alice", "bob"}}},
+			want:  false,
+		},
+		{
+			name: "not_prefix holds when no value has the prefix",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_prefix", Value: "team-"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"bug", "urgent"}}},
+			want:  true,
+		},
+		{
+			name: "not_prefix fails when a value has the prefix",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_prefix", Value: "team-"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"bug", "team-a"}}},
+			want:  false,
+		},
+		{
+			name: "not_contains holds when no value contains",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_contains", Value: "skip"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"bug"}}},
+			want:  true,
+		},
+		{
+			name: "not_contains fails when a value contains",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_contains", Value: "skip"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"label": {"ci-skip"}}},
+			want:  false,
+		},
+		{
+			name: "not_glob holds when no value matches",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "not_glob", Value: "docs/**/*.md"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/diagram.svg"}}},
+			want:  true,
+		},
+		{
+			name: "not_glob fails when any of many values matches",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "path", Op: "not_glob", Value: "docs/**/*.md"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"path": {"go.mod", "docs/src/index.md"}}},
+			want:  false,
+		},
+		{
+			name: "not_equals holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_equals", Value: "x"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "not_prefix holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_prefix", Value: "x"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "not_contains holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_contains", Value: "x"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "not_glob holds on an absent attr",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "label", Op: "not_glob", Value: "x"},
+				},
+			},
+			event: InputEvent{Attrs: Attrs{"mention": {"x"}}},
+			want:  true,
+		},
+		{
+			name: "not_prefix fails on a derived attr that has the prefix",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "not_prefix", Value: "gritz:"},
+				},
+			},
+			event: InputEvent{Data: "gritz: fix it"},
+			want:  false,
+		},
+
 		// --- unknown op never matches ---
 		{
 			name: "unknown op never matches",
@@ -480,6 +612,16 @@ func TestMatch(t *testing.T) {
 				},
 			},
 			event: InputEvent{Data: "gritz: do it"},
+			want:  false,
+		},
+		{
+			name: "negation of an unknown op never matches",
+			trigger: model.AgentTrigger{
+				Conditions: []model.Condition{
+					{Attr: "body", Op: "not_regex", Value: "gritz:"},
+				},
+			},
+			event: InputEvent{Data: "hello"},
 			want:  false,
 		},
 	}

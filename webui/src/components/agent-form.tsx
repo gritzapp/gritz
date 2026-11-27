@@ -768,7 +768,7 @@ function ConditionsEditor({
                 </SelectContent>
               </Select>
               <Select value={condition.op} onValueChange={(op) => setCondition(i, { op })}>
-                <SelectTrigger className="w-36" aria-label="Operator">
+                <SelectTrigger className="w-44" aria-label="Operator">
                   <SelectValue placeholder="Operator" />
                 </SelectTrigger>
                 <SelectContent>

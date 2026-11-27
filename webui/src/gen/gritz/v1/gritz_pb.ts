@@ -2775,7 +2775,9 @@ export const GenerateAtlassianWebhookSecretResponseSchema: GenMessage<GenerateAt
  * case-sensitive. A "glob" value is a pattern matched against the whole
  * attribute: "*" and "?" match within a path segment (not "/"), "**" as a whole
  * segment matches any number of segments, "[a-z]" matches a character class and
- * "{a,b}" either alternative.
+ * "{a,b}" either alternative. A negated op ("not_equals", "not_prefix",
+ * "not_contains", "not_glob") holds exactly when its positive op does not, so it
+ * holds on an event that lacks the attribute.
  *
  * @generated from message gritz.v1.RuleCondition
  */
@@ -2786,7 +2788,7 @@ export type RuleCondition = Message<"gritz.v1.RuleCondition"> & {
   attr: string;
 
   /**
-   * One of "equals", "prefix", "contains" or "glob".
+   * One of "equals", "prefix", "contains", "glob", "not_equals", "not_prefix", "not_contains" or "not_glob".
    *
    * @generated from field: string op = 2;
    */

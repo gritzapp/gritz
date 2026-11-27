@@ -234,6 +234,8 @@ export function Conditions({
 function opLabel(op: string): string {
   if (op === 'equals') return 'is'
   if (op === 'glob') return 'matches'
+  if (op === 'not_equals') return 'is not'
+  if (op === 'not_glob') return 'does not match'
   return OP_LABELS[op as ConditionOp] ?? op
 }
 
